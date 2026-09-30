@@ -14,11 +14,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import type { ResolvedControl } from "./chain";
-import type {
-  ControlLiteral,
-  RuntimeControlDeclaration,
-  RuntimeExtensionDefinition,
-} from "./definition";
+import type { ControlLiteral, RuntimeExtensionDefinition } from "./definition";
 
 // =============================================================================
 // DEFINITION MEMBERS: plain data, whose names are checked when applied
@@ -241,7 +237,7 @@ const DELETE_OPERATIONS: ReadonlySet<string> = new Set([
 /** One control of a definition with the placement its capability gives it. */
 export interface PlacedControlDeclaration {
   readonly name: string;
-  readonly declaration: RuntimeControlDeclaration;
+  readonly declaration: ControlDeclaration;
   /** The operations that accept it. */
   readonly operations: ReadonlySet<string>;
   /** The models that accept it; every model when absent. */
@@ -272,14 +268,9 @@ export function placeControls(
     );
   }
   if (rows !== undefined) {
-    const [modes] = Object.values(rows.models);
     placed.push({
       name: rows.control,
-      declaration: Object.freeze({
-        oneOf: Object.freeze(
-          modes === undefined ? [rows.default] : Object.keys(modes)
-        ),
-      }),
+      declaration: Object.freeze({ oneOf: Object.freeze(rowsModes(rows)) }),
       operations: CANDIDATE_OPERATIONS,
       fallback: rows.default,
     });
@@ -287,9 +278,19 @@ export function placeControls(
   return placed;
 }
 
-function placementOf(on: RuntimeControlDeclaration["on"]): ReadonlySet<string> {
+function placementOf(on: ControlDeclaration["on"]): ReadonlySet<string> {
   if (on === undefined) return ROUTED_OPERATIONS;
-  return typeof on === "string" ? PLACEMENTS[on] : new Set(on);
+  return typeof on === "string" ? PLACEMENTS[on] : new Set<string>(on);
+}
+
+/**
+ * The `rows` control's values: the mode names, which every model entry
+ * declares alike (checked when the definition is applied), or the default
+ * alone when no model is named.
+ */
+export function rowsModes(rows: RowsContribution): readonly string[] {
+  const [modes] = Object.values(rows.models);
+  return modes === undefined ? [rows.default] : Object.keys(modes);
 }
 
 // =============================================================================

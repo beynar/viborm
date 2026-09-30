@@ -13,16 +13,19 @@ import {
 } from "@client/default-omit-extension";
 import type { Schema } from "@client/types";
 import { isFunction } from "@validation/value-guards";
-import { type PlacedControlDeclaration, placeControls } from "./controls";
+import {
+  type ControlDeclaration,
+  type DeletionContribution,
+  type PlacedControlDeclaration,
+  placeControls,
+  type RowsContribution,
+} from "./controls";
 import {
   type ControlLiteral,
   type ExtensionSchemaRegistry,
   extensionError,
   normalizeExtensionDefinition,
-  type RuntimeControlDeclaration,
-  type RuntimeDeletionDeclaration,
   type RuntimeExtensionDefinition,
-  type RuntimeRowsDeclaration,
 } from "./definition";
 import type {
   RuntimeClientMethodContribution,
@@ -82,7 +85,7 @@ interface OperationHandlerOwner {
 export interface ResolvedControl {
   readonly name: string;
   readonly extension: string;
-  readonly declaration: RuntimeControlDeclaration;
+  readonly declaration: ControlDeclaration;
   /** What an absent argument admits: the `rows` control's default mode. */
   readonly fallback?: ControlLiteral;
 }
@@ -100,7 +103,7 @@ export interface ResolvedControls {
 }
 
 /** One `rows` member of the chain, with the extension that declared it. */
-export interface ResolvedRows extends RuntimeRowsDeclaration {
+export interface ResolvedRows extends RowsContribution {
   readonly extension: string;
 }
 
@@ -385,11 +388,13 @@ function appendControls(
   });
 }
 
+const NO_ASSIGN: Readonly<Record<string, unknown>> = Object.freeze({});
+
 /** One entry per managed model on the chain. */
 function appendDeletion(
   previous: Readonly<Record<string, ResolvedDeletion>> | undefined,
   extension: string,
-  deletion: RuntimeDeletionDeclaration
+  deletion: DeletionContribution
 ): Readonly<Record<string, ResolvedDeletion>> {
   const entries: Record<string, ResolvedDeletion> = Object.create(null);
   Object.assign(entries, previous);
@@ -402,6 +407,8 @@ function appendDeletion(
     }
     entries[model] = Object.freeze({
       extension,
+      // A copied entry never holds an undefined `assign`: absent, it is empty.
+      assign: NO_ASSIGN,
       ...entry,
       ...(deletion.removeWhen === undefined
         ? {}

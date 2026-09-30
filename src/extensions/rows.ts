@@ -4,7 +4,7 @@ import type {
   RowDomain,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { ResolvedDeletion, ResolvedRows } from "./chain";
-import type { AdmittedControls } from "./controls";
+import { type AdmittedControls, rowsModes } from "./controls";
 
 type Predicates = ResolvedRows["models"][string][string];
 
@@ -68,8 +68,7 @@ export function bindRows(
   const declared = rows ?? [];
   let stride = 1;
   const members = declared.map((member): BoundRowsMember => {
-    const names = Object.keys(Object.values(member.models)[0] ?? {});
-    const modes = names.length === 0 ? [member.default] : names;
+    const modes = rowsModes(member);
     const bound = {
       control: member.control,
       names: modes,

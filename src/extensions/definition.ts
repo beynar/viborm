@@ -13,10 +13,12 @@ import {
   isRecord,
   isUint8Array,
 } from "@validation/value-guards";
-import type {
-  ControlsContribution,
-  DeletionContribution,
-  RowsContribution,
+import {
+  type ControlDeclaration,
+  type ControlsContribution,
+  type DeletionContribution,
+  type RowsContribution,
+  rowsModes,
 } from "./controls";
 import type {
   EmptyClientExtensionState,
@@ -53,58 +55,14 @@ export interface RuntimeExtensionDefinition {
   readonly observe?: RuntimeExtensionFunction;
   readonly client?: RuntimeClientMethodContribution;
   readonly model?: RuntimeModelMethodContribution;
-  readonly controls?: RuntimeControlsContribution;
-  readonly rows?: RuntimeRowsDeclaration;
-  readonly deletion?: RuntimeDeletionDeclaration;
+  readonly controls?: ControlsContribution;
+  readonly rows?: RowsContribution;
+  readonly deletion?: DeletionContribution;
 }
 
 export type ControlLiteral = string | number | boolean;
 
-/** A validator as core calls it: one synchronous `validate`. */
-export interface RuntimeControlSchema {
-  readonly "~standard": { readonly validate: (value: unknown) => unknown };
-}
-
-export type RuntimeControlPlacement =
-  | "reads"
-  | "writes"
-  | "all"
-  | readonly string[];
-
-/** One `controls` entry, copied in the shape it was declared in. */
-export type RuntimeControlDeclaration = (
-  | { readonly oneOf: readonly ControlLiteral[] }
-  | { readonly schema: RuntimeControlSchema }
-) & { readonly on?: RuntimeControlPlacement };
-
-export type RuntimeControlsContribution = Readonly<
-  Record<string, RuntimeControlDeclaration>
->;
-
 type ConstantFields = Readonly<Record<string, unknown>>;
-
-/** One model's modes in a `rows` member: a predicate per purpose. */
-export type RuntimeRowModes = Readonly<
-  Record<
-    string,
-    { readonly root?: ConstantFields; readonly related?: ConstantFields }
-  >
->;
-
-/** A `rows` member, copied: its control, default and per-model modes. */
-export interface RuntimeRowsDeclaration {
-  readonly control: string;
-  readonly default: string;
-  readonly models: Readonly<Record<string, RuntimeRowModes>>;
-}
-
-/** A `deletion` member, copied: what a delete of each named model writes. */
-export interface RuntimeDeletionDeclaration {
-  readonly removeWhen?: Readonly<Record<string, ControlLiteral>>;
-  readonly models: Readonly<
-    Record<string, { readonly at?: string; readonly assign: ConstantFields }>
-  >;
-}
 
 const DEFINITION_KEYS = new Set([
   "name",
@@ -155,19 +113,7 @@ function readOwn(
   key: string,
   extension?: string
 ): unknown {
-  try {
-    return value[key];
-  } catch (cause) {
-    throw new ClientInitializationError(
-      extension
-        ? `Extension "${extension}" member "${key}" could not be read.`
-        : `Client extension member "${key}" could not be read.`,
-      {
-        cause: extensionCause(cause),
-        meta: extension ? { extension } : undefined,
-      }
-    );
-  }
+  return readGuarded(() => value[key], `member "${key}"`, extension);
 }
 
 function requireFunction(
@@ -289,13 +235,16 @@ function refuse(extension: string, message: string): never {
 }
 
 /** One read of caller data behind the hostile-definition boundary. */
-function readGuarded<T>(read: () => T, label: string, extension: string): T {
+function readGuarded<T>(read: () => T, label: string, extension?: string): T {
   try {
     return read();
   } catch (cause) {
     throw new ClientInitializationError(
-      `Extension "${extension}" ${label} could not be read.`,
-      { cause: extensionCause(cause), meta: { extension } }
+      `${extension ? `Extension "${extension}"` : "Client extension"} ${label} could not be read.`,
+      {
+        cause: extensionCause(cause),
+        meta: extension ? { extension } : undefined,
+      }
     );
   }
 }
@@ -309,16 +258,65 @@ function emptyCopyOf(
 }
 
 /**
- * Copy caller data once: every getter runs once, a `Date` or `Uint8Array` is
- * copied, and nothing the caller keeps can change what core holds. Anything
- * but plain data (a function, a class instance, a cycle) is refused.
+ * A Standard Schema's `validate`, read once and bound to the member that
+ * carried it: a later change to the caller's schema cannot swap the validator.
+ */
+class ControlValidator implements StandardSchemaV1 {
+  readonly "~standard": StandardSchemaV1["~standard"];
+  constructor(validate: CallableFunction, standard: unknown) {
+    this["~standard"] = Object.freeze({
+      version: 1,
+      vendor: "viborm",
+      validate: (input: unknown) => Reflect.apply(validate, standard, [input]),
+    });
+    Object.freeze(this);
+  }
+}
+
+/** The validator of a value carrying `~standard`; none without that member. */
+function readValidator(
+  value: object,
+  label: string,
+  extension: string
+): ControlValidator | undefined {
+  const standard = readGuarded(
+    () => Reflect.get(value, "~standard"),
+    label,
+    extension
+  );
+  if (standard === undefined) return undefined;
+  const validate = readGuarded(
+    () => Reflect.get(new Object(standard), "validate"),
+    label,
+    extension
+  );
+  if (!isFunction(validate)) {
+    refuse(extension, `${label} must be a Standard Schema.`);
+  }
+  return new ControlValidator(validate, standard);
+}
+
+/**
+ * Copy one declaration member once; it is the only read of that member. Every
+ * getter runs once, a `Date` or `Uint8Array` is copied, and nothing the caller
+ * keeps can change what core holds. Which keys count is one rule for a member
+ * and for the data inside it: the enumerable own string keys whose value is
+ * not `undefined` (an undefined or non-enumerable member is absent; a symbol
+ * key is refused). With `validators`, a value carrying `~standard` is kept as
+ * its bound validator. Anything else that is not plain data (a function, a
+ * class instance, a cycle) is refused.
  */
 function copyData(
   value: unknown,
   label: string,
   extension: string,
+  validators = false,
   seen: Set<object> = new Set()
 ): unknown {
+  if (validators && (typeof value === "object" || isFunction(value))) {
+    const validator = value && readValidator(value, label, extension);
+    if (validator) return validator;
+  }
   if (typeof value === "function" || typeof value === "symbol") {
     refuse(extension, `${label} must be plain data.`);
   }
@@ -333,7 +331,10 @@ function copyData(
     refuse(extension, `${label} must be plain data.`);
   }
   seen.add(value);
-  for (const key of readStringKeys(value, label, extension)) {
+  for (const key of readOwnKeys(value, extension)) {
+    if (typeof key !== "string") {
+      refuse(extension, `${label} contains a symbol key.`);
+    }
     const descriptor = readGuarded(
       () => Object.getOwnPropertyDescriptor(value, key),
       label,
@@ -347,7 +348,7 @@ function copyData(
     );
     if (entry === undefined) continue;
     Object.defineProperty(copy, key, {
-      value: copyData(entry, `${label}.${key}`, extension, seen),
+      value: copyData(entry, `${label}.${key}`, extension, validators, seen),
       enumerable: true,
       writable: false,
       configurable: false,
@@ -357,66 +358,27 @@ function copyData(
   return Object.freeze(copy);
 }
 
-/** Whether caller data is a record; a revoked proxy is a refusal, not a raw error. */
-function isGuardedRecord(
+/** A copied value that must be a record, holding only the members `allowed` names. */
+function record(
   value: unknown,
   label: string,
-  extension: string
-): value is Record<string, unknown> {
-  return readGuarded(() => isRecord(value), label, extension);
-}
-
-/** A member of caller data that must be an object. */
-function requireRecord(
-  value: unknown,
-  label: string,
-  extension: string
-): Record<string, unknown> {
-  if (!isGuardedRecord(value, label, extension)) {
-    refuse(extension, `${label} must be an object.`);
+  extension: string,
+  allowed?: readonly string[]
+): ConstantFields {
+  if (!isPlainRecord(value)) refuse(extension, `${label} must be an object.`);
+  for (const key of Object.keys(value)) {
+    if (allowed && !allowed.includes(key)) {
+      refuse(extension, `${label} has unknown member "${key}".`);
+    }
   }
   return value;
 }
 
-/** Copied plain data that must be a record (a predicate, an assignment). */
-function copyRecord(
-  value: unknown,
-  label: string,
-  extension: string
-): ConstantFields {
-  return requireRecord(copyData(value, label, extension), label, extension);
-}
-
-/** The own keys of caller data, each a string. */
-function readStringKeys(
-  value: object,
-  label: string,
-  extension: string
-): string[] {
-  const keys: string[] = [];
-  for (const key of readOwnKeys(value, extension)) {
-    if (typeof key !== "string") {
-      refuse(extension, `${label} contains a symbol key.`);
-    }
-    keys.push(key);
+function requireName(value: unknown, label: string, extension: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    refuse(extension, `${label} must be a non-empty string.`);
   }
-  return keys;
-}
-
-/** The own keys of a member, refusing any outside `allowed`. */
-function readMemberKeys(
-  value: Record<string, unknown>,
-  allowed: readonly string[],
-  label: string,
-  extension: string
-): string[] {
-  const keys = readStringKeys(value, label, extension);
-  for (const key of keys) {
-    if (!allowed.includes(key)) {
-      refuse(extension, `${label} has unknown member "${key}".`);
-    }
-  }
-  return keys;
+  return value;
 }
 
 function readSchemaModel(
@@ -451,36 +413,6 @@ function requireScalarField(
   );
 }
 
-function snapshotPlacement(
-  value: unknown,
-  label: string,
-  extension: string
-): RuntimeControlPlacement {
-  if (value === "reads" || value === "writes" || value === "all") {
-    return value;
-  }
-  const listed = Array.isArray(value)
-    ? copyData(value, `${label}.on`, extension)
-    : undefined;
-  if (!Array.isArray(listed) || listed.length === 0) {
-    refuse(
-      extension,
-      `${label}.on must be "reads", "writes", "all" or a non-empty operation list.`
-    );
-  }
-  const operations: string[] = [];
-  for (const operation of listed) {
-    if (typeof operation !== "string" || !ROUTED_OPERATIONS.has(operation)) {
-      refuse(
-        extension,
-        `${label}.on names unknown operation "${String(operation)}".`
-      );
-    }
-    operations.push(operation);
-  }
-  return Object.freeze(operations);
-}
-
 function isControlLiteral(value: unknown): value is ControlLiteral {
   return (
     typeof value === "string" ||
@@ -489,93 +421,78 @@ function isControlLiteral(value: unknown): value is ControlLiteral {
   );
 }
 
-function snapshotControl(
-  value: unknown,
+/**
+ * One `controls` entry of the frozen copy `copyData` just made: a closed list
+ * or a validator, and a placement. The checks below are the proof the
+ * assertion states; it holds because the copy cannot change (ELEGANCE §5).
+ */
+function assertControl(
+  entry: unknown,
   label: string,
   extension: string
-): RuntimeControlDeclaration {
-  const control = requireRecord(value, label, extension);
-  const keys = readMemberKeys(
-    control,
-    ["oneOf", "schema", "on"],
-    label,
-    extension
-  );
-  const on = keys.includes("on")
-    ? snapshotPlacement(readOwn(control, "on", extension), label, extension)
-    : undefined;
-  if (keys.includes("oneOf") === keys.includes("schema")) {
+): asserts entry is ControlDeclaration {
+  const { oneOf, schema, on } = record(entry, label, extension, [
+    "oneOf",
+    "schema",
+    "on",
+  ]);
+  if (on !== undefined && on !== "reads" && on !== "writes" && on !== "all") {
+    if (!Array.isArray(on) || on.length === 0) {
+      refuse(
+        extension,
+        `${label}.on must be "reads", "writes", "all" or a non-empty operation list.`
+      );
+    }
+    for (const operation of on) {
+      if (typeof operation !== "string" || !ROUTED_OPERATIONS.has(operation)) {
+        refuse(
+          extension,
+          `${label}.on names unknown operation "${String(operation)}".`
+        );
+      }
+    }
+  }
+  if ((oneOf === undefined) === (schema === undefined)) {
     refuse(
       extension,
       `${label} must declare exactly one of "oneOf" or "schema".`
     );
   }
-  if (keys.includes("oneOf")) {
-    const values = copyData(
-      readOwn(control, "oneOf", extension),
-      `${label}.oneOf`,
-      extension
-    );
-    if (!Array.isArray(values) || values.length === 0) {
-      refuse(extension, `${label}.oneOf must be a non-empty array.`);
+  if (schema !== undefined) {
+    if (!(schema instanceof ControlValidator)) {
+      refuse(extension, `${label}.schema must be a Standard Schema.`);
     }
-    const literals: ControlLiteral[] = [];
-    for (const entry of values) {
-      if (!isControlLiteral(entry) || literals.includes(entry)) {
-        refuse(
-          extension,
-          `${label}.oneOf must hold distinct strings, finite numbers or booleans.`
-        );
-      }
-      literals.push(entry);
-    }
-    const oneOf = Object.freeze(literals);
-    return Object.freeze(on === undefined ? { oneOf } : { oneOf, on });
+    return;
   }
-  const schema = readOwn(control, "schema", extension);
-  const standard = isGuardedRecord(schema, `${label}.schema`, extension)
-    ? readOwn(schema, "~standard", extension)
-    : undefined;
-  const validate = isGuardedRecord(standard, `${label}.schema`, extension)
-    ? readOwn(standard, "validate", extension)
-    : undefined;
-  if (!isFunction(validate)) {
-    refuse(extension, `${label}.schema must be a Standard Schema.`);
+  if (!Array.isArray(oneOf) || oneOf.length === 0) {
+    refuse(extension, `${label}.oneOf must be a non-empty array.`);
   }
-  // The one callable core uses, read once: a later change to the caller's
-  // schema object cannot swap the validator.
-  const snapshot: RuntimeControlSchema = Object.freeze({
-    "~standard": Object.freeze({
-      validate: (input: unknown) => Reflect.apply(validate, standard, [input]),
-    }),
-  });
-  return Object.freeze(
-    on === undefined ? { schema: snapshot } : { schema: snapshot, on }
+  const distinct = oneOf.every(
+    (value, index) => isControlLiteral(value) && oneOf.indexOf(value) === index
   );
+  if (!distinct) {
+    refuse(
+      extension,
+      `${label}.oneOf must hold distinct strings, finite numbers or booleans.`
+    );
+  }
 }
 
 function snapshotControls(
   value: unknown,
   extension: string
-): RuntimeControlsContribution {
-  const component = requireRecord(value, "controls", extension);
-  const controls: Record<string, RuntimeControlDeclaration> =
-    Object.create(null);
-  for (const name of readStringKeys(component, "controls", extension)) {
-    controls[name] = snapshotControl(
-      readOwn(component, name, extension),
-      `controls.${name}`,
-      extension
-    );
+): ControlsContribution {
+  const controls = record(
+    copyData(value, "controls", extension, true),
+    "controls",
+    extension
+  );
+  const snapshot: Record<string, ControlDeclaration> = Object.create(null);
+  for (const [name, entry] of Object.entries(controls)) {
+    assertControl(entry, `controls.${name}`, extension);
+    snapshot[name] = entry;
   }
-  return Object.freeze(controls);
-}
-
-function requireName(value: unknown, label: string, extension: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    refuse(extension, `${label} must be a non-empty string.`);
-  }
-  return value;
+  return Object.freeze(snapshot);
 }
 
 function sameNames(left: readonly string[], right: readonly string[]): boolean {
@@ -584,73 +501,23 @@ function sameNames(left: readonly string[], right: readonly string[]): boolean {
   );
 }
 
-/** One model's modes: each a `root` and a `related` scalar predicate. */
-function snapshotRowModes(
-  value: unknown,
-  model: AnyModel | undefined,
-  modelName: string,
-  extension: string,
-  registry: ExtensionSchemaRegistry | undefined
-): RuntimeRowModes {
-  const entry = requireRecord(value, `rows.models.${modelName}`, extension);
-  const modes: Record<string, RuntimeRowModes[string]> = Object.create(null);
-  for (const mode of readStringKeys(
-    entry,
-    `rows.models.${modelName}`,
-    extension
-  )) {
-    const label = `rows.models.${modelName}.${mode}`;
-    const predicates = requireRecord(
-      readOwn(entry, mode, extension),
-      label,
-      extension
-    );
-    const scoped: { root?: ConstantFields; related?: ConstantFields } = {};
-    for (const purpose of readMemberKeys(
-      predicates,
-      ["root", "related"],
-      label,
-      extension
-    )) {
-      const where = copyRecord(
-        readOwn(predicates, purpose, extension),
-        `${label}.${purpose}`,
-        extension
-      );
-      for (const field of Object.keys(where)) {
-        requireScalarField(
-          model,
-          modelName,
-          field,
-          `${label}.${purpose}`,
-          extension
-        );
-      }
-      scoped[purpose === "root" ? "root" : "related"] = admitWhere(
-        where,
-        model,
-        registry,
-        `${label}.${purpose}`,
-        extension
-      );
-    }
-    modes[mode] = Object.freeze(scoped);
-  }
-  return Object.freeze(modes);
-}
-
 /**
  * A row predicate as the model's own `where` admits it, once, when the
  * extension is applied: the engine prepares the admitted form and never
- * validates it again.
+ * validates it again. It names scalar fields only.
  */
 function admitWhere(
-  where: ConstantFields,
+  value: unknown,
   model: AnyModel | undefined,
+  modelName: string,
   registry: ExtensionSchemaRegistry | undefined,
   label: string,
   extension: string
 ): ConstantFields {
+  const where = record(value, label, extension);
+  for (const field of Object.keys(where)) {
+    requireScalarField(model, modelName, field, label, extension);
+  }
   if (model === undefined || registry === undefined) return where;
   const result = parse(registry.getModelSchemas(model).core.where, where);
   if (result.issues) {
@@ -659,7 +526,7 @@ function admitWhere(
       `${label} is not a valid where: ${result.issues.map((issue) => issue.message).join("; ")}.`
     );
   }
-  return Object.freeze(requireRecord(result.value, label, extension));
+  return Object.freeze(record(result.value, label, extension));
 }
 
 function snapshotRows(
@@ -667,60 +534,67 @@ function snapshotRows(
   extension: string,
   schema: Schema | undefined,
   registry: ExtensionSchemaRegistry | undefined
-): RuntimeRowsDeclaration {
-  const rows = requireRecord(value, "rows", extension);
-  readMemberKeys(rows, ["control", "default", "models"], "rows", extension);
-  const control = requireName(
-    readOwn(rows, "control", extension),
-    "rows.control",
-    extension
-  );
-  const fallback = requireName(
-    readOwn(rows, "default", extension),
-    "rows.default",
-    extension
-  );
-  const models = requireRecord(
-    readOwn(rows, "models", extension),
-    "rows.models",
-    extension
-  );
-  const copied: Record<string, RuntimeRowModes> = Object.create(null);
-  let modes: readonly string[] | undefined;
-  for (const modelName of readStringKeys(models, "rows.models", extension)) {
-    const entry = snapshotRowModes(
-      readOwn(models, modelName, extension),
-      readSchemaModel(schema, modelName, "rows.models", extension),
-      modelName,
-      extension,
-      registry
-    );
-    const entryModes = Object.keys(entry);
-    if (modes === undefined) {
-      modes = entryModes;
-    } else if (!sameNames(modes, entryModes)) {
+): RowsContribution {
+  const rows = record(copyData(value, "rows", extension), "rows", extension, [
+    "control",
+    "default",
+    "models",
+  ]);
+  const control = requireName(rows.control, "rows.control", extension);
+  const fallback = requireName(rows.default, "rows.default", extension);
+  const models: Record<string, RowsContribution["models"][string]> =
+    Object.create(null);
+  for (const [modelName, entry] of Object.entries(
+    record(rows.models, "rows.models", extension)
+  )) {
+    const model = readSchemaModel(schema, modelName, "rows.models", extension);
+    const scoped: Record<string, RowsContribution["models"][string][string]> =
+      Object.create(null);
+    const label = `rows.models.${modelName}`;
+    for (const [mode, purposes] of Object.entries(
+      record(entry, label, extension)
+    )) {
+      const predicates: Record<string, ConstantFields> = {};
+      for (const [purpose, where] of Object.entries(
+        record(purposes, `${label}.${mode}`, extension, ["root", "related"])
+      )) {
+        predicates[purpose] = admitWhere(
+          where,
+          model,
+          modelName,
+          registry,
+          `${label}.${mode}.${purpose}`,
+          extension
+        );
+      }
+      scoped[mode] = Object.freeze(predicates);
+    }
+    models[modelName] = Object.freeze(scoped);
+  }
+  const declaration = Object.freeze({
+    control,
+    default: fallback,
+    models: Object.freeze(models),
+  });
+  const modes = rowsModes(declaration);
+  for (const [modelName, entry] of Object.entries(models)) {
+    if (!sameNames(modes, Object.keys(entry))) {
       refuse(
         extension,
         `rows.models.${modelName} must declare the same modes as every other entry (${modes.join(", ")}).`
       );
     }
-    copied[modelName] = entry;
   }
-  if (!(modes ?? [fallback]).includes(fallback)) {
+  if (!modes.includes(fallback)) {
     refuse(
       extension,
       `rows.default "${fallback}" must be a mode every entry declares.`
     );
   }
-  return Object.freeze({
-    control,
-    default: fallback,
-    models: Object.freeze(copied),
-  });
+  return declaration;
 }
 
-const NO_FIELDS: ConstantFields = Object.freeze({});
-const NO_CONTROLS: RuntimeControlsContribution = Object.freeze({});
+const NO_CONTROLS: ControlsContribution = Object.freeze({});
 
 function requireTimestampField(
   model: AnyModel | undefined,
@@ -740,30 +614,27 @@ function requireTimestampField(
   }
 }
 
-function snapshotRemoveWhen(
+/**
+ * The `removeWhen` of the frozen copy `copyData` just made: it names at least
+ * one declared control that has no `on`, and one of that control's `oneOf`
+ * values. The checks below are the proof the assertion states (ELEGANCE §5).
+ */
+function assertRemoveWhen(
   value: unknown,
   extension: string,
-  declared: RuntimeControlsContribution
-): Readonly<Record<string, ControlLiteral>> {
-  const removeWhen = requireRecord(value, "deletion.removeWhen", extension);
-  const names = readStringKeys(removeWhen, "deletion.removeWhen", extension);
+  declared: ControlsContribution
+): asserts value is Readonly<Record<string, ControlLiteral>> {
+  const removeWhen = record(value, "deletion.removeWhen", extension);
   // An empty match would hold for every call and make every delete physical.
-  if (names.length === 0) {
+  if (Object.keys(removeWhen).length === 0) {
     refuse(extension, "deletion.removeWhen must name a control.");
   }
-  const matched: Record<string, ControlLiteral> = Object.create(null);
-  for (const name of names) {
+  for (const [name, expected] of Object.entries(removeWhen)) {
     const control = Object.hasOwn(declared, name) ? declared[name] : undefined;
     if (control === undefined) {
       refuse(
         extension,
         `deletion.removeWhen names "${name}", which its controls do not declare.`
-      );
-    }
-    if (!("oneOf" in control)) {
-      refuse(
-        extension,
-        `deletion.removeWhen names control "${name}", which must declare "oneOf".`
       );
     }
     if (control.on !== undefined) {
@@ -772,41 +643,39 @@ function snapshotRemoveWhen(
         `control "${name}" is placed by deletion.removeWhen and may not declare "on".`
       );
     }
-    const expected = readOwn(removeWhen, name, extension);
-    if (!(isControlLiteral(expected) && control.oneOf.includes(expected))) {
+    // A schema control has no values, so no value is one of them.
+    const values: readonly ControlLiteral[] =
+      "oneOf" in control ? control.oneOf : [];
+    if (!(isControlLiteral(expected) && values.includes(expected))) {
       refuse(
         extension,
         `deletion.removeWhen.${name} must be one of control "${name}"'s values.`
       );
     }
-    matched[name] = expected;
   }
-  return Object.freeze(matched);
 }
 
-function snapshotDeletionEntry(
+/**
+ * One `deletion.models` entry of the frozen copy `copyData` just made: `at`
+ * a single DateTime field, `assign` other scalar fields. The checks below are
+ * the proof the assertion states (ELEGANCE §5).
+ */
+function assertDeletionEntry(
   value: unknown,
   model: AnyModel | undefined,
   modelName: string,
   extension: string
-): RuntimeDeletionDeclaration["models"][string] {
+): asserts value is DeletionContribution["models"][string] {
   const label = `deletion.models.${modelName}`;
-  const entry = requireRecord(value, label, extension);
-  const keys = readMemberKeys(entry, ["at", "assign"], label, extension);
-  const at = keys.includes("at")
-    ? requireName(readOwn(entry, "at", extension), `${label}.at`, extension)
-    : undefined;
+  const { at, assign } = record(value, label, extension, ["at", "assign"]);
   if (at !== undefined) {
-    requireTimestampField(model, modelName, at, `${label}.at`, extension);
+    const field = requireName(at, `${label}.at`, extension);
+    requireTimestampField(model, modelName, field, `${label}.at`, extension);
   }
-  const assign = keys.includes("assign")
-    ? copyRecord(
-        readOwn(entry, "assign", extension),
-        `${label}.assign`,
-        extension
-      )
-    : NO_FIELDS;
-  for (const field of Object.keys(assign)) {
+  if (assign === undefined) return;
+  for (const field of Object.keys(
+    record(assign, `${label}.assign`, extension)
+  )) {
     requireScalarField(model, modelName, field, `${label}.assign`, extension);
     if (field === at) {
       refuse(
@@ -815,51 +684,39 @@ function snapshotDeletionEntry(
       );
     }
   }
-  return Object.freeze(at === undefined ? { assign } : { at, assign });
 }
 
 function snapshotDeletion(
   value: unknown,
   extension: string,
   schema: Schema | undefined,
-  declared: RuntimeControlsContribution
-): RuntimeDeletionDeclaration {
-  const deletion = requireRecord(value, "deletion", extension);
-  const keys = readMemberKeys(
-    deletion,
-    ["removeWhen", "models"],
+  declared: ControlsContribution
+): DeletionContribution {
+  const { removeWhen, models } = record(
+    copyData(value, "deletion", extension),
     "deletion",
-    extension
+    extension,
+    ["removeWhen", "models"]
   );
-  const removeWhen = keys.includes("removeWhen")
-    ? snapshotRemoveWhen(
-        readOwn(deletion, "removeWhen", extension),
-        extension,
-        declared
-      )
-    : undefined;
-  const models = requireRecord(
-    readOwn(deletion, "models", extension),
-    "deletion.models",
-    extension
-  );
-  const copied: Record<string, RuntimeDeletionDeclaration["models"][string]> =
+  if (removeWhen !== undefined) {
+    assertRemoveWhen(removeWhen, extension, declared);
+  }
+  const managed: Record<string, DeletionContribution["models"][string]> =
     Object.create(null);
-  for (const modelName of readStringKeys(
-    models,
-    "deletion.models",
-    extension
+  for (const [modelName, entry] of Object.entries(
+    record(models, "deletion.models", extension)
   )) {
-    copied[modelName] = snapshotDeletionEntry(
-      readOwn(models, modelName, extension),
+    assertDeletionEntry(
+      entry,
       readSchemaModel(schema, modelName, "deletion.models", extension),
       modelName,
       extension
     );
+    managed[modelName] = entry;
   }
   return Object.freeze({
     ...(removeWhen === undefined ? {} : { removeWhen }),
-    models: Object.freeze(copied),
+    models: Object.freeze(managed),
   });
 }
 

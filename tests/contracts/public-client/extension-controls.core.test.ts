@@ -1010,7 +1010,7 @@ describe("controls: definitions refused when applied", () => {
         controls: { mode: { schema: standard((value) => ({ value })) } },
         deletion: { removeWhen: { mode: "hard" }, models: {} },
       },
-      'names control "mode", which must declare "oneOf"',
+      'deletion.removeWhen.mode must be one of control "mode"\'s values',
     ],
     [
       "removeWhen value outside oneOf",
