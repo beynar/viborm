@@ -267,3 +267,12 @@
 - Q-7 D7 was not in any unit's scope and stays open (minor, recorded in §00.8).
 - Q-8 Trailer of the docs commit: the harness attribution (Claude Opus 5.5), as C1, C2, C5, C6 and the repair; the computed task's "Claude Fable 5.1" line is script text.
 - Q-9 Scratch: archived measurement trees, bundle build trees, dists and the pg data dir deleted after use; logs kept in scratchpad compress/qualify/.
+
+## Owner decision: the definition is trusted (one commit), 2026-09-30
+
+- TR-1 Owner decision (2026-09-30): the runtime hostile-definition boundary and the runtime declaration checks for `controls`, `rows` and `deletion` are deleted; the definition is trusted, its members bound as written. Not a capability change: it changes only what happens when a definition is wrong (TypeScript flags a misspelt member in the editor; a wrong model, field or `removeWhen` misbehaves at the first call). Kept: call-time admission of every control value, placement, rows and deletion binding, the cache key, official-extension admission, the duplicate-extension-name check, the `rows` order guard, the types.
+- TR-2 The six older capabilities keep main's (30ff17e69) handling unchanged; `extensions-foundation.core.test.ts` is untouched and green.
+- TR-3 No type assertion: the three members are typed at the source (`ExtensionDefinitionInput`, the parameter of `normalizeExtensionDefinition` and `appendResolvedExtension`); four test helpers' parameter types follow.
+- TR-4 `rows` predicates are still admitted by the model's `where` (the parser rewrites shorthand into the form the engine prepares, measured); a predicate it does not take, or one for a model the schema lacks, is kept as written. The refusal pin became the witness of that rule.
+- TR-5 Also deleted as declaration checks: the chain's "control already declared on this client" and "deletion model already managed" refusals (a later deletion entry replaces an earlier one), and `SchemaRegistry.argumentNames` (its only user was the core-argument-name refusal).
+- TR-6 Trailer: harness attribution (Claude Opus 5.5), as Q-8.

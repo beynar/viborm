@@ -37,7 +37,7 @@ function applyUnsafe(client: object, extension: unknown): object {
  * here reads the definition rather than a bound capability.
  */
 function appendOfficial(
-  extension: unknown,
+  extension: Readonly<Record<string, unknown>>,
   chain?: ResolvedExtensionChain
 ): ResolvedExtensionChain {
   return appendResolvedExtension(chain, extension, schema);

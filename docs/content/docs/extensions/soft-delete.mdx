@@ -56,10 +56,9 @@ may follow those. The [cache](#caching) can go on either side.
 | `models.<model>.deletedBy` | Optional. A scalar field that receives `actor` on delete and is cleared on restore. |
 | `actor` | Optional. The value written into `deletedBy`. Without it, `deletedBy` is written `null`. |
 
-Model and field names are checked when the extension is applied: a model or a
-field the schema does not have, a `deletedAt` that is not a `DateTime` field, or
-`deletedBy` naming the same field as `deletedAt` are refused then, naming the
-model and field. TypeScript does not flag them in your editor.
+A definition is not checked at runtime. TypeScript flags a misspelt member in
+your editor; an unknown model name, a field of the wrong type or a `removeWhen`
+that names no control is not caught and misbehaves at the first call.
 
 ### One actor per client, one actor per transaction
 

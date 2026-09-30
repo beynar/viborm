@@ -34,7 +34,8 @@ Versioning.
   concurrent `connect` cannot leave a live row referencing a tombstone),
   unless the call's controls match `removeWhen`. A cached read that receives
   a control is keyed on its value and, on a client with `rows`, on the `rows`
-  declarations; a read that receives none keeps today's key.
+  declarations; a read that receives none keeps today's key. Definitions are
+  trusted: VibORM does not check a declaration at runtime.
 - **Added: `ExtensionState` and `ExtendedOperationResult`** are exported from
   `viborm`, for plugins generic over the client they receive.
   `ExtendedOperationResult` and a model-mapped query handler's `proceed()`

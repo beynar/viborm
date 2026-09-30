@@ -16,7 +16,7 @@ import { isError } from "../errors/diagnostic-safety";
 import type { ControlLiteral, RuntimeExtensionDefinition } from "./definition";
 
 // =============================================================================
-// DEFINITION MEMBERS: plain data, whose names are checked when applied
+// DEFINITION MEMBERS: plain data, checked by TypeScript only
 // =============================================================================
 
 /** The operations a declared control is accepted on. */
@@ -289,8 +289,7 @@ function placementOf(on: ControlDeclaration["on"]): ReadonlySet<string> {
 
 /**
  * The `rows` control's values: the mode names, which every model entry
- * declares alike (checked when the definition is applied), or the default
- * alone when no model is named.
+ * declares alike, or the default alone when no model is named.
  */
 export function rowsModes(rows: RowsContribution): readonly string[] {
   const [modes] = Object.values(rows.models);

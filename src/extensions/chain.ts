@@ -22,6 +22,7 @@ import {
 } from "./controls";
 import {
   type ControlLiteral,
+  type ExtensionDefinitionInput,
   type ExtensionSchemaRegistry,
   extensionError,
   normalizeExtensionDefinition,
@@ -103,7 +104,10 @@ export interface ResolvedDeletion {
   readonly removeWhen?: Readonly<Record<string, ControlLiteral>>;
 }
 
-/** Absent on an unextended client; fully frozen whenever it exists. */
+/**
+ * Absent on an unextended client; frozen whenever it exists, except the
+ * `controls`, `rows` and `deletion` data a definition wrote, held as written.
+ */
 export interface ResolvedExtensionChain {
   readonly controls?: ResolvedControls;
   /**
@@ -305,19 +309,10 @@ function appendObserver(
  */
 function appendControls(
   previous: ResolvedControls | undefined,
-  extension: string,
   declarations: readonly ResolvedControl[]
 ): ResolvedControls {
   const names = new Set(previous?.names);
-  for (const { name } of declarations) {
-    if (names.has(name)) {
-      extensionError(
-        `Extension "${extension}" control "${name}" is already declared on this client.`,
-        extension
-      );
-    }
-    names.add(name);
-  }
+  for (const { name } of declarations) names.add(name);
   const all = Object.freeze([
     ...(previous?.all ?? []),
     ...declarations.map((control) => Object.freeze(control)),
@@ -350,7 +345,7 @@ function appendControls(
 
 const NO_ASSIGN: Readonly<Record<string, unknown>> = Object.freeze({});
 
-/** One entry per managed model on the chain. */
+/** One entry per managed model on the chain: a later entry replaces one. */
 function appendDeletion(
   previous: Readonly<Record<string, ResolvedDeletion>> | undefined,
   extension: string,
@@ -359,17 +354,10 @@ function appendDeletion(
   const entries: Record<string, ResolvedDeletion> = Object.create(null);
   Object.assign(entries, previous);
   for (const [model, entry] of Object.entries(deletion.models)) {
-    if (Object.hasOwn(entries, model)) {
-      extensionError(
-        `Extension "${extension}" deletion names model "${model}", which extension "${entries[model]?.extension}" already manages on this client.`,
-        extension
-      );
-    }
     entries[model] = Object.freeze({
       extension,
-      // A copied entry never holds an undefined `assign`: absent, it is empty.
-      assign: NO_ASSIGN,
       ...entry,
+      assign: entry.assign ?? NO_ASSIGN,
       ...(deletion.removeWhen === undefined
         ? {}
         : { removeWhen: deletion.removeWhen }),
@@ -434,7 +422,7 @@ function assertOfficialExtensionAdmission(options: {
 
 export function appendResolvedExtension(
   chain: ResolvedExtensionChain | undefined,
-  value: unknown,
+  value: ExtensionDefinitionInput,
   schema: Schema,
   registry?: ExtensionSchemaRegistry
 ): ResolvedExtensionChain {
@@ -542,7 +530,7 @@ export function appendResolvedExtension(
   const controls =
     declaredControls === undefined
       ? chain?.controls
-      : appendControls(chain?.controls, definition.name, declaredControls);
+      : appendControls(chain?.controls, declaredControls);
   const rows =
     effectiveDefinition.rows === undefined
       ? chain?.rows

@@ -7,18 +7,11 @@ import type { AnyModel } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
-import {
-  isDate,
-  isFunction,
-  isRecord,
-  isUint8Array,
-} from "@validation/value-guards";
-import {
-  type ControlDeclaration,
-  type ControlsContribution,
-  type DeletionContribution,
-  type RowsContribution,
-  rowsModes,
+import { isFunction, isRecord } from "@validation/value-guards";
+import type {
+  ControlsContribution,
+  DeletionContribution,
+  RowsContribution,
 } from "./controls";
 import type {
   EmptyClientExtensionState,
@@ -46,7 +39,11 @@ import type { StatementHandler } from "./statement";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
-/** Host-owned frozen snapshot of one validated extension definition. */
+/**
+ * One extension definition as the chain binds it: a host-owned frozen
+ * snapshot of the six handler members, and `controls`, `rows` and `deletion`
+ * as the definition wrote them.
+ */
 export interface RuntimeExtensionDefinition {
   readonly name: string;
   readonly request?: RuntimeRequestContribution;
@@ -62,7 +59,17 @@ export interface RuntimeExtensionDefinition {
 
 export type ControlLiteral = string | number | boolean;
 
-type ConstantFields = Readonly<Record<string, unknown>>;
+/**
+ * What `$extends` hands the chain. `controls`, `rows` and `deletion` are
+ * trusted as their types state them: TypeScript checks them where the
+ * definition is written, and nothing checks them at runtime (owner decision,
+ * 2026-09-30). Every other member is read behind the boundary below.
+ */
+export type ExtensionDefinitionInput = Readonly<Record<string, unknown>> & {
+  readonly controls?: ControlsContribution;
+  readonly rows?: RowsContribution;
+  readonly deletion?: DeletionContribution;
+};
 
 const DEFINITION_KEYS = new Set([
   "name",
@@ -92,7 +99,10 @@ export function extensionCause(cause: unknown): Error {
   return new Error("A non-Error value was thrown.", { cause });
 }
 
-function readOwnKeys(value: object, extension?: string): PropertyKey[] {
+function readOwnKeys(
+  value: Record<string, unknown>,
+  extension?: string
+): PropertyKey[] {
   try {
     return Reflect.ownKeys(value);
   } catch (cause) {
@@ -113,7 +123,19 @@ function readOwn(
   key: string,
   extension?: string
 ): unknown {
-  return readGuarded(() => value[key], `member "${key}"`, extension);
+  try {
+    return value[key];
+  } catch (cause) {
+    throw new ClientInitializationError(
+      extension
+        ? `Extension "${extension}" member "${key}" could not be read.`
+        : `Client extension member "${key}" could not be read.`,
+      {
+        cause: extensionCause(cause),
+        meta: extension ? { extension } : undefined,
+      }
+    );
+  }
 }
 
 function requireFunction(
@@ -229,566 +251,59 @@ function snapshotModelFactories(
   return Object.freeze(factories);
 }
 
-/** Refuse a definition, naming its extension. */
-function refuse(extension: string, message: string): never {
-  extensionError(`Extension "${extension}" ${message}`, extension);
-}
-
-/** One read of caller data behind the hostile-definition boundary. */
-function readGuarded<T>(read: () => T, label: string, extension?: string): T {
-  try {
-    return read();
-  } catch (cause) {
-    throw new ClientInitializationError(
-      `${extension ? `Extension "${extension}"` : "Client extension"} ${label} could not be read.`,
-      {
-        cause: extensionCause(cause),
-        meta: extension ? { extension } : undefined,
-      }
-    );
-  }
-}
-
-/**
- * Where a declaration member's own shape stands: the one list of the members
- * each position takes. A node is read by its own members, whatever object
- * holds them (`"*"` is any member name), and refuses a member it does not
- * list; a leaf is one value its position's check judges, a Standard Schema
- * kept as its validator; `"data"` is caller data, copied as plain data. A
- * value that does not fit a node or a leaf is copied as `null`, which no
- * position admits: that position's check refuses it, so each refusal keeps
- * the words of the position it breaks.
- */
-type Position = Shape | "leaf" | "data";
-interface Shape {
-  readonly [member: string]: Position;
-}
-
-const CONTROLS: Shape = { "*": { oneOf: "data", schema: "leaf", on: "leaf" } };
-const ROWS: Shape = {
-  control: "leaf",
-  default: "leaf",
-  models: { "*": { "*": { root: "data", related: "data" } } },
-};
-const DELETION: Shape = {
-  removeWhen: { "*": "leaf" },
-  models: { "*": { at: "leaf", assign: "data" } },
-};
-
-/** An empty array or record to copy `value` into at `position`; none when it does not fit. */
-function emptyCopyOf(
-  value: object,
-  position: Position
-): Record<string, unknown> | unknown[] | undefined {
-  if (Array.isArray(value)) return [];
-  if (typeof position === "object") return {};
-  return position === "data" && isPlainRecord(value) ? {} : undefined;
-}
-
-/**
- * A Standard Schema's `validate`, read once and bound to the member that
- * carried it: a later change to the caller's schema cannot swap the validator.
- */
-class ControlValidator implements StandardSchemaV1 {
-  readonly "~standard": StandardSchemaV1["~standard"];
-  constructor(validate: CallableFunction, standard: unknown) {
-    this["~standard"] = Object.freeze({
-      version: 1,
-      vendor: "viborm",
-      validate: (input: unknown) => Reflect.apply(validate, standard, [input]),
-    });
-    Object.freeze(this);
-  }
-}
-
-/** The validator of a value carrying `~standard`; none without that member. */
-function readValidator(
-  value: object,
-  label: string,
-  extension: string
-): ControlValidator | undefined {
-  const standard = readGuarded(
-    () => Reflect.get(value, "~standard"),
-    label,
-    extension
-  );
-  if (standard === undefined) return undefined;
-  const validate = readGuarded(
-    () => Reflect.get(new Object(standard), "validate"),
-    label,
-    extension
-  );
-  if (!isFunction(validate)) {
-    refuse(extension, `${label} must be a Standard Schema.`);
-  }
-  return new ControlValidator(validate, standard);
-}
-
-/**
- * Copy one declaration member once; it is the only read of that member. Every
- * getter runs once, a `Date` or `Uint8Array` in caller data is copied, and
- * nothing the caller keeps can change what core holds. Which keys count is one
- * rule for a member and for the data inside it: the enumerable own string keys
- * whose value is not `undefined` (an undefined or non-enumerable member is
- * absent; a symbol key is refused). Where caller data starts is `position`'s:
- * there anything that is not plain data (a function, a class instance, a
- * cycle) is refused.
- */
-function copyData(
-  value: unknown,
-  label: string,
-  extension: string,
-  position: Position = "data",
-  seen: Set<object> = new Set()
-): unknown {
-  if (position === "leaf" && (typeof value === "object" || isFunction(value))) {
-    const validator = value && readValidator(value, label, extension);
-    if (validator) return validator;
-  }
-  const data = position === "data";
-  if (typeof value === "function" || typeof value === "symbol") {
-    if (data) refuse(extension, `${label} must be plain data.`);
-    return null;
-  }
-  if (value === null || typeof value !== "object") return value;
-  if (data && isDate(value)) {
-    return new Date(Date.prototype.getTime.call(value));
-  }
-  if (data && isUint8Array(value)) return new Uint8Array(value);
-  if (seen.has(value)) {
-    refuse(extension, `${label} must not contain itself.`);
-  }
-  const copy = readGuarded(
-    () => emptyCopyOf(value, position),
-    label,
-    extension
-  );
-  if (copy === undefined) {
-    if (data) refuse(extension, `${label} must be plain data.`);
-    return null;
-  }
-  const node = typeof position === "object" ? position : undefined;
-  // A node is never part of a cycle: the shape bounds its depth.
-  if (!node) seen.add(value);
-  for (const key of readOwnKeys(value, extension)) {
-    if (typeof key !== "string") {
-      refuse(extension, `${label} contains a symbol key.`);
-    }
-    const descriptor = readGuarded(
-      () => Object.getOwnPropertyDescriptor(value, key),
-      label,
-      extension
-    );
-    if (descriptor?.enumerable !== true) continue;
-    const entry = readGuarded(
-      () => Reflect.get(value, key),
-      node ? `member "${key}"` : `${label}.${key}`,
-      extension
-    );
-    if (entry === undefined) continue;
-    const member = node
-      ? Object.hasOwn(node, key)
-        ? node[key]
-        : node["*"]
-      : "data";
-    if (member === undefined) {
-      refuse(extension, `${label} has unknown member "${key}".`);
-    }
-    Object.defineProperty(copy, key, {
-      value: copyData(entry, `${label}.${key}`, extension, member, seen),
-      enumerable: true,
-      writable: false,
-      configurable: false,
-    });
-  }
-  seen.delete(value);
-  return Object.freeze(copy);
-}
-
-/** A copied value that must be a record. */
-function record(
-  value: unknown,
-  label: string,
-  extension: string
-): ConstantFields {
-  if (!isPlainRecord(value)) refuse(extension, `${label} must be an object.`);
-  return value;
-}
-
-function requireName(value: unknown, label: string, extension: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    refuse(extension, `${label} must be a non-empty string.`);
-  }
-  return value;
-}
-
-function readSchemaModel(
-  schema: Schema | undefined,
-  modelKey: string,
-  label: string,
-  extension: string
-): AnyModel | undefined {
-  if (schema === undefined) return undefined;
-  if (!Object.hasOwn(schema, modelKey)) {
-    refuse(extension, `${label} names unknown model "${modelKey}".`);
-  }
-  return schema[modelKey];
-}
-
-/** Refuse a field name that is not a scalar of the receiving model. */
-function requireScalarField(
-  model: AnyModel | undefined,
-  modelKey: string,
-  field: string,
-  label: string,
-  extension: string
-): void {
-  if (model === undefined) return;
-  const { scalars, relations } = model["~"].state;
-  if (Object.hasOwn(scalars, field)) return;
-  refuse(
-    extension,
-    Object.hasOwn(relations, field)
-      ? `${label} names relation "${modelKey}.${field}"; it takes scalar fields only.`
-      : `${label} names unknown field "${modelKey}.${field}".`
-  );
-}
-
-function isControlLiteral(value: unknown): value is ControlLiteral {
-  return (
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value))
-  );
-}
-
-/**
- * One `controls` entry of the frozen copy `copyData` just made: a closed list
- * or a validator, and a placement. The checks below are the proof the
- * assertion states; it holds because the copy cannot change (ELEGANCE §5).
- */
-function assertControl(
-  entry: unknown,
-  label: string,
-  extension: string
-): asserts entry is ControlDeclaration {
-  const { oneOf, schema, on } = record(entry, label, extension);
-  if (on !== undefined && on !== "reads" && on !== "writes" && on !== "all") {
-    if (!Array.isArray(on) || on.length === 0) {
-      refuse(
-        extension,
-        `${label}.on must be "reads", "writes", "all" or a non-empty operation list.`
-      );
-    }
-    for (const operation of on) {
-      if (typeof operation !== "string" || !ROUTED_OPERATIONS.has(operation)) {
-        refuse(
-          extension,
-          `${label}.on names unknown operation "${String(operation)}".`
-        );
-      }
-    }
-  }
-  if ((oneOf === undefined) === (schema === undefined)) {
-    refuse(
-      extension,
-      `${label} must declare exactly one of "oneOf" or "schema".`
-    );
-  }
-  if (schema !== undefined) {
-    if (!(schema instanceof ControlValidator)) {
-      refuse(extension, `${label}.schema must be a Standard Schema.`);
-    }
-    return;
-  }
-  if (!Array.isArray(oneOf) || oneOf.length === 0) {
-    refuse(extension, `${label}.oneOf must be a non-empty array.`);
-  }
-  const distinct = oneOf.every(
-    (value, index) => isControlLiteral(value) && oneOf.indexOf(value) === index
-  );
-  if (!distinct) {
-    refuse(
-      extension,
-      `${label}.oneOf must hold distinct strings, finite numbers or booleans.`
-    );
-  }
-}
-
-function snapshotControls(
-  value: unknown,
-  extension: string
-): ControlsContribution {
-  const controls = record(
-    copyData(value, "controls", extension, CONTROLS),
-    "controls",
-    extension
-  );
-  const snapshot: Record<string, ControlDeclaration> = Object.create(null);
-  for (const [name, entry] of Object.entries(controls)) {
-    assertControl(entry, `controls.${name}`, extension);
-    snapshot[name] = entry;
-  }
-  return Object.freeze(snapshot);
-}
-
-function sameNames(left: readonly string[], right: readonly string[]): boolean {
-  return (
-    left.length === right.length && left.every((name) => right.includes(name))
-  );
-}
-
-/**
- * A row predicate as the model's own `where` admits it, once, when the
- * extension is applied: the engine prepares the admitted form and never
- * validates it again. It names scalar fields only.
- */
-function admitWhere(
-  value: unknown,
-  model: AnyModel | undefined,
-  modelName: string,
-  registry: ExtensionSchemaRegistry | undefined,
-  label: string,
-  extension: string
-): ConstantFields {
-  const where = record(value, label, extension);
-  for (const field of Object.keys(where)) {
-    requireScalarField(model, modelName, field, label, extension);
-  }
-  if (model === undefined || registry === undefined) return where;
-  const result = parse(registry.getModelSchemas(model).core.where, where);
-  if (result.issues) {
-    refuse(
-      extension,
-      `${label} is not a valid where: ${result.issues.map((issue) => issue.message).join("; ")}.`
-    );
-  }
-  return Object.freeze(record(result.value, label, extension));
-}
-
-function snapshotRows(
-  value: unknown,
-  extension: string,
-  schema: Schema | undefined,
-  registry: ExtensionSchemaRegistry | undefined
-): RowsContribution {
-  const rows = record(
-    copyData(value, "rows", extension, ROWS),
-    "rows",
-    extension
-  );
-  const control = requireName(rows.control, "rows.control", extension);
-  const fallback = requireName(rows.default, "rows.default", extension);
-  const models: Record<string, RowsContribution["models"][string]> =
-    Object.create(null);
-  for (const [modelName, entry] of Object.entries(
-    record(rows.models, "rows.models", extension)
-  )) {
-    const model = readSchemaModel(schema, modelName, "rows.models", extension);
-    const scoped: Record<string, RowsContribution["models"][string][string]> =
-      Object.create(null);
-    const label = `rows.models.${modelName}`;
-    for (const [mode, purposes] of Object.entries(
-      record(entry, label, extension)
-    )) {
-      const predicates: Record<string, ConstantFields> = {};
-      for (const [purpose, where] of Object.entries(
-        record(purposes, `${label}.${mode}`, extension)
-      )) {
-        predicates[purpose] = admitWhere(
-          where,
-          model,
-          modelName,
-          registry,
-          `${label}.${mode}.${purpose}`,
-          extension
-        );
-      }
-      scoped[mode] = Object.freeze(predicates);
-    }
-    models[modelName] = Object.freeze(scoped);
-  }
-  const declaration = Object.freeze({
-    control,
-    default: fallback,
-    models: Object.freeze(models),
-  });
-  const modes = rowsModes(declaration);
-  for (const [modelName, entry] of Object.entries(models)) {
-    if (!sameNames(modes, Object.keys(entry))) {
-      refuse(
-        extension,
-        `rows.models.${modelName} must declare the same modes as every other entry (${modes.join(", ")}).`
-      );
-    }
-  }
-  if (!modes.includes(fallback)) {
-    refuse(
-      extension,
-      `rows.default "${fallback}" must be a mode every entry declares.`
-    );
-  }
-  return declaration;
-}
-
-const NO_CONTROLS: ControlsContribution = Object.freeze({});
-
-function requireTimestampField(
-  model: AnyModel | undefined,
-  modelName: string,
-  field: string,
-  label: string,
-  extension: string
-): void {
-  requireScalarField(model, modelName, field, label, extension);
-  const state = model?.["~"].state.scalars[field]?.["~"].state;
-  if (state === undefined) return;
-  if (state.type !== "datetime" || state.array) {
-    refuse(
-      extension,
-      `${label} names "${modelName}.${field}", which is not a single DateTime field.`
-    );
-  }
-}
-
-/**
- * The `removeWhen` of the frozen copy `copyData` just made: it names at least
- * one declared control that has no `on`, and one of that control's `oneOf`
- * values. The checks below are the proof the assertion states (ELEGANCE §5).
- */
-function assertRemoveWhen(
-  value: unknown,
-  extension: string,
-  declared: ControlsContribution
-): asserts value is Readonly<Record<string, ControlLiteral>> {
-  const removeWhen = record(value, "deletion.removeWhen", extension);
-  // An empty match would hold for every call and make every delete physical.
-  if (Object.keys(removeWhen).length === 0) {
-    refuse(extension, "deletion.removeWhen must name a control.");
-  }
-  for (const [name, expected] of Object.entries(removeWhen)) {
-    const control = Object.hasOwn(declared, name) ? declared[name] : undefined;
-    if (control === undefined) {
-      refuse(
-        extension,
-        `deletion.removeWhen names "${name}", which its controls do not declare.`
-      );
-    }
-    if (control.on !== undefined) {
-      refuse(
-        extension,
-        `control "${name}" is placed by deletion.removeWhen and may not declare "on".`
-      );
-    }
-    // A schema control has no values, so no value is one of them.
-    const values: readonly ControlLiteral[] =
-      "oneOf" in control ? control.oneOf : [];
-    if (!(isControlLiteral(expected) && values.includes(expected))) {
-      refuse(
-        extension,
-        `deletion.removeWhen.${name} must be one of control "${name}"'s values.`
-      );
-    }
-  }
-}
-
-/**
- * One `deletion.models` entry of the frozen copy `copyData` just made: `at`
- * a single DateTime field, `assign` other scalar fields. The checks below are
- * the proof the assertion states (ELEGANCE §5).
- */
-function assertDeletionEntry(
-  value: unknown,
-  model: AnyModel | undefined,
-  modelName: string,
-  extension: string
-): asserts value is DeletionContribution["models"][string] {
-  const label = `deletion.models.${modelName}`;
-  const { at, assign } = record(value, label, extension);
-  if (at !== undefined) {
-    const field = requireName(at, `${label}.at`, extension);
-    requireTimestampField(model, modelName, field, `${label}.at`, extension);
-  }
-  if (assign === undefined) return;
-  for (const field of Object.keys(
-    record(assign, `${label}.assign`, extension)
-  )) {
-    requireScalarField(model, modelName, field, `${label}.assign`, extension);
-    if (field === at) {
-      refuse(
-        extension,
-        `${label}.assign names "${field}", the field "at" stamps.`
-      );
-    }
-  }
-}
-
-function snapshotDeletion(
-  value: unknown,
-  extension: string,
-  schema: Schema | undefined,
-  declared: ControlsContribution
-): DeletionContribution {
-  const { removeWhen, models } = record(
-    copyData(value, "deletion", extension, DELETION),
-    "deletion",
-    extension
-  );
-  if (removeWhen !== undefined) {
-    assertRemoveWhen(removeWhen, extension, declared);
-  }
-  const managed: Record<string, DeletionContribution["models"][string]> =
-    Object.create(null);
-  for (const [modelName, entry] of Object.entries(
-    record(models, "deletion.models", extension)
-  )) {
-    assertDeletionEntry(
-      entry,
-      readSchemaModel(schema, modelName, "deletion.models", extension),
-      modelName,
-      extension
-    );
-    managed[modelName] = entry;
-  }
-  return Object.freeze({
-    ...(removeWhen === undefined ? {} : { removeWhen }),
-    models: Object.freeze(managed),
-  });
-}
-
-/** A control takes no name a core operation argument has: core would lose it. */
-function refuseCoreArgumentNames(
-  extension: string,
-  names: readonly string[],
-  registry: ExtensionSchemaRegistry | undefined
-): void {
-  if (registry === undefined || names.length === 0) return;
-  const argumentNames = registry.argumentNames();
-  for (const name of names) {
-    if (argumentNames.has(name)) {
-      refuse(
-        extension,
-        `control "${name}" takes the name of a core operation argument.`
-      );
-    }
-  }
-}
-
 /** What the receiving client's schema registry answers when an extension is applied. */
 export interface ExtensionSchemaRegistry {
-  /** The top-level argument names its operation schemas own. */
-  argumentNames(): ReadonlySet<string>;
   getModelSchemas(model: AnyModel): {
     readonly core: { readonly where: StandardSchemaV1 };
   };
 }
 
 /**
- * Read a caller-owned definition once, validate it, and freeze only host-owned
- * snapshots. A failed application therefore cannot mutate the supplied value.
+ * A row predicate in the form the model's own `where` admits: the engine
+ * prepares that form and never validates it again. A predicate that form
+ * does not take, or one for a model the schema lacks, is kept as written.
+ */
+function admitWhere(
+  where: Readonly<Record<string, unknown>>,
+  model: AnyModel | undefined,
+  registry: ExtensionSchemaRegistry
+): Readonly<Record<string, unknown>> {
+  if (model === undefined) return where;
+  const result = parse(registry.getModelSchemas(model).core.where, where);
+  return result.issues === undefined && isPlainRecord(result.value)
+    ? result.value
+    : where;
+}
+
+/** `rows` with every predicate admitted by its model's `where`. */
+function admitRows(
+  rows: RowsContribution,
+  schema: Schema,
+  registry: ExtensionSchemaRegistry
+): RowsContribution {
+  const models: Record<string, RowsContribution["models"][string]> = {};
+  for (const [modelName, entry] of Object.entries(rows.models)) {
+    const scoped: Record<string, RowsContribution["models"][string][string]> =
+      {};
+    for (const [mode, purposes] of Object.entries(entry)) {
+      const predicates: Record<string, Readonly<Record<string, unknown>>> = {};
+      for (const [purpose, where] of Object.entries(purposes)) {
+        predicates[purpose] = admitWhere(where, schema[modelName], registry);
+      }
+      scoped[mode] = predicates;
+    }
+    models[modelName] = scoped;
+  }
+  return { ...rows, models };
+}
+
+/**
+ * Read a caller-owned definition once. The six handler members are validated
+ * and frozen as host-owned snapshots, so a failed application cannot mutate
+ * the supplied value; `controls`, `rows` and `deletion` are bound as written.
  */
 export function normalizeExtensionDefinition(
-  value: unknown,
+  value: ExtensionDefinitionInput,
   schema?: Schema,
   registry?: ExtensionSchemaRegistry
 ): RuntimeExtensionDefinition {
@@ -813,58 +328,53 @@ export function normalizeExtensionDefinition(
     }
   }
 
-  // Each member is read once, and only when the definition has it.
-  const member = (key: string): unknown =>
-    ownKeys.includes(key) ? readOwn(value, key, name) : undefined;
-  const rawRequest = member("request");
+  const rawRequest = ownKeys.includes("request")
+    ? readOwn(value, "request", name)
+    : undefined;
   const request =
     rawRequest === undefined
       ? undefined
       : snapshotOperationMap(rawRequest, "request", name, schema);
-  const rawQuery = member("query");
+  const rawQuery = ownKeys.includes("query")
+    ? readOwn(value, "query", name)
+    : undefined;
   const query =
     rawQuery === undefined
       ? undefined
       : snapshotOperationMap(rawQuery, "query", name, schema);
-  const rawStatement = member("statement");
+  const rawStatement = ownKeys.includes("statement")
+    ? readOwn(value, "statement", name)
+    : undefined;
   const statement =
     rawStatement === undefined
       ? undefined
       : requireFunction(rawStatement, "statement", name);
-  const rawObserve = member("observe");
+  const rawObserve = ownKeys.includes("observe")
+    ? readOwn(value, "observe", name)
+    : undefined;
   const observe =
     rawObserve === undefined
       ? undefined
       : requireFunction(rawObserve, "observe", name);
-  const rawClient = member("client");
+  const rawClient = ownKeys.includes("client")
+    ? readOwn(value, "client", name)
+    : undefined;
   const client =
     rawClient === undefined
       ? undefined
       : requireFunction(rawClient, "client", name);
-  const rawModel = member("model");
+  const rawModel = ownKeys.includes("model")
+    ? readOwn(value, "model", name)
+    : undefined;
   const model =
     rawModel === undefined
       ? undefined
       : snapshotModelFactories(rawModel, name, schema);
-
-  const rawControls = member("controls");
-  const controls =
-    rawControls === undefined ? undefined : snapshotControls(rawControls, name);
-  const rawRows = member("rows");
+  const { controls, deletion } = value;
   const rows =
-    rawRows === undefined
-      ? undefined
-      : snapshotRows(rawRows, name, schema, registry);
-  const rawDeletion = member("deletion");
-  const deletion =
-    rawDeletion === undefined
-      ? undefined
-      : snapshotDeletion(rawDeletion, name, schema, controls ?? NO_CONTROLS);
-  refuseCoreArgumentNames(
-    name,
-    [...Object.keys(controls ?? NO_CONTROLS), ...(rows ? [rows.control] : [])],
-    registry
-  );
+    value.rows && schema && registry
+      ? admitRows(value.rows, schema, registry)
+      : value.rows;
 
   return Object.freeze({
     name,
@@ -1084,7 +594,7 @@ export function defineExtension(
   ...definitions: [] | [definition: ClientExtension]
 ): unknown {
   if (definitions.length === 0) {
-    return (schemaDefinition: unknown) =>
+    return (schemaDefinition: ExtensionDefinitionInput) =>
       normalizeExtensionDefinition(schemaDefinition);
   }
   return normalizeExtensionDefinition(definitions[0]);

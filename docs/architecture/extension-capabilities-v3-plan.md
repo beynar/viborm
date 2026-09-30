@@ -182,6 +182,20 @@ controls: { [name: string]: ({ oneOf: readonly (string | number | boolean)[] }
   program (measured, P1 §4.1), a breach; extension-state form measured only
   in the types lane with DC1 (§2.5), never joined (M1 unit 1). Floor:
   about +14k types, +100k instantiations (review prototype).
+- **Amended 2026-09-30 (owner decision): the definition is trusted.** Nothing
+  checks `controls`, `rows` or `deletion` at runtime; TypeScript is their only
+  check, and a wrong declaration misbehaves at its first call. Gone: the
+  hostile-definition boundary for the three members (`copyData`,
+  `readGuarded`, `ControlValidator`) and every declaration check
+  (`assertControl`; `snapshotRows`' modes, default and field checks;
+  `assertRemoveWhen`; `assertDeletionEntry`; the core-argument-name refusal
+  with `SchemaRegistry.argumentNames`; the chain's one-name-space and
+  one-entry-per-model refusals; the refusal of a row predicate the model's
+  `where` does not take, which is now kept as written). Kept: the call-time
+  admission of every control value, placement, the `rows` and `deletion`
+  binding, the cache key, the official-extension admission, the
+  duplicate-extension-name check, the `rows` order guard and the types. No
+  capability changes.
 
 ### 2.2 `rows`: which rows an operation sees
 

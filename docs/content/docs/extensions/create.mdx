@@ -283,9 +283,9 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
 - A value outside the declaration is a `ValidationError` at the control's
   path. A `schema` that throws, is asynchronous or cannot be read is a
   `QueryError`; a VibORM error it throws passes through.
-- Control names are one list per client, shared with `rows.control`. A name
-  core already uses as an argument (`where`, `data`, `select`, …) or one
-  another extension declared is refused when the extension is applied.
+- Control names are one list per client, shared with `rows.control`. Do not
+  take a name core already uses as an argument (`where`, `data`, `select`, …)
+  or one another extension declares.
 - The official [cache](/docs/extensions/cache) declares its mutation `cache`
   option this way. A cached read is keyed on the controls it received.
 
@@ -327,9 +327,8 @@ await db.project.findMany({ archived: "only" }); // archived projects
   control is accepted by every operation that selects rows (reads, `count`,
   `aggregate`, `groupBy`, updates, `upsert`, deletes) of every model;
   `create` and `createMany` do not take it.
-- Filters are constant `where` data on scalar fields, checked against each
-  model when the extension is applied (a wrong model or field is refused then,
-  naming it). TypeScript does not check them in your editor.
+- Filters are constant `where` data on scalar fields. TypeScript does not
+  check their field names in your editor.
 - Core applies them everywhere a query selects rows: root reads and writes,
   aggregates, cursors, `include`/`select` of every relation,
   `some`/`none`/`every` and `is`/`isNot`, relation counts and ordering,
@@ -379,6 +378,10 @@ time and `assign` its constant data. The row stays, with every link.
 - `at` must be a `DateTime` field; `assign` names scalar fields, never `at`'s.
   An entry that writes nothing behaves as an update with empty `data`: a root
   delete fails, a nested one does nothing.
+
+A definition is not checked at runtime. TypeScript flags a misspelt member in
+your editor; an unknown model name, a field of the wrong type or a `removeWhen`
+that names no control is not caught and misbehaves at the first call.
 
 The official [soft delete](/docs/extensions/soft-delete) is these three
 capabilities plus two model methods.

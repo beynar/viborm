@@ -13,11 +13,7 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
-import {
-  ClientInitializationError,
-  ForeignKeyError,
-  NotFoundError,
-} from "@errors";
+import { ForeignKeyError, NotFoundError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { callRows } from "@extensions/rows";
 import { s } from "@schema";
@@ -25,6 +21,7 @@ import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capa
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createSchemaRegistry } from "@validation";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -57,8 +54,6 @@ class RacingSQLite3Driver extends SQLite3Driver {
 
 const TOMBSTONE_UPDATE = /^\s*UPDATE "post" SET .*"deletedAt"/i;
 const POST_UPDATE = /^\s*UPDATE "post"/i;
-const INVALID_PREDICATE =
-  /^Extension "bad" rows\.models\.item\.no\.root is not a valid where: /;
 
 const clients: { $disconnect(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -241,29 +236,32 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     ).toBeUndefined();
   });
 
-  test("a row predicate is admitted by the model's own where when the extension is applied", async () => {
-    const client = createClient({
-      schema,
-      driver: createInMemorySQLite3Driver(),
-    });
-    clients.push(client);
-    const refused = (() => {
-      try {
-        client.$extends({
-          name: "bad",
-          rows: {
-            control: "archived",
-            default: "no",
-            models: { item: { no: { root: { hidden: { gt: "x" } } } } },
+  test("a row predicate is admitted by the model's own where; one it does not take, or one for a model the schema lacks, is kept as written", () => {
+    const chain = appendResolvedExtension(
+      undefined,
+      {
+        name: "trusted",
+        rows: {
+          control: "archived",
+          default: "no",
+          models: {
+            item: {
+              no: {
+                root: { archivedAt: null },
+                related: { hidden: { gt: "x" } },
+              },
+            },
+            ghost: { no: { root: { gone: 1 } } },
           },
-        } as never);
-      } catch (error) {
-        return error;
-      }
-      return undefined;
-    })();
-    expect(refused).toBeInstanceOf(ClientInitializationError);
-    expect((refused as Error).message).toMatch(INVALID_PREDICATE);
+        },
+      },
+      schema,
+      createSchemaRegistry(schema)
+    );
+    const { domain } = callRows(chain.callRows!, "item", undefined);
+    expect(domain.root.get("item")).toEqual([{ archivedAt: { equals: null } }]);
+    expect(domain.related.get("item")).toEqual([{ hidden: { gt: "x" } }]);
+    expect(domain.root.get("ghost")).toEqual([{ gone: 1 }]);
   });
 });
 
