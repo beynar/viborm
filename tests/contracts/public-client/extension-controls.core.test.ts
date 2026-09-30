@@ -507,6 +507,26 @@ describe("controls: admission and ownership", () => {
     );
   });
 
+  test("a callable Standard Schema (ArkType's shape) is admitted, and validates the control", async () => {
+    const base = await seededBase();
+    const schema = Object.assign(
+      (value: unknown) => value,
+      standard<string>((value) =>
+        value === "why" ? { value } : { issues: [{ message: "is not why" }] }
+      )
+    );
+    const db = base.$extends(
+      defineExtension({ name: "callable", controls: { reason: { schema } } })
+    );
+    await expect(db.post.findMany({ reason: "why" })).resolves.toHaveLength(1);
+    const invalid = await failure(db.post.findMany({ reason: "because" }));
+    expect(invalid).toBeInstanceOf(ValidationError);
+    if (!(invalid instanceof ValidationError)) throw invalid;
+    expect(invalid.issues).toEqual([
+      { path: "reason", message: 'Control "reason" is not why' },
+    ]);
+  });
+
   test("arguments that cannot be inspected, and issues that cannot be read, still fail with their class", async () => {
     const base = await seededBase();
     const db = applyUnchecked(base, {
@@ -747,6 +767,69 @@ describe("controls: placement", () => {
       db.post.deleteMany({ where: { id: "none" }, mode: "hard", reason: "why" })
     ).resolves.toEqual({ count: 0 });
   });
+
+  // Plan §2.3: each removeWhen control is placed only on its own managed
+  // model's deletes, whichever extension declares it and in either order.
+  const managing = {
+    name: "managing",
+    controls: { mode: { oneOf: ["soft", "hard"] } },
+    deletion: {
+      removeWhen: { mode: "hard" },
+      models: { post: { at: "deletedAt" } },
+    },
+  } as const;
+  const purging = {
+    name: "purging",
+    controls: { purge: { oneOf: ["no", "yes"] } },
+    deletion: {
+      removeWhen: { purge: "yes" },
+      models: { user: { at: "removedAt" } },
+    },
+  } as const;
+  for (const [first, second] of [
+    [managing, purging],
+    [purging, managing],
+  ] as const) {
+    test(`two extensions' removeWhen controls stay on their own model's deletes (${first.name} first)`, async () => {
+      const removable = s.model({
+        id: s.string().id(),
+        removedAt: s.dateTime().nullable(),
+        posts: s.toMany(() => removablePost),
+      });
+      const removablePost = s.model({
+        id: s.string().id(),
+        authorId: s.string(),
+        author: s
+          .toOne(() => removable)
+          .fields("authorId")
+          .references("id"),
+        deletedAt: s.dateTime().nullable(),
+      });
+      const base = createClient({
+        schema: { user: removable, post: removablePost },
+        driver: createInMemorySQLite3Driver(),
+      });
+      clients.push(base);
+      await syncLiveSchema(base);
+      const db = applyUnchecked(applyUnchecked(base, first), second);
+      const none = { where: { id: "none" } };
+      for (const [model, args] of [
+        ["post", { ...none, purge: "yes" }],
+        ["user", { ...none, mode: "hard" }],
+      ] as const) {
+        expect(
+          await failure(callUnchecked(db, model, "deleteMany", args)),
+          model
+        ).toBeInstanceOf(ValidationError);
+      }
+      await expect(
+        callUnchecked(db, "post", "deleteMany", { ...none, mode: "hard" })
+      ).resolves.toEqual({ count: 0 });
+      await expect(
+        callUnchecked(db, "user", "deleteMany", { ...none, purge: "yes" })
+      ).resolves.toEqual({ count: 0 });
+    });
+  }
 });
 
 describe("controls: definitions refused when applied", () => {

@@ -209,8 +209,10 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // Extension capabilities U3: tombstones at every deletion site, the
 // referential requirement, one instant per call, and `mode: "hard"`, through
 // the public client on the interactive and the batch-only substrate.
+// Compression C1: a root delete whose projection reads to-many relations, and
+// a third substrate without RETURNING (15 cells on each of three drivers).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 26,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 45,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)
@@ -222,9 +224,10 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // U6 (milestone 2): every reference scope (to-one projections, polymorphic
 // arms, is/isNot, to-one order, upward recursion) and physical integrity;
 // U6 repair: the recursive step at the second hop, both directions, and a
-// required polymorphic row carrier.
+// required polymorphic row carrier. Compression C1: the shared behaviour (24
+// cells) on a third substrate without RETURNING.
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 57,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 81,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)

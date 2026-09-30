@@ -1,12 +1,14 @@
 /**
  * `viborm/soft-delete` (extension-capabilities plan v3.1 §1.1) on in-memory
  * SQLite: the plan's use block end to end (`soft-delete-behavior.ts`, which
- * PGlite also runs), plus the configuration branches the use block does not
+ * PGlite also runs), on the interactive driver and on one without RETURNING
+ * (MySQL's shape), plus the configuration branches the use block does not
  * take: no actor field, and an actor field with no actor.
  */
 
 import { softDelete } from "@src/soft-delete";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { createNonReturningSQLite3Driver } from "@tests/providers/local/sqlite3-fixtures";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   openSoftDeleteFixture,
@@ -17,6 +19,10 @@ import {
 runSoftDeleteBehavior({
   name: "SQLite3",
   createDriver: createInMemorySQLite3Driver,
+});
+runSoftDeleteBehavior({
+  name: "SQLite3 without RETURNING",
+  createDriver: createNonReturningSQLite3Driver,
 });
 
 describe("SQLite3: viborm/soft-delete configuration branches", () => {

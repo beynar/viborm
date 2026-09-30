@@ -312,6 +312,50 @@ export function runDeletionCapabilityBehavior(
       expect(physicalDeletes()).toEqual([]);
     });
 
+    test("a root delete including to-many relations keeps the row and publishes them; a repeat is NotFound", async () => {
+      const { base, db } = context;
+      // Post 11 has vote 1 and no comment; its author is 1.
+      const deleted = await db.post.delete({
+        where: { id: 11 },
+        include: { votes: true, author: true, comments: true },
+      });
+      expect(deleted).toMatchObject({
+        id: 11,
+        title: "p11",
+        deletedById: ACTOR,
+        votes: [{ id: 1, postId: 11 }],
+        author: { id: 1, name: "a1" },
+        comments: [],
+      });
+      expect(deleted.deletedAt).toBeInstanceOf(Date);
+      expect(
+        (await base.post.findUniqueOrThrow({ where: { id: 11 } })).deletedAt
+      ).toEqual(deleted.deletedAt);
+      expect(await base.vote.findMany()).toEqual([{ id: 1, postId: 11 }]);
+      expect(physicalDeletes()).toEqual([]);
+      expect(
+        await failure(
+          db.post.delete({ where: { id: 11 }, include: { votes: true } })
+        )
+      ).toBeInstanceOf(NotFoundError);
+    });
+
+    test("a root delete with a relation projection over a restricted candidate is refused and leaves the row live", async () => {
+      const { base, db } = context;
+      // Post 10 has the live comment 100.
+      expect(
+        await failure(
+          db.post.delete({ where: { id: 10 }, include: { comments: true } })
+        )
+      ).toBeInstanceOf(ForeignKeyError);
+      expect(
+        await base.post.findUniqueOrThrow({
+          where: { id: 10 },
+          select: { deletedAt: true, deletedById: true },
+        })
+      ).toEqual({ deletedAt: null, deletedById: null });
+    });
+
     test("a root deleteMany counts the live rows it tombstones, then none", async () => {
       const { base, db } = context;
       // 11 and 14 are live and unreferenced; 12 is already a tombstone.

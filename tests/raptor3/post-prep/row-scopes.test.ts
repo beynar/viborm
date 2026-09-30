@@ -1,7 +1,8 @@
 /**
  * The `rows` capability at every set scope (extension capabilities plan v3.1
- * §2.2, Appendix lookup purposes), on in-memory SQLite: the interactive route
- * and the batch-only substrate. PGlite runs the same behaviour in
+ * §2.2, Appendix lookup purposes), on in-memory SQLite: the interactive route,
+ * the batch-only substrate, and a driver without RETURNING (MySQL's shape).
+ * PGlite runs the same behaviour in
  * `tests/providers/local/pglite-row-scopes.test.ts`.
  *
  * The unique-key witnesses that need a write to land INSIDE one operation run
@@ -25,7 +26,10 @@ import {
   runRowScopeBehavior,
 } from "@tests/contracts/engine/query/row-scope-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
-import { createBatchOnlySQLite3Driver } from "@tests/providers/local/sqlite3-fixtures";
+import {
+  createBatchOnlySQLite3Driver,
+  createNonReturningSQLite3Driver,
+} from "@tests/providers/local/sqlite3-fixtures";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -37,6 +41,10 @@ describe("the rows capability's set scopes", () => {
   runRowScopeBehavior({
     name: "SQLite3 batch-only",
     createDriver: createBatchOnlySQLite3Driver,
+  });
+  runRowScopeBehavior({
+    name: "SQLite3 without RETURNING",
+    createDriver: createNonReturningSQLite3Driver,
   });
 });
 
