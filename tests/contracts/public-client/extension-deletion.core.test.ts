@@ -1,8 +1,8 @@
 /**
  * The `deletion` capability's call facts (extension-capabilities plan v3.1
  * §2.2-2.3): how a chain's `rows` and `deletion` resolve to one call's
- * domains and tombstones, row predicates admitted when applied, one instant
- * per call across re-plans and array members, and a declaration without rows.
+ * domains and tombstones, row predicates bound as written, one instant per
+ * call across re-plans and array members, and a declaration without rows.
  * The provider behaviour (tombstones at every site, the referential
  * requirement, `mode: "hard"`) is `deletion-capability-behavior.ts`, run on
  * SQLite3, the batch-only substrate and PGlite.
@@ -21,7 +21,6 @@ import { openDeletionFixture } from "@tests/contracts/engine/write/deletion-capa
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { createSchemaRegistry } from "@validation";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test } from "vitest";
 
@@ -236,32 +235,43 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     ).toBeUndefined();
   });
 
-  test("a row predicate is admitted by the model's own where; one it does not take, or one for a model the schema lacks, is kept as written", () => {
-    const chain = appendResolvedExtension(
-      undefined,
-      {
-        name: "trusted",
-        rows: {
-          control: "archived",
-          default: "no",
-          models: {
-            item: {
-              no: {
-                root: { archivedAt: null },
-                related: { hidden: { gt: "x" } },
-              },
-            },
-            ghost: { no: { root: { gone: 1 } } },
+  test("a row predicate is bound as written: raw shorthand filters rows end to end, and a model the schema lacks is ignored", async () => {
+    const base = createClient({
+      schema,
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    await base.item.createMany({
+      data: [
+        { id: 1, archivedAt: null, hidden: false },
+        { id: 2, archivedAt: new Date(), hidden: false },
+        { id: 3, archivedAt: null, hidden: true },
+      ],
+    });
+    const db = base.$extends({
+      name: "trusted",
+      rows: {
+        control: "archived",
+        default: "no",
+        models: {
+          item: {
+            no: { root: { archivedAt: null, hidden: false } },
+            yes: { root: { NOT: { archivedAt: null } } },
           },
+          ghost: { no: { root: { gone: 1 } } },
         },
       },
-      schema,
-      createSchemaRegistry(schema)
-    );
-    const { domain } = callRows(chain.callRows!, "item", undefined);
-    expect(domain.root.get("item")).toEqual([{ archivedAt: { equals: null } }]);
-    expect(domain.related.get("item")).toEqual([{ hidden: { gt: "x" } }]);
-    expect(domain.root.get("ghost")).toEqual([{ gone: 1 }]);
+    });
+    const ids = (rows: readonly { readonly id: number }[]) =>
+      rows.map((row) => row.id);
+    expect(ids(await db.item.findMany({ orderBy: { id: "asc" } }))).toEqual([
+      1,
+    ]);
+    expect(
+      ids(await db.item.findMany({ archived: "yes", orderBy: { id: "asc" } }))
+    ).toEqual([2]);
+    expect(await db.item.count({ archived: "no" })).toBe(1);
   });
 });
 

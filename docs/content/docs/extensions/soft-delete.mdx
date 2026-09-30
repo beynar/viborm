@@ -59,6 +59,8 @@ may follow those. The [cache](#caching) can go on either side.
 A definition is not checked at runtime. TypeScript flags a misspelt member in
 your editor; an unknown model name, a field of the wrong type or a `removeWhen`
 that names no control is not caught and misbehaves at the first call.
+In `softDelete`, a model name the schema lacks is still refused when the
+extension is applied, through its `restore` methods.
 
 ### One actor per client, one actor per transaction
 

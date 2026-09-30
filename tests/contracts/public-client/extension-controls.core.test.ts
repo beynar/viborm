@@ -335,12 +335,19 @@ describe("controls: admission and ownership", () => {
     ).resolves.toBeNull();
   });
 
-  test("an unplaced control and an undeclared key stay unknown keys; a value outside oneOf is a ValidationError at the control's path", async () => {
+  test("an unplaced control and an undeclared key stay unknown keys; a value outside oneOf, compared by identity, is a ValidationError at the control's path", async () => {
     const base = await seededBase();
     const db = base.$extends({
       name: "tenant",
-      controls: { region: { oneOf: ["eu", "us"], on: "reads" } },
+      controls: {
+        region: { oneOf: ["eu", "us"], on: "reads" },
+        level: { oneOf: [2, 3], on: "reads" },
+      },
     });
+    await expect(db.post.findMany({ level: 2 })).resolves.toHaveLength(1);
+    expect(
+      await failure(callUnchecked(db, "post", "findMany", { level: "2" }))
+    ).toBeInstanceOf(ValidationError);
     const placedOnWrite = await failure(
       callUnchecked(db, "post", "update", {
         where: { id: "p1" },

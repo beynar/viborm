@@ -3,10 +3,6 @@ import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
-import type { AnyModel } from "@schema/model";
-import { isPlainRecord } from "@schema/relation/terminal";
-import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { parse } from "@validation";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type {
   ControlsContribution,
@@ -251,52 +247,6 @@ function snapshotModelFactories(
   return Object.freeze(factories);
 }
 
-/** What the receiving client's schema registry answers when an extension is applied. */
-export interface ExtensionSchemaRegistry {
-  getModelSchemas(model: AnyModel): {
-    readonly core: { readonly where: StandardSchemaV1 };
-  };
-}
-
-/**
- * A row predicate in the form the model's own `where` admits: the engine
- * prepares that form and never validates it again. A predicate that form
- * does not take, or one for a model the schema lacks, is kept as written.
- */
-function admitWhere(
-  where: Readonly<Record<string, unknown>>,
-  model: AnyModel | undefined,
-  registry: ExtensionSchemaRegistry
-): Readonly<Record<string, unknown>> {
-  if (model === undefined) return where;
-  const result = parse(registry.getModelSchemas(model).core.where, where);
-  return result.issues === undefined && isPlainRecord(result.value)
-    ? result.value
-    : where;
-}
-
-/** `rows` with every predicate admitted by its model's `where`. */
-function admitRows(
-  rows: RowsContribution,
-  schema: Schema,
-  registry: ExtensionSchemaRegistry
-): RowsContribution {
-  const models: Record<string, RowsContribution["models"][string]> = {};
-  for (const [modelName, entry] of Object.entries(rows.models)) {
-    const scoped: Record<string, RowsContribution["models"][string][string]> =
-      {};
-    for (const [mode, purposes] of Object.entries(entry)) {
-      const predicates: Record<string, Readonly<Record<string, unknown>>> = {};
-      for (const [purpose, where] of Object.entries(purposes)) {
-        predicates[purpose] = admitWhere(where, schema[modelName], registry);
-      }
-      scoped[mode] = predicates;
-    }
-    models[modelName] = scoped;
-  }
-  return { ...rows, models };
-}
-
 /**
  * Read a caller-owned definition once. The six handler members are validated
  * and frozen as host-owned snapshots, so a failed application cannot mutate
@@ -304,8 +254,7 @@ function admitRows(
  */
 export function normalizeExtensionDefinition(
   value: ExtensionDefinitionInput,
-  schema?: Schema,
-  registry?: ExtensionSchemaRegistry
+  schema?: Schema
 ): RuntimeExtensionDefinition {
   if (!isRecord(value)) {
     extensionError("Client extension must be an object.");
@@ -370,11 +319,7 @@ export function normalizeExtensionDefinition(
     rawModel === undefined
       ? undefined
       : snapshotModelFactories(rawModel, name, schema);
-  const { controls, deletion } = value;
-  const rows =
-    value.rows && schema && registry
-      ? admitRows(value.rows, schema, registry)
-      : value.rows;
+  const { controls, rows, deletion } = value;
 
   return Object.freeze({
     name,

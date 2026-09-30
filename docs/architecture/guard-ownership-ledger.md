@@ -3243,11 +3243,10 @@ owned by U3" is closed here.
 
 **Deleted 2026-09-30, owner decision: the definition is trusted.** The
 `admitWhere` row (a row predicate the model's `where` refuses) went with its
-refusal. The admission stays: a predicate the model's `where` takes is bound
-in its admitted form, and one it does not take, or one for a model the schema
-lacks, is kept as written (`extension-deletion.core.test.ts` "a row predicate
-is admitted by the model's own where; one it does not take, or one for a
-model the schema lacks, is kept as written").
+refusal, and the admission itself went too: preparation reads a predicate as
+written, so a row predicate is bound as the extension wrote it
+(`extension-deletion.core.test.ts` "a row predicate is bound as written: raw
+shorthand filters rows end to end, and a model the schema lacks is ignored").
 
 ## Addendum — rows at set scopes (extension capabilities U4, 2026-10-01)
 

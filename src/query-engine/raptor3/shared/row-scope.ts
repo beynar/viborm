@@ -2,9 +2,9 @@ import type { PreparedDomain } from "./query";
 import type { Input } from "./schema";
 
 /**
- * Constant `where` inputs per model (its TS name), already admitted by that
- * model's `where` schema when the extension was applied. They AND with each
- * other; a model with none is not narrowed.
+ * Constant `where` inputs per model (its TS name), as the extension wrote
+ * them: preparation reads a `where` input's shorthand itself, so none is
+ * admitted first. They AND with each other; a model with none is not narrowed.
  */
 export type ModelDomain = ReadonlyMap<string, readonly Input[]>;
 

@@ -23,7 +23,6 @@ import {
 import {
   type ControlLiteral,
   type ExtensionDefinitionInput,
-  type ExtensionSchemaRegistry,
   extensionError,
   normalizeExtensionDefinition,
   type RuntimeExtensionDefinition,
@@ -423,10 +422,9 @@ function assertOfficialExtensionAdmission(options: {
 export function appendResolvedExtension(
   chain: ResolvedExtensionChain | undefined,
   value: ExtensionDefinitionInput,
-  schema: Schema,
-  registry?: ExtensionSchemaRegistry
+  schema: Schema
 ): ResolvedExtensionChain {
-  const definition = normalizeExtensionDefinition(value, schema, registry);
+  const definition = normalizeExtensionDefinition(value, schema);
   const incomingCache = getOfficialCacheQueryCapability(definition.query);
   const existingOfficialCache = getOfficialCacheChainDefinition(chain);
   const incomingDefaultOmit = getOfficialDefaultOmitRequestCapability(

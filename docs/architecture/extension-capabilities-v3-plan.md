@@ -190,8 +190,8 @@ controls: { [name: string]: ({ oneOf: readonly (string | number | boolean)[] }
   (`assertControl`; `snapshotRows`' modes, default and field checks;
   `assertRemoveWhen`; `assertDeletionEntry`; the core-argument-name refusal
   with `SchemaRegistry.argumentNames`; the chain's one-name-space and
-  one-entry-per-model refusals; the refusal of a row predicate the model's
-  `where` does not take, which is now kept as written). Kept: the call-time
+  one-entry-per-model refusals; the admission of a row predicate through the
+  model's `where`, since preparation reads a predicate as written). Kept: the call-time
   admission of every control value, placement, the `rows` and `deletion`
   binding, the cache key, the official-extension admission, the
   duplicate-extension-name check, the `rows` order guard and the types. No

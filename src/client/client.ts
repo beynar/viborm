@@ -35,7 +35,6 @@ import type {
   ClientExtension,
   ContextualExtensionDefinition,
   ExactExtensionDefinition,
-  ExtensionSchemaRegistry,
   HasNamedClientOmit,
   SchemaBoundExtensionAdmission,
 } from "@extensions/definition";
@@ -508,12 +507,6 @@ export class VibORM<C extends VibORMConfig> {
   private readonly schema: C["schema"];
   private readonly engine: QueryEngine;
   private readonly relations: ResolvedRelationIndex;
-  /**
-   * The operation-schema owner, as an extension's application reads it: the
-   * argument names no control may take, and the `where` a row predicate is
-   * admitted by.
-   */
-  private readonly schemaRegistry: ExtensionSchemaRegistry;
   /** One resolved declarative omit per authenticated capability on this client. */
   private extensionOmitResolvers:
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
@@ -545,7 +538,6 @@ export class VibORM<C extends VibORMConfig> {
 
     // Create registry and engine once, reuse for all operations
     const schemaRegistry = createResolvedSchemaRegistry(this.schema, relations);
-    this.schemaRegistry = schemaRegistry;
     const registry = createModelRegistry(
       this.schema,
       schemaRegistry,
@@ -1190,8 +1182,7 @@ export class VibORM<C extends VibORMConfig> {
             const extensionChain = appendResolvedExtension(
               chain,
               extension,
-              this.schema,
-              this.schemaRegistry
+              this.schema
             );
             // The one point that holds both the resolved chain and the concrete
             // driver, so the one point that can partition the official cache by

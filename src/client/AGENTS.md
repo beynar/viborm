@@ -283,7 +283,7 @@ provider dispatch, parsing, result order, and commit publication.
 
 | Generic owner | Responsibility |
 |---|---|
-| `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization of the six handler members; `controls`, `rows` and `deletion` bound as written (trusted, owner decision 2026-09-30), `rows` predicates in their admitted form |
+| `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization of the six handler members; `controls`, `rows` and `deletion` bound as written (trusted, owner decision 2026-09-30) |
 | `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup |
 | `src/extensions/controls.ts` | Declared-control types, placement per (model, operation), and the one admission of a call's controls |
 | `src/extensions/rows.ts` | Row domains, tombstones and row identity bound once per application; a call's facts looked up from its admitted controls |
