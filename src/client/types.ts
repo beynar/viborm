@@ -27,8 +27,12 @@ import type {
   GraphRecurse,
 } from "@validation/relations/recurrence";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
-import type { CacheInvalidationOptions } from "../cache/schema";
-import type { NoControls, OperationControls } from "../extensions/controls";
+import type { OfficialCacheControls } from "../cache/extension";
+import type {
+  DefinitionControls,
+  NoControls,
+  OperationControls,
+} from "../extensions/controls";
 import type { VibORMConfig } from "./client";
 import type {
   AggregateResultType,
@@ -483,11 +487,24 @@ export type Client<
       C["schema"][K],
       ClientDefaultOmit<C, K>,
       ClientDefaults,
-      ExtensionCache,
-      PlacedOperationControls<Controls, K, O>
+      PlacedOperationControls<ClientControls<ExtensionCache, Controls>, K, O>
     >;
   };
 };
+
+/**
+ * The official cache's one control, `cache` on every write, placed as its
+ * definition declares it; the client carries it while the cache bit is set.
+ */
+type OfficialCacheControlState = DefinitionControls<{
+  readonly controls: OfficialCacheControls;
+}>;
+
+type ClientControls<ExtensionCache extends boolean, Controls> = [
+  ExtensionCache,
+] extends [true]
+  ? Controls & OfficialCacheControlState
+  : Controls;
 
 /** The controls one (model, operation) accepts; none without a declaration. */
 type PlacedOperationControls<Controls, ModelName, O> = [
@@ -505,28 +522,6 @@ type WithControls<T, Controls> = [keyof Controls] extends [never]
 
 export type ClientRelationDefaults<C extends VibORMConfig> =
   ClientRelationOmitContext<C>;
-
-type WithoutCacheKey<T> = T extends { cache?: infer _ }
-  ? Omit<T, "cache"> & {}
-  : T;
-
-type IsClientCacheEnabled<ExtensionCache extends boolean> = [
-  ExtensionCache,
-] extends [true]
-  ? true
-  : false;
-
-type ClientOperationPayload<
-  O extends Operations,
-  T,
-  ExtensionCache extends boolean,
-> = O extends MutationOperations
-  ? IsClientCacheEnabled<ExtensionCache> extends true
-    ? T extends object
-      ? Omit<T, "cache"> & { cache?: CacheInvalidationOptions }
-      : T
-    : WithoutCacheKey<T>
-  : WithoutCacheKey<T>;
 
 /**
  * Every key ONE clause accepts, taking the union across a union-typed clause
@@ -1169,13 +1164,9 @@ type Operation<
   M extends Model<any>,
   DefaultOmit = undefined,
   ClientDefaults = never,
-  ExtensionCache extends boolean = false,
   Controls = NoControls,
   Payload = OperationPayload<O, M>,
-  ClientPayload = WithControls<
-    ClientOperationPayload<O, Payload, ExtensionCache>,
-    Controls
-  >,
+  ClientPayload = WithControls<Payload, Controls>,
 > = undefined extends ClientPayload
   ? <Arg extends ClientPayload>(
       args?: NoExtraOperationKeys<

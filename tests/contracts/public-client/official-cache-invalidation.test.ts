@@ -4,6 +4,7 @@ import { cache } from "@src/cache/exports";
 import {
   CacheConfigurationError,
   CacheInvalidKeyError,
+  QueryError,
   ValidationError,
 } from "@src/errors";
 import { createClient, s } from "@src/index";
@@ -118,26 +119,23 @@ function officialClient(
 }
 
 describe("official cache mutation ownership", () => {
-  test("keeps extraction lazy, runs it after request, and publishes before public listeners", async () => {
+  test("admits the caller's cache control before request handlers, which never see it", async () => {
     const { driver, namespace } = fallbackFamily();
     const NAMESPACE = officialNamespaces(namespace);
     const timeline: string[] = [];
     const cacheDriver = new RecordingCache(timeline);
-    const base = createClient({ schema, driver }).$extends({
-      name: "inject-cache-after-request",
-      request: {
-        user: {
-          create() {
-            timeline.push("request");
-            return Object.defineProperty({}, "cache", {
-              enumerable: true,
-              value: { autoInvalidate: true },
-            });
+    const client = createClient({ schema, driver })
+      .$extends({
+        name: "inspect-clean-request",
+        request: {
+          user: {
+            create({ input }) {
+              timeline.push(`request:cache=${Reflect.has(input, "cache")}`);
+              return {};
+            },
           },
         },
-      },
-    });
-    const client = base
+      })
       .$extends(cache({ driver: cacheDriver, version: "one" }))
       .$extends({
         name: "inspect-clean-query",
@@ -156,18 +154,67 @@ describe("official cache mutation ownership", () => {
 
     const operation = client.user.create({
       data: { id: "u1", name: "Ada" },
+      cache: { autoInvalidate: true },
     });
     expect(timeline).toEqual([]);
     expect(cacheDriver.invalidations).toEqual([]);
 
     await expect(operation).resolves.toMatchObject({ id: "u1", name: "Ada" });
     expect(timeline).toEqual([
-      "request",
+      "request:cache=false",
       "query:cache=false",
       "cache",
       "public:committed",
     ]);
     expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.one}:user:`]);
+  });
+
+  test("refuses a request patch that names the cache control, in either order, before any provider work", async () => {
+    const { driver } = fallbackFamily();
+    const timeline: string[] = [];
+    const cacheDriver = new RecordingCache(timeline);
+    const injecting = {
+      name: "inject-cache-after-request",
+      request: {
+        user: {
+          create() {
+            timeline.push("request");
+            return Object.defineProperty({}, "cache", {
+              enumerable: true,
+              get() {
+                timeline.push("patch-value-read");
+                return { autoInvalidate: true };
+              },
+            });
+          },
+        },
+      },
+    } as const;
+    for (const client of [
+      createClient({ schema, driver })
+        .$extends(injecting)
+        .$extends(cache({ driver: cacheDriver, version: "one" })),
+      createClient({ schema, driver })
+        .$extends(cache({ driver: cacheDriver, version: "one" }))
+        .$extends(injecting),
+    ]) {
+      timeline.length = 0;
+      const refusal = await client.user
+        .create({ data: { id: "u-refused", name: "Ada" } })
+        .then(
+          () => undefined,
+          (error: unknown) => error
+        );
+      expect(refusal).toBeInstanceOf(QueryError);
+      expect(String(refusal)).toContain('named control "cache"');
+      expect(timeline).toEqual(["request"]);
+    }
+    expect(cacheDriver.invalidations).toEqual([]);
+    await expect(
+      createClient({ schema, driver }).user.findUnique({
+        where: { id: "u-refused" },
+      })
+    ).resolves.toBeNull();
   });
 
   test("reads only the cache descriptor once and preserves unrelated descriptors", async () => {
@@ -233,12 +280,15 @@ describe("official cache mutation ownership", () => {
     expect(reads).toBe(0);
     const first = configuredOperation.then(undefined, (error) => error);
     const second = configuredOperation.then(undefined, (error) => error);
-    await expect(first).resolves.toBeInstanceOf(CacheConfigurationError);
-    await expect(second).resolves.toBeInstanceOf(CacheConfigurationError);
+    // Reading a control is core's admission: an unreadable `cache` is the
+    // extension-code failure class, as a throwing request transform is.
+    await expect(first).resolves.toBeInstanceOf(QueryError);
+    await expect(second).resolves.toBeInstanceOf(QueryError);
     const normalizedFailure = await first;
-    if (!(normalizedFailure instanceof CacheConfigurationError)) {
+    if (!(normalizedFailure instanceof QueryError)) {
       throw normalizedFailure;
     }
+    expect(await second).toBe(normalizedFailure);
     expect(normalizedFailure).toMatchObject({
       originalCause: expect.any(Error),
     });
@@ -311,7 +361,7 @@ describe("official cache mutation ownership", () => {
     await expect(unconfiguredOperation).rejects.toBeInstanceOf(ValidationError);
   });
 
-  test("does not inspect cache options when an earlier request transform fails", async () => {
+  test("admits cache options before request transforms, so a failing transform follows the read", async () => {
     const { driver } = fallbackFamily();
     const cacheDriver = new RecordingCache();
     const client = createClient({ schema, driver })
@@ -341,8 +391,8 @@ describe("official cache mutation ownership", () => {
 
     const operation = Reflect.apply(client.user.create, undefined, [input]);
     expect(cacheReads).toBe(0);
-    await expect(operation).rejects.toThrow();
-    expect(cacheReads).toBe(0);
+    await expect(operation).rejects.toBeInstanceOf(QueryError);
+    expect(cacheReads).toBe(1);
     expect(cacheDriver.invalidations).toEqual([]);
   });
 

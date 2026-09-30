@@ -285,6 +285,8 @@ export interface SchemaRegistryLookup<
     [K in keyof S]: ModelSchemas<S[K]>;
   };
   getModelSchemas(model: AnyModel): ModelSchemas<AnyModel>;
+  /** Every top-level argument name an operation schema of this schema accepts. */
+  argumentNames(): ReadonlySet<string>;
   validate(
     modelName: string,
     operation: SchemaRegistryOperation,

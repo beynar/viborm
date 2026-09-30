@@ -337,6 +337,56 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
 }
 
 /**
+ * Whether {@link stableStringify} keys this value by its content: plain
+ * records and arrays of JSON scalars, bigints, valid `Date`s and
+ * `Uint8Array`s. A class instance would key as its own enumerable fields (a
+ * `Map` as `{}`), a function or symbol throws, and a cycle throws; the caller
+ * bypasses the cache for any of those rather than alias or fail. A value it
+ * cannot inspect is not canonical either.
+ */
+export function isCanonicalKeyData(value: unknown): boolean {
+  try {
+    return hasCanonicalForm(value, new Set());
+  } catch {
+    return false;
+  }
+}
+
+function hasCanonicalForm(value: unknown, seen: Set<object>): boolean {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+    case "bigint":
+      return true;
+    case "number":
+      return Number.isFinite(value);
+    case "object":
+      break;
+    default:
+      return false;
+  }
+  // The two instance kinds `stableStringify` brands, tested as it tests them.
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  if (value instanceof Uint8Array) return true;
+  if (seen.has(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (
+    !Array.isArray(value) &&
+    prototype !== Object.prototype &&
+    prototype !== null
+  ) {
+    return false;
+  }
+  seen.add(value);
+  const canonical = Object.values(value).every((entry) =>
+    hasCanonicalForm(entry, seen)
+  );
+  seen.delete(value);
+  return canonical;
+}
+
+/**
  * Fast non-cryptographic hash (djb2 variant)
  * Produces a 16-character hex string
  */

@@ -5,6 +5,31 @@ Versioning.
 
 ## Unreleased
 
+- **Breaking: a mutation's `cache` option is the cache extension's declared
+  control.** VibORM now takes `cache` out of a mutation's arguments and checks
+  it once, before any request handler runs, the way it handles every argument
+  an extension declares. Four things change for code that touched it:
+  - A request handler can no longer add or replace `cache`: a patch that
+    names it is refused with a `QueryError` ("named control \"cache\""),
+    whichever order the two extensions were applied in.
+  - Request handlers no longer see `cache` in their input (query handlers
+    already did not).
+  - A `cache` value whose getter throws is a `QueryError`, no longer a
+    `CacheConfigurationError`. A malformed value is still a
+    `CacheConfigurationError`.
+  - `cache` is checked before request handlers run, so an invalid `cache`
+    fails before them, and a request handler that throws no longer stops
+    `cache` from being read.
+  - Added: the value `cache()` returns has a `controls` member, which declares
+    `cache` on writes.
+  - Added: request and query handler contexts of a model operation have an
+    optional `controls`: the values of the controls the handler's own
+    extension declares, and only those.
+  - Unchanged: the third type parameter of the public `Client` type (it still
+    says whether the official cache is installed), and the message of a
+    `cache` value the cache refuses still reads "Invalid mutation cache
+    options: …".
+
 ## 1.0.0-rc.4 — Release candidate (not yet published)
 
 - **Breaking: instrumentation presentation moves into the `instrumentation()`

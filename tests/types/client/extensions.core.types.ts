@@ -909,3 +909,32 @@ type _variantResultStaysExact = Expect<
     }[]
   >
 >;
+
+// A declaring extension's handlers read its admitted controls, read-only and
+// unknown until narrowed (the runtime shows each handler only its own).
+baseClient().$extends({
+  name: "control-context",
+  controls: { reason: { oneOf: ["audit", "sync"] } },
+  request: {
+    post: {
+      findMany({ controls }) {
+        type _requestControls = Expect<
+          Equal<typeof controls, Readonly<Record<string, unknown>> | undefined>
+        >;
+        return {};
+      },
+    },
+  },
+  query: {
+    post: {
+      findMany({ controls, proceed }) {
+        type _queryControls = Expect<
+          Equal<typeof controls, Readonly<Record<string, unknown>> | undefined>
+        >;
+        // @ts-expect-error - admitted controls are read-only
+        if (controls) controls.reason = "sync";
+        return proceed();
+      },
+    },
+  },
+});

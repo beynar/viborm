@@ -47,6 +47,7 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
   readonly proxy: {
     [K in keyof S]: ModelSchemas<S[K]>;
   };
+  private argumentNameSet: ReadonlySet<string> | undefined;
 
   constructor(schema: S, index: ResolvedRelationIndex) {
     this.schema = schema;
@@ -128,6 +129,25 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
       this.cache.set(model, schemas);
     }
     return schemas as ModelSchemas<AnyModel>;
+  };
+
+  /**
+   * Every top-level argument name an operation schema accepts, across every
+   * operation. The argument factories spell fixed key sets that do not depend
+   * on the model, so the first model's schemas answer for all of them; built
+   * on first read and kept for the registry's lifetime.
+   */
+  argumentNames = (): ReadonlySet<string> => {
+    if (this.argumentNameSet !== undefined) return this.argumentNameSet;
+    const names = new Set<string>();
+    const [model] = Object.values(this.schema);
+    if (model !== undefined) {
+      for (const schema of Object.values(this.getModelSchemas(model).args)) {
+        for (const name of Object.keys(schema.entries)) names.add(name);
+      }
+    }
+    this.argumentNameSet = names;
+    return names;
   };
 
   validate = (

@@ -1,8 +1,4 @@
-import type {
-  CacheExecutionOptions,
-  CacheInvalidationOptions,
-  WithCacheOptions,
-} from "@cache";
+import type { CacheExecutionOptions, WithCacheOptions } from "@cache";
 import type {
   OfficialCacheExtension,
   OfficialCacheQueryContribution,
@@ -10,7 +6,9 @@ import type {
 import {
   bindOfficialCacheChain,
   getOfficialCacheChainCapability,
+  readMutationCacheOptions,
 } from "@cache/extension";
+import { isCanonicalKeyData } from "@cache/key";
 import type { AnyDriver } from "@drivers";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
@@ -28,12 +26,15 @@ import {
 } from "@errors";
 import {
   appendResolvedExtension,
+  lookupPlacedControls,
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
+import type { AdmittedControls } from "@extensions/controls";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
+  CoreArgumentNames,
   ExactExtensionDefinition,
   HasNamedClientOmit,
   SchemaBoundExtensionAdmission,
@@ -55,7 +56,6 @@ import {
   createCacheExecutionOptions,
   executeCachedResultOperation,
   invalidateManualCache,
-  prepareMutationCacheInput,
   prepareMutationCacheWriteOutcome,
   validateCacheableOperation,
 } from "@query-engine/cache-flow";
@@ -476,12 +476,29 @@ export type ExtendedOperationResult<
   : never;
 
 /**
+ * What one cached read is keyed on. A read that admitted no control keeps
+ * today's key, the prepared arguments byte for byte; otherwise the key is the
+ * pair of those arguments and the admitted controls, which no base key can
+ * spell (its arguments are always an object). A control value that is not
+ * plain data has no canonical form: `undefined` bypasses the cache.
+ */
+function cacheKeyOf(
+  args: Record<string, unknown>,
+  controls: AdmittedControls | undefined
+): unknown {
+  if (controls === undefined) return args;
+  return isCanonicalKeyData(controls) ? [args, controls] : undefined;
+}
+
+/**
  * VibORM Client
  */
 export class VibORM<C extends VibORMConfig> {
   private readonly schema: C["schema"];
   private readonly engine: QueryEngine;
   private readonly relations: ResolvedRelationIndex;
+  /** The operation-schema owner's argument names, which no control may take. */
+  private readonly coreArgumentNames: CoreArgumentNames;
   /** One resolved declarative omit per authenticated capability on this client. */
   private extensionOmitResolvers:
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
@@ -513,6 +530,7 @@ export class VibORM<C extends VibORMConfig> {
 
     // Create registry and engine once, reuse for all operations
     const schemaRegistry = createResolvedSchemaRegistry(this.schema, relations);
+    this.coreArgumentNames = schemaRegistry.argumentNames;
     const registry = createModelRegistry(
       this.schema,
       schemaRegistry,
@@ -580,23 +598,24 @@ export class VibORM<C extends VibORMConfig> {
     }
 
     const rawArgs = (args ?? {}) as Record<string, unknown>;
-    let cacheOptions: CacheInvalidationOptions | undefined;
     const isWrite = isWriteOperation(operation);
+    const chain = engine.extensionChain;
 
     const requestHandlers = lookupResolvedExtensionHandlers(
-      engine.extensionChain,
+      chain,
       "request",
       modelNameStr,
       operation
     );
-    const hasOperationObservers =
-      (engine.extensionChain?.observe.length ?? 0) > 0;
+    const hasOperationObservers = (chain?.observe.length ?? 0) > 0;
+    const hasPlacedControls =
+      lookupPlacedControls(chain, modelNameStr, operation).length > 0;
     let operationArgs: Record<string, unknown> = rawArgs;
     let prepareInput: PrepareOperationInput | undefined;
 
     if (
       requestHandlers === undefined &&
-      !(officialCache !== undefined && isWrite) &&
+      !hasPlacedControls &&
       !hasOperationObservers
     ) {
       const requestArgs = rawArgs;
@@ -608,23 +627,21 @@ export class VibORM<C extends VibORMConfig> {
       // Request code stays behind PendingOperation's first preparation
       // boundary. That boundary memoizes both this callback's value and its
       // failure when several lifecycle entry points observe the same
-      // operation.
-      prepareInput = () => {
+      // operation, and hands it the arguments with their controls removed.
+      prepareInput = (controlFreeArgs, controls) => {
         const transformed =
           requestHandlers === undefined
-            ? rawArgs
+            ? controlFreeArgs
             : applyRequestTransforms(
                 modelNameStr,
                 operation,
-                rawArgs,
-                requestHandlers
+                controlFreeArgs,
+                requestHandlers,
+                chain?.controls === undefined
+                  ? undefined
+                  : { names: chain.controls.names, admitted: controls }
               );
-        let requestArgs = transformed ?? {};
-        if (officialCache !== undefined && isWrite) {
-          const prepared = prepareMutationCacheInput(operation, requestArgs);
-          requestArgs = prepared.args;
-          cacheOptions = prepared.options;
-        }
+        const requestArgs = transformed ?? {};
         const omittedArgs = clientOmit
           ? applyClientOmit(model, operation, requestArgs, clientOmit)
           : requestArgs;
@@ -638,12 +655,12 @@ export class VibORM<C extends VibORMConfig> {
       | undefined =
       officialCache === undefined || !isWrite
         ? undefined
-        : (context) =>
+        : (context, controls) =>
             prepareMutationCacheWriteOutcome(
               officialCache.driver,
               modelNameStr,
               operation,
-              () => cacheOptions,
+              readMutationCacheOptions(controls),
               context,
               officialCache.scope
             );
@@ -756,11 +773,13 @@ export class VibORM<C extends VibORMConfig> {
           return execute();
         }
         const cacheResult = readPendingCacheResult(pendingOperation);
+        const key = cacheKeyOf(cacheResult.args, cacheResult.controls);
+        if (key === undefined) return execute();
         return executeCachedResultOperation(
           cacheRead.capability.driver,
           modelName,
           operation,
-          cacheResult.args,
+          key,
           () => execute(),
           {
             ...cacheRead.options,
@@ -1152,7 +1171,8 @@ export class VibORM<C extends VibORMConfig> {
             const extensionChain = appendResolvedExtension(
               chain,
               extension,
-              this.schema
+              this.schema,
+              this.coreArgumentNames
             );
             // The one point that holds both the resolved chain and the concrete
             // driver, so the one point that can partition the official cache by
