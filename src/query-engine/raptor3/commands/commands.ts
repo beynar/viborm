@@ -1644,8 +1644,7 @@ export class Commands {
    */
   private rootUpdate(
     model: AnyModel,
-    args: Arguments,
-    selector?: PreparedSelector
+    args: Arguments
   ): (() => Promise<unknown>) | undefined {
     const ctx = this.context;
     if (ctx.schema.namesRelation(model, args.data)) return undefined;
@@ -1653,20 +1652,18 @@ export class Commands {
     const projection = ctx.queries.prepareProjection(model, args);
     if (!returningSafeProjection(projection)) return undefined;
     const values = ctx.schema.scalars(model, args.data);
-    const candidates =
-      selector ??
-      ctx.queries.candidates(
-        ctx.queries.prepareSelector(model, args.where, true),
-        "root"
-      );
+    const selector = ctx.queries.candidates(
+      ctx.queries.prepareSelector(model, args.where, true),
+      "root"
+    );
     return () =>
       ctx.updateMany(
         model,
-        candidates,
+        selector,
         values,
         undefined,
         projection,
-        () => new NotFoundError(model["~"].names.ts!, ctx.operation)
+        () => new NotFoundError(model["~"].names.ts!, "update")
       );
   }
   /**
@@ -1711,11 +1708,7 @@ export class Commands {
         // A packaged array member states it inside the array's atomic unit.
         if (ctx.preparesBatch)
           ctx.packageGuard(model, query.sql, "notExists", failure);
-        else
-          await ctx.requireAbsent(
-            query,
-            createFailureError(failure, model["~"].names.ts!, ctx.operation)
-          );
+        else await ctx.requireAbsent(query, this.restrictFailure(model)());
         return effect();
       },
     };
@@ -1918,8 +1911,16 @@ export class Commands {
           ctx.createMany(model, values, projection, args.skipDuplicates),
       };
     }
-    if (ctx.operation === "deleteMany") {
-      const projection = bulkProjection(ctx, model, args);
+    // Root delete and deleteMany are the selected-row removal owner plus ONE
+    // cardinality: `delete` locates by the extended-unique selector and owns
+    // the missing-row identity, `deleteMany` takes a limit. A managed model's
+    // rows are tombstoned by the same plan: the set UPDATE owner in place of
+    // the set DELETE owner, behind the referential premise.
+    if (ctx.operation === "delete" || ctx.operation === "deleteMany") {
+      const one = ctx.operation === "delete";
+      const projection = one
+        ? ctx.queries.prepareProjection(model, args)
+        : bulkProjection(ctx, model, args);
       if (args.limit === 0)
         return {
           single: true,
@@ -1927,73 +1928,25 @@ export class Commands {
         };
       const tombstone = this.tombstone(model);
       const selector = this.candidates(
-        ctx.queries.prepareSelector(model, args.where),
+        ctx.queries.prepareSelector(model, args.where, one),
         "root",
         tombstone !== undefined
       );
-      // A managed model's rows are tombstoned: the bulk UPDATE owner writes
-      // them, behind the referential premise.
-      if (tombstone) {
-        const values = ctx.schema.scalars(model, tombstone.admitted);
-        return this.unreferenced(selector, !projection || returning, () =>
-          ctx.updateMany(model, selector, values, args.limit, projection)
-        );
-      }
-      return {
-        single:
-          !projection || (returning && returningSafeProjection(projection)),
-        run: () => ctx.deleteMany(model, selector, args.limit, projection),
-      };
-    }
-    // Root delete is the selected-row removal owner plus ONE cardinality: locate
-    // by the extended-unique selector, publish the removed row's prepared
-    // projection (RETURNING where the adapter carries it, the locked capture
-    // where it does not), and own the missing-row identity.
-    if (ctx.operation === "delete") {
-      const projection = ctx.queries.prepareProjection(model, args);
-      const tombstone = this.tombstone(model);
-      const selector = this.candidates(
-        ctx.queries.prepareSelector(model, args.where, true),
-        "root",
-        tombstone !== undefined
+      const missing = one
+        ? () => new NotFoundError(model["~"].names.ts!, "delete")
+        : undefined;
+      const single =
+        !projection || (returning && returningSafeProjection(projection));
+      if (!tombstone)
+        return {
+          single,
+          run: () =>
+            ctx.deleteMany(model, selector, args.limit, projection, missing),
+        };
+      const values = ctx.schema.scalars(model, tombstone.admitted);
+      return this.unreferenced(selector, single, () =>
+        ctx.updateMany(model, selector, values, args.limit, projection, missing)
       );
-      // A managed model's row is tombstoned: the root update's own fold where
-      // RETURNING carries the projection, else the record route, whose terminal
-      // read publishes the post-image by identity.
-      if (tombstone) {
-        const folded = this.rootUpdate(
-          model,
-          { ...args, data: tombstone.admitted },
-          selector
-        );
-        if (folded) return this.unreferenced(selector, true, folded);
-        const root = this.update(
-          this.lookup(
-            model,
-            { kind: "query", selector },
-            () => new NotFoundError(model["~"].names.ts!, ctx.operation)
-          ),
-          tombstone.admitted,
-          tombstone.raw
-        );
-        root.operation = ctx.operation;
-        for (const field of ctx.schema.keys(model)) root.fields.field(field);
-        const occurrence = this.analyze(root);
-        return this.unreferenced(selector, false, () =>
-          this.execution.complete(occurrence, args)
-        );
-      }
-      return {
-        single: returning && returningSafeProjection(projection),
-        run: () =>
-          ctx.deleteMany(
-            model,
-            selector,
-            undefined,
-            projection,
-            () => new NotFoundError(model["~"].names.ts!, "delete")
-          ),
-      };
     }
     if (ctx.operation === "upsert") {
       const folded = this.rootUpsert(model, args);

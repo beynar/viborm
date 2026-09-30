@@ -61,8 +61,9 @@ Junction capture stores the exact membership pair, not a synthetic row lookup.
 of a client with `rows` carries its facts (`CallScope`, `shared/row-scope.ts`):
 the domain its controls chose and the default one, each a `PreparedDomain`
 prepared at most once per engine view, model and purpose. A `Queries` is scoped
-to one domain: reads get one per domain (a `WeakMap` in `commands/index.ts`),
-write contexts one per call, sharing the prepared domain. The RELATED domain
+to one domain: reads get the one `PreparedDomain.reads` owns (built on first
+use, living as long as the domain), write contexts one per call, sharing the
+prepared domain. The RELATED domain
 enters only in `correlation()`, outside every quantifier's negation, on every
 edge (milestone 2): to-many and to-one projections, polymorphic arms,
 `is`/`isNot`, relation order terms and recursion; the ROOT domain enters where a lookup names
@@ -96,10 +97,12 @@ captured series removes. `Commands.tombstone(model)` owns one occurrence's
 data: the declared `assign` plus the call's one `CallScope.instant()` in `at`,
 admitted once per occurrence per attempt through `EngineSchema.update(model,
 data, true)`, so `updatedAt` and field transforms behave as an update's and a
-re-plan re-admits captured members at the same instant. Root `delete` reuses
-`rootUpdate`'s RETURNING fold, else the record route whose terminal read
-publishes the post-image by identity, with `root.operation` kept `delete`;
-root `deleteMany` is the bulk `updateMany` owner; a nested `Deletion`
+re-plan re-admits captured members at the same instant. Root `delete` and
+`deleteMany` are ONE plan, the hard delete's own: a tombstone swaps only the
+effect, `OperationContext.updateMany` for `deleteMany`, with the same
+selector, limit, projection and missing-row identity; `updateMany` re-reads a
+relation projection by identity, as `deleteMany` captures it, because no
+RETURNING carries one; a nested `Deletion`
 placement carries `values` and updates the located row by identity, keeping
 its foreign key, junction rows and the parent-held link. Candidates are
 `Commands.candidates(selector, purpose, true)`: the caller's selector, the

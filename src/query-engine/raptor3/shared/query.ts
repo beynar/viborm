@@ -776,9 +776,14 @@ export class PreparedDomain {
     root: new Map<string, PreparedSelector>(),
     related: new Map<string, PreparedSelector>(),
   };
+  private view: Queries | undefined;
   constructor(rows: RowDomain, queries: Queries) {
     this.rows = rows;
     this.queries = queries;
+  }
+  /** The one read view under this domain: its lifetime is the domain's. */
+  get reads(): Queries {
+    return (this.view ??= this.queries.under(this));
   }
   /** `model`'s predicate for `purpose`; `undefined` where it states none. */
   selector(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
@@ -834,6 +839,10 @@ export class Queries {
     this.views = schema.queryViews(adapter);
     this.result = result;
     this.domain = domain;
+  }
+  /** This view's `Queries` reading under `domain`. */
+  under(domain: PreparedDomain): Queries {
+    return new Queries(this.schema, this.adapter, this.result, domain);
   }
   /**
    * The ONE provider continuation for a physical value of `type`, bound to

@@ -157,8 +157,8 @@ export function createCommandEngine(config: EngineConfig) {
     config.driver.result
   );
   // Each row domain a call selects is prepared once for this engine view, and
-  // read through one `Queries` scoped to it; write contexts share the prepared
-  // domain. A client without `rows` reaches neither map.
+  // read through the one `Queries` it owns; write contexts share the prepared
+  // domain. A client without `rows` never reaches the map.
   const domains = new WeakMap<RowDomain, PreparedDomain>();
   const domainOf = (rows: RowDomain): PreparedDomain => {
     let domain = domains.get(rows);
@@ -167,21 +167,6 @@ export function createCommandEngine(config: EngineConfig) {
       domains.set(rows, domain);
     }
     return domain;
-  };
-  const scopedReads = new WeakMap<PreparedDomain, Queries>();
-  const readsOf = (scope: CallScope | undefined): Queries => {
-    if (scope === undefined) return queries;
-    let reads = scopedReads.get(scope.domain);
-    if (reads === undefined) {
-      reads = new Queries(
-        schema,
-        config.driver.adapter,
-        config.driver.result,
-        scope.domain
-      );
-      scopedReads.set(scope.domain, reads);
-    }
-    return reads;
   };
   class PreparedCommand implements PreparedOperation {
     readonly #operation: Operation;
@@ -233,7 +218,7 @@ export function createCommandEngine(config: EngineConfig) {
 
     #read(): Read | undefined {
       if (!isReadOperation(this.#operation)) return undefined;
-      return (this.#prepared ??= readsOf(this.#scope).read(
+      return (this.#prepared ??= (this.#scope?.domain.reads ?? queries).read(
         this.#model,
         this.#operation,
         this.args

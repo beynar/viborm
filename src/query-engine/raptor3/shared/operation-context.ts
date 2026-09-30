@@ -2430,7 +2430,15 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const assignments = this.updateAssignments(model, values);
-    if (projection && !adapter.capabilities.supportsReturning) {
+    // A relation carrier reads other rows, which no RETURNING can carry: the
+    // post-image is re-read by identity, as without RETURNING.
+    if (
+      projection &&
+      !(
+        adapter.capabilities.supportsReturning &&
+        returningSafeProjection(projection)
+      )
+    ) {
       const identities = await this.captureMutationIdentities(
         model,
         selector,
