@@ -38,7 +38,8 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * tombstones. Tags (unmanaged): 1 "x" links posts 10 and 11; 2 "y" links 13.
  * Boards (unmanaged, polymorphic collection): 1 holds post 10, post 11 and
  * tag 1; 2 holds post 11 and tag 1; 3 holds post 10. Pins (unmanaged,
- * polymorphic reference): 1 on post 11, 2 on post 10. Nodes: 1 -> 2 (a
+ * polymorphic reference): 1 on post 11, 2 on post 10; stamps (unmanaged, a
+ * REQUIRED polymorphic reference) the same. Nodes: 1 -> 2 (a
  * tombstone) -> 3, and 1 -> 4. One audit row, on a model no relation reaches.
  * Albums (managed, a polymorphic collection whose photo arm has a singular
  * inverse): 1 live holds photo 2; 2 a tombstone holds photo 1. Cover 1
@@ -68,6 +69,7 @@ export function rowScopeSchema() {
     comments: s.toMany(() => comment),
     tags: s.toMany(() => tag),
     pins: s.toMany(() => pin).name("subject"),
+    stamps: s.toMany(() => stamp).name("stamped"),
     cover: s.toOne(() => cover),
   });
   const cover = s.model({
@@ -117,6 +119,11 @@ export function rowScopeSchema() {
       .name("subject")
       .optional(),
   });
+  // A REQUIRED polymorphic reference stored on its own row.
+  const stamp = s.model({
+    id: s.int().id(),
+    subject: s.toOne({ post: () => post }).name("stamped"),
+  });
   const audit = s.model({ id: s.int().id(), note: s.string() });
   const album = s.model({
     id: s.int().id(),
@@ -132,6 +139,7 @@ export function rowScopeSchema() {
     node,
     board,
     pin,
+    stamp,
     audit,
     album,
     photo,
@@ -276,6 +284,16 @@ export async function openRowScopeFixture(driver: AnyDriver) {
       subject: { connect: { type: "post", where: { id: 10 } } },
     },
   });
+  for (const [id, postId] of [
+    [1, 11],
+    [2, 10],
+  ] as const)
+    await base.stamp.create({
+      data: {
+        id,
+        subject: { connect: { type: "post", where: { id: postId } } },
+      },
+    });
   await base.audit.create({ data: { id: 1, note: "x" } });
   await base.cover.create({ data: { id: 1, postId: 10 } });
   await base.photo.create({ data: { id: 1 } });
@@ -319,8 +337,9 @@ type RawClient = RowScopeFixture["base"];
 /**
  * Drop a junction's constraints of one kind, raw: SQLite turns its foreign
  * keys off per connection and cannot drop a table-level UNIQUE (it answers
- * `false`); PostgreSQL drops them by name. The behaviour runs on no other
- * dialect yet, so none is spelled here.
+ * `false`); PostgreSQL drops them by name; MySQL drops them by name too, a
+ * UNIQUE together with the table's foreign keys, since MySQL refuses to drop
+ * an index a foreign key still needs. No other dialect runs the behaviour.
  */
 async function dropConstraints(
   client: RawClient,
@@ -333,10 +352,26 @@ async function dropConstraints(
     await client.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
     return true;
   }
-  if (dialect !== "postgresql")
-    throw new Error(`no raw constraint helper for ${dialect}`);
   const ident = client.$driver.adapter.identifiers.escape;
   const table = client.$driver.adapter.identifiers.table;
+  if (dialect === "mysql") {
+    for (const type of kind === "f"
+      ? ["FOREIGN KEY"]
+      : ["FOREIGN KEY", "UNIQUE"]) {
+      const named = await client.$queryRaw<{ name: string }>(
+        sql`SELECT CONSTRAINT_NAME AS name FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ${name} AND CONSTRAINT_TYPE = ${type}`
+      );
+      for (const row of named)
+        await client.$executeRaw(
+          type === "UNIQUE"
+            ? sql`ALTER TABLE ${table(name)} DROP INDEX ${ident(row.name)}`
+            : sql`ALTER TABLE ${table(name)} DROP FOREIGN KEY ${ident(row.name)}`
+        );
+    }
+    return true;
+  }
+  if (dialect !== "postgresql")
+    throw new Error(`no raw constraint helper for ${dialect}`);
   const named = await client.$queryRaw<{ conname: string }>(
     sql`SELECT conname FROM pg_constraint WHERE conrelid = ${`"${client.$driver.adapter.namespace ?? "public"}"."${name}"`}::regclass AND contype = ${kind}`
   );
@@ -345,6 +380,21 @@ async function dropConstraints(
       sql`ALTER TABLE ${table(name)} DROP CONSTRAINT ${ident(row.conname)}`
     );
   return true;
+}
+
+/**
+ * The fixture hides the FIRST hop of the node tree (node 2), which only a
+ * recursion's anchor reads. Make `live` live and hide `hidden` instead, so a
+ * walk meets its hidden node at the second hop, where only the recursive
+ * step's correlation can end it.
+ */
+async function hideSecondHop(
+  client: RawClient,
+  live: number,
+  hidden: number
+): Promise<void> {
+  await client.node.update({ where: { id: live }, data: { deletedAt: null } });
+  await client.node.update({ where: { id: hidden }, data: { deletedAt: T } });
 }
 
 export interface RowScopeProvider {
@@ -786,6 +836,56 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
       ).toEqual({ id: 3, parent: { id: 2, parent: { id: 1, parent: null } } });
     });
 
+    test("the recursive step reads the related domain: upward, a node hidden two hops away ends the walk", async () => {
+      const { base, db } = context;
+      await hideSecondHop(base, 2, 1);
+      const ancestors = {
+        where: { id: 3 },
+        select: {
+          id: true,
+          parent: { recurse: { depth: 3 }, select: { id: true } },
+        },
+      } as const;
+      expect(await db.node.findUnique(ancestors)).toEqual({
+        id: 3,
+        parent: { id: 2, parent: null },
+      });
+      expect(await base.node.findUnique(ancestors)).toEqual({
+        id: 3,
+        parent: { id: 2, parent: { id: 1, parent: null } },
+      });
+    });
+
+    test("the recursive step reads the related domain: downward, a node hidden two hops away is cut", async () => {
+      const { base, db } = context;
+      await hideSecondHop(base, 2, 3);
+      const tree = {
+        where: { id: 1 },
+        select: {
+          id: true,
+          children: {
+            recurse: { depth: 3 },
+            orderBy: { id: "asc" },
+            select: { id: true },
+          },
+        },
+      } as const;
+      expect(await db.node.findUnique(tree)).toEqual({
+        id: 1,
+        children: [
+          { id: 2, children: [] },
+          { id: 4, children: [] },
+        ],
+      });
+      expect(await base.node.findUnique(tree)).toEqual({
+        id: 1,
+        children: [
+          { id: 2, children: [{ id: 3, children: [] }] },
+          { id: 4, children: [] },
+        ],
+      });
+    });
+
     test("a hidden polymorphic arm stored on the parent row reads null (R1)", async () => {
       const { base, db } = context;
       const read = {
@@ -814,6 +914,45 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
         select: { subject: { post: { select: { title: true } } } },
       });
       expect(selected.subject).toBeNull();
+    });
+
+    test("a required polymorphic arm stored on the parent row reads null when hidden, and a missing one still fails (R1)", async () => {
+      const { base, db } = context;
+      const read = {
+        orderBy: { id: "asc" },
+        include: { subject: true },
+      } as const;
+      const subjects = (
+        rows: readonly {
+          subject: { type: string; data: { id: number } } | null;
+        }[]
+      ) =>
+        rows.map((row) =>
+          row.subject ? `${row.subject.type}:${row.subject.data.id}` : null
+        );
+      // Stamp 1 claims post 11, a tombstone: hidden, although the slot is
+      // required.
+      expect(subjects(await db.stamp.findMany(read))).toEqual([
+        null,
+        "post:10",
+      ]);
+      expect(
+        subjects(await db.stamp.findMany({ ...read, deleted: "with" }))
+      ).toEqual(["post:11", "post:10"]);
+      expect(subjects(await base.stamp.findMany(read))).toEqual([
+        "post:11",
+        "post:10",
+      ]);
+      const ident = base.$driver.adapter.identifiers.escape;
+      const table = base.$driver.adapter.identifiers.table;
+      await base.$executeRaw(
+        sql`UPDATE ${table("stamp")} SET ${ident("subject_id")} = ${999} WHERE ${ident("id")} = ${2}`
+      );
+      const refused = await failure(db.stamp.findMany(read));
+      expect(refused).toBeInstanceOf(QueryEngineError);
+      expect((refused as Error).message).toBe(
+        "Polymorphic relation 'subject' references a missing 'post' record."
+      );
     });
 
     test("physical integrity stays physical: a missing arm row, an orphan in an excluded arm and a duplicate singular membership still fail", async () => {

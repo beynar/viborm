@@ -340,10 +340,12 @@ await db.project.findMany({ archived: "only" }); // archived projects
   a model without an entry that has exactly the names of one with an entry
   reads `| null` too. A reference to a row that does not exist at all is
   still an error.
-- `OperationResult`, `InferDatabase`, `renderOperationResultType` and query
-  handlers' results describe the schema alone: on a client with `rows` they
-  type a to-one relation as present where it can read `null`.
-  `ExtendedOperationResult` types the client's own results.
+- `OperationResult`, `InferDatabase` and `renderOperationResultType` describe
+  the schema alone: on a client with `rows` they type a to-one relation as
+  present where it can read `null`. `ExtendedOperationResult` types the
+  client's own results, and a model-mapped query handler's `proceed()` reads
+  the `rows` of the client it is applied to. A `rows` entry in the handler's
+  own definition is not seen: declare `rows` in an earlier `$extends` step.
 - A client with `rows` keys its cached reads on the declarations, so it never
   shares a cache entry with a client without them.
 - Apply an extension with `rows` before any extension that adds model-mapped

@@ -1053,7 +1053,7 @@ type ExtensionMembers<
 > = {
   readonly name: string;
   readonly request?: GenericRequestHandler | RequestHandlerMap<C["schema"]>;
-  readonly query?: GenericQueryHandler | QueryHandlerMap<C>;
+  readonly query?: GenericQueryHandler | QueryHandlerMap<C, X["rows"]>;
   readonly statement?: StatementHandler;
   readonly observe?: ObserveHandler;
   readonly controls?: ControlsContribution;

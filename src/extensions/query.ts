@@ -129,12 +129,17 @@ export type OfficialGenericQueryHandler = GenericQueryHandlerCall & {
 };
 
 /**
- * Per-model query handlers. Their results are typed from the config alone
- * (`ClientOperationResult`): on a chain whose `rows` can hide a to-one
- * relation's target, that relation can read `null` in `proceed()`'s result
- * where the type says it cannot.
+ * Per-model query handlers. Their results read the result context of the
+ * chain they are applied to: `Hidden` names the models its `rows` can hide
+ * (`rows` cannot follow a model-mapped handler, so a later extension adds
+ * none). A `rows` entry in the handler's OWN definition is not seen, as no
+ * definition types against its own contributions: declare it one step
+ * earlier.
  */
-export type QueryHandlerMap<C extends VibORMConfig> = {
+export type QueryHandlerMap<
+  C extends VibORMConfig,
+  Hidden extends string = never,
+> = {
   readonly [ModelName in keyof C["schema"]]?: {
     readonly [OperationName in Operations]?: <
       Arg extends Exclude<
@@ -150,10 +155,24 @@ export type QueryHandlerMap<C extends VibORMConfig> = {
       /** The call's controls this handler's extension declares, and only those. */
       readonly controls?: AdmittedControls;
       readonly proceed: () => Promise<
-        ClientOperationResult<C, ModelName, OperationName, Arg>
+        ContextualOperationResult<
+          C,
+          ModelName,
+          OperationName,
+          Arg,
+          ClientRowsContext<C, Hidden>
+        >
       >;
       readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-    }) => Promise<ClientOperationResult<C, ModelName, OperationName, Arg>>;
+    }) => Promise<
+      ContextualOperationResult<
+        C,
+        ModelName,
+        OperationName,
+        Arg,
+        ClientRowsContext<C, Hidden>
+      >
+    >;
   };
 };
 
@@ -878,7 +897,8 @@ export function decomposeWriteOutcomePublicationFailure(
 
 import type { VibORMConfig } from "@client/client";
 import type {
-  ClientOperationResult,
+  ClientRowsContext,
+  ContextualOperationResult,
   OperationPayload,
   Operations,
 } from "@client/types";

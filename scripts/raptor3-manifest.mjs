@@ -220,9 +220,11 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // lookups) and the unique-key consumers under a domain, on the interactive and
 // the batch-only substrate, and one engine view preparing each domain once.
 // U6 (milestone 2): every reference scope (to-one projections, polymorphic
-// arms, is/isNot, to-one order, upward recursion) and physical integrity.
+// arms, is/isNot, to-one order, upward recursion) and physical integrity;
+// U6 repair: the recursive step at the second hop, both directions, and a
+// required polymorphic row carrier.
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 51,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 57,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)

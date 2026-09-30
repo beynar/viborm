@@ -485,23 +485,10 @@ export type OperationResult<
 > = OperationResultWithClientDefaults<O, M, Args, DefaultOmit, never>;
 
 /**
- * One concrete client's result, including its top-level and relation defaults.
- * It reads the config alone, never an extension's `rows`.
+ * One concrete client's result under the result context it computed: its
+ * top-level and relation defaults, and the surfaces its `rows` can hide
+ * (`ClientRowsContext`). The one owner every client-bound result reads.
  */
-export type ClientOperationResult<
-  C extends VibORMConfig,
-  ModelName extends keyof C["schema"],
-  O extends Operations,
-  Args,
-> = ContextualOperationResult<
-  C,
-  ModelName,
-  O,
-  Args,
-  ClientRelationOmitContext<C>
->;
-
-/** The same, under a result context a derived client computed. */
 export type ContextualOperationResult<
   C extends VibORMConfig,
   ModelName extends keyof C["schema"],

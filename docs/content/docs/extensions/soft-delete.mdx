@@ -150,8 +150,8 @@ tombstone reads `null`.
 the schema alone and do not know about the extension: on a soft-delete
 client they type a to-one relation as present where it can read `null`. Use
 `ExtendedOperationResult<typeof db, "comment", "findMany", Args>` for the
-client's own result types. A query handler's `proceed()` result is typed from
-the schema too.
+client's own result types. A model-mapped query handler applied to the
+soft-delete client reads its `proceed()` result the same way.
 
 ## Deleting
 

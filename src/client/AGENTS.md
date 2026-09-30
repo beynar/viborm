@@ -298,9 +298,10 @@ chain with `rows`, the shallow surfaces of the models those `rows` name
 filled by `RowsModels` in `controls.ts`). `result-types.ts` alone turns that
 into `| null` on a singular slot whose target a relation read can find hidden
 (`HiddenTargetNull`): the model delegates, `$withCache()`, the transaction
-client and `ExtendedOperationResult` read the same context.
-`OperationResult`, `ClientOperationResult`, `InferDatabase`, query handlers'
-results and `renderOperationResultType` are schema-only and say so.
+client, `ExtendedOperationResult` and model-mapped query handlers
+(`QueryHandlerMap<C, X["rows"]>`, `src/extensions/query.ts`) read the same
+context through `ContextualOperationResult`. `OperationResult`,
+`InferDatabase` and `renderOperationResultType` are schema-only and say so.
 
 Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, and

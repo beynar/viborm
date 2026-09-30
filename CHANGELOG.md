@@ -33,8 +33,9 @@ Versioning.
   declarations; a read that receives none keeps today's key.
 - **Added: `ExtensionState` and `ExtendedOperationResult`** are exported from
   `viborm`, for plugins generic over the client they receive.
-  `ExtendedOperationResult` reads the client's `rows`; `OperationResult`,
-  `InferDatabase` and `renderOperationResultType` stay schema-only. `Client` gains
+  `ExtendedOperationResult` and a model-mapped query handler's `proceed()`
+  read the client's `rows`; `OperationResult`, `InferDatabase` and
+  `renderOperationResultType` stay schema-only. `Client` gains
   an optional fourth type parameter (the chain's controls), and `$withCache()`
   accepts the chain's controls.
 - **Changed (types): extension typing for plugins generic over their client.**
