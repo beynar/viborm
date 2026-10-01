@@ -1312,6 +1312,143 @@ describe("controls: rows bound to the call", () => {
     expect(binding.bound.size).toBe(0);
   });
 
+  test("a remembered domain holds its own copy of the values it was bound from: a Date or an array the caller mutates after its call never reaches a later call with equal values (F1)", async () => {
+    const owner = s.model({
+      id: s.string().id(),
+      entries: s.toMany(() => entry),
+    });
+    const entry = s.model({
+      id: s.string().id(),
+      day: s.dateTime(),
+      tenantId: s.string(),
+      ownerId: s.string(),
+      owner: s
+        .toOne(() => owner)
+        .fields("ownerId")
+        .references("id"),
+    });
+    const base = createClient({
+      schema: { owner, entry },
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    const JANUARY_1 = "2026-01-01T00:00:00.000Z";
+    const JANUARY_2 = "2026-01-02T00:00:00.000Z";
+    await base.owner.create({ data: { id: "o1" } });
+    await base.entry.createMany({
+      data: [
+        { id: "d1", day: new Date(JANUARY_1), tenantId: "acme" },
+        { id: "d2", day: new Date(JANUARY_2), tenantId: "acme" },
+        { id: "t1", day: new Date(JANUARY_1), tenantId: "globex" },
+        { id: "t2", day: new Date(JANUARY_1), tenantId: "initech" },
+      ].map((row) => ({ ...row, ownerId: "o1" })),
+    });
+    // Valid Standard Schemas that return the caller's value unchanged.
+    const given = standard((value) => ({ value }));
+    const db = base.$extends(
+      defineExtension({
+        name: "dated",
+        controls: { day: { schema: given }, tenants: { schema: given } },
+        rows: {
+          control: "view",
+          default: "scoped",
+          models: {
+            entry: {
+              scoped: {
+                root: { day: { control: "day" } },
+                related: { tenantId: { in: { control: "tenants" } } },
+              },
+              all: {},
+            },
+          },
+        },
+      })
+    );
+    const ids = async (args: Record<string, unknown>) =>
+      (
+        (await callUnchecked(db, "entry", "findMany", {
+          ...args,
+          select: { id: true },
+          orderBy: { id: "asc" },
+        })) as { id: string }[]
+      ).map(({ id }) => id);
+    const relatedIds = async (args: Record<string, unknown>) =>
+      (
+        (await callUnchecked(db, "owner", "findUnique", {
+          ...args,
+          where: { id: "o1" },
+          select: { entries: { select: { id: true }, orderBy: { id: "asc" } } },
+        })) as { entries: { id: string }[] }
+      ).entries.map(({ id }) => id);
+
+    // A Date mutated after its call.
+    const day = new Date(JANUARY_1);
+    expect(await ids({ day, tenants: ["acme"] })).toEqual(["d1", "t1", "t2"]);
+    day.setTime(Date.parse(JANUARY_2));
+    expect(await ids({ day: new Date(JANUARY_1), tenants: ["acme"] })).toEqual([
+      "d1",
+      "t1",
+      "t2",
+    ]);
+    expect(await ids({ day, tenants: ["acme"] })).toEqual(["d2"]);
+    // An array mutated after its call, before a later call first reads the
+    // related predicate it was bound into.
+    const tenants = ["globex"];
+    expect(await ids({ day: new Date(JANUARY_1), tenants })).toEqual([
+      "d1",
+      "t1",
+      "t2",
+    ]);
+    tenants.splice(0, 1, "initech");
+    expect(
+      await relatedIds({ day: new Date(JANUARY_1), tenants: ["globex"] })
+    ).toEqual(["t1"]);
+    expect(await relatedIds({ day: new Date(JANUARY_1), tenants })).toEqual([
+      "t2",
+    ]);
+    // The reference-free mode is untouched.
+    expect(await ids({ view: "all" })).toEqual(["d1", "d2", "t1", "t2"]);
+    expect(await relatedIds({ view: "all" })).toEqual(["d1", "d2", "t1", "t2"]);
+  });
+
+  test("a memo hit still returns the one domain for equal values, bound from its own copy of them", () => {
+    const dated = {
+      control: "scope",
+      default: "tenant",
+      models: {
+        post: {
+          tenant: {
+            root: {
+              deletedAt: { control: "day" },
+              authorId: { in: { control: "authors" } },
+            },
+          },
+          all: {},
+        },
+      },
+    } as const;
+    const binding = bindRows([dated], undefined);
+    const day = new Date("2026-01-01T00:00:00.000Z");
+    const authors = ["u1"];
+    const first = callRows(binding, "post", { day, authors });
+    const [where] = first.domain.root.get("post")!;
+    expect(where).toEqual({ deletedAt: day, authorId: { in: authors } });
+    expect(where!.deletedAt).not.toBe(day);
+    expect((where!.authorId as { in: unknown }).in).not.toBe(authors);
+    const again = callRows(binding, "post", {
+      day: new Date("2026-01-01T00:00:00.000Z"),
+      authors: ["u1"],
+    });
+    expect(again).toBe(first);
+    expect(again.domain).toBe(first.domain);
+    expect(binding.bound.size).toBe(1);
+    // The combination whose own predicates name nothing keeps its domain.
+    expect(callRows(binding, "post", { scope: "all", day }).domain).toBe(
+      binding.physical[1]!.domain
+    );
+  });
+
   test("a tombstoning call's default domain takes the same values; a physical one is kept apart", () => {
     const binding = bindRows([tenancy], deletion);
     const operator = callRows(binding, "post", {

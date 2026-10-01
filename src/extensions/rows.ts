@@ -380,7 +380,10 @@ function domainFacts(
     if (binding.bound.size === BOUND_LIMIT) {
       binding.bound.delete(binding.bound.keys().next().value!);
     }
-    known = boundFacts(facts, controls);
+    // The facts outlive the call under a key spelling the values' content, so
+    // they are bound from a copy: a caller who later mutates its Date or array
+    // never changes what another call with equal values reads.
+    known = boundFacts(facts, structuredClone(values));
     binding.bound.set(key, known);
   }
   return known;
