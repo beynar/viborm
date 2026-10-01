@@ -25,11 +25,14 @@ describe("array wrapper schema", () => {
       expect(parse(schema, undefined).issues).toBeDefined();
     });
 
-    test("contains hostile array shape reads", () => {
-      const optionSchema = v.string({ array: true });
+    // `v.array` and `options.array` share one walker, so both contain it.
+    test.each([
+      ["options.array", v.string({ array: true })],
+      ["v.array", v.array(v.string())],
+    ])("%s contains hostile array shape reads", (_, arraySchema) => {
       const revoked = Proxy.revocable([1], {});
       revoked.revoke();
-      expect(parse(optionSchema, revoked.proxy).issues?.[0]?.message).toBe(
+      expect(parse(arraySchema, revoked.proxy).issues?.[0]?.message).toBe(
         "Could not inspect array"
       );
 
@@ -39,7 +42,7 @@ describe("array wrapper schema", () => {
           return Reflect.get(target, property, receiver);
         },
       });
-      expect(parse(optionSchema, throwingLength).issues?.[0]?.message).toBe(
+      expect(parse(arraySchema, throwingLength).issues?.[0]?.message).toBe(
         "Could not read array length"
       );
 
@@ -49,7 +52,18 @@ describe("array wrapper schema", () => {
           return Reflect.get(target, property, receiver);
         },
       });
-      expect(parse(optionSchema, invalidLength).issues).toBeDefined();
+      expect(parse(arraySchema, invalidLength).issues).toBeDefined();
+
+      const throwingMember = new Proxy(["a"], {
+        get(target, property, receiver) {
+          if (property === "0") throw new Error("member trap");
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      expect(parse(arraySchema, throwingMember).issues?.[0]).toEqual({
+        message: "Could not read array member",
+        path: [0],
+      });
     });
 
     test("rejects invalid items", () => {

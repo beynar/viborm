@@ -2,33 +2,13 @@ import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import {
   type ArithmeticUpdateSchema,
-  arithmeticUpdateFamily,
   type ComparisonFilterSchema,
-  comparisonFilterFamily,
-  createScalarInterners,
-  internedScalarSchemas,
+  comparableScalar,
   type ListFilterSchema,
   type ListUpdateSchema,
-  listFilterFamily,
-  listUpdateFamily,
-  once,
 } from "./family";
-import { scalarInternKey } from "./intern";
-
-/** This kind's member and list schemas; `family.ts` explains what they are for. */
-const bigIntBase = once(() => v.bigint());
-const bigIntList = once(() => v.bigint({ array: true }));
 
 type BigIntList = V.BigInt<{ array: true }>;
-
-const buildBigIntFilterSchema = comparisonFilterFamily(
-  "bigint",
-  bigIntBase,
-  bigIntList
-);
-const buildBigIntListFilterSchema = listFilterFamily(bigIntBase, bigIntList);
-const buildBigIntUpdateSchema = arithmeticUpdateFamily(bigIntBase);
-const buildBigIntListUpdateSchema = listUpdateFamily(bigIntBase, bigIntList);
 
 export interface BigIntSchemas<
   F extends ScalarState<"bigint">,
@@ -44,27 +24,9 @@ export interface BigIntSchemas<
     : ComparisonFilterSchema<"bigint", F["base"], V.BigInt, BigIntList, C>;
 }
 
-const interners = createScalarInterners();
-
-export const buildBigIntSchema = <
+export const buildBigIntSchema: <
   F extends ScalarState<"bigint">,
   C extends V.Operand<any> = V.Operand<any>,
 >(
   state: F
-): BigIntSchemas<F, C> =>
-  internedScalarSchemas<BigIntSchemas<F, C>>(
-    interners,
-    scalarInternKey(state),
-    {
-      base: state.base,
-      create: () => v.bigint(state),
-      update: () =>
-        state.array
-          ? buildBigIntListUpdateSchema(state.base)
-          : buildBigIntUpdateSchema(state.base),
-      filter: () =>
-        state.array
-          ? buildBigIntListFilterSchema(state.base)
-          : buildBigIntFilterSchema(state.base),
-    }
-  );
+) => BigIntSchemas<F, C> = comparableScalar("bigint", v.bigint, true);

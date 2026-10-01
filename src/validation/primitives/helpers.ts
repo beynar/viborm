@@ -67,11 +67,11 @@ export const OK_UNDEFINED = Object.freeze({ value: undefined });
 
 /**
  * Validate array items with the provided validator.
- * Shared by both array() wrapper and options.array.
+ * Shared by the array() wrapper, options.array and every other list walk.
  */
 export function validateArray<T>(
   value: unknown,
-  validate: (v: unknown) => ValidationResult<T>
+  validate: (v: unknown) => StandardSchemaV1.Result<T>
 ): ValidationResult<T[]> {
   try {
     if (!Array.isArray(value)) {
@@ -344,82 +344,21 @@ export function buildSchema<
   extras?: TExtras
 ): VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
   TExtras & { type: string; options: Opts; acceptsUndefined: boolean } {
-  const validate = buildValidator(baseValidate, options, type);
-
   // Pre-compute whether this schema accepts undefined
   // True if: optional, or has a default value
   const acceptsUndefined =
     options?.optional === true || options?.default !== undefined;
 
-  const schema = {
-    type,
-    options,
-    acceptsUndefined,
-    ...extras,
-    "~standard": {
-      version: 1 as const,
-      vendor: "viborm" as const,
-      validate,
-      // Lazy jsonSchema - converter is created when first accessed
-      get jsonSchema() {
-        const converter = createJsonSchemaConverter(
-          schema as unknown as VibSchema<unknown, unknown>
-        );
-        // Replace getter with static value for subsequent access
-        Object.defineProperty(this, "jsonSchema", {
-          value: converter,
-          writable: false,
-          enumerable: true,
-        });
-        return converter;
-      },
-    },
-  };
-
-  // Add the inferred property for type branding
-  Object.defineProperty(schema, " vibInferred", {
-    value: undefined,
-    enumerable: false,
-  });
-
-  return schema as VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
+  // `createSchema` owns the Standard Schema carrier and its lazy JSON Schema
+  // converter; a scalar adds only its options and wrapper metadata.
+  return Object.assign(
+    createSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>>(
+      type,
+      buildValidator(baseValidate, options, type)
+    ),
+    { options, acceptsUndefined, ...extras }
+  ) as VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
     TExtras & { options: Opts; type: string; acceptsUndefined: boolean };
-}
-
-// =============================================================================
-// Reusable Validation Logic (Exported for wrapper schemas)
-// =============================================================================
-
-/**
- * Validate an array of items using the provided validate function.
- * Exported for use by array() wrapper schema.
- */
-export function validateArrayItems<T, TOut = T>(
-  value: unknown,
-  validate: (item: unknown) => any
-): ValidationResult<TOut[]> {
-  if (!Array.isArray(value)) {
-    return ARRAY_TYPE_ERROR as ValidationResult<TOut[]>;
-  }
-
-  const len = value.length;
-  if (len === 0) return ok([]);
-
-  const results = new Array<TOut>(len);
-  for (let i = 0; i < len; i++) {
-    const itemResult = validate(value[i]);
-    if (itemResult.issues) {
-      const issue = itemResult.issues[0]!;
-      return fail(
-        issue.message as string,
-        issue.path
-          ? ([i] as PropertyKey[]).concat(issue.path as PropertyKey[])
-          : [i]
-      );
-    }
-    results[i] = itemResult.value as TOut;
-  }
-  return ok(results);
 }
 
 /**

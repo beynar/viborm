@@ -12,12 +12,7 @@ import {
 } from "../primitives/helpers";
 import type { ObjectEntries, ObjectSchema } from "../primitives/object";
 import v, { type V } from "../primitives/v";
-import type {
-  InferInput,
-  InferOutput,
-  ValidationResult,
-  VibSchema,
-} from "../types";
+import type { InferInput, InferOutput, VibSchema } from "../types";
 import { isRecord } from "../value-guards";
 import {
   buildNegatableFilterSchema,
@@ -287,22 +282,6 @@ type OperationName<TEntries extends ObjectEntries> = Extract<
   string
 >;
 
-type OperationValidator<TEntries extends ObjectEntries> = (
-  operation: OperationName<TEntries>,
-  operand: unknown
-) => ValidationResult<InferOutput<ExactlyOneSchema<TEntries>>>;
-
-const validateRefusal = (
-  schema: DecimalListRefusalSchema,
-  operand: unknown
-): ValidationResult<never> => validateSchema(schema, operand);
-
-/** Give a naturally typed one-key result the pollution-safe output prototype. */
-const operationOutput = <T extends object>(output: T): T => {
-  Object.setPrototypeOf(output, null);
-  return output;
-};
-
 /**
  * Exactly one operation, owned by one hostile-object preflight.
  *
@@ -310,14 +289,13 @@ const operationOutput = <T extends object>(output: T): T => {
  * schema's string enumeration cannot. The prototype walk rejects every key on
  * a caller-supplied prototype. `Object.prototype` itself is the language
  * intrinsic, so only its fixed built-in surface is ignored. Only then is the
- * selected operand read once. The
- * operation-specific validator emits a typed literal rather than asking
- * TypeScript to trust a dynamic-key assertion. Its null prototype prevents
- * prototype pollution from adding an operation downstream.
+ * selected operand read once, by its own entry. An operand's issue is rooted
+ * at its operation; a refused operation's reason stands alone, since it names
+ * the operation itself. The output's null prototype prevents prototype
+ * pollution from adding an operation downstream.
  */
-const exactlyOneOperation = <TEntries extends ObjectEntries>(
-  entries: TEntries,
-  validateOperation: OperationValidator<TEntries>
+const exactlyOneOperation = <TEntries extends Record<string, VibSchema>>(
+  entries: TEntries
 ): ExactlyOneSchema<TEntries> => {
   const keys = Object.keys(entries);
   const keySet = new Set(keys);
@@ -375,7 +353,17 @@ const exactlyOneOperation = <TEntries extends ObjectEntries>(
     // validator is a different trust boundary: an external `.schema()` failure
     // must reach SchemaRegistry so it can retain the sanitized cause instead of
     // being mislabeled as an exact-one carrier refusal.
-    return validateOperation(selected.operation, selected.operand);
+    const { operation, operand } = selected;
+    const entry = entries[operation]!;
+    const result = validateSchema(entry, operand);
+    if (result.issues) {
+      if (entry.type === "refused") return result;
+      const [issue] = result.issues;
+      return fail(issue!.message, [operation, ...(issue!.path ?? [])]);
+    }
+    const output = Object.create(null);
+    output[operation] = result.value;
+    return ok(output);
   });
   const metadata: Pick<ExactlyOneSchema<TEntries>, "type" | "entries"> = {
     type: "exact_one",
@@ -383,64 +371,6 @@ const exactlyOneOperation = <TEntries extends ObjectEntries>(
   };
 
   return Object.assign(schema, metadata);
-};
-
-const decimalScalarOperation = <S extends V.Schema, O extends V.Schema>(
-  entries: DecimalOperations<S, O>
-): ExactlyOneSchema<DecimalOperations<S, O>> => {
-  const set = v.object({ set: entries.set }, { partial: false, strict: false });
-  const increment = v.object(
-    { increment: entries.increment },
-    { partial: false, strict: false }
-  );
-  const decrement = v.object(
-    { decrement: entries.decrement },
-    { partial: false, strict: false }
-  );
-  const multiply = v.object(
-    { multiply: entries.multiply },
-    { partial: false, strict: false }
-  );
-  const divide = v.object(
-    { divide: entries.divide },
-    { partial: false, strict: false }
-  );
-
-  return exactlyOneOperation(entries, (operation, operand) => {
-    // biome-ignore lint/style/useDefaultSwitchClause: exactlyOneOperation supplies only this map's keys.
-    switch (operation) {
-      case "set": {
-        const result = set["~standard"].validate({ set: operand });
-        return result.issues
-          ? standardSchemaFailure(result.issues)
-          : ok(operationOutput(result.value));
-      }
-      case "increment": {
-        const result = increment["~standard"].validate({ increment: operand });
-        return result.issues
-          ? standardSchemaFailure(result.issues)
-          : ok(operationOutput(result.value));
-      }
-      case "decrement": {
-        const result = decrement["~standard"].validate({ decrement: operand });
-        return result.issues
-          ? standardSchemaFailure(result.issues)
-          : ok(operationOutput(result.value));
-      }
-      case "multiply": {
-        const result = multiply["~standard"].validate({ multiply: operand });
-        return result.issues
-          ? standardSchemaFailure(result.issues)
-          : ok(operationOutput(result.value));
-      }
-      case "divide": {
-        const result = divide["~standard"].validate({ divide: operand });
-        return result.issues
-          ? standardSchemaFailure(result.issues)
-          : ok(operationOutput(result.value));
-      }
-    }
-  });
 };
 
 type DecimalListOperations<
@@ -473,56 +403,6 @@ export type DecimalUpdateOperationKeys<State extends ScalarState<"decimal">> =
           | keyof DecimalOperations<V.Schema, V.Schema>
           | keyof DecimalListOperations<V.Schema, V.Schema, V.Schema>
       : keyof DecimalOperations<V.Schema, V.Schema>;
-
-const decimalListOperation = <
-  S extends V.Schema,
-  O extends V.Schema,
-  L extends V.Schema,
->(
-  entries: DecimalListOperations<S, O, L>
-): ExactlyOneSchema<DecimalListOperations<S, O, L>> => {
-  const set = v.object({ set: entries.set }, { partial: false, strict: false });
-  const push = v.object(
-    { push: entries.push },
-    { partial: false, strict: false }
-  );
-  const unshift = v.object(
-    { unshift: entries.unshift },
-    { partial: false, strict: false }
-  );
-
-  return exactlyOneOperation(entries, (operation, operand) => {
-    // biome-ignore lint/style/useDefaultSwitchClause: exactlyOneOperation supplies only this map's keys.
-    switch (operation) {
-      case "set": {
-        const result = set["~standard"].validate({ set: operand });
-        return result.issues
-          ? standardSchemaFailure(result.issues)
-          : ok(operationOutput(result.value));
-      }
-      case "push": {
-        const result = push["~standard"].validate({ push: operand });
-        return result.issues
-          ? standardSchemaFailure(result.issues)
-          : ok(operationOutput(result.value));
-      }
-      case "unshift": {
-        const result = unshift["~standard"].validate({ unshift: operand });
-        return result.issues
-          ? standardSchemaFailure(result.issues)
-          : ok(operationOutput(result.value));
-      }
-      case "increment":
-        return validateRefusal(entries.increment, operand);
-      case "decrement":
-        return validateRefusal(entries.decrement, operand);
-      case "multiply":
-        return validateRefusal(entries.multiply, operand);
-      case "divide":
-        return validateRefusal(entries.divide, operand);
-    }
-  });
-};
 
 // =============================================================================
 // DECIMAL SCHEMA BUILDER
@@ -586,7 +466,7 @@ export function buildDecimalSchema(state: ScalarState<"decimal">) {
       state.array
         ? v.union([
             v.shorthandUpdate(state.base),
-            decimalListOperation({
+            exactlyOneOperation({
               set: state.base,
               push: v.union([v.shorthandArray(member()), list()]),
               unshift: v.union([v.shorthandArray(member()), list()]),
@@ -610,7 +490,7 @@ export function buildDecimalSchema(state: ScalarState<"decimal">) {
             // rounding rule works in coefficient space at the field scale, so
             // a finer `multiply` operand has no representation to be exact in.
             // Only derived RESULTS round; no input ever does.
-            decimalScalarOperation({
+            exactlyOneOperation({
               set: state.base,
               increment: member(),
               decrement: member(),

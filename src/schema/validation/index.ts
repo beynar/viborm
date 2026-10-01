@@ -42,7 +42,6 @@ export type {
 export {
   resolveSchemaOrThrow,
   SchemaValidator,
-  validateClientSchemaOrThrow,
   validateSchema,
   validateSchemaOrThrow,
 } from "./validator";

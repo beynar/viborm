@@ -1,8 +1,8 @@
-import type { ScalarType } from "@schema/scalars/common";
+import type { ScalarState, ScalarType } from "@schema/scalars/common";
 import { lazyScalarSchemas, type ScalarVariantSchemas } from "../lazy";
 import type { UnionSchema } from "../primitives/union";
 import v, { type V } from "../primitives/v";
-import { createScalarInterner } from "./intern";
+import { createScalarInterner, scalarInternKey } from "./intern";
 import {
   buildNegatableFilterSchema,
   type NegatableFilterSchema,
@@ -358,3 +358,46 @@ export const internedScalarSchemas = <T extends ScalarVariantSchemas>(
     update: internedVariant(interners.update, key, builders.update),
     filter: internedVariant(interners.filter, key, builders.filter),
   });
+
+// =============================================================================
+// THE COMPARABLE KINDS
+// =============================================================================
+
+/**
+ * One ordered kind, whole: int, number and bigint with arithmetic, date, time
+ * and datetime with `set` alone.
+ *
+ * The six kinds differed only in their name, their primitive and that one
+ * update choice, so each module is a row naming them. Every call builds its
+ * own member and list schemas and its own interners: the intern key spells
+ * only flag bits, so a kind that shared another's cache would be handed the
+ * other's validators.
+ *
+ * The returned builder is typed `never` because no ternary over `state.array`
+ * can be proved to inhabit a kind's CONDITIONAL variant types; each row
+ * declares its kind's exact `XSchemas` signature, which `never` satisfies. It
+ * is the seam {@link internedVariant} already names, spelled once more here
+ * instead of once per kind.
+ */
+export const comparableScalar = <K extends ScalarType>(
+  kind: K,
+  primitive: (options?: ScalarState<K> | { array: true }) => V.Schema,
+  arithmetic: boolean
+) => {
+  const member = once(() => primitive());
+  const list = once(() => primitive({ array: true }));
+  const filter = comparisonFilterFamily(kind, member, list);
+  const listFilter = listFilterFamily(member, list);
+  const update: (schema: V.Schema) => unknown = arithmetic
+    ? arithmeticUpdateFamily(member)
+    : buildSetUpdate;
+  const listUpdate = listUpdateFamily(member, list);
+  const interners = createScalarInterners();
+  return (state: ScalarState<K>): never =>
+    internedScalarSchemas(interners, scalarInternKey(state), {
+      base: state.base,
+      create: () => primitive(state),
+      update: () => (state.array ? listUpdate(state.base) : update(state.base)),
+      filter: () => (state.array ? listFilter(state.base) : filter(state.base)),
+    }) as never;
+};

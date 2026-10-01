@@ -59,7 +59,7 @@ import { hydrateSchemaNames } from "@schema/hydration";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import {
   resolveCheckedSchemaOrThrow,
-  validateClientSchemaOrThrow,
+  resolveSchemaOrThrow,
 } from "@schema/validation/validator";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import {
@@ -997,7 +997,7 @@ function reusablePreparation(
 function prepareSchema(schema: Schema, checked: boolean): PreparedSchema {
   const relations = checked
     ? resolveCheckedSchemaOrThrow(schema)
-    : validateClientSchemaOrThrow(schema);
+    : resolveSchemaOrThrow(schema);
   const schemaRegistry = createResolvedSchemaRegistry(schema, relations);
   const prepared: PreparedSchema = {
     entries: Object.entries(schema),

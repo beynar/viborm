@@ -1,20 +1,19 @@
 /**
  * Schema Hydration
  *
- * Hydrates schema name slots (tsName, sqlName) for models, scalars, and relations.
+ * Hydrates schema name slots (tsName, sqlName) for models and scalars.
  * This is called once at client initialization when the full schema context is available.
  *
  * - tsName: The TypeScript key name in the schema (e.g., "email", "User")
  * - sqlName: The resolved database name (e.g., "email_column", "users")
  *
- * Names are stored in the model's nameRegistry, not on the scalar/relation instances.
+ * Names are stored in the model's nameRegistry, not on the scalar instances.
  * This allows the same scalar to be reused across multiple models with different keys.
  */
 
 import { isValidSchemaIdentifier } from "./identifier";
 import type { Model, NameRegistry } from "./model";
 import { preflightModelRegistrationIdentity } from "./registration-preflight";
-import type { AnyRelation } from "./relation";
 import type { Scalar } from "./scalars/base";
 import type { SchemaNames } from "./scalars/common";
 import { SchemaValidationError } from "./validation/error";
@@ -25,13 +24,12 @@ import { SchemaValidationError } from "./validation/error";
 export type Schema = Record<string, Model<any>>;
 
 /**
- * Hydrate name slots for all models, scalars, and relations in a schema.
+ * Hydrate name slots for all models and scalars in a schema.
  *
  * This function populates the model's nameRegistry:
  * - model["~"].names.ts = schema key (e.g., "User")
  * - model["~"].names.sql = tableName ?? schema key (e.g., "users")
  * - model["~"].nameRegistry.fields.get(fieldKey) = {ts, sql}
- * - model["~"].nameRegistry.relations.get(relationKey) = {ts, sql}
  *
  * Operation schemas are registry-owned; hydration only binds reusable schema
  * definitions to model-local names and relation sources.
@@ -92,11 +90,12 @@ function preflightModelIdentifiers(modelKey: string, model: Model<any>): void {
 }
 
 /**
- * Bind one model's names and its scalar/relation name registries.
+ * Bind one model's names and its scalar name registry.
  *
- * ONE relation lane covers both target domains, and no relation is given a
- * source model: `.extends()` may reuse one relation object under more than one
- * model or key, so a contextual operation carries its own slot identity instead.
+ * A relation has no name entry — its key is its only name, with no column to
+ * map — and no relation is given a source model: `.extends()` may reuse one
+ * relation object under more than one model or key, so a contextual operation
+ * carries its own slot identity instead.
  */
 function bindModelNames(modelKey: string, model: Model<any>): void {
   const names = model["~"].names as SchemaNames;
@@ -114,16 +113,6 @@ function bindModelNames(modelKey: string, model: Model<any>): void {
       sql: scalar["~"].state.columnName ?? fieldKey,
     };
     registry.fields.set(fieldKey, fieldNames);
-  }
-
-  for (const relationKey of Object.keys(
-    state.relations as Record<string, AnyRelation>
-  )) {
-    registry.relations.set(relationKey, {
-      ts: relationKey,
-      // Relations don't have column mapping - sql name equals ts name
-      sql: relationKey,
-    });
   }
 
   // Operation schemas are built by SchemaRegistry, not during name hydration.
@@ -172,15 +161,4 @@ export function getModelSqlName(model: Model<any>): string {
  */
 export function getFieldSqlName(model: Model<any>, fieldKey: string): string {
   return model["~"].getFieldName(fieldKey).sql;
-}
-
-/**
- * Get the SQL name for a relation.
- * Delegates to model["~"].getRelationName().
- */
-export function getRelationSqlName(
-  model: Model<any>,
-  relationKey: string
-): string {
-  return model["~"].getRelationName(relationKey).sql;
 }

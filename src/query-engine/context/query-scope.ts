@@ -226,7 +226,7 @@ export function getRelationNames(model: Model<any>): string[] {
 }
 
 export function isScalarField(model: Model<any>, fieldName: string): boolean {
-  return model["~"].scalarFieldSet.has(fieldName);
+  return Object.hasOwn(model["~"].state.scalars, fieldName);
 }
 
 /**
@@ -244,7 +244,7 @@ export function isNullableScalarField(
 }
 
 export function isRelation(model: Model<any>, fieldName: string): boolean {
-  return model["~"].relationSet.has(fieldName);
+  return Object.hasOwn(model["~"].state.relations, fieldName);
 }
 
 export function isVariantRelation(

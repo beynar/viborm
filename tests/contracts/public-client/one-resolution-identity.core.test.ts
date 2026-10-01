@@ -29,7 +29,7 @@ import { createQueryScope } from "@query-engine/context";
 import { createModelRegistry } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
-import { validateClientSchemaOrThrow } from "@schema/validation/validator";
+import { resolveSchemaOrThrow } from "@schema/validation/validator";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import { describe, expect, test } from "vitest";
@@ -56,7 +56,7 @@ const schema = { author, post };
 describe("one resolution, one index", () => {
   test("registry, omit rewriting and the model registry share it by identity", () => {
     hydrateSchemaNames(schema);
-    const relations = validateClientSchemaOrThrow(schema);
+    const relations = resolveSchemaOrThrow(schema);
 
     const schemaRegistry = createResolvedSchemaRegistry(schema, relations);
     const omit = createClientOmitResolver(
@@ -95,7 +95,7 @@ describe("one resolution, one index", () => {
     expect("setPolymorphicStorage" in internals).toBe(false);
 
     hydrateSchemaNames(schema);
-    const relations = validateClientSchemaOrThrow(schema);
+    const relations = resolveSchemaOrThrow(schema);
     const scope = createQueryScope(
       { adapter: new PostgresAdapter(), relations },
       post

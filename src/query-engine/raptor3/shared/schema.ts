@@ -7,7 +7,7 @@ import {
   type ClearableMembership,
   clearableMembership,
 } from "@schema/relation/clearability";
-import { validateClientSchemaOrThrow } from "@schema/validation";
+import { resolveSchemaOrThrow } from "@schema/validation";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
@@ -64,7 +64,7 @@ export function isReadOperation(
  * a schema a caller already resolved (g4/unit03/note.md B-3).
  */
 export interface ResolvedSchemaViews {
-  readonly index: ReturnType<typeof validateClientSchemaOrThrow>;
+  readonly index: ReturnType<typeof resolveSchemaOrThrow>;
   /**
    * Declared as the one member {@link EngineSchema} reads. A client hands over
    * its full resolved registry and an engine hands over the
@@ -189,7 +189,7 @@ export class EngineSchema {
       return;
     }
     hydrateSchemaNames(schema);
-    this.index = validateClientSchemaOrThrow(schema);
+    this.index = resolveSchemaOrThrow(schema);
     this.registry = createResolvedSchemaRegistry(schema, this.index);
   }
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {

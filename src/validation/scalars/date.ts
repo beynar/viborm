@@ -1,34 +1,14 @@
 import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import {
-  buildSetUpdate,
   type ComparisonFilterSchema,
-  comparisonFilterFamily,
-  createScalarInterners,
-  internedScalarSchemas,
+  comparableScalar,
   type ListFilterSchema,
   type ListUpdateSchema,
-  listFilterFamily,
-  listUpdateFamily,
-  once,
   type SetUpdateSchema,
 } from "./family";
-import { scalarInternKey } from "./intern";
-
-/** This kind's member and list schemas; `family.ts` explains what they are for. */
-const dateBase = once(() => v.isoDate());
-const dateList = once(() => v.isoDate({ array: true }));
 
 type IsoDateList = V.IsoDate<{ array: true }>;
-
-const buildDateFilterSchema = comparisonFilterFamily(
-  "date",
-  dateBase,
-  dateList
-);
-const buildDateListFilterSchema = listFilterFamily(dateBase, dateList);
-const buildDateUpdateSchema = buildSetUpdate;
-const buildDateListUpdateSchema = listUpdateFamily(dateBase, dateList);
 
 export interface DateSchemas<
   F extends ScalarState<"date">,
@@ -44,23 +24,9 @@ export interface DateSchemas<
     : ComparisonFilterSchema<"date", F["base"], V.IsoDate, IsoDateList, C>;
 }
 
-const interners = createScalarInterners();
-
-export const buildDateSchema = <
+export const buildDateSchema: <
   F extends ScalarState<"date">,
   C extends V.Operand<any> = V.Operand<any>,
 >(
   state: F
-): DateSchemas<F, C> =>
-  internedScalarSchemas<DateSchemas<F, C>>(interners, scalarInternKey(state), {
-    base: state.base,
-    create: () => v.isoDate(state),
-    update: () =>
-      state.array
-        ? buildDateListUpdateSchema(state.base)
-        : buildDateUpdateSchema(state.base),
-    filter: () =>
-      state.array
-        ? buildDateListFilterSchema(state.base)
-        : buildDateFilterSchema(state.base),
-  });
+) => DateSchemas<F, C> = comparableScalar("date", v.isoDate, false);
