@@ -1,5 +1,38 @@
 # Extension capabilities v3.1, `viborm/soft-delete` and v4: final qualification record (U7, amended by the U7 repair, the compression pass, the trusted-definitions decision, v4 and the owner rulings on v4)
 
+## External review fixes (2026-10-01)
+
+Qualified on **3283236fa**. This section supersedes §00000 wherever they differ. Labels: **MEASURED** means run by this qualification on 3283236fa; **JUDGEMENT** means reasoning.
+
+| Finding | Reproduction (red before, green after) | Owner repaired | Commit |
+| --- | --- | --- | --- |
+| F1: `domainFacts` remembered a call's bound row facts under a content key but built them from the caller's own objects, so mutating a Date or array control after a call changed what later equal calls read. | `extension-controls.core.test.ts`, 2 new tests: on d663d50a1 the Date witness returned `['d2']` for `['d1','t1','t2']`, the array witness (related path) `['t2']` for `['t1']`. | `src/extensions/rows.ts` `domainFacts`: the remembered facts are bound from `structuredClone(values)`, the record the key spells. | 785ff3d32 |
+| F2: a limited tombstoning `deleteMany` checked the whole selector for references, so a reference outside the `limit` window refused it where the hard delete succeeds. | `deletion-capability-behavior.ts` "a limited deleteMany's premise reads the window its effect tombstones …": `ForeignKeyError` on 785ff3d32 on SQLite3, batch-only, without RETURNING and PGlite. | `Commands.unreferenced` gives the premise and the effect one window, the first `limit` candidates in key order (`Queries.window` on batch routes). | 506c5b263 |
+| Review of F2 (blocker): the interactive window was an OR of one `key = ?` per locked row, so a limit of about 995 or more failed on SQLite (V2001 / V8003), alone and inside `$transaction([...])`. Two minors: comments overstated agreement with the hard delete's (unordered) window; no race witness covered the limited lock. | `deletion-capability-behavior.ts` "a limited deleteMany's window costs the same bound values however long it is" (limit 1000 over 2100 posts, an array member, a composite key at limit 500, an empty window): on 506c5b263, "needs 1002 bound values, above the verified limit of 999" on SQLite3 and without RETURNING. Two races added to `deletion-race-behavior.ts` (pg/mysql2 docker, not run here). | `Commands.unreferenced` (interactive branch): the premise and the effect take the candidates up to the last locked key, `Queries.through`, a row-value `keys <= (?, …)` with one bound value per key. The row-value spelling now has one owner (`rowValue`). Hard-delete SQL is unchanged; the doc and the raptor3 AGENTS.md now say only the guarded tombstone's window is key-ordered. | 3283236fa |
+
+Gates on 3283236fa, MEASURED, one at a time:
+
+| Gate | Result |
+| --- | --- |
+| Biome on the 7 code files changed since d663d50a1 | clean |
+| tsc (typescript-native) | exit 0 |
+| Refusal census, HEAD~1 vs HEAD | 204 sites both; identical apart from line numbers |
+| Dead-symbol gate | 75 of 75 |
+| Manifests | `post-g3-deletion-sites` gate verified at 75 (was 72); `raptor3-campaign-receipts.test.mjs` 41 of 41 |
+| layer-client / layer-cache / layer-write-engine / layer-query-engine (direct vitest) | 677 / 85 / 82 / 739 passed |
+| raptor3 | 2182 passed, 7 failed = the known reds (cs02 + six generation campaigns) |
+| raptor3-provider / provider-sqlite3 | 32 passed / 881 passed, 1 skipped |
+| PGlite, bounded runner | deletion-capability 17, row-scopes 24, soft-delete 12, reads 147, bound-rows 7; teardown verified each |
+| `pnpm test:core` | 446 files, 9386 tests passed |
+| `pnpm test:package` | 14 passed |
+| `pnpm test:coverage` | every subsystem at or above its floor; extensions 100/100/100/100 |
+| `pnpm test:layer:client` | runtime 677 passed; the type shards missed the layer's 45 s wall budget twice (shard 4 at 0.92 s left, then shard 3), under a machine load average of 15 from other processes. The same type files typecheck clean with typescript-native (5.6 s). |
+| `pnpm test:layer:query-engine` | 739 passed, types shard passed |
+| Bundle (path-limited archives, 506c5b263 → 3283236fa) | pg-representative raw 561,759 → 562,086, gzip 165,776 → 165,856 (+80 B), brotli 140,520 → 140,721; pg-soft-delete gzip 166,141 → 166,197 (+56 B) |
+| Runtime lines (esbuild --loader=ts) | commands.ts 1460 → 1464, query.ts 4349 → 4376 |
+
+Not run: PostgreSQL and MySQL docker suites (no server), so the two new races and the composite row-value form on MySQL are unexecuted. Open, JUDGEMENT: a row that becomes a candidate below the last locked key after the lock is taken by the bounded window, the same exposure the unlimited form has; the hard delete's limited window stays provider-ordered (owner decision if it should be key-ordered).
+
 **Section 00000 (owner rulings on v4, qualified on 54f6bfdca) supersedes section 0000 wherever they differ.**
 
 **Section 0000 (v4: rows bound to the call and `data`, qualified on 68672cccc) supersedes section 000 wherever they differ.**
