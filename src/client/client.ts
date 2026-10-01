@@ -445,19 +445,6 @@ export class VibORM<C extends VibORMConfig> {
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
     | undefined;
 
-  /** Stable identity shared by every transaction-bound view of this client. */
-  get clientId(): symbol {
-    return this.engine.clientId;
-  }
-
-  /**
-   * The raw SQL surface bound to one engine scope — the root scope, or a
-   * transaction-bound scope inside an interactive transaction.
-   */
-  private rawSurface(engine: QueryEngine): RawSurface {
-    return createRawSurface({ engine });
-  }
-
   /**
    * @param prepared - the ONE resolved topology index the static factory's
    *   gate produced, and the registries over it, passed in by identity. The
@@ -647,7 +634,7 @@ export class VibORM<C extends VibORMConfig> {
       readDriverIdentity(engine.driver)
     );
     const officialReadCache = Object.freeze({ capability, options });
-    return this.createCachedProxy(({ modelName, operation, args }) => {
+    return createModelProxy(this.schema, ({ modelName, operation, args }) => {
       try {
         runtime.validateCacheableOperation(operation);
         return this.prepareModelOperation(
@@ -661,18 +648,7 @@ export class VibORM<C extends VibORMConfig> {
       } catch (error) {
         return Promise.reject(error);
       }
-    });
-  }
-
-  /** Apply the cached-read proxy boundary for the official cache extension. */
-  private createCachedProxy(
-    createOperation: (options: {
-      readonly modelName: keyof C["schema"];
-      readonly operation: Operations;
-      readonly args: unknown;
-    }) => Promise<unknown> | PendingOperation<unknown>
-  ): CachedClient<C> {
-    return createModelProxy(this.schema, createOperation) as CachedClient<C>;
+    }) as CachedClient<C>;
   }
 
   /** Resolve one authenticated declarative omit once for this client schema. */
@@ -749,7 +725,7 @@ export class VibORM<C extends VibORMConfig> {
           if (prop === "$schema") return this.schema;
           if (prop === "$transaction") return transaction;
           if (isRawMethodName(prop)) {
-            rawSurface ??= this.rawSurface(engine);
+            rawSurface ??= createRawSurface({ engine });
             return rawSurface[prop];
           }
           if (typeof prop === "string" && Object.hasOwn(this.schema, prop)) {
@@ -872,7 +848,7 @@ export class VibORM<C extends VibORMConfig> {
                 return clientMethods[prop];
               }
               if (isRawMethodName(prop)) {
-                txRawSurface ??= this.rawSurface(txEngine);
+                txRawSurface ??= createRawSurface({ engine: txEngine });
                 return txRawSurface[prop];
               }
               if (prop === "$transaction") {
@@ -1091,7 +1067,7 @@ export class VibORM<C extends VibORMConfig> {
       if (prop === "$driver") return engine.driver;
       if (prop === "$schema") return this.schema;
       if (isRawMethodName(prop)) {
-        rawSurface ??= this.rawSurface(engine);
+        rawSurface ??= createRawSurface({ engine });
         return rawSurface[prop];
       }
       if (prop === "$transaction") {

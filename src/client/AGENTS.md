@@ -467,10 +467,8 @@ writes `coverage/client/index.html`.
 Those floors are an APPROVED EXCEPTION with recorded evidence, not a silent
 shortfall from 100 and not some lane-wide 98. The residual is capped by
 unreachable defensive code rather than by missing tests: it is dominated by
-`default:` arms over closed unions and by seven functions with no public
-caller - `client.ts`'s
-`get clientId()` among them, since the `VibORM` class is not exported from
-`src/index.ts` - and each was verified against its upstream invariant.
+`default:` arms over closed unions and by functions with no public caller,
+and each was verified against its upstream invariant.
 `scripts/coverage-policy.mjs` holds that reasoning and enforces the floors, and
 `scripts/merge-coverage.mjs` prints every measured metric beside the floor it
 enforces. Each floor is a ratchet: a real regression still fails.
