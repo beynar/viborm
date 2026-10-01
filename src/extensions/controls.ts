@@ -90,9 +90,11 @@ export type DeletionContribution = {
  * call passed for that control (a call that passed none writes nothing
  * there), or, on `update`, one of the field's update operators
  * (`{ increment: 1 }`). A call that writes one of these fields itself is
- * refused, even one that passed no value for its control. When two
- * extensions name a field, the later one writes it. Give such a field a default or make it nullable in the schema:
- * the call's data is checked before the extension writes it.
+ * refused, even one that passed no value for its control, and the extended
+ * client's types accept no value there, nested writes included. When two
+ * extensions name a field, the later one writes it. Give such a field a
+ * default or make it nullable in the schema: the call's data is checked
+ * before the extension writes it.
  */
 export type DataContribution = {
   readonly models: {
@@ -229,6 +231,56 @@ export type OperationControls<Controls, ModelName, Operation> = {
     ? Value
     : never;
 };
+
+// =============================================================================
+// DATA STATE: the fields a chain's `data` writes, per model
+// =============================================================================
+
+/** The fields one `data` entry writes on its models, for one kind of write. */
+export interface StampedFields<
+  Models = PropertyKey,
+  Kind = "create" | "update",
+  Fields = PropertyKey,
+> {
+  readonly models: Models;
+  readonly kind: Kind;
+  readonly fields: Fields;
+}
+
+type EntryStamps<
+  Model,
+  Entry,
+  Kind extends "create" | "update",
+> = Kind extends keyof Entry
+  ? StampedFields<Model, Kind, keyof NonNullable<Entry[Kind]>>
+  : never;
+
+/**
+ * What one definition's `data` writes: one member per model and kind. A
+ * definition whose model names are lost (`{ [model: string]: ... }`) writes
+ * on every model, as far as the types can tell.
+ */
+export type DefinitionData<Definition> = Definition extends {
+  readonly data: { readonly models: infer Models };
+}
+  ? {
+      [Model in keyof Models]:
+        | EntryStamps<Model, Models[Model], "create">
+        | EntryStamps<Model, Models[Model], "update">;
+    }[keyof Models]
+  : never;
+
+/** The fields a chain writes on one model, on a create or on an update. */
+export type StampedFieldNames<Data, ModelName, Kind> =
+  Data extends StampedFields<
+    infer Models,
+    Kind,
+    infer Fields extends PropertyKey
+  >
+    ? ModelName extends Models
+      ? Fields
+      : never
+    : never;
 
 // =============================================================================
 // PLACEMENT: where each declared control is accepted

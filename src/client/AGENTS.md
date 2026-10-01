@@ -307,6 +307,19 @@ client, `ExtendedOperationResult` and model-mapped query handlers
 context through `ContextualOperationResult`. `OperationResult`,
 `InferDatabase` and `renderOperationResultType` are schema-only and say so.
 
+The payloads have one owner for what an extension's `data` writes: the
+extension state's `data` slot (`StampedFields` per model and kind, filled by
+`DefinitionData` in `controls.ts`). On a chain that declares `data`,
+`ExtensionModelDelegate` (`src/extensions/methods.ts`) swaps a model's five
+write operations for `StampedOperations` (`types.ts`): the fields written
+there accept nothing in the call's own data, and `NestedStampGuard` follows
+the relations and verbs the call spells to do the same in nested creates and
+updates, finding a target's fields by its shallow surface. A chain without
+`data` keeps `Client` exactly; `Client` itself takes no `data` parameter
+(as one, it cost the instrumentation type program +14% types and +26%
+instantiations, measured at U3). `OperationPayload` stays the
+schema-only payload.
+
 Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, and
 `src/client/default-omit-extension.ts`; `src/soft-delete/index.ts` is an

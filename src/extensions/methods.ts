@@ -5,13 +5,20 @@ import type {
   ClientRowsContext,
   Operations,
   Schema,
+  StampedOperation,
+  StampedOperations,
 } from "@client/types";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type { OfficialCacheControls } from "../cache/extension";
 import type { ResolvedExtensionChain } from "./chain";
-import type { DefinitionControls, NoControls, RowsModels } from "./controls";
+import type {
+  DefinitionControls,
+  DefinitionData,
+  NoControls,
+  RowsModels,
+} from "./controls";
 import { extensionCause, extensionError } from "./definition";
 
 type NoMethods = Record<never, never>;
@@ -39,6 +46,7 @@ export interface ClientExtensionState<
     | undefined = undefined,
   Controls extends object = NoControls,
   RowModels extends string = never,
+  Data = never,
 > {
   readonly client: ClientMethods;
   readonly models: ModelMethods;
@@ -48,6 +56,8 @@ export interface ClientExtensionState<
   readonly controls: Controls;
   /** The models the chain's `rows` can hide from a relation read. */
   readonly rows: RowModels;
+  /** The fields the chain's `data` writes, which a caller no longer writes. */
+  readonly data: Data;
 }
 
 export type EmptyClientExtensionState = ClientExtensionState;
@@ -59,7 +69,8 @@ export type ExtensionStateConstraint = ClientExtensionState<
   ExtensionCacheState | undefined,
   ExtensionResultConsumerState | undefined,
   object,
-  string
+  string,
+  unknown
 >;
 
 /** Whether the current type-state includes the official cache capability. */
@@ -82,7 +93,8 @@ export type EnableExtensionCache<X extends ExtensionStateConstraint> =
     X["resultConsumer"],
     X["controls"] &
       DefinitionControls<{ readonly controls: OfficialCacheControls }>,
-    X["rows"]
+    X["rows"],
+    X["data"]
   >;
 
 /** Whether an earlier extension was typed against result-bearing delegates. */
@@ -97,12 +109,27 @@ type MethodsForModel<
   ModelName extends PropertyKey,
 > = ModelName extends keyof X["models"] ? X["models"][ModelName] : NoMethods;
 
-/** One model's delegate after the chain's methods and controls. */
+/**
+ * One model's delegate after the chain's methods and controls. On a chain
+ * that declares `data`, its writes refuse the fields the chain writes.
+ */
 export type ExtensionModelDelegate<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   ModelName extends keyof C["schema"],
-> = Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName] &
+> = ([X["data"]] extends [never]
+  ? Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName]
+  : Omit<
+      Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName],
+      StampedOperation
+    > &
+      StampedOperations<
+        C,
+        ClientRowsContext<C, X["rows"]>,
+        X["controls"],
+        X["data"],
+        ModelName
+      >) &
   MethodsForModel<X, ModelName>;
 
 /**
@@ -280,7 +307,8 @@ export type MergeExtensionState<
   X["cache"],
   ResultConsumerStateOf<X, Definition>,
   X["controls"] & DefinitionControls<Definition>,
-  X["rows"] | RowsModels<Definition>
+  X["rows"] | RowsModels<Definition>,
+  X["data"] | DefinitionData<Definition>
 >;
 
 export interface BoundExtensionMethods {

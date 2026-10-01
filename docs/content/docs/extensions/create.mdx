@@ -496,11 +496,19 @@ await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updat
   names the field, not where it sits: a nested create or an `upsert` arm is
   reported at `data.<field>` too. A field the extension writes only on create
   can still be set by an update.
+- The types agree. On the extended client, each field the extension writes
+  accepts no value in that model's create and update data, in the call's own
+  data and in every create and update it nests through a relation: passing
+  one is an editor error. The base client still accepts it.
 - Make every field an extension writes nullable or give it a default in your
   schema. The call's data is checked against the schema before the extension
   adds the field, so a required field the call leaves out is refused as
-  missing. The field still appears in your create and update types; passing
-  it is refused when the call runs.
+  missing. Such a field can be neither passed nor left out, so every create
+  of that model is an editor error on the extended client.
+- A recipe that takes its models as a plain `string[]`, as the ones on this
+  page do, cannot tell the types which models it names: its fields accept no
+  value on every model of the client. A `data` entry written inline that
+  names a model your schema lacks is an editor error.
 - When two extensions write the same field of a model, the one applied later
   wins, on every call. Each writes its other fields.
 - A field whose control the call did not pass is not written, and the call

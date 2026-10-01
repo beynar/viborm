@@ -348,7 +348,7 @@ type ResolveClientOmit<
           : EntryOmission<Matches>;
 
 /** Get the target model itself without resolving its recursive state. */
-type GetTargetModel<R extends AnyRelation> =
+export type GetTargetModel<R extends AnyRelation> =
   TargetGetter<R> extends () => infer Target
     ? Target extends Model<any>
       ? Target

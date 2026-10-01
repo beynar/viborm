@@ -384,6 +384,7 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       const { base, db } = context;
       const refused = await failure(
         db.post.create({
+          // @ts-expect-error - the client's types refuse a stamped field too
           data: { id: 1, title: "a", createdBy: "mallory" },
           actor: "ann",
         })
@@ -401,6 +402,7 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
           data: {
             id: 1,
             title: "a",
+            // @ts-expect-error - the client's types refuse a stamped field too
             comments: { create: [{ id: 10, body: "x", createdBy: "m" }] },
           },
           actor: "ann",
@@ -423,6 +425,7 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
         await failure(
           db.post.update({
             where: { id: 1 },
+            // @ts-expect-error - the client's types refuse a stamped field too
             data: { updatedBy: "mallory" },
             actor: "ann",
           })
@@ -464,6 +467,7 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       ]);
       const refused = await failure(
         later.post.create({
+          // @ts-expect-error - the client's types refuse a stamped field too
           data: { id: 4, title: "d", createdBy: "x" },
           actor: "ann",
         })
@@ -478,6 +482,7 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       // extension's: the caller may not write it either.
       const unwritten = await failure(
         later.post.create({
+          // @ts-expect-error - the client's types refuse a stamped field too
           data: { id: 4, title: "d", source: "me" },
           actor: "ann",
         })
@@ -549,6 +554,7 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       expect(
         await failure(
           db.post.create({
+            // @ts-expect-error - the client's types refuse a stamped field too
             data: { id: 3, title: "c", tenantId: "globex" },
             tenant: "acme",
           })

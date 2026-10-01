@@ -508,6 +508,23 @@ type ComponentMapGuard<
   ? { readonly [K in Key]: OperationMapGuard<Component, S> }
   : unknown;
 
+/**
+ * A `data` entry names a model of the schema: a misspelt model reads `never`
+ * where it is written. Model names a definition did not keep
+ * (`{ [model: string]: ... }`) cannot be checked.
+ */
+type DataModelsGuard<Definition, S extends Schema> = Definition extends {
+  readonly data: { readonly models: infer Models };
+}
+  ? string extends keyof Models
+    ? unknown
+    : {
+        readonly data: {
+          readonly models: Record<Exclude<keyof Models, keyof S>, never>;
+        };
+      }
+  : unknown;
+
 /** Structural refusal for non-fresh extension definitions and contributions. */
 export type ExactExtensionDefinition<
   Definition,
@@ -516,6 +533,7 @@ export type ExactExtensionDefinition<
 > = UnknownDefinitionKeys<Definition> &
   ComponentMapGuard<Definition, "request", C["schema"]> &
   ComponentMapGuard<Definition, "query", C["schema"]> &
+  DataModelsGuard<Definition, C["schema"]> &
   ExtensionMethodDefinitionGuard<Definition, C, X>;
 
 export type DefineExtensionBinder<S extends Schema> = <const Definition>(
