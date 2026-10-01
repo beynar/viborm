@@ -1,0 +1,200 @@
+---
+title: Recipes
+description: Tenancy, audit stamping and optimistic locking, each one extension declaration you copy into your code
+icon: puzzle
+---
+
+Three common needs fit in one declaration each, with no handler code:
+tenancy, audit stamping and optimistic locking. They are recipes, not
+packages: copy the ones you need into your code and change them as you like.
+They use only what `viborm` and `viborm/validation` export, `rows` and `data`
+(see [Create an extension](/docs/extensions/create#filter-by-a-value-the-call-passes)),
+and each takes the names of the models it applies to.
+
+```ts
+import { defineExtension } from "viborm";
+import { v } from "viborm/validation";
+
+/** The same entry for each model named. */
+export const perModel = <T>(models: readonly string[], build: () => T) =>
+  Object.fromEntries(models.map((model) => [model, build()]));
+```
+
+Every field these recipes write must be nullable or have a default in your
+schema: the call's data is checked against the schema before the extension
+adds the field, so a required field the call leaves out is refused as
+missing.
+
+```ts
+const post = s.model({
+  id: s.string().id().ulid(),
+  title: s.string(),
+  tenantId: s.string().nullable(), // written by tenancy
+  createdBy: s.string().nullable(), // written by audit
+  updatedBy: s.string().nullable(), // written by audit
+  version: s.int().default(0), // moved on by the lock
+  comments: s.toMany(() => comment),
+});
+```
+
+## Tenancy
+
+Each call says which tenant it works for. It sees only that tenant's rows,
+through every relation, and every row it creates belongs to that tenant.
+
+```ts
+export const tenancy = (models: readonly string[]) =>
+  defineExtension({
+    name: "tenancy",
+    controls: { tenant: { schema: v.string(), required: true } },
+    rows: {
+      control: "scope", // still one mode control per rows member
+      default: "tenant",
+      models: perModel(models, () => ({
+        tenant: {
+          root: { tenantId: { control: "tenant" } },
+          related: { tenantId: { control: "tenant" } },
+        },
+        all: {}, // an operator's view: the control is admitted, the filter is off
+      })),
+    },
+    data: {
+      models: perModel(models, () => ({
+        create: { tenantId: { control: "tenant" } },
+      })),
+    },
+  });
+```
+
+```ts
+const db = base.$extends(tenancy(["post", "comment"]));
+await db.post.findMany({ tenant: "acme" }); // only acme's posts, comments included
+await db.post.create({ data: { title }, tenant: "acme" }); // tenantId written by the extension
+await db.post.findMany({ tenant: "acme", scope: "all" }); // every tenant, for an operator
+await db.post.findMany(); // ValidationError: control "tenant" is required
+```
+
+- Take the tenant from your server's session, never from the request. The
+  extension keeps a call inside the tenant it names; it does not check that
+  the caller may name it. The same goes for `scope: "all"`: any code that
+  can pass arguments can ask for every tenant.
+- `tenant` is required and says no `on`, so every operation of every model
+  of the client asks for it, including models the recipe does not name.
+  There it is checked and changes nothing.
+- A row of another tenant is hidden, so updating or deleting it is a
+  `NotFoundError`, and reaching it through a relation (`connect`, a nested
+  `update`, `delete` or `set`) is a `NestedWriteError`, as for any row the
+  extension hides.
+- A create that passes `tenantId` itself is refused with a
+  `ValidationError` at `data.tenantId`. An update may still change
+  `tenantId`: the recipe writes it on create only. Add
+  `update: { tenantId: { control: "tenant" } }` to pin it on every update
+  too.
+
+## Audit stamping
+
+Every create records who created the row, and every update who last changed
+it.
+
+```ts
+export const audit = (models: readonly string[]) =>
+  defineExtension({
+    name: "audit",
+    controls: { actor: { schema: v.string(), required: true, on: "writes" } },
+    data: {
+      models: perModel(models, () => ({
+        create: { createdBy: { control: "actor" } },
+        update: { updatedBy: { control: "actor" } },
+      })),
+    },
+  });
+```
+
+```ts
+const db = base.$extends(audit(["post", "comment"]));
+await db.post.create({ data: { title }, actor: session.userId }); // createdBy
+await db.post.update({ where: { id }, data: { title }, actor: session.userId }); // updatedBy
+```
+
+- Every create and update writes the fields: root and nested, one row or
+  many, either arm of an `upsert`. A soft delete is an update, so it writes
+  `updatedBy` too; who deleted the row stays with the soft delete's own
+  `deletedBy`.
+- `actor` is required on every write of every model, deletes included,
+  even where nothing is written: a delete that stays physical writes
+  nothing.
+
+## Optimistic locking
+
+An update or a delete says which version of the row it read. When the row
+has moved on since, the call finds nothing and changes nothing. Every update
+moves the version on.
+
+```ts
+export const optimisticLock = (models: readonly string[]) =>
+  defineExtension({
+    name: "optimisticLock",
+    controls: {
+      expectedVersion: { schema: v.number(), on: ["update", "delete"] },
+    },
+    rows: {
+      control: "versionCheck",
+      default: "checked",
+      models: perModel(models, () => ({
+        checked: { root: { version: { control: "expectedVersion" } } },
+        unchecked: {},
+      })),
+    },
+    data: {
+      models: perModel(models, () => ({
+        update: { version: { increment: 1 } },
+      })),
+    },
+  });
+```
+
+```ts
+const db = base.$extends(optimisticLock(["post"]));
+await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundError when the row moved on
+```
+
+- A call without `expectedVersion` checks nothing, and the version still
+  moves on. Mark the control `required: true` when every update and delete
+  must check.
+- `updateMany`, `upsert` and `deleteMany` do not take `expectedVersion`:
+  they check nothing, and `updateMany` and `upsert` move the version on.
+- A create that passes `version` itself is accepted; an update that does is
+  refused with a `ValidationError` at `data.version`.
+
+## What every recipe shares
+
+- **Fields the extension writes are the extension's.** A call that writes
+  one of them is refused with a `ValidationError` at `data.<field>` that
+  names the extension, even when the call did not pass the control. The path
+  names the field, not where it sits: a nested create or an `upsert` arm is
+  reported at `data.<field>` too.
+- **The types do not narrow these recipes.** Their models are a plain
+  `string[]`, so TypeScript cannot tell which models they write: a field they
+  write still compiles in your data and is refused when the call runs, and a
+  misspelt model name is not caught. Write the `data` entry inline, with the
+  model names spelled out, when you want your editor to refuse those fields.
+- **Each tenant is prepared once.** A client keeps up to 256 prepared modes
+  and values; past that, the oldest is prepared again when it comes back,
+  which is slower but gives the same answer. Tenancy with both modes in use
+  keeps 128 tenants. Values that only `data` uses, such as `actor`, take no
+  room.
+- **Cached reads are keyed on the value**, so two tenants never share a
+  cache entry.
+- **Combine them freely.** Apply them in any order, before any extension
+  that adds model-mapped `query` handlers or `client`/`model` methods. When
+  two extensions write the same field, the one applied later wins.
+
+## Not covered
+
+- Raw SQL (`$queryRaw`, `$executeRaw` and the unsafe forms) and statement
+  transforms are neither filtered nor stamped.
+- A filter compares a field with a value the call passed, nothing more: no
+  value computed from another, no filter through a relation, no control of
+  another extension.
+- None of this is authorization. A filter keeps a call inside the rows it
+  names; deciding what a caller may name stays in your server.

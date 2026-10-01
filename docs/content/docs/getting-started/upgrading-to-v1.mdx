@@ -338,8 +338,8 @@ factories. Default omit is overridable presentation, not authorization.
 Instrumentation SQL and parameter disclosure default to off and are configured
 separately for tracing, logging and error diagnostics.
 
-Custom extensions have nine capabilities: `request`, `query`, `statement`,
-`observe`, `client`, `model`, `controls`, `rows`, and `deletion`. A mutation or
+Custom extensions have ten capabilities: `request`, `query`, `statement`,
+`observe`, `client`, `model`, `controls`, `rows`, `deletion`, and `data`. A mutation or
 raw query interceptor must call `proceed()` exactly once. Read the lifecycle
 and continuation rules before porting hooks. A soft-delete middleware becomes
 the official [soft-delete extension](/docs/extensions/soft-delete). See

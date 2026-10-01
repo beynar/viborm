@@ -15,12 +15,12 @@ Versioning.
   one file of about 100 lines, built only from the public capabilities below,
   in its own entry point: the root entry never imports it.
 - **Added: three extension capabilities, `controls`, `rows` and `deletion`.**
-  An extension now has nine capabilities. `controls` declares call arguments
-  (a closed list or a Standard Schema, placed on reads, writes or named
+  `controls` declares call arguments (a closed list or a Standard Schema,
+  placed on reads, writes or named
   operations; a schema may be an object or a function carrying
   `~standard`, such as an ArkType type), checked once before request
   handlers and visible only to the declaring extension's handlers
-  (`context.controls`). `rows` declares constant row filters per model, one
+  (`context.controls`). `rows` declares row filters per model, one
   set per mode, chosen per call by a control; core applies them at every
   place a query selects rows (root reads and writes, aggregates, cursors,
   every relation, quantifiers, counts, ordering, recursion, nested write
@@ -36,6 +36,38 @@ Versioning.
   a control is keyed on its value and, on a client with `rows`, on the `rows`
   declarations; a read that receives none keeps today's key. Definitions are
   trusted: VibORM does not check a declaration at runtime.
+- **Added: `data`, an extension capability that writes fields.** For the
+  models it names, an extension writes fields on every create (`create`) and
+  every update (`update`) of them: root and nested, one row or many, both
+  arms of an `upsert`, and the update a soft delete makes. A value is a
+  constant, `{ control: "<name>" }` for the value the call passed, or, on an
+  update, one of the field's update operators such as `{ increment: 1 }`. A
+  `connect` or `set` that only moves a foreign key, and a delete that stays
+  physical, write nothing. When two extensions write the same field, the one
+  applied later wins. An extension now has ten capabilities. Make such a
+  field nullable or give it a default: the call's data is checked against the
+  schema before the extension adds the field. When the `data` entry names its
+  models inline, TypeScript also refuses those fields in the client's create
+  and update data, nested writes included.
+- **Added: a call cannot write a field an extension writes.** It is refused
+  with a `ValidationError` at `data.<field>` that names the extension, at any
+  depth, even when the call did not pass the extension's control.
+- **Added: a `rows` filter can use a value the call passes.** Write
+  `{ control: "<name>" }` where a filter takes a value, at any depth (inside
+  `in`, `AND`, `OR` and `NOT` too), and each call sees the rows that match the
+  value it passed: one client serves every tenant. A call that does not pass
+  the control drops the filters that name it. Each mode and value is
+  prepared once and reused; a client keeps 256 of them, and past that the
+  oldest is prepared again when it comes back. Cached reads are keyed on the
+  value, so two tenants never share an entry.
+- **Added: `required: true` on a control.** A call that leaves out a
+  required control is refused with a `ValidationError` at the control's path,
+  on every operation the control is placed on (without `on`, every operation
+  of every model).
+- **Docs: extension recipes.** A new guide page gives tenancy, audit stamping
+  and optimistic locking, each one declaration built from the capabilities
+  in this release, to copy into your code. They are recipes, not package
+  entries.
 - **Added: `ExtensionState` and `ExtendedOperationResult`** are exported from
   `viborm`, for plugins generic over the client they receive.
   `ExtendedOperationResult` and a model-mapped query handler's `proceed()`

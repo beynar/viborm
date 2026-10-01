@@ -199,14 +199,14 @@ carrier parser created it with `JSON.parse`, completed structural validation of
 the fixed or variant carrier and its full row set before mutation, and decodes
 it through the existing nested parser.
 
-### Rule 6: One Immutable Nine-Capability Extension Chain
+### Rule 6: One Immutable Ten-Capability Extension Chain
 
 `$extends()` compiles one ordered immutable chain. Its exact capabilities are
 `request`, `query`, `statement`, `observe`, `client`, `model`, `controls`,
-`rows`, and `deletion`; do not add a second middleware/plugin registry,
+`rows`, `deletion`, and `data`; do not add a second middleware/plugin registry,
 priority system, public execution token, or operation-program surface.
-`controls`, `rows` and `deletion` are plain data that core honours at every
-scope they concern; a capability that needs a branch naming one extension,
+`controls`, `rows`, `deletion` and `data` are plain data that core honours at
+every scope they concern; a capability that needs a branch naming one extension,
 model, marker field or mode in core is a design failure, not a feature.
 
 The lazy lifecycle is operation observation → control admission → request

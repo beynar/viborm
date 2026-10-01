@@ -3,16 +3,15 @@
  * (extension-capabilities plan v3.1 §1.1, "Done": "a third-party fixture
  * reproduces §1.1 from public exports").
  *
- * The consumer is an application directory holding the packed tarball as
- * `node_modules/viborm`, the package's own runtime dependencies and the
- * SQLite peer, and nothing else from this repository. Its `soft-delete.ts` is
- * the shipped definition (`src/soft-delete/index.ts`) with its two imports
- * spelled as a consumer spells them, `viborm` and `viborm/client`; this script
- * refuses any other import, so the definition provably needs nothing
- * private. Its `use.ts` is §1.1's use block against `viborm/sqlite3`, with
- * each result checked; `use-entry.ts` is the same block importing `softDelete`
- * from the published `viborm/soft-delete` entry, whose declarations name the
- * package's hashed chunks, so the shipped entry itself is type-checked and run.
+ * The consumer is a packed-package application (`packed-consumer.mjs`). Its
+ * `soft-delete.ts` is the shipped definition (`src/soft-delete/index.ts`) with
+ * its two imports spelled as a consumer spells them, `viborm` and
+ * `viborm/client`; this script refuses any other import, so the definition
+ * provably needs nothing private. Its `use.ts` is §1.1's use block against
+ * `viborm/sqlite3`, with each result checked; `use-entry.ts` is the same block
+ * importing `softDelete` from the published `viborm/soft-delete` entry, whose
+ * declarations name the package's hashed chunks, so the shipped entry itself
+ * is type-checked and run.
  *
  *   A. TYPES — `tsc --strict` over the consumer, against the published
  *              declarations: the definition compiles with its three casts, the
@@ -28,37 +27,15 @@
  * tarball instead of packing one.
  */
 
-import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
 
 const IMPORT_SPECIFIER = /^import\b[^;]*?\bfrom\s*"([^"]+)"/gm;
 const PUBLIC_SPELLING = new Map([
   ["../index", "viborm"],
   ["../client/exports", "viborm/client"],
 ]);
-
-const repositoryRoot = realpathSync(
-  join(dirname(fileURLToPath(import.meta.url)), "../..")
-);
-const repositoryPackage = JSON.parse(
-  readFileSync(join(repositoryRoot, "package.json"), "utf8")
-);
-// By path, not `.bin/tsc`: two TypeScripts are installed and that link is
-// whichever won pnpm's bin collision.
-const tsc = join(repositoryRoot, "node_modules", "typescript", "bin", "tsc");
-const fixtureRoot = mkdtempSync(join(tmpdir(), "viborm-soft-delete-"));
 
 /** The shipped definition, its imports spelled as a consumer spells them. */
 function consumerDefinition() {
@@ -183,95 +160,17 @@ const useFrom = (source, label) =>
     .replace('from "./soft-delete.ts"', `from "${source}"`)
     .replace("LABEL: pass", `${label}: pass`);
 
-try {
-  let archive = process.env.VIBORM_PACKAGE_TARBALL;
-  if (archive === undefined) {
-    execFileSync("pnpm", ["pack", "--pack-destination", fixtureRoot], {
-      cwd: repositoryRoot,
-      stdio: "pipe",
-    });
-    const archives = readdirSync(fixtureRoot).filter((name) =>
-      name.endsWith(".tgz")
-    );
-    if (archives.length !== 1) {
-      throw new Error(`Expected one packed archive, found ${archives.length}`);
-    }
-    archive = join(fixtureRoot, archives[0]);
+const uses = {
+  "use.ts": useFrom("./soft-delete.ts", "soft-delete consumer"),
+  "use-entry.ts": useFrom("viborm/soft-delete", "soft-delete entry consumer"),
+};
+withPackedConsumer(
+  "viborm-soft-delete-consumer",
+  { "soft-delete.ts": consumerDefinition(), ...uses },
+  ({ typeCheck, run }) => {
+    typeCheck(Object.keys(uses));
+    run("use.ts", "soft-delete consumer");
+    run("use-entry.ts", "soft-delete entry consumer");
   }
-
-  const consumerRoot = join(fixtureRoot, "consumer");
-  const modules = join(consumerRoot, "node_modules");
-  const packageRoot = join(modules, "viborm");
-  mkdirSync(packageRoot, { recursive: true });
-  execFileSync(
-    "tar",
-    ["-xzf", archive, "-C", packageRoot, "--strip-components=1"],
-    { stdio: "pipe" }
-  );
-  // The package's runtime dependencies and the one peer this consumer uses,
-  // each linked from this repository's install: nothing else resolves.
-  for (const name of [
-    ...Object.keys(repositoryPackage.dependencies ?? {}),
-    "better-sqlite3",
-  ]) {
-    const target = realpathSync(join(repositoryRoot, "node_modules", name));
-    mkdirSync(dirname(join(modules, name)), { recursive: true });
-    symlinkSync(target, join(modules, name), "dir");
-  }
-  writeFileSync(
-    join(consumerRoot, "package.json"),
-    JSON.stringify({ name: "viborm-soft-delete-consumer", type: "module" })
-  );
-  writeFileSync(join(consumerRoot, "soft-delete.ts"), consumerDefinition());
-  const uses = {
-    "use.ts": useFrom("./soft-delete.ts", "soft-delete consumer"),
-    "use-entry.ts": useFrom("viborm/soft-delete", "soft-delete entry consumer"),
-  };
-  for (const [file, source] of Object.entries(uses)) {
-    writeFileSync(join(consumerRoot, file), source);
-  }
-
-  try {
-    execFileSync(
-      tsc,
-      [
-        "--noEmit",
-        "--strict",
-        "--skipLibCheck",
-        "--target",
-        "es2022",
-        "--module",
-        "esnext",
-        "--moduleResolution",
-        "bundler",
-        "--allowImportingTsExtensions",
-        "--types",
-        "node",
-        "--typeRoots",
-        join(repositoryRoot, "node_modules", "@types"),
-        ...Object.keys(uses),
-      ],
-      { cwd: consumerRoot, encoding: "utf8", stdio: "pipe" }
-    );
-  } catch (error) {
-    throw new Error(
-      `The soft-delete consumer does not type-check:\n${error.stdout ?? ""}${error.stderr ?? ""}`
-    );
-  }
-  for (const [file, label] of [
-    ["use.ts", "soft-delete consumer"],
-    ["use-entry.ts", "soft-delete entry consumer"],
-  ]) {
-    const output = execFileSync(process.execPath, [file], {
-      cwd: consumerRoot,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-    if (!output.includes(`${label}: pass`)) {
-      throw new Error(`The ${label} did not finish:\n${output}`);
-    }
-  }
-  console.log("packed soft-delete consumer and entry consumer: pass");
-} finally {
-  rmSync(fixtureRoot, { force: true, recursive: true });
-}
+);
+console.log("packed soft-delete consumer and entry consumer: pass");

@@ -264,17 +264,19 @@ We need to intercept: (1) model name, (2) operation name, (3) the actual call. E
 ## Extension ownership
 
 `$extends()` creates an immutable derived client carrying a frozen compiled
-chain. The public extension language has exactly nine capabilities: `request`,
-`query`, `statement`, `observe`, `client`, `model`, `controls`, `rows`, and
-`deletion`. Do not add another hook registry, priority system, public operation
-token, or deferred-operation type.
+chain. The public extension language has exactly ten capabilities: `request`,
+`query`, `statement`, `observe`, `client`, `model`, `controls`, `rows`,
+`deletion`, and `data`. Do not add another hook registry, priority system,
+public operation token, or deferred-operation type.
 
 `src/extensions/` owns the one normalized definition boundary, immutable chain,
 method binding, and one runner per execution capability. A definition's
-`controls`, `rows` and `deletion` are trusted (owner decision, 2026-09-30):
-TypeScript is their only check, and nothing refuses a wrong declaration at
+`controls`, `rows`, `deletion` and `data` are trusted (owner decision,
+2026-09-30): TypeScript is their only check, and nothing refuses a wrong declaration at
 runtime; do not add a declaration check or a hostile-read guard for them.
-Call-time admission of a control value stays, as user input. A resolved chain keeps
+Call-time admission of a control value stays, as user input, with the two
+guards plan v4 names: a `required` control the call left out, and a caller
+writing a field an extension's `data` writes. A resolved chain keeps
 only compiled execution handlers plus the client/model factories that must run
 for each concrete view; it never retains a second full extension definition.
 `array-admission.ts` owns only the extension query-admission latch. This client
@@ -283,11 +285,12 @@ provider dispatch, parsing, result order, and commit publication.
 
 | Generic owner | Responsibility |
 |---|---|
-| `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization of the six handler members; `controls`, `rows` and `deletion` bound as written (trusted, owner decision 2026-09-30) |
-| `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup |
-| `src/extensions/controls.ts` | Declared-control types, placement per (model, operation), and the one admission of a call's controls |
-| `src/extensions/rows.ts` | Row domains, tombstones and row identity bound once per application; a call's facts looked up from its admitted controls |
-| `src/extensions/methods.ts` | Client/model factory types, collisions, state merging, and concrete-view binding |
+| `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization of the six handler members; `controls`, `rows`, `deletion` and `data` bound as written (trusted, owner decision 2026-09-30) |
+| `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup; every extension's `data` merged per model, kind and field, a later extension owning a field it names |
+| `src/extensions/controls.ts` | Declared-control types, placement per (model, operation), and the one admission of a call's controls, which refuses a `required` control the call left out; the `rows` and `data` slots of the extension state (`RowsModels`, `DefinitionData`) |
+| `src/extensions/rows.ts` | Row domains, tombstones, stamps and row identity bound once per application; a call's facts looked up from its admitted controls, the one walker that puts a control's value where a filter or a stamp names it, and the per-value memo (256 entries, oldest evicted) of bound domains |
+| `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of `data`: one owner admits a model's stamp per occurrence and attempt, writes it over the occurrence, and refuses a caller who writes a stamped field; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
+| `src/extensions/methods.ts` | Client/model factory types, collisions, state merging, and concrete-view binding; on a chain that declares `data`, the model delegate's five narrowed writes (`ExtensionModelDelegate`) |
 | `src/extensions/request.ts` | Synchronous request-transform contract and runner |
 | `src/extensions/query.ts` | Query interception, authoritative continuation, and write-outcome rail |
 | `src/extensions/statement.ts` | Trusted `Sql` transformation contract and runner |
