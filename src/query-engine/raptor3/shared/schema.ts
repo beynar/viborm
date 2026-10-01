@@ -162,19 +162,19 @@ const createQueryViews = (): QueryViews => ({
 export class EngineSchema {
   readonly index;
   readonly registry;
-  private readonly membershipViews = new WeakMap<
+  readonly #membershipViews = new WeakMap<
     AnyModel,
     Map<string, Map<string | undefined, Membership>>
   >();
-  private readonly physicalFields = new WeakMap<
+  readonly #physicalFields = new WeakMap<
     AnyModel,
     Map<string, PhysicalField>
   >();
-  private readonly storedFieldLists = new WeakMap<
+  readonly #storedFieldLists = new WeakMap<
     AnyModel,
     readonly string[]
   >();
-  private readonly clearabilityViews = new WeakMap<
+  readonly #clearabilityViews = new WeakMap<
     ResolvedSlot,
     ClearableMembership
   >();
@@ -194,8 +194,8 @@ export class EngineSchema {
   admit(model: AnyModel, operation: Operation, raw: unknown): Arguments {
     const admitted =
       operation === "upsert"
-        ? this.upsert(model, raw)
-        : this.admitArguments(model, operation, raw);
+        ? this.#upsert(model, raw)
+        : this.#admitArguments(model, operation, raw);
     // WHERE the shipped engine states the key's portability contract, mirrored:
     // `update`/`updateMany` assert at admission (`assertPortablePrimaryKeyUpdateInput`
     // from their own validator); an `upsert` asserts on its FOUND arm and only
@@ -206,7 +206,7 @@ export class EngineSchema {
     }
     return admitted;
   }
-  private admitArguments(
+  #admitArguments(
     model: AnyModel,
     operation: Operation,
     raw: unknown
@@ -377,7 +377,7 @@ export class EngineSchema {
     }
     return undefined;
   }
-  private upsert(model: AnyModel, raw: unknown): Arguments {
+  #upsert(model: AnyModel, raw: unknown): Arguments {
     const envelope = parseValidated(upsertEnvelopeSchema, raw, "upsert", "");
     const schemas = this.registry.getModelSchemas(model);
     const createHasRelations = this.namesRelation(model, envelope.create);
@@ -503,10 +503,10 @@ export class EngineSchema {
     );
   }
   membership(model: AnyModel, name: string, variant?: string): Membership {
-    let modelViews = this.membershipViews.get(model);
+    let modelViews = this.#membershipViews.get(model);
     if (!modelViews) {
       modelViews = new Map();
-      this.membershipViews.set(model, modelViews);
+      this.#membershipViews.set(model, modelViews);
     }
     let slotViews = modelViews.get(name);
     if (!slotViews) {
@@ -523,20 +523,20 @@ export class EngineSchema {
     return view;
   }
   clearability(resolved: ResolvedSlot): ClearableMembership {
-    let view = this.clearabilityViews.get(resolved);
+    let view = this.#clearabilityViews.get(resolved);
     if (!view) {
       view = clearableMembership(resolved);
       if (view.kind === "columns") Object.freeze(view.fields);
       Object.freeze(view);
-      this.clearabilityViews.set(resolved, view);
+      this.#clearabilityViews.set(resolved, view);
     }
     return view;
   }
   physicalField(model: AnyModel, field: string): PhysicalField {
-    let fields = this.physicalFields.get(model);
+    let fields = this.#physicalFields.get(model);
     if (!fields) {
       fields = new Map();
-      this.physicalFields.set(model, fields);
+      this.#physicalFields.set(model, fields);
     }
     let descriptor = fields.get(field);
     if (!descriptor) {
@@ -563,23 +563,23 @@ export class EngineSchema {
    * `scope(adapter, create)` would hand a second caller the first caller's
    * object under the second caller's type, and the cast would hide it.
    */
-  private readonly queryViewsByAdapter = new WeakMap<
+  readonly #queryViewsByAdapter = new WeakMap<
     DatabaseAdapter,
     QueryViews
   >();
   queryViews(adapter: DatabaseAdapter): QueryViews {
-    let views = this.queryViewsByAdapter.get(adapter);
+    let views = this.#queryViewsByAdapter.get(adapter);
     if (views === undefined) {
       views = createQueryViews();
-      this.queryViewsByAdapter.set(adapter, views);
+      this.#queryViewsByAdapter.set(adapter, views);
     }
     return views;
   }
   storedFields(model: AnyModel): readonly string[] {
-    let fields = this.storedFieldLists.get(model);
+    let fields = this.#storedFieldLists.get(model);
     if (!fields) {
       fields = Object.freeze(buildStoredFieldsView(this, model));
-      this.storedFieldLists.set(model, fields);
+      this.#storedFieldLists.set(model, fields);
     }
     return fields;
   }

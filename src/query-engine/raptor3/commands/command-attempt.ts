@@ -30,10 +30,10 @@ export class CommandAttempt {
       };
     }
   >();
-  private readonly bindings = new Map<Assignments, Input>();
+  readonly #bindings = new Map<Assignments, Input>();
 
   bind(fields: Assignments, values: Input): void {
-    this.bindings.set(fields, values);
+    this.#bindings.set(fields, values);
   }
   /**
    * The runtime VALUE of one field: a bound row value, else what the payload
@@ -43,7 +43,7 @@ export class CommandAttempt {
    * `{ set: 'u1' }` to its one interpreter.
    */
   read(fields: Assignments, field: string): unknown {
-    const bound = this.bindings.get(fields);
+    const bound = this.#bindings.get(fields);
     // A value this operation PRODUCED is an expression inside the unit that
     // stored it and the literal that unit read back in every unit after it
     // (D-58, `TransportAttempt.carried`); one reader, so every statement,
@@ -52,10 +52,10 @@ export class CommandAttempt {
       return this.transport.carried(bound[field]);
     const value = fields.stated(field);
     return value
-      ? this.resolveValue(value)
+      ? this.#resolveValue(value)
       : fields.captured && this.read(fields.captured, field);
   }
-  private resolveValue(value: FieldValue): unknown {
+  #resolveValue(value: FieldValue): unknown {
     return value.kind === "literal"
       ? value.value
       : this.read(value.producer, value.field);
@@ -64,7 +64,7 @@ export class CommandAttempt {
     return Object.fromEntries(
       Object.entries(fields).map(([field, value]) => [
         field,
-        this.resolveValue(value),
+        this.#resolveValue(value),
       ])
     );
   }
@@ -72,7 +72,7 @@ export class CommandAttempt {
     return Object.fromEntries(
       [...fields.contributions()].map(([field, value]) => [
         field,
-        this.resolveValue(value),
+        this.#resolveValue(value),
       ])
     );
   }
@@ -82,6 +82,6 @@ export class CommandAttempt {
     );
   }
   materialize(fields: Assignments, values: Input): void {
-    this.bind(fields, { ...this.bindings.get(fields), ...values });
+    this.bind(fields, { ...this.#bindings.get(fields), ...values });
   }
 }

@@ -324,27 +324,27 @@ export interface NameRegistry {
 
 export class Model<State extends ModelState> {
   // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
+  #_names: SchemaNames = {};
   // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _nameRegistry: NameRegistry = {
+  #_nameRegistry: NameRegistry = {
     fields: new Map(),
   };
-  private readonly state: State;
+  readonly #state: State;
 
   // Cached field metadata (lazily computed on first access)
-  private _scalarFieldNames: string[] | undefined;
-  private _relationNames: string[] | undefined;
-  private _internal: ModelInternal<State> | undefined;
+  #_scalarFieldNames: string[] | undefined;
+  #_relationNames: string[] | undefined;
+  #_internal: ModelInternal<State> | undefined;
 
   constructor(state: State) {
-    this.state = state;
+    this.#state = state;
   }
 
   /**
    * Maps the model to a specific database table name
    */
   map<Name extends string>(tableName: Name) {
-    return new Model({ ...this.state, tableName }) as unknown as Model<
+    return new Model({ ...this.#state, tableName }) as unknown as Model<
       UpdateState<State, { tableName: Name }>
     >;
   }
@@ -380,7 +380,7 @@ export class Model<State extends ModelState> {
       ModelOmitInput<State>
   ) {
     return new Model({
-      ...this.state,
+      ...this.#state,
       omit: items,
     }) as unknown as Model<UpdateState<State, { omit: Record<Hidden, true> }>>;
   }
@@ -414,8 +414,8 @@ export class Model<State extends ModelState> {
     refuseDuplicateModelKeyMembers(storedFields, "Index");
     const storedOptions = snapshotIndexOptions(options);
     return new Model({
-      ...this.state,
-      indexes: mergeIndexDefinitions(this.state, {
+      ...this.#state,
+      indexes: mergeIndexDefinitions(this.#state, {
         fields: storedFields,
         options: storedOptions,
       }),
@@ -428,18 +428,18 @@ export class Model<State extends ModelState> {
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const storedFields = snapshotModelKeyMembers(fields, "Compound ID");
     const name = getNameFromKeys(options?.name, storedFields);
-    refuseCompoundKeyStateOverwrite(this.state.compoundId, name, "Compound ID");
+    refuseCompoundKeyStateOverwrite(this.#state.compoundId, name, "Compound ID");
     const fieldsRecord = compoundMembers(
-      this.state,
+      this.#state,
       storedFields,
       "Compound ID"
     );
 
     const compoundId = {
-      ...this.state.compoundId,
+      ...this.#state.compoundId,
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.state, compoundId }) as unknown as Model<
+    return new Model({ ...this.#state, compoundId }) as unknown as Model<
       UpdateState<
         State,
         {
@@ -463,21 +463,21 @@ export class Model<State extends ModelState> {
     const storedFields = snapshotModelKeyMembers(fields, "Compound unique");
     const name = getNameFromKeys(options?.name, storedFields);
     refuseCompoundKeyStateOverwrite(
-      this.state.compoundUniques,
+      this.#state.compoundUniques,
       name,
       "Compound unique"
     );
     const fieldsRecord = compoundMembers(
-      this.state,
+      this.#state,
       storedFields,
       "Compound unique"
     );
 
     const compoundUniques = {
-      ...this.state.compoundUniques,
+      ...this.#state.compoundUniques,
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.state, compoundUniques }) as unknown as Model<
+    return new Model({ ...this.#state, compoundUniques }) as unknown as Model<
       UpdateState<
         State,
         {
@@ -495,10 +495,10 @@ export class Model<State extends ModelState> {
   }
 
   extends<ETShape extends DeclaredModelShape>(shape: ETShape) {
-    const newShape = { ...this.state.shape, ...shape } as State["shape"] &
+    const newShape = { ...this.#state.shape, ...shape } as State["shape"] &
       ETShape;
     return new Model({
-      ...this.state,
+      ...this.#state,
       shape: newShape,
       scalars: extractScalarMap(newShape),
       relations: extractRelationMap(newShape),
@@ -517,27 +517,27 @@ export class Model<State extends ModelState> {
   }
 
   get "~"(): ModelInternal<State> {
-    if (this._internal) {
-      return this._internal;
+    if (this.#_internal) {
+      return this.#_internal;
     }
     // Capture model instance for use in getters
     const model = this;
 
-    this._internal = {
-      state: this.state,
+    this.#_internal = {
+      state: this.#state,
       // getters so hydration after first access is still observed
       get names() {
-        return model._names;
+        return model.#_names;
       },
       get nameRegistry() {
-        return model._nameRegistry;
+        return model.#_nameRegistry;
       },
       /**
        * Get the resolved names for a field.
        * Throws if the schema has not been hydrated.
        */
       getFieldName: (key: string): HydratedSchemaNames => {
-        const registered = model._nameRegistry.fields.get(key);
+        const registered = model.#_nameRegistry.fields.get(key);
         if (registered) {
           return registered as HydratedSchemaNames;
         }
@@ -545,14 +545,14 @@ export class Model<State extends ModelState> {
       },
       /** Cached scalar field names (computed once on first access) */
       get scalarFieldNames(): string[] {
-        return (model._scalarFieldNames ??= Object.keys(model.state.scalars));
+        return (model.#_scalarFieldNames ??= Object.keys(model.#state.scalars));
       },
       /** Cached relation names (computed once on first access) */
       get relationNames(): string[] {
-        return (model._relationNames ??= Object.keys(model.state.relations));
+        return (model.#_relationNames ??= Object.keys(model.#state.relations));
       },
     };
-    return this._internal;
+    return this.#_internal;
   }
 }
 

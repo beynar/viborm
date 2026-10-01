@@ -92,68 +92,68 @@ export type ModelToManyRelation<State> = {
 // =============================================================================
 
 class ModelToMany {
-  private readonly state: ModelToManyState;
-  private readonly internal: RelationInternal<ModelToManyState>;
+  readonly #state: ModelToManyState;
+  readonly #internal: RelationInternal<ModelToManyState>;
 
   constructor(state: ModelToManyState) {
-    this.state = Object.freeze(state);
-    this.internal = Object.freeze({
-      state: this.state,
-      settleTarget: createTargetSettlement(() => this.state.target.getter),
+    this.#state = Object.freeze(state);
+    this.#internal = Object.freeze({
+      state: this.#state,
+      settleTarget: createTargetSettlement(() => this.#state.target.getter),
     });
   }
 
   name(name: string): ModelToMany {
     return new ModelToMany({
-      ...this.state,
+      ...this.#state,
       name: normalizeRelationName("s.toMany", name),
     });
   }
 
   through(table: string): ModelToMany {
-    return this.withJunction({
-      ...this.state.junction,
+    return this.#withJunction({
+      ...this.#state.junction,
       table: normalizeJunctionToken("through", table),
     });
   }
 
   source(token: string): ModelToMany {
-    return this.withJunction({
-      ...this.state.junction,
+    return this.#withJunction({
+      ...this.#state.junction,
       source: normalizeJunctionToken("source", token),
     });
   }
 
   target(token: string): ModelToMany {
-    return this.withJunction({
-      ...this.state.junction,
+    return this.#withJunction({
+      ...this.#state.junction,
       target: normalizeJunctionToken("target", token),
     });
   }
 
   onDelete(action: JunctionActionDeclaration): ModelToMany {
-    return this.withJunction({
-      ...this.state.junction,
+    return this.#withJunction({
+      ...this.#state.junction,
       onDelete: normalizeJunctionActions("onDelete", action),
     });
   }
 
   onUpdate(action: JunctionActionDeclaration): ModelToMany {
-    return this.withJunction({
-      ...this.state.junction,
+    return this.#withJunction({
+      ...this.#state.junction,
       onUpdate: normalizeJunctionActions("onUpdate", action),
     });
   }
 
-  private withJunction(junction: OrdinaryJunctionOverrides): ModelToMany {
+  #withJunction(junction: OrdinaryJunctionOverrides): ModelToMany {
     return new ModelToMany({
-      ...this.state,
+      ...this.#state,
       junction: Object.freeze(junction),
     });
   }
 
   get "~"(): RelationInternal<ModelToManyState> {
-    return this.internal;
+    return this.#internal;
   }
 }
 

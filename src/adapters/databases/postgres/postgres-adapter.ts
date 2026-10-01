@@ -135,7 +135,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     // Reads the installed value, so it cannot be a field initializer: those run
     // before the constructor body.
     this.identifiers = createIdentifiers(quoteIdent, this.namespace);
-    installGeoPointSql(this, postgis ? this.createGeoPointSql() : undefined);
+    installGeoPointSql(this, postgis ? this.#createGeoPointSql() : undefined);
     installAdapterInternals(this, {
       batchRefs: this.#batchRefs,
       constraints: POSTGRES_CONSTRAINTS,
@@ -659,7 +659,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   // GEOPOINT (PostGIS)
   // ============================================================
 
-  private createGeoPointSql(): GeoPointSql {
+  #createGeoPointSql(): GeoPointSql {
     const longitude = (point: Sql): Sql => sql`ST_X(${point}::geometry)`;
     const latitude = (point: Sql): Sql => sql`ST_Y(${point}::geometry)`;
     return {

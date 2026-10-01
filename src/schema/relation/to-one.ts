@@ -123,37 +123,37 @@ export type ReferencesStage<State, Fields extends NonEmptyFieldTuple> = {
 // =============================================================================
 
 class ModelToOne {
-  private readonly state: ModelToOneState;
-  private readonly internal: RelationInternal<ModelToOneState>;
+  readonly #state: ModelToOneState;
+  readonly #internal: RelationInternal<ModelToOneState>;
 
   constructor(state: ModelToOneState) {
-    this.state = Object.freeze(state);
-    this.internal = Object.freeze({
-      state: this.state,
-      settleTarget: createTargetSettlement(() => this.state.target.getter),
+    this.#state = Object.freeze(state);
+    this.#internal = Object.freeze({
+      state: this.#state,
+      settleTarget: createTargetSettlement(() => this.#state.target.getter),
     });
   }
 
   name(name: string): ModelToOne {
     return new ModelToOne({
-      ...this.state,
+      ...this.#state,
       name: normalizeRelationName("s.toOne", name),
     });
   }
 
   fields(...fields: string[]): PendingReferences {
     return new PendingReferences(
-      this.state,
+      this.#state,
       normalizeFieldTuple("s.toOne", "fields", fields)
     );
   }
 
   onDelete(action: ReferentialAction): ModelToOne {
-    return this.withForeignKeyAction("onDelete", action);
+    return this.#withForeignKeyAction("onDelete", action);
   }
 
   onUpdate(action: ReferentialAction): ModelToOne {
-    return this.withForeignKeyAction("onUpdate", action);
+    return this.#withForeignKeyAction("onUpdate", action);
   }
 
   /**
@@ -163,11 +163,11 @@ class ModelToOne {
    * foreign key, where the action would otherwise have nowhere to be stored and
    * would be silently dropped.
    */
-  private withForeignKeyAction(
+  #withForeignKeyAction(
     action: "onDelete" | "onUpdate",
     value: ReferentialAction
   ): ModelToOne {
-    const foreignKey = this.state.foreignKey;
+    const foreignKey = this.#state.foreignKey;
     if (foreignKey === undefined) {
       refuseRelationInput(
         "s.toOne",
@@ -176,7 +176,7 @@ class ModelToOne {
       );
     }
     return new ModelToOne({
-      ...this.state,
+      ...this.#state,
       foreignKey: Object.freeze({
         ...foreignKey,
         [action]: normalizeReferentialAction(action, value),
@@ -185,7 +185,7 @@ class ModelToOne {
   }
 
   get "~"(): RelationInternal<ModelToOneState> {
-    return this.internal;
+    return this.#internal;
   }
 }
 
@@ -194,36 +194,36 @@ class ModelToOne {
  * absence is what makes an incomplete chain unusable as a model member.
  */
 class PendingReferences {
-  private readonly state: ModelToOneState;
-  private readonly localFields: NonEmptyFieldTuple;
+  readonly #state: ModelToOneState;
+  readonly #localFields: NonEmptyFieldTuple;
 
   constructor(state: ModelToOneState, localFields: NonEmptyFieldTuple) {
-    this.state = state;
-    this.localFields = localFields;
+    this.#state = state;
+    this.#localFields = localFields;
   }
 
   name(name: string): PendingReferences {
     return new PendingReferences(
-      { ...this.state, name: normalizeRelationName("s.toOne", name) },
-      this.localFields
+      { ...this.#state, name: normalizeRelationName("s.toOne", name) },
+      this.#localFields
     );
   }
 
   references(...references: string[]): ModelToOne {
     const referenced = normalizeFieldTuple("s.toOne", "references", references);
-    if (referenced.length !== this.localFields.length)
-      refuseReferenceArity(referenced.length, this.localFields.length);
+    if (referenced.length !== this.#localFields.length)
+      refuseReferenceArity(referenced.length, this.#localFields.length);
     // Completing a second stage replaces the pair atomically and preserves the
     // endpoint's name and referential actions; the prior terminal is untouched.
-    const prior = this.state.foreignKey;
+    const prior = this.#state.foreignKey;
     const foreignKey: ForeignKeyDeclaration = {
-      fields: this.localFields,
+      fields: this.#localFields,
       references: referenced,
       ...(prior?.onDelete === undefined ? {} : { onDelete: prior.onDelete }),
       ...(prior?.onUpdate === undefined ? {} : { onUpdate: prior.onUpdate }),
     };
     return new ModelToOne({
-      ...this.state,
+      ...this.#state,
       foreignKey: Object.freeze(foreignKey),
     });
   }

@@ -440,11 +440,11 @@ export type ExtendedClient<
  * VibORM Client
  */
 export class VibORM<C extends VibORMConfig> {
-  private readonly schema: C["schema"];
-  private readonly engine: QueryEngine;
-  private readonly relations: ResolvedRelationIndex;
+  readonly #schema: C["schema"];
+  readonly #engine: QueryEngine;
+  readonly #relations: ResolvedRelationIndex;
   /** One resolved declarative omit per authenticated capability on this client. */
-  private extensionOmitResolvers:
+  #extensionOmitResolvers:
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
     | undefined;
 
@@ -456,15 +456,15 @@ export class VibORM<C extends VibORMConfig> {
    *   copies it (§10E.10, §11.4.10).
    */
   constructor(config: C, { relations, schemaRegistry }: PreparedSchema) {
-    this.schema = config.schema as C["schema"];
-    this.relations = relations;
+    this.#schema = config.schema as C["schema"];
+    this.#relations = relations;
 
     // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
     // views above travel to it by identity, so the route's engine hydrates,
     // validates and registers nothing a second time (B-3).
-    this.engine = new QueryEngine(
+    this.#engine = new QueryEngine(
       config.driver,
-      createCandidateRoute(this.schema, config.driver, {
+      createCandidateRoute(this.#schema, config.driver, {
         index: relations,
         registry: schemaRegistry,
       })
@@ -475,15 +475,15 @@ export class VibORM<C extends VibORMConfig> {
    * Create the client with model proxies and utility methods
    * Model operations return PendingOperation for deferred execution
    */
-  private createClient(
+  #createClient(
     engine: QueryEngine,
     modelMethods: BoundExtensionMethods["models"] | undefined,
     clientOmit: ClientOmitResolver | undefined
   ): Client<C> {
     return createModelProxy(
-      this.schema,
+      this.#schema,
       ({ modelName, operation, args }) =>
-        this.prepareModelOperation(
+        this.#prepareModelOperation(
           engine,
           modelName,
           operation,
@@ -495,7 +495,7 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Build one model operation through the common lazy client preparation path. */
-  private prepareModelOperation(
+  #prepareModelOperation(
     engine: QueryEngine,
     modelName: keyof C["schema"],
     operation: Operations,
@@ -507,7 +507,7 @@ export class VibORM<C extends VibORMConfig> {
       engine.extensionChain
     );
     const modelNameStr = String(modelName);
-    const model = this.schema[modelName];
+    const model = this.#schema[modelName];
     if (!model) {
       throw new ClientInitializationError(
         `Model "${modelNameStr}" not found in schema`,
@@ -606,7 +606,7 @@ export class VibORM<C extends VibORMConfig> {
           prepareWriteOutcomeRegistration
         );
     if (officialReadCache === undefined) return pendingOperation;
-    return this.wrapOfficialCachedRead(
+    return this.#wrapOfficialCachedRead(
       engine,
       modelNameStr,
       operation,
@@ -616,7 +616,7 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Bind cached reads to the same root or derived engine as their client. */
-  private withCache(
+  #withCache(
     engine: QueryEngine,
     capability: NonNullable<ReturnType<typeof getOfficialCacheChainCapability>>,
     clientOmit: ClientOmitResolver | undefined,
@@ -629,10 +629,10 @@ export class VibORM<C extends VibORMConfig> {
       readDriverIdentity(engine.driver)
     );
     const officialReadCache = Object.freeze({ capability, options });
-    return createModelProxy(this.schema, ({ modelName, operation, args }) => {
+    return createModelProxy(this.#schema, ({ modelName, operation, args }) => {
       try {
         runtime.validateCacheableOperation(operation);
-        return this.prepareModelOperation(
+        return this.#prepareModelOperation(
           engine,
           modelName,
           operation,
@@ -647,27 +647,27 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Resolve one authenticated declarative omit once for this client schema. */
-  private resolveClientOmit(
+  #resolveClientOmit(
     chain: ResolvedExtensionChain
   ): ClientOmitResolver | undefined {
     const capability = getOfficialDefaultOmitChainCapability(chain);
     if (capability === undefined) return undefined;
     const resolvers =
-      this.extensionOmitResolvers ??
-      (this.extensionOmitResolvers = new WeakMap());
+      this.#extensionOmitResolvers ??
+      (this.#extensionOmitResolvers = new WeakMap());
     const existing = resolvers.get(capability);
     if (existing !== undefined) return existing.resolver;
     const resolver = createClientOmitResolver(
-      this.schema,
+      this.#schema,
       capability.config,
-      this.relations
+      this.#relations
     );
     resolvers.set(capability, Object.freeze({ resolver }));
     return resolver;
   }
 
   /** Keep every arbitrary query handler outside the official cache child. */
-  private wrapOfficialCachedRead(
+  #wrapOfficialCachedRead(
     engine: QueryEngine,
     modelName: string,
     operation: Operations,
@@ -708,7 +708,7 @@ export class VibORM<C extends VibORMConfig> {
    * Every utility member is `$`-named or a symbol and a model name never is, so
    * model access is answered first. `extra` adds the root-only utilities.
    */
-  private createViewProxy<V>(
+  #createViewProxy<V>(
     engine: QueryEngine,
     clientOmit: ClientOmitResolver | undefined,
     transaction: CallableFunction,
@@ -720,7 +720,7 @@ export class VibORM<C extends VibORMConfig> {
     // shares the transaction's connection and rolls back with it. The surface
     // is built on first `$queryRaw`-family access.
     let rawSurface: RawSurface | undefined;
-    return new Proxy(this.createClient(engine, modelMethods, clientOmit), {
+    return new Proxy(this.#createClient(engine, modelMethods, clientOmit), {
       get: (target, prop) => {
         if (typeof prop === "string") {
           if (!prop.startsWith("$")) return Reflect.get(target, prop);
@@ -728,7 +728,7 @@ export class VibORM<C extends VibORMConfig> {
             return clientMethods[prop];
           }
         }
-        if (prop === "$schema") return this.schema;
+        if (prop === "$schema") return this.#schema;
         if (prop === "$transaction") return transaction;
         if (isRawMethodName(prop)) {
           rawSurface ??= createRawSurface({ engine });
@@ -738,7 +738,7 @@ export class VibORM<C extends VibORMConfig> {
         // A `$`-named model is still reachable; anything else is absent.
         return member === undefined &&
           typeof prop === "string" &&
-          Object.hasOwn(this.schema, prop)
+          Object.hasOwn(this.#schema, prop)
           ? Reflect.get(target, prop)
           : member;
       },
@@ -746,7 +746,7 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Build one concrete view over one engine scope and its extension chain. */
-  private createView<V>(
+  #createView<V>(
     engine: QueryEngine,
     clientOmit: ClientOmitResolver | undefined,
     extra?: (prop: string | symbol) => unknown
@@ -754,12 +754,12 @@ export class VibORM<C extends VibORMConfig> {
     const transaction = (
       input: TransactionInput<C>,
       options?: TransactionOptions | BatchTransactionOptions
-    ) => this.transact(engine, clientOmit, input, options);
+    ) => this.#transact(engine, clientOmit, input, options);
     const chain = engine.extensionChain;
     const methods =
       chain &&
       bindExtensionMethods(chain, (clientMethods, modelMethods) =>
-        this.createViewProxy<object>(
+        this.#createViewProxy<object>(
           engine,
           clientOmit,
           transaction,
@@ -767,7 +767,7 @@ export class VibORM<C extends VibORMConfig> {
           modelMethods
         )
       );
-    return this.createViewProxy<V>(
+    return this.#createViewProxy<V>(
       engine,
       clientOmit,
       transaction,
@@ -781,7 +781,7 @@ export class VibORM<C extends VibORMConfig> {
    * The one `$transaction` of every view. Inside an interactive transaction
    * the engine is transaction-bound, so a nested call is a SAVEPOINT.
    */
-  private transact(
+  #transact(
     engine: QueryEngine,
     clientOmit: ClientOmitResolver | undefined,
     input: TransactionInput<C>,
@@ -816,7 +816,7 @@ export class VibORM<C extends VibORMConfig> {
           : undefined;
       const body = async (txDriver: AnyDriver) =>
         input(
-          this.createView(engine.bind(txDriver, chain, outcomes), clientOmit)
+          this.#createView(engine.bind(txDriver, chain, outcomes), clientOmit)
         );
       return outcomes
         ? runOutcomeTransaction(
@@ -838,12 +838,12 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Create one root view: the shared ladder plus the root-only utilities. */
-  private createRootView<X extends ExtensionStateConstraint>(
+  #createRootView<X extends ExtensionStateConstraint>(
     engine: QueryEngine
   ): VibORMClient<C, X> {
     const chain = engine.extensionChain;
     const clientOmit =
-      chain === undefined ? undefined : this.resolveClientOmit(chain);
+      chain === undefined ? undefined : this.#resolveClientOmit(chain);
     // One close path behind two doors: `$disconnect()` and, where the platform
     // has the protocol, `await using`. They are the same function object.
     const disconnect = () =>
@@ -851,14 +851,14 @@ export class VibORM<C extends VibORMConfig> {
         createOperationExecutionContext("$connection", "$disconnect", chain)
       );
 
-    return this.createView(engine, clientOmit, (prop) => {
+    return this.#createView(engine, clientOmit, (prop) => {
       if (prop === "$driver") return engine.driver;
       if (prop === "$extends") {
         return (extension: ClientExtension) => {
           const extensionChain = appendResolvedExtension(
             chain,
             extension,
-            this.schema
+            this.#schema
           );
           // The one point that holds both the resolved chain and the concrete
           // driver, so the one point that can partition the official cache by
@@ -867,7 +867,7 @@ export class VibORM<C extends VibORMConfig> {
           if (extensionChain.hasCache) {
             bindOfficialCacheChain(extensionChain, engine.driver);
           }
-          return this.createRootView(
+          return this.#createRootView(
             engine.bind(engine.driver, extensionChain)
           );
         };
@@ -887,7 +887,7 @@ export class VibORM<C extends VibORMConfig> {
       if (officialCache === undefined) return undefined;
       if (prop === "$withCache") {
         return (cacheConfig?: WithCacheOptions) =>
-          this.withCache(engine, officialCache, clientOmit, cacheConfig);
+          this.#withCache(engine, officialCache, clientOmit, cacheConfig);
       }
       return async (...keys: string[]) => {
         await officialCacheRuntime().invalidateManualCache(
@@ -946,7 +946,7 @@ export class VibORM<C extends VibORMConfig> {
       return new VibORM<C>(config, prepared);
     });
 
-    return orm.createRootView<EmptyClientExtensionState>(orm.engine);
+    return orm.#createRootView<EmptyClientExtensionState>(orm.#engine);
   }
 }
 

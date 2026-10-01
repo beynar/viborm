@@ -50,16 +50,16 @@ function buildContext(schema: Schema): ValidationContext {
  * selector rules, so a client bundle does not carry the advisory ones.
  */
 export class SchemaValidator {
-  private readonly schema: Schema = new Map();
+  readonly #schema: Schema = new Map();
   /** One resolution per validator lifecycle: the gate runs once per schema. */
-  private resolution: RelationResolution | undefined;
+  #resolution: RelationResolution | undefined;
 
   /** Register a model with a name */
   register(name: string, model: Model<any>): this {
-    const registered = this.schema.get(name);
+    const registered = this.#schema.get(name);
     if (registered) {
       if (registered === model) {
-        this.resolution = undefined;
+        this.#resolution = undefined;
         return this;
       }
       throw validationError([
@@ -71,8 +71,8 @@ export class SchemaValidator {
         },
       ]);
     }
-    this.schema.set(name, model);
-    this.resolution = undefined;
+    this.#schema.set(name, model);
+    this.#resolution = undefined;
     return this;
   }
 
@@ -90,11 +90,11 @@ export class SchemaValidator {
    * terminal's own settled `Error`.
    */
   resolve(): RelationResolution {
-    this.resolution ??= resolveRegistered(
-      this.schema,
-      buildContext(this.schema)
+    this.#resolution ??= resolveRegistered(
+      this.#schema,
+      buildContext(this.#schema)
     );
-    return this.resolution;
+    return this.#resolution;
   }
 
   /** Validate all registered models */
@@ -102,8 +102,8 @@ export class SchemaValidator {
     const errors: SchemaValidationIssue[] = [];
     const warnings: SchemaValidationIssue[] = [];
     for (const issue of schemaIssues(
-      this.schema,
-      buildContext(this.schema),
+      this.#schema,
+      buildContext(this.#schema),
       this.resolve(),
       rules
     )) {

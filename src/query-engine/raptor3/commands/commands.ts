@@ -316,7 +316,7 @@ export function isSeriesOccurrence(
 
 /** Construction owns branch order; every storage consumer names exact produced fields. */
 export class Commands {
-  private nextMutation = 0;
+  #nextMutation = 0;
   readonly execution: CommandExecution;
   readonly context: OperationContext;
   constructor(context: OperationContext) {
@@ -350,7 +350,7 @@ export class Commands {
     };
     if (incoming)
       this.assignMembership(incoming.edge, command.fields, incoming.source);
-    this.relations(command, admitted, raw);
+    this.#relations(command, admitted, raw);
     return command;
   }
   update(
@@ -378,10 +378,10 @@ export class Commands {
     };
     for (const field of this.context.schema.keys(model))
       located.fields.field(field);
-    this.relations(command, admitted, raw);
+    this.#relations(command, admitted, raw);
     return command;
   }
-  private relations(parent: RecordCommand, admitted: Input, raw: Input): void {
+  #relations(parent: RecordCommand, admitted: Input, raw: Input): void {
     for (const name of parent.model["~"].relationNames) {
       if (admitted[name] === undefined) continue;
       new RelationBody(
@@ -394,7 +394,7 @@ export class Commands {
     }
   }
   createOrigin(relation: string, operation: string, slot = relation): Origin {
-    return { relation, operation, slot, order: this.nextMutation++ };
+    return { relation, operation, slot, order: this.#nextMutation++ };
   }
   occurrence<C extends Command>(
     command: C,
@@ -412,14 +412,14 @@ export class Commands {
     parent: RecordCommand,
     command: C,
     placement: Exclude<Placement, "root">,
-    origin = this.origin(command)
+    origin = this.#origin(command)
   ): CommandOccurrence<C> {
     const occurrence = this.occurrence(command, placement);
     const semanticOrder = origin?.order ?? -1;
     const placementOrder = (value: Placement) =>
       value === "before" ? 0 : value === "capture" ? 1 : 2;
     const following = parent.body.findIndex((candidate) => {
-      const candidateOrder = this.origin(candidate.command)?.order ?? -1;
+      const candidateOrder = this.#origin(candidate.command)?.order ?? -1;
       return (
         candidateOrder > semanticOrder ||
         (candidateOrder === semanticOrder &&
@@ -433,7 +433,7 @@ export class Commands {
     );
     return occurrence;
   }
-  private recipeChildren(command: Command): readonly CommandOccurrence[] {
+  #recipeChildren(command: Command): readonly CommandOccurrence[] {
     if (command.kind === "record") return command.body;
     if (command.kind === "choose")
       return [command.found, command.missing].filter(
@@ -443,7 +443,7 @@ export class Commands {
     if (command.kind === "selectedSeries") return [command.template];
     return [];
   }
-  private materializePlacement(occurrence: CommandOccurrence): void {
+  #materializePlacement(occurrence: CommandOccurrence): void {
     const role = (
       parent: Command,
       child: CommandOccurrence
@@ -453,7 +453,7 @@ export class Commands {
       if (parent.kind === "selectedSeries") return "template";
       return undefined;
     };
-    const sources = this.recipeChildren(occurrence.command);
+    const sources = this.#recipeChildren(occurrence.command);
     const replacements = new Map<CommandOccurrence, CommandOccurrence>();
     occurrence.children = sources.map((source) => {
       const replacement = this.occurrence(source.command, source.placement);
@@ -473,9 +473,9 @@ export class Commands {
           resolved as CommandOccurrence<SeriesOccurrence>;
       }
     }
-    for (const child of occurrence.children) this.materializePlacement(child);
+    for (const child of occurrence.children) this.#materializePlacement(child);
   }
-  private origin(command: Command): Origin | undefined {
+  #origin(command: Command): Origin | undefined {
     if (command.kind === "choose") return command.lookup.origin;
     if (command.kind === "captureSeries")
       return command.target.command.series.selection.origin;
@@ -593,9 +593,9 @@ export class Commands {
     command: C
   ): CommandOccurrence<C> {
     const occurrence = this.occurrence(command);
-    this.materializePlacement(occurrence);
-    this.bindTree(occurrence);
-    this.analyzeOccurrence(occurrence);
+    this.#materializePlacement(occurrence);
+    this.#bindTree(occurrence);
+    this.#analyzeOccurrence(occurrence);
     return occurrence;
   }
   analyzeSeries(series: SelectedSeries): CommandOccurrence<SeriesOccurrence> {
@@ -641,7 +641,7 @@ export class Commands {
     // `analyze`/`analyzeSeries` returns the tree this reads.
     return occurrence.captureTarget!;
   }
-  private readMembership(write: DependencyWrite, read: DependencyRead): void {
+  #readMembership(write: DependencyWrite, read: DependencyRead): void {
     const { lookup, owner } = read;
     const membership = read.membership ?? lookup.membership();
     if (!(lookup.origin && membership)) return;
@@ -670,7 +670,7 @@ export class Commands {
           : undefined;
       };
       const literal = (field: string) => {
-        const stated = this.literalOf(command, field, write.occurrence);
+        const stated = this.#literalOf(command, field, write.occurrence);
         return stated;
       };
       let touchesMember = false;
@@ -711,7 +711,7 @@ export class Commands {
       if (written) {
         const origin = lookup.origin;
         const earlier = command.origin?.operation ?? command.fields.operation;
-        this.depend(write, read, () =>
+        this.#depend(write, read, () =>
           dependsOn(
             origin.operation,
             origin.relation,
@@ -742,7 +742,7 @@ export class Commands {
         command.edge.table === table;
       if (!touches) return;
       const origin = lookup.origin;
-      this.depend(write, read, () =>
+      this.#depend(write, read, () =>
         dependsOn(origin.operation, origin.relation, "membership write", {
           dependency: "membership",
           overlap: "unknown",
@@ -775,7 +775,7 @@ export class Commands {
         publication.carrier.movesField(field)
       )
     ) {
-      this.depend(write, read, () =>
+      this.#depend(write, read, () =>
         dependency(publication.contribution.origin.operation)
       );
       return;
@@ -804,9 +804,9 @@ export class Commands {
         }
       }
     if (disjoint) return;
-    this.depend(write, read, () => dependency(contribution.origin.operation));
+    this.#depend(write, read, () => dependency(contribution.origin.operation));
   }
-  private readTarget(write: DependencyWrite, read: DependencyRead): void {
+  #readTarget(write: DependencyWrite, read: DependencyRead): void {
     const { lookup } = read;
     if (
       !lookup.origin ||
@@ -834,7 +834,7 @@ export class Commands {
           observed.scope.edge === mutation.edge.scope.edge;
         if (!sameEdge) continue;
         const origin = lookup.origin;
-        this.depend(write, read, () =>
+        this.#depend(write, read, () =>
           dependsOn(origin.operation, origin.relation, "membership write", {
             conflictsWith: mutation.kind === "link" ? "connect" : "disconnect",
             dependency: "membership",
@@ -897,7 +897,7 @@ export class Commands {
             (mutation.kind === "delete"
               ? "delete"
               : mutation.fields.operation));
-      this.depend(write, read, () =>
+      this.#depend(write, read, () =>
         dependsOn(
           origin.operation,
           origin.relation,
@@ -954,7 +954,7 @@ export class Commands {
    * re-placing a child of a record that is dispatching its children would
    * reorder a schedule that is already being consumed.
    */
-  private depend(
+  #depend(
     write: DependencyWrite,
     read: DependencyRead,
     refusal: () => NestedWriteError
@@ -964,7 +964,7 @@ export class Commands {
     // junction delete's link removal, a set's clear. They are not what the
     // read depends on.
     const writeOrigin = write.command
-      ? this.origin(write.command)
+      ? this.#origin(write.command)
       : write.membership?.contribution.origin;
     if (
       writeOrigin !== undefined &&
@@ -976,7 +976,7 @@ export class Commands {
       CommandOccurrence | undefined
     >();
     for (
-      let node: CommandOccurrence | undefined = this.reader(read),
+      let node: CommandOccurrence | undefined = this.#reader(read),
         child: CommandOccurrence | undefined;
       node;
       child = node, node = node.parent
@@ -1016,7 +1016,7 @@ export class Commands {
     // path records the child it came through.
     const consumer = readPath.get(ancestor)!;
     const follows = producer
-      ? this.runsBefore(producer, consumer, ancestor)
+      ? this.#runsBefore(producer, consumer, ancestor)
       : consumer.placement !== "before";
     if (!follows) {
       const consumed =
@@ -1037,12 +1037,12 @@ export class Commands {
       const children = ancestor.children;
       children.splice(children.indexOf(consumer), 1);
       consumer.placement = "after";
-      const own = this.origin(consumer.command)?.order;
+      const own = this.#origin(consumer.command)?.order;
       const producerIndex = producer ? children.indexOf(producer) : -1;
       const landing = children.findIndex((candidate, index) => {
         if (index <= producerIndex || candidate.placement !== "after")
           return false;
-        const order = this.origin(candidate.command)?.order;
+        const order = this.#origin(candidate.command)?.order;
         return own !== undefined && order !== undefined && order >= own;
       });
       children.splice(
@@ -1062,7 +1062,7 @@ export class Commands {
    * from another record's field (a nested create's foreign key from its
    * parent) to that record's known or located identity in the tree.
    */
-  private literalOf(
+  #literalOf(
     command: RecordCommand,
     field: string,
     occurrence: CommandOccurrence
@@ -1091,7 +1091,7 @@ export class Commands {
     return undefined;
   }
   /** The occurrence that RUNS a dependency read: its early lookup or capture when one is placed, else the read's own. */
-  private reader(read: DependencyRead): CommandOccurrence {
+  #reader(read: DependencyRead): CommandOccurrence {
     const owner = read.owner;
     const early = owner.children.find(
       (child) =>
@@ -1099,7 +1099,7 @@ export class Commands {
     );
     return early ?? read.occurrence;
   }
-  private runsBefore(
+  #runsBefore(
     first: CommandOccurrence,
     second: CommandOccurrence,
     parent: CommandOccurrence
@@ -1116,21 +1116,21 @@ export class Commands {
         parent.children.indexOf(first) < parent.children.indexOf(second))
     );
   }
-  private bindTree(
+  #bindTree(
     occurrence: CommandOccurrence,
     parent?: CommandOccurrence
   ): void {
     occurrence.parent = parent;
-    occurrence.dependencyRead ??= this.dependencyRead(occurrence);
-    for (const child of occurrence.children) this.bindTree(child, occurrence);
+    occurrence.dependencyRead ??= this.#dependencyRead(occurrence);
+    for (const child of occurrence.children) this.#bindTree(child, occurrence);
   }
-  private dependencyRead(
+  #dependencyRead(
     occurrence: CommandOccurrence
   ): DependencyRead | undefined {
     const command = occurrence.command;
     const owner = isSeriesOccurrence(occurrence)
-      ? this.seriesOwner(occurrence)
-      : this.recordOwner(occurrence);
+      ? this.#seriesOwner(occurrence)
+      : this.#recordOwner(occurrence);
     if (!owner) return undefined;
     if (command.kind === "choose")
       return {
@@ -1156,7 +1156,7 @@ export class Commands {
       };
     return undefined;
   }
-  private recordOwner(
+  #recordOwner(
     occurrence: CommandOccurrence
   ): CommandOccurrence<RecordCommand> | undefined {
     let candidate = occurrence.parent;
@@ -1166,23 +1166,23 @@ export class Commands {
     }
     return undefined;
   }
-  private seriesOwner(
+  #seriesOwner(
     occurrence: CommandOccurrence<SeriesOccurrence>
   ): CommandOccurrence<RecordCommand> | undefined {
-    const owner = this.recordOwner(occurrence);
+    const owner = this.#recordOwner(occurrence);
     if (owner) return owner;
     const template = occurrence.children.find(
       (child) => child.role === "template"
     );
     return template && isRecordOccurrence(template) ? template : undefined;
   }
-  private compatible(left?: BranchPath, right?: BranchPath): boolean {
+  #compatible(left?: BranchPath, right?: BranchPath): boolean {
     for (let a = left; a; a = a.parent)
       for (let b = right; b; b = b.parent)
         if (a.choice === b.choice && a.arm !== b.arm) return false;
     return true;
   }
-  private visitDirectWrites(
+  #visitDirectWrites(
     occurrence: CommandOccurrence,
     visit: (write: WriteVisit) => void,
     branch?: BranchPath
@@ -1205,7 +1205,7 @@ export class Commands {
       visit({ write, branch });
     }
   }
-  private childBranch(
+  #childBranch(
     parent: CommandOccurrence,
     child: CommandOccurrence,
     branch: BranchPath | undefined
@@ -1218,20 +1218,20 @@ export class Commands {
         }
       : branch;
   }
-  private visitWrites(
+  #visitWrites(
     occurrence: CommandOccurrence,
     visit: (write: WriteVisit) => void,
     branch: BranchPath | undefined
   ): void {
-    this.visitDirectWrites(occurrence, visit, branch);
+    this.#visitDirectWrites(occurrence, visit, branch);
     for (const child of occurrence.children)
-      this.visitWrites(
+      this.#visitWrites(
         child,
         visit,
-        this.childBranch(occurrence, child, branch)
+        this.#childBranch(occurrence, child, branch)
       );
   }
-  private visitReads(
+  #visitReads(
     occurrence: CommandOccurrence,
     visit: (read: ReadVisit) => "stop" | void,
     branch: BranchPath | undefined
@@ -1243,16 +1243,16 @@ export class Commands {
     }
     for (const child of occurrence.children)
       if (
-        this.visitReads(
+        this.#visitReads(
           child,
           visit,
-          this.childBranch(occurrence, child, branch)
+          this.#childBranch(occurrence, child, branch)
         )
       )
         return true;
     return false;
   }
-  private visitPrecedingWrites(
+  #visitPrecedingWrites(
     target: CommandOccurrence,
     visit: (write: WriteVisit) => void,
     branch: BranchPath | undefined
@@ -1261,21 +1261,21 @@ export class Commands {
     if (!parent) return;
     const parentBranch =
       parent.command.kind === "choose" ? branch?.parent : branch;
-    this.visitPrecedingWrites(parent, visit, parentBranch);
-    this.visitDirectWrites(parent, visit, parentBranch);
+    this.#visitPrecedingWrites(parent, visit, parentBranch);
+    this.#visitDirectWrites(parent, visit, parentBranch);
     if (parent.command.kind === "choose") return;
-    if (this.isSeriesMember(parent, target)) return;
+    if (this.#isSeriesMember(parent, target)) return;
     // `bindTree` sets `parent` while walking that parent's own `children`, so
     // a target with a parent is one of them and the loop returns at it.
     for (const sibling of parent.children) {
       if (sibling === target) return;
-      this.visitWrites(sibling, visit, parentBranch);
+      this.#visitWrites(sibling, visit, parentBranch);
     }
   }
-  private analyzeRead(occurrence: CommandOccurrence): void {
+  #analyzeRead(occurrence: CommandOccurrence): void {
     const read = occurrence.dependencyRead;
     if (!read) return;
-    const branch = this.branchOf(occurrence);
+    const branch = this.#branchOf(occurrence);
     const readVisit = { read, branch };
     let publishedParent: CommandOccurrence<RecordCommand> | undefined;
     for (
@@ -1286,24 +1286,24 @@ export class Commands {
       const parent = child.parent;
       if (!isSeriesOccurrence(parent) || child.role !== "member") continue;
       if (parent.command.series.selection.membership())
-        publishedParent = this.seriesOwner(parent);
+        publishedParent = this.#seriesOwner(parent);
       break;
     }
-    this.visitPrecedingWrites(
+    this.#visitPrecedingWrites(
       occurrence,
       (write) => {
         if (write.write.occurrence === publishedParent) return;
-        this.checkPair(write, readVisit);
+        this.#checkPair(write, readVisit);
       },
       branch
     );
   }
-  private checkPair(write: WriteVisit, read: ReadVisit): void {
-    if (!this.compatible(write.branch, read.branch)) return;
-    this.readMembership(write.write, read.read);
-    if (read.read.target) this.readTarget(write.write, read.read);
+  #checkPair(write: WriteVisit, read: ReadVisit): void {
+    if (!this.#compatible(write.branch, read.branch)) return;
+    this.#readMembership(write.write, read.read);
+    if (read.read.target) this.#readTarget(write.write, read.read);
   }
-  private activeRefusal(read: ReadVisit): Error | undefined {
+  #activeRefusal(read: ReadVisit): Error | undefined {
     for (let branch = read.branch; branch; branch = branch.parent) {
       if (branch.arm === "missing") return undefined;
       const choice = branch.choice.command;
@@ -1315,14 +1315,14 @@ export class Commands {
     }
     return read.read.owner.refusal;
   }
-  private analyzeOccurrence(occurrence: CommandOccurrence): void {
-    this.analyzeRead(occurrence);
+  #analyzeOccurrence(occurrence: CommandOccurrence): void {
+    this.#analyzeRead(occurrence);
     const command = occurrence.command;
     if (command.kind === "record") {
       // A snapshot: `depend` moves a dependent child within this array while
       // the walk is on it, and a sibling that shifts into the vacated slot
       // must still be analysed (N1).
-      this.analyzeChildren(occurrence);
+      this.#analyzeChildren(occurrence);
       for (const child of occurrence.children) {
         const childCommand = child.command;
         if (childCommand.kind === "record")
@@ -1345,26 +1345,26 @@ export class Commands {
       return;
     }
     if (command.kind === "choose" || command.kind === "series") {
-      this.analyzeChildren(occurrence);
+      this.#analyzeChildren(occurrence);
       return;
     }
     if (command.kind === "selectedSeries") {
       const template = occurrence.children.find(
         (child) => child.role === "template"
       );
-      if (template) this.analyzeOccurrence(template);
+      if (template) this.#analyzeOccurrence(template);
     }
   }
   /** Recurse over a stable sibling snapshot while dependency moves may occur. */
-  private analyzeChildren(occurrence: CommandOccurrence): void {
-    for (const child of [...occurrence.children]) this.analyzeOccurrence(child);
+  #analyzeChildren(occurrence: CommandOccurrence): void {
+    for (const child of [...occurrence.children]) this.#analyzeOccurrence(child);
   }
-  private branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
+  #branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
     const parent = occurrence.parent;
     if (!parent) return undefined;
-    return this.childBranch(parent, occurrence, this.branchOf(parent));
+    return this.#childBranch(parent, occurrence, this.#branchOf(parent));
   }
-  private isSeriesMember(
+  #isSeriesMember(
     parent: CommandOccurrence,
     child: CommandOccurrence
   ): boolean {
@@ -1373,7 +1373,7 @@ export class Commands {
       (isSeriesOccurrence(parent) && child.role === "member")
     );
   }
-  private visitFollowingReads(
+  #visitFollowingReads(
     target: CommandOccurrence,
     visit: (read: ReadVisit) => "stop" | void,
     startBranch: BranchPath | undefined
@@ -1385,13 +1385,13 @@ export class Commands {
       const parentBranch =
         parent.command.kind === "choose" ? branch?.parent : branch;
       let follows = false;
-      if (!this.isSeriesMember(parent, current)) {
+      if (!this.#isSeriesMember(parent, current)) {
         for (const sibling of parent.children) {
           if (follows) {
-            const stopped = this.visitReads(
+            const stopped = this.#visitReads(
               sibling,
               visit,
-              this.childBranch(parent, sibling, parentBranch)
+              this.#childBranch(parent, sibling, parentBranch)
             );
             if (stopped) return true;
           } else if (sibling === current) follows = true;
@@ -1412,14 +1412,14 @@ export class Commands {
     occurrence.children = members.map((member) => {
       const child = this.occurrence(member);
       child.role = "member";
-      this.materializePlacement(child);
+      this.#materializePlacement(child);
       return child;
     });
     const memberOccurrences = this.seriesMembers(occurrence);
-    const seriesBranch = this.branchOf(occurrence);
-    for (const member of memberOccurrences) this.bindTree(member, occurrence);
+    const seriesBranch = this.#branchOf(occurrence);
+    for (const member of memberOccurrences) this.#bindTree(member, occurrence);
     for (const member of memberOccurrences) {
-      this.analyzeOccurrence(member);
+      this.#analyzeOccurrence(member);
     }
     for (const [index, occurrenceMember] of memberOccurrences.entries()) {
       const member = members[index];
@@ -1429,15 +1429,15 @@ export class Commands {
         if (refusal) return { error: refusal, member };
       }
       let refusal: Error | undefined;
-      this.visitWrites(
+      this.#visitWrites(
         occurrenceMember,
         (write) => {
           if (
-            this.visitFollowingReads(
+            this.#visitFollowingReads(
               occurrence,
               (read) => {
-                this.checkPair(write, read);
-                refusal ??= this.activeRefusal(read);
+                this.#checkPair(write, read);
+                refusal ??= this.#activeRefusal(read);
                 return refusal ? "stop" : undefined;
               },
               seriesBranch
@@ -1548,7 +1548,7 @@ export class Commands {
    * array route leaves every live-route pin in place — widening them is a
    * physical-plan decision for Arnaud.
    */
-  private rootUpsert(
+  #rootUpsert(
     model: AnyModel,
     args: Arguments
   ): PhysicalPlan | undefined {
@@ -1737,7 +1737,7 @@ export class Commands {
       };
     }
     if (ctx.operation === "upsert") {
-      const folded = this.rootUpsert(model, args);
+      const folded = this.#rootUpsert(model, args);
       if (folded) return folded;
       const missing = this.create(model, args.create!, raw.create!);
       missing.operation = "upsert";

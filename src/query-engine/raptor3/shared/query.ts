@@ -761,8 +761,8 @@ function reversedRows(rows: Input[]): Input[] {
 export class Queries {
   readonly schema: EngineSchema;
   readonly adapter: DatabaseAdapter;
-  private nextAlias = 0;
-  private readonly views: QueryViews;
+  #nextAlias = 0;
+  readonly #views: QueryViews;
   /**
    * The DRIVER's own representation rules (D-17). Scalar meaning is owned by
    * the existing codecs, but "what shape does THIS transport hand back?" is
@@ -772,7 +772,7 @@ export class Queries {
    * reached by nothing. The decoder asks it once per row value, at the row
    * boundary, and never for a value a JSON window already decoded.
    */
-  private readonly result: DriverResultParser | undefined;
+  readonly #result: DriverResultParser | undefined;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
@@ -780,8 +780,8 @@ export class Queries {
   ) {
     this.schema = schema;
     this.adapter = adapter;
-    this.views = schema.queryViews(adapter);
-    this.result = result;
+    this.#views = schema.queryViews(adapter);
+    this.#result = result;
   }
   /**
    * The ONE provider continuation for a physical value of `type`, bound to
@@ -809,7 +809,7 @@ export class Queries {
       adapter.parseField(input, type, (transformed?: unknown) =>
         transformed === undefined ? input : transformed
       );
-    const driverParse = this.result?.parseField;
+    const driverParse = this.#result?.parseField;
     return (value) => {
       try {
         return driverParse
@@ -856,7 +856,7 @@ export class Queries {
         (transformed?: unknown) =>
           decode((transformed === undefined ? input : transformed) as Input[])
       );
-    const driverParse = this.result?.parseResult;
+    const driverParse = this.#result?.parseResult;
     return (
       driverParse
         ? driverParse(raw, operation, (input: unknown) => adapterDecode(input))
@@ -864,7 +864,7 @@ export class Queries {
     ) as Input[];
   }
   alias(): string {
-    return `q${this.nextAlias++}`;
+    return `q${this.#nextAlias++}`;
   }
   /**
    * The FIRST alias of one statement, which opens that statement's alias scope.
@@ -892,8 +892,8 @@ export class Queries {
    * the parent's scope, which is why the nested relation projection, the
    * correlated count and the cursor window mint plain {@link alias}es.
    */
-  private rootAlias(): string {
-    this.nextAlias = 0;
+  #rootAlias(): string {
+    this.#nextAlias = 0;
     return this.alias();
   }
   table(model: AnyModel, alias?: string): Sql {
@@ -926,7 +926,7 @@ export class Queries {
    * so a column is never written in one vocabulary and read in another.
    */
   fieldValue(model: AnyModel, field: string, value: unknown): Sql {
-    return this.scalarValue(
+    return this.#scalarValue(
       physicalField(this.schema, model, field).scalar,
       value,
       field,
@@ -939,7 +939,7 @@ export class Queries {
    * carrier column names the key it stands in for. Only a COLUMN operand
    * carries it — an aggregate's `having` operand is a number.
    */
-  private scalarValue(
+  #scalarValue(
     scalar: Scalar,
     value: unknown,
     field: string,
@@ -958,7 +958,7 @@ export class Queries {
       return sentinel === "DbNull" ? a.literals.null() : a.json.value(null);
     if (value === null || value === undefined) return a.literals.null();
     if (state.array === true && Array.isArray(value))
-      return this.listValue(state, value, field);
+      return this.#listValue(state, value, field);
     // A COMPACT identifier binds its physical form — the payload's bytes, or
     // a PostgreSQL `uuid`'s canonical text — through the adapter's one
     // identifier literal. A text-stored domain holds the public string itself
@@ -972,13 +972,13 @@ export class Queries {
       case "vector":
       case "datetime":
       case "date":
-        return this.typedScalarValue(scalar, value, field);
+        return this.#typedScalarValue(scalar, value, field);
       default:
         return a.literals.value(value);
     }
   }
   /** The scalars whose operand spelling depends on their type, out of line. */
-  private typedScalarValue(scalar: Scalar, value: unknown, field: string): Sql {
+  #typedScalarValue(scalar: Scalar, value: unknown, field: string): Sql {
     const a = this.adapter;
     const state = scalar["~"].state;
     // A single value bound against a LIST field is one MEMBER of that field's
@@ -1004,7 +1004,7 @@ export class Queries {
       case "json":
         return a.literals.json(value);
       case "point":
-        return this.geoPoint("value").value(
+        return this.#geoPoint("value").value(
           this.value((value as GeoPoint).longitude),
           this.value((value as GeoPoint).latitude)
         );
@@ -1022,7 +1022,7 @@ export class Queries {
       case "datetime": {
         const wire = admittedTemporal(value, validateIsoTimestamp);
         return typeof wire === "string" && !member
-          ? a.literals.dateTime(wire, this.nativeType(scalar))
+          ? a.literals.dateTime(wire, this.#nativeType(scalar))
           : a.literals.value(wire);
       }
       case "date":
@@ -1032,7 +1032,7 @@ export class Queries {
     }
   }
   /** A whole list, bound as the container the destination column stores. */
-  private listValue(
+  #listValue(
     state: ScalarState,
     values: readonly unknown[],
     field: string
@@ -1046,13 +1046,13 @@ export class Queries {
       : this.adapter.arrays.value([...values]);
   }
   /** The declared native form of a column; a list's members live in its container. */
-  private nativeType(scalar: Scalar): NativeTypeDeclaration | undefined {
+  #nativeType(scalar: Scalar): NativeTypeDeclaration | undefined {
     return scalar["~"].state.array === true
       ? undefined
       : scalar["~"].nativeType;
   }
   /** The provider's settled point protocol, or its named capability refusal. */
-  private geoPoint(usage: string): GeoPointSql {
+  #geoPoint(usage: string): GeoPointSql {
     const geoPoint = this.adapter.geoPoint;
     if (!geoPoint)
       throw new FeatureNotSupportedError(
@@ -1070,17 +1070,17 @@ export class Queries {
       state.type === "decimal" ||
       (state.type === "point" && state.array !== true)
     )
-      return this.projectedTypedColumn(state, column);
+      return this.#projectedTypedColumn(state, column);
     return transportedIdentifier(this.adapter, leaf.id, column, leaf.nullable);
   }
   /** A decimal or point column's projection spelling, out of line. */
-  private projectedTypedColumn(state: ScalarStateOf, column: Sql): Sql {
+  #projectedTypedColumn(state: ScalarStateOf, column: Sql): Sql {
     if (state.type === "decimal")
       return state.array === true
         ? this.adapter.arrays.decimalProjection(column)
         : this.adapter.expressions.cast(column, "text");
     // A scalar point: a JSON document of its two coordinates.
-    const geoPoint = this.geoPoint("projection");
+    const geoPoint = this.#geoPoint("projection");
     const projected = this.adapter.json.objectFromColumns([
       ["longitude", geoPoint.longitude(column)],
       ["latitude", geoPoint.latitude(column)],
@@ -1101,7 +1101,7 @@ export class Queries {
    * A projected value carried INSIDE a JSON document. A value that is already
    * JSON stays a document; a value the container would round stays exact text.
    */
-  private carriedValue(leaf: Shape | Leaf, expression: Sql): Sql {
+  #carriedValue(leaf: Shape | Leaf, expression: Sql): Sql {
     if (leaf.kind !== "scalar") return this.adapter.json.document(expression);
     // A decimal crossed the projection in the spelling {@link projectedColumn}
     // states — a text cast for a scalar, the adapter's decimal array
@@ -1137,15 +1137,15 @@ export class Queries {
    * fields.
    */
   private scalarShape(model: AnyModel, field: string): Leaf {
-    let leaves = this.views.leaves.get(model);
+    let leaves = this.#views.leaves.get(model);
     if (leaves === undefined) {
       leaves = new Map();
-      this.views.leaves.set(model, leaves);
+      this.#views.leaves.set(model, leaves);
     }
     let shape = leaves.get(field);
     if (shape === undefined) {
       const physical = physicalField(this.schema, model, field);
-      shape = this.leaf(
+      shape = this.#leaf(
         physical.scalar,
         physical.nullable,
         identifierColumn(
@@ -1160,7 +1160,7 @@ export class Queries {
     }
     return shape;
   }
-  private leaf(
+  #leaf(
     scalar: Scalar,
     nullable: boolean,
     id: IdentifierColumn | undefined
@@ -1176,7 +1176,7 @@ export class Queries {
       dateTime:
         state.type === "datetime"
           ? (this.adapter.result.dateTimeRepresentation?.(
-              this.nativeType(scalar)
+              this.#nativeType(scalar)
             ) ?? "text")
           : undefined,
       enumValues:
@@ -1239,7 +1239,7 @@ export class Queries {
     forUpdate = false
   ): Query {
     const a = this.adapter;
-    const alias = this.rootAlias();
+    const alias = this.#rootAlias();
     const owner =
       edge.uniqueSide === "target" ? edge.sourceSide : edge.targetSide;
     const fields: Record<string, Leaf> = {};
@@ -1273,7 +1273,7 @@ export class Queries {
    * over an already-known value ({@link updateValue}) — so an operator can
    * never be admitted in one spelling and refused in the other.
    */
-  private prepareUpdate(
+  #prepareUpdate(
     model: AnyModel,
     field: string,
     value: unknown
@@ -1322,7 +1322,7 @@ export class Queries {
    * column divides as an integer, an exact decimal is quantized to its scale.
    * The adapter owns both spellings; this only names the destination.
    */
-  private arithmeticTarget(model: AnyModel, field: string): ArithmeticTarget {
+  #arithmeticTarget(model: AnyModel, field: string): ArithmeticTarget {
     const state = physicalField(this.schema, model, field).scalar["~"].state;
     return {
       integer: state.type === "int" || state.type === "bigint",
@@ -1338,7 +1338,7 @@ export class Queries {
   updateAssignment(model: AnyModel, field: string, value: unknown): Sql {
     const a = this.adapter;
     const column = this.column(model, field);
-    const update = this.prepareUpdate(model, field, value);
+    const update = this.#prepareUpdate(model, field, value);
     if (update.kind === "value")
       return a.set.assign(column, this.fieldValue(model, field, update.value));
     if (update.kind === "list")
@@ -1349,7 +1349,7 @@ export class Queries {
     return a.set[update.operator](
       column,
       this.fieldValue(model, field, update.by),
-      this.arithmeticTarget(model, field)
+      this.#arithmeticTarget(model, field)
     );
   }
   /**
@@ -1397,7 +1397,7 @@ export class Queries {
     before: Sql
   ): Sql {
     const a = this.adapter;
-    const update = this.prepareUpdate(model, field, value);
+    const update = this.#prepareUpdate(model, field, value);
     if (update.kind === "value")
       return this.fieldValue(model, field, update.value);
     const state = physicalField(this.schema, model, field).scalar["~"].state;
@@ -1454,7 +1454,7 @@ export class Queries {
       return freeze({
         model,
         predicate: where
-          ? this.prepareWhere(model, where, undefined, [], unique)
+          ? this.#prepareWhere(model, where, undefined, [], unique)
           : undefined,
       });
     const facts = newSelectorFacts();
@@ -1474,7 +1474,7 @@ export class Queries {
         ? new Map(uniqueKey!.fields.map((field) => [field, selected[field]]))
         : undefined,
       predicate: where
-        ? this.prepareWhere(model, where, facts, [], unique)
+        ? this.#prepareWhere(model, where, facts, [], unique)
         : undefined,
     });
   }
@@ -1499,7 +1499,7 @@ export class Queries {
       kind: "and",
       predicates: freeze(
         Object.entries(identity).map(([field, value]) =>
-          this.prepareScalarPredicate(model, field, value, facts)
+          this.#prepareScalarPredicate(model, field, value, facts)
         )
       ),
     });
@@ -1527,7 +1527,7 @@ export class Queries {
     identities: readonly Input[]
   ): PreparedSelector {
     const facts = newSelectorFacts();
-    const captured = this.capturedSet(model, identities, facts);
+    const captured = this.#capturedSet(model, identities, facts);
     return freeze({
       model,
       facts,
@@ -1557,11 +1557,11 @@ export class Queries {
     return freeze({
       model,
       facts,
-      predicate: this.capturedSet(model, identities, facts),
+      predicate: this.#capturedSet(model, identities, facts),
     });
   }
   /** One captured set's rows, as the disjunction of their own identities. */
-  private capturedSet(
+  #capturedSet(
     model: AnyModel,
     identities: readonly Input[],
     facts: SelectorFacts
@@ -1608,7 +1608,7 @@ export class Queries {
     mutationTarget?: string
   ): Sql | undefined {
     return selector.predicate
-      ? this.lowerPredicate(selector.predicate, alias, mutationTarget)
+      ? this.#lowerPredicate(selector.predicate, alias, mutationTarget)
       : undefined;
   }
   lowerWhere(
@@ -1751,7 +1751,7 @@ export class Queries {
       predicates: freeze(predicates),
     });
   }
-  private prepareWhere(
+  #prepareWhere(
     model: AnyModel,
     where: Input,
     facts: SelectorFacts | undefined,
@@ -1768,7 +1768,7 @@ export class Queries {
             return this.combine(
               field,
               entries(operand).map((clause) =>
-                this.prepareWhere(
+                this.#prepareWhere(
                   model,
                   clause,
                   facts,
@@ -1780,7 +1780,7 @@ export class Queries {
             );
           }
           if (model["~"].state.relations[field])
-            return this.prepareSlotPredicate(
+            return this.#prepareSlotPredicate(
               model,
               field,
               operand,
@@ -1799,7 +1799,7 @@ export class Queries {
               kind: "and",
               predicates: freeze(
                 key.fields.map((member) =>
-                  this.prepareScalarPredicate(
+                  this.#prepareScalarPredicate(
                     model,
                     member,
                     record(operand)[member],
@@ -1810,7 +1810,7 @@ export class Queries {
                 )
               ),
             });
-          return this.prepareScalarPredicate(
+          return this.#prepareScalarPredicate(
             model,
             field,
             operand,
@@ -1822,7 +1822,7 @@ export class Queries {
       ),
     });
   }
-  private prepareScalarPredicate(
+  #prepareScalarPredicate(
     model: AnyModel,
     field: string,
     value: unknown,
@@ -1857,7 +1857,7 @@ export class Queries {
         if (key) facts.keys.set(field, equality);
       } else facts.exact = false;
     }
-    return this.prepareOperations(
+    return this.#prepareOperations(
       key
         ? freeze({ kind: "column", scalar, key: true })
         : freeze({ kind: "column", scalar }),
@@ -1871,7 +1871,7 @@ export class Queries {
    * and an aggregate over it are the same grammar, so `where` and `having`
    * cannot admit different operators or bind an operand two ways.
    */
-  private prepareOperations(
+  #prepareOperations(
     target: PreparedTarget,
     value: unknown,
     insensitive = false,
@@ -1894,10 +1894,10 @@ export class Queries {
         insensitive,
         positive
       );
-    return this.prepareOperatorFilter(target, value, insensitive, positive);
+    return this.#prepareOperatorFilter(target, value, insensitive, positive);
   }
   /** An operator object (`{ gt: 1, not: … }`), out of line from the shorthand. */
-  private prepareOperatorFilter(
+  #prepareOperatorFilter(
     target: PreparedTarget,
     value: unknown,
     insensitive: boolean,
@@ -1929,13 +1929,13 @@ export class Queries {
       const operand = filter[name];
       if (name === "equals") {
         predicates.push(
-          this.prepareOperations(scoped, operand, folded, positive)
+          this.#prepareOperations(scoped, operand, folded, positive)
         );
       } else if (name === "not") {
         predicates.push(
           freeze({
             kind: "not",
-            predicate: this.prepareOperations(
+            predicate: this.#prepareOperations(
               scoped,
               operand,
               folded,
@@ -1973,7 +1973,7 @@ export class Queries {
           operands: freeze(
             (value as unknown[]).map((member) =>
               owner
-                ? this.prepareOperand(owner, member)
+                ? this.#prepareOperand(owner, member)
                 : { kind: "value" as const, value: member }
             )
           ),
@@ -1992,7 +1992,7 @@ export class Queries {
           operator,
           target,
           operand: owner
-            ? this.prepareOperand(owner, value)
+            ? this.#prepareOperand(owner, value)
             : ({ kind: "value", value } satisfies PreparedOperand),
           value,
           insensitive,
@@ -2027,15 +2027,15 @@ export class Queries {
    * `id: { in: ids₁₀₀ }` against 0.25–0.28 µs for the same 100 boxes
    * (`g4/perf2/receipts/micro-in-list.json`).
    */
-  private prepareOperand(
+  #prepareOperand(
     owner: PreparedScalar,
     value: unknown
   ): PreparedOperand {
     if (!isFieldRef(value)) return { kind: "value", value };
-    return this.prepareFieldOperand(owner, value);
+    return this.#prepareFieldOperand(owner, value);
   }
   /** A field-reference operand, out of line: most operands are values. */
-  private prepareFieldOperand(
+  #prepareFieldOperand(
     owner: PreparedScalar,
     value: Parameters<typeof fieldRefPayload>[0]
   ): PreparedOperand {
@@ -2077,7 +2077,7 @@ export class Queries {
     };
   }
   /** One relation slot: ordinary quantifiers, to-one shorthand, or tagged arms. */
-  private prepareSlotPredicate(
+  #prepareSlotPredicate(
     model: AnyModel,
     name: string,
     operand: unknown,
@@ -2103,7 +2103,7 @@ export class Queries {
         kind: "and",
         predicates: freeze(
           arms.map(([quantifier, value]) =>
-            this.relationPredicate(
+            this.#relationPredicate(
               edge,
               quantifier,
               value,
@@ -2127,7 +2127,7 @@ export class Queries {
         kind: absent ? "and" : "or",
         predicates: freeze(
           members.map((member) =>
-            this.relationPredicate(
+            this.#relationPredicate(
               variantEdge(member.variant),
               absent ? "none" : "some",
               undefined,
@@ -2153,7 +2153,7 @@ export class Queries {
           const negated = tagged.isNot !== undefined;
           const inexact =
             negated || quantifier === "none" || quantifier === "every";
-          const inner = this.relationScope(
+          const inner = this.#relationScope(
             edge,
             negated ? record(tagged.isNot) : (tagged.is as Input | undefined),
             facts,
@@ -2186,7 +2186,7 @@ export class Queries {
                 ...members
                   .filter((member) => member.variant !== tagged.type)
                   .map((member) =>
-                    this.relationPredicate(
+                    this.#relationPredicate(
                       variantEdge(member.variant),
                       "none",
                       undefined,
@@ -2210,7 +2210,7 @@ export class Queries {
       ),
     });
   }
-  private relationPredicate(
+  #relationPredicate(
     edge: Membership,
     quantifier: string,
     value: unknown,
@@ -2222,7 +2222,7 @@ export class Queries {
       kind: "relation",
       edge,
       quantifier,
-      predicate: this.relationScope(
+      predicate: this.#relationScope(
         edge,
         value === null || value === undefined ? undefined : record(value),
         facts,
@@ -2242,7 +2242,7 @@ export class Queries {
    * is negated. One fact, read twice, instead of a second flag that could
    * disagree with it.
    */
-  private relationScope(
+  #relationScope(
     edge: Membership,
     where: Input | undefined,
     facts: SelectorFacts | undefined,
@@ -2252,7 +2252,7 @@ export class Queries {
   ): PreparedPredicate | undefined {
     if (!facts)
       return where
-        ? this.prepareWhere(
+        ? this.#prepareWhere(
             edge.target,
             where,
             undefined,
@@ -2264,7 +2264,7 @@ export class Queries {
     const scope = [...path, edge];
     const nestedFacts = newSelectorFacts(!inexact);
     const predicate = where
-      ? this.prepareWhere(
+      ? this.#prepareWhere(
           edge.target,
           where,
           nestedFacts,
@@ -2283,7 +2283,7 @@ export class Queries {
     facts.reads.push(...nestedFacts.reads);
     return predicate;
   }
-  private lowerPredicate(
+  #lowerPredicate(
     predicate: PreparedPredicate,
     alias?: string,
     mutationTarget?: string
@@ -2294,44 +2294,44 @@ export class Queries {
       case "and":
         if (predicate.predicates.length === 1)
           return a.operators.and(
-            this.lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
+            this.#lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
           );
         return a.operators.and(
           ...predicate.predicates.map((member) =>
-            this.lowerPredicate(member, alias, mutationTarget)
+            this.#lowerPredicate(member, alias, mutationTarget)
           )
         );
       case "or":
         if (predicate.predicates.length === 1)
           return a.operators.or(
-            this.lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
+            this.#lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
           );
         return a.operators.or(
           ...predicate.predicates.map((member) =>
-            this.lowerPredicate(member, alias, mutationTarget)
+            this.#lowerPredicate(member, alias, mutationTarget)
           )
         );
       case "not":
         return a.operators.not(
-          this.lowerPredicate(predicate.predicate, alias, mutationTarget)
+          this.#lowerPredicate(predicate.predicate, alias, mutationTarget)
         );
       case "always":
         return predicate.value ? a.literals.true() : a.literals.false();
       case "operation":
         return this.lowerOperation(predicate, alias);
       case "relation":
-        return this.lowerRelationPredicate(predicate, alias, mutationTarget);
+        return this.#lowerRelationPredicate(predicate, alias, mutationTarget);
     }
   }
-  private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
+  #preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
     return alias
       ? this.adapter.identifiers.column(alias, scalar.physical.name)
       : this.adapter.identifiers.escape(scalar.physical.name);
   }
-  private lowerTarget(target: PreparedTarget, alias?: string): Sql {
+  #lowerTarget(target: PreparedTarget, alias?: string): Sql {
     return target.kind === "column"
-      ? this.preparedColumn(target.scalar, alias)
-      : this.aggregateExpression(target.aggregate, target.scalar, alias);
+      ? this.#preparedColumn(target.scalar, alias)
+      : this.#aggregateExpression(target.aggregate, target.scalar, alias);
   }
   private lowerOperation(
     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
@@ -2348,9 +2348,9 @@ export class Queries {
     const counted =
       target.kind === "aggregate" && target.aggregate === "_count";
     const state = counted ? undefined : scalar?.physical.scalar["~"].state;
-    const column = this.lowerTarget(target, alias);
+    const column = this.#lowerTarget(target, alias);
     if (state?.type === "json" && state.array !== true)
-      return this.lowerJsonOperation(predicate, column);
+      return this.#lowerJsonOperation(predicate, column);
     const insensitive = predicate.insensitive === true;
     // A discriminator member is compared by the constraint that answers it; the
     // engine's case-sensitivity contract governs every other comparison. An
@@ -2395,7 +2395,7 @@ export class Queries {
       );
     const bind = (member: PreparedOperand, fold = false): Sql => {
       if (member.kind === "field") {
-        const reference = this.preparedColumn(member.scalar, alias);
+        const reference = this.#preparedColumn(member.scalar, alias);
         const comparable = spelledAsText(member)
           ? a.expressions.cast(reference, "text")
           : reference;
@@ -2407,7 +2407,7 @@ export class Queries {
       }
       const literal =
         scalar && !counted
-          ? this.targetValue(target, scalar, member.value, id)
+          ? this.#targetValue(target, scalar, member.value, id)
           : this.value(member.value);
       return fold ? a.expressions.asciiCaseFold(literal) : literal;
     };
@@ -2418,7 +2418,7 @@ export class Queries {
         if (single.kind === "value" && literal === null)
           return a.operators.isNull(column);
         if (state?.type === "point" && state.array !== true)
-          return this.geoPoint("equals").equals(column, literal as GeoPoint);
+          return this.#geoPoint("equals").equals(column, literal as GeoPoint);
         if (state?.array === true && Array.isArray(literal))
           return a.operators.eq(column, bind(single));
         if (
@@ -2438,7 +2438,7 @@ export class Queries {
       case "gte":
         return a.operators[operator](column, bind(operand!));
       default:
-        return this.lowerOtherOperation(predicate, {
+        return this.#lowerOtherOperation(predicate, {
           column,
           folded,
           insensitive,
@@ -2453,7 +2453,7 @@ export class Queries {
    * The less common filter operators, kept out of {@link lowerOperation} so a
    * first query that compares by equality never compiles them.
    */
-  private lowerOtherOperation(
+  #lowerOtherOperation(
     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
     {
       column,
@@ -2519,7 +2519,7 @@ export class Queries {
           ? a.literals.false()
           : a.arrays.has(
               column,
-              this.scalarValue(
+              this.#scalarValue(
                 scalar!.physical.scalar,
                 predicate.value,
                 scalar!.field
@@ -2531,7 +2531,7 @@ export class Queries {
           ? a.operators.isNotNull(column)
           : a.arrays.hasEvery(
               column,
-              this.scalarValue(scalar!.physical.scalar, values, scalar!.field)
+              this.#scalarValue(scalar!.physical.scalar, values, scalar!.field)
             );
       }
       case "hasSome": {
@@ -2540,7 +2540,7 @@ export class Queries {
           ? a.literals.false()
           : a.arrays.hasSome(
               column,
-              this.scalarValue(scalar!.physical.scalar, values, scalar!.field)
+              this.#scalarValue(scalar!.physical.scalar, values, scalar!.field)
             );
       }
       case "isEmpty":
@@ -2549,7 +2549,7 @@ export class Queries {
           : a.operators.not(a.arrays.isEmpty(column));
       case "within": {
         const area = predicate.value as GeoArea;
-        const geoPoint = this.geoPoint("within");
+        const geoPoint = this.#geoPoint("within");
         if ("bounds" in area) return geoPoint.withinBounds(column, area.bounds);
         if (geoPoint.withinPolygon)
           return geoPoint.withinPolygon(column, area.polygon);
@@ -2566,7 +2566,7 @@ export class Queries {
         // operator list here to disagree with it (AGENTS.md: "Do not add a
         // second operator switch").
         const specification = record(predicate.value);
-        const expression = this.distanceExpression(
+        const expression = this.#distanceExpression(
           column,
           state!,
           scalar!.field,
@@ -2585,7 +2585,7 @@ export class Queries {
           upper === undefined
             ? []
             : [
-                this.geoPoint("distance filter").withinBounds(
+                this.#geoPoint("distance filter").withinBounds(
                   column,
                   geoBoundsForDistance(specification.to as GeoPoint, upper)
                 ),
@@ -2614,18 +2614,18 @@ export class Queries {
    * states how wide its exact HAVING cast can be; the refusal below is the
    * shipped sentence, verbatim.
    */
-  private targetValue(
+  #targetValue(
     target: PreparedTarget,
     scalar: PreparedScalar,
     value: unknown,
     id: IdentifierColumn | undefined
   ): Sql {
     if (target.kind === "aggregate" && target.aggregate === "_sum")
-      return this.sumTargetValue(scalar, value, id);
-    return this.scalarValue(scalar.physical.scalar, value, scalar.field, id);
+      return this.#sumTargetValue(scalar, value, id);
+    return this.#scalarValue(scalar.physical.scalar, value, scalar.field, id);
   }
   /** A `_sum` operand, out of line: only a decimal HAVING widens its cast. */
-  private sumTargetValue(
+  #sumTargetValue(
     scalar: PreparedScalar,
     value: unknown,
     id: IdentifierColumn | undefined
@@ -2635,7 +2635,7 @@ export class Queries {
     const operand = domain ? decimalSumOperand(value, domain) : undefined;
     // A value that is not an exact decimal is the ordinary binder's refusal.
     if (!domain || operand === undefined)
-      return this.scalarValue(scalar.physical.scalar, value, scalar.field, id);
+      return this.#scalarValue(scalar.physical.scalar, value, scalar.field, id);
     const { canonical, coefficient } = operand;
     const precision =
       this.adapter.aggregates.decimalSumOperandPrecision(coefficient);
@@ -2662,7 +2662,7 @@ export class Queries {
    * when that scalar's own state is a JSON document — never for a `_count`,
    * which has no column domain — so the refusal below can name the field.
    */
-  private lowerJsonOperation(
+  #lowerJsonOperation(
     predicate: Extract<PreparedPredicate, { kind: "operation" }>,
     column: Sql
   ): Sql {
@@ -2735,7 +2735,7 @@ export class Queries {
     }
   }
   /** One distance expression, for filters, ordering and projection alike. */
-  private distanceExpression(
+  #distanceExpression(
     column: Sql,
     state: ScalarState,
     field: string,
@@ -2773,7 +2773,7 @@ export class Queries {
         this.adapter.vector.literal(to)
       );
     }
-    const geoPoint = this.geoPoint(`distance ${usage}`);
+    const geoPoint = this.#geoPoint(`distance ${usage}`);
     if (!geoPoint.distance)
       throw new FeatureNotSupportedError(
         "point",
@@ -2786,7 +2786,7 @@ export class Queries {
       geoPoint.value(this.value(target.longitude), this.value(target.latitude))
     );
   }
-  private lowerRelationPredicate(
+  #lowerRelationPredicate(
     predicate: Extract<PreparedPredicate, { kind: "relation" }>,
     parentAlias?: string,
     mutationTarget?: string
@@ -2794,7 +2794,7 @@ export class Queries {
     const a = this.adapter;
     const childAlias = this.alias();
     const nested = predicate.predicate
-      ? this.lowerPredicate(predicate.predicate, childAlias, mutationTarget)
+      ? this.#lowerPredicate(predicate.predicate, childAlias, mutationTarget)
       : undefined;
     const condition = a.operators.and(
       this.correlation(predicate.edge, parentAlias ?? "", childAlias),
@@ -2867,7 +2867,7 @@ export class Queries {
    * `undefined` where the claim is not the parent's to make: the membership is
    * then the child's or a junction's, and this owner says nothing about it.
    */
-  private parentClaimsArm(
+  #parentClaimsArm(
     edge: Membership,
     parentAlias: string
   ): Sql | undefined {
@@ -2891,10 +2891,10 @@ export class Queries {
     );
   }
   correlation(edge: Membership, parent: string, target: string): Sql {
-    return this.membershipWhere(edge, target, parent);
+    return this.#membershipWhere(edge, target, parent);
   }
   memberWhere(edge: Membership, parent: Input, alias: string): Sql {
-    return this.membershipWhere(edge, alias, parent);
+    return this.#membershipWhere(edge, alias, parent);
   }
   /**
    * The rows OUTSIDE a membership, in three-valued logic: a member-side
@@ -2904,7 +2904,7 @@ export class Queries {
    */
   outsideWhere(edge: Membership, parent: Input, alias: string): Sql {
     const a = this.adapter;
-    const inside = this.membershipWhere(edge, alias, parent);
+    const inside = this.#membershipWhere(edge, alias, parent);
     if (edge.kind !== "reference") return a.operators.not(inside);
     const unbound = edge.pairs.some(
       (pair) =>
@@ -2924,7 +2924,7 @@ export class Queries {
       )
     );
   }
-  private membershipWhere(
+  #membershipWhere(
     edge: Membership,
     target: string,
     source: string | Input
@@ -2974,9 +2974,9 @@ export class Queries {
     alias: string
   ): Sql | undefined {
     if (!input) return undefined;
-    return this.lowerOrder(this.orderTerms(model, input, alias));
+    return this.#lowerOrder(this.#orderTerms(model, input, alias));
   }
-  private lowerOrder(terms: readonly OrderTerm[]): Sql | undefined {
+  #lowerOrder(terms: readonly OrderTerm[]): Sql | undefined {
     if (terms.length === 0) return undefined;
     const a = this.adapter;
     return sql.join(
@@ -2996,7 +2996,7 @@ export class Queries {
    * `_count`, a distance and a grouped aggregate are all sort keys; only a
    * direct scalar key can also serve as a cursor's total order.
    */
-  private orderTerms(
+  #orderTerms(
     model: AnyModel,
     input: Arguments["orderBy"],
     alias: string,
@@ -3008,12 +3008,12 @@ export class Queries {
       for (const field of Object.keys(order)) {
         const direction = order[field];
         if (direction !== undefined)
-          terms.push(this.orderTerm(model, field, direction, alias, cursored));
+          terms.push(this.#orderTerm(model, field, direction, alias, cursored));
       }
     }
     return terms;
   }
-  private orderTerm(
+  #orderTerm(
     model: AnyModel,
     field: string,
     direction: unknown,
@@ -3021,7 +3021,7 @@ export class Queries {
     cursored = false
   ): OrderTerm {
     if (model["~"].state.relations[field])
-      return this.relationOrderTerm(model, field, record(direction), alias);
+      return this.#relationOrderTerm(model, field, record(direction), alias);
     const physical = physicalField(this.schema, model, field);
     const state = physical.scalar["~"].state;
     const column = this.column(model, field, alias);
@@ -3036,8 +3036,8 @@ export class Queries {
         if (cursored) throw new QueryEngineError(CURSOR_ORDER_REFUSAL);
         const distance = record(specification._distance);
         const point = state.type === "point";
-        return this.sortKey(
-          this.distanceExpression(column, state, field, distance, "orderBy"),
+        return this.#sortKey(
+          this.#distanceExpression(column, state, field, distance, "orderBy"),
           distance.sort === "desc",
           point ? "last" : undefined,
           point,
@@ -3045,7 +3045,7 @@ export class Queries {
           point ? true : undefined
         );
       }
-      return this.sortKey(
+      return this.#sortKey(
         column,
         specification.sort === "desc",
         specification.nulls as "first" | "last" | undefined,
@@ -3053,7 +3053,7 @@ export class Queries {
         field
       );
     }
-    return this.sortKey(
+    return this.#sortKey(
       column,
       direction === "desc",
       undefined,
@@ -3062,7 +3062,7 @@ export class Queries {
     );
   }
   /** A to-one path is one correlated value; a collection orders by `_count`. */
-  private relationOrderTerm(
+  #relationOrderTerm(
     model: AnyModel,
     field: string,
     specification: Input,
@@ -3077,8 +3077,8 @@ export class Queries {
       counted[0]!.many ||
       specification._count !== undefined
     )
-      return this.sortKey(
-        this.correlatedCount(counted, undefined, alias),
+      return this.#sortKey(
+        this.#correlatedCount(counted, undefined, alias),
         specification._count === "desc",
         undefined,
         false
@@ -3087,7 +3087,7 @@ export class Queries {
     const childAlias = this.alias();
     const correlation = this.correlation(edge, alias, childAlias);
     const [nested] = Object.entries(specification);
-    const inner = this.orderTerm(
+    const inner = this.#orderTerm(
       edge.target,
       nested![0],
       nested![1],
@@ -3099,14 +3099,14 @@ export class Queries {
       where: correlation,
       limit: this.value(1),
     });
-    return this.sortKey(
+    return this.#sortKey(
       a.subqueries.scalar(value),
       inner.descending,
       inner.nulls,
       true
     );
   }
-  private sortKey(
+  #sortKey(
     expression: Sql,
     descending: boolean,
     nulls: "first" | "last" | undefined,
@@ -3123,7 +3123,7 @@ export class Queries {
       field,
     });
   }
-  private reverseOrder(terms: readonly OrderTerm[]): OrderTerm[] {
+  #reverseOrder(terms: readonly OrderTerm[]): OrderTerm[] {
     return terms.map((term) =>
       freeze({
         ...term,
@@ -3141,7 +3141,7 @@ export class Queries {
    * One page owner: the root read and every nested node use it, so a nested
    * window is the ordinary page operator inside its parent's correlation.
    */
-  private page(
+  #page(
     model: AnyModel,
     args: Pick<
       Partial<Arguments>,
@@ -3157,27 +3157,27 @@ export class Queries {
   } {
     const backward = args.take !== undefined && args.take < 0;
     const cursored = args.cursor !== undefined;
-    const requested = this.orderTerms(model, args.orderBy, alias, cursored);
+    const requested = this.#orderTerms(model, args.orderBy, alias, cursored);
     const windowed = cursored || args.take !== undefined;
     const total =
       windowed && requested.every((term) => term.field !== undefined)
-        ? this.totalOrder(model, requested, args.cursor, alias)
+        ? this.#totalOrder(model, requested, args.cursor, alias)
         : undefined;
     // The single raise point for every other non-scalar key: a relation term
     // builds with `field: undefined` and is classified here.
     if (cursored && !total) throw new QueryEngineError(CURSOR_ORDER_REFUSAL);
     const terms = total ?? requested;
     return {
-      orderBy: this.lowerOrder(backward ? this.reverseOrder(terms) : terms),
+      orderBy: this.#lowerOrder(backward ? this.#reverseOrder(terms) : terms),
       limit:
         args.take === undefined ? undefined : this.value(Math.abs(args.take)),
       offset: args.skip === undefined ? undefined : this.value(args.skip),
       cursor:
         args.cursor === undefined
           ? undefined
-          : this.cursorCondition(
+          : this.#cursorCondition(
               model,
-              backward ? this.reverseOrder(total!) : total!,
+              backward ? this.#reverseOrder(total!) : total!,
               args.cursor
             ),
       distinct: args.distinct?.length
@@ -3189,17 +3189,17 @@ export class Queries {
     };
   }
   /** A windowed read needs a deterministic total order, not just the caller's. */
-  private totalOrder(
+  #totalOrder(
     model: AnyModel,
     requested: readonly OrderTerm[],
     cursor: Input | undefined,
     alias: string
   ): OrderTerm[] {
-    const terms = this.completeOrder(
+    const terms = this.#completeOrder(
       model,
       requested,
       alias,
-      cursor ? Object.keys(this.identityEntries(model, cursor)) : []
+      cursor ? Object.keys(this.#identityEntries(model, cursor)) : []
     );
     // Fill the owned completed array directly. Nullable keys need an explicit
     // placement, and cursor comparisons consume the complete term descriptors;
@@ -3223,7 +3223,7 @@ export class Queries {
    * row key in constraint order) ordered the same tied siblings differently
    * under recursion than under the ordinary window.
    */
-  private completeOrder(
+  #completeOrder(
     model: AnyModel,
     requested: readonly OrderTerm[],
     alias: string,
@@ -3234,7 +3234,7 @@ export class Queries {
     for (const term of terms) {
       if (term.field !== undefined) ordered.add(term.field);
     }
-    const identity = this.identityOrder(model);
+    const identity = this.#identityOrder(model);
     const completion =
       cursorFields.length === 0 ? identity : [...identity, ...cursorFields];
     for (const field of completion) {
@@ -3242,7 +3242,7 @@ export class Queries {
       ordered.add(field);
       const physical = physicalField(this.schema, model, field);
       terms.push(
-        this.sortKey(
+        this.#sortKey(
           this.column(model, field, alias),
           false,
           "last",
@@ -3254,7 +3254,7 @@ export class Queries {
     return terms;
   }
   /** The cursor's tie-break identity: a bare scalar id, else the row key. */
-  private identityOrder(model: AnyModel): readonly string[] {
+  #identityOrder(model: AnyModel): readonly string[] {
     const catalog = getModelKeyCatalog(model);
     const bare = catalog.addressableKeys.find(
       (key) => key.kind === "primary" && key.name === undefined
@@ -3271,7 +3271,7 @@ export class Queries {
     );
   }
   /** A strict unique selector's exact field values, compound keys expanded. */
-  private identityEntries(model: AnyModel, input: Input): Input {
+  #identityEntries(model: AnyModel, input: Input): Input {
     const identity: Input = {};
     for (const [name, value] of Object.entries(input)) {
       const key = findAddressableKey(model, name);
@@ -3286,13 +3286,13 @@ export class Queries {
    * key is NOT NULL and shares a direction the same meaning is spelled as a
    * row-value comparison, which a planner can turn into a range seek.
    */
-  private cursorCondition(
+  #cursorCondition(
     model: AnyModel,
     order: readonly OrderTerm[],
     cursor: Input
   ): Sql {
     const a = this.adapter;
-    const identity = this.identityEntries(model, cursor);
+    const identity = this.#identityEntries(model, cursor);
     const sourceAlias = this.alias();
     const where = a.operators.and(
       ...Object.entries(identity).map(([field, value]) => {
@@ -3399,7 +3399,7 @@ export class Queries {
       selector?: Pick<PreparedSelector, "model" | "predicate">;
     } = {}
   ): Query {
-    const alias = this.rootAlias();
+    const alias = this.#rootAlias();
     // The shipped owner sequence, and the reason it is stated here: when one
     // call violates two contracts at once, the refusal the caller sees is the
     // one whose owner runs first. `buildFind` (`operations/find-common.ts`)
@@ -3407,7 +3407,7 @@ export class Queries {
     // cursor refusal outranks a projection refusal and both outrank a `where`
     // refusal. Nothing below reads the projection or the selector, so this is
     // an ORDER, not a dependency (`g4/unit01-review-followup-3.md` finding K).
-    const page = this.page(model, args, alias);
+    const page = this.#page(model, args, alias);
     const prepared = controls.projection ?? this.prepareProjection(model, args);
     const projection = this.lowerProjection(prepared, alias);
     const selector =
@@ -3512,11 +3512,11 @@ export class Queries {
         };
       }
       default:
-        return this.readAggregate(model, operation, args);
+        return this.#readAggregate(model, operation, args);
     }
   }
   /** Counting and aggregate reads, out of line from the row reads above. */
-  private readAggregate(
+  #readAggregate(
     model: AnyModel,
     operation: Exclude<ReadOperation, "findUnique" | "findFirst" | "findMany">,
     args: Arguments
@@ -3577,7 +3577,7 @@ export class Queries {
         };
       }
       case "aggregate": {
-        const prepared = this.prepareAggregates(model, args);
+        const prepared = this.#prepareAggregates(model, args);
         const query = this.aggregated(
           model,
           args,
@@ -3612,8 +3612,8 @@ export class Queries {
     shape: (alias: string) => Extract<Shape, { kind: "object" }>
   ): Query {
     const a = this.adapter;
-    const inner = this.rootAlias();
-    const page = this.page(model, args, inner);
+    const inner = this.#rootAlias();
+    const page = this.#page(model, args, inner);
     const filter = this.lowerWhere(model, args.where, inner);
     const window = assembleAdapterSelect(a, {
       columns: fields.length
@@ -3651,7 +3651,7 @@ export class Queries {
     };
   }
   /** The admitted aggregate selections, as columns and as decoder leaves. */
-  private prepareAggregates(
+  #prepareAggregates(
     model: AnyModel,
     args: Arguments
   ): {
@@ -3678,7 +3678,7 @@ export class Queries {
       const leaves: Record<string, Leaf> = {};
       for (const [field] of selected) {
         if (field !== "_all") fields.push(field);
-        leaves[field] = this.aggregateLeaf(model, name, field);
+        leaves[field] = this.#aggregateLeaf(model, name, field);
       }
       shape[name] = { kind: "object", fields: leaves };
       builders.push((alias) => [
@@ -3686,9 +3686,9 @@ export class Queries {
         a.json.objectFromColumns(
           selected.map(([field]) => [
             field,
-            this.carriedValue(
+            this.#carriedValue(
               leaves[field]!,
-              this.aggregateExpression(
+              this.#aggregateExpression(
                 name,
                 field === "_all"
                   ? undefined
@@ -3711,7 +3711,7 @@ export class Queries {
     };
   }
   /** One aggregate leaf classification, shared by projection and `having`. */
-  private aggregateLeaf(
+  #aggregateLeaf(
     model: AnyModel,
     aggregate: Aggregate,
     field: string
@@ -3727,13 +3727,13 @@ export class Queries {
       widened: aggregate === "_sum" && decimal ? true : undefined,
     });
   }
-  private aggregateExpression(
+  #aggregateExpression(
     aggregate: Aggregate,
     scalar: PreparedScalar | undefined,
     alias?: string
   ): Sql {
     const a = this.adapter;
-    const column = scalar ? this.preparedColumn(scalar, alias) : undefined;
+    const column = scalar ? this.#preparedColumn(scalar, alias) : undefined;
     const state = scalar?.physical.scalar["~"].state;
     // biome-ignore lint/style/useDefaultSwitchClause: the Aggregate union is exhaustive; a default would be dead code.
     switch (aggregate) {
@@ -3768,7 +3768,7 @@ export class Queries {
     operation: "createMany" | "updateMany" = "createMany"
   ): Query {
     const model = prepared.model;
-    const alias = this.rootAlias();
+    const alias = this.#rootAlias();
     const projection = this.lowerProjection(prepared, alias);
     const predicates = identities.map((identity) =>
       this.lowerIdentity(model, identity, alias)
@@ -3807,14 +3807,14 @@ export class Queries {
     };
   }
   /** The `_count` member of a projection, out of line: most reads have none. */
-  private projectCounts(
+  #projectCounts(
     model: AnyModel,
     name: string,
     selection: unknown,
     fields: Record<string, Shape | Leaf>,
     prepared: PreparedProjectionField[]
   ): void {
-    const counts = this.prepareCounts(model, selection);
+    const counts = this.#prepareCounts(model, selection);
     // An empty count SELECTION contributes no field at all: the shipped
     // engine pushed the `_count` pair only `if (relationCountPairs.length
     // > 0)` (`select-builder.ts:418`), so `_count: true` on a model with
@@ -3834,7 +3834,7 @@ export class Queries {
     prepared.push(freeze({ kind: "counts", name, counts }));
   }
   /** A selected `_distance`, out of line: most reads select none. */
-  private projectDistance(
+  #projectDistance(
     model: AnyModel,
     name: string,
     distance: unknown,
@@ -3853,10 +3853,10 @@ export class Queries {
         specification: record(distance),
       })
     );
-    fields[DISTANCE_FIELD] = this.distanceLeaf(model, name);
+    fields[DISTANCE_FIELD] = this.#distanceLeaf(model, name);
   }
   /** A polymorphic slot's projection, out of line: most reads have none. */
-  private projectVariants(
+  #projectVariants(
     model: AnyModel,
     name: string,
     resolved: ResolvedSlot,
@@ -3895,12 +3895,12 @@ export class Queries {
     for (const member of edge.members) {
       const arm = selectedArm(selection, many, member.variant);
       if (arm === undefined) continue;
-      const nested = this.prepareRelationProjection(
+      const nested = this.#prepareRelationProjection(
         bindMembership(this.schema, model, name, member.variant),
         arm
       );
-      if (many) collections[member.variant] = this.collectionShape(nested);
-      else documents[member.variant] = this.relationShape(nested);
+      if (many) collections[member.variant] = this.#collectionShape(nested);
+      else documents[member.variant] = this.#relationShape(nested);
       preparedArms.push(freeze({ variant: member.variant, ...nested }));
     }
     fields[name] = freeze(
@@ -3943,7 +3943,7 @@ export class Queries {
   ): PreparedProjection {
     const shared = args.select === undefined && args.include === undefined;
     if (shared) {
-      const resolved = this.views.defaultProjections.get(model);
+      const resolved = this.#views.defaultProjections.get(model);
       if (resolved !== undefined) return resolved;
     }
     // `omit` is desugared into `select` at admission; an explicit selection and
@@ -3959,14 +3959,14 @@ export class Queries {
       // `_count` is the relation-count key and nothing else: schema
       // validation refuses a member of that name (F010).
       if (name === "_count") {
-        this.projectCounts(model, name, selection, fields, prepared);
+        this.#projectCounts(model, name, selection, fields, prepared);
         continue;
       }
       if (!model["~"].state.relations[name]) {
         const distance =
           selection === true ? undefined : record(selection)._distance;
         if (distance !== undefined) {
-          this.projectDistance(
+          this.#projectDistance(
             model,
             name,
             distance,
@@ -3989,7 +3989,7 @@ export class Queries {
         (resolved.edge.kind === "variantRowCarrier" ||
           resolved.edge.kind === "variantJunctionCarrier")
       ) {
-        this.projectVariants(
+        this.#projectVariants(
           model,
           name,
           resolved,
@@ -3999,11 +3999,11 @@ export class Queries {
         );
         continue;
       }
-      const nested = this.prepareRelationProjection(
+      const nested = this.#prepareRelationProjection(
         bindMembership(this.schema, model, name),
         selection
       );
-      fields[name] = this.relationShape(nested);
+      fields[name] = this.#relationShape(nested);
       prepared.push(freeze({ kind: "relation", name, ...nested }));
     }
     // The empty-projection arm, in the shipped engine's two cases
@@ -4022,7 +4022,7 @@ export class Queries {
       fields: freeze(prepared),
       shape: freeze({ kind: "object", fields: freeze(fields) }),
     });
-    if (shared) this.views.defaultProjections.set(model, projection);
+    if (shared) this.#views.defaultProjections.set(model, projection);
     return projection;
   }
   /**
@@ -4030,7 +4030,7 @@ export class Queries {
    * exactly as at the root, so the carried array is restored to the caller's
    * logical order by the one decoder that reads this shape.
    */
-  private relationShape(nested: PreparedRelationProjection): Shape {
+  #relationShape(nested: PreparedRelationProjection): Shape {
     if (nested.recurrence) {
       const resolved = this.schema.index
         .get(nested.edge.source)!
@@ -4050,10 +4050,10 @@ export class Queries {
       });
     }
     if (!nested.edge.many) return nested.projection.shape;
-    return this.collectionShape(nested);
+    return this.#collectionShape(nested);
   }
   /** A to-many relation's rows, in the window its `take` requested. */
-  private collectionShape(nested: PreparedRelationProjection): CollectionShape {
+  #collectionShape(nested: PreparedRelationProjection): CollectionShape {
     const take = nested.arguments.take;
     return freeze({
       kind: "collection",
@@ -4062,7 +4062,7 @@ export class Queries {
     });
   }
   /** The distance leaf: one number, null only where a nullable point has none. */
-  private distanceLeaf(model: AnyModel, field: string): Leaf {
+  #distanceLeaf(model: AnyModel, field: string): Leaf {
     const physical = physicalField(this.schema, model, field);
     return freeze({
       kind: "scalar",
@@ -4071,7 +4071,7 @@ export class Queries {
         physical.scalar["~"].state.type === "point" && physical.nullable,
     });
   }
-  private prepareRelationProjection(
+  #prepareRelationProjection(
     edge: Membership,
     selection: unknown
   ): PreparedRelationProjection {
@@ -4097,7 +4097,7 @@ export class Queries {
    * Admission desugars `_count: true` into `{ select: { relation: … } }`, so
    * the projection owner reads one shape; an entry may filter its target.
    */
-  private prepareCounts(
+  #prepareCounts(
     model: AnyModel,
     selection: unknown
   ): readonly PreparedCount[] {
@@ -4199,7 +4199,7 @@ export class Queries {
     for (const field of projection.fields) {
       columns.push(
         this.adapter.identifiers.aliased(
-          this.lowerProjectionField(projection, field, alias),
+          this.#lowerProjectionField(projection, field, alias),
           field.name
         )
       );
@@ -4207,7 +4207,7 @@ export class Queries {
     return columns;
   }
   /** Count, distance and polymorphic members, out of line from plain columns. */
-  private lowerSpecialProjectionField(
+  #lowerSpecialProjectionField(
     projection: PreparedProjection,
     field: Exclude<
       PreparedProjectionField,
@@ -4221,7 +4221,7 @@ export class Queries {
       expression = a.json.objectFromColumns(
         field.counts.map((count) => [
           count.relation,
-          this.correlatedCount(
+          this.#correlatedCount(
             count.edges,
             count.selector,
             alias ?? "",
@@ -4230,7 +4230,7 @@ export class Queries {
         ])
       );
     } else if (field.kind === "distance") {
-      expression = this.distanceExpression(
+      expression = this.#distanceExpression(
         this.column(projection.model, field.field, alias),
         physicalField(this.schema, projection.model, field.field).scalar["~"]
           .state,
@@ -4253,7 +4253,7 @@ export class Queries {
                   a.json.objectFromColumns(
                     field.memberships.map((member) => [
                       member.variant,
-                      this.orphanedMemberships(member.edge, alias ?? ""),
+                      this.#orphanedMemberships(member.edge, alias ?? ""),
                     ])
                   )
                 ),
@@ -4261,10 +4261,10 @@ export class Queries {
             ];
       expression = a.json.object([
         ...field.arms.map((arm) => {
-          const row = this.lowerRelationProjection(arm, alias ?? "");
+          const row = this.#lowerRelationProjection(arm, alias ?? "");
           const claim = field.many
             ? undefined
-            : this.parentClaimsArm(arm.edge, alias ?? "");
+            : this.#parentClaimsArm(arm.edge, alias ?? "");
           // A claimed arm always carries a DOCUMENT: the empty one says
           // "linked, and the row is gone", which the decoder refuses from
           // the arm's own selected keys (Arnaud's D-19 — no private carrier
@@ -4291,7 +4291,7 @@ export class Queries {
     }
     return expression;
   }
-  private lowerProjectionField(
+  #lowerProjectionField(
     projection: PreparedProjection,
     field: PreparedProjectionField,
     alias?: string
@@ -4303,19 +4303,19 @@ export class Queries {
     } else if (field.kind === "sentinel") {
       expression = a.expressions.cast(a.literals.value(1), "integer");
     } else if (field.kind === "relation") {
-      expression = this.duplicateMembershipGuard(
+      expression = this.#duplicateMembershipGuard(
         field.edge,
         alias ?? "",
         field.recurrence
-          ? this.lowerRecursiveRelationProjection(
+          ? this.#lowerRecursiveRelationProjection(
               field,
               field.recurrence,
               alias ?? ""
             )
-          : this.lowerRelationProjection(field, alias ?? "")
+          : this.#lowerRelationProjection(field, alias ?? "")
       );
     } else {
-      expression = this.lowerSpecialProjectionField(projection, field, alias);
+      expression = this.#lowerSpecialProjectionField(projection, field, alias);
     }
     return expression;
   }
@@ -4352,7 +4352,7 @@ export class Queries {
    * Only a polymorphic member table: an ordinary pair table's inverse is
    * enforced by its own unique constraint and its bytes are unchanged.
    */
-  private duplicateMembershipGuard(
+  #duplicateMembershipGuard(
     edge: Membership,
     parentAlias: string,
     projected: Sql
@@ -4384,7 +4384,7 @@ export class Queries {
       projected
     );
   }
-  private orphanedMemberships(
+  #orphanedMemberships(
     edge: Extract<Membership, { kind: "junction" }>,
     parentAlias: string
   ): Sql {
@@ -4422,7 +4422,7 @@ export class Queries {
    * ordering. A variant carrier's arms are summed, because the slot's population
    * is their union ({@link countedMemberships}).
    */
-  private correlatedCount(
+  #correlatedCount(
     edges: readonly Membership[],
     selector: Pick<PreparedSelector, "model" | "predicate"> | undefined,
     parentAlias: string,
@@ -4481,7 +4481,7 @@ export class Queries {
       ),
     };
   }
-  private lowerRelationProjection(
+  #lowerRelationProjection(
     relation: PreparedRelationProjection,
     alias: string
   ): Sql {
@@ -4492,7 +4492,7 @@ export class Queries {
     const childFields = Object.keys(projection.shape.fields);
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
-    const window = this.page(edge.target, nested, childAlias);
+    const window = this.#page(edge.target, nested, childAlias);
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child, ", "),
       from: this.table(edge.target, childAlias),
@@ -4532,7 +4532,7 @@ export class Queries {
     const object = a.json.object(
       childFields.map((field) => [
         field,
-        this.carriedValue(
+        this.#carriedValue(
           projection.shape.fields[field]!,
           a.identifiers.column(pageAlias, field)
         ),
@@ -4554,13 +4554,13 @@ export class Queries {
    * the one encoder of the carrier's root, node keys and edge endpoints, whose
    * texts the decoder matches.
    */
-  private recursiveIdentity(model: AnyModel, key: readonly Sql[]): Sql {
+  #recursiveIdentity(model: AnyModel, key: readonly Sql[]): Sql {
     return this.adapter.json.array(
       this.schema.keys(model).map((field, index) => {
         // The carried key is the RAW column, so a byte identifier takes its
         // transport spelling here, as every projected column already has.
         const leaf = this.scalarShape(model, field);
-        return this.carriedValue(
+        return this.#carriedValue(
           leaf,
           transportedIdentifier(
             this.adapter,
@@ -4582,7 +4582,7 @@ export class Queries {
    * decoder), because `decodeRecursiveCarrier` refuses a carrier in which a
    * parent lacks its children at any level it is reached below the cutoff.
    */
-  private lowerRecursiveRelationProjection(
+  #lowerRecursiveRelationProjection(
     relation: PreparedRelationProjection,
     recurrence: NormalizedRecurrence,
     parentAlias: string
@@ -4691,14 +4691,14 @@ export class Queries {
     const nodeDocument = a.json.object(
       relation.projection.fields.map((field) => [
         field.name,
-        this.carriedValue(
+        this.#carriedValue(
           relation.projection.shape.fields[field.name]!,
-          this.lowerProjectionField(relation.projection, field, node)
+          this.#lowerProjectionField(relation.projection, field, node)
         ),
       ])
     );
     const nodeCarrier = a.json.object([
-      [RECURSIVE_CARRIER.key, this.recursiveIdentity(model, rawIdentity(node))],
+      [RECURSIVE_CARRIER.key, this.#recursiveIdentity(model, rawIdentity(node))],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
     const nodes = a.subqueries.scalar(
@@ -4721,11 +4721,11 @@ export class Queries {
     const edgePairs: [string, Sql][] = [
       [
         RECURSIVE_CARRIER.parent,
-        this.recursiveIdentity(model, parentColumns.map(edgeColumn)),
+        this.#recursiveIdentity(model, parentColumns.map(edgeColumn)),
       ],
       [
         RECURSIVE_CARRIER.child,
-        this.recursiveIdentity(model, childColumns.map(edgeColumn)),
+        this.#recursiveIdentity(model, childColumns.map(edgeColumn)),
       ],
     ];
     if (recurrence.depth !== false)
@@ -4733,10 +4733,10 @@ export class Queries {
     const edgeCarrier = a.json.object(edgePairs);
     // Each parent's siblings in the caller's order, ties broken by the order
     // owner's one complete key — the ordinary window's tie-break, not another.
-    const siblingOrder = this.lowerOrder(
-      this.completeOrder(
+    const siblingOrder = this.#lowerOrder(
+      this.#completeOrder(
         model,
-        this.orderTerms(model, relation.arguments.orderBy, edgeChild),
+        this.#orderTerms(model, relation.arguments.orderBy, edgeChild),
         edgeChild
       )
     );
@@ -4774,7 +4774,7 @@ export class Queries {
       a.json.object([
         [
           RECURSIVE_CARRIER.root,
-          this.recursiveIdentity(model, rawIdentity(parentAlias)),
+          this.#recursiveIdentity(model, rawIdentity(parentAlias)),
         ],
         [RECURSIVE_CARRIER.nodes, a.json.document(nodeFacts)],
         [RECURSIVE_CARRIER.edges, a.json.document(edgeFacts)],
@@ -4820,14 +4820,14 @@ export class Queries {
   }
   grouped(model: AnyModel, args: Arguments): Query {
     const a = this.adapter;
-    const alias = this.rootAlias();
+    const alias = this.#rootAlias();
     // The ONE `by` authority. Admission normalises `by` to an array and
     // refuses its duplicates; the grouped read computes the grouped column SET
     // once and hands it to the two owners that have to know it — `having` and
     // the grouped `orderBy` — instead of each re-reading `args`.
     const by = args.by!;
     const grouped: ReadonlySet<string> = new Set(by);
-    const aggregates = this.prepareAggregates(model, args);
+    const aggregates = this.#prepareAggregates(model, args);
     const fields: Record<string, Shape | Leaf> = {};
     const columns: Sql[] = by.map((field) => {
       fields[field] = this.scalarShape(model, field);
@@ -4850,13 +4850,13 @@ export class Queries {
           ", "
         ),
         having: args.having
-          ? this.lowerPredicate(
-              this.prepareHaving(model, record(args.having), grouped),
+          ? this.#lowerPredicate(
+              this.#prepareHaving(model, record(args.having), grouped),
               alias
             )
           : undefined,
-        orderBy: this.lowerOrder(
-          this.groupOrderTerms(model, args.orderBy, alias, grouped)
+        orderBy: this.#lowerOrder(
+          this.#groupOrderTerms(model, args.orderBy, alias, grouped)
         ),
         limit: args.take === undefined ? undefined : this.value(args.take),
         offset: args.skip === undefined ? undefined : this.value(args.skip),
@@ -4865,7 +4865,7 @@ export class Queries {
     };
   }
   /** `having` is the same predicate vocabulary over aggregate targets. */
-  private prepareHaving(
+  #prepareHaving(
     model: AnyModel,
     having: Input,
     grouped: ReadonlySet<string>
@@ -4881,7 +4881,7 @@ export class Queries {
               this.combine(
                 key,
                 entries(value).map((clause) =>
-                  this.prepareHaving(model, record(clause), grouped)
+                  this.#prepareHaving(model, record(clause), grouped)
                 )
               ),
             ];
@@ -4903,11 +4903,11 @@ export class Queries {
                 `Scalar '${key}' used in 'having' must be included in 'by'.`
               );
             return [
-              this.prepareOperations(freeze({ kind: "column", scalar }), value),
+              this.#prepareOperations(freeze({ kind: "column", scalar }), value),
             ];
           }
           return aggregated.map((aggregate) =>
-            this.prepareOperations(
+            this.#prepareOperations(
               freeze({ kind: "aggregate", aggregate, scalar }),
               filter[aggregate]
             )
@@ -4917,7 +4917,7 @@ export class Queries {
     });
   }
   /** A grouped read orders by a grouped field or by an aggregate. */
-  private groupOrderTerms(
+  #groupOrderTerms(
     model: AnyModel,
     input: Arguments["orderBy"],
     alias: string,
@@ -4932,11 +4932,11 @@ export class Queries {
             throw new QueryEngineError(
               `GroupBy orderBy field '${name}' must be included in 'by' or be an aggregate (_count, _avg, _sum, _min, _max).`
             );
-          return [this.orderTerm(model, name, direction, alias)];
+          return [this.#orderTerm(model, name, direction, alias)];
         }
         return Object.entries(record(direction)).map(([field, sort]) =>
-          this.sortKey(
-            this.aggregateExpression(
+          this.#sortKey(
+            this.#aggregateExpression(
               name,
               field === "_all"
                 ? undefined
@@ -5354,7 +5354,7 @@ export class Queries {
       if (shape.many) {
         const arms = Object.keys(shape.arms).map((type) => ({
           type,
-          read: this.compileCollection(shape.arms[type]!, internal),
+          read: this.#compileCollection(shape.arms[type]!, internal),
         }));
         return (value) => {
           const variants = slot(value);
@@ -5384,7 +5384,7 @@ export class Queries {
       };
     }
     if (shape.kind === "collection")
-      return this.compileCollection(shape, internal);
+      return this.#compileCollection(shape, internal);
     // The document's MEMBER LIST is a fact of the PREPARED PROJECTION, stated
     // once by {@link prepareProjection} and frozen on the shape; a row carries
     // only the values for it. It is read here, once per batch — the shape's
@@ -5457,7 +5457,7 @@ export class Queries {
    * relation and for each arm of a junction-carried variant slot: its rows
    * are carried documents, restored to the requested order.
    */
-  private compileCollection(
+  #compileCollection(
     shape: CollectionShape,
     internal: boolean
   ): (value: unknown) => unknown[] {
@@ -5487,7 +5487,7 @@ export class Queries {
     provider?: FieldReader,
     list?: Reader
   ): Reader {
-    const readValue = list ?? this.compileScalarValue(leaf, internal);
+    const readValue = list ?? this.#compileScalarValue(leaf, internal);
     const nullable = leaf.nullable;
     const allowsJsonNull = leaf.type === "json" && leaf.list !== true;
     return (raw) => {
@@ -5505,7 +5505,7 @@ export class Queries {
     };
   }
   /** Bind the declared scalar codec once, preserving its provider-value checks. */
-  private compileScalarValue(leaf: Leaf, internal: boolean): Reader {
+  #compileScalarValue(leaf: Leaf, internal: boolean): Reader {
     const identifier = leaf.id;
     if (identifier !== undefined) {
       return (value) => {
@@ -5638,7 +5638,7 @@ export class Queries {
           const document = this.jsonValue(value);
           return leaf.jsonSchema === undefined
             ? document
-            : this.jsonValue(this.schemaValue(leaf.jsonSchema, document));
+            : this.jsonValue(this.#schemaValue(leaf.jsonSchema, document));
         };
       case "blob":
         return decodeBlob;
@@ -5774,7 +5774,7 @@ export class Queries {
       );
     }
     if (Array.isArray(value)) {
-      const path = this.enterJsonContainer(value, enclosing);
+      const path = this.#enterJsonContainer(value, enclosing);
       const members = new Array<unknown>(value.length);
       for (let index = 0; index < value.length; index += 1) {
         if (!Object.hasOwn(value, index))
@@ -5785,7 +5785,7 @@ export class Queries {
       return members;
     }
     if (isPlainJsonRecord(value)) {
-      const path = this.enterJsonContainer(value, enclosing);
+      const path = this.#enterJsonContainer(value, enclosing);
       const members: Record<string, unknown> = {};
       for (const [key, member] of Object.entries(value))
         Object.defineProperty(members, key, {
@@ -5807,7 +5807,7 @@ export class Queries {
    * normalized around it, plus this one. A container that is already open is
    * inside itself, which no JSON document is.
    */
-  private enterJsonContainer(
+  #enterJsonContainer(
     container: object,
     enclosing: Set<object> | undefined
   ): Set<object> {
@@ -5836,7 +5836,7 @@ export class Queries {
    * caller's to read (the deleted `scalar-result-contracts.core.test.ts` ›
    * "redacts custom JSON validation details").
    */
-  private schemaValue(schema: StandardSchemaV1, document: unknown): unknown {
+  #schemaValue(schema: StandardSchemaV1, document: unknown): unknown {
     const validated = parse(schema, document);
     if (validated.issues)
       throw new InvalidScalarResult(
