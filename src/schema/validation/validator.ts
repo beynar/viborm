@@ -45,11 +45,11 @@ function buildContext(schema: Schema): ValidationContext {
 }
 
 /**
- * The validator with the rule list always explicit. Client construction runs
- * only the selector rules through it, so a client bundle does not carry the
- * advisory rules {@link SchemaValidator} defaults to.
+ * The public validator: every advisory rule unless told otherwise. Client
+ * construction does not use it; {@link resolveSchemaOrThrow} runs only the
+ * selector rules, so a client bundle does not carry the advisory ones.
  */
-export class RuleScopedSchemaValidator {
+export class SchemaValidator {
   private readonly schema: Schema = new Map();
   /** One resolution per validator lifecycle: the gate runs once per schema. */
   private resolution: RelationResolution | undefined;
@@ -90,53 +90,28 @@ export class RuleScopedSchemaValidator {
    * terminal's own settled `Error`.
    */
   resolve(): RelationResolution {
-    if (this.resolution) return this.resolution;
-    const identityIssue = preflightModelRegistrationIdentity(this.schema);
-    this.resolution = identityIssue
-      ? { ok: false, issues: [identityIssue] }
-      : resolveSchemaRelations(this.schema, buildContext(this.schema));
+    this.resolution ??= resolveRegistered(
+      this.schema,
+      buildContext(this.schema)
+    );
     return this.resolution;
   }
 
   /** Validate all registered models */
-  validate(rules: ValidationRule[]): ValidationResult {
-    const errors: SchemaValidationIssue[] = [];
-    const warnings: SchemaValidationIssue[] = [];
-
+  validate(rules: ValidationRule[] = allRules): ValidationResult {
     // Build context once (O(n) models)
     const ctx = buildContext(this.schema);
-
-    // Check table name uniqueness using pre-built map
-    for (const [tableName, models] of ctx.tableToModels) {
-      if (models.length > 1) errors.push(sharedTableIssue(tableName, models));
-    }
-
-    // The gate reports on every schema, valid or not: a successful resolution
-    // still carries the advisories its subowners produced.
-    const resolution = this.resolve();
-    for (const issue of resolution.issues) {
+    this.resolution ??= resolveRegistered(this.schema, ctx);
+    const errors: SchemaValidationIssue[] = [];
+    const warnings: SchemaValidationIssue[] = [];
+    for (const issue of schemaIssues(
+      this.schema,
+      ctx,
+      this.resolution,
+      rules
+    )) {
       (issue.severity === "error" ? errors : warnings).push(issue);
     }
-
-    // Run all rules on each model
-    for (const [modelName, model] of this.schema) {
-      for (const rule of rules) {
-        let results: SchemaValidationIssue[];
-        try {
-          results = rule(this.schema, modelName, model, ctx);
-        } catch (cause) {
-          throw ruleFailure(rule, modelName, cause);
-        }
-        for (const result of results) {
-          if (result.severity === "error") {
-            errors.push(result);
-          } else {
-            warnings.push(result);
-          }
-        }
-      }
-    }
-
     return {
       valid: errors.length === 0,
       errors,
@@ -149,7 +124,7 @@ export class RuleScopedSchemaValidator {
    * topology. `validate` already reports every resolution issue by severity,
    * so validity and a successful resolution are one fact stated here once.
    */
-  validateOrThrow(rules: ValidationRule[]): ResolvedRelationIndex {
+  validateOrThrow(rules: ValidationRule[] = allRules): ResolvedRelationIndex {
     const result = this.validate(rules);
     const resolution = this.resolve();
     if (result.valid && resolution.ok) return resolution.index;
@@ -160,17 +135,46 @@ export class RuleScopedSchemaValidator {
   }
 }
 
-/** The public validator: every advisory rule unless told otherwise. */
-export class SchemaValidator extends RuleScopedSchemaValidator {
-  override validate(rules: ValidationRule[] = allRules): ValidationResult {
-    return super.validate(rules);
-  }
+/** The identity preflight, then the relation gate. */
+function resolveRegistered(
+  schema: Schema,
+  ctx: ValidationContext
+): RelationResolution {
+  const identityIssue = preflightModelRegistrationIdentity(schema);
+  return identityIssue
+    ? { ok: false, issues: [identityIssue] }
+    : resolveSchemaRelations(schema, ctx);
+}
 
-  override validateOrThrow(
-    rules: ValidationRule[] = allRules
-  ): ResolvedRelationIndex {
-    return super.validateOrThrow(rules);
+/**
+ * Every issue a schema carries, in report order: shared tables, then the gate's
+ * own issues — it reports on every schema, valid or not, since a successful
+ * resolution still carries the advisories its subowners produced — then every
+ * rule on every model. A throwing rule is S001.
+ */
+function schemaIssues(
+  schema: Schema,
+  ctx: ValidationContext,
+  resolution: RelationResolution,
+  rules: readonly ValidationRule[]
+): SchemaValidationIssue[] {
+  const issues: SchemaValidationIssue[] = [];
+  for (const [tableName, models] of ctx.tableToModels) {
+    if (models.length > 1) issues.push(sharedTableIssue(tableName, models));
   }
+  for (const issue of resolution.issues) issues.push(issue);
+  for (const [modelName, model] of schema) {
+    for (const rule of rules) {
+      let results: SchemaValidationIssue[];
+      try {
+        results = rule(schema, modelName, model, ctx);
+      } catch (cause) {
+        throw ruleFailure(rule, modelName, cause);
+      }
+      for (const result of results) issues.push(result);
+    }
+  }
+  return issues;
 }
 
 /** Validate a schema object directly */
@@ -196,9 +200,7 @@ export function validateResolvedSchemaOrThrow(
   models: Record<string, Model<any>>,
   rules: ValidationRule[]
 ): ResolvedRelationIndex {
-  return new RuleScopedSchemaValidator()
-    .registerAll(models)
-    .validateOrThrow(rules);
+  return new SchemaValidator().registerAll(models).validateOrThrow(rules);
 }
 
 /**
@@ -218,30 +220,31 @@ const SELECTOR_RULES: ValidationRule[] = [
  * serialization/generation/push — including `push({ skipValidation: true })`,
  * which may skip advice but never this.
  *
+ * It validates the definition contracts every query client relies on: the
+ * relation gate plus the schema-wide model-identity checks a client needs to
+ * address a model at all (one schema key per model object, no shared table)
+ * and the selector rules, resolved exactly once. Advisory rules about how a
+ * schema is spelled — a missing id, a reserved model name, an index shape —
+ * remain at the boundary that writes DDL. Public selector ambiguity is
+ * structural: every client operation relies on one stable meaning for each
+ * admitted selector. Only errors are collected: no caller of this gate reads
+ * an advisory.
+ *
  * Returns the one trusted index. The caller owns it for its own lifecycle and
  * passes it on by identity rather than copying it.
  */
 export function resolveSchemaOrThrow(
   models: Record<string, Model<any>>
 ): ResolvedRelationIndex {
-  return validateResolvedSchemaOrThrow(models, SELECTOR_RULES);
-}
-
-/**
- * Validate the definition contracts every query client relies on: the mandatory
- * structural gate plus the schema-wide model-identity checks a client needs to
- * address a model at all (duplicate model name, duplicate table), resolved
- * exactly once.
- *
- * Only effect-safe structural rules run here. Advisory rules about how a schema
- * is spelled — a missing id, a reserved model name, an index shape — remain at
- * the boundary that writes DDL. Public selector ambiguity is structural: every
- * client operation relies on one stable meaning for each admitted selector.
- */
-export function validateClientSchemaOrThrow(
-  models: Record<string, Model<any>>
-): ResolvedRelationIndex {
-  return validateResolvedSchemaOrThrow(models, SELECTOR_RULES);
+  // `Object.entries` keys are unique, so no name can be registered twice.
+  const schema: Schema = new Map(Object.entries(models));
+  const ctx = buildContext(schema);
+  const resolution = resolveRegistered(schema, ctx);
+  const errors = schemaIssues(schema, ctx, resolution, SELECTOR_RULES).filter(
+    (issue) => issue.severity === "error"
+  );
+  if (errors.length === 0 && resolution.ok) return resolution.index;
+  throw validationError(errors, resolution.ok ? undefined : resolution.cause);
 }
 
 /**
