@@ -6,8 +6,10 @@
  * `update`, `updateMany`) and in every create and update the call nests
  * through a relation, because the call is refused when it passes one. The
  * base client still accepts them. A misspelt model in an inline `data`
- * declaration is an editor error. The §1.3 lock recipe types end to end.
- * The runtime half is `tests/contracts/engine/write/extension-data-behavior.ts`.
+ * declaration is an editor error. The guide's recipes take their models as a
+ * plain `string[]`: the types cannot tell which models they name, so they
+ * narrow none and the runtime refusal stands alone. The runtime half is
+ * `tests/contracts/engine/write/extension-data-behavior.ts`.
  *
  * Nothing in this file is called. Only the types matter.
  */
@@ -39,6 +41,7 @@ const post = s.model({
   updatedBy: s.string().nullable(),
   version: s.int().default(0),
   comments: s.toMany(() => comment),
+  notes: s.toMany(() => note),
 });
 const comment = s.model({
   id: s.int().id(),
@@ -50,13 +53,28 @@ const comment = s.model({
     .fields("postId")
     .references("id"),
 });
+// A to-many target stamped on both kinds of write.
+const note = s.model({
+  id: s.int().id(),
+  text: s.string(),
+  createdBy: s.string().nullable(),
+  updatedBy: s.string().nullable(),
+  postId: s.int(),
+  post: s
+    .toOne(() => post)
+    .fields("postId")
+    .references("id"),
+});
 // `owner` is required by the schema: a stamp cannot fill it (decision U2-1).
 const ledger = s.model({ id: s.int().id(), owner: s.string() });
-const schema = { post, comment, ledger };
+// `createdBy` is required here, and only the recipe below names other models.
+const invoice = s.model({ id: s.int().id(), createdBy: s.string() });
+const schema = { post, comment, note, ledger, invoice };
 
 const base = createClient({ schema, driver });
 
-// An inline declaration keeps its model names: only `post` is narrowed.
+// An inline declaration keeps its model names: only the models it names are
+// narrowed.
 const stamped = base.$extends(
   defineExtension({
     name: "audit",
@@ -64,6 +82,13 @@ const stamped = base.$extends(
     data: {
       models: {
         post: {
+          create: { createdBy: { control: "actor" } },
+          update: {
+            updatedBy: { control: "actor" },
+            version: { increment: 1 },
+          },
+        },
+        note: {
           create: { createdBy: { control: "actor" } },
           update: { updatedBy: { control: "actor" } },
         },
@@ -116,6 +141,12 @@ export async function stampedFieldsAreRefused() {
     create: { id: 1, title: "a" },
     // @ts-expect-error - upsert's update arm is an update
     update: { updatedBy: "mallory" },
+    actor: "ann",
+  });
+  await stamped.post.update({
+    where: { id: 1 },
+    // @ts-expect-error - an update operator is refused as well as a value
+    data: { version: { increment: 1 } },
     actor: "ann",
   });
 }
@@ -209,6 +240,47 @@ export async function nestedWritesAreNarrowed() {
     },
     actor: "ann",
   });
+  // A to-many target, through each verb that writes it.
+  await stamped.post.create({
+    data: {
+      id: 1,
+      title: "a",
+      notes: {
+        createMany: {
+          // @ts-expect-error - a nested createMany row
+          data: [{ id: 1, text: "x", createdBy: "m" }],
+        },
+      },
+    },
+    actor: "ann",
+  });
+  await stamped.post.update({
+    where: { id: 1 },
+    data: {
+      notes: {
+        // @ts-expect-error - a nested updateMany entry
+        updateMany: [{ where: { id: 1 }, data: { updatedBy: "m" } }],
+      },
+    },
+    actor: "ann",
+  });
+  await stamped.post.update({
+    where: { id: 1 },
+    data: {
+      notes: {
+        // @ts-expect-error - a to-many update names its row, then its data
+        update: { where: { id: 1 }, data: { updatedBy: "m" } },
+      },
+    },
+    actor: "ann",
+  });
+  await stamped.post.update({
+    where: { id: 1 },
+    data: {
+      notes: { update: { where: { id: 1 }, data: { createdBy: "import" } } },
+    },
+    actor: "ann",
+  });
   // A transaction's client is the same client.
   await stamped.$transaction(async (tx) => {
     await tx.post.create({
@@ -234,12 +306,14 @@ export async function baseClientAcceptsThem() {
 export async function aRequiredStampedFieldRefusesEveryCreate() {
   // The schema requires `owner` and the extension writes it: the caller may
   // not pass it and may not leave it out. Every create is refused when it
-  // runs (missing field), so the types refuse it too. The guide says to make
-  // such a field nullable or give it a default.
-  // @ts-expect-error - owner is required and accepts no value
-  await stamped.ledger.create({ data: { id: 1 }, actor: "ann" });
-  // @ts-expect-error - and passing it is refused
+  // runs, so the types refuse it too. The guide says to make such a field
+  // nullable or give it a default.
+  // @ts-expect-error - passing it is refused
   await stamped.ledger.create({ data: { id: 1, owner: "a" }, actor: "a" });
+  // Not this unit's witness: the schema refuses a missing `owner` on any
+  // client. It stays so the rule above reads whole.
+  // @ts-expect-error - leaving it out is refused
+  await stamped.ledger.create({ data: { id: 1 }, actor: "ann" });
 }
 
 export function aMisspeltModelIsAnEditorError() {
@@ -264,14 +338,34 @@ export function aMisspeltModelIsAnEditorError() {
       },
     },
   });
-  // A recipe's model list is a plain string[]: its names are not checked,
-  // and its fields are refused on every model of the client.
-  const recipe = base.$extends(audit(["psot"]));
-  return recipe.comment.create({
-    // @ts-expect-error - comment.createdBy is refused too
-    data: { id: 1, body: "x", postId: 1, createdBy: "x" },
+}
+
+// A recipe takes its models as a plain string[]: the types cannot tell which
+// models it names, so they narrow none and check none. Its fields stay in
+// every payload; the call that passes one is refused when it runs.
+const audited = base.$extends(audit(["post"]));
+
+export async function aRecipeNarrowsNothing() {
+  // `invoice` requires `createdBy` and audit never writes it: this create is
+  // valid when it runs, so the types must accept it.
+  await audited.invoice.create({
+    data: { id: 1, createdBy: "ann" },
     actor: "ann",
   });
+  // Refused when it runs (data.createdBy), not by the types.
+  await audited.post.create({
+    data: { id: 1, title: "a", createdBy: "mallory" },
+    actor: "ann",
+  });
+  // A misspelt model in the list is not checked either.
+  await base
+    .$extends(audit(["psot"]))
+    .post.create({ data: { id: 1, title: "a" }, actor: "ann" });
+  // Two recipes on one client keep each one's controls.
+  await base
+    .$extends(tenancy(["post"]))
+    .$extends(audit(["post"]))
+    .post.create({ data: { id: 1, title: "a" }, tenant: "acme", actor: "ann" });
 }
 
 // §1.3, end to end through the recipe fixture.
@@ -284,16 +378,11 @@ export async function optimisticLockTypes() {
     expectedVersion: 3,
   });
   type _updated = Expect<Equal<typeof updated.version, number>>;
+  // The recipe's model names are lost: the version stays in the type, and
+  // the call is refused when it runs.
   await locked.post.update({
     where: { id: 1 },
-    // @ts-expect-error - the lock moves the version itself
     data: { version: 4 },
-    expectedVersion: 3,
-  });
-  await locked.post.update({
-    where: { id: 1 },
-    // @ts-expect-error - an update operator is refused as well
-    data: { version: { increment: 1 } },
     expectedVersion: 3,
   });
   // The lock writes on update only: a create may set the first version.
@@ -308,8 +397,16 @@ export async function optimisticLockTypes() {
   await locked.post.findMany({ expectedVersion: 3 });
 }
 
-// Two recipes on one client: each one's fields are refused.
-const both = base.$extends(tenancy(["post"])).$extends(audit(["post"]));
+// Two inline declarations on one client: each one's fields are refused.
+const both = stamped.$extends(
+  defineExtension({
+    name: "tenancy",
+    controls: { tenant: { schema: v.string(), required: true } },
+    data: {
+      models: { post: { create: { tenantId: { control: "tenant" } } } },
+    },
+  })
+);
 
 export async function twoExtensions() {
   await both.post.create({

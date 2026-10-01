@@ -90,9 +90,10 @@ export type DeletionContribution = {
  * call passed for that control (a call that passed none writes nothing
  * there), or, on `update`, one of the field's update operators
  * (`{ increment: 1 }`). A call that writes one of these fields itself is
- * refused, even one that passed no value for its control, and the extended
- * client's types accept no value there, nested writes included. When two
- * extensions name a field, the later one writes it. Give such a field a
+ * refused, even one that passed no value for its control. When the model
+ * names here are written out (not built from a `string[]`), the extended
+ * client's types accept no value there either, nested writes included. When
+ * two extensions name a field, the later one writes it. Give such a field a
  * default or make it nullable in the schema: the call's data is checked
  * before the extension writes it.
  */
@@ -257,17 +258,21 @@ type EntryStamps<
 
 /**
  * What one definition's `data` writes: one member per model and kind. A
- * definition whose model names are lost (`{ [model: string]: ... }`) writes
- * on every model, as far as the types can tell.
+ * definition whose model names are lost (`{ [model: string]: ... }`, as a
+ * recipe that takes `string[]` builds) writes nothing the types can name:
+ * every field stays in the payloads, and the call is still refused when it
+ * passes one.
  */
 export type DefinitionData<Definition> = Definition extends {
   readonly data: { readonly models: infer Models };
 }
-  ? {
-      [Model in keyof Models]:
-        | EntryStamps<Model, Models[Model], "create">
-        | EntryStamps<Model, Models[Model], "update">;
-    }[keyof Models]
+  ? string extends keyof Models
+    ? never
+    : {
+        [Model in keyof Models]:
+          | EntryStamps<Model, Models[Model], "create">
+          | EntryStamps<Model, Models[Model], "update">;
+      }[keyof Models]
   : never;
 
 /** The fields a chain writes on one model, on a create or on an update. */

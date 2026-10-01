@@ -314,11 +314,15 @@ extension state's `data` slot (`StampedFields` per model and kind, filled by
 write operations for `StampedOperations` (`types.ts`): the fields written
 there accept nothing in the call's own data, and `NestedStampGuard` follows
 the relations and verbs the call spells to do the same in nested creates and
-updates, finding a target's fields by its shallow surface. A chain without
-`data` keeps `Client` exactly; `Client` itself takes no `data` parameter
+updates, finding a target's fields by its shallow surface. A definition
+whose model names are lost (`{ [model: string]: ... }`, a `string[]` recipe)
+adds nothing to the slot: the types cannot say which models it writes, so they
+narrow none and the runtime refusal stands alone. A chain without `data` the
+types can name keeps `Client` exactly; `Client` itself takes no `data` parameter
 (as one, it cost the instrumentation type program +14% types and +26%
 instantiations, measured at U3). `OperationPayload` stays the
-schema-only payload.
+schema-only payload, so what reads it (a query handler's argument, for one)
+is not narrowed; the runtime refusal covers those.
 
 Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, and

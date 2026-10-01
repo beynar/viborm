@@ -618,8 +618,7 @@ interface Stamps<Data, S> {
 /**
  * The fields the chain writes on a relation's target. A target is found by
  * its shallow surface, as `rows` finds a hidden one: a model that shares its
- * surface with a stamped model is narrowed with it. A declaration whose model
- * names are lost narrows every model.
+ * surface with a stamped model is narrowed with it.
  */
 type TargetStampedFields<
   Context,
@@ -631,11 +630,9 @@ type TargetStampedFields<
       Kind,
       infer Fields extends PropertyKey
     >
-    ? string extends Models
+    ? true extends NamesTarget<Extract<Models, keyof S>, Target, S>
       ? Fields
-      : true extends NamesTarget<Extract<Models, keyof S>, Target, S>
-        ? Fields
-        : never
+      : never
     : never
   : never;
 
