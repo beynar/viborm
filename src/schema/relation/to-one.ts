@@ -211,13 +211,8 @@ class PendingReferences {
 
   references(...references: string[]): ModelToOne {
     const referenced = normalizeFieldTuple("s.toOne", "references", references);
-    if (referenced.length !== this.localFields.length) {
-      refuseRelationInput(
-        "s.toOne",
-        "references",
-        `\`.references(...)\` declares ${referenced.length} field(s) against ${this.localFields.length} local field(s); a foreign key pairs them positionally`
-      );
-    }
+    if (referenced.length !== this.localFields.length)
+      refuseReferenceArity(referenced.length, this.localFields.length);
     // Completing a second stage replaces the pair atomically and preserves the
     // endpoint's name and referential actions; the prior terminal is untouched.
     const prior = this.state.foreignKey;
@@ -302,4 +297,12 @@ export function toOne(target: unknown, options?: unknown): AnyRelation {
       entries: normalizeVariantEntries("s.toOne", target, options),
     },
   });
+}
+
+function refuseReferenceArity(referenced: number, local: number): never {
+  return refuseRelationInput(
+    "s.toOne",
+    "references",
+    `\`.references(...)\` declares ${referenced} field(s) against ${local} local field(s); a foreign key pairs them positionally`
+  );
 }

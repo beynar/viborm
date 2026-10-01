@@ -11,24 +11,16 @@
  */
 
 import { installAdapterNamespace } from "@adapters/adapter-namespace";
-import {
-  MySQLAdapter,
-  mysqlAdapter,
-} from "@adapters/databases/mysql/mysql-adapter";
-import {
-  PostgresAdapter,
-  postgresAdapter,
-} from "@adapters/databases/postgres/postgres-adapter";
-import {
-  SQLiteAdapter,
-  sqliteAdapter,
-} from "@adapters/databases/sqlite/sqlite-adapter";
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
+import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { BunSQLDriver } from "@drivers/bun-sql";
 import { NeonHTTPDriver } from "@drivers/neon-http";
 import { PgDriver } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
 import { PostgresDriver } from "@drivers/postgres";
 import { ClientInitializationError } from "@errors";
+import { mysqlAdapter, postgresAdapter, sqliteAdapter } from "@src/adapters";
 import { describe, expect, test } from "vitest";
 
 describe("PostgreSQL adapter namespace", () => {

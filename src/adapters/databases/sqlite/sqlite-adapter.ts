@@ -982,6 +982,3 @@ export class SQLiteAdapter implements DatabaseAdapter {
 
   result: AdapterResultParser = { ...SQLITE_RESULT };
 }
-
-// Export singleton instance
-export const sqliteAdapter = new SQLiteAdapter();

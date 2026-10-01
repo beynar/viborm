@@ -44,7 +44,12 @@ function buildContext(schema: Schema): ValidationContext {
   return { modelToName, tableToModels };
 }
 
-export class SchemaValidator {
+/**
+ * The validator with the rule list always explicit. Client construction runs
+ * only the selector rules through it, so a client bundle does not carry the
+ * advisory rules {@link SchemaValidator} defaults to.
+ */
+export class RuleScopedSchemaValidator {
   private readonly schema: Schema = new Map();
   /** One resolution per validator lifecycle: the gate runs once per schema. */
   private resolution: RelationResolution | undefined;
@@ -94,7 +99,7 @@ export class SchemaValidator {
   }
 
   /** Validate all registered models */
-  validate(rules: ValidationRule[] = allRules): ValidationResult {
+  validate(rules: ValidationRule[]): ValidationResult {
     const errors: SchemaValidationIssue[] = [];
     const warnings: SchemaValidationIssue[] = [];
 
@@ -103,13 +108,7 @@ export class SchemaValidator {
 
     // Check table name uniqueness using pre-built map
     for (const [tableName, models] of ctx.tableToModels) {
-      if (models.length > 1) {
-        errors.push({
-          code: "M004",
-          message: `Table name '${tableName}' used by multiple models: ${models.join(", ")}`,
-          severity: "error",
-        });
-      }
+      if (models.length > 1) errors.push(sharedTableIssue(tableName, models));
     }
 
     // The gate reports on every schema, valid or not: a successful resolution
@@ -126,19 +125,7 @@ export class SchemaValidator {
         try {
           results = rule(this.schema, modelName, model, ctx);
         } catch (cause) {
-          const message =
-            cause instanceof Error ? cause.message : String(cause);
-          throw new SchemaValidationError(
-            [
-              {
-                code: "S001",
-                message: `Schema rule '${rule.name || "anonymous"}' failed for '${modelName}': ${message}`,
-                severity: "error",
-                model: modelName,
-              },
-            ],
-            cause instanceof Error ? { cause } : undefined
-          );
+          throw ruleFailure(rule, modelName, cause);
         }
         for (const result of results) {
           if (result.severity === "error") {
@@ -162,7 +149,7 @@ export class SchemaValidator {
    * topology. `validate` already reports every resolution issue by severity,
    * so validity and a successful resolution are one fact stated here once.
    */
-  validateOrThrow(rules?: ValidationRule[]): ResolvedRelationIndex {
+  validateOrThrow(rules: ValidationRule[]): ResolvedRelationIndex {
     const result = this.validate(rules);
     const resolution = this.resolve();
     if (result.valid && resolution.ok) return resolution.index;
@@ -170,6 +157,19 @@ export class SchemaValidator {
       result.errors,
       resolution.ok ? undefined : resolution.cause
     );
+  }
+}
+
+/** The public validator: every advisory rule unless told otherwise. */
+export class SchemaValidator extends RuleScopedSchemaValidator {
+  override validate(rules: ValidationRule[] = allRules): ValidationResult {
+    return super.validate(rules);
+  }
+
+  override validateOrThrow(
+    rules: ValidationRule[] = allRules
+  ): ResolvedRelationIndex {
+    return super.validateOrThrow(rules);
   }
 }
 
@@ -188,15 +188,17 @@ export function validateSchema(
 export function validateSchemaOrThrow(
   models: Record<string, Model<any>>
 ): void {
-  validateResolvedSchemaOrThrow(models);
+  validateResolvedSchemaOrThrow(models, allRules);
 }
 
 /** Internal validation boundary that also publishes the trusted topology. */
 export function validateResolvedSchemaOrThrow(
   models: Record<string, Model<any>>,
-  rules?: ValidationRule[]
+  rules: ValidationRule[]
 ): ResolvedRelationIndex {
-  return new SchemaValidator().registerAll(models).validateOrThrow(rules);
+  return new RuleScopedSchemaValidator()
+    .registerAll(models)
+    .validateOrThrow(rules);
 }
 
 /**
@@ -248,4 +250,36 @@ function validationError(
   cause?: Error
 ): SchemaValidationError {
   return new SchemaValidationError(issues, cause ? { cause } : undefined);
+}
+
+/** M004, built only when two models share a table. */
+function sharedTableIssue(
+  tableName: string,
+  models: readonly string[]
+): SchemaValidationIssue {
+  return {
+    code: "M004",
+    message: `Table name '${tableName}' used by multiple models: ${models.join(", ")}`,
+    severity: "error",
+  };
+}
+
+/** A rule that threw, reported as the schema error it is. */
+function ruleFailure(
+  rule: ValidationRule,
+  modelName: string,
+  cause: unknown
+): SchemaValidationError {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return new SchemaValidationError(
+    [
+      {
+        code: "S001",
+        message: `Schema rule '${rule.name || "anonymous"}' failed for '${modelName}': ${message}`,
+        severity: "error",
+        model: modelName,
+      },
+    ],
+    cause instanceof Error ? { cause } : undefined
+  );
 }

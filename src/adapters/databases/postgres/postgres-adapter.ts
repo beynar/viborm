@@ -752,6 +752,3 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
   };
 }
-
-// Export singleton instance
-export const postgresAdapter = new PostgresAdapter();

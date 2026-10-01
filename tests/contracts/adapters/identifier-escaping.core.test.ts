@@ -4,9 +4,7 @@
  */
 
 import { sql } from "@sql";
-import { mysqlAdapter } from "@src/adapters/databases/mysql/mysql-adapter";
-import { postgresAdapter } from "@src/adapters/databases/postgres/postgres-adapter";
-import { sqliteAdapter } from "@src/adapters/databases/sqlite/sqlite-adapter";
+import { mysqlAdapter, postgresAdapter, sqliteAdapter } from "@src/adapters";
 
 describe("identifier escaping", () => {
   const malicious = 'users"; DROP TABLE users; --';
