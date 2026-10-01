@@ -63,6 +63,7 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { SchemaValidationError } from "@schema/validation";
+import { attachExecutionContext } from "@src/drivers/driver-error-context";
 import type { DriverFailure } from "@src/drivers/error-mapping";
 import { REPOSITORY_ROOT, SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import ts from "typescript";
@@ -710,41 +711,31 @@ describe("surface 4 — the user-facing errors docs", () => {
   });
 });
 
-const CLONE_TABLE_PATTERN = /const CLONE_CONSTRUCTORS = \[([^\]]*)\]/;
+describe("surface 5 — the execution-context clone", () => {
+  // The lived defect: the clone once chose its class from a hand-maintained
+  // table, and three newer classes were absent — their instances silently
+  // downgraded to the base VibORMError when cloned through
+  // attachExecutionContext, erasing the literal `code` T1 pinned. The clone now
+  // reads the class from the error itself; this census keeps every registered
+  // class honest against it. SchemaValidationError owns constructor state the
+  // clone cannot rebuild, so it degrades to the base class instead of a hollow
+  // subtype.
+  const DEGRADES_TO_BASE = new Set(["SchemaValidationError"]);
 
-describe("surface 5 — the execution-context clone table", () => {
-  // The lived defect: CLONE_CONSTRUCTORS in src/drivers/driver-error-context.ts
-  // was a hand-maintained list, and three newer classes were absent — their
-  // instances silently downgraded to the base VibORMError when cloned through
-  // attachExecutionContext, erasing the literal `code` T1 pinned. Same idiom as
-  // surface 4: scan the source, so a class added to the registry but not the
-  // clone table is a NAMED failure, not a latent downgrade.
-  const CLONE_SOURCE = readFileSync(
-    join(SOURCE_ROOT, "drivers", "driver-error-context.ts"),
-    "utf8"
-  );
-  const cloneTable = CLONE_SOURCE.match(CLONE_TABLE_PATTERN)?.[1] ?? "";
-
-  it("declares the table this gate audits", () => {
-    expect(cloneTable.length).toBeGreaterThan(0);
-  });
-
-  it("lists every registered class, or handles it by name", () => {
-    // ValidationError is deliberately absent from the array: it clones through
-    // cloneValidationError (issues need structural copying). Any other absence
-    // is the downgrade bug returning.
-    const handledElsewhere = new Set([
-      "SchemaValidationError",
-      "ValidationError",
-    ]);
-    const missing = REGISTRY.filter(
-      (row) =>
-        !(handledElsewhere.has(row.name) || cloneTable.includes(row.name))
-    ).map(
-      (row) =>
-        `${row.name} is missing from CLONE_CONSTRUCTORS (src/drivers/driver-error-context.ts) — its instances downgrade to VibORMError when cloned`
-    );
-    expect(missing).toEqual([]);
-    expect(CLONE_SOURCE.includes("cloneValidationError")).toBe(true);
+  it("keeps every registered class, or degrades it whole", () => {
+    const disagreements = REGISTRY.flatMap((row) => {
+      const source = row.make();
+      const clone = attachExecutionContext(source, { driverName: "census" });
+      const expected = DEGRADES_TO_BASE.has(row.name)
+        ? VibORMError.prototype
+        : Object.getPrototypeOf(source);
+      if (Object.getPrototypeOf(clone) !== expected) {
+        return [`${row.name} clones as ${clone.constructor.name}`];
+      }
+      return clone.code === row.code
+        ? []
+        : [`${row.name} clones with ${clone.code}, not ${row.code}`];
+    });
+    expect(disagreements).toEqual([]);
   });
 });

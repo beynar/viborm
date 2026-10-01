@@ -1,37 +1,16 @@
 import {
-  CacheConfigurationError,
-  CacheInvalidKeyError,
-  CacheInvalidTTLError,
-  CacheOperationNotCacheableError,
-  CheckConstraintError,
-  ClientInitializationError,
-  ConnectionError,
   type DiagnosticDisclosure,
-  FeatureNotSupportedError,
-  ForeignKeyError,
   getTrustedErrorCause,
-  InvalidTransactionInputError,
-  MigrationError,
-  NestedWriteAssertionError,
-  NestedWriteError,
-  NotFoundError,
-  NotNullConstraintError,
-  PendingOperationError,
-  QueryEngineError,
-  QueryError,
   resolveDiagnosticDisclosure,
   sanitizeErrorMetadata,
-  TransactionError,
-  UniqueConstraintError,
-  UnsupportedOperationError,
   ValidationError,
   type ValidationErrorSource,
-  ValueTooLongError,
   VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
 } from "@errors";
 import type { Operation } from "@query-engine/types";
+import { SchemaValidationError } from "@schema/validation/error";
 import {
   isArrayValue,
   isError,
@@ -153,12 +132,19 @@ function cloneVibORMError(
   snapshot: Record<string, unknown>,
   diagnostics: DiagnosticDisclosure | undefined
 ): VibORMError {
+  // The clone runs only the base constructor under the source's own class.
+  // The two classes whose constructors own state cannot be rebuilt that way:
+  // ValidationError is rebuilt from its snapshot here, and both otherwise
+  // degrade to the base class rather than a hollow subtype.
+  let cloneConstructor: unknown = VibORMError;
   if (error instanceof ValidationError) {
     const validationClone = cloneValidationError(error, meta, diagnostics);
     if (validationClone) {
       transferLoggedErrorEvidence(error, validationClone);
       return transferSuppressedFailureEvidence(error, validationClone);
     }
+  } else if (!(error instanceof SchemaValidationError)) {
+    cloneConstructor = readOwnConstructor(error);
   }
   const message =
     typeof snapshot.message === "string"
@@ -173,7 +159,6 @@ function cloneVibORMError(
     diagnostics,
     meta,
   };
-  const cloneConstructor = getCloneConstructor(error);
   const newTarget =
     typeof cloneConstructor === "function" ? cloneConstructor : VibORMError;
   let candidate: unknown;
@@ -309,40 +294,25 @@ function isOperation(value: unknown): value is Operation {
   );
 }
 
-// Every concrete VibORMError subclass whose identity must survive cloning.
-// ValidationError is absent on purpose: cloneValidationError handles it.
-const CLONE_CONSTRUCTORS = [
-  CacheConfigurationError,
-  CacheInvalidKeyError,
-  CacheInvalidTTLError,
-  CacheOperationNotCacheableError,
-  CheckConstraintError,
-  ClientInitializationError,
-  ConnectionError,
-  FeatureNotSupportedError,
-  ForeignKeyError,
-  InvalidTransactionInputError,
-  MigrationError,
-  NestedWriteAssertionError,
-  NestedWriteError,
-  NotFoundError,
-  NotNullConstraintError,
-  PendingOperationError,
-  QueryEngineError,
-  QueryError,
-  TransactionError,
-  UniqueConstraintError,
-  UnsupportedOperationError,
-  ValueTooLongError,
-] as const;
-
-function getCloneConstructor(error: VibORMError): unknown {
+/**
+ * The class to clone a trusted error under: the own data `constructor` of its
+ * prototype — never read through a getter — when that class declares its own
+ * `diagnosticName`, which every taxonomy class does. A caller's subclass that
+ * does not may own state the base constructor cannot rebuild, so it flattens
+ * to the base class instead of a hollow instance. Anything unusable is refused
+ * by the construction that follows.
+ */
+function readOwnConstructor(error: VibORMError): unknown {
   try {
-    const prototype = Object.getPrototypeOf(error);
-    return (
-      CLONE_CONSTRUCTORS.find((ctor) => ctor.prototype === prototype) ??
-      VibORMError
+    const descriptor = safeOwnPropertyDescriptor(
+      Object.getPrototypeOf(error),
+      "constructor"
     );
+    const value =
+      descriptor && "value" in descriptor ? descriptor.value : undefined;
+    return safeOwnPropertyDescriptor(value, "diagnosticName")
+      ? value
+      : VibORMError;
   } catch {
     return VibORMError;
   }

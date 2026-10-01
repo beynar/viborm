@@ -291,12 +291,11 @@ export type DriverFailure =
  *
  * Two arms, and the type is the union of both. A raw provider error is mapped to a
  * {@link DriverFailure}. An error that is ALREADY a VibORM error is passed through with
- * execution context attached — and that arm is honestly `VibORMError`, not `DriverFailure`,
- * for two independent reasons: the incoming error can be any VibORM error the layers above
- * threw (a `ValidationError`, an engine refusal), and `attachExecutionContext` clones through
- * `getCloneConstructor`, whose prototype table does not list every class — a re-normalized
- * `ValueTooLongError` comes back as a bare `VibORMError` (measured, `driver-error-context.ts`).
- * Typing the whole function `DriverFailure` would be a claim neither arm can keep.
+ * execution context attached — and that arm is honestly `VibORMError`, not `DriverFailure`:
+ * the incoming error can be any VibORM error the layers above threw (a `ValidationError`, an
+ * engine refusal), `attachExecutionContext` clones it under its own class, and a stateful
+ * class it cannot rebuild degrades to the base `VibORMError` (`driver-error-context.ts`).
+ * Typing the whole function `DriverFailure` would be a claim this arm cannot keep.
  */
 export type NormalizedDriverError = DriverFailure | VibORMError;
 

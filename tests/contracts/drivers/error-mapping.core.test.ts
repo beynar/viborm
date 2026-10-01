@@ -1169,8 +1169,8 @@ describe("serialized error disclosure", () => {
 describe("execution-context error identity", () => {
   // One factory per concrete VibORMError class exported from @errors. The
   // discovery loop below fails on any class missing here, so a newly added
-  // error class cannot silently fall back to bare VibORMError inside
-  // getCloneConstructor (src/drivers/driver-error-context.ts).
+  // error class is witnessed keeping its identity through the clone
+  // (readOwnConstructor, src/drivers/driver-error-context.ts).
   const cloneFactories: Record<string, () => VibORMError> = {
     CacheConfigurationError: () =>
       new allErrors.CacheConfigurationError("cache misconfigured"),
@@ -1224,7 +1224,7 @@ describe("execution-context error identity", () => {
       const factory = cloneFactories[cls.name];
       if (!factory) {
         throw new Error(
-          `${cls.name} has no factory in this test — add one here, and add the class to CLONE_CONSTRUCTORS in src/drivers/driver-error-context.ts`
+          `${cls.name} has no factory in this test — add one here`
         );
       }
       const source = factory();
@@ -1232,5 +1232,26 @@ describe("execution-context error identity", () => {
       expect(Object.getPrototypeOf(clone)).toBe(cls.prototype);
       expect(clone.code).toBe(source.code);
     }
+  });
+
+  test("reads the class without invoking a prototype's constructor getter", () => {
+    let reads = 0;
+    const prototype = Object.create(QueryError.prototype, {
+      constructor: {
+        configurable: true,
+        get() {
+          reads += 1;
+          return QueryError;
+        },
+      },
+    });
+    const source = new QueryError("guarded");
+    Object.setPrototypeOf(source, prototype);
+
+    const clone = attachExecutionContext(source, { driverName: "pg" });
+
+    expect(reads).toBe(0);
+    expect(Object.getPrototypeOf(clone)).toBe(VibORMError.prototype);
+    expect(clone.code).toBe(VibORMErrorCode.QUERY_FAILED);
   });
 });
