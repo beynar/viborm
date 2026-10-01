@@ -10,6 +10,7 @@ import {
   type ListUpdateSchema,
   listFilterFamily,
   listUpdateFamily,
+  once,
   type SetUpdateSchema,
 } from "./family";
 import { scalarInternKey } from "./intern";
@@ -19,18 +20,20 @@ import {
 } from "./negatable-filter";
 
 // Base schemas
-const stringBase = v.string();
-const stringList = v.string({ array: true });
+const stringBase = once(() => v.string());
+const stringList = once(() => v.string({ array: true }));
 
 // Internal filter base
-const stringFilterBase = v.object({
-  in: stringList,
-  notIn: stringList,
-  contains: v.fieldRefOr("string", stringBase),
-  startsWith: v.fieldRefOr("string", stringBase),
-  endsWith: v.fieldRefOr("string", stringBase),
-  mode: v.enum(["default", "insensitive"]),
-});
+const stringFilterBase = once(() =>
+  v.object({
+    in: stringList(),
+    notIn: stringList(),
+    contains: v.fieldRefOr("string", stringBase()),
+    startsWith: v.fieldRefOr("string", stringBase()),
+    endsWith: v.fieldRefOr("string", stringBase()),
+    mode: v.enum(["default", "insensitive"]),
+  })
+);
 
 /**
  * The filter base of a COMPACTLY STORED identifier: equality, set membership
@@ -43,10 +46,12 @@ const stringFilterBase = v.object({
  * rendering every row back to text at query time. Ordering survives: the byte
  * order of all four compact formats IS their canonical text order.
  */
-const compactIdFilterBase = v.object({
-  in: stringList,
-  notIn: stringList,
-});
+const compactIdFilterBase = once(() =>
+  v.object({
+    in: stringList(),
+    notIn: stringList(),
+  })
+);
 
 /**
  * Comparison operand: a literal, a field reference to another string column, an
@@ -139,7 +144,7 @@ const buildStringFilterSchema = <S extends V.Schema, C extends V.Operand<any>>(
   members: V.String<{ array: true }>
 ): StringFilterSchema<S, C> => {
   const operand = v.comparisonOperand("string", schema);
-  const filter = stringFilterBase.extend({
+  const filter = stringFilterBase().extend({
     equals: operand,
     lt: operand,
     lte: operand,
@@ -162,7 +167,7 @@ const buildCompactIdFilterSchema = <
   members: V.String<{ array: true }>
 ): CompactIdFilterSchema<S, C> => {
   const operand = v.comparisonOperand("string", schema);
-  const filter = compactIdFilterBase.extend({
+  const filter = compactIdFilterBase().extend({
     equals: operand,
     lt: operand,
     lte: operand,
@@ -241,7 +246,7 @@ const domainBaseOf = <F extends ScalarState<"string">>(
 const domainMembersOf = (
   idDomain: IdDomain | undefined
 ): V.String<{ array: true }> =>
-  idDomain === undefined ? stringList : v.string({ array: true, idDomain });
+  idDomain === undefined ? stringList() : v.string({ array: true, idDomain });
 
 /** The create options, which differ from the state only by the domain. */
 const domainStateOf = <F extends ScalarState<"string">>(

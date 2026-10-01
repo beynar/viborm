@@ -10,13 +10,14 @@ import {
   type ListUpdateSchema,
   listFilterFamily,
   listUpdateFamily,
+  once,
   type SetUpdateSchema,
 } from "./family";
 import { scalarInternKey } from "./intern";
 
 /** This kind's member and list schemas; `family.ts` explains what they are for. */
-const datetimeBase = v.isoTimestamp();
-const datetimeList = v.isoTimestamp({ array: true });
+const datetimeBase = once(() => v.isoTimestamp());
+const datetimeList = once(() => v.isoTimestamp({ array: true }));
 
 type IsoTimestampList = V.IsoTimestamp<{ array: true }>;
 

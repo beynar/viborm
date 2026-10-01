@@ -11,12 +11,13 @@ import {
   type ListUpdateSchema,
   listFilterFamily,
   listUpdateFamily,
+  once,
 } from "./family";
 import { scalarInternKey } from "./intern";
 
 /** This kind's member and list schemas; `family.ts` explains what they are for. */
-const intBase = v.integer();
-const intList = v.integer({ array: true });
+const intBase = once(() => v.integer());
+const intList = once(() => v.integer({ array: true }));
 
 type IntegerList = V.Integer<{ array: true }>;
 

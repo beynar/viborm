@@ -113,20 +113,25 @@ export const comparisonFilterFamily = <
   L extends V.Schema,
 >(
   kind: K,
-  member: M,
-  list: L
+  member: () => M,
+  list: () => L
 ) => {
-  const base = v.object({
-    in: list,
-    notIn: list,
-    lt: v.comparisonOperand(kind, member),
-    lte: v.comparisonOperand(kind, member),
-    gt: v.comparisonOperand(kind, member),
-    gte: v.comparisonOperand(kind, member),
-  });
+  // Built on the kind's first filter, not at import: a schema that never
+  // filters this kind never constructs it.
+  const createBase = () =>
+    v.object({
+      in: list(),
+      notIn: list(),
+      lt: v.comparisonOperand(kind, member()),
+      lte: v.comparisonOperand(kind, member()),
+      gt: v.comparisonOperand(kind, member()),
+      gte: v.comparisonOperand(kind, member()),
+    });
+  let base: ReturnType<typeof createBase> | undefined;
   return <S extends V.Schema, C extends V.Operand<any> = V.Operand<any>>(
     schema: S
   ): ComparisonFilterSchema<K, S, M, L, C> => {
+    base ??= createBase();
     const operand = v.comparisonOperand<K, S, C>(kind, schema);
     return buildNegatableFilterSchema<
       V.ComparisonOperand<K, S, C>,
@@ -142,20 +147,24 @@ export const comparisonFilterFamily = <
  * membership operators take the kind's member and list schemas.
  */
 export const listFilterFamily = <M extends V.Schema, L extends V.Schema>(
-  member: M,
-  list: L
+  member: () => M,
+  list: () => L
 ) => {
-  const base = v.object({
-    has: member,
-    hasEvery: list,
-    hasSome: list,
-    isEmpty: v.boolean(),
-  });
-  return <S extends V.Schema>(schema: S): ListFilterSchema<S, M, L> =>
-    buildNegatableFilterSchema<S, ListFilterBase<S, M, L>>(
+  const createBase = () =>
+    v.object({
+      has: member(),
+      hasEvery: list(),
+      hasSome: list(),
+      isEmpty: v.boolean(),
+    });
+  let base: ReturnType<typeof createBase> | undefined;
+  return <S extends V.Schema>(schema: S): ListFilterSchema<S, M, L> => {
+    base ??= createBase();
+    return buildNegatableFilterSchema<S, ListFilterBase<S, M, L>>(
       base.extend({ equals: schema }),
       schema
     );
+  };
 };
 
 // =============================================================================
@@ -228,16 +237,16 @@ export type ListUpdateSchema<
 
 /** The arithmetic update bag of one kind, held to that kind's member schema. */
 export const arithmeticUpdateFamily =
-  <M extends V.Schema>(member: M) =>
+  <M extends V.Schema>(member: () => M) =>
   <S extends V.Schema>(schema: S): ArithmeticUpdateSchema<S, M> =>
     v.union([
       v.shorthandUpdate(schema),
       v.object({
         set: schema,
-        increment: member,
-        decrement: member,
-        multiply: member,
-        divide: member,
+        increment: member(),
+        decrement: member(),
+        multiply: member(),
+        divide: member(),
       }),
     ]);
 
@@ -258,16 +267,29 @@ export const buildSetUpdate = <S extends V.Schema>(
 
 /** The list update bag of one kind, held to that kind's member and list. */
 export const listUpdateFamily =
-  <M extends V.Schema, L extends V.Schema>(member: M, list: L) =>
+  <M extends V.Schema, L extends V.Schema>(member: () => M, list: () => L) =>
   <S extends V.Schema>(schema: S): ListUpdateSchema<S, M, L> =>
     v.union([
       v.shorthandUpdate(schema),
       v.object({
         set: schema,
-        push: v.union([v.shorthandArray(member), list]),
-        unshift: v.union([v.shorthandArray(member), list]),
+        push: v.union([v.shorthandArray(member()), list()]),
+        unshift: v.union([v.shorthandArray(member()), list()]),
       }),
     ]);
+
+/**
+ * One value built on first use and kept. A kind's member and list schemas are
+ * built this way so that importing the validation layer constructs nothing
+ * for a kind no schema uses.
+ */
+export const once = <T>(build: () => T): (() => T) => {
+  let value: T | undefined;
+  return () => {
+    value ??= build();
+    return value;
+  };
+};
 
 // =============================================================================
 // THE INTERNED BUILDER TAIL
