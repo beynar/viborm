@@ -759,10 +759,15 @@ const SQLITE_RAW = createRawSql();
 
 export class SQLiteAdapter implements DatabaseAdapter {
   constructor({ temporaryObjects = true }: SQLiteAdapterOptions = {}) {
-    this.#batchRefs = this.#createBatchRefs(temporaryObjects);
     installGeoPointSql(this, this.geoPoint);
+    // Only batches read the reference-table SQL, so it is built on first use.
+    let batchRefs: BatchReferenceSqlAdapter | undefined;
+    const createBatchRefs = () => this.#createBatchRefs(temporaryObjects);
     installAdapterInternals(this, {
-      batchRefs: this.#batchRefs,
+      get batchRefs() {
+        batchRefs ??= createBatchRefs();
+        return batchRefs;
+      },
       constraints: sqliteConstraintIdentities,
       select: this.#assemble.select,
     });
@@ -916,8 +921,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
   capabilities = { ...SQLITE_CAPABILITIES };
 
   lastInsertId = (): Sql => sql.raw("last_insert_rowid()");
-
-  readonly #batchRefs: BatchReferenceSqlAdapter;
 
   // The scratch is a TEMP table wherever the transport admits one, so it never
   // enters the user's database file. Where it does not (D1), it is an ordinary

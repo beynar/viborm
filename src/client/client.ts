@@ -1220,12 +1220,15 @@ export class VibORM<C extends VibORMConfig> {
       // any provider I/O (plan §3.1). A decimal domain no dialect could store is
       // a definition error, and the caller learns it at the line that bound the
       // schema rather than at the first UPDATE that could not compute inside it.
-      assertDecimalDomainsFitProvider(config.schema, config.driver.dialect);
+      if (!reused?.fittingDialects.has(config.driver.dialect))
+        assertDecimalDomainsFitProvider(config.schema, config.driver.dialect);
       assertGeoPointFieldsFitAdapter(config.schema, config.driver.adapter);
       // ONE resolution for the whole client lifecycle: the gate's index goes
       // straight into the constructor, so the registry and query scopes are
       // composed over the same object (§11.4.10).
-      return new VibORM<C>(config, reused ?? prepareSchema(config.schema));
+      const prepared = reused ?? prepareSchema(config.schema);
+      prepared.fittingDialects.add(config.driver.dialect);
+      return new VibORM<C>(config, prepared);
     });
 
     return orm.createRootView<EmptyClientExtensionState>(orm.engine, undefined);
@@ -1238,6 +1241,8 @@ interface PreparedSchema {
   readonly relations: ResolvedRelationIndex;
   readonly schemaRegistry: ReturnType<typeof createResolvedSchemaRegistry>;
   readonly registry: ReturnType<typeof createModelRegistry>;
+  /** Dialects whose decimal storage limits this schema already fits. */
+  readonly fittingDialects: Set<string>;
 }
 
 /**
@@ -1268,6 +1273,7 @@ function prepareSchema(schema: Schema): PreparedSchema {
     relations,
     schemaRegistry,
     registry: createModelRegistry(schema, schemaRegistry, relations),
+    fittingDialects: new Set(),
   };
   preparedSchemas.set(schema, prepared);
   return prepared;
