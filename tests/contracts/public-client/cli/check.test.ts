@@ -12,6 +12,11 @@ const DUPLICATE_TABLES = `
   const schema = { user, member };
 `;
 
+const UNUSED_FOREIGN_KEY = `
+  const user = s.model({ id: s.string().id(), teamId: s.string() }).map("users");
+  const schema = { user };
+`;
+
 let project: TempProject | undefined;
 afterEach(() => {
   project?.cleanup();
@@ -20,7 +25,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-async function check(schemaBody?: string, driverOptions = "") {
+async function check(
+  schemaBody?: string,
+  driverOptions = "",
+  args: string[] = []
+) {
   project = makeTempProject();
   writeConfigFixture(project, {
     dialect: "sqlite3",
@@ -47,9 +56,10 @@ async function check(schemaBody?: string, driverOptions = "") {
     out.push(String(chunk));
     return true;
   });
-  await createCheckCommand().parseAsync(["--config", project.configPath], {
-    from: "user",
-  });
+  await createCheckCommand().parseAsync(
+    ["--config", project.configPath, ...args],
+    { from: "user" }
+  );
   return out.join("");
 }
 
@@ -64,5 +74,30 @@ describe("viborm check", () => {
     expect(output).toContain("[M004]");
     expect(output).toContain("Schema invalid");
     expect(process.exitCode).toBe(1);
+  });
+
+  it("prints advisory warnings without failing", async () => {
+    const output = await check(UNUSED_FOREIGN_KEY);
+    expect(output).toContain("warning [CM001]");
+    expect(output).toContain("Schema valid (1 models).");
+    expect(process.exitCode).toBeUndefined();
+  });
+
+  it("prints the result as JSON with --json", async () => {
+    const result = JSON.parse(await check(undefined, "", ["--json"]));
+    expect(result).toMatchObject({ valid: true, errors: [] });
+  });
+
+  it("fails the command when the config cannot be loaded", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`exit ${code}`);
+    });
+    await expect(
+      createCheckCommand().parseAsync(
+        ["--config", "/nonexistent/viborm.config.ts"],
+        { from: "user" }
+      )
+    ).rejects.toThrow("exit 1");
   });
 });

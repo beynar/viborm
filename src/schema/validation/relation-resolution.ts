@@ -497,8 +497,11 @@ function settleVariantTargets(
   issues: SchemaValidationIssue[],
   endpoints: Endpoint[]
 ): Error | undefined {
-  const target = node.state.target;
-  if (target.kind === "model") return;
+  // The caller settles `kind: "model"` targets itself.
+  const target = node.state.target as Exclude<
+    SlotNode["state"]["target"],
+    { kind: "model" }
+  >;
   let order = endpoints.length;
   for (const variant of Object.keys(target.entries)) {
     let settled: unknown;

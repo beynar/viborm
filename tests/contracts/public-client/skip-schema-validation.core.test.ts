@@ -62,4 +62,24 @@ describe("skipSchemaValidation", () => {
       /M004|people/
     );
   });
+
+  test("still refuses a relation the engine cannot resolve", () => {
+    const team = s.model({ id: s.int().id() });
+    const member = s.model({
+      id: s.int().id(),
+      teamId: s.int(),
+      team: s
+        .toOne(() => team)
+        .fields("teamId")
+        .references("id"),
+    });
+    // `team` is not part of the schema: there is no topology to resolve.
+    expect(() =>
+      createClient({
+        schema: { member },
+        driver: new SQLite3Driver(),
+        skipSchemaValidation: true,
+      })
+    ).toThrow();
+  });
 });

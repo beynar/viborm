@@ -125,6 +125,7 @@ const definitions = [
     root: "src/cli/",
     projects: ["coverage-cli"],
     tests: [
+      "tests/contracts/public-client/cli/check.test.ts",
       "tests/contracts/public-client/cli/index.test.ts",
       "tests/contracts/public-client/cli/migrate.test.ts",
       "tests/contracts/public-client/cli/push.test.ts",

@@ -18,8 +18,11 @@ interface CheckCliOptions {
   readonly json?: boolean;
 }
 
+// The repair hint, when the issue has one, goes on its own indented line.
 const describe = (issue: SchemaValidationIssue): string =>
-  `[${issue.code}] ${issue.message}${issue.repair ? `\n    ${issue.repair}` : ""}`;
+  [`[${issue.code}] ${issue.message}`, issue.repair]
+    .filter(Boolean)
+    .join("\n    ");
 
 async function runCheck(options: CheckCliOptions): Promise<void> {
   try {

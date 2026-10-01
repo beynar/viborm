@@ -135,6 +135,7 @@ describe("Schema hydration metadata", () => {
     // schema already owns. A relation's key is its only name, so the model's
     // registry holds scalars alone.
     expect([...parent["~"].nameRegistry.fields.keys()]).toEqual(["id"]);
+    expect(parent["~"].scalarFieldNames).toEqual(["id"]);
     expect(children["~"].state).not.toHaveProperty("source");
   });
 
