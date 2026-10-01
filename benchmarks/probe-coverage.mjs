@@ -23,6 +23,7 @@ const { values: o } = parseArgs({
     workload: { type: "string", default: "rows20" },
     files: { type: "boolean", default: false },
     top: { type: "string", default: "40" },
+    phase: { type: "string", default: "all" },
   },
 });
 const session = new Session();
@@ -69,7 +70,10 @@ const executed = async () => {
 };
 // takePreciseCoverage resets counts, so the second call sees only new calls.
 await executed();
-await make(db)[o.workload]();
+// --phase construct|query isolates one half of the first use.
+const client = make(db);
+if (o.phase === "query") await executed();
+if (o.phase !== "construct") await client[o.workload]();
 const after = await executed();
 const byFile = new Map();
 let bytes = 0;

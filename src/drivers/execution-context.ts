@@ -16,7 +16,36 @@ export interface TransactionPhaseNotifications {
   readonly committed: () => void;
 }
 
-const trustedExecutionContexts = new WeakMap<object, TrustedExecutionContext>();
+/**
+ * A context this owner created. The private field is the trust mark: nothing
+ * outside this class can set or read it, so a caller cannot forge one, and
+ * checking it is cheaper than the per-query WeakMap entry it replaces.
+ */
+class TrustedSnapshot {
+  readonly #values: TrustedExecutionContext;
+  readonly model?: string;
+  readonly operation: string | undefined;
+  readonly correlationId?: string;
+  constructor(values: TrustedExecutionContext) {
+    this.#values = values;
+    if (values.model) this.model = values.model;
+    this.operation = values.operation;
+    if (values.correlationIdGetter) {
+      Object.defineProperty(this, "correlationId", {
+        configurable: false,
+        enumerable: true,
+        get: values.correlationIdGetter,
+      });
+    } else if (values.correlationId) this.correlationId = values.correlationId;
+    Object.freeze(this);
+  }
+  static values(context: object): TrustedExecutionContext | undefined {
+    return #values in context
+      ? (context as TrustedSnapshot).#values
+      : undefined;
+  }
+}
+const trusted = (context: object) => TrustedSnapshot.values(context);
 
 export function createExecutionContext(
   values: QueryExecutionContext,
@@ -51,14 +80,10 @@ export function snapshotExecutionContext(
   fallbackOperation?: string,
   extensionChainOverride?: ResolvedExtensionChain
 ): QueryExecutionContext {
-  const trustedContext = context
-    ? trustedExecutionContexts.get(context)
-    : undefined;
+  const trustedContext = context ? trusted(context) : undefined;
   const contextValues =
     trustedContext ?? snapshotExternalExecutionContext(context);
-  const trustedBoundContext = boundContext
-    ? trustedExecutionContexts.get(boundContext)
-    : undefined;
+  const trustedBoundContext = boundContext ? trusted(boundContext) : undefined;
   const boundValues =
     context === boundContext
       ? contextValues
@@ -132,9 +157,7 @@ export function deriveStatementExecutionContext(
   context: QueryExecutionContext,
   model: string
 ): QueryExecutionContext {
-  const values =
-    trustedExecutionContexts.get(context) ??
-    snapshotExternalExecutionContext(context);
+  const values = trusted(context) ?? snapshotExternalExecutionContext(context);
   return createTrustedExecutionContext({ ...values, model });
 }
 
@@ -143,7 +166,7 @@ export function getExecutionExtensionChain(
   context: QueryExecutionContext | undefined
 ): ResolvedExtensionChain | undefined {
   if (!context) return undefined;
-  return trustedExecutionContexts.get(context)?.extensionChain;
+  return trusted(context)?.extensionChain;
 }
 
 /** Attach private lifecycle notifications without accepting caller-spoofed state. */
@@ -151,9 +174,7 @@ export function bindExecutionTransactionPhases(
   context: QueryExecutionContext,
   transactionPhases: TransactionPhaseNotifications
 ): QueryExecutionContext {
-  const values =
-    trustedExecutionContexts.get(context) ??
-    snapshotExternalExecutionContext(context);
+  const values = trusted(context) ?? snapshotExternalExecutionContext(context);
   return createTrustedExecutionContext({ ...values, transactionPhases });
 }
 
@@ -162,9 +183,7 @@ export function appendExecutionTransactionPhases(
   context: QueryExecutionContext,
   appendedPhases: TransactionPhaseNotifications
 ): QueryExecutionContext {
-  const values =
-    trustedExecutionContexts.get(context) ??
-    snapshotExternalExecutionContext(context);
+  const values = trusted(context) ?? snapshotExternalExecutionContext(context);
   const existingPhases = values.transactionPhases;
   if (existingPhases === undefined) {
     return createTrustedExecutionContext({
@@ -192,27 +211,13 @@ export function getExecutionTransactionPhases(
   context: QueryExecutionContext | undefined
 ): TransactionPhaseNotifications | undefined {
   if (!context) return undefined;
-  return trustedExecutionContexts.get(context)?.transactionPhases;
+  return trusted(context)?.transactionPhases;
 }
 
 function createTrustedExecutionContext(
   values: TrustedExecutionContext
 ): QueryExecutionContext {
-  const snapshot: QueryExecutionContext = {
-    ...(values.model ? { model: values.model } : {}),
-    operation: values.operation,
-    ...(values.correlationId ? { correlationId: values.correlationId } : {}),
-  };
-  if (values.correlationIdGetter) {
-    Object.defineProperty(snapshot, "correlationId", {
-      configurable: false,
-      enumerable: true,
-      get: values.correlationIdGetter,
-    });
-  }
-  Object.freeze(snapshot);
-  trustedExecutionContexts.set(snapshot, values);
-  return snapshot;
+  return new TrustedSnapshot(values) as QueryExecutionContext;
 }
 
 function snapshotExternalExecutionContext(
