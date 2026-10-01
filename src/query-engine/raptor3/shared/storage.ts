@@ -7,7 +7,6 @@ import type {
   ResolvedSlot,
   ResolvedStoredReference,
 } from "@schema/validation/relation-resolution";
-import { assertInvariant } from "./invariant";
 import type { EngineSchema } from "./schema";
 
 export type Membership = {
@@ -68,20 +67,8 @@ export function bindMembership(
  * grammar's `type`, which validation pins to a literal union of the configured
  * public variants before the engine sees it.
  */
-function variantMember<T>(
-  resolved: T | undefined,
-  tagged: T | undefined,
-  name: string,
-  variant: string | undefined
-): T {
-  const member = resolved ?? tagged;
-  assertInvariant(
-    member !== undefined,
-    `Variant carrier '${name}' was addressed with ${
-      variant === undefined ? "no arm" : `the undeclared arm '${variant}'`
-    }: every caller addresses one declared arm or composes the arms itself.`
-  );
-  return member;
+function variantMember<T>(resolved: T | undefined, tagged: T | undefined): T {
+  return (resolved ?? tagged)!;
 }
 
 export function buildMembershipView(
@@ -98,9 +85,7 @@ export function buildMembershipView(
   if (edge.kind === "variantRowCarrier") {
     const member = variantMember(
       resolved.member,
-      edge.members.find((member) => member.variant === variant),
-      name,
-      variant
+      edge.members.find((member) => member.variant === variant)
     );
     const direct = resolved.member === undefined;
     return {
@@ -128,9 +113,7 @@ export function buildMembershipView(
   if (edge.kind === "variantJunctionCarrier") {
     const member = variantMember(
       resolved.member,
-      edge.members.find((member) => member.variant === variant),
-      name,
-      variant
+      edge.members.find((member) => member.variant === variant)
     );
     const direct = resolved.member === undefined;
     return {
@@ -248,14 +231,9 @@ export function buildPhysicalFieldView(
       scalar,
       nullable: scalar["~"].state.nullable === true,
     };
-  const column = carrierColumns(schema, model).find(
+  return carrierColumns(schema, model).find(
     (candidate) => candidate.name === field
-  );
-  assertInvariant(
-    column,
-    `'${field}' is neither a declared scalar of '${model["~"].names.sql}' nor one of its variant carrier columns.`
-  );
-  return column;
+  )!;
 }
 
 export function storedFields(

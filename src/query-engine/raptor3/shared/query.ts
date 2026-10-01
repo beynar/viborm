@@ -83,11 +83,6 @@ import {
   transportedIdentifier,
 } from "./identifier";
 import {
-  assertInvariant,
-  EngineInvariantError,
-  unreachable,
-} from "./invariant";
-import {
   type Arguments,
   type EngineSchema,
   entries,
@@ -264,7 +259,7 @@ export type PreparedProjectionField =
        */
       readonly memberships: readonly {
         readonly variant: string;
-        readonly edge: Membership;
+        readonly edge: Extract<Membership, { kind: "junction" }>;
       }[];
     };
 export interface PreparedProjection {
@@ -961,10 +956,7 @@ export class Queries {
     // identifier literal. A text-stored domain holds the public string itself
     // and takes the ordinary arm below, byte for byte what it took before.
     if (isCompact(id))
-      return a.literals.id(
-        encodeIdentifier(id, value, field),
-        id.representation
-      );
+      return a.literals.id(encodeIdentifier(id, value), id.representation);
     switch (state.type) {
       case "decimal":
       case "json":
@@ -2559,7 +2551,12 @@ export class Queries {
           "GeoPoint polygon filtering is not supported by this provider."
         );
       }
-      case "distance": {
+      default: {
+        // `distance`, the one operator left. Admission enumerates this
+        // operator set once, per scalar type (`validation/scalars/**`), and
+        // `prepareOperation` carries the key it admitted; there is no second
+        // operator list here to disagree with it (AGENTS.md: "Do not add a
+        // second operator switch").
         const specification = record(predicate.value);
         const expression = this.distanceExpression(
           column,
@@ -2594,15 +2591,6 @@ export class Queries {
             )
         );
       }
-      default:
-        // Admission enumerates this operator set once, per scalar type
-        // (`validation/scalars/**`), and `prepareOperation` carries the key it
-        // admitted; there is no second operator list here to disagree with it
-        // (AGENTS.md: "Do not add a second operator switch"). The state this
-        // arm names is therefore one the code cannot be in when it is right.
-        throw new EngineInvariantError(
-          `Raptor 3 filter operator is not implemented: ${operator}`
-        );
     }
   }
   /**
@@ -2731,14 +2719,11 @@ export class Queries {
           a.json.extract(column, [...path, "0"]),
           a.json.value(value)
         );
-      case "array_ends_with":
-        return a.operators.eq(a.json.lastElement(target), a.json.value(value));
       default:
-        // Same upstream owner as the scalar operator switch above: the JSON
-        // document operators are enumerated once at admission.
-        throw new EngineInvariantError(
-          `Raptor 3 JSON filter operator is not implemented: ${predicate.operator}`
-        );
+        // `array_ends_with`, the one operator left: the same upstream owner as
+        // the scalar operator switch above enumerates the JSON document
+        // operators once, at admission.
+        return a.operators.eq(a.json.lastElement(target), a.json.value(value));
     }
   }
   /** One distance expression, for filters, ordering and projection alike. */
@@ -2828,17 +2813,14 @@ export class Queries {
         return predicate.predicate
           ? a.filters.is(query)
           : a.filters.isNot(query);
-      case "isNot":
+      default:
+        // `isNot`, the one quantifier left: every relation filter that spells
+        // quantifiers refuses a payload naming none of them in its own
+        // registered sentence, at admission, so this switch only ever
+        // receives an already-admitted quantifier.
         return predicate.predicate
           ? a.filters.isNot(query)
           : a.filters.is(query);
-      default:
-        // Every relation filter that spells quantifiers refuses a payload
-        // naming none of them in its own registered sentence, at admission;
-        // this switch only ever receives an already-admitted quantifier.
-        throw new EngineInvariantError(
-          `Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}`
-        );
     }
   }
   /**
@@ -3745,6 +3727,7 @@ export class Queries {
     const a = this.adapter;
     const column = scalar ? this.preparedColumn(scalar, alias) : undefined;
     const state = scalar?.physical.scalar["~"].state;
+    // biome-ignore lint/style/useDefaultSwitchClause: the Aggregate union is exhaustive; a default would be dead code.
     switch (aggregate) {
       case "_count":
         return a.aggregates.count(column);
@@ -3752,16 +3735,14 @@ export class Queries {
         return a.aggregates.sum(column!);
       case "_min":
       case "_max": {
-        assertInvariant(
-          scalar !== undefined && column !== undefined,
-          `Raptor 3 aggregate '${aggregate}' names no column: admission admits '_all' under '_count' alone.`
-        );
-        // A compact identifier is aggregated in the spelling it TRAVELS in
-        // (`identifier.ts`); every other column is aggregated as stored.
+        // Admission admits `_all` under `_count` alone, so these name a
+        // column. A compact identifier is aggregated in the spelling it
+        // TRAVELS in (`identifier.ts`); every other column is aggregated as
+        // stored.
         const operand = aggregatedIdentifier(
           a,
-          this.scalarShape(scalar.model, scalar.field).id,
-          column
+          this.scalarShape(scalar!.model, scalar!.field).id,
+          column!
         );
         return aggregate === "_min"
           ? a.aggregates.min(operand)
@@ -3771,8 +3752,6 @@ export class Queries {
         return state?.type === "decimal" && state.decimal
           ? a.aggregates.decimalAvg(column!, state.decimal)
           : a.aggregates.avg(column!);
-      default:
-        return unreachable(aggregate, "Raptor 3 aggregate is not implemented");
     }
   }
   selectSeries(
@@ -3888,12 +3867,19 @@ export class Queries {
       readonly variant: string;
     } & PreparedRelationProjection)[] = [];
     // The integrity probe's subjects: every configured member of a
-    // junction-carried slot. A ROW carrier states its own claim on the
-    // parent row, which the arm document already answers (D-19).
+    // junction-carried slot, each of which binds a junction membership (an
+    // invariant of this one construction site, not a refusal: N4). A ROW
+    // carrier states its own claim on the parent row, which the arm document
+    // already answers (D-19).
     const memberships = many
       ? edge.members.map((member) => ({
           variant: member.variant,
-          edge: bindMembership(this.schema, model, name, member.variant),
+          edge: bindMembership(
+            this.schema,
+            model,
+            name,
+            member.variant
+          ) as Extract<Membership, { kind: "junction" }>,
         }))
       : [];
     // Which arms are read, and with which node, is `selectedArm`'s one
@@ -4392,15 +4378,11 @@ export class Queries {
       projected
     );
   }
-  private orphanedMemberships(edge: Membership, parentAlias: string): Sql {
+  private orphanedMemberships(
+    edge: Extract<Membership, { kind: "junction" }>,
+    parentAlias: string
+  ): Sql {
     const a = this.adapter;
-    // The probe's subjects are built only for a junction-carried slot, whose
-    // members bind junction memberships (`prepareProjection`, D-26): an
-    // invariant of that one construction site, not a refusal (N4).
-    assertInvariant(
-      edge.kind === "junction",
-      "a junction-carried slot's integrity probe names junction memberships"
-    );
     const junction = this.alias();
     const target = this.alias();
     return a.subqueries.scalar(
@@ -5212,12 +5194,10 @@ export class Queries {
     const cutoff = (depth: number) =>
       !carriesRepeatedKey(shape.recurrence.depth, depth);
     /** One slot's successors, collapsed by its cardinality and emptiness. */
+    // A singular slot here may be empty: CM002 refuses a required self
+    // foreign key.
     const collapse = (rows: Input[]): unknown => {
       if (rows.length > 0) return shape.many ? rows : rows[0]!;
-      assertInvariant(
-        shape.many || shape.optional,
-        "A singular recursive slot may be empty: CM002 refuses a required self foreign key."
-      );
       return shape.many ? [] : null;
     };
     type Frame = {
