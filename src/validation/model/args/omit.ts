@@ -141,31 +141,7 @@ export const withOmitProjection = <
       PromiseLike<unknown>
     >;
     if (!hasOmit || result.issues) return result;
-
-    const validated = result.value as Record<string, unknown>;
-    const omitValue = validated.omit as Record<string, unknown>;
-    const explicitSelection = isRecord(validated.select)
-      ? validated.select
-      : undefined;
-    const selection = explicitSelection
-      ? subtractOmitFromSelection(explicitSelection, omitValue)
-      : buildOmitSelection(model, omitValue);
-    if (!selection) return issue(emptyOmitProjectionMessage(model, operation));
-    if (
-      explicitSelection &&
-      hasProjectedValue(explicitSelection) &&
-      !hasProjectedValue(selection)
-    ) {
-      return issue(emptySelectedOmitProjectionMessage(model, operation));
-    }
-
-    // The rewrite drops a key the schema declares and adds one it also declares,
-    // so the OUTPUT type is unchanged in kind but not provably so to the checker
-    // (`TEntries` is opaque here). Widening through `unknown` keeps the assertion
-    // to the one place that performs the substitution.
-    const { omit: _omit, ...rest } = validated;
-    const rewritten: unknown = { ...rest, select: selection };
-    return { value: rewritten as typeof result.value };
+    return projectOmit(result, model, operation) as typeof result;
   };
 
   return {
@@ -184,6 +160,42 @@ export const withOmitProjection = <
     },
   };
 };
+
+/**
+ * `omit` desugared into the `select` it means, apart from the per-call
+ * validator so that arguments without `omit` never compile it.
+ */
+function projectOmit(
+  result: { readonly value: unknown },
+  model: AnyModel,
+  operation: string
+) {
+
+  const validated = result.value as Record<string, unknown>;
+  const omitValue = validated.omit as Record<string, unknown>;
+  const explicitSelection = isRecord(validated.select)
+    ? validated.select
+    : undefined;
+  const selection = explicitSelection
+    ? subtractOmitFromSelection(explicitSelection, omitValue)
+    : buildOmitSelection(model, omitValue);
+  if (!selection) return issue(emptyOmitProjectionMessage(model, operation));
+  if (
+    explicitSelection &&
+    hasProjectedValue(explicitSelection) &&
+    !hasProjectedValue(selection)
+  ) {
+    return issue(emptySelectedOmitProjectionMessage(model, operation));
+  }
+
+  // The rewrite drops a key the schema declares and adds one it also declares,
+  // so the OUTPUT type is unchanged in kind but not provably so to the checker
+  // (`TEntries` is opaque here). Widening through `unknown` keeps the assertion
+  // to the one place that performs the substitution.
+  const { omit: _omit, ...rest } = validated;
+  const rewritten: unknown = { ...rest, select: selection };
+  return { value: rewritten as Record<string, unknown> };
+}
 
 // ---------------------------------------------------------------------------
 // Upsert's projection

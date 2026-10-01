@@ -210,20 +210,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
   // Build the core validator (base + schema + transform chain)
   let validate: ValidatorFn<any> = baseValidate;
 
-  if (disallowZero) {
-    const prev = validate;
-    validate = (value): ValidationResult<any> => {
-      const result = prev(value);
-      if (result.issues) return result;
-      const validated = (result as { value: unknown }).value;
-      if (validated === 0 || validated === 0n) {
-        return fail(
-          "Explicit zero is not portable for an auto-increment field"
-        );
-      }
-      return result;
-    };
-  }
+  if (disallowZero) validate = refusingZero(validate);
 
   // The identifier domain is the first AND the last word on the value.
   // First, before the custom schema and the transform: a `.schema()` a caller
@@ -243,36 +230,11 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 
   // Chain custom schema validation (if any)
 
-  if (schema !== undefined) {
-    const schemaValidate = schema["~standard"].validate;
-    const prev = validate;
-    validate = (v): ValidationResult<any> => {
-      const r = prev(v);
-      if (r.issues) return r;
-      const sr = schemaValidate(r.value);
-      if ("then" in sr) return fail("Async schemas are not supported");
-      if (sr.issues) return standardSchemaFailure(sr.issues);
-      return ok(sr.value);
-    };
-    if (admitIdDomain) validate = thenValidate(validate, admitIdDomain);
-  }
+  if (schema !== undefined)
+    validate = withCustomSchema(validate, schema, admitIdDomain);
 
   // Chain transform (if any)
-  if (hasTransform) {
-    const fn = transform!;
-    const prev = validate;
-    validate = (v) => {
-      const r = prev(v);
-      if (r.issues) return r;
-      try {
-        return ok(fn((r as { value: any }).value));
-      } catch (error) {
-        return fail(
-          `Transform failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    };
-  }
+  if (hasTransform) validate = withTransform(validate, transform!);
 
   // Compose the complete field validator before the default trigger. A
   // resolved literal or factory value is an ordinary untrusted field value:
@@ -307,6 +269,55 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
   }
 
   return validate as ValidatorFn<TOut>;
+}
+
+// The rarely declared field options, each composed by its own function so a
+// field without them never compiles their setup.
+
+function refusingZero(prev: ValidatorFn<any>): ValidatorFn<any> {
+  return (value): ValidationResult<any> => {
+    const result = prev(value);
+    if (result.issues) return result;
+    const validated = (result as { value: unknown }).value;
+    if (validated === 0 || validated === 0n) {
+      return fail("Explicit zero is not portable for an auto-increment field");
+    }
+    return result;
+  };
+}
+
+function withCustomSchema(
+  prev: ValidatorFn<any>,
+  schema: NonNullable<ScalarOptions<any, any>["schema"]>,
+  admitIdDomain: ValidatorFn<any> | undefined
+): ValidatorFn<any> {
+  const schemaValidate = schema["~standard"].validate;
+  const validate: ValidatorFn<any> = (v): ValidationResult<any> => {
+    const r = prev(v);
+    if (r.issues) return r;
+    const sr = schemaValidate(r.value);
+    if ("then" in sr) return fail("Async schemas are not supported");
+    if (sr.issues) return standardSchemaFailure(sr.issues);
+    return ok(sr.value);
+  };
+  return admitIdDomain ? thenValidate(validate, admitIdDomain) : validate;
+}
+
+function withTransform(
+  prev: ValidatorFn<any>,
+  fn: (value: any) => any
+): ValidatorFn<any> {
+  return (v) => {
+    const r = prev(v);
+    if (r.issues) return r;
+    try {
+      return ok(fn((r as { value: any }).value));
+    } catch (error) {
+      return fail(
+        `Transform failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
 }
 
 // =============================================================================

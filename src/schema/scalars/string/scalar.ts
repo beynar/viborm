@@ -96,13 +96,7 @@ export class StringScalar<State extends ScalarState<"string">> {
   id(prefix?: string) {
     const declared = this.state.autoGenerate;
     if (declared !== undefined) {
-      if (hasIdPrefix(prefix)) {
-        refuseId(
-          "s.string().id",
-          "prefix",
-          `This field already declares a '${declared.kind}' generator${declared.prefix ? ` with the prefix '${declared.prefix}'` : ""}. A prefix is spelled once, on the call that declares the format`
-        );
-      }
+      if (hasIdPrefix(prefix)) refuseSecondIdPrefix(declared);
       return new StringScalar(
         updateState(this, {
           isId: true,
@@ -270,3 +264,14 @@ export const string = <
     admitNativeType("s.string", nativeType)
   );
 };
+
+function refuseSecondIdPrefix(declared: {
+  readonly kind: string;
+  readonly prefix?: string | undefined;
+}): never {
+  return refuseId(
+    "s.string().id",
+    "prefix",
+    `This field already declares a '${declared.kind}' generator${declared.prefix ? ` with the prefix '${declared.prefix}'` : ""}. A prefix is spelled once, on the call that declares the format`
+  );
+}

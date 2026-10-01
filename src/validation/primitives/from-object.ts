@@ -157,19 +157,9 @@ export function entriesFromObject<
   }
   if (
     Object.keys(sourceObject).length > 0 &&
-    Object.keys(result).length === 0 &&
-    !Object.values(sourceObject).some((value) => declaresPath(value, path))
-  ) {
-    throw new ValidationError(
-      { kind: "schema-builder", builder: "fromObject", path },
-      [
-        {
-          path,
-          message: `fromObject path "${path}" did not match any entries in the source object`,
-        },
-      ]
-    );
-  }
+    Object.keys(result).length === 0
+  )
+    refuseUnmatchedPath(sourceObject, path);
   // The runtime path projection is the boundary that establishes this mapping.
   return result as ComputeEntries<TObject, TPath>;
 }
@@ -220,3 +210,21 @@ export function fromObject<
 }
 
 export type { ComputeEntries as ComputeEntriesFromObject };
+
+/** An empty projection, refused unless some source declares the path empty. */
+function refuseUnmatchedPath(
+  sourceObject: Record<string, unknown>,
+  path: string
+): void {
+  if (Object.values(sourceObject).some((value) => declaresPath(value, path)))
+    return;
+  throw new ValidationError(
+    { kind: "schema-builder", builder: "fromObject", path },
+    [
+      {
+        path,
+        message: `fromObject path "${path}" did not match any entries in the source object`,
+      },
+    ]
+  );
+}
