@@ -67,11 +67,11 @@ export const OK_UNDEFINED = Object.freeze({ value: undefined });
 
 /**
  * Validate array items with the provided validator.
- * Shared by both array() wrapper and options.array.
+ * Shared by the array() wrapper, options.array and every other list walk.
  */
 export function validateArray<T>(
   value: unknown,
-  validate: (v: unknown) => ValidationResult<T>
+  validate: (v: unknown) => StandardSchemaV1.Result<T>
 ): ValidationResult<T[]> {
   try {
     if (!Array.isArray(value)) {
@@ -384,42 +384,6 @@ export function buildSchema<
 
   return schema as VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
     TExtras & { options: Opts; type: string; acceptsUndefined: boolean };
-}
-
-// =============================================================================
-// Reusable Validation Logic (Exported for wrapper schemas)
-// =============================================================================
-
-/**
- * Validate an array of items using the provided validate function.
- * Exported for use by array() wrapper schema.
- */
-export function validateArrayItems<T, TOut = T>(
-  value: unknown,
-  validate: (item: unknown) => any
-): ValidationResult<TOut[]> {
-  if (!Array.isArray(value)) {
-    return ARRAY_TYPE_ERROR as ValidationResult<TOut[]>;
-  }
-
-  const len = value.length;
-  if (len === 0) return ok([]);
-
-  const results = new Array<TOut>(len);
-  for (let i = 0; i < len; i++) {
-    const itemResult = validate(value[i]);
-    if (itemResult.issues) {
-      const issue = itemResult.issues[0]!;
-      return fail(
-        issue.message as string,
-        issue.path
-          ? ([i] as PropertyKey[]).concat(issue.path as PropertyKey[])
-          : [i]
-      );
-    }
-    results[i] = itemResult.value as TOut;
-  }
-  return ok(results);
 }
 
 /**
