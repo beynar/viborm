@@ -13,7 +13,7 @@ import {
   type SelectedSeries,
   type SeriesCapture,
 } from "@query-engine/raptor3/commands/commands";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import {
   type Arguments,
@@ -674,7 +674,7 @@ for (const testCase of [
         value =
           testCase === "agree-partial" || testCase === "agree-reordered"
             ? await executeReconciliationPublication(schema, driver, testCase)
-            : await createCommandEngine({ schema, driver }).execute(
+            : await createTestCommandEngine({ schema, driver }).execute(
                 "pair",
                 "create",
                 reconciliationArgs(testCase)

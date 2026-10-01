@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import type { QueryResult } from "@drivers";
 import { QueryEngineError, ValidationError } from "@errors";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import Database from "better-sqlite3";
@@ -111,7 +111,7 @@ const activeOrder = [{ rank: "asc" }, { label: "asc" }];
 interface RecursiveWorld {
   readonly database: Database.Database;
   readonly driver: RecursiveReadSQLiteDriver;
-  readonly engine: ReturnType<typeof createCommandEngine>;
+  readonly engine: ReturnType<typeof createTestCommandEngine>;
 }
 
 function createRecursiveWorld(): RecursiveWorld {
@@ -215,7 +215,7 @@ function createRecursiveWorld(): RecursiveWorld {
   return {
     database,
     driver,
-    engine: createCommandEngine({ schema, driver }),
+    engine: createTestCommandEngine({ schema, driver }),
   };
 }
 

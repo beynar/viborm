@@ -6,8 +6,8 @@ import { ForeignKeyError, QueryError, UniqueConstraintError } from "@errors";
 import { MySQLMigrationDriver } from "@migrations/drivers/mysql";
 import { PostgresMigrationDriver } from "@migrations/drivers/postgres";
 import { serializeModels } from "@migrations/serializer";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it, vi } from "vitest";
 import type { CandidateEngineFactory } from "../harness/protocol";
 import {
@@ -1105,22 +1105,22 @@ async function runStandaloneAndBorrowedScopes(factory: CandidateEngineFactory) {
 describe(`G3P-04 native ${liveProvider} suppression replay`, () => {
   it(
     "g3p04-root-prerequisite-suppression-and-suffix",
-    () => runRootSuppression(createCommandEngine),
+    () => runRootSuppression(createTestCommandEngine),
     30_000
   );
   it(
     "g3p04-junction-root-suppression-and-suffix",
-    () => runJunctionSuppression(createCommandEngine),
+    () => runJunctionSuppression(createTestCommandEngine),
     30_000
   );
   it(
     "g3p04-descendant-and-root-nonunique-fatal",
-    () => runDescendantAndRootFatal(createCommandEngine),
+    () => runDescendantAndRootFatal(createTestCommandEngine),
     30_000
   );
   it(
     "g3p04-standalone-savepoint-and-borrowed-dropped-skip",
-    () => runStandaloneAndBorrowedScopes(createCommandEngine),
+    () => runStandaloneAndBorrowedScopes(createTestCommandEngine),
     30_000
   );
 });

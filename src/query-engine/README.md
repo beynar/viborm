@@ -27,7 +27,7 @@ QueryEngine
 | Owner | Responsibility |
 | --- | --- |
 | `raptor3/` | Admission, preparation, lowering, execution and decoding — the whole operation |
-| `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
+| `QueryEngine` | Driver, operation route, extension chain, client identity, and transaction scope |
 | `PendingOperation` | Lazy and Promise-like public operation lifecycle |
 | `routed-operations.ts` | The read/write verb vocabulary the cache and interception seams key on |
 | `types.ts` | The prepared-operation, prepared-batch and guard shapes the client and the route share |
@@ -89,10 +89,10 @@ Middleware caches stay isolated per driver.
 
 ## Single-statement inspection
 
-`QueryEngine.build()` asks `PendingOperation.buildStatement()` for the one
-statement an operation compiles to. Since C-01 the prepared read publishes its
-`Sql` through the route's prepared handle (D-14); an operation that does not
-compile to exactly one statement raises "does not compile to one SQL statement".
+`PendingOperation.buildStatement()` publishes the one statement an operation
+compiles to. Since C-01 the prepared read publishes its `Sql` through the
+route's prepared handle (D-14); an operation that does not compile to exactly
+one statement answers `undefined`.
 
 Use `prepare()` or await the returned `PendingOperation` for general operations.
 

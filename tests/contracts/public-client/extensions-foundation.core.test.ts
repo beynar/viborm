@@ -4,10 +4,13 @@ import {
   appendResolvedExtension,
   lookupResolvedExtensionHandlers,
 } from "@extensions/chain";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { createClient, defineExtension, s } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { createSchemaRegistry } from "@validation";
 import { afterEach, describe, expect, it } from "vitest";
@@ -166,7 +169,7 @@ describe("client extension foundation", () => {
     baseClient();
     const registry = createModelRegistry(schema, createSchemaRegistry(schema));
     const driver = new PlanningDriver("postgresql");
-    const root = new QueryEngine(driver, registry);
+    const root = new TestQueryEngine(driver, registry);
     const chain = appendResolvedExtension(
       undefined,
       { name: "derived", request: () => ({}) },
@@ -197,13 +200,12 @@ describe("client extension foundation", () => {
     // rebinds to a different driver, this is the assertion that must be
     // revisited before the namespace witnesses in namespace-options are.
     expect(derived.driver).toBe(driver);
-    expect(derived.registry).toBe(root.registry);
-    expect(derived.relations).toBe(root.relations);
+    // The route holds the one resolved index and schema registry.
+    expect(derived.route).toBe(root.route);
     expect(transaction.clientId).toBe(root.clientId);
     expect(transaction.scopeId).not.toBe(derived.scopeId);
     expect(transaction.driver).toBe(transactionDriver);
-    expect(transaction.registry).toBe(root.registry);
-    expect(transaction.relations).toBe(root.relations);
+    expect(transaction.route).toBe(root.route);
   });
 
   it("derives an immutable view while sharing schema and driver identity", () => {

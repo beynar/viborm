@@ -30,14 +30,22 @@ function opaqueInspectionValue(
 export function snapshotQueryInput(
   input: Record<string, unknown>
 ): Readonly<Record<string, unknown>> {
-  return snapshotRecord(input, new Map());
+  return snapshotOwn(input, new Map(), false);
 }
 
-function snapshotRecord(
-  input: Record<string, unknown>,
-  seen: Map<object, unknown>
+/**
+ * One plain record or array, copied own key by own key: each enumerable data
+ * member is snapshotted, an accessor is disclosed as opaque, and an array keeps
+ * its `length` descriptor — array exotic-object invariants guarantee it is the
+ * non-configurable data descriptor of one valid uint32 length, and a proxy that
+ * lies there is rejected by `getOwnPropertyDescriptor` before this point.
+ */
+function snapshotOwn(
+  input: object,
+  seen: Map<object, unknown>,
+  array: boolean
 ): Readonly<Record<string, unknown>> {
-  const snapshot: Record<string, unknown> = Object.create(null);
+  const snapshot: Record<string, unknown> = array ? [] : Object.create(null);
   seen.set(input, snapshot);
   let keys: readonly PropertyKey[];
   try {
@@ -54,15 +62,19 @@ function snapshotRecord(
       seen.set(input, opaqueInspectionValues.unsupported);
       return opaqueInspectionValues.unsupported;
     }
-    if (!descriptor?.enumerable) continue;
-    const member =
-      "value" in descriptor
-        ? snapshotValue(descriptor.value, seen)
-        : opaqueInspectionValues.accessor;
+    if (descriptor === undefined) continue;
+    if (array && key === "length") {
+      Object.defineProperty(snapshot, key, descriptor);
+      continue;
+    }
+    if (!descriptor.enumerable) continue;
     Object.defineProperty(snapshot, key, {
       configurable: false,
       enumerable: true,
-      value: member,
+      value:
+        "value" in descriptor
+          ? snapshotValue(descriptor.value, seen)
+          : opaqueInspectionValues.accessor,
       writable: false,
     });
   }
@@ -74,7 +86,7 @@ function snapshotValue(value: unknown, seen: Map<object, unknown>): unknown {
   if (value === null || typeof value !== "object") return value;
   if (seen.has(value)) return seen.get(value);
   try {
-    if (Array.isArray(value)) return snapshotArray(value, seen);
+    if (Array.isArray(value)) return snapshotOwn(value, seen, true);
     const prototype = Object.getPrototypeOf(value);
     if (prototype === Sql.prototype && value instanceof Sql) {
       return snapshotSql(value, seen);
@@ -121,56 +133,13 @@ function snapshotValue(value: unknown, seen: Map<object, unknown>): unknown {
       (prototype === Object.prototype || prototype === null) &&
       isRecord(value)
     ) {
-      return snapshotRecord(value, seen);
+      return snapshotOwn(value, seen, false);
     }
   } catch {
     // A hostile proxy or malformed built-in is disclosed only as an opaque fact.
   }
   seen.set(value, opaqueInspectionValues.unsupported);
   return opaqueInspectionValues.unsupported;
-}
-
-function snapshotArray(
-  value: readonly unknown[],
-  seen: Map<object, unknown>
-): unknown {
-  const snapshot: unknown[] = [];
-  seen.set(value, snapshot);
-  let keys: readonly PropertyKey[];
-  try {
-    keys = Reflect.ownKeys(value);
-  } catch {
-    seen.set(value, opaqueInspectionValues.unsupported);
-    return opaqueInspectionValues.unsupported;
-  }
-  for (const key of keys) {
-    let descriptor: PropertyDescriptor | undefined;
-    try {
-      descriptor = Object.getOwnPropertyDescriptor(value, key);
-    } catch {
-      seen.set(value, opaqueInspectionValues.unsupported);
-      return opaqueInspectionValues.unsupported;
-    }
-    if (descriptor === undefined) continue;
-    if (key === "length") {
-      // Array exotic-object invariants guarantee this is the non-configurable
-      // data descriptor for one valid uint32 length. A proxy that lies here is
-      // rejected by getOwnPropertyDescriptor before this point.
-      Object.defineProperty(snapshot, key, descriptor);
-      continue;
-    }
-    if (!descriptor.enumerable) continue;
-    Object.defineProperty(snapshot, key, {
-      configurable: false,
-      enumerable: true,
-      value:
-        "value" in descriptor
-          ? snapshotValue(descriptor.value, seen)
-          : opaqueInspectionValues.accessor,
-      writable: false,
-    });
-  }
-  return Object.freeze(snapshot);
 }
 
 function snapshotSql(value: Sql, seen: Map<object, unknown>): Sql {

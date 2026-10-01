@@ -43,6 +43,7 @@ import {
 import {
   type BoundMembership,
   type DeferredFailure,
+  junctionPairs,
   membershipFields,
   type Selection,
 } from "./selection";
@@ -89,20 +90,12 @@ export class CommandExecution {
     source?: Assignments,
     target?: Assignments
   ): Input {
-    return Object.fromEntries([
-      ...(source
-        ? edge.sourceSide.members.map((pair) => [
-            pair.junctionField,
-            this.attempt.read(source, pair.referencedField),
-          ])
-        : []),
-      ...(target
-        ? edge.targetSide.members.map((pair) => [
-            pair.junctionField,
-            this.attempt.read(target, pair.referencedField),
-          ])
-        : []),
-    ]);
+    return junctionPairs(
+      edge,
+      (owner, field) => this.attempt.read(owner, field),
+      source,
+      target
+    );
   }
   private async requireTransitions(command: RecordCommand): Promise<void> {
     const ctx = this.context;

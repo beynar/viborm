@@ -4,10 +4,10 @@ import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { UniqueConstraintError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
 import {
@@ -101,7 +101,7 @@ async function migratedWorld<S extends Record<string, AnyModel>>(
   if (!migration.applied) throw new Error("the replay schema did not apply");
   driver.resetObservations();
   return {
-    candidate: createCommandEngine({ schema, driver }),
+    candidate: createTestCommandEngine({ schema, driver }),
     client,
     driver,
   };

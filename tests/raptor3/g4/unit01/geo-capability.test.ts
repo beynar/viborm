@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -34,7 +34,7 @@ function createWorld() {
   return {
     database,
     driver,
-    engine: createCommandEngine({ schema, driver }),
+    engine: createTestCommandEngine({ schema, driver }),
   };
 }
 

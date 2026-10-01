@@ -24,8 +24,8 @@ import { randomUUID } from "node:crypto";
 import { createClient } from "@client/client";
 import type { Operations } from "@client/types";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 
 const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
@@ -156,7 +156,7 @@ describe.runIf(provider === "mysql" && port > 0)(
                       Record<string, (input: unknown) => Promise<unknown>>
                     >
                   ).owner!.update!(args)
-                : await createCommandEngine({ schema, driver }).execute(
+                : await createTestCommandEngine({ schema, driver }).execute(
                     "owner",
                     "update" as Operations,
                     args

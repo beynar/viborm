@@ -1,4 +1,4 @@
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import {
   polishRecoveryIds,
@@ -12,7 +12,7 @@ afterAll(savePolishRecoveryEvidence);
 describe("G2.5 selected-engine INSERT recovery observations: PostgreSQL", () => {
   for (const id of polishRecoveryIds) {
     it(id, async () => {
-      await runPolishRecovery(id, createCommandEngine);
+      await runPolishRecovery(id, createTestCommandEngine);
     }, 30_000);
   }
 });

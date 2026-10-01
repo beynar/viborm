@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import Database from "better-sqlite3";
@@ -98,7 +98,7 @@ export async function bothOutcomes(
       string,
       Record<string, (input: unknown) => unknown>
     >;
-    const engine = createCommandEngine({ schema, driver: right.driver });
+    const engine = createTestCommandEngine({ schema, driver: right.driver });
     return {
       shipped: await capture(() => client[model]![operation]!(args)),
       candidate: await capture(() =>

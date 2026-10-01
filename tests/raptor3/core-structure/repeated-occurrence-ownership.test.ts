@@ -230,8 +230,8 @@ describe("CS-02 repeated command occurrence ownership", () => {
     assert.equal(firstMissing.parent, first);
     assert.equal(secondFound.parent, second);
     assert.equal(secondMissing.parent, second);
-    assert.deepEqual(commands.childrenOf(first), [firstFound, firstMissing]);
-    assert.deepEqual(commands.childrenOf(second), [secondFound, secondMissing]);
+    assert.deepEqual(first.children, [firstFound, firstMissing]);
+    assert.deepEqual(second.children, [secondFound, secondMissing]);
   });
 
   it("reuses shared presence but reobserves shared absence per Choice placement", async () => {
@@ -333,8 +333,8 @@ describe("CS-02 repeated command occurrence ownership", () => {
         secondRuntimeSeries
       );
 
-      const [firstTemplate] = commands.childrenOf(firstRuntimeSeries);
-      const [secondTemplate] = commands.childrenOf(secondRuntimeSeries);
+      const [firstTemplate] = firstRuntimeSeries.children;
+      const [secondTemplate] = secondRuntimeSeries.children;
       assert(firstTemplate);
       assert(secondTemplate);
       assert.notEqual(firstTemplate, secondTemplate);
@@ -378,7 +378,7 @@ describe("CS-02 repeated command occurrence ownership", () => {
       assert.equal(reanalyzedSeries.length, 3);
       for (const occurrence of reanalyzedSeries) {
         assert.equal(occurrence.refusal, undefined);
-        const [template, extra] = commands.childrenOf(occurrence);
+        const [template, extra] = occurrence.children;
         assert(template);
         assert.equal(template.role, "template");
         assert.equal(extra, undefined);

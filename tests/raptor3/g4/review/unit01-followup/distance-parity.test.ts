@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { type Dialect, Driver } from "@drivers";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
@@ -12,7 +15,7 @@ import { describe, it } from "vitest";
 /**
  * Finding 3 follow-up. No distance-tier provider can execute here, so the
  * comparison is between the two seams that reach the engine on the same
- * PostgreSQL adapter: `QueryEngine.build` through the route it provisions
+ * PostgreSQL adapter: `TestQueryEngine.build` through the route it provisions
  * ({@link routedStatement}, the shipped lowering before C-01) and this
  * engine's query layer directly ({@link candidate}) — which columns each
  * projects, and under what names.
@@ -60,7 +63,7 @@ function routedStatement(
   postgis = true
 ): string {
   const registry = createModelRegistry(models, createSchemaRegistry(models));
-  const engine = new QueryEngine(
+  const engine = new TestQueryEngine(
     new MockDriver(new PostgresAdapter("public", postgis), "postgresql"),
     registry
   );

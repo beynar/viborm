@@ -4,7 +4,6 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
@@ -12,6 +11,7 @@ import { s } from "@schema";
 import { Sql } from "@sql";
 import { Decimal } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { afterEach, describe, it, vi } from "vitest";
 
@@ -449,7 +449,7 @@ async function bulkRelationWorld() {
     preparations
       .filter((preparation) => isDeepStrictEqual(preparation.select, select))
       .map((preparation) => preparation.after);
-  const engine = createCommandEngine({ schema, driver });
+  const engine = createTestCommandEngine({ schema, driver });
   const writes = () =>
     driver.statements
       .map((statement) => statement.match(LEADING_WORD)?.[0])

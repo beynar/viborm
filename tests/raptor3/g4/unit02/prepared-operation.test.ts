@@ -13,11 +13,11 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { NotFoundError, ValidationError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import type { ReadOperation } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
@@ -34,7 +34,7 @@ afterEach(async () => {
 describe("G4-02 prepared operation boundary", () => {
   it("keeps prepared and routed handles bound to their own client", async () => {
     world = await createWorld();
-    const firstEngine = createCommandEngine({
+    const firstEngine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -50,7 +50,7 @@ describe("G4-02 prepared operation boundary", () => {
         where: { id: 1 },
         data: { name: "Other client" },
       });
-      const secondEngine = createCommandEngine({
+      const secondEngine = createTestCommandEngine({
         schema: worldSchema,
         driver: other.driver,
       });
@@ -75,7 +75,7 @@ describe("G4-02 prepared operation boundary", () => {
 
   it("rejects invalid prepared reads asynchronously before dispatch", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -109,7 +109,7 @@ describe("G4-02 prepared operation boundary", () => {
     const client = createClient({ schema, driver });
     try {
       assert.equal((await syncLiveSchema(client)).applied, true);
-      const engine = createCommandEngine({ schema, driver });
+      const engine = createTestCommandEngine({ schema, driver });
       const prepared = engine.prepare("note", "create", {
         data: { id: 1, label: "once" },
       });
@@ -209,7 +209,7 @@ describe("G4-02 prepared operation boundary", () => {
 
   it("publishes the prepared read shape and cardinality before the statement runs", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -237,7 +237,7 @@ describe("G4-02 prepared operation boundary", () => {
 
   it("the published facts describe the value every read verb actually publishes", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -285,7 +285,7 @@ describe("G4-02 prepared operation boundary", () => {
 
   it("a pure read is statically packageable", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -302,7 +302,7 @@ describe("G4-02 prepared operation boundary", () => {
 
   it("a packaged OrThrow read keeps the not-found identity in its parser", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -317,7 +317,7 @@ describe("G4-02 prepared operation boundary", () => {
 
   it("answers undefined for an operation that cannot be packaged, every time", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });

@@ -17,7 +17,7 @@ import type { Operations } from "@client/types";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -100,7 +100,7 @@ async function world() {
     await client.$disconnect();
     database.close();
   });
-  return { database, driver, engine: createCommandEngine({ schema, driver }) };
+  return { database, driver, engine: createTestCommandEngine({ schema, driver }) };
 }
 
 type Shape = readonly [string, string, string, Record<string, unknown>];

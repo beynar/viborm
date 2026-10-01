@@ -11,7 +11,7 @@
  */
 
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { afterEach, describe, it } from "vitest";
 import { cost, createWorld, worldSchema, type World } from "./world";
@@ -45,7 +45,7 @@ async function measure(run: () => PromiseLike<unknown>): Promise<{
 describe("G4-02 physical envelope", () => {
   it("scalar-find-unique: one statement, no envelope, on both engines", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -62,7 +62,7 @@ describe("G4-02 physical envelope", () => {
 
   it("fixed-collection-rowref-20: one statement, no envelope", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -78,7 +78,7 @@ describe("G4-02 physical envelope", () => {
 
   it("flat-scalar-update: one statement, no envelope, same row on both seams", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -112,7 +112,7 @@ describe("G4-02 physical envelope", () => {
 
   it("bulk-update-returning: one statement, no envelope", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -133,7 +133,7 @@ describe("G4-02 physical envelope", () => {
 
   it("a counting read opens no transaction and runs one statement", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -144,7 +144,7 @@ describe("G4-02 physical envelope", () => {
 
   it("a multi-statement write keeps its envelope and is constructed once", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -170,7 +170,7 @@ describe("G4-02 physical envelope", () => {
 
   it("an update that names a relation projection keeps its qualified route", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -195,7 +195,7 @@ describe("G4-02 physical envelope", () => {
   // construction's own statement count, enforced at `OperationContext.dispatch`.
   it("two rows sharing a column set are one statement with no envelope, on both seams", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -227,7 +227,7 @@ describe("G4-02 physical envelope", () => {
     // construction's own statement count did, and the sentinel is what turns
     // that into the envelope.
     world = await createWorld({ maxBindParameters: 8 });
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -268,7 +268,7 @@ describe("G4-02 physical envelope", () => {
 
   it("a bulk verb with no rows reaches the provider not at all", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });

@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 import { differential, seedAuthor, seedPost, type World } from "./world";
@@ -338,7 +338,7 @@ function createPlaceWorld() {
   return {
     database,
     driver,
-    engine: createCommandEngine({ schema: placeSchema, driver }),
+    engine: createTestCommandEngine({ schema: placeSchema, driver }),
     client: createClient({ schema: placeSchema, driver }) as unknown as {
       place: { findMany: (args: unknown) => Promise<unknown> };
     },

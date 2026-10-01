@@ -7,10 +7,13 @@ import { createClient } from "@client/client";
 import { type Dialect, Driver, type DriverResultParser } from "@drivers";
 import { sqliteResultParser } from "@drivers/shared";
 import { QueryEngineError } from "@errors";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { CURSOR_CARRIER_PREFIX } from "@query-engine/result-aliases";
 import { hydrateSchemaNames, s } from "@schema";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -366,7 +369,7 @@ describe("one physical vocabulary", () => {
     model: typeof child | typeof parent,
     args: Record<string, unknown>
   ): string {
-    const engine = new QueryEngine(
+    const engine = new TestQueryEngine(
       new SqlOnlyDriver(new SQLiteAdapter(), "sqlite"),
       createModelRegistry(schema, createSchemaRegistry(schema))
     );

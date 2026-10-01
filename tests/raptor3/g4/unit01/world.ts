@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import Database from "better-sqlite3";
 
@@ -66,7 +66,7 @@ class RecordingDriver extends SQLite3Driver {
 export interface World {
   readonly database: Database.Database;
   readonly driver: RecordingDriver;
-  readonly engine: ReturnType<typeof createCommandEngine>;
+  readonly engine: ReturnType<typeof createTestCommandEngine>;
   readonly statements: string[];
 }
 
@@ -102,7 +102,7 @@ export function createWorld(): World {
   return {
     database,
     driver,
-    engine: createCommandEngine({ schema, driver }),
+    engine: createTestCommandEngine({ schema, driver }),
     statements: driver.statements,
   };
 }

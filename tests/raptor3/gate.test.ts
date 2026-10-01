@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, it } from "vitest";
 import { z } from "zod";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import {
   assertRaptor3Identity,
   captureRaptor3Identity,
@@ -83,7 +83,7 @@ if (specimen) {
                   "G1 nontermination: public operation awaits queued provider reply"
                 );
             };
-            return createCommandEngine(config);
+            return createTestCommandEngine(config);
           },
         }
       );

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import {
   captureRaptor3Identity,
   G3_GENERATED_CAMPAIGN,
@@ -46,7 +46,7 @@ export async function verifyG3SQLiteCell(
     profile,
     recipe.seed,
     {
-      candidateFactory: createCommandEngine,
+      candidateFactory: createTestCommandEngine,
       candidateName: "commands",
       fault: sqliteFault(recipe),
     }

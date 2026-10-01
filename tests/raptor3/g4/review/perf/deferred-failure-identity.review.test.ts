@@ -22,7 +22,7 @@ import assert from "node:assert/strict";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { NestedWriteError, NotFoundError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import type Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
@@ -321,7 +321,7 @@ describe("G4 perf review — a deferred failure is the failure it replaced", () 
   it("still succeeds, and writes, on the shapes that do NOT fail", async () => {
     const open_ = await open();
     live = open_;
-    const engine = createCommandEngine({ schema: world(), driver: open_.driver });
+    const engine = createTestCommandEngine({ schema: world(), driver: open_.driver });
     await engine.execute("owner", "update", {
       where: { id: 1 },
       data: { loose: { connect: [{ id: 21 }] } },
@@ -339,7 +339,7 @@ describe("G4 perf review — a deferred failure is the failure it replaced", () 
     const open_ = await open();
     live = open_;
     const batch = new BatchOnlyDriver({ client: open_.database });
-    const engine = createCommandEngine({ schema: world(), driver: batch });
+    const engine = createTestCommandEngine({ schema: world(), driver: batch });
     const shapes: { label: string; args: unknown; expected: () => Error }[] = [
       {
         label: "batch nested connect, no such target",

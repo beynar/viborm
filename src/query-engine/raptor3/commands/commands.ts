@@ -176,6 +176,23 @@ export function membershipRaceFailure(
   return failure;
 }
 /**
+ * The one sentence for a nested read that depends on an earlier write of the
+ * same nested write: `what` names that write, and `meta` follows the
+ * operation key in the order each site states it.
+ */
+function dependsOn(
+  operation: string,
+  relation: string,
+  what: string,
+  meta: Record<string, unknown>
+): NestedWriteError {
+  return new NestedWriteError(
+    `Nested operation '${operation}' on relation '${relation}' depends on an earlier ${what} in the same nested write. Split these operations into separate queries.`,
+    relation,
+    { meta: { operation, ...meta } }
+  );
+}
+/**
  * A nested set mutation: the ONE correlated statement a nested
  * `updateMany`/`deleteMany` needs when its physical form expresses the whole
  * operation. The membership and the member filter are both predicates the
@@ -591,9 +608,6 @@ export class Commands {
       template: this.occurrence(series.analysis),
     };
   }
-  childrenOf(occurrence: CommandOccurrence): readonly CommandOccurrence[] {
-    return occurrence.children;
-  }
   membershipPublications(
     occurrence: CommandOccurrence
   ): readonly MembershipPublication[] {
@@ -697,22 +711,17 @@ export class Commands {
       if (written) {
         const origin = lookup.origin;
         const earlier = command.origin?.operation ?? command.fields.operation;
-        this.depend(
-          write,
-          read,
-          () =>
-            new NestedWriteError(
-              `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier '${earlier}' membership write in the same nested write. Split these operations into separate queries.`,
-              origin.relation,
-              {
-                meta: {
-                  operation: origin.operation,
-                  conflictsWith: earlier,
-                  dependency: "membership",
-                  overlap: "unknown",
-                },
-              }
-            )
+        this.depend(write, read, () =>
+          dependsOn(
+            origin.operation,
+            origin.relation,
+            `'${earlier}' membership write`,
+            {
+              conflictsWith: earlier,
+              dependency: "membership",
+              overlap: "unknown",
+            }
+          )
         );
         return;
       }
@@ -733,21 +742,11 @@ export class Commands {
         command.edge.table === table;
       if (!touches) return;
       const origin = lookup.origin;
-      this.depend(
-        write,
-        read,
-        () =>
-          new NestedWriteError(
-            `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier membership write in the same nested write. Split these operations into separate queries.`,
-            origin.relation,
-            {
-              meta: {
-                operation: origin.operation,
-                dependency: "membership",
-                overlap: "unknown",
-              },
-            }
-          )
+      this.depend(write, read, () =>
+        dependsOn(origin.operation, origin.relation, "membership write", {
+          dependency: "membership",
+          overlap: "unknown",
+        })
       );
       return;
     }
@@ -760,11 +759,10 @@ export class Commands {
     const relation = lookup.origin.slot ?? lookup.origin.relation;
     const operation = lookup.origin.operation;
     const dependency = (earlier: string) =>
-      new NestedWriteError(
-        `Nested operation '${operation}' on relation '${relation}' depends on an earlier '${earlier}' membership write in the same nested write. Split these operations into separate queries.`,
+      dependsOn(operation, relation, `'${earlier}' membership write`, {
+        conflictsWith: earlier,
         relation,
-        { meta: { operation, conflictsWith: earlier, relation } }
-      );
+      });
     // The same read, and the other side of it: a membership read THROUGH a
     // field an earlier arm already MOVED on this parent — the arm's target
     // update carried this row's own foreign key with it, so the key the read
@@ -836,23 +834,12 @@ export class Commands {
           observed.scope.edge === mutation.edge.scope.edge;
         if (!sameEdge) continue;
         const origin = lookup.origin;
-        this.depend(
-          write,
-          read,
-          () =>
-            new NestedWriteError(
-              `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier membership write in the same nested write. Split these operations into separate queries.`,
-              origin.relation,
-              {
-                meta: {
-                  operation: origin.operation,
-                  conflictsWith:
-                    mutation.kind === "link" ? "connect" : "disconnect",
-                  dependency: "membership",
-                  overlap: "unknown",
-                },
-              }
-            )
+        this.depend(write, read, () =>
+          dependsOn(origin.operation, origin.relation, "membership write", {
+            conflictsWith: mutation.kind === "link" ? "connect" : "disconnect",
+            dependency: "membership",
+            overlap: "unknown",
+          })
         );
         return;
       }
@@ -910,25 +897,20 @@ export class Commands {
             (mutation.kind === "delete"
               ? "delete"
               : mutation.fields.operation));
-      this.depend(
-        write,
-        read,
-        () =>
-          new NestedWriteError(
-            `Nested operation '${origin.operation}' on relation '${origin.relation}' depends on an earlier '${operation}' target write in the same nested write. Split these operations into separate queries.`,
-            origin.relation,
-            {
-              meta: {
-                operation: origin.operation,
-                conflictsWith: operation,
-                dependency: "targetExistence",
-                overlap:
-                  scope.exact && matched > 0 && matched === scope.fields.size
-                    ? "equal"
-                    : "unknown",
-              },
-            }
-          )
+      this.depend(write, read, () =>
+        dependsOn(
+          origin.operation,
+          origin.relation,
+          `'${operation}' target write`,
+          {
+            conflictsWith: operation,
+            dependency: "targetExistence",
+            overlap:
+              scope.exact && matched > 0 && matched === scope.fields.size
+                ? "equal"
+                : "unknown",
+          }
+        )
       );
       return;
     }

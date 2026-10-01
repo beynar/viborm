@@ -18,7 +18,7 @@
 
 import assert from "node:assert/strict";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
@@ -171,7 +171,7 @@ describe("review/perf2 — a pure read allocates no write machinery", () => {
   it("publishes guards for a packaged unique delete and none for a packaged read", async () => {
     const open = await createWorld();
     world = open;
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: open.driver,
     });
@@ -209,7 +209,7 @@ describe("review/perf2 — the shared projection publishes the same statement", 
   it("repeats one default read byte for byte, and rebinds only its values", async () => {
     const open = await createWorld();
     world = open;
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: open.driver,
     });

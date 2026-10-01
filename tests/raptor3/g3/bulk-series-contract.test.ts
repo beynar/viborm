@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -55,7 +55,7 @@ describe("G3 C08 scalar bulk semantics", () => {
   let database: Database.Database;
   let driver: BulkWitnessSQLiteDriver;
   let client: ReturnType<typeof createBulkClient>;
-  let candidate: ReturnType<typeof createCommandEngine>;
+  let candidate: ReturnType<typeof createTestCommandEngine>;
   let admissions: number;
 
   beforeEach(async () => {
@@ -66,7 +66,7 @@ describe("G3 C08 scalar bulk semantics", () => {
     client = createBulkClient(schema, driver);
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    candidate = createCommandEngine({ schema, driver });
+    candidate = createTestCommandEngine({ schema, driver });
     driver.statements.length = 0;
   });
 

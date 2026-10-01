@@ -9,7 +9,7 @@
 
 import assert from "node:assert/strict";
 import { NotFoundError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
 import { createWorld, worldSchema, type World } from "./world";
 
@@ -21,7 +21,7 @@ afterEach(async () => {
 });
 
 function engineOf(current: World) {
-  return createCommandEngine({ schema: worldSchema, driver: current.driver });
+  return createTestCommandEngine({ schema: worldSchema, driver: current.driver });
 }
 
 function remaining(current: World): number {

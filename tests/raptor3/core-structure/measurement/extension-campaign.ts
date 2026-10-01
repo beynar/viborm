@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { replayG0Run } from "../../harness/replay";
 import type { G0ReplayRecord } from "../../harness/protocol";
 import { runSQLiteWorld } from "../../harness/sqlite-world";
@@ -18,7 +18,7 @@ export async function verifyExtensionCell(
 ): Promise<G0ReplayRecord> {
   const scenario = extensionScenario(recipe);
   const world = await runSQLiteWorld(scenario, profile, recipe.seed, {
-    candidateFactory: createCommandEngine,
+    candidateFactory: createTestCommandEngine,
     candidateName: "commands",
   });
   world.fixture.assert(world.observation);

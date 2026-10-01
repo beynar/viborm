@@ -19,7 +19,7 @@
  */
 
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { afterEach, describe, it } from "vitest";
 import { cost, createWorld, worldSchema, type World } from "../../unit02/world";
@@ -35,7 +35,7 @@ describe("G4 perf review — the lazy sentinels keep their identity", () => {
   it("answers undefined for an operation that cannot be packaged, every time", async () => {
     const open = await createWorld();
     world = open;
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: open.driver,
     });
@@ -70,7 +70,7 @@ describe("G4 perf review — the lazy sentinels keep their identity", () => {
   it("lets a REAL refusal escape prepareBatch instead of answering undefined", async () => {
     const open = await createWorld();
     world = open;
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: open.driver,
     });
@@ -102,7 +102,7 @@ describe("G4 perf review — the lazy sentinels keep their identity", () => {
   it("keeps the envelope sentinel's deferred re-entry, with the frozen physical cost", async () => {
     const open = await createWorld();
     world = open;
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: open.driver,
     });

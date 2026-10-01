@@ -1,5 +1,5 @@
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import { G1_PROVIDER_CASE_IDS } from "../contracts";
@@ -14,7 +14,7 @@ describe("G1 PGlite interactive produced-output commands comparison", () => {
       const candidate = await runProducedOutput(
         getFamily(),
         id,
-        createCommandEngine
+        createTestCommandEngine
       );
       assertEquivalentRunObservations(id, baseline, candidate);
     }, 60_000);

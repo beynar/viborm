@@ -27,6 +27,7 @@ import type {
 import { membershipRaceFailure } from "./commands";
 import {
   type BoundMembership,
+  junctionPairs,
   membershipFields,
   nestedTargetAddressesConstraint,
   type Selection,
@@ -75,6 +76,20 @@ type RelationVerb =
   | (typeof mutationOrder)[number]
   | (typeof collectionMutationOrder)[number];
 
+/**
+ * The one sentence for a nested target the plan looked for and did not find;
+ * `parentScoped` names the search as one through this parent's membership.
+ */
+function missingTarget(
+  verb: string,
+  relation: string,
+  parentScoped = true
+): NestedWriteError {
+  return new NestedWriteError(
+    `Cannot ${verb} relation '${relation}': target record was not found${parentScoped ? " for this parent" : ""}.`,
+    relation
+  );
+}
 /** Two admitted unique selectors address the same row. */
 function sameTarget(
   left: ReadonlyMap<string, unknown>,
@@ -114,6 +129,20 @@ export class RelationBody {
       target.kind === "choose" && !target.missing
         ? { kind: "query", selector: target.lookup.selector }
         : { kind: "producer", producer: target.fields };
+  }
+  /** One nested create of `edge`'s target, under this body's parent. */
+  private child(edge: Membership, data: Input, raw: Input): RecordCommand {
+    const parent = this.parent;
+    return this.commands.create(
+      edge.target,
+      data,
+      raw,
+      edge.kind === "reference" && edge.owner === "target"
+        ? { edge, source: parent.fields }
+        : undefined,
+      parent.operation ?? parent.fields.operation,
+      parent.fields.deferred
+    );
   }
   expand(): void {
     const parent = this.parent;
@@ -268,13 +297,7 @@ export class RelationBody {
               unique: nestedTargetAddressesConstraint(edge, verb),
               membership: { edge, parent: parent.located!.fields },
             },
-            lax
-              ? undefined
-              : () =>
-                  new NestedWriteError(
-                    `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
-                    edge.name
-                  )
+            lax ? undefined : () => missingTarget(verb, edge.name)
           );
           outgoing.origin = origin;
           this.membershipSource(edge, parent.located!.fields);
@@ -357,16 +380,7 @@ export class RelationBody {
       case "create":
         for (const [index, child] of entries(payload).entries()) {
           const origin = entryOrigin();
-          const target = this.commands.create(
-            edge.target,
-            child,
-            entries(rawPayload)[index]!,
-            edge.kind === "reference" && edge.owner === "target"
-              ? { edge, source: parent.fields }
-              : undefined,
-            parent.operation ?? parent.fields.operation,
-            parent.fields.deferred
-          );
+          const target = this.child(edge, child, entries(rawPayload)[index]!);
           target.origin = origin;
           this.association(edge, target);
           this.supply(target);
@@ -377,16 +391,7 @@ export class RelationBody {
         const rawBody = record(rawPayload);
         const rawRows = entries(rawBody.data);
         const records = entries(body.data).map((child, index) => {
-          const target = this.commands.create(
-            edge.target,
-            child,
-            rawRows[index]!,
-            edge.kind === "reference" && edge.owner === "target"
-              ? { edge, source: parent.fields }
-              : undefined,
-            parent.operation ?? parent.fields.operation,
-            parent.fields.deferred
-          );
+          const target = this.child(edge, child, rawRows[index]!);
           target.origin = origin;
           if (body.skipDuplicates)
             target.suppression = { kind: "skipDuplicate" };
@@ -449,15 +454,10 @@ export class RelationBody {
           const missing =
             conditional.create === undefined
               ? undefined
-              : this.commands.create(
-                  edge.target,
+              : this.child(
+                  edge,
                   record(conditional.create),
-                  record(source.create),
-                  edge.kind === "reference" && edge.owner === "target"
-                    ? { edge, source: parent.fields }
-                    : undefined,
-                  parent.operation ?? parent.fields.operation,
-                  parent.fields.deferred
+                  record(source.create)
                 );
           if (missing) missing.origin = origin;
           const correlated =
@@ -579,11 +579,7 @@ export class RelationBody {
             edge.target,
             selectionSource,
             verb === "connect" || verb === "update"
-              ? () =>
-                  new NestedWriteError(
-                    `Cannot ${verb} relation '${edge.name}': target record was not found${verb === "update" ? " for this parent" : ""}.`,
-                    edge.name
-                  )
+              ? () => missingTarget(verb, edge.name, verb === "update")
               : undefined,
             facts
           );
@@ -627,11 +623,7 @@ export class RelationBody {
             foundMembership && {
               selection: lookup,
               membership: foundMembership,
-              failure: () =>
-                new NestedWriteError(
-                  `Cannot upsert relation '${edge.name}': target record was not found for this parent.`,
-                  edge.name
-                ),
+              failure: () => missingTarget("upsert", edge.name),
             };
           const chosen = new Assignments(
             edge.target,
@@ -750,8 +742,8 @@ export class RelationBody {
               membership: { edge, parent: parent.fields },
             },
             () =>
-              new NestedWriteError(
-                `Cannot ${verb === "updateMany" ? "update" : "delete"} relation '${edge.name}': target record was not found for this parent.`,
+              missingTarget(
+                verb === "updateMany" ? "update" : "delete",
                 edge.name
               )
           );
@@ -830,11 +822,7 @@ export class RelationBody {
           where,
           unique: nestedTargetAddressesConstraint(edge, "set"),
         },
-        () =>
-          new NestedWriteError(
-            `Cannot set relation '${edge.name}': target record was not found.`,
-            edge.name
-          )
+        () => missingTarget("set", edge.name, false)
       );
       // One origin for the whole set: its lookups, its clear and its
       // associations are one mutation, and a dependent lookup lands ahead of
@@ -1188,19 +1176,11 @@ export class RelationBody {
     source?: Assignments,
     target?: Assignments
   ): Record<string, FieldValue> {
-    return Object.fromEntries([
-      ...(source
-        ? edge.sourceSide.members.map((pair) => [
-            pair.junctionField,
-            source.field(pair.referencedField),
-          ])
-        : []),
-      ...(target
-        ? edge.targetSide.members.map((pair) => [
-            pair.junctionField,
-            target.field(pair.referencedField),
-          ])
-        : []),
-    ]);
+    return junctionPairs(
+      edge,
+      (owner, field) => owner.field(field),
+      source,
+      target
+    );
   }
 }

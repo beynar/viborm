@@ -8,7 +8,7 @@ import type {
 } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { TransactionError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import { s } from "@schema";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
@@ -62,7 +62,7 @@ function arraySchema() {
   return { record, defaultOnly };
 }
 
-type Candidate = ReturnType<typeof createCommandEngine>;
+type Candidate = ReturnType<typeof createTestCommandEngine>;
 
 function prepareCandidateBatch(
   candidate: Candidate,
@@ -104,7 +104,7 @@ describe("G3 C10 atomic package composition", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     driver.statements.length = 0;
     driver.batches.length = 0;
     try {
@@ -163,7 +163,7 @@ describe("G3 C10 atomic package composition", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     database.exec(`
       INSERT INTO g3_array_records(id,code,label,secret,score) VALUES
         (1,'a','one','s1',1),
@@ -253,7 +253,7 @@ async function createInteractiveWorld(label: string) {
   const client = createClient({ schema, driver });
   const migration = await syncLiveSchema(client);
   assert.equal(migration.applied, true);
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   driver.statements.length = 0;
   const operation = overrideTransactionOperation(client.record.findMany(), {
     executeWith(transactionDriver) {

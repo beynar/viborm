@@ -66,7 +66,7 @@ import assert from "node:assert/strict";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { VibORMError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
@@ -401,7 +401,7 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     const observed = await withWorld(async ({ driver, database }) => {
       driver.failuresBeforeDispatch = 1;
       const seen = await observe(() =>
-        createCommandEngine({ schema, driver }).execute("owner", "create", {
+        createTestCommandEngine({ schema, driver }).execute("owner", "create", {
           data: { id: 1, label: "o" },
         })
       );
@@ -425,7 +425,7 @@ describe("G4-02 — an uncertain outcome is not a record series", () => {
     const seen = await withWorld(async ({ driver }) => {
       driver.failuresBeforeDispatch = 1;
       const observed = await observe(() =>
-        createCommandEngine({ schema, driver }).execute("owner", "createMany", {
+        createTestCommandEngine({ schema, driver }).execute("owner", "createMany", {
           data: [
             { id: 1, label: "a", notes: { create: [{ body: "a" }] } },
             { id: 2, label: "b", notes: { create: [{ body: "b" }] } },

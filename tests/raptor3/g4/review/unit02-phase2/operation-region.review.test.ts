@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
 import { createWorld, worldSchema, type World } from "../../unit02/world";
 
@@ -51,7 +51,7 @@ function memberOnly(caller: AnyDriver) {
 describe("G4-02 review — the granted region on failure", () => {
   it("rolls back only its own work and leaves the caller's transaction usable", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -96,7 +96,7 @@ describe("G4-02 review — the granted region on failure", () => {
     const outcomes: string[] = [];
     for (const binding of [transferred, memberOnly]) {
       world = await createWorld();
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema: worldSchema,
         driver: world.driver,
       });

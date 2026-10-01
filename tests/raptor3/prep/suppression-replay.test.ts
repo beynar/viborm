@@ -5,10 +5,10 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import { ForeignKeyError, QueryError, UniqueConstraintError } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
 import type { LogEvent } from "@instrumentation/types";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
@@ -163,7 +163,11 @@ async function migratedWorld<
   const migration = await syncLiveSchema(client);
   if (!migration.applied) throw new Error("the replay schema did not apply");
   driver.resetObservations();
-  return { client, driver, candidate: createCommandEngine({ schema, driver }) };
+  return {
+    client,
+    driver,
+    candidate: createTestCommandEngine({ schema, driver }),
+  };
 }
 
 async function closeWorld(world: {

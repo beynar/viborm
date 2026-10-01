@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 
 /**
@@ -39,7 +39,7 @@ export const schema = { team, member };
 
 export interface Pair {
   readonly shipped: Record<string, Record<string, (input: unknown) => unknown>>;
-  readonly candidate: ReturnType<typeof createCommandEngine>;
+  readonly candidate: ReturnType<typeof createTestCommandEngine>;
   close(): Promise<void>;
 }
 
@@ -76,7 +76,7 @@ export function pair(seed: string): Pair {
       string,
       Record<string, (input: unknown) => unknown>
     >,
-    candidate: createCommandEngine({ schema, driver: right.driver }),
+    candidate: createTestCommandEngine({ schema, driver: right.driver }),
     async close() {
       await left.driver.disconnect();
       left.db.close();

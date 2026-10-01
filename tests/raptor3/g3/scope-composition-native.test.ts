@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { UniqueConstraintError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { describe, it } from "vitest";
@@ -434,13 +434,13 @@ async function runNativeSuppression(factory: CandidateEngineFactory) {
 describe(`G3 native ${liveProvider} bulk and scope composition`, () => {
   it(
     "executes grouped bulk results, scalar suppression and limited returns",
-    () => runNativeBulk(createCommandEngine),
+    () => runNativeBulk(createTestCommandEngine),
     30_000
   );
 
   it(
     "composes exact-root suppression into one caller transaction and keeps descendants fatal",
-    () => runNativeSuppression(createCommandEngine),
+    () => runNativeSuppression(createTestCommandEngine),
     60_000
   );
 });

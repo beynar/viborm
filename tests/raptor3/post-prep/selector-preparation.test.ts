@@ -3,12 +3,12 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import type { QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { sql } from "@sql";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it, vi } from "vitest";
 
@@ -297,7 +297,7 @@ describe("post-G3 selector preparation", () => {
       VALUES (1, 't1', 5, 3), (2, 't1', 4, 4), (3, 't1', 2, 6);
     `);
     const driver = new SelectorRecordingSQLiteDriver({ client: database });
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     const refs = createModelFieldRefs("row", schema.row);
 
     try {
@@ -336,7 +336,7 @@ describe("post-G3 selector preparation", () => {
       );
     `);
     const driver = new SelectorRecordingSQLiteDriver({ client: database });
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     const otherRefs = createModelFieldRefs("other", schema.other);
 
     try {
@@ -369,7 +369,7 @@ describe("post-G3 selector preparation", () => {
       VALUES (1, 'wanted', 10);
     `);
     const driver = new SelectorRecordingSQLiteDriver({ client: database });
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     const preparation = vi.spyOn(Queries.prototype, "prepareSelector");
     const conjunction = vi.spyOn(Queries.prototype, "andSelectors");
     const lowering = vi.spyOn(Queries.prototype, "lowerSelector");

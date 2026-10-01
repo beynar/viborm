@@ -27,7 +27,7 @@
 import assert from "node:assert/strict";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import type Database from "better-sqlite3";
 import { afterAll, afterEach, beforeAll, describe, it } from "vitest";
@@ -107,7 +107,7 @@ function assertNoDuplicateAlias(label: string, sql: string): void {
   );
 }
 
-type Engine = ReturnType<typeof createCommandEngine>;
+type Engine = ReturnType<typeof createTestCommandEngine>;
 type EngineOperation = Parameters<Engine["execute"]>[1];
 
 interface Call {
@@ -405,7 +405,7 @@ describe("G4 perf review — the packaged route shares one alias owner", () => {
     });
     world = open;
     const driver = new BatchOnlyDriver({ client: open.database });
-    const engine = createCommandEngine({ schema, driver });
+    const engine = createTestCommandEngine({ schema, driver });
     entered.length = 0;
     const runs: string[][] = [];
     for (let pass = 0; pass < 3; pass++) {
