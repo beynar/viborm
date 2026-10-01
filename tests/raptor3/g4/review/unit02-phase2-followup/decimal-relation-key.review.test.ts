@@ -15,7 +15,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -57,7 +57,7 @@ async function run(engine: "shipped" | "candidate", seedDependent = true) {
   database.exec("INSERT INTO r3f_holders (id,code,label) VALUES (1,'600','h');");
   if (seedDependent)
     database.exec("INSERT INTO r3f_dependents (id,holderCode) VALUES (9,'600');");
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   const args = { where: { id: 1 }, data: { code: { multiply: "2" } } };
   let answer: string;
   try {
@@ -88,7 +88,7 @@ async function updateDependentKey(engine: "shipped" | "candidate") {
      INSERT INTO r3f_holders (id,code,label) VALUES (2,'1200','i');
      INSERT INTO r3f_dependents (id,holderCode) VALUES (9,'600');`
   );
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   const args = { where: { id: 9 }, data: { holderCode: { multiply: "2" } } };
   let answer: string;
   try {

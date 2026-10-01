@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { z } from "zod";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
@@ -592,7 +592,7 @@ export async function runTransportWorld(
             );
           },
         }
-      : (options.candidateFactory ?? createCommandEngine)(config);
+      : (options.candidateFactory ?? createTestCommandEngine)(config);
     const execute = async (actor: PublicActor): Promise<OperationOutcome> => {
       executions++;
       try {

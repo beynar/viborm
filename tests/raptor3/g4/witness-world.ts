@@ -12,7 +12,7 @@ import { createClient } from "@client/client";
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import type { Schema } from "@schema/hydration";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -47,7 +47,7 @@ export interface WitnessWorld {
   readonly database: Database.Database;
   readonly driver: WitnessSQLiteDriver;
   readonly shipped: ModelOperations;
-  readonly candidate: ReturnType<typeof createCommandEngine>;
+  readonly candidate: ReturnType<typeof createTestCommandEngine>;
   /** Physical statements recorded since the last `reset()`. */
   readonly statements: StatementObservation[];
   reset(): void;
@@ -74,7 +74,7 @@ export async function createWitnessWorld(
   assert.equal(migration.applied, true, "The witness schema did not migrate");
   options.afterMigration?.(database);
   options.seed?.(database);
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   driver.statements.length = 0;
   return {
     database,

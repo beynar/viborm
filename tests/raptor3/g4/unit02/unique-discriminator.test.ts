@@ -28,9 +28,9 @@ import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import type { Pool as MySQLPool, PoolConnection } from "mysql2/promise";
 import { afterAll, beforeAll, describe, it } from "vitest";
@@ -73,7 +73,7 @@ async function sqliteWorld() {
   return {
     driver,
     client,
-    engine: createCommandEngine({ schema, driver }),
+    engine: createTestCommandEngine({ schema, driver }),
     async close() {
       await client.$disconnect();
       database.close();
@@ -263,7 +263,7 @@ describe.runIf(provider === "mysql" && port > 0)(
                 where: { id: "WANTED" },
               }),
             (driver) =>
-              createCommandEngine({ schema: live, driver }).execute(
+              createTestCommandEngine({ schema: live, driver }).execute(
                 "owner",
                 "findUnique",
                 { where: { id: "WANTED" } }
@@ -276,7 +276,7 @@ describe.runIf(provider === "mysql" && port > 0)(
                 where: { email: "CLAIM@X" },
               }),
             (driver) =>
-              createCommandEngine({ schema: live, driver }).execute(
+              createTestCommandEngine({ schema: live, driver }).execute(
                 "owner",
                 "findUnique",
                 { where: { email: "CLAIM@X" } }
@@ -289,7 +289,7 @@ describe.runIf(provider === "mysql" && port > 0)(
                 where: { id: "WANTED" },
               }),
             (driver) =>
-              createCommandEngine({ schema: live, driver }).execute(
+              createTestCommandEngine({ schema: live, driver }).execute(
                 "owner",
                 "findFirst",
                 { where: { id: "WANTED" } }
@@ -303,7 +303,7 @@ describe.runIf(provider === "mysql" && port > 0)(
                 data: { name: "winner" },
               }),
             (driver) =>
-              createCommandEngine({ schema: live, driver }).execute(
+              createTestCommandEngine({ schema: live, driver }).execute(
                 "owner",
                 "update",
                 { where: { id: "WANTED" }, data: { name: "winner" } }
@@ -348,7 +348,7 @@ describe.runIf(provider === "mysql" && port > 0)(
           })
         );
         const candidateProbe = await probe((driver) =>
-          createCommandEngine({ schema: live, driver }).execute(
+          createTestCommandEngine({ schema: live, driver }).execute(
             "note",
             "create",
             {
@@ -536,7 +536,7 @@ async function scopeSqliteRun(
   request: (call: ScopeCall) => Promise<unknown>
 ): Promise<ScopeOutcome> {
   const world = await scopeSqliteWorld();
-  const candidate = createCommandEngine({
+  const candidate = createTestCommandEngine({
     schema: scopeSchema,
     driver: world.driver,
   });
@@ -723,7 +723,10 @@ describe.runIf(provider === "mysql" && port > 0)(
       let answer: string;
       try {
         const client = createClient({ schema: scopeSchema, driver });
-        const candidate = createCommandEngine({ schema: scopeSchema, driver });
+        const candidate = createTestCommandEngine({
+          schema: scopeSchema,
+          driver,
+        });
         const call: ScopeCall = (model, operation, args) =>
           engine === "shipped"
             ? (

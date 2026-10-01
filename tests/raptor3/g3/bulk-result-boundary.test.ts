@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -53,7 +53,7 @@ async function prepareWorld(nonReturning = false) {
   const client = createClient({ schema, driver });
   const migration = await syncLiveSchema(client);
   assert.equal(migration.applied, true);
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   driver.statements.length = 0;
   return { candidate, client, database, driver };
 }

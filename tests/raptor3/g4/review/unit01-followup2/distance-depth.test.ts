@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { type Dialect, Driver } from "@drivers";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
@@ -76,7 +79,7 @@ function shipped(
     spotSchema,
     createSchemaRegistry(spotSchema)
   );
-  const engine = new QueryEngine(
+  const engine = new TestQueryEngine(
     new LoweringDriver(postgres(postgis, pgvector), "postgresql"),
     registry
   );

@@ -91,7 +91,7 @@ export interface PreparedRead {
   /**
    * The ONE statement this read compiles to, as the prepared `Read` built it.
    * It is the `Sql` the execution runs, read from the same construction, so
-   * `QueryEngine.build` and the run cannot describe different queries.
+   * `buildStatement()` and the run cannot describe different queries.
    */
   readonly statement: Sql;
 }
@@ -370,27 +370,5 @@ export function createCommandEngine(config: EngineConfig) {
     rawArgs: unknown
   ): PreparedOperation =>
     new PreparedCommand(config, schema, queries, modelName, requested, rawArgs);
-  return {
-    prepare,
-    async execute(
-      modelName: string,
-      operation: Operations,
-      rawArgs: unknown,
-      binding?: ExecutionBinding,
-      attribution?: QueryExecutionContext
-    ): Promise<unknown> {
-      return prepare(modelName, operation, rawArgs).execute(
-        binding,
-        attribution
-      );
-    },
-    async prepareBatch(
-      modelName: string,
-      operation: Operations,
-      rawArgs: unknown,
-      attribution?: QueryExecutionContext
-    ): Promise<PreparedBatchOperation<unknown> | undefined> {
-      return prepare(modelName, operation, rawArgs).prepareBatch(attribution);
-    },
-  };
+  return { prepare };
 }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import { G2_KEY_CASE_IDS } from "../contracts";
@@ -21,7 +21,10 @@ describe(`G2 live ${keyLiveProvider} key transitions: commands`, () => {
   for (const scenario of keyTransitionScenarios) {
     it(scenario.id, async () => {
       const baseline = await runLiveKeyScenario(scenario);
-      const candidate = await runLiveKeyScenario(scenario, createCommandEngine);
+      const candidate = await runLiveKeyScenario(
+        scenario,
+        createTestCommandEngine
+      );
       assertEquivalentRunObservations(
         scenario.id,
         baseline.observation,

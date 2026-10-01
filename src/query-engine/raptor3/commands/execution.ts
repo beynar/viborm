@@ -6,7 +6,6 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import { type AnyModel, getModelKeyCatalog } from "@schema/model";
-import { assertInvariant } from "../shared/invariant";
 import type {
   Member,
   MembershipParent,
@@ -44,6 +43,7 @@ import {
 import {
   type BoundMembership,
   type DeferredFailure,
+  junctionPairs,
   membershipFields,
   type Selection,
 } from "./selection";
@@ -90,20 +90,12 @@ export class CommandExecution {
     source?: Assignments,
     target?: Assignments
   ): Input {
-    return Object.fromEntries([
-      ...(source
-        ? edge.sourceSide.members.map((pair) => [
-            pair.junctionField,
-            this.attempt.read(source, pair.referencedField),
-          ])
-        : []),
-      ...(target
-        ? edge.targetSide.members.map((pair) => [
-            pair.junctionField,
-            this.attempt.read(target, pair.referencedField),
-          ])
-        : []),
-    ]);
+    return junctionPairs(
+      edge,
+      (owner, field) => this.attempt.read(owner, field),
+      source,
+      target
+    );
   }
   private async requireTransitions(command: RecordCommand): Promise<void> {
     const ctx = this.context;
@@ -1638,16 +1630,14 @@ export class CommandExecution {
     // The `captureSeries` command `requireSeriesCapture` placed ahead of this
     // series ran in this same attempt (`run`'s `case "captureSeries"`), and a
     // recovery replaces the attempt AND the command tree together.
-    assertInvariant(prepared, "this series was captured in this attempt");
-    const { members, parentRequirement } = prepared;
+    const { members, parentRequirement } = prepared!;
     const membership = occurrence.command.series.selection.membership();
     for (const child of members) {
       const command = child.command;
-      const located = command.located;
       // Every member `captureSeries` built names the row it captured: a
       // `Deletion` carries its `located` by type, and an update member is
       // `Commands.update(located, …)` on that same captured selection.
-      assertInvariant(located, "a series member names its captured row");
+      const located = command.located!;
       if (ctx.usesBatch) {
         this.attempt.rows.delete(located);
         try {

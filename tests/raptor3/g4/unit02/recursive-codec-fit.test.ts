@@ -18,7 +18,7 @@
  * depth 0 is invalid, and the operation, not a seed list, owns root
  * cardinality and order.
  */
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import {
   describeRecursiveFit,
   recursiveFitSchema,
@@ -27,7 +27,7 @@ import {
 describeRecursiveFit(
   "G4 RF-16 recursive reads on the fuller codec set",
   ({ driver }, args) =>
-    createCommandEngine({ schema: recursiveFitSchema, driver }).execute(
+    createTestCommandEngine({ schema: recursiveFitSchema, driver }).execute(
       "node",
       "findMany",
       args

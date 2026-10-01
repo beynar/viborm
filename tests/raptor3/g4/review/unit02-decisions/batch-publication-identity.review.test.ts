@@ -29,7 +29,7 @@ import type {
 } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { QueryEngineError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -95,7 +95,7 @@ async function batchUpsert(
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper called only from cells.
   assert.equal((await syncLiveSchema(client)).applied, true);
   database.exec(SEED);
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   driver.reset();
   let answer: string;
   let raised: unknown;

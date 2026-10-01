@@ -11,7 +11,7 @@ import { writeFileSync } from "node:fs";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -270,7 +270,7 @@ describe("review digest", () => {
     );
 
     // The prepared/packaged seam, through the engine directly.
-    const engine = createCommandEngine({ schema, driver });
+    const engine = createTestCommandEngine({ schema, driver });
     const packaged = async (
       name: string,
       model: string,

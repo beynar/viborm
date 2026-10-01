@@ -29,7 +29,7 @@
 
 import assert from "node:assert/strict";
 import { NotFoundError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
 import { createWorld, worldSchema, type World } from "./world";
 
@@ -57,7 +57,7 @@ async function tape(
   engine: "candidate" | "shipped",
   run: (invoke: (model: string, operation: string, args: object) => Promise<unknown>) => Promise<unknown>
 ): Promise<Tape> {
-  const commands = createCommandEngine({
+  const commands = createTestCommandEngine({
     schema: worldSchema,
     driver: current.driver,
   });

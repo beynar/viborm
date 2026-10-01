@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -87,7 +87,7 @@ async function world() {
   const migration = await syncLiveSchema(client);
   if (!migration.applied) throw new Error("schema did not apply");
   driver.reset();
-  const engine = createCommandEngine({ schema, driver });
+  const engine = createTestCommandEngine({ schema, driver });
   closers.push(async () => {
     await client.$disconnect();
     database.close();

@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import Database from "better-sqlite3";
 import { afterAll, describe, it } from "vitest";
@@ -37,7 +37,7 @@ describe("G2.5 selected-engine observation lifetime and supplier fields", () => 
     for (const profile of scenario.profiles)
       it(`${scenario.id}: ${profile}`, async () => {
         const candidate = await runSQLiteWorld(scenario, profile, 0, {
-          candidateFactory: createCommandEngine,
+          candidateFactory: createTestCommandEngine,
           candidateName: "commands",
         });
         records.push(candidate.record);
@@ -92,7 +92,7 @@ describe("Raptor 3 compressed membership operands", () => {
     `);
     const driver = new SQLite3Driver({ client: database });
     try {
-      const value = await createCommandEngine({
+      const value = await createTestCommandEngine({
         schema: { account, note },
         driver,
       }).execute("account", "update", {
@@ -187,7 +187,7 @@ describe("Raptor 3 compressed membership operands", () => {
     `);
     const driver = new SQLite3Driver({ client: database });
     try {
-      const value = await createCommandEngine({
+      const value = await createTestCommandEngine({
         schema: { crate, note },
         driver,
       }).execute("crate", "update", {

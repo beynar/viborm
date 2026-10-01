@@ -23,7 +23,7 @@
  */
 
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
 import { createWorld, worldSchema, type World } from "./world";
 
@@ -36,7 +36,7 @@ afterEach(async () => {
 
 /** The statement texts one prepared operation publishes, in order. */
 async function preparedSql(
-  engine: ReturnType<typeof createCommandEngine>,
+  engine: ReturnType<typeof createTestCommandEngine>,
   model: string,
   operation: string,
   args: unknown
@@ -53,7 +53,7 @@ async function preparedSql(
 describe("G4 perf item 3 — statement-scoped SQL aliases", () => {
   it("publishes byte-identical SQL for two successive identical findUnique calls", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -92,7 +92,7 @@ describe("G4 perf item 3 — statement-scoped SQL aliases", () => {
 
   it("keeps one statement's nested scopes inside that statement's alias scope", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -135,7 +135,7 @@ describe("G4 perf item 3 — statement-scoped SQL aliases", () => {
 
   it("gives every statement of one multi-statement operation its own scope", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });

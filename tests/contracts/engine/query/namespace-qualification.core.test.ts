@@ -9,7 +9,7 @@
  * an unbound MySQL or SQLite adapter emits no prefix at all.
  *
  * Structural only: the mock driver opens no provider resource; every statement
- * comes from `QueryEngine.build()`.
+ * comes from `TestQueryEngine.build()`.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -17,7 +17,6 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import type { Dialect } from "@drivers";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema";
 import type { Model } from "@schema/model";
@@ -26,6 +25,10 @@ import {
   NAMESPACE_SCHEMA_TABLES,
   namespaceSchema,
 } from "@tests/fixtures/namespace-schema";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
 
@@ -43,7 +46,10 @@ const renderWith = (
   dialect: Dialect,
   placeholder: "$n" | "?"
 ) => {
-  const engine = new QueryEngine(new SqlOnlyDriver(adapter, dialect), registry);
+  const engine = new TestQueryEngine(
+    new SqlOnlyDriver(adapter, dialect),
+    registry
+  );
   return (
     model: Model<any>,
     operation: Operation,

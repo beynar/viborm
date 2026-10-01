@@ -3,9 +3,9 @@ import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { ValidationError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { it } from "vitest";
 
@@ -68,7 +68,7 @@ function writes(
 it("CS-01 B applies a scalar updateMany limit in one set statement", async () => {
   const world = await scalarWorld();
   try {
-    const result = await createCommandEngine({
+    const result = await createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     }).execute("entry", "updateMany", {
@@ -103,7 +103,7 @@ it("CS-01 B applies a scalar updateMany limit in one set statement", async () =>
 it("CS-01 B applies a scalar deleteMany limit in one set statement", async () => {
   const world = await scalarWorld();
   try {
-    const result = await createCommandEngine({
+    const result = await createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     }).execute("entry", "deleteMany", {
@@ -178,7 +178,7 @@ async function relationWorld() {
 it("CS-01 B caps relation capture before admitting or executing members", async () => {
   const world = await relationWorld();
   try {
-    const result = await createCommandEngine({
+    const result = await createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     }).execute("shelf", "updateMany", {
@@ -220,7 +220,7 @@ it("CS-01 B caps relation capture before admitting or executing members", async 
 it("CS-01 B validates limits and makes limit zero a true no-op", async () => {
   const world = await relationWorld();
   try {
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     });

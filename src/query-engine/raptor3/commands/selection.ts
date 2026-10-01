@@ -104,6 +104,26 @@ export function membershipFields(edge: Membership): string[] {
       ]
     : edge.sourceSide.members.map((pair) => pair.referencedField);
 }
+/**
+ * One junction row's columns: each present side's referenced fields, read
+ * through `read` — the planned assignment, or the attempt's executed value.
+ */
+export function junctionPairs<T>(
+  edge: Extract<Membership, { kind: "junction" }>,
+  read: (owner: Assignments, field: string) => T,
+  source?: Assignments,
+  target?: Assignments
+): Record<string, T> {
+  const pairs: [string, T][] = [];
+  for (const [side, owner] of [
+    [edge.sourceSide, source],
+    [edge.targetSide, target],
+  ] as const)
+    if (owner)
+      for (const pair of side.members)
+        pairs.push([pair.junctionField, read(owner, pair.referencedField)]);
+  return Object.fromEntries(pairs);
+}
 
 /** A prepared row selection; observations and transport values belong to execution. */
 export class Selection {

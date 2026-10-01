@@ -4,7 +4,6 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import type { Dialect } from "@drivers";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames } from "@schema";
 import {
   type AnyFieldRef,
@@ -16,6 +15,10 @@ import { sql } from "@sql";
 import { createModelFieldRefs as rootCreateModelFieldRefs } from "@src/index";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { fieldRefSchema } from "@tests/fixtures/field-ref-schema";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import type { OperandCtx } from "@validation/primitives/operand";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -79,10 +82,10 @@ const dialectCases: DialectCase[] = [
   },
 ];
 
-function createEngine(dialectCase: DialectCase): QueryEngine {
+function createEngine(dialectCase: DialectCase): TestQueryEngine {
   const adapter = dialectCase.createAdapter();
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-  return new QueryEngine(
+  return new TestQueryEngine(
     new SqlOnlyDriver(adapter, dialectCase.dialect),
     registry
   );

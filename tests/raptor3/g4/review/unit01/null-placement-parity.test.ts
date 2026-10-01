@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -48,7 +48,7 @@ describe("G4-01 review — default null placement parity", () => {
         select: { id: true },
       })) as { id: number }[];
 
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema,
         driver: candidateDriver,
       });
@@ -81,7 +81,7 @@ describe("G4-01 review — default null placement parity", () => {
         orderBy: { weight: "desc" },
         select: { id: true },
       })) as { id: number }[];
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema,
         driver: candidateDriver,
       });

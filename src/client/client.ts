@@ -51,7 +51,7 @@ import {
   type PrepareWriteOutcomeRegistration,
   readPendingCacheResult,
 } from "@query-engine/pending-operation";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { QueryEngine } from "@query-engine/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import { isWriteOperation } from "@query-engine/routed-operations";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
@@ -455,10 +455,7 @@ export class VibORM<C extends VibORMConfig> {
    *   this exact object; nothing here resolves a second time and nothing
    *   copies it (§10E.10, §11.4.10).
    */
-  constructor(
-    config: C,
-    { relations, schemaRegistry, registry }: PreparedSchema
-  ) {
+  constructor(config: C, { relations, schemaRegistry }: PreparedSchema) {
     this.schema = config.schema as C["schema"];
     this.relations = relations;
 
@@ -467,11 +464,6 @@ export class VibORM<C extends VibORMConfig> {
     // validates and registers nothing a second time (B-3).
     this.engine = new QueryEngine(
       config.driver,
-      registry,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
       createCandidateRoute(this.schema, config.driver, {
         index: relations,
         registry: schemaRegistry,
@@ -598,7 +590,7 @@ export class VibORM<C extends VibORMConfig> {
     // Engine handles OrThrow suffix internally. Routing to the V2 operation is
     // decided lazily — before any I/O — for the whole payload.
     const pendingOperation = officialReadCache
-      ? engine.prepareCacheManaged(
+      ? engine.prepare(
           model,
           operation,
           operationArgs,
@@ -963,7 +955,6 @@ interface PreparedSchema {
   readonly entries: readonly (readonly [string, unknown])[];
   readonly relations: ResolvedRelationIndex;
   readonly schemaRegistry: ReturnType<typeof createResolvedSchemaRegistry>;
-  readonly registry: ReturnType<typeof createModelRegistry>;
   /** Dialects whose decimal storage limits this schema already fits. */
   readonly fittingDialects: Set<string>;
   /** Whether the full client validation ran, not only relation resolution. */
@@ -1003,7 +994,6 @@ function prepareSchema(schema: Schema, checked: boolean): PreparedSchema {
     entries: Object.entries(schema),
     relations,
     schemaRegistry,
-    registry: createModelRegistry(schema, schemaRegistry, relations),
     fittingDialects: new Set(),
     validated: !checked,
   };

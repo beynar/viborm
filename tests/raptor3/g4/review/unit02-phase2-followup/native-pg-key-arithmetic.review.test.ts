@@ -18,8 +18,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@client/client";
 import { PgDriver } from "@drivers/pg";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 
 const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
@@ -69,7 +69,7 @@ describe.runIf(provider === "pg" && port > 0)(
           await driver._executeRaw(
             `INSERT INTO ${table} (id, label) VALUES (7, 'a')`
           );
-          const candidate = await createCommandEngine({
+          const candidate = await createTestCommandEngine({
             schema,
             driver,
           }).execute("row", "update", { where: { id: 7 }, data: { id: data } });

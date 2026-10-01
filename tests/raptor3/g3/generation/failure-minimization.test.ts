@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { it } from "vitest";
 import type { G0ReplayRecord } from "../../harness/protocol";
 import { replayG0Run } from "../../harness/replay";
@@ -32,7 +32,7 @@ async function executeWrongWorld(
     generatedBulkScenario(recipe, { specimen: "wrong-g3-stored-state" }),
     "sqlite-interactive",
     recipe.seed,
-    { candidateFactory: createCommandEngine, candidateName: "commands" }
+    { candidateFactory: createTestCommandEngine, candidateName: "commands" }
   );
   captureRecord(world.record);
   world.fixture.assert(world.observation);

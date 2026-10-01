@@ -67,8 +67,7 @@ export interface ResolvedSchemaViews {
   readonly index: ReturnType<typeof resolveSchemaOrThrow>;
   /**
    * Declared as the one member {@link EngineSchema} reads. A client hands over
-   * its full resolved registry and an engine hands over the
-   * `getModelSchemas`/`validate` pair its `ModelRegistry` carries; both satisfy
+   * its full resolved registry; anything carrying `getModelSchemas` satisfies
    * this, nothing is widened, and no consumer here reads `proxy`.
    */
   readonly registry: Pick<

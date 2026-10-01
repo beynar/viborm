@@ -34,10 +34,10 @@ import assert from "node:assert/strict";
 import type { VibORMClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { createClient } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
 
@@ -134,7 +134,7 @@ describe("G4-02 packaged root cardinality", () => {
 
   it("the packaged plan is the shipped batch shape: presence guard, then the mutation", async () => {
     const world = await createWorld();
-    const engine = createCommandEngine({ schema, driver: world.driver });
+    const engine = createTestCommandEngine({ schema, driver: world.driver });
     const packaged = await engine.prepareBatch("author", "delete", {
       where: { id: 9999 },
     });
@@ -164,7 +164,7 @@ describe("G4-02 packaged root cardinality", () => {
 
   it("a bulk delete carries no presence premise", async () => {
     const world = await createWorld();
-    const engine = createCommandEngine({ schema, driver: world.driver });
+    const engine = createTestCommandEngine({ schema, driver: world.driver });
     const packaged = await engine.prepareBatch("author", "deleteMany", {
       where: { id: 9999 },
     });

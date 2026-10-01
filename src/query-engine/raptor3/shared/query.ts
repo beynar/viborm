@@ -39,6 +39,7 @@ import { Sql, sql } from "@sql";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
 import { projectableScalarNames } from "@validation/model/core/projection";
+import { normalizeBinaryValue } from "@validation/primitives/binary-shapes";
 import {
   type DateTimePhysicalForm,
   decodePhysicalDateTime,
@@ -83,11 +84,6 @@ import {
   transportedIdentifier,
 } from "./identifier";
 import {
-  assertInvariant,
-  EngineInvariantError,
-  unreachable,
-} from "./invariant";
-import {
   type Arguments,
   type EngineSchema,
   entries,
@@ -102,6 +98,13 @@ import {
   type PhysicalField,
   physicalField,
 } from "./storage";
+
+/**
+ * `Object.freeze`, named once: this module freezes every prepared structure it
+ * builds, and one local name minifies where 92 member reads do not. Declared
+ * ahead of every module-level use.
+ */
+const freeze = Object.freeze;
 
 export type Leaf = {
   kind: "scalar";
@@ -264,7 +267,7 @@ export type PreparedProjectionField =
        */
       readonly memberships: readonly {
         readonly variant: string;
-        readonly edge: Membership;
+        readonly edge: Extract<Membership, { kind: "junction" }>;
       }[];
     };
 export interface PreparedProjection {
@@ -503,7 +506,7 @@ function own(source: Record<string, unknown>, key: string): unknown {
 const CURSOR_ORDER_REFUSAL =
   "Cursor pagination supports direct scalar sort directions only; relation and vector-distance orderBy are not supported.";
 /** A disjunction of nothing is FALSE; it is the one predicate that says so. */
-const VACUOUS_FALSE: PreparedPredicate = Object.freeze({
+const VACUOUS_FALSE: PreparedPredicate = freeze({
   kind: "always",
   value: false,
 });
@@ -552,7 +555,7 @@ const DISTANCE_FIELD = "_distance";
  * The private recursive carrier's member names, stated once: the one wire
  * vocabulary the recursive lowering writes and `decodeRecursiveCarrier` reads.
  */
-const RECURSIVE_CARRIER = Object.freeze({
+const RECURSIVE_CARRIER = freeze({
   root: "__rq_root",
   nodes: "__rq_nodes",
   edges: "__rq_edges",
@@ -575,12 +578,12 @@ const AGGREGATE_NAMES: ReadonlySet<string> = new Set(AGGREGATES);
 function isAggregate(name: string): name is Aggregate {
   return AGGREGATE_NAMES.has(name);
 }
-const BOOLEAN_LEAF: Leaf = Object.freeze({
+const BOOLEAN_LEAF: Leaf = freeze({
   kind: "scalar",
   type: "boolean",
   nullable: false,
 });
-const COUNT_LEAF: Leaf = Object.freeze({
+const COUNT_LEAF: Leaf = freeze({
   kind: "scalar",
   type: "int",
   nullable: false,
@@ -961,10 +964,7 @@ export class Queries {
     // identifier literal. A text-stored domain holds the public string itself
     // and takes the ordinary arm below, byte for byte what it took before.
     if (isCompact(id))
-      return a.literals.id(
-        encodeIdentifier(id, value, field),
-        id.representation
-      );
+      return a.literals.id(encodeIdentifier(id, value), id.representation);
     switch (state.type) {
       case "decimal":
       case "json":
@@ -1166,7 +1166,7 @@ export class Queries {
     id: IdentifierColumn | undefined
   ): Leaf {
     const state = scalar["~"].state;
-    return Object.freeze({
+    return freeze({
       kind: "scalar",
       type: state.type,
       nullable,
@@ -1451,7 +1451,7 @@ export class Queries {
     includeFacts = true
   ): Pick<PreparedSelector, "model" | "predicate"> {
     if (!includeFacts)
-      return Object.freeze({
+      return freeze({
         model,
         predicate: where
           ? this.prepareWhere(model, where, undefined, [], unique)
@@ -1466,7 +1466,7 @@ export class Queries {
         ? record(where![uniqueKey.name])
         : where!
       : undefined;
-    return Object.freeze({
+    return freeze({
       model,
       facts,
       uniqueKey,
@@ -1483,7 +1483,7 @@ export class Queries {
   }
   identitySelector(model: AnyModel, identity: Input): PreparedSelector {
     const facts = newSelectorFacts();
-    return Object.freeze({
+    return freeze({
       model,
       facts,
       predicate: this.identityPredicate(model, identity, facts),
@@ -1495,9 +1495,9 @@ export class Queries {
     identity: Input,
     facts: SelectorFacts
   ): PreparedPredicate {
-    return Object.freeze({
+    return freeze({
       kind: "and",
-      predicates: Object.freeze(
+      predicates: freeze(
         Object.entries(identity).map(([field, value]) =>
           this.prepareScalarPredicate(model, field, value, facts)
         )
@@ -1528,7 +1528,7 @@ export class Queries {
   ): PreparedSelector {
     const facts = newSelectorFacts();
     const captured = this.capturedSet(model, identities, facts);
-    return Object.freeze({
+    return freeze({
       model,
       facts,
       predicate:
@@ -1554,7 +1554,7 @@ export class Queries {
     identities: readonly Input[]
   ): PreparedSelector {
     const facts = newSelectorFacts();
-    return Object.freeze({
+    return freeze({
       model,
       facts,
       predicate: this.capturedSet(model, identities, facts),
@@ -1590,15 +1590,15 @@ export class Queries {
       facts.reads.push(...selector.facts.reads);
       if (selector.predicate) predicates.push(selector.predicate);
     }
-    return Object.freeze({
+    return freeze({
       model,
       facts,
       predicate:
         predicates.length === 0
           ? undefined
-          : Object.freeze({
+          : freeze({
               kind: "and",
-              predicates: Object.freeze(predicates),
+              predicates: freeze(predicates),
             }),
     });
   }
@@ -1739,16 +1739,16 @@ export class Queries {
     if (key === "OR")
       return stated.length === 0
         ? VACUOUS_FALSE
-        : Object.freeze({ kind: "or", predicates: Object.freeze(stated) });
+        : freeze({ kind: "or", predicates: freeze(stated) });
     const predicates: readonly PreparedPredicate[] =
       key === "AND"
         ? stated
         : stated.map((predicate) =>
-            Object.freeze({ kind: "not" as const, predicate })
+            freeze({ kind: "not" as const, predicate })
           );
-    return Object.freeze({
+    return freeze({
       kind: "and",
-      predicates: Object.freeze(predicates),
+      predicates: freeze(predicates),
     });
   }
   private prepareWhere(
@@ -1759,9 +1759,9 @@ export class Queries {
     unique = false,
     positive = true
   ): PreparedPredicate {
-    return Object.freeze({
+    return freeze({
       kind: "and",
-      predicates: Object.freeze(
+      predicates: freeze(
         Object.entries(where).map(([field, operand]) => {
           if (this.combinator(model, field)) {
             if (facts && field !== "AND") facts.exact = false;
@@ -1795,9 +1795,9 @@ export class Queries {
               ? findAddressableKey(model, field)
               : undefined;
           if (key?.name)
-            return Object.freeze({
+            return freeze({
               kind: "and",
-              predicates: Object.freeze(
+              predicates: freeze(
                 key.fields.map((member) =>
                   this.prepareScalarPredicate(
                     model,
@@ -1830,7 +1830,7 @@ export class Queries {
     key = false,
     positive = true
   ): PreparedPredicate {
-    const scalar = Object.freeze({
+    const scalar = freeze({
       model,
       field,
       physical: physicalField(this.schema, model, field),
@@ -1859,8 +1859,8 @@ export class Queries {
     }
     return this.prepareOperations(
       key
-        ? Object.freeze({ kind: "column", scalar, key: true })
-        : Object.freeze({ kind: "column", scalar }),
+        ? freeze({ kind: "column", scalar, key: true })
+        : freeze({ kind: "column", scalar }),
       value,
       false,
       positive
@@ -1918,9 +1918,9 @@ export class Queries {
         : insensitive || declared === "insensitive";
     const scoped: PreparedTarget =
       state?.type === "json" && Array.isArray(filter.path)
-        ? Object.freeze({
+        ? freeze({
             ...(target as Extract<PreparedTarget, { kind: "column" }>),
-            path: Object.freeze([...(filter.path as string[])]),
+            path: freeze([...(filter.path as string[])]),
           })
         : target;
     const predicates: PreparedPredicate[] = [];
@@ -1933,7 +1933,7 @@ export class Queries {
         );
       } else if (name === "not") {
         predicates.push(
-          Object.freeze({
+          freeze({
             kind: "not",
             predicate: this.prepareOperations(
               scoped,
@@ -1949,9 +1949,9 @@ export class Queries {
         );
       }
     }
-    return Object.freeze({
+    return freeze({
       kind: "and",
-      predicates: Object.freeze(predicates),
+      predicates: freeze(predicates),
     });
   }
   /** One admitted operator, with its operand resolved once. */
@@ -1966,11 +1966,11 @@ export class Queries {
     switch (operator) {
       case "in":
       case "notIn":
-        return Object.freeze({
+        return freeze({
           kind: "operation",
           operator,
           target,
-          operands: Object.freeze(
+          operands: freeze(
             (value as unknown[]).map((member) =>
               owner
                 ? this.prepareOperand(owner, member)
@@ -1987,7 +1987,7 @@ export class Queries {
       case "contains":
       case "startsWith":
       case "endsWith":
-        return Object.freeze({
+        return freeze({
           kind: "operation",
           operator,
           target,
@@ -1998,7 +1998,7 @@ export class Queries {
           insensitive,
         });
       default:
-        return Object.freeze({
+        return freeze({
           kind: "operation",
           operator,
           target,
@@ -2069,7 +2069,7 @@ export class Queries {
       );
     return {
       kind: "field",
-      scalar: Object.freeze({
+      scalar: freeze({
         model,
         field: payload.field,
         physical: physicalField(this.schema, model, payload.field),
@@ -2099,9 +2099,9 @@ export class Queries {
       const arms: [string, unknown][] = quantified
         ? Object.entries(entries)
         : [["is", entries]];
-      return Object.freeze({
+      return freeze({
         kind: "and",
-        predicates: Object.freeze(
+        predicates: freeze(
           arms.map(([quantifier, value]) =>
             this.relationPredicate(
               edge,
@@ -2123,9 +2123,9 @@ export class Queries {
       // Presence is a property of the SLOT: `{ is: null }` asks that no
       // configured variant holds a member, `{ isNot: null }` that one does.
       const absent = "is" in entries;
-      return Object.freeze({
+      return freeze({
         kind: absent ? "and" : "or",
-        predicates: Object.freeze(
+        predicates: freeze(
           members.map((member) =>
             this.relationPredicate(
               variantEdge(member.variant),
@@ -2145,9 +2145,9 @@ export class Queries {
           record(tagged),
         ])
       : [[undefined, entries]];
-    return Object.freeze({
+    return freeze({
       kind: "and",
-      predicates: Object.freeze(
+      predicates: freeze(
         arms.map(([quantifier, tagged]) => {
           const edge = variantEdge(tagged.type);
           const negated = tagged.isNot !== undefined;
@@ -2162,13 +2162,13 @@ export class Queries {
             positive
           );
           if (quantifier !== undefined) {
-            const quantified = Object.freeze({
+            const quantified = freeze({
               kind: "relation" as const,
               edge,
               quantifier,
               predicate:
                 negated && inner
-                  ? Object.freeze({ kind: "not" as const, predicate: inner })
+                  ? freeze({ kind: "not" as const, predicate: inner })
                   : inner,
             });
             // `some` and `none` address the tagged arm and nothing else.
@@ -2179,9 +2179,9 @@ export class Queries {
             // board holding two posts and one tag `false` for
             // `every: { type: "post", … }`, and this is why.
             if (quantifier !== "every") return quantified;
-            return Object.freeze({
+            return freeze({
               kind: "and",
-              predicates: Object.freeze([
+              predicates: freeze([
                 quantified,
                 ...members
                   .filter((member) => member.variant !== tagged.type)
@@ -2200,7 +2200,7 @@ export class Queries {
           }
           // A tagged to-one arm: `{ type }` asks only that the slot holds that
           // variant; `is`/`isNot` keep the ordinary to-one quantifier meaning.
-          return Object.freeze({
+          return freeze({
             kind: "relation",
             edge,
             quantifier: negated ? "isNot" : inner ? "is" : "some",
@@ -2218,7 +2218,7 @@ export class Queries {
     path: readonly Membership[],
     positive = true
   ): PreparedPredicate {
-    return Object.freeze({
+    return freeze({
       kind: "relation",
       edge,
       quantifier,
@@ -2559,7 +2559,12 @@ export class Queries {
           "GeoPoint polygon filtering is not supported by this provider."
         );
       }
-      case "distance": {
+      default: {
+        // `distance`, the one operator left. Admission enumerates this
+        // operator set once, per scalar type (`validation/scalars/**`), and
+        // `prepareOperation` carries the key it admitted; there is no second
+        // operator list here to disagree with it (AGENTS.md: "Do not add a
+        // second operator switch").
         const specification = record(predicate.value);
         const expression = this.distanceExpression(
           column,
@@ -2594,15 +2599,6 @@ export class Queries {
             )
         );
       }
-      default:
-        // Admission enumerates this operator set once, per scalar type
-        // (`validation/scalars/**`), and `prepareOperation` carries the key it
-        // admitted; there is no second operator list here to disagree with it
-        // (AGENTS.md: "Do not add a second operator switch"). The state this
-        // arm names is therefore one the code cannot be in when it is right.
-        throw new EngineInvariantError(
-          `Raptor 3 filter operator is not implemented: ${operator}`
-        );
     }
   }
   /**
@@ -2731,14 +2727,11 @@ export class Queries {
           a.json.extract(column, [...path, "0"]),
           a.json.value(value)
         );
-      case "array_ends_with":
-        return a.operators.eq(a.json.lastElement(target), a.json.value(value));
       default:
-        // Same upstream owner as the scalar operator switch above: the JSON
-        // document operators are enumerated once at admission.
-        throw new EngineInvariantError(
-          `Raptor 3 JSON filter operator is not implemented: ${predicate.operator}`
-        );
+        // `array_ends_with`, the one operator left: the same upstream owner as
+        // the scalar operator switch above enumerates the JSON document
+        // operators once, at admission.
+        return a.operators.eq(a.json.lastElement(target), a.json.value(value));
     }
   }
   /** One distance expression, for filters, ordering and projection alike. */
@@ -2828,17 +2821,14 @@ export class Queries {
         return predicate.predicate
           ? a.filters.is(query)
           : a.filters.isNot(query);
-      case "isNot":
+      default:
+        // `isNot`, the one quantifier left: every relation filter that spells
+        // quantifiers refuses a payload naming none of them in its own
+        // registered sentence, at admission, so this switch only ever
+        // receives an already-admitted quantifier.
         return predicate.predicate
           ? a.filters.isNot(query)
           : a.filters.is(query);
-      default:
-        // Every relation filter that spells quantifiers refuses a payload
-        // naming none of them in its own registered sentence, at admission;
-        // this switch only ever receives an already-admitted quantifier.
-        throw new EngineInvariantError(
-          `Raptor 3 G3P-05 relation filter is not implemented: ${predicate.quantifier}`
-        );
     }
   }
   /**
@@ -3124,7 +3114,7 @@ export class Queries {
     field?: string,
     expressionNulls?: true
   ): OrderTerm {
-    return Object.freeze({
+    return freeze({
       expression,
       descending,
       nulls,
@@ -3135,7 +3125,7 @@ export class Queries {
   }
   private reverseOrder(terms: readonly OrderTerm[]): OrderTerm[] {
     return terms.map((term) =>
-      Object.freeze({
+      freeze({
         ...term,
         descending: !term.descending,
         nulls:
@@ -3217,7 +3207,7 @@ export class Queries {
     for (let index = 0; index < terms.length; index++) {
       const term = terms[index]!;
       if (term.nulls === undefined && (term.nullable || cursor !== undefined)) {
-        terms[index] = Object.freeze({
+        terms[index] = freeze({
           ...term,
           nulls: term.descending ? "first" : "last",
         });
@@ -3702,7 +3692,7 @@ export class Queries {
                 name,
                 field === "_all"
                   ? undefined
-                  : Object.freeze({
+                  : freeze({
                       model,
                       field,
                       physical: physicalField(this.schema, model, field),
@@ -3730,8 +3720,8 @@ export class Queries {
     const leaf = this.scalarShape(model, field);
     const decimal = leaf.type === "decimal";
     if (aggregate === "_avg" && !decimal)
-      return Object.freeze({ kind: "scalar", type: "number", nullable: true });
-    return Object.freeze({
+      return freeze({ kind: "scalar", type: "number", nullable: true });
+    return freeze({
       ...leaf,
       nullable: true,
       widened: aggregate === "_sum" && decimal ? true : undefined,
@@ -3745,6 +3735,7 @@ export class Queries {
     const a = this.adapter;
     const column = scalar ? this.preparedColumn(scalar, alias) : undefined;
     const state = scalar?.physical.scalar["~"].state;
+    // biome-ignore lint/style/useDefaultSwitchClause: the Aggregate union is exhaustive; a default would be dead code.
     switch (aggregate) {
       case "_count":
         return a.aggregates.count(column);
@@ -3752,16 +3743,14 @@ export class Queries {
         return a.aggregates.sum(column!);
       case "_min":
       case "_max": {
-        assertInvariant(
-          scalar !== undefined && column !== undefined,
-          `Raptor 3 aggregate '${aggregate}' names no column: admission admits '_all' under '_count' alone.`
-        );
-        // A compact identifier is aggregated in the spelling it TRAVELS in
-        // (`identifier.ts`); every other column is aggregated as stored.
+        // Admission admits `_all` under `_count` alone, so these name a
+        // column. A compact identifier is aggregated in the spelling it
+        // TRAVELS in (`identifier.ts`); every other column is aggregated as
+        // stored.
         const operand = aggregatedIdentifier(
           a,
-          this.scalarShape(scalar.model, scalar.field).id,
-          column
+          this.scalarShape(scalar!.model, scalar!.field).id,
+          column!
         );
         return aggregate === "_min"
           ? a.aggregates.min(operand)
@@ -3771,8 +3760,6 @@ export class Queries {
         return state?.type === "decimal" && state.decimal
           ? a.aggregates.decimalAvg(column!, state.decimal)
           : a.aggregates.avg(column!);
-      default:
-        return unreachable(aggregate, "Raptor 3 aggregate is not implemented");
     }
   }
   selectSeries(
@@ -3833,18 +3820,18 @@ export class Queries {
     // > 0)` (`select-builder.ts:418`), so `_count: true` on a model with
     // no to-many relation publishes no `_count` key rather than `{}`.
     if (counts.length === 0) return;
-    fields[name] = Object.freeze({
+    fields[name] = freeze({
       kind: "object",
       // A count carrier is a document the statement always builds: a
       // provider that answers `null` here has not answered the question,
       // and an object shape that carried no nullability let that `null`
       // reach a caller whose type says `{ children: number }`.
       nullable: false,
-      fields: Object.freeze(
+      fields: freeze(
         Object.fromEntries(counts.map((count) => [count.relation, COUNT_LEAF]))
       ),
     });
-    prepared.push(Object.freeze({ kind: "counts", name, counts }));
+    prepared.push(freeze({ kind: "counts", name, counts }));
   }
   /** A selected `_distance`, out of line: most reads select none. */
   private projectDistance(
@@ -3859,7 +3846,7 @@ export class Queries {
     // The output key `_distance` is the distance's alone: schema
     // validation refuses a member of that name (F010).
     prepared.push(
-      Object.freeze({
+      freeze({
         kind: "distance",
         name: DISTANCE_FIELD,
         field: name,
@@ -3888,12 +3875,19 @@ export class Queries {
       readonly variant: string;
     } & PreparedRelationProjection)[] = [];
     // The integrity probe's subjects: every configured member of a
-    // junction-carried slot. A ROW carrier states its own claim on the
-    // parent row, which the arm document already answers (D-19).
+    // junction-carried slot, each of which binds a junction membership (an
+    // invariant of this one construction site, not a refusal: N4). A ROW
+    // carrier states its own claim on the parent row, which the arm document
+    // already answers (D-19).
     const memberships = many
       ? edge.members.map((member) => ({
           variant: member.variant,
-          edge: bindMembership(this.schema, model, name, member.variant),
+          edge: bindMembership(
+            this.schema,
+            model,
+            name,
+            member.variant
+          ) as Extract<Membership, { kind: "junction" }>,
         }))
       : [];
     // Which arms are read, and with which node, is `selectedArm`'s one
@@ -3907,30 +3901,30 @@ export class Queries {
       );
       if (many) collections[member.variant] = this.collectionShape(nested);
       else documents[member.variant] = this.relationShape(nested);
-      preparedArms.push(Object.freeze({ variant: member.variant, ...nested }));
+      preparedArms.push(freeze({ variant: member.variant, ...nested }));
     }
-    fields[name] = Object.freeze(
+    fields[name] = freeze(
       many
         ? {
             kind: "variants",
             relation: name,
             many,
-            arms: Object.freeze(collections),
+            arms: freeze(collections),
           }
         : {
             kind: "variants",
             relation: name,
             many,
-            arms: Object.freeze(documents),
+            arms: freeze(documents),
           }
     );
     prepared.push(
-      Object.freeze({
+      freeze({
         kind: "variants",
         name,
         many,
-        arms: Object.freeze(preparedArms),
-        memberships: Object.freeze(memberships),
+        arms: freeze(preparedArms),
+        memberships: freeze(memberships),
       })
     );
   }
@@ -3985,7 +3979,7 @@ export class Queries {
         }
       }
       if (!model["~"].state.relations[name]) {
-        prepared.push(Object.freeze({ kind: "scalar", name }));
+        prepared.push(freeze({ kind: "scalar", name }));
         fields[name] = this.scalarShape(model, name);
         continue;
       }
@@ -4010,7 +4004,7 @@ export class Queries {
         selection
       );
       fields[name] = this.relationShape(nested);
-      prepared.push(Object.freeze({ kind: "relation", name, ...nested }));
+      prepared.push(freeze({ kind: "relation", name, ...nested }));
     }
     // The empty-projection arm, in the shipped engine's two cases
     // (`select-builder.ts:425-437`). An empty projection is only legitimate
@@ -4021,14 +4015,12 @@ export class Queries {
     if (prepared.length === 0) {
       if (args.select !== undefined)
         throw new QueryEngineError(emptySelectRefusal(model));
-      prepared.push(
-        Object.freeze({ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY })
-      );
+      prepared.push(freeze({ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY }));
     }
-    const projection: PreparedProjection = Object.freeze({
+    const projection: PreparedProjection = freeze({
       model,
-      fields: Object.freeze(prepared),
-      shape: Object.freeze({ kind: "object", fields: Object.freeze(fields) }),
+      fields: freeze(prepared),
+      shape: freeze({ kind: "object", fields: freeze(fields) }),
     });
     if (shared) this.views.defaultProjections.set(model, projection);
     return projection;
@@ -4043,14 +4035,14 @@ export class Queries {
       const resolved = this.schema.index
         .get(nested.edge.source)!
         .get(nested.edge.name)!;
-      return Object.freeze({
+      return freeze({
         kind: "recursive",
         relation: nested.edge.name,
         many: nested.edge.many,
         optional: slotMayBeEmpty(resolved),
         recurrence: nested.recurrence,
         row: nested.projection.shape,
-        identity: Object.freeze(
+        identity: freeze(
           this.schema
             .keys(nested.edge.target)
             .map((field) => this.scalarShape(nested.edge.target, field))
@@ -4063,7 +4055,7 @@ export class Queries {
   /** A to-many relation's rows, in the window its `take` requested. */
   private collectionShape(nested: PreparedRelationProjection): CollectionShape {
     const take = nested.arguments.take;
-    return Object.freeze({
+    return freeze({
       kind: "collection",
       reversed: take !== undefined && take < 0 ? true : undefined,
       row: nested.projection.shape,
@@ -4072,7 +4064,7 @@ export class Queries {
   /** The distance leaf: one number, null only where a nullable point has none. */
   private distanceLeaf(model: AnyModel, field: string): Leaf {
     const physical = physicalField(this.schema, model, field);
-    return Object.freeze({
+    return freeze({
       kind: "scalar",
       type: "number",
       nullable:
@@ -4085,9 +4077,9 @@ export class Queries {
   ): PreparedRelationProjection {
     const nested =
       selection === true ? {} : (record(selection) as Partial<Arguments>);
-    return Object.freeze({
+    return freeze({
       edge,
-      arguments: Object.freeze({
+      arguments: freeze({
         selector: nested.where
           ? this.prepareSelector(edge.target, nested.where, false, false)
           : undefined,
@@ -4117,13 +4109,13 @@ export class Queries {
       const where =
         configuration === true ? undefined : record(configuration).where;
       if (where === undefined) {
-        counts.push(Object.freeze({ relation, edges }));
+        counts.push(freeze({ relation, edges }));
         continue;
       }
       const filter = record(where);
       if (!variants) {
         counts.push(
-          Object.freeze({
+          freeze({
             relation,
             edges,
             selector: this.prepareSelector(
@@ -4149,9 +4141,9 @@ export class Queries {
       const negated = filter.isNot !== undefined;
       const inner = negated ? filter.isNot : filter.is;
       counts.push(
-        Object.freeze({
+        freeze({
           relation,
-          edges: Object.freeze([arm]),
+          edges: freeze([arm]),
           selector:
             inner === undefined
               ? undefined
@@ -4160,7 +4152,7 @@ export class Queries {
         })
       );
     }
-    return Object.freeze(counts);
+    return freeze(counts);
   }
   /**
    * Every membership one relation SLOT counts.
@@ -4191,8 +4183,8 @@ export class Queries {
         resolved.edge.kind === "variantJunctionCarrier")
         ? resolved.edge
         : undefined;
-    return Object.freeze({
-      edges: Object.freeze(
+    return freeze({
+      edges: freeze(
         carrier
           ? carrier.members.map((member) =>
               bindMembership(this.schema, model, relation, member.variant)
@@ -4392,15 +4384,11 @@ export class Queries {
       projected
     );
   }
-  private orphanedMemberships(edge: Membership, parentAlias: string): Sql {
+  private orphanedMemberships(
+    edge: Extract<Membership, { kind: "junction" }>,
+    parentAlias: string
+  ): Sql {
     const a = this.adapter;
-    // The probe's subjects are built only for a junction-carried slot, whose
-    // members bind junction memberships (`prepareProjection`, D-26): an
-    // invariant of that one construction site, not a refusal (N4).
-    assertInvariant(
-      edge.kind === "junction",
-      "a junction-carried slot's integrity probe names junction memberships"
-    );
     const junction = this.alias();
     const target = this.alias();
     return a.subqueries.scalar(
@@ -4882,9 +4870,9 @@ export class Queries {
     having: Input,
     grouped: ReadonlySet<string>
   ): PreparedPredicate {
-    return Object.freeze({
+    return freeze({
       kind: "and",
-      predicates: Object.freeze(
+      predicates: freeze(
         Object.entries(having).flatMap(([key, value]) => {
           if (value === undefined) return [];
           // Prisma negates each NOT arm and conjoins the negations.
@@ -4897,7 +4885,7 @@ export class Queries {
                 )
               ),
             ];
-          const scalar = Object.freeze({
+          const scalar = freeze({
             model,
             field: key,
             physical: physicalField(this.schema, model, key),
@@ -4915,15 +4903,12 @@ export class Queries {
                 `Scalar '${key}' used in 'having' must be included in 'by'.`
               );
             return [
-              this.prepareOperations(
-                Object.freeze({ kind: "column", scalar }),
-                value
-              ),
+              this.prepareOperations(freeze({ kind: "column", scalar }), value),
             ];
           }
           return aggregated.map((aggregate) =>
             this.prepareOperations(
-              Object.freeze({ kind: "aggregate", aggregate, scalar }),
+              freeze({ kind: "aggregate", aggregate, scalar }),
               filter[aggregate]
             )
           );
@@ -4955,7 +4940,7 @@ export class Queries {
               name,
               field === "_all"
                 ? undefined
-                : Object.freeze({
+                : freeze({
                     model,
                     field,
                     physical: physicalField(this.schema, model, field),
@@ -5111,7 +5096,7 @@ export class Queries {
         );
       facts.add(fact);
       const siblings = edges.get(parent);
-      const entry = Object.freeze({
+      const entry = freeze({
         child,
         ...(depth === undefined ? {} : { depth }),
       });
@@ -5212,12 +5197,10 @@ export class Queries {
     const cutoff = (depth: number) =>
       !carriesRepeatedKey(shape.recurrence.depth, depth);
     /** One slot's successors, collapsed by its cardinality and emptiness. */
+    // A singular slot here may be empty: CM002 refuses a required self
+    // foreign key.
     const collapse = (rows: Input[]): unknown => {
       if (rows.length > 0) return shape.many ? rows : rows[0]!;
-      assertInvariant(
-        shape.many || shape.optional,
-        "A singular recursive slot may be empty: CM002 refuses a required self foreign key."
-      );
       return shape.many ? [] : null;
     };
     type Frame = {
@@ -5724,7 +5707,7 @@ export class Queries {
           );
         return members;
       };
-    const member: Leaf = Object.freeze({
+    const member: Leaf = freeze({
       ...leaf,
       list: undefined,
       nullable: false,
@@ -5881,8 +5864,6 @@ const TIME_TEXT =
   /^(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2})(?::?(\d{2}))?)?$/;
 const TIME_ZONE_SUFFIX = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
 const TRAILING_FRACTION_ZEROS = /\.?0+$/;
-const HEX_BYTES = /^(?:[0-9a-fA-F]{2})*$/;
-const BASE64_PROVIDER = /^base64:type\d+:(.*)$/;
 
 /** The provider timestamp grammar; the domain rules are the codec's. */
 function providerTimestamp(value: string): Date | undefined {
@@ -5996,40 +5977,15 @@ function decodeTime(value: unknown): string {
   return time;
 }
 
-/** Every driver's binary spelling, normalized to one fresh Uint8Array. */
+/**
+ * Every driver's binary spelling, normalized to one fresh Uint8Array by the one
+ * binary-shape owner (`validation/primitives/binary-shapes.ts`); the refusal's
+ * wording is this boundary's.
+ */
 function decodeBlob(value: unknown): Uint8Array {
-  if (value instanceof Uint8Array) return new Uint8Array(value);
-  if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
-  if (ArrayBuffer.isView(value))
-    return new Uint8Array(
-      value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
-    );
-  if (Array.isArray(value)) return Uint8Array.from(value as number[]);
-  if (typeof value === "string") {
-    const provider = BASE64_PROVIDER.exec(value);
-    if (provider) return base64Bytes(provider[1]!);
-    const hex = value.startsWith("\\x") ? value.slice(2) : value;
-    if (HEX_BYTES.test(hex)) {
-      const bytes = new Uint8Array(hex.length / 2);
-      for (let index = 0; index < bytes.length; index += 1)
-        bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-      return bytes;
-    }
-    return base64Bytes(value);
-  }
+  const { bytes } = normalizeBinaryValue(value);
+  if (bytes) return bytes;
   throw new InvalidScalarResult("blob", "the value is not a binary value");
-}
-
-function base64Bytes(value: string): Uint8Array {
-  try {
-    const binary = atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1)
-      bytes[index] = binary.charCodeAt(index);
-    return bytes;
-  } catch {
-    throw new InvalidScalarResult("blob", "the value is not a binary value");
-  }
 }
 
 /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */

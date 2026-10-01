@@ -1,19 +1,18 @@
 /**
  * C-01 cutover round-3 review probes (independent reviewer, not a registered mode).
  *
- * D-14 makes `PendingOperation.buildStatement()` / `QueryEngine.build()` publish the
- * ONE statement an operation compiles to, and gives a `QueryEngine` built without a
- * client lineage a route of its own. These cells attack the three claims the note
- * makes about that change:
+ * D-14 makes `PendingOperation.buildStatement()` publish the ONE statement an
+ * operation compiles to; the test engine (`@tests/fixtures/query-engine`) turns
+ * its absence into a refusal and gives an engine built without a client lineage
+ * a route of its own. These cells attack the three claims the note makes about
+ * that change:
  *
  *   1. ONE OWNER, NO SECOND LOWERING — the `Sql` `buildStatement()` publishes is the
  *      very object the execution submits (identity, not equality), and asking for it
  *      does not add a round trip.
  *   2. THE REFUSALS ARE THE PRE-CUTOVER ONES — a write still answers
- *      "does not compile to one SQL statement", an unknown verb still answers
- *      "Unknown operation '…'", and a registry without schemas still answers
- *      "Schema registry is required for query engine" rather than a TypeError from
- *      inside the provisioned route.
+ *      "does not compile to one SQL statement" and an unknown verb still answers
+ *      "Unknown operation '…'".
  *   3. ONE PACKAGE FOR BOTH ARRAY ARMS — `prepareSingle()` publishes exactly what
  *      `prepareBatch()` publishes for a read, and the array member's statement is
  *      the statement the same operation builds.
@@ -32,8 +31,8 @@ import type { QueryResult } from "@drivers/types";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import {
   createModelRegistry,
-  QueryEngine,
-} from "@query-engine/query-engine";
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Sql } from "@sql";
@@ -122,9 +121,9 @@ afterEach(async () => {
   for (const database of opened.splice(0)) database.close();
 });
 
-function bareEngine(driver: Driver<never, never> | ProbeDriver): QueryEngine {
+function bareEngine(driver: Driver<never, never> | ProbeDriver): TestQueryEngine {
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-  return new QueryEngine(driver as never, registry);
+  return new TestQueryEngine(driver as never, registry);
 }
 
 async function liveWorld() {
@@ -163,7 +162,7 @@ describe("C-01 round 3 — the statement the engine publishes is the one it runs
     assert.equal(submitted.statement, published.toStatement("?"));
   });
 
-  it("answers the same statement through QueryEngine.build, for every read verb", () => {
+  it("answers the same statement through TestQueryEngine.build, for every read verb", () => {
     const engine = bareEngine(new ProbeDriver());
     for (const [operation, args] of [
       ["findMany", { where: { name: "Ada" } }],
@@ -229,16 +228,6 @@ describe("C-01 round 3 — the statement the engine publishes is the one it runs
     // A malformed payload is refused by admission, at the accessor.
     assert.throws(() =>
       engine.build(author, "findMany" as never, { where: { nope: 1 } })
-    );
-    // A registry without schemas keeps the engine's own refusal rather than
-    // failing inside the provisioned route.
-    assert.throws(
-      () =>
-        new QueryEngine(new ProbeDriver() as never, {
-          get: () => undefined,
-          getByTableName: () => undefined,
-        } as never),
-      /Schema registry is required for query engine/
     );
   });
 

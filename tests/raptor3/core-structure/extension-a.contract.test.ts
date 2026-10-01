@@ -7,7 +7,7 @@ import {
   UnsupportedOperationError,
   ValidationError,
 } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { createClient } from "@client/client";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -106,7 +106,7 @@ it("CS-01 A returns omitted-key rows only after every relation-series member", a
       INSERT INTO cs01_selection_nodes VALUES(1,'child',2);
     `);
 
-    const rows = await createCommandEngine({
+    const rows = await createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     }).execute("node", "updateMany", {
@@ -164,7 +164,7 @@ it("CS-01 A reads compound final keys while keeping injected keys private", asyn
     `);
     driver.statements.length = 0;
 
-    const rows = await createCommandEngine({ schema, driver }).execute(
+    const rows = await createTestCommandEngine({ schema, driver }).execute(
       "parent",
       "updateMany",
       {
@@ -223,7 +223,7 @@ async function runMissingFinalRow(batch: boolean): Promise<string[]> {
 
     let failure: unknown;
     try {
-      await createCommandEngine({
+      await createTestCommandEngine({
         schema: world.schema,
         driver: world.driver,
       }).execute("node", "updateMany", {
@@ -314,7 +314,7 @@ it("CS-01 A preserves the createMany terminal underflow error contract", async (
 
     let failure: unknown;
     try {
-      await createCommandEngine({ schema, driver }).execute(
+      await createTestCommandEngine({ schema, driver }).execute(
         "node",
         "createMany",
         {
@@ -355,7 +355,7 @@ it("CS-01 A returns selected scalar updates but does not widen relation projecti
     world.database.exec(
       "INSERT INTO cs01_selection_nodes VALUES(1,'original',NULL);"
     );
-    const candidate = createCommandEngine({
+    const candidate = createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     });

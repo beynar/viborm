@@ -1,7 +1,7 @@
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { PGliteDriver } from "@drivers/pglite";
 import type { QueryResult } from "@drivers/types";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   type ColumnType,
@@ -85,14 +85,14 @@ describe("recursive relation provider SQL on PGlite", () => {
   });
 
   it("projects the recursive placement matrix through provider SQL", async () => {
-    const engine = createCommandEngine({ schema: providerSchema, driver });
+    const engine = createTestCommandEngine({ schema: providerSchema, driver });
     await runPlacementMatrix(engine, driver);
   });
 
   for (const world of [HIERARCHY_WORLD, GRAPH_WORLD])
     for (const group of world.groups)
       it(group.name, async () => {
-        const engine = createCommandEngine({ schema: world.schema, driver });
+        const engine = createTestCommandEngine({ schema: world.schema, driver });
         for (const providerCase of group.cases)
           await runCase(engine, driver, providerCase);
       });

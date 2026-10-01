@@ -27,7 +27,7 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { isRecord } from "@validation/value-guards";
@@ -148,7 +148,7 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
     const client = createClient({ schema: flatSchema, driver });
     assert.equal((await syncLiveSchema(client)).applied, true);
     driver.reset();
-    const engine = createCommandEngine({ schema: flatSchema, driver });
+    const engine = createTestCommandEngine({ schema: flatSchema, driver });
     const seen = await observe(() =>
       engine.execute("entity", "create", { data: { id: 1, label: "written" } })
     );
@@ -196,7 +196,7 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
     const client = createClient({ schema: flatSchema, driver });
     assert.equal((await syncLiveSchema(client)).applied, true);
     driver.reset();
-    const engine = createCommandEngine({ schema: flatSchema, driver });
+    const engine = createTestCommandEngine({ schema: flatSchema, driver });
     const seen = await observe(() =>
       engine.execute("entity", "create", { data: { id: 1, label: "written" } })
     );
@@ -240,7 +240,7 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
     const client = createClient({ schema: relationSchema, driver });
     assert.equal((await syncLiveSchema(client)).applied, true);
     driver.reset();
-    const engine = createCommandEngine({ schema: relationSchema, driver });
+    const engine = createTestCommandEngine({ schema: relationSchema, driver });
     const seen = await observe(() =>
       engine.execute("owner", "create", {
         data: { id: 1, label: "o", notes: { create: [{ id: 2, body: "n" }] } },
@@ -279,7 +279,7 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
                 >
               ).entity!.create({ data: { id: 1, label: "written" } })
             )
-          : createCommandEngine({ schema: flatSchema, driver }).execute(
+          : createTestCommandEngine({ schema: flatSchema, driver }).execute(
               "entity",
               "create",
               { data: { id: 1, label: "written" } }

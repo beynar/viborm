@@ -3,9 +3,12 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import type { PGlite } from "@electric-sql/pglite";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import Database from "better-sqlite3";
 import { Client as PgClient } from "pg";
@@ -131,7 +134,7 @@ function predicateFor(
   where: Record<string, unknown>,
   placeholder: "$n" | "?"
 ): { predicate: string; values: unknown[] } {
-  const engine = new QueryEngine(
+  const engine = new TestQueryEngine(
     new MockDriver(adapter, dialect),
     createModelRegistry(schema, createSchemaRegistry(schema))
   );

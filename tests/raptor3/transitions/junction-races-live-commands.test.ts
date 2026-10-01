@@ -1,4 +1,4 @@
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import {
   junctionRaceIds,
@@ -15,6 +15,6 @@ describe(`G2 live ${junctionRaceProvider} singular-junction races: commands`, ()
   for (const id of junctionRaceIds)
     it(id, async () => {
       await runJunctionRaceScenario(id);
-      await runJunctionRaceScenario(id, createCommandEngine);
+      await runJunctionRaceScenario(id, createTestCommandEngine);
     }, 30_000);
 });

@@ -1,4 +1,4 @@
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import {
@@ -13,7 +13,10 @@ describe(`G2 live ${uniqueRaceProvider} atomic-batch unique races: commands`, ()
   for (const id of uniqueRaceIds) {
     it(id, async () => {
       const baseline = await runUniqueRaceScenario(id);
-      const candidate = await runUniqueRaceScenario(id, createCommandEngine);
+      const candidate = await runUniqueRaceScenario(
+        id,
+        createTestCommandEngine
+      );
       assertEquivalentRunObservations(
         id,
         id === "g2-race-wrong-insert-same-constraint"

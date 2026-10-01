@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import type { ScenarioDefinition } from "./harness/protocol";
 import { verifyG0Pair } from "./harness/replay";
@@ -63,7 +63,7 @@ describe("Raptor 3 grouped pagination: commands", () => {
       const baseline = await runSQLiteWorld(scenario, profile, 0);
       baseline.fixture.assert(baseline.observation);
       const candidate = await runSQLiteWorld(scenario, profile, 0, {
-        candidateFactory: createCommandEngine,
+        candidateFactory: createTestCommandEngine,
       });
       verifyG0Pair(baseline, candidate);
     });

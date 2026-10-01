@@ -5,10 +5,13 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import { NestedWriteAssertionError, NestedWriteError } from "@errors";
 import { attributeOperationBatchError } from "@query-engine/batch-error-attribution";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { PreparedBatchGuard } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -132,14 +135,14 @@ const dialectCases: DialectCase[] = [
 ];
 
 function createEngine(dialectCase: DialectCase): {
-  engine: QueryEngine;
+  engine: TestQueryEngine;
   driver: SqlOnlyDriver;
   adapter: DatabaseAdapter;
 } {
   const adapter = dialectCase.createAdapter();
   const driver = new SqlOnlyDriver(adapter, dialectCase.dialect);
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-  return { engine: new QueryEngine(driver, registry), driver, adapter };
+  return { engine: new TestQueryEngine(driver, registry), driver, adapter };
 }
 
 /** One guard whose premise HOLDS on re-probe — the post-rollback shape. */

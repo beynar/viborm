@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, it } from "vitest";
 import { captureRaptor3Identity } from "../../scripts/raptor3-manifest.mjs";
 import { G0_PROFILES } from "./profiles";
@@ -60,7 +60,7 @@ for (const profile of G0_PROFILES) {
       generatedTransitions(recipe),
       profile,
       recipe.seed,
-      { candidateFactory: createCommandEngine, candidateName: "commands" }
+      { candidateFactory: createTestCommandEngine, candidateName: "commands" }
     );
     world.fixture.assert(world.observation);
     const [primary, ...following] = world.observation.defaults;

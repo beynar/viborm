@@ -3,7 +3,7 @@
  * The G4 RF-16 recursive-read cells, shared by the two entries of one
  * projection: `read-recursive-fit.test.ts` reads through the shipped client's
  * `findMany`, `unit02/recursive-codec-fit.test.ts` through
- * `createCommandEngine(...).execute`, the engine entry the client routes to.
+ * `createTestCommandEngine(...).execute`, over the engine entry the client routes to.
  * Each file registers the same three cells under its own identity by passing
  * its entry to {@link describeRecursiveFit}.
  *

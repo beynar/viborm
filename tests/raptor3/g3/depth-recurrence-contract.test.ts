@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -41,7 +41,7 @@ describe("G3 C11 recursive body instantiation", () => {
       const client = createClient({ schema, driver });
       const migration = await syncLiveSchema(client);
       assert.equal(migration.applied, true);
-      const candidate = createCommandEngine({ schema, driver });
+      const candidate = createTestCommandEngine({ schema, driver });
       try {
         await candidate.execute("node", "create", {
           data: {
@@ -132,7 +132,7 @@ describe("G3 C11 cross-shape recurrence", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     try {
       await candidate.execute("warehouse", "create", {
         data: {
@@ -212,7 +212,7 @@ describe("G3 C11 cross-shape recurrence", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     try {
       await client.book.create({
         data: {

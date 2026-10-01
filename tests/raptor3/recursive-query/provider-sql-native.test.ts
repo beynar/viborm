@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import {
   liveProvider,
@@ -138,7 +138,7 @@ async function runWorld(world: RecursiveWorld): Promise<void> {
   const live = await runLiveWorld(
     fixture,
     nativeDefinitions(world.tables),
-    createCommandEngine,
+    createTestCommandEngine,
   );
   if (live.terminalFailure !== undefined) throw live.terminalFailure;
   fixture.assert(live.observation);
@@ -194,7 +194,7 @@ describe(`recursive relation provider SQL on native ${liveProvider}`, () => {
     const world = await runLiveWorld(
       fixture,
       nativeDefinitions(PLACEMENT_MATRIX_TABLES),
-      createCommandEngine,
+      createTestCommandEngine,
     );
     if (world.terminalFailure !== undefined) throw world.terminalFailure;
     fixture.assert(world.observation);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { v } from "@validation";
@@ -191,7 +191,7 @@ function compositionArgs(limit: number) {
 async function runComposition(hasHolder: boolean): Promise<void> {
   const world = await compositionWorld(hasHolder);
   try {
-    const rows = await createCommandEngine({
+    const rows = await createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     }).execute("shelf", "updateMany", compositionArgs(1));
@@ -260,7 +260,7 @@ it("CS-01 composition keeps the untaken choice arm inert while returning trigger
 it("CS-01 composition keeps limit zero SQL-free across selection, series, and choice", async () => {
   const world = await compositionWorld(true);
   try {
-    const rows = await createCommandEngine({
+    const rows = await createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     }).execute("shelf", "updateMany", compositionArgs(0));
@@ -289,7 +289,7 @@ it("CS-01 composition reaches the nested series, choice, and trigger-driven resu
   const world = await compositionWorld(false);
   try {
     const { limit: _limit, select: _select, ...args } = compositionArgs(1);
-    const result = await createCommandEngine({
+    const result = await createTestCommandEngine({
       schema: world.schema,
       driver: world.driver,
     }).execute("shelf", "updateMany", { ...args, where: { id: "s1" } });

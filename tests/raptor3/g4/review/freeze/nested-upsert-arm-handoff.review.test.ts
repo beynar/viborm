@@ -33,9 +33,9 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { Operations } from "@client/types";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -117,7 +117,7 @@ async function run(
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper called only from cells.
   assert.equal((await syncLiveSchema(client)).applied, true);
   database.exec(SEED);
-  const candidate = createCommandEngine({ schema: armSchema, driver });
+  const candidate = createTestCommandEngine({ schema: armSchema, driver });
   let answer: string;
   try {
     const value =

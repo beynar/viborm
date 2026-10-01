@@ -8,9 +8,12 @@
  * Run: pnpm bench
  */
 import { PgDriver } from "@drivers/pg";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { bench, describe } from "vitest";
 
@@ -49,7 +52,7 @@ const driver = new PgDriver();
 const schema = { Author, Post, Tag };
 hydrateSchemaNames(schema);
 const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-const engine = new QueryEngine(driver, registry);
+const engine = new TestQueryEngine(driver, registry);
 
 // written to by the baseline bench so the object is never dead-code eliminated
 const sink: { sql: string; params: unknown[] }[] = [];
