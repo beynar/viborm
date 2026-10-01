@@ -2,20 +2,17 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import type { AnyDriver } from "@drivers";
 import { QueryEngineError } from "@errors";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
-import { getModelKeyCatalog, type AnyModel } from "@schema/model";
+import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import {
-  clearableMembership,
   type ClearableMembership,
+  clearableMembership,
 } from "@schema/relation/clearability";
-import type { ResolvedSlot } from "@schema/validation/relation-resolution";
-import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { validateClientSchemaOrThrow } from "@schema/validation";
+import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { createResolvedSchemaRegistry } from "@validation/builder";
+import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { isRecord } from "@validation/value-guards";
-import {
-  parseValidated,
-  upsertEnvelopeSchema,
-} from "./parse-boundary";
+import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
 import {
   buildMembershipView,
@@ -182,7 +179,10 @@ export class EngineSchema {
     ResolvedSlot,
     ClearableMembership
   >();
-  constructor(readonly schema: Schema, resolved?: ResolvedSchemaViews) {
+  constructor(
+    readonly schema: Schema,
+    resolved?: ResolvedSchemaViews
+  ) {
     if (resolved) {
       this.index = resolved.index;
       this.registry = resolved.registry;

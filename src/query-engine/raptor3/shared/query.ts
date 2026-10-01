@@ -31,6 +31,10 @@ import type { ResolvedJunctionSide } from "@schema/relation/junction-topology";
 import type { Scalar } from "@schema/scalars/base";
 import type { ScalarState } from "@schema/scalars/common";
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
+import type {
+  ResolvedSlot,
+  ResolvedVariantEdge,
+} from "@schema/validation/relation-resolution";
 import { Sql, sql } from "@sql";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
@@ -359,6 +363,8 @@ type PreparedOperand =
  * inside one, and an aggregate over a column are three targets of the SAME
  * operator vocabulary — `where` and `having` never interpret operators twice.
  */
+/** A scalar column's declared state, as the lowering reads it. */
+type ScalarStateOf = PreparedScalar["physical"]["scalar"]["~"]["state"];
 type PreparedTarget =
   | {
       readonly kind: "column";
@@ -959,6 +965,22 @@ export class Queries {
         encodeIdentifier(id, value, field),
         id.representation
       );
+    switch (state.type) {
+      case "decimal":
+      case "json":
+      case "point":
+      case "vector":
+      case "datetime":
+      case "date":
+        return this.typedScalarValue(scalar, value, field);
+      default:
+        return a.literals.value(value);
+    }
+  }
+  /** The scalars whose operand spelling depends on their type, out of line. */
+  private typedScalarValue(scalar: Scalar, value: unknown, field: string): Sql {
+    const a = this.adapter;
+    const state = scalar["~"].state;
     // A single value bound against a LIST field is one MEMBER of that field's
     // container (`has` is the operator that asks for one), and a container
     // carries what it was WRITTEN with — the same fact {@link nativeType}
@@ -1044,29 +1066,36 @@ export class Queries {
     const column = this.column(model, field, alias);
     const leaf = this.scalarShape(model, field);
     const state = physicalField(this.schema, model, field).scalar["~"].state;
+    if (
+      state.type === "decimal" ||
+      (state.type === "point" && state.array !== true)
+    )
+      return this.projectedTypedColumn(state, column);
+    return transportedIdentifier(this.adapter, leaf.id, column, leaf.nullable);
+  }
+  /** A decimal or point column's projection spelling, out of line. */
+  private projectedTypedColumn(state: ScalarStateOf, column: Sql): Sql {
     if (state.type === "decimal")
       return state.array === true
         ? this.adapter.arrays.decimalProjection(column)
         : this.adapter.expressions.cast(column, "text");
-    if (state.type === "point" && state.array !== true) {
-      const geoPoint = this.geoPoint("projection");
-      const projected = this.adapter.json.objectFromColumns([
-        ["longitude", geoPoint.longitude(column)],
-        ["latitude", geoPoint.latitude(column)],
-      ]);
-      return state.nullable
-        ? this.adapter.expressions.caseWhen(
-            [
-              {
-                when: this.adapter.operators.isNull(column),
-                then: this.adapter.literals.null(),
-              },
-            ],
-            projected
-          )
-        : projected;
-    }
-    return transportedIdentifier(this.adapter, leaf.id, column, leaf.nullable);
+    // A scalar point: a JSON document of its two coordinates.
+    const geoPoint = this.geoPoint("projection");
+    const projected = this.adapter.json.objectFromColumns([
+      ["longitude", geoPoint.longitude(column)],
+      ["latitude", geoPoint.latitude(column)],
+    ]);
+    return state.nullable
+      ? this.adapter.expressions.caseWhen(
+          [
+            {
+              when: this.adapter.operators.isNull(column),
+              then: this.adapter.literals.null(),
+            },
+          ],
+          projected
+        )
+      : projected;
   }
   /**
    * A projected value carried INSIDE a JSON document. A value that is already
@@ -1865,6 +1894,16 @@ export class Queries {
         insensitive,
         positive
       );
+    return this.prepareOperatorFilter(target, value, insensitive, positive);
+  }
+  /** An operator object (`{ gt: 1, not: … }`), out of line from the shorthand. */
+  private prepareOperatorFilter(
+    target: PreparedTarget,
+    value: unknown,
+    insensitive: boolean,
+    positive: boolean
+  ): PreparedPredicate {
+    const state = target.scalar?.physical.scalar["~"].state;
     const filter = record(value);
     // D-22. A JSON filter's own `mode` wins in BOTH directions — a declared
     // `default` really does restore exact matching on that arm — while a
@@ -1993,6 +2032,13 @@ export class Queries {
     value: unknown
   ): PreparedOperand {
     if (!isFieldRef(value)) return { kind: "value", value };
+    return this.prepareFieldOperand(owner, value);
+  }
+  /** A field-reference operand, out of line: most operands are values. */
+  private prepareFieldOperand(
+    owner: PreparedScalar,
+    value: Parameters<typeof fieldRefPayload>[0]
+  ): PreparedOperand {
     const { model } = owner;
     const payload = fieldRefPayload(value);
     const scope = model["~"].names.ts ?? "unknown";
@@ -2365,7 +2411,6 @@ export class Queries {
           : this.value(member.value);
       return fold ? a.expressions.asciiCaseFold(literal) : literal;
     };
-    const members = () => predicate.operands ?? [];
     switch (operator) {
       case "equals": {
         const single = operand!;
@@ -2387,6 +2432,52 @@ export class Queries {
           return a.operators.exactTextEq(column, bind(single));
         return a.operators.eq(comparableColumn(single), bind(single));
       }
+      case "lt":
+      case "lte":
+      case "gt":
+      case "gte":
+        return a.operators[operator](column, bind(operand!));
+      default:
+        return this.lowerOtherOperation(predicate, {
+          column,
+          folded,
+          insensitive,
+          text,
+          exact,
+          bind,
+          state,
+        });
+    }
+  }
+  /**
+   * The less common filter operators, kept out of {@link lowerOperation} so a
+   * first query that compares by equality never compiles them.
+   */
+  private lowerOtherOperation(
+    predicate: Extract<PreparedPredicate, { kind: "operation" }>,
+    {
+      column,
+      folded,
+      insensitive,
+      text,
+      exact,
+      bind,
+      state,
+    }: {
+      column: Sql;
+      folded: Sql;
+      insensitive: boolean;
+      text: boolean;
+      exact: (expression: Sql) => Sql;
+      bind: (member: PreparedOperand, fold?: boolean) => Sql;
+      state: ScalarStateOf | undefined;
+    }
+  ): Sql {
+    const a = this.adapter;
+    const { operator, operand } = predicate;
+    const scalar = predicate.target.scalar;
+    const members = () => predicate.operands ?? [];
+    switch (operator) {
       case "in":
       case "notIn": {
         const negated = operator === "notIn";
@@ -2409,11 +2500,6 @@ export class Queries {
           ? a.operators.exactTextIn(column, list)
           : a.operators.in(column, list);
       }
-      case "lt":
-      case "lte":
-      case "gt":
-      case "gte":
-        return a.operators[operator](column, bind(operand!));
       case "contains":
         return insensitive
           ? a.operators.containsText(folded, bind(operand!, true))
@@ -2538,11 +2624,18 @@ export class Queries {
     value: unknown,
     id: IdentifierColumn | undefined
   ): Sql {
+    if (target.kind === "aggregate" && target.aggregate === "_sum")
+      return this.sumTargetValue(scalar, value, id);
+    return this.scalarValue(scalar.physical.scalar, value, scalar.field, id);
+  }
+  /** A `_sum` operand, out of line: only a decimal HAVING widens its cast. */
+  private sumTargetValue(
+    scalar: PreparedScalar,
+    value: unknown,
+    id: IdentifierColumn | undefined
+  ): Sql {
     const state = scalar.physical.scalar["~"].state;
-    const domain =
-      target.kind === "aggregate" && target.aggregate === "_sum"
-        ? exactDecimalDomain(state)
-        : undefined;
+    const domain = exactDecimalDomain(state);
     const operand = domain ? decimalSumOperand(value, domain) : undefined;
     // A value that is not an exact decimal is the ordinary binder's refusal.
     if (!domain || operand === undefined)
@@ -3428,6 +3521,18 @@ export class Queries {
           result: backward ? reversedRows : rowIdentity,
         };
       }
+      default:
+        return this.readAggregate(model, operation, args);
+    }
+  }
+  /** Counting and aggregate reads, out of line from the row reads above. */
+  private readAggregate(
+    model: AnyModel,
+    operation: Exclude<ReadOperation, "findUnique" | "findFirst" | "findMany">,
+    args: Arguments
+  ): Read {
+    // biome-ignore lint/style/useDefaultSwitchClause: the read operation union is exhaustive; a default would be dead code.
+    switch (operation) {
       case "count":
       case "exist": {
         const selected = args.select ? record(args.select) : undefined;
@@ -3714,6 +3819,121 @@ export class Queries {
       },
     };
   }
+  /** The `_count` member of a projection, out of line: most reads have none. */
+  private projectCounts(
+    model: AnyModel,
+    name: string,
+    selection: unknown,
+    fields: Record<string, Shape | Leaf>,
+    prepared: PreparedProjectionField[]
+  ): void {
+    const counts = this.prepareCounts(model, selection);
+    // An empty count SELECTION contributes no field at all: the shipped
+    // engine pushed the `_count` pair only `if (relationCountPairs.length
+    // > 0)` (`select-builder.ts:418`), so `_count: true` on a model with
+    // no to-many relation publishes no `_count` key rather than `{}`.
+    if (counts.length === 0) return;
+    fields[name] = Object.freeze({
+      kind: "object",
+      // A count carrier is a document the statement always builds: a
+      // provider that answers `null` here has not answered the question,
+      // and an object shape that carried no nullability let that `null`
+      // reach a caller whose type says `{ children: number }`.
+      nullable: false,
+      fields: Object.freeze(
+        Object.fromEntries(counts.map((count) => [count.relation, COUNT_LEAF]))
+      ),
+    });
+    prepared.push(Object.freeze({ kind: "counts", name, counts }));
+  }
+  /** A selected `_distance`, out of line: most reads select none. */
+  private projectDistance(
+    model: AnyModel,
+    name: string,
+    distance: unknown,
+    distanceSelected: boolean,
+    fields: Record<string, Shape | Leaf>,
+    prepared: PreparedProjectionField[]
+  ): void {
+    if (distanceSelected) throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
+    // The output key `_distance` is the distance's alone: schema
+    // validation refuses a member of that name (F010).
+    prepared.push(
+      Object.freeze({
+        kind: "distance",
+        name: DISTANCE_FIELD,
+        field: name,
+        specification: record(distance),
+      })
+    );
+    fields[DISTANCE_FIELD] = this.distanceLeaf(model, name);
+  }
+  /** A polymorphic slot's projection, out of line: most reads have none. */
+  private projectVariants(
+    model: AnyModel,
+    name: string,
+    resolved: ResolvedSlot,
+    selection: unknown,
+    fields: Record<string, Shape | Leaf>,
+    prepared: PreparedProjectionField[]
+  ): void {
+    // The caller dispatched on a variant carrier; the closure below loses that.
+    const edge = resolved.edge as ResolvedVariantEdge;
+    const many = edge.kind === "variantJunctionCarrier";
+    // A junction-carried slot's arm is a collection of its rows; a row
+    // carrier's arm is the target's document.
+    const collections: Record<string, CollectionShape> = {};
+    const documents: Record<string, Shape> = {};
+    const preparedArms: ({
+      readonly variant: string;
+    } & PreparedRelationProjection)[] = [];
+    // The integrity probe's subjects: every configured member of a
+    // junction-carried slot. A ROW carrier states its own claim on the
+    // parent row, which the arm document already answers (D-19).
+    const memberships = many
+      ? edge.members.map((member) => ({
+          variant: member.variant,
+          edge: bindMembership(this.schema, model, name, member.variant),
+        }))
+      : [];
+    // Which arms are read, and with which node, is `selectedArm`'s one
+    // rule, shared with the schema-only result shape.
+    for (const member of edge.members) {
+      const arm = selectedArm(selection, many, member.variant);
+      if (arm === undefined) continue;
+      const nested = this.prepareRelationProjection(
+        bindMembership(this.schema, model, name, member.variant),
+        arm
+      );
+      if (many) collections[member.variant] = this.collectionShape(nested);
+      else documents[member.variant] = this.relationShape(nested);
+      preparedArms.push(Object.freeze({ variant: member.variant, ...nested }));
+    }
+    fields[name] = Object.freeze(
+      many
+        ? {
+            kind: "variants",
+            relation: name,
+            many,
+            arms: Object.freeze(collections),
+          }
+        : {
+            kind: "variants",
+            relation: name,
+            many,
+            arms: Object.freeze(documents),
+          }
+    );
+    prepared.push(
+      Object.freeze({
+        kind: "variants",
+        name,
+        many,
+        arms: Object.freeze(preparedArms),
+        memberships: Object.freeze(memberships),
+      })
+    );
+  }
   /**
    * One immutable alias-free projection description and decoder shape.
    *
@@ -3745,46 +3965,22 @@ export class Queries {
       // `_count` is the relation-count key and nothing else: schema
       // validation refuses a member of that name (F010).
       if (name === "_count") {
-        const counts = this.prepareCounts(model, selection);
-        // An empty count SELECTION contributes no field at all: the shipped
-        // engine pushed the `_count` pair only `if (relationCountPairs.length
-        // > 0)` (`select-builder.ts:418`), so `_count: true` on a model with
-        // no to-many relation publishes no `_count` key rather than `{}`.
-        if (counts.length === 0) continue;
-        fields[name] = Object.freeze({
-          kind: "object",
-          // A count carrier is a document the statement always builds: a
-          // provider that answers `null` here has not answered the question,
-          // and an object shape that carried no nullability let that `null`
-          // reach a caller whose type says `{ children: number }`.
-          nullable: false,
-          fields: Object.freeze(
-            Object.fromEntries(
-              counts.map((count) => [count.relation, COUNT_LEAF])
-            )
-          ),
-        });
-        prepared.push(Object.freeze({ kind: "counts", name, counts }));
+        this.projectCounts(model, name, selection, fields, prepared);
         continue;
       }
       if (!model["~"].state.relations[name]) {
         const distance =
           selection === true ? undefined : record(selection)._distance;
         if (distance !== undefined) {
-          if (distanceSelected)
-            throw new QueryEngineError(DISTANCE_SELECTED_TWICE);
-          // The output key `_distance` is the distance's alone: schema
-          // validation refuses a member of that name (F010).
-          distanceSelected = true;
-          prepared.push(
-            Object.freeze({
-              kind: "distance",
-              name: DISTANCE_FIELD,
-              field: name,
-              specification: record(distance),
-            })
+          this.projectDistance(
+            model,
+            name,
+            distance,
+            distanceSelected,
+            fields,
+            prepared
           );
-          fields[DISTANCE_FIELD] = this.distanceLeaf(model, name);
+          distanceSelected = true;
           continue;
         }
       }
@@ -3799,61 +3995,13 @@ export class Queries {
         (resolved.edge.kind === "variantRowCarrier" ||
           resolved.edge.kind === "variantJunctionCarrier")
       ) {
-        const many = resolved.edge.kind === "variantJunctionCarrier";
-        // A junction-carried slot's arm is a collection of its rows; a row
-        // carrier's arm is the target's document.
-        const collections: Record<string, CollectionShape> = {};
-        const documents: Record<string, Shape> = {};
-        const preparedArms: ({
-          readonly variant: string;
-        } & PreparedRelationProjection)[] = [];
-        // The integrity probe's subjects: every configured member of a
-        // junction-carried slot. A ROW carrier states its own claim on the
-        // parent row, which the arm document already answers (D-19).
-        const memberships = many
-          ? resolved.edge.members.map((member) => ({
-              variant: member.variant,
-              edge: bindMembership(this.schema, model, name, member.variant),
-            }))
-          : [];
-        // Which arms are read, and with which node, is `selectedArm`'s one
-        // rule, shared with the schema-only result shape.
-        for (const member of resolved.edge.members) {
-          const arm = selectedArm(selection, many, member.variant);
-          if (arm === undefined) continue;
-          const nested = this.prepareRelationProjection(
-            bindMembership(this.schema, model, name, member.variant),
-            arm
-          );
-          if (many) collections[member.variant] = this.collectionShape(nested);
-          else documents[member.variant] = this.relationShape(nested);
-          preparedArms.push(
-            Object.freeze({ variant: member.variant, ...nested })
-          );
-        }
-        fields[name] = Object.freeze(
-          many
-            ? {
-                kind: "variants",
-                relation: name,
-                many,
-                arms: Object.freeze(collections),
-              }
-            : {
-                kind: "variants",
-                relation: name,
-                many,
-                arms: Object.freeze(documents),
-              }
-        );
-        prepared.push(
-          Object.freeze({
-            kind: "variants",
-            name,
-            many,
-            arms: Object.freeze(preparedArms),
-            memberships: Object.freeze(memberships),
-          })
+        this.projectVariants(
+          model,
+          name,
+          resolved,
+          selection,
+          fields,
+          prepared
         );
         continue;
       }
@@ -4066,30 +4214,18 @@ export class Queries {
     }
     return columns;
   }
-  private lowerProjectionField(
+  /** Count, distance and polymorphic members, out of line from plain columns. */
+  private lowerSpecialProjectionField(
     projection: PreparedProjection,
-    field: PreparedProjectionField,
+    field: Exclude<
+      PreparedProjectionField,
+      { kind: "scalar" | "sentinel" | "relation" }
+    >,
     alias?: string
   ): Sql {
     const a = this.adapter;
     let expression: Sql;
-    if (field.kind === "scalar") {
-      expression = this.projectedColumn(projection.model, field.name, alias);
-    } else if (field.kind === "sentinel") {
-      expression = a.expressions.cast(a.literals.value(1), "integer");
-    } else if (field.kind === "relation") {
-      expression = this.duplicateMembershipGuard(
-        field.edge,
-        alias ?? "",
-        field.recurrence
-          ? this.lowerRecursiveRelationProjection(
-              field,
-              field.recurrence,
-              alias ?? ""
-            )
-          : this.lowerRelationProjection(field, alias ?? "")
-      );
-    } else if (field.kind === "counts") {
+    if (field.kind === "counts") {
       expression = a.json.objectFromColumns(
         field.counts.map((count) => [
           count.relation,
@@ -4160,6 +4296,34 @@ export class Queries {
         }),
         ...integrity,
       ]);
+    }
+    return expression;
+  }
+  private lowerProjectionField(
+    projection: PreparedProjection,
+    field: PreparedProjectionField,
+    alias?: string
+  ): Sql {
+    const a = this.adapter;
+    let expression: Sql;
+    if (field.kind === "scalar") {
+      expression = this.projectedColumn(projection.model, field.name, alias);
+    } else if (field.kind === "sentinel") {
+      expression = a.expressions.cast(a.literals.value(1), "integer");
+    } else if (field.kind === "relation") {
+      expression = this.duplicateMembershipGuard(
+        field.edge,
+        alias ?? "",
+        field.recurrence
+          ? this.lowerRecursiveRelationProjection(
+              field,
+              field.recurrence,
+              alias ?? ""
+            )
+          : this.lowerRelationProjection(field, alias ?? "")
+      );
+    } else {
+      expression = this.lowerSpecialProjectionField(projection, field, alias);
     }
     return expression;
   }

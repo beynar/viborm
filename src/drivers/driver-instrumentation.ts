@@ -710,8 +710,20 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   protected async getClient(
     context: QueryExecutionContext = {}
   ): Promise<TClient | TTransaction> {
+    if (
+      this.transactionPoisonError ||
+      this.isDisconnecting ||
+      this.closeRetryClient !== null
+    )
+      throw this.unavailableClientError(context);
+    if (this.client) return this.client;
+    return await this.initializeClient(context);
+  }
+
+  /** Why the client cannot be used now, out of line from the usable path. */
+  private unavailableClientError(context: QueryExecutionContext): Error {
     if (this.transactionPoisonError) {
-      throw new TransactionError(
+      return new TransactionError(
         `Driver "${this.driverName}" is unavailable after transaction cleanup failed.`,
         {
           cause: this.transactionPoisonError,
@@ -725,7 +737,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       );
     }
     if (this.isDisconnecting) {
-      throw new ConnectionError("Database connection is closing", {
+      return new ConnectionError("Database connection is closing", {
         code: VibORMErrorCode.CONNECTION_CLOSED,
         diagnostics: this.getErrorDisclosure(context),
         meta: {
@@ -736,21 +748,22 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         },
       });
     }
-    if (this.closeRetryClient !== null) {
-      throw new ConnectionError("Database connection cleanup is incomplete", {
-        code: VibORMErrorCode.CONNECTION_CLOSED,
-        diagnostics: this.getErrorDisclosure(context),
-        meta: {
-          driver: this.driverName,
-          model: context.model,
-          operation: context.operation,
-          correlationId: context.correlationId,
-        },
-      });
-    }
+    return new ConnectionError("Database connection cleanup is incomplete", {
+      code: VibORMErrorCode.CONNECTION_CLOSED,
+      diagnostics: this.getErrorDisclosure(context),
+      meta: {
+        driver: this.driverName,
+        model: context.model,
+        operation: context.operation,
+        correlationId: context.correlationId,
+      },
+    });
+  }
 
-    if (this.client) return this.client;
-
+  /** The first connection, out of line from the connected path. */
+  private async initializeClient(
+    context: QueryExecutionContext
+  ): Promise<TClient | TTransaction> {
     if (!this.initPromise) {
       this.initPromise = Promise.resolve()
         .then(() => this.initClient())

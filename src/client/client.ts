@@ -1079,6 +1079,105 @@ export class VibORM<C extends VibORMConfig> {
     }
     const client = this.createClient(engine, methods?.models, clientOmit);
 
+    // Every utility member is `$`-named or a symbol; a model name never is, so
+    // model access is answered first and the utilities are compiled only when
+    // one is read.
+    const member = (target: Client<C>, prop: string | symbol): unknown => {
+      if (prop === "$driver") return engine.driver;
+      if (prop === "$schema") return this.schema;
+      if (isRawMethodName(prop)) {
+        rawSurface ??= this.rawSurface(engine);
+        return rawSurface[prop];
+      }
+      if (prop === "$transaction") {
+        return (
+          transaction ?? this.createTransaction<X>(engine, chain, clientOmit)
+        );
+      }
+      if (prop === "$extends") {
+        return (extension: ClientExtension) => {
+          const extensionChain = appendResolvedExtension(
+            chain,
+            extension,
+            this.schema
+          );
+          // The one point that holds both the resolved chain and the concrete
+          // driver, so the one point that can partition the official cache by
+          // this client's dialect and SQL namespace. A chain without the
+          // official cache makes no call at all.
+          if (extensionChain.hasCache) {
+            bindOfficialCacheChain(extensionChain, engine.driver);
+          }
+          return this.createRootView(
+            engine.bind(engine.driver, extensionChain),
+            extensionChain
+          );
+        };
+      }
+
+      if (prop === "$connect") {
+        return () =>
+          engine.driver._connect(
+            createOperationExecutionContext(
+              "$connection",
+              "$connect",
+              engine.extensionChain
+            )
+          );
+      }
+
+      if (prop === "$disconnect") {
+        return disconnect;
+      }
+
+      // `await using client = createClient({ ... })`. Guarded on the resolved
+      // runtime key so that on an engine without the protocol nothing here
+      // ever matches — and the property falls through to `undefined`, which
+      // is what the absence of disposal support should look like.
+      if (ASYNC_DISPOSE !== undefined && prop === ASYNC_DISPOSE) {
+        return disconnect;
+      }
+
+      if (prop === "$withCache") {
+        const officialCache = getOfficialCacheChainCapability(
+          engine.extensionChain
+        );
+        if (officialCache === undefined) return undefined;
+        return (cacheConfig?: WithCacheOptions) =>
+          this.withCache(engine, officialCache, clientOmit, cacheConfig);
+      }
+
+      if (prop === "$invalidate") {
+        const officialCache = getOfficialCacheChainCapability(
+          engine.extensionChain
+        );
+        if (officialCache === undefined) return undefined;
+        return async (...keys: string[]) => {
+          await invalidateManualCache(
+            officialCache.driver,
+            keys,
+            createOperationExecutionContext(
+              "$cache",
+              "$invalidate",
+              engine.extensionChain
+            ),
+            officialCache.scope
+          );
+        };
+      }
+
+      if (
+        typeof prop === "string" &&
+        prop.startsWith("$") &&
+        !Object.hasOwn(this.schema, prop)
+      ) {
+        return undefined;
+      }
+
+      // Model operations
+      return Reflect.get(target, prop);
+    };
+
     // Create proxy that combines model operations with utility methods.
     return new Proxy(client, {
       get: (target, prop) => {
@@ -1089,99 +1188,9 @@ export class VibORM<C extends VibORMConfig> {
         ) {
           return methods.client[prop];
         }
-        if (prop === "$driver") return engine.driver;
-        if (prop === "$schema") return this.schema;
-        if (isRawMethodName(prop)) {
-          rawSurface ??= this.rawSurface(engine);
-          return rawSurface[prop];
-        }
-        if (prop === "$transaction") {
-          return (
-            transaction ?? this.createTransaction<X>(engine, chain, clientOmit)
-          );
-        }
-        if (prop === "$extends") {
-          return (extension: ClientExtension) => {
-            const extensionChain = appendResolvedExtension(
-              chain,
-              extension,
-              this.schema
-            );
-            // The one point that holds both the resolved chain and the concrete
-            // driver, so the one point that can partition the official cache by
-            // this client's dialect and SQL namespace. A chain without the
-            // official cache makes no call at all.
-            if (extensionChain.hasCache) {
-              bindOfficialCacheChain(extensionChain, engine.driver);
-            }
-            return this.createRootView(
-              engine.bind(engine.driver, extensionChain),
-              extensionChain
-            );
-          };
-        }
-
-        if (prop === "$connect") {
-          return () =>
-            engine.driver._connect(
-              createOperationExecutionContext(
-                "$connection",
-                "$connect",
-                engine.extensionChain
-              )
-            );
-        }
-
-        if (prop === "$disconnect") {
-          return disconnect;
-        }
-
-        // `await using client = createClient({ ... })`. Guarded on the resolved
-        // runtime key so that on an engine without the protocol nothing here
-        // ever matches — and the property falls through to `undefined`, which
-        // is what the absence of disposal support should look like.
-        if (ASYNC_DISPOSE !== undefined && prop === ASYNC_DISPOSE) {
-          return disconnect;
-        }
-
-        if (prop === "$withCache") {
-          const officialCache = getOfficialCacheChainCapability(
-            engine.extensionChain
-          );
-          if (officialCache === undefined) return undefined;
-          return (cacheConfig?: WithCacheOptions) =>
-            this.withCache(engine, officialCache, clientOmit, cacheConfig);
-        }
-
-        if (prop === "$invalidate") {
-          const officialCache = getOfficialCacheChainCapability(
-            engine.extensionChain
-          );
-          if (officialCache === undefined) return undefined;
-          return async (...keys: string[]) => {
-            await invalidateManualCache(
-              officialCache.driver,
-              keys,
-              createOperationExecutionContext(
-                "$cache",
-                "$invalidate",
-                engine.extensionChain
-              ),
-              officialCache.scope
-            );
-          };
-        }
-
-        if (
-          typeof prop === "string" &&
-          prop.startsWith("$") &&
-          !Object.hasOwn(this.schema, prop)
-        ) {
-          return undefined;
-        }
-
-        // Model operations
-        return Reflect.get(target, prop);
+        if (typeof prop === "string" && !prop.startsWith("$"))
+          return Reflect.get(target, prop);
+        return member(target, prop);
       },
     }) as VibORMClient<C, X>;
   }

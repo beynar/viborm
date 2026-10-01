@@ -142,7 +142,16 @@ export function admitNativeType(
   builder: string,
   declaration: NativeTypeDeclaration | undefined
 ): NativeTypeDeclaration | undefined {
-  if (declaration === undefined) return undefined;
+  return declaration === undefined
+    ? undefined
+    : admitDeclaredNativeType(builder, declaration);
+}
+
+/** A declared native type, out of line: most scalars declare none. */
+function admitDeclaredNativeType(
+  builder: string,
+  declaration: NativeTypeDeclaration
+): NativeTypeDeclaration {
   if (!isRecord(declaration)) {
     refuse(
       builder,

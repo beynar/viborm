@@ -166,12 +166,12 @@ export class Selection {
         storedFields(execution.context.schema, model).map((field) => [
           field,
           true,
-        ]),
+        ])
       ),
     });
     this.identityProjection = queries.prepareProjection(model, {
       select: Object.fromEntries(
-        execution.context.schema.keys(model).map((field) => [field, true]),
+        execution.context.schema.keys(model).map((field) => [field, true])
       ),
     });
   }
@@ -202,7 +202,7 @@ export class Selection {
     selector: PreparedSelector,
     membership: BoundMembership | undefined,
     identity?: Input,
-    unlocked = false,
+    unlocked = false
   ) {
     const ctx = this.execution.context;
     return ctx.queries.select(
@@ -216,7 +216,7 @@ export class Selection {
         identity,
         projection: this.rowProjection,
         selector,
-      },
+      }
     );
   }
   /**
@@ -264,18 +264,13 @@ export class Selection {
    */
   unrepresentable(field: string) {
     const ctx = this.execution.context;
-    return ctx.queries.select(
-      this.model,
-      { take: 1 },
-      undefined,
-      {
-        condition: ctx.driver.adapter.operators.isNull(
-          ctx.queries.column(this.model, field),
-        ),
-        identity: this.execution.identity(this.fields),
-        projection: this.identityProjection,
-      },
-    );
+    return ctx.queries.select(this.model, { take: 1 }, undefined, {
+      condition: ctx.driver.adapter.operators.isNull(
+        ctx.queries.column(this.model, field)
+      ),
+      identity: this.execution.identity(this.fields),
+      projection: this.identityProjection,
+    });
   }
   /**
    * The rows the selector names OUTSIDE the membership: a batch premise of
@@ -288,7 +283,7 @@ export class Selection {
       this.model,
       { take: 1 },
       bound && { ...bound, outside: true },
-      { projection: this.identityProjection, selector: this.selector },
+      { projection: this.identityProjection, selector: this.selector }
     );
   }
   query() {
@@ -300,7 +295,7 @@ export class Selection {
       this.selector,
       this.membership(),
       identity,
-      this.insertsWhenAbsent,
+      this.insertsWhenAbsent
     );
   }
   /**
@@ -334,7 +329,7 @@ export class Selection {
         identity: this.execution.identity(this.fields),
         projection: this.identityProjection,
         selector: condition.selector,
-      },
+      }
     );
   }
 }

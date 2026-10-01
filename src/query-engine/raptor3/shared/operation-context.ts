@@ -873,9 +873,25 @@ export class OperationContext {
    * `restarts === 1`, every row written once).
    */
   async run<T>(body: () => Promise<T>, single = false): Promise<T> {
+    if (
+      !(
+        this.ownership === "batch-preparation" ||
+        isReadOperation(this.operation)
+      )
+    )
+      return await this.runWrite(body, single);
     try {
-      if (this.ownership === "batch-preparation") return await body();
-      if (isReadOperation(this.operation)) return await body();
+      return await body();
+    } catch (error) {
+      throw this.runFailure(error);
+    }
+  }
+  /** A write's envelope, out of line from reads, which need none. */
+  private async runWrite<T>(
+    body: () => Promise<T>,
+    single: boolean
+  ): Promise<T> {
+    try {
       if (!single) this.requireAtomicUnit();
       const region = this.region();
       if (!region) return await this.batchAttempt(body);
@@ -889,25 +905,29 @@ export class OperationContext {
       this.restart();
       return await this.regionAttempt(region, body);
     } catch (error) {
-      // A record series is a COMMITTED SEGMENT of this operation's own writes,
-      // and nothing else asked here: a generated-output continuation is
-      // declared behind the segment that published the identity it re-pins
-      // ({@link insert}), so that segment is already counted, while a premise —
-      // the parent a membership correlates on — is declared ahead of every
-      // segment and is not a member of any series. Asking about continuations
-      // instead published a series' progress for an ordinary UPDATE that had
-      // committed nothing (`tests/raptor3/g2-transport.test.ts`, "An ordinary
-      // UPDATE must retain only acknowledged progress").
-      if (
-        error instanceof InvalidScalarResult ||
-        (this.usesBatch && this.committedSegments > 0)
-      )
-        throw this.failure(
-          error,
-          error instanceof InvalidScalarResult ? "result" : "member"
-        );
-      throw error;
+      throw this.runFailure(error);
     }
+  }
+  /** What {@link run} raises for a failure of its body. */
+  private runFailure(error: unknown): unknown {
+    // A record series is a COMMITTED SEGMENT of this operation's own writes,
+    // and nothing else asked here: a generated-output continuation is
+    // declared behind the segment that published the identity it re-pins
+    // ({@link insert}), so that segment is already counted, while a premise —
+    // the parent a membership correlates on — is declared ahead of every
+    // segment and is not a member of any series. Asking about continuations
+    // instead published a series' progress for an ordinary UPDATE that had
+    // committed nothing (`tests/raptor3/g2-transport.test.ts`, "An ordinary
+    // UPDATE must retain only acknowledged progress").
+    if (
+      error instanceof InvalidScalarResult ||
+      (this.usesBatch && this.committedSegments > 0)
+    )
+      return this.failure(
+        error,
+        error instanceof InvalidScalarResult ? "result" : "member"
+      );
+    return error;
   }
   /**
    * The pre-dispatch capability gate, on the construction path and before the
@@ -1187,41 +1207,47 @@ export class OperationContext {
       this.ownership === "standalone" && read.value.kind === "collection"
         ? resolvePositionalResultDriver(this.transport)
         : undefined;
-    if (positional) {
-      const response = await this.dispatch(1, true, () =>
-        positional(read.query.sql, this.attribution)
-      );
-      if (
-        response.kind === "positional" &&
-        resolvePositionalResultDriver(this.transport) === positional
-      ) {
-        this.queries.assertExpectedRows(read.query, response.rows.length);
-        return this.decideRead(
-          read,
-          missing,
-          this.queries.decodeProjection(
-            read.query.shape,
-            response.rows,
-            false,
-            response.columns
-          )
-        );
-      }
-      const borrowed =
-        response.kind === "borrowed"
-          ? response.result
-          : borrowPositionalResult(response);
-      return this.decideRead(
-        read,
-        missing,
-        this.publishedTerminal([read.query], [borrowed.rows.map(record)])
-      );
-    }
+    if (positional) return this.publishPositional(read, missing, positional);
     const response = await this.answer(read.query, true);
     return this.decideRead(
       read,
       missing,
       this.publishedTerminal([read.query], [response.rows])
+    );
+  }
+  /** A collection read over the positional transport, out of line. */
+  private async publishPositional(
+    read: Read,
+    missing: (() => Error) | undefined,
+    positional: NonNullable<ReturnType<typeof resolvePositionalResultDriver>>
+  ): Promise<unknown> {
+    const response = await this.dispatch(1, true, () =>
+      positional(read.query.sql, this.attribution)
+    );
+    if (
+      response.kind === "positional" &&
+      resolvePositionalResultDriver(this.transport) === positional
+    ) {
+      this.queries.assertExpectedRows(read.query, response.rows.length);
+      return this.decideRead(
+        read,
+        missing,
+        this.queries.decodeProjection(
+          read.query.shape,
+          response.rows,
+          false,
+          response.columns
+        )
+      );
+    }
+    const borrowed =
+      response.kind === "borrowed"
+        ? response.result
+        : borrowPositionalResult(response);
+    return this.decideRead(
+      read,
+      missing,
+      this.publishedTerminal([read.query], [borrowed.rows.map(record)])
     );
   }
   /**

@@ -146,6 +146,19 @@ export function deriveIdDomains(
     MEMO.set(index, domains);
     return { domains, issues };
   }
+  return deriveDeclaredIdDomains(index, ctx, domains, issues);
+}
+
+/**
+ * The propagation itself, apart from {@link deriveIdDomains} so that a schema
+ * declaring no identifier domain never compiles it.
+ */
+function deriveDeclaredIdDomains(
+  index: ResolvedRelationIndex,
+  ctx: ValidationContext | undefined,
+  domains: Map<Model<any>, Map<string, IdDomain>>,
+  issues: SchemaValidationIssue[]
+): IdDomainDerivation {
   const graph = buildReferenceGraph(index);
   const settled = new Map<Model<any>, Map<string, IdDomain | undefined>>();
   // Tarjan's discovery index per field. Keyed by model IDENTITY, not by name:

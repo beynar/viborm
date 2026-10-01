@@ -577,6 +577,27 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         combineWriteNotifications(writeMayBeVisible, observerMayHaveCommitted)
       );
     }
+    return this.#runExtendedExecution(
+      handlers,
+      requestedOperation,
+      observerCommitted,
+      observerMayHaveCommitted,
+      driverOverride,
+      committedWriteSegment,
+      writeMayBeVisible
+    );
+  }
+
+  /** Query extensions and write-outcome registration, out of line. */
+  #runExtendedExecution(
+    handlers: ReturnType<typeof lookupResolvedExtensionHandlers>,
+    requestedOperation: string,
+    observerCommitted: (() => Promise<void>) | undefined,
+    observerMayHaveCommitted: (() => Promise<void>) | undefined,
+    driverOverride?: AnyDriver,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
+  ): Promise<T> {
     let preparedInput: Record<string, unknown>;
     try {
       preparedInput = this.#preparedInput();

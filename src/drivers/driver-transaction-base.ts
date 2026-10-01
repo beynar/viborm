@@ -71,8 +71,13 @@ export abstract class DriverTransactionBase<
   protected assertBaseOperationAllowedDuringTransaction(
     context: QueryExecutionContext
   ): void {
-    if (!this.isConnectionTransactionActive) return;
-    throw new TransactionError(
+    if (this.isConnectionTransactionActive)
+      throw this.transactionBoundError(context);
+  }
+
+  /** The refusal above, out of line: outside a transaction it never runs. */
+  private transactionBoundError(context: QueryExecutionContext): Error {
+    return new TransactionError(
       `Driver "${this.driverName}" cannot use the originating client while its single connection is transaction-bound. Use the transaction client supplied to the callback.`,
       {
         meta: {

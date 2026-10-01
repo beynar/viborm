@@ -1004,7 +1004,8 @@ export class RelationBody {
             ? target.found?.command.fields
             : undefined,
         requested:
-          !premise || (target.kind === "choose" && target.missing !== undefined),
+          !premise ||
+          (target.kind === "choose" && target.missing !== undefined),
       });
       if (contribution)
         this.commands.publishMembership(
