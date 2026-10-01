@@ -149,12 +149,13 @@ function normalizeD1Result<T>(
 // DRIVER IMPLEMENTATION
 // ============================================================
 
+// D1's authorizer refuses temporary objects (`SQLITE_AUTH`, the whole batch
+// rejected), witnessed by `tests/providers/workers/d1.test.ts`. The adapter is
+// immutable, so every D1 driver shares one.
+const d1Adapter = new SQLiteAdapter({ temporaryObjects: false });
+
 export class D1Driver extends Driver<D1Database, D1Database> {
-  // D1's authorizer refuses temporary objects (`SQLITE_AUTH`, the whole batch
-  // rejected), witnessed by `tests/providers/workers/d1.test.ts`.
-  readonly adapter: DatabaseAdapter = new SQLiteAdapter({
-    temporaryObjects: false,
-  });
+  readonly adapter: DatabaseAdapter = d1Adapter;
   readonly maxBindParametersPerStatement: number | undefined = 100;
   readonly result: DriverResultParser = sqliteResultParser;
   readonly supportsTransactions = false;

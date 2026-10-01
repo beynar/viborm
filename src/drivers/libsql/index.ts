@@ -5,7 +5,7 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { sqliteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -96,7 +96,8 @@ const libsqlRowCount = (
 // ============================================================
 
 export class LibSQLDriver extends Driver<Client, Client | Transaction> {
-  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
+  // The adapter is immutable, so every driver shares one.
+  readonly adapter: DatabaseAdapter = sqliteAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions: boolean;

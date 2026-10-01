@@ -322,17 +322,48 @@ class PreparedCommand implements PreparedOperation {
   }
 }
 
+/**
+ * Engines over the same resolved registry share one schema view and, per
+ * adapter and result parser, one query owner: both derive only from those
+ * inputs, so a client created per request reuses the warm per-model views
+ * instead of rebuilding them.
+ */
+const sharedEngines = new WeakMap<
+  object,
+  {
+    schema: EngineSchema;
+    queries: WeakMap<object, Map<object | undefined, Queries>>;
+  }
+>();
+
+function sharedQueries(config: EngineConfig): Queries {
+  const { adapter, result } = config.driver;
+  const key = config.resolved?.registry;
+  let shared = key && sharedEngines.get(key);
+  if (!shared) {
+    shared = {
+      schema: new EngineSchema(config.schema, config.resolved),
+      queries: new WeakMap(),
+    };
+    if (key) sharedEngines.set(key, shared);
+  }
+  let byResult = shared.queries.get(adapter);
+  if (!byResult) shared.queries.set(adapter, (byResult = new Map()));
+  let queries = byResult.get(result);
+  if (!queries) {
+    queries = new Queries(shared.schema, adapter, result);
+    byResult.set(result, queries);
+  }
+  return queries;
+}
+
 export function createCommandEngine(config: EngineConfig) {
-  const schema = new EngineSchema(config.schema, config.resolved);
-  // One engine-lifetime query owner for the prepared read. The adapter is pinned
-  // by identity across transaction scoping (`TransactionBoundDriver` copies
+  // One query owner for the prepared read. The adapter is pinned by identity
+  // across transaction scoping (`TransactionBoundDriver` copies
   // `baseDriver.adapter`), so the statement and shape prepared here are valid for
   // every binding of this driver's lineage.
-  const queries = new Queries(
-    schema,
-    config.driver.adapter,
-    config.driver.result
-  );
+  const queries = sharedQueries(config);
+  const { schema } = queries;
   const prepare = (
     modelName: string,
     requested: Operations,

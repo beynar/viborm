@@ -458,23 +458,19 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /**
-   * @param relations - the ONE resolved topology index the static factory's
-   *   gate produced, passed in by identity. The registry, an official
-   *   default-omit resolver, and every query scope share this exact object;
-   *   nothing here resolves a second time and nothing copies it (§10E.10,
-   *   §11.4.10).
+   * @param prepared - the ONE resolved topology index the static factory's
+   *   gate produced, and the registries over it, passed in by identity. The
+   *   registry, an official default-omit resolver, and every query scope share
+   *   this exact object; nothing here resolves a second time and nothing
+   *   copies it (§10E.10, §11.4.10).
    */
-  constructor(config: C, relations: ResolvedRelationIndex) {
+  constructor(
+    config: C,
+    { relations, schemaRegistry, registry }: PreparedSchema
+  ) {
     this.schema = config.schema as C["schema"];
     this.relations = relations;
 
-    // Create registry and engine once, reuse for all operations
-    const schemaRegistry = createResolvedSchemaRegistry(this.schema, relations);
-    const registry = createModelRegistry(
-      this.schema,
-      schemaRegistry,
-      relations
-    );
     // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
     // views above travel to it by identity, so the route's engine hydrates,
     // validates and registers nothing a second time (B-3).
@@ -1218,7 +1214,8 @@ export class VibORM<C extends VibORMConfig> {
     // ClientInitializationError instead of a bare Error; already-typed failures pass through
     // unchanged so their own code survives.
     const orm = assertConstructed(() => {
-      hydrateSchemaNames(config.schema);
+      const reused = reusablePreparation(config.schema);
+      if (!reused) hydrateSchemaNames(config.schema);
       // The selected adapter's physical capability, asked once here and before
       // any provider I/O (plan §3.1). A decimal domain no dialect could store is
       // a definition error, and the caller learns it at the line that bound the
@@ -1228,11 +1225,52 @@ export class VibORM<C extends VibORMConfig> {
       // ONE resolution for the whole client lifecycle: the gate's index goes
       // straight into the constructor, so the registry and query scopes are
       // composed over the same object (§11.4.10).
-      return new VibORM<C>(config, validateClientSchemaOrThrow(config.schema));
+      return new VibORM<C>(config, reused ?? prepareSchema(config.schema));
     });
 
     return orm.createRootView<EmptyClientExtensionState>(orm.engine, undefined);
   }
+}
+
+/** The driver-independent construction a client derives from its schema. */
+interface PreparedSchema {
+  readonly entries: readonly (readonly [string, unknown])[];
+  readonly relations: ResolvedRelationIndex;
+  readonly schemaRegistry: ReturnType<typeof createResolvedSchemaRegistry>;
+  readonly registry: ReturnType<typeof createModelRegistry>;
+}
+
+/**
+ * Clients over the same schema object share its validated, resolved views:
+ * they derive from the models alone, so a client created per request (one per
+ * Worker invocation) skips re-validating and rebuilding them. The entries are
+ * compared on reuse, so a schema object that gained or swapped a model since
+ * is prepared again.
+ */
+const preparedSchemas = new WeakMap<object, PreparedSchema>();
+
+function reusablePreparation(schema: Schema): PreparedSchema | undefined {
+  const prepared = preparedSchemas.get(schema);
+  if (!prepared) return;
+  const keys = Object.keys(schema);
+  if (keys.length !== prepared.entries.length) return;
+  for (const [index, [key, model]] of prepared.entries.entries()) {
+    if (keys[index] !== key || schema[key] !== model) return;
+  }
+  return prepared;
+}
+
+function prepareSchema(schema: Schema): PreparedSchema {
+  const relations = validateClientSchemaOrThrow(schema);
+  const schemaRegistry = createResolvedSchemaRegistry(schema, relations);
+  const prepared: PreparedSchema = {
+    entries: Object.entries(schema),
+    relations,
+    schemaRegistry,
+    registry: createModelRegistry(schema, schemaRegistry, relations),
+  };
+  preparedSchemas.set(schema, prepared);
+  return prepared;
 }
 
 /**
