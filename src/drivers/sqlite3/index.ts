@@ -63,6 +63,19 @@ const statementCaches = new WeakMap<
 >();
 const stockPrepare = Database.prototype.prepare;
 
+function hasUnsafeNumber(rows: unknown[][]): boolean {
+  for (const row of rows) {
+    for (const cell of row) {
+      if (
+        typeof cell === "number" &&
+        (cell > Number.MAX_SAFE_INTEGER || cell < Number.MIN_SAFE_INTEGER)
+      )
+        return true;
+    }
+  }
+  return false;
+}
+
 function cachedStatement(
   db: SQLite3Database,
   sql: string,
@@ -274,10 +287,17 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
           assertNormalizedQueryResult(borrowed, resultContext);
           return { kind: "borrowed", result: borrowed };
         }
-        prepared.safeIntegers(true);
         producer = client;
         const columns = prepared.columns().map((column) => column.name);
-        const rows = prepared.raw().all(...values);
+        // Numbers are cheaper than BigInts to fetch and decode. A cell past
+        // ±2^53 may have been rounded, so that read is repeated exactly; both
+        // reads run synchronously, and only the exact one is kept.
+        prepared.safeIntegers(false);
+        let rows = prepared.raw().all(...values) as unknown[][];
+        if (hasUnsafeNumber(rows)) {
+          prepared.safeIntegers(true);
+          rows = prepared.all(...values) as unknown[][];
+        }
         assertPositionalRows(rows, columns, resultContext);
         return { kind: "positional", rows, columns };
       }
