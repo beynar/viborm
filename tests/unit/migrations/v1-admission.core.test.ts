@@ -22,8 +22,10 @@ const schema = {
 };
 
 class UnpinnablePostgres extends RecordingDriver {
-  override _canPinSession(): boolean {
-    return false;
+  constructor(...args: ConstructorParameters<typeof RecordingDriver>) {
+    super(...args);
+    // The reservation hook's ABSENCE is the whole capability answer.
+    Object.defineProperty(this, "pinnedSession", { value: undefined });
   }
 }
 

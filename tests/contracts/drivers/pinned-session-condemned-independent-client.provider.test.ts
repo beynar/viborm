@@ -1,5 +1,6 @@
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { withPinnedSession } from "@src/migrations/pinned-session";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -19,7 +20,7 @@ describe("PGlite condemns the one client it cannot hand back", () => {
         namespace: "public",
       });
       await expect(
-        elsewhere._withPinnedSession(() => Promise.resolve("ok"))
+        withPinnedSession(elsewhere, () => Promise.resolve("ok"))
       ).resolves.toBe("ok");
     } finally {
       await independent.close();

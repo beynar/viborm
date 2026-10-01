@@ -1416,7 +1416,7 @@ inherited sentence. Pins:
 PostgreSQL SQL behaviour and no driver's TRANSPORT. Three facts are the
 transport's, each read from the driver's OWN declaration: SESSION LIFETIME —
 does a scratch reference survive from one dispatched unit to the next
-(`pinnedSession` / `_canPinSession`, `drivers/driver.ts:201`), which D-50's
+(`pinnedSession` / `canPinSession`, `migrations/pinned-session.ts`), which D-50's
 batch reference table needs, a TEMP table belonging to a session; FAILURE
 ATTRIBUTION — does the transport name the statement of a batch that failed
 (`statementIndex`, produced by the shared per-statement loop at
