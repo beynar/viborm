@@ -44,11 +44,13 @@ Versioning.
   update, one of the field's update operators such as `{ increment: 1 }`. A
   `connect` or `set` that only moves a foreign key, and a delete that stays
   physical, write nothing. When two extensions write the same field, the one
-  applied later wins. An extension now has ten capabilities. Make such a
-  field nullable or give it a default: the call's data is checked against the
-  schema before the extension adds the field. When the `data` entry names its
-  models inline, TypeScript also refuses those fields in the client's create
-  and update data, nested writes included.
+  applied later wins. An extension now has ten capabilities. A field the
+  schema requires may be left out of a create when an extension writes it
+  on that call, a required foreign key such as `tenantId` included. When
+  TypeScript knows the models the `data` entry names (written inline, or
+  passed to a recipe as a written list), the client's types agree: those
+  fields may be left out of its create data and accept no value in its
+  create and update data, nested writes included.
 - **Added: a call cannot write a field an extension writes.** It is refused
   with a `ValidationError` at `data.<field>` that names the extension, at any
   depth, even when the call did not pass the extension's control.
@@ -67,7 +69,9 @@ Versioning.
 - **Docs: extension recipes.** A new guide page gives tenancy, audit stamping
   and optimistic locking, each one declaration built from the capabilities
   in this release, to copy into your code. They are recipes, not package
-  entries.
+  entries. Each keeps the model names you pass it, with no `as const`, so
+  your editor lets a required `tenantId` be left out of a create of those
+  models and refuses a value for it.
 - **Added: `ExtensionState` and `ExtendedOperationResult`** are exported from
   `viborm`, for plugins generic over the client they receive.
   `ExtendedOperationResult` and a model-mapped query handler's `proceed()`

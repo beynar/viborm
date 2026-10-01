@@ -314,16 +314,24 @@ The payloads have one owner for what an extension's `data` writes: the
 extension state's `data` slot (`StampedFields` per model and kind, filled by
 `DefinitionData` in `controls.ts`). On a chain that declares `data`,
 `ExtensionModelDelegate` (`src/extensions/methods.ts`) swaps a model's five
-write operations for `StampedOperations` (`types.ts`): the fields written
-there accept nothing in the call's own data, and `NestedStampGuard` follows
-the relations and verbs the call spells to do the same in nested creates and
-updates, finding a target's fields by its shallow surface. A definition
-whose model names are lost (`{ [model: string]: ... }`, a `string[]` recipe)
-adds nothing to the slot: the types cannot say which models it writes, so they
-narrow none and the runtime refusal stands alone. A chain without `data` the
-types can name keeps `Client` exactly; `Client` itself takes no `data` parameter
-(as one, it cost the instrumentation type program +14% types and +26%
-instantiations, measured at U3). `OperationPayload` stays the
+write operations for `StampedOperations` (`types.ts`), whose payload
+(`StampedPayload`) rebuilds the call's create and update rows: `StampedRow`
+drops the fields written there and offers each back as `?: never`, so a
+field the schema requires may be left out and none may be passed (owner
+ruling, plan v4 §7.5; the runtime counts such a field as given, T1). The same
+row type follows the model's relations into nested creates and updates
+(`StampedRelation`, `StampedVerb`, `StampedArms`), finding a target's fields
+by its shallow surface; a relation with variants is not rebuilt. Mapped types
+resolve a member only when it is read, so a call pays for the depth it spells.
+Keep the payload level a plain mapped type: a conditional there was measured
+at +14k instantiations on client-2, on programs that declare no `data`. A
+definition whose model names are lost (`{ [model: string]: ... }`, a recipe
+called with a plain `string[]`) adds nothing to the slot: the types cannot say
+which models it writes, so they narrow none and the runtime refusal stands
+alone. The guide's recipes keep their names (`const` type parameter). A
+chain without `data` the types can name keeps `Client` exactly; `Client`
+itself takes no `data` parameter (as one, it cost the instrumentation type
+program +14% types and +26% instantiations, measured at U3). `OperationPayload` stays the
 schema-only payload, so what reads it (a query handler's argument, for one)
 is not narrowed; the runtime refusal covers those.
 

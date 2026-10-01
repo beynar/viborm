@@ -26,8 +26,10 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * `tenantId` that no extension writes. `base` is the same database without
  * the extensions; it seeds and reads back.
  *
- * The client types still ask for the field: the calls go through
- * {@link javascript}, as a JavaScript caller makes them.
+ * The calls go through {@link javascript}, as a JavaScript caller makes
+ * them: some cells write through a relation with variants, which the client
+ * types do not rebuild, and others pass a stamped field on purpose. The
+ * typed twin is `tests/types/client/extension-data.core.types.ts`.
  */
 
 export function requiredTenantSchema() {
@@ -88,9 +90,9 @@ type JavaScriptClient = Record<
 };
 
 /**
- * A client as a JavaScript caller sees it, any argument shape: the recipes
- * take a `string[]` that names no model, so their types still ask for
- * `tenantId`.
+ * A client as a JavaScript caller sees it, any argument shape: the cells
+ * reach what the types refuse or do not rebuild (a stamped field passed on
+ * purpose, a create through a relation with variants).
  */
 const javascript = (client: object) => client as JavaScriptClient;
 

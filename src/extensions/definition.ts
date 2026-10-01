@@ -511,19 +511,22 @@ type ComponentMapGuard<
 /**
  * A `data` entry names a model of the schema: a misspelt model reads `never`
  * where it is written. Model names a definition did not keep
- * (`{ [model: string]: ... }`) cannot be checked.
+ * (`{ [model: string]: ... }`) cannot be checked, and a definition that knows
+ * no schema yet is checked where it is applied.
  */
-type DataModelsGuard<Definition, S extends Schema> = Definition extends {
-  readonly data: { readonly models: infer Models };
-}
-  ? string extends keyof Models
-    ? unknown
-    : {
-        readonly data: {
-          readonly models: Record<Exclude<keyof Models, keyof S>, never>;
-        };
+type DataModelsGuard<Definition, S extends Schema> = string extends keyof S
+  ? unknown
+  : Definition extends {
+        readonly data: { readonly models: infer Models };
       }
-  : unknown;
+    ? string extends keyof Models
+      ? unknown
+      : {
+          readonly data: {
+            readonly models: Record<Exclude<keyof Models, keyof S>, never>;
+          };
+        }
+    : unknown;
 
 /** Structural refusal for non-fresh extension definitions and contributions. */
 export type ExactExtensionDefinition<

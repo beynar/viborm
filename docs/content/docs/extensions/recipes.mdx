@@ -15,22 +15,30 @@ and each takes the names of the models it applies to.
 import { defineExtension } from "viborm";
 import { v } from "viborm/validation";
 
-/** The same entry for each model named. */
-export const perModel = <T>(models: readonly string[], build: () => T) =>
-  Object.fromEntries(models.map((model) => [model, build()]));
+/**
+ * The same entry for each model named. `Object.fromEntries` forgets the
+ * names, so the cast gives them back: the types then know which models a
+ * recipe writes.
+ */
+export const perModel = <Models extends readonly string[], T>(
+  models: Models,
+  build: () => T
+) =>
+  Object.fromEntries(models.map((model) => [model, build()])) as {
+    readonly [Model in Models[number]]: T;
+  };
 ```
 
-When the call runs, a field these recipes write may be required in your
-schema: a create may leave it out and the recipe writes it. The types still
-ask for it, since a plain `string[]` does not tell them which models the
-recipe names, so in TypeScript make each such field nullable or give it a
-default, as below.
+A field these recipes write may be required in your schema: a create
+leaves it out and the recipe writes it, in your editor as when the call
+runs. Each recipe remembers the model names you pass it, so the types know
+which models it writes.
 
 ```ts
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  tenantId: s.string().nullable(), // written by tenancy
+  tenantId: s.string(), // written by tenancy
   createdBy: s.string().nullable(), // written by audit
   updatedBy: s.string().nullable(), // written by audit
   version: s.int().default(0), // moved on by the lock
@@ -44,7 +52,9 @@ Each call says which tenant it works for. It sees only that tenant's rows,
 through every relation, and every row it creates belongs to that tenant.
 
 ```ts
-export const tenancy = (models: readonly string[]) =>
+export const tenancy = <const Models extends readonly string[]>(
+  models: Models
+) =>
   defineExtension({
     name: "tenancy",
     controls: { tenant: { schema: v.string(), required: true } },
@@ -98,7 +108,7 @@ Every create records who created the row, and every update who last changed
 it.
 
 ```ts
-export const audit = (models: readonly string[]) =>
+export const audit = <const Models extends readonly string[]>(models: Models) =>
   defineExtension({
     name: "audit",
     controls: { actor: { schema: v.string(), required: true, on: "writes" } },
@@ -112,9 +122,9 @@ export const audit = (models: readonly string[]) =>
 ```
 
 ```ts
-const db = base.$extends(audit(["post", "comment"]));
-await db.post.create({ data: { title }, actor: session.userId }); // createdBy
-await db.post.update({ where: { id }, data: { title }, actor: session.userId }); // updatedBy
+const db = base.$extends(tenancy(["post", "comment"])).$extends(audit(["post", "comment"]));
+await db.post.create({ data: { title }, tenant: "acme", actor: session.userId }); // tenantId, createdBy
+await db.post.update({ where: { id }, data: { title }, tenant: "acme", actor: session.userId }); // updatedBy
 ```
 
 - Every create and update writes the fields: root and nested, one row or
@@ -133,7 +143,9 @@ has moved on since, the call finds nothing and changes nothing. Every update
 moves the version on.
 
 ```ts
-export const optimisticLock = (models: readonly string[]) =>
+export const optimisticLock = <const Models extends readonly string[]>(
+  models: Models
+) =>
   defineExtension({
     name: "optimisticLock",
     controls: {
@@ -175,11 +187,18 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
   names the extension, even when the call did not pass the control. The path
   names the field, not where it sits: a nested create or an `upsert` arm is
   reported at `data.<field>` too.
-- **The types do not narrow these recipes.** Their models are a plain
-  `string[]`, so TypeScript cannot tell which models they write: a field they
-  write still compiles in your data and is refused when the call runs, and a
-  misspelt model name is not caught. Write the `data` entry inline, with the
-  model names spelled out, when you want your editor to refuse those fields.
+- **Your editor knows what they write.** Each recipe keeps the model names
+  you pass it, so on the models it names a field it writes may be left out
+  of a create, at the top level and in a create nested through a relation,
+  and passing it is an editor error. A model it does not name keeps its
+  fields as the schema has them, and a misspelt model name is an editor
+  error where the recipe is applied. Two cases the types do not see. A
+  list built at runtime (a plain `string[]`) tells them no names, so it
+  narrows nothing: the field compiles and is refused when the call runs, and
+  a required one cannot be left out in your editor, so pass the names as a
+  written list. A create nested through a relation with variants is not
+  rebuilt: there the field is asked for as the schema has it, although the
+  call accepts it left out.
 - **Each tenant is prepared once.** A client keeps up to 256 prepared modes
   and values; past that, the oldest is prepared again when it comes back,
   which is slower but gives the same answer. Tenancy with both modes in use

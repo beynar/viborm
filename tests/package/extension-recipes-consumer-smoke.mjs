@@ -19,10 +19,11 @@
  * lock's block twice, the second time on a row that moved on.
  *
  *   A. TYPES — `tsc --strict` over the consumer, against the published
- *              declarations: the recipes compile with no cast, the use block
- *              and the page's use blocks type-check, and the four
- *              `@ts-expect-error` lines (the
- *              controls' value and placement types) are needed.
+ *              declarations: the recipes compile, the use block and the
+ *              page's use blocks type-check with a required `tenantId` left
+ *              out of every create (root and nested), and the six
+ *              `@ts-expect-error` lines (a caller's stamped field, twice,
+ *              and the controls' value and placement types) are needed.
  *   B. RUN   — Node runs the same file (type stripping): a tenant reads only
  *              its rows, through a relation too; a create is stamped with the
  *              tenant; `scope: "all"` reads every tenant; a missing tenant, a
@@ -107,11 +108,11 @@ import { createMigrationClient } from "viborm/migrations";
 import { createClient } from "viborm/sqlite3";
 import { audit, optimisticLock, tenancy } from "./recipes.ts";
 
-// Every field a recipe writes is nullable or has a default.
+// tenantId is required: tenancy writes it, so a create leaves it out.
 const post = s.model({
   id: s.string().id().ulid(),
   title: s.string(),
-  tenantId: s.string().nullable(),
+  tenantId: s.string(),
   createdBy: s.string().nullable(),
   updatedBy: s.string().nullable(),
   version: s.int().default(0),
@@ -120,7 +121,7 @@ const post = s.model({
 const comment = s.model({
   id: s.string().id().ulid(),
   body: s.string(),
-  tenantId: s.string().nullable(),
+  tenantId: s.string(),
   createdBy: s.string().nullable(),
   updatedBy: s.string().nullable(),
   postId: s.string(),
@@ -177,6 +178,7 @@ assert.deepEqual(issues(await failure(db.post.findMany())), [
   { path: "tenant", message: 'Control "tenant" is required' },
 ]);
 assert.deepEqual(
+  // @ts-expect-error tenancy writes tenantId
   issues(await failure(db.post.create({ data: { title, tenantId: "globex" }, tenant: "acme" }))),
   [{ path: "data.tenantId", message: 'Field "tenantId" is written by extension "tenancy"' }]
 );
@@ -229,6 +231,7 @@ assert.deepEqual(
     await failure(
       stamped.post.update({
         where: { id: written.id },
+        // @ts-expect-error the lock writes version
         data: { version: 7 },
         tenant: "acme",
         actor: "bob",
@@ -254,7 +257,9 @@ ${tenancyUse}    })()
     ["acme"]
   );
 }
-const target = await base.post.create({ data: { title: "guide", version: 3 } });
+const target = await base.post.create({
+  data: { title: "guide", tenantId: "acme", version: 3 },
+});
 {
   const { id } = target;
   const title = "guide audit";

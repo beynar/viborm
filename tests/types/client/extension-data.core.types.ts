@@ -4,12 +4,16 @@
  * model, the fields it writes accept nothing in that model's create and
  * update payloads (`create`, `createMany` rows, `upsert`'s two arms,
  * `update`, `updateMany`) and in every create and update the call nests
- * through a relation, because the call is refused when it passes one. The
- * base client still accepts them. A misspelt model in an inline `data`
- * declaration is an editor error. The guide's recipes take their models as a
- * plain `string[]`: the types cannot tell which models they name, so they
- * narrow none and the runtime refusal stands alone. The runtime half is
- * `tests/contracts/engine/write/extension-data-behavior.ts`.
+ * through a relation, because the call is refused when it passes one. They
+ * may be left out even where the schema requires them, at the top level and
+ * nested, because the chain writes them (owner ruling, plan v4 §7.5). The
+ * base client still accepts them and still asks for a required one. A
+ * misspelt model in an inline `data` declaration is an editor error. The
+ * guide's recipes keep the model names they are given, so they narrow those
+ * models and no other; a list whose names the types cannot see narrows
+ * nothing. The runtime halves are
+ * `tests/contracts/engine/write/extension-data-behavior.ts` and
+ * `tests/contracts/engine/write/stamped-required-behavior.ts`.
  *
  * Nothing in this file is called. Only the types matter.
  */
@@ -65,7 +69,7 @@ const note = s.model({
     .fields("postId")
     .references("id"),
 });
-// `owner` is required by the schema: a stamp cannot fill it (decision U2-1).
+// `owner` is required by the schema, and the extension below writes it.
 const ledger = s.model({ id: s.int().id(), owner: s.string() });
 // `createdBy` is required here, and only the recipe below names other models.
 const invoice = s.model({ id: s.int().id(), createdBy: s.string() });
@@ -303,17 +307,22 @@ export async function baseClientAcceptsThem() {
   await base.ledger.create({ data: { id: 1, owner: "ann" } });
 }
 
-export async function aRequiredStampedFieldRefusesEveryCreate() {
-  // The schema requires `owner` and the extension writes it: the caller may
-  // not pass it and may not leave it out. Every create is refused when it
-  // runs, so the types refuse it too. The guide says to make such a field
-  // nullable or give it a default.
+export async function aRequiredStampedFieldMayBeLeftOut() {
+  // The schema requires `owner` and the extension writes it: the caller
+  // leaves it out, and may not pass it.
+  await stamped.ledger.create({ data: { id: 1 }, actor: "ann" });
+  await stamped.ledger.createMany({ data: [{ id: 1 }], actor: "ann" });
+  await stamped.ledger.upsert({
+    where: { id: 1 },
+    create: { id: 1 },
+    update: {},
+    actor: "ann",
+  });
   // @ts-expect-error - passing it is refused
   await stamped.ledger.create({ data: { id: 1, owner: "a" }, actor: "a" });
-  // Not this unit's witness: the schema refuses a missing `owner` on any
-  // client. It stays so the rule above reads whole.
-  // @ts-expect-error - leaving it out is refused
-  await stamped.ledger.create({ data: { id: 1 }, actor: "ann" });
+  // The base client still asks for it.
+  // @ts-expect-error - owner is required
+  await base.ledger.create({ data: { id: 1 } });
 }
 
 export function aMisspeltModelIsAnEditorError() {
@@ -340,27 +349,26 @@ export function aMisspeltModelIsAnEditorError() {
   });
 }
 
-// A recipe takes its models as a plain string[]: the types cannot tell which
-// models it names, so they narrow none and check none. Its fields stay in
-// every payload; the call that passes one is refused when it runs.
+// A recipe keeps the model names it is given, with no `as const`: the
+// models it names are narrowed, every other model keeps its fields.
 const audited = base.$extends(audit(["post"]));
 
-export async function aRecipeNarrowsNothing() {
-  // `invoice` requires `createdBy` and audit never writes it: this create is
-  // valid when it runs, so the types must accept it.
+export async function aRecipeNarrowsTheModelsItNames() {
+  // `invoice` requires `createdBy` and audit does not name it.
   await audited.invoice.create({
     data: { id: 1, createdBy: "ann" },
     actor: "ann",
   });
-  // Refused when it runs (data.createdBy), not by the types.
+  // @ts-expect-error - so invoice still asks for it
+  await audited.invoice.create({ data: { id: 1 }, actor: "ann" });
   await audited.post.create({
+    // @ts-expect-error - audit writes createdBy on post
     data: { id: 1, title: "a", createdBy: "mallory" },
     actor: "ann",
   });
-  // A misspelt model in the list is not checked either.
-  await base
-    .$extends(audit(["psot"]))
-    .post.create({ data: { id: 1, title: "a" }, actor: "ann" });
+  // A misspelt model in the list is an editor error where it is applied.
+  // @ts-expect-error - no model "psot" in this schema
+  base.$extends(audit(["psot"]));
   // Two recipes on one client keep each one's controls.
   await base
     .$extends(tenancy(["post"]))
@@ -378,10 +386,9 @@ export async function optimisticLockTypes() {
     expectedVersion: 3,
   });
   type _updated = Expect<Equal<typeof updated.version, number>>;
-  // The recipe's model names are lost: the version stays in the type, and
-  // the call is refused when it runs.
   await locked.post.update({
     where: { id: 1 },
+    // @ts-expect-error - the lock moves the version on every update of post
     data: { version: 4 },
     expectedVersion: 3,
   });
@@ -432,5 +439,117 @@ export async function twoExtensions() {
     data: { tenantId: "globex" },
     tenant: "acme",
     actor: "ann",
+  });
+}
+
+// A list whose names the types cannot see (a plain `string[]`) narrows
+// nothing: the fields stay in every payload, and a call that passes one is
+// refused when it runs.
+declare const names: string[];
+const listed = base.$extends(audit(names));
+
+export async function aPlainListNarrowsNothing() {
+  await listed.post.create({
+    data: { id: 1, title: "a", createdBy: "mallory" },
+    actor: "ann",
+  });
+  await listed.invoice.create({
+    data: { id: 1, createdBy: "ann" },
+    actor: "ann",
+  });
+}
+
+// The guide's tenancy over a schema that requires `tenantId`: a plain field
+// on `article`, a required foreign key on `reply`, and `memo`, which the
+// recipe does not name.
+const org = s.model({ id: s.string().id(), replies: s.toMany(() => reply) });
+const article = s.model({
+  id: s.int().id(),
+  title: s.string(),
+  tenantId: s.string(),
+  replies: s.toMany(() => reply),
+});
+const reply = s.model({
+  id: s.int().id(),
+  body: s.string(),
+  tenantId: s.string(),
+  tenant: s
+    .toOne(() => org)
+    .fields("tenantId")
+    .references("id"),
+  articleId: s.int(),
+  article: s
+    .toOne(() => article)
+    .fields("articleId")
+    .references("id"),
+});
+const memo = s.model({ id: s.int().id(), tenantId: s.string() });
+const plainTenants = createClient({
+  schema: { org, article, reply, memo },
+  driver,
+});
+const tenants = plainTenants.$extends(tenancy(["article", "reply"]));
+
+export async function aRequiredTenantMayBeLeftOut() {
+  await tenants.article.create({ data: { id: 1, title: "a" }, tenant: "acme" });
+  await tenants.article.create({
+    // @ts-expect-error - tenancy writes tenantId
+    data: { id: 1, title: "a", tenantId: "globex" },
+    tenant: "acme",
+  });
+  // A required foreign key: neither it nor its relation is asked for.
+  await tenants.reply.create({
+    data: { id: 1, body: "b", articleId: 1 },
+    tenant: "acme",
+  });
+  await tenants.article.createMany({
+    data: [{ id: 2, title: "b" }],
+    tenant: "acme",
+  });
+  await tenants.article.upsert({
+    where: { id: 1 },
+    create: { id: 1, title: "a" },
+    update: { title: "b" },
+    tenant: "acme",
+  });
+  // @ts-expect-error - memo is not named: its tenantId is still required
+  await tenants.memo.create({ data: { id: 1 }, tenant: "acme" });
+  await tenants.memo.create({ data: { id: 1, tenantId: "acme" } });
+  // @ts-expect-error - the base client still asks for it
+  await plainTenants.article.create({ data: { id: 1, title: "a" } });
+}
+
+export async function aNestedCreateMayLeaveItOutToo() {
+  await tenants.article.create({
+    data: { id: 1, title: "a", replies: { create: [{ id: 1, body: "b" }] } },
+    tenant: "acme",
+  });
+  await tenants.reply.create({
+    data: { id: 1, body: "b", article: { create: { id: 1, title: "a" } } },
+    tenant: "acme",
+  });
+  await tenants.article.update({
+    where: { id: 1 },
+    data: {
+      replies: {
+        createMany: { data: [{ id: 2, body: "c" }] },
+        connectOrCreate: { where: { id: 3 }, create: { id: 3, body: "d" } },
+        upsert: {
+          where: { id: 4 },
+          create: { id: 4, body: "e" },
+          update: { body: "f" },
+        },
+      },
+    },
+    tenant: "acme",
+  });
+  await tenants.article.create({
+    data: {
+      id: 1,
+      title: "a",
+      // @ts-expect-error - a nested create may not pass it either
+      replies: { create: [{ id: 1, body: "b", tenantId: "globex" }] },
+    },
+    tenant: "acme",
   });
 }

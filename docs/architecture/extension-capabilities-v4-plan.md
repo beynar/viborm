@@ -6,22 +6,41 @@
 
 Two capabilities, so that these three extensions are declarations. Each is the acceptance test of the plan and must compile and run verbatim from public exports.
 
+Each takes its model names through `perModel`, which keeps them, so the client types know which models a recipe writes (owner ruling, 2026-10-01, §7.5; unit T2 made these blocks byte-identical to the guide and to `tests/fixtures/extension-recipes.ts`):
+
+```ts
+/**
+ * The same entry for each model named. `Object.fromEntries` forgets the
+ * names, so the cast gives them back: the types then know which models a
+ * recipe writes.
+ */
+export const perModel = <Models extends readonly string[], T>(
+  models: Models,
+  build: () => T
+) =>
+  Object.fromEntries(models.map((model) => [model, build()])) as {
+    readonly [Model in Models[number]]: T;
+  };
+```
+
 ### 1.1 Tenancy (rows bound to the call)
 
 ```ts
-export const tenancy = (models: readonly string[]) =>
+export const tenancy = <const Models extends readonly string[]>(
+  models: Models
+) =>
   defineExtension({
     name: "tenancy",
     controls: { tenant: { schema: v.string(), required: true } },
     rows: {
-      control: "scope",            // still one mode control per rows member
+      control: "scope", // still one mode control per rows member
       default: "tenant",
       models: perModel(models, () => ({
         tenant: {
           root: { tenantId: { control: "tenant" } },
           related: { tenantId: { control: "tenant" } },
         },
-        all: {},                    // an operator's view: the control is admitted, the filter is off
+        all: {}, // an operator's view: the control is admitted, the filter is off
       })),
     },
     data: {
@@ -41,7 +60,7 @@ await db.post.findMany();                                     // ValidationError
 ### 1.2 Audit stamping (data from the call)
 
 ```ts
-export const audit = (models: readonly string[]) =>
+export const audit = <const Models extends readonly string[]>(models: Models) =>
   defineExtension({
     name: "audit",
     controls: { actor: { schema: v.string(), required: true, on: "writes" } },
@@ -59,18 +78,27 @@ A tombstone is an update, so `updatedBy` is written on a soft delete too. `delet
 ### 1.3 Optimistic locking (both, on one field)
 
 ```ts
-export const optimisticLock = (models: readonly string[]) =>
+export const optimisticLock = <const Models extends readonly string[]>(
+  models: Models
+) =>
   defineExtension({
     name: "optimisticLock",
-    controls: { expectedVersion: { schema: v.number(), on: ["update", "delete"] } },
+    controls: {
+      expectedVersion: { schema: v.number(), on: ["update", "delete"] },
+    },
     rows: {
-      control: "versionCheck", default: "checked",
+      control: "versionCheck",
+      default: "checked",
       models: perModel(models, () => ({
         checked: { root: { version: { control: "expectedVersion" } } },
         unchecked: {},
       })),
     },
-    data: { models: perModel(models, () => ({ update: { version: { increment: 1 } } })) },
+    data: {
+      models: perModel(models, () => ({
+        update: { version: { increment: 1 } },
+      })),
+    },
   });
 
 await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundError when the row moved on
@@ -138,6 +166,8 @@ Values are constants, `{ control: "<name>" }` references (the same walker as §2
 *(Shipped at U3, 2026-10-01.)* The slot is `X["data"]` (`StampedFields` per model and kind). It is read by the extended client's model delegate, not by `OperationPayload` and not as a `Client` parameter: as a `Client` parameter it cost the instrumentation type program +13.9% types and +26.1% instantiations (MEASURED), and `OperationPayload` stays the public schema-only payload. A field is made unwritable with `?: never`, not removed with `Omit` (P1-7: the plain `Omit` does not refuse it), so a schema-required stamped field keeps `required` and accepts no value: every create of it is an editor error, as it is refused at runtime under option (c). Nested inputs are narrowed too, by a guard that follows the relations and verbs the call spells and finds a target by its shallow surface; a relation with variants is not narrowed. A misspelt `data.models` key is an editor error at `$extends` and `defineExtension<S>()`; a `string[]` recipe narrows every model (reversed at the U3 repair, below). Type budget, three alternating rounds against 6ee4c4592 in 6ee4c4592's chunking: client-1..4 +0.64 / +1.18 / +0.60 / +0.82% types and +0.89 / +1.59 / +0.81 / +1.11% instantiations, instrumentation +0.65 / +0.40%, floor +0.66 / +0.93%, peak RSS 1,472.2 MiB (HEAD 1,491.6): within §4, so the §7.4 fallback was not taken.
 
 *(U3 repair, 2026-10-01.)* Three corrections to the U3 note, for the owner. (1) **A definition whose model names are lost narrows nothing.** The §1 recipes take `readonly string[]`, so their `perModel` map is keyed by `string` and the types cannot tell which models they name; U3 refused their fields on every model, which made a create of any other model with a required `createdBy`, `tenantId` or `version` impossible on the extended client although the runtime accepts it. Such a definition now adds nothing to `X["data"]`: its fields stay in the payloads and the runtime collision refusal stands alone, the permissive direction of this section's fallback and of §7.4. A `data` entry written inline keeps its names and is narrowed as before; the recipes stay verbatim. (2) **The required-field rule departs from the U2-repair amendment's wording**, which says U3 narrows only fields the runtime can fill (nullable or defaulted). U3 also marks a schema-required stamped field `?: never`, so every create of it is an editor error, as it is refused at runtime under option (c). This is not settled by the U3 note: it is part of §7.5. (3) **The place moved.** The narrowing is read by the extended client's model delegate, not by `OperationPayload` as this section says, so what reads `OperationPayload` directly (a query handler's argument type, for one) is not narrowed; the runtime refusal covers it. The owner acknowledges the move when closing §2.2.
+
+*(Unit T2, 2026-10-01: the owner's ruling "Recipes keep model names, field becomes optional" in the types.)* Two corrections to the notes above. (1) **A stamped field is optional and accepts no value**, no longer "keeps `required`": the extended client's payload rebuilds each create and update row without the stamped fields and offers each back as `?: never` (`StampedPayload`, `StampedRow`), so a schema-required `tenantId` may be left out and may not be passed, at the root (`create`, `createMany` rows, `upsert`'s arms) and in every create and update nested through a relation, at any depth (`StampedRelation`, `StampedVerb`, `StampedArms`). The same rebuilt row type replaces U3's `NestedStampGuard`: one mechanism for root and nested. A relation with variants is still not rebuilt, so a create nested through one still asks for a required stamped field the call accepts left out (stated in the guide). (2) **The recipes keep their model names** (U3 repair item (1) reversed by the owner): each recipe takes `<const Models extends readonly string[]>`, so the reader writes no `as const`, and `perModel` keys its map by those names with one cast (`as { readonly [Model in Models[number]]: T }`, the cast the soft-delete entry's `perModel` already holds; user-land code, not `src`). A recipe now narrows the models it names and no other, and a misspelt model in its list is an editor error at `$extends`. A recipe called with a plain `string[]` still compiles and narrows nothing. To let a recipe's generic keys compile inside `defineExtension`, the misspelt-model check (`DataModelsGuard`) resolves first on whether the schema is known: a definition built before any schema had nothing to compare with. Type budget (MEASURED, two alternating rounds, typescript 5.9 `--extendedDiagnostics`, 1,280 MB heap, 6ee4c4592's chunking): in §7.5. A first version with a conditional type at the payload level cost +14k instantiations on client-2, a program that declares no `data`; the payload level is a plain mapped type for that reason.
 
 ## 3. What disappears, what does not
 
@@ -211,5 +241,7 @@ Composition: §1.3 end to end, including the `NotFoundError` when the version mo
    *(Owner ruling 2, 2026-10-01, and unit R2: stopped, waiting on the owner.)* The owner ruled that a field an extension writes and the schema requires must work without the caller passing it. The running code can do it: design B tells validation which fields the call's extension writes, so a required one may be left out (+18 runtime lines; pg-representative +364 raw / +101 gzip; types +21 / +76 on the client-2 and floor programmes; measured at the rulings repair). It also covers the most common tenancy schema, where `tenantId` is a required foreign key to a tenant table: the "one of tenantId or tenant" check now counts a written field as given too (root create, createMany, upsert and nested creates, on SQLite3, batch-only and no-RETURNING SQLite). Nothing has landed, because TypeScript callers would still be stuck: with the `string[]` recipes the field stays required in the types (leaving it out does not compile, passing it is refused), and with a `data` entry written inline the whole create becomes impossible to type. The choice left to the owner: (1) land design B for the running code only and keep telling TypeScript users to declare the field nullable or with a default; (2) also fund a types unit (let inline entries leave the field out at the top level; nested creates have no cheap design yet; for recipes either make their field names optional on every model or revisit ruling 5 so recipes keep their model names); (3) keep today's rule (nullable or default). The design-B patch and its probes are not in the repository; they are held with this run's working files until the owner decides.
    *(Owner ruling, 2026-10-01, replacing the "recipes keep `string[]`" ruling of item 6: "Recipes keep model names, field becomes optional".)* The recipes remember the model names they are given, without `as const` from the reader, so the editor knows which models have a stamped field and lets the caller leave it out; and the running code lets a schema-required stamped field be left out. Nested creates are included only if the type budget allows, measured before landing.
    *(Unit T1, 2026-10-01: the running code landed; the types are unit T2's.)* Design B as repaired, plus one site it missed: a relation-bearing `updateMany`, or a nested `updateMany`, admits each captured row's data again when it runs, and a nested create in that data was refused as missing. Validation is told, for one synchronous parse, which fields of which model the call's create stamps write (`parseProviding`, option `provides` set to the model's name on the create, bulk-create and scalar-create schemas; nested copies keep it); the engine sets that context only on a call that has stamps (`parseStamped`: the call's admission and a captured row's re-admission). The required-field check and the "one of the foreign key or its relation" check count such a field as given; everything else refuses as before, with the same message. Measured: +41 runtime lines (esbuild); pg-representative +512 raw / +149 gzip; +27 types / +81 instantiations on every client program and the floor (cumulative over 6ee4c4592: client-2 +1.19% / +1.60%, the largest); witnesses `tests/contracts/engine/write/stamped-required-behavior.ts` (7 cells on SQLite3, batch-only, no-RETURNING and PGlite). Open, measured, for the owner: a caller who writes the stamped foreign key's relation (`tenant: { connect: … }`) instead of the field is not refused and that tenant is stored, as before T1 with a nullable field (guard ledger, T1 addendum).
+   *(Unit T2, 2026-10-01: the types landed; ruling 5 as revised by the owner.)* On a client whose chain declares `data` for a model the types can name, a stamped field is optional and accepts no value in that model's create and update rows, at the root and nested through relations (a relation with variants excepted); the three recipes keep their model names through a `const` type parameter, with one key-map cast in `perModel`. The packed consumer and the guide's use blocks now run with a required `tenantId` under `tsc --strict` (the guide's audit use block applies tenancy first, since its schema requires `tenantId`). Nested creates are included: the cumulative budget holds (MEASURED, two alternating rounds, deterministic; types / instantiations over 6ee4c4592: client-1 +0.82% / +1.18%, client-2 +1.07% / +1.54%, client-3 +0.78% / +1.05%, client-4 +1.02% / +1.44%, instrumentation +0.82% / +1.10%, floor +0.85% / +1.24%; peak RSS 1,479 MiB). Not changed: the relation of a stamped foreign key stays writable in the types, as at runtime (the open item above).
 6. *(Owner ruling, 2026-10-01: kept as is.)* The §1 recipes keep taking `readonly string[]`: they narrow nothing in the types (U3 repair note in §2.2), and the runtime refusal of a stamped field stands alone for them.
    *(Replaced by the owner, 2026-10-01: "Recipes keep model names, field becomes optional", item 5. Unit T2 owns it.)*
+   *(Unit T2, 2026-10-01.)* Done: the recipes take `<const Models extends readonly string[]>(models: Models)` and narrow the models they name; a plain `string[]` argument compiles and narrows nothing (guide, recipes page).

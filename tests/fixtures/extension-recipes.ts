@@ -5,20 +5,33 @@
  * reader copies them from the guide: tenancy §1.1, audit §1.2 and the
  * optimistic lock §1.3, verbatim.
  *
- * A field an extension writes on create is declared nullable (or with a
- * default) in most schemas that use them, as the types still ask for a
- * required one; at runtime a required one may be left out (owner ruling 2,
- * `tests/contracts/engine/write/stamped-required-behavior.ts`).
+ * Each recipe keeps the model names it is given (a `const` type parameter,
+ * so the reader writes no `as const`), and `perModel` keys its map by them:
+ * the client types then know which models a recipe writes, so a field it
+ * writes may be left out of a create even where the schema requires it, and
+ * may not be passed (owner ruling, plan v4 §7.5). `perModel` holds the one
+ * cast, the same key-map cast as the soft-delete entry's `perModel`.
  */
 
 import { defineExtension } from "@src/index";
 import { v } from "@src/validation";
 
-/** The same entry for each model named. */
-export const perModel = <T>(models: readonly string[], build: () => T) =>
-  Object.fromEntries(models.map((model) => [model, build()]));
+/**
+ * The same entry for each model named. `Object.fromEntries` forgets the
+ * names, so the cast gives them back: the types then know which models a
+ * recipe writes.
+ */
+export const perModel = <Models extends readonly string[], T>(
+  models: Models,
+  build: () => T
+) =>
+  Object.fromEntries(models.map((model) => [model, build()])) as {
+    readonly [Model in Models[number]]: T;
+  };
 
-export const tenancy = (models: readonly string[]) =>
+export const tenancy = <const Models extends readonly string[]>(
+  models: Models
+) =>
   defineExtension({
     name: "tenancy",
     controls: { tenant: { schema: v.string(), required: true } },
@@ -40,7 +53,7 @@ export const tenancy = (models: readonly string[]) =>
     },
   });
 
-export const audit = (models: readonly string[]) =>
+export const audit = <const Models extends readonly string[]>(models: Models) =>
   defineExtension({
     name: "audit",
     controls: { actor: { schema: v.string(), required: true, on: "writes" } },
@@ -52,7 +65,9 @@ export const audit = (models: readonly string[]) =>
     },
   });
 
-export const optimisticLock = (models: readonly string[]) =>
+export const optimisticLock = <const Models extends readonly string[]>(
+  models: Models
+) =>
   defineExtension({
     name: "optimisticLock",
     controls: {

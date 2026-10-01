@@ -547,8 +547,8 @@ export type StampedOperation =
  * One model's write operations on a client whose chain declares `data`. The
  * fields the chain writes accept nothing, in the call's own data and in every
  * create and update it nests through a relation, because the call is refused
- * when it passes one. A field the schema requires keeps its `required` and
- * accepts no value: every create of it is refused, here as when it runs.
+ * when it passes one. They may always be left out, even where the schema
+ * requires them: the chain writes them (owner ruling, plan v4 §7.5).
  */
 export type StampedOperations<
   C extends VibORMConfig,
@@ -563,57 +563,166 @@ export type StampedOperations<
     ClientDefaultOmit<C, K>,
     ClientDefaults,
     PlacedOperationControls<Controls, K, O>,
-    OperationPayload<O, C["schema"][K]> &
-      StampedClauses<
-        O,
-        OperationPayload<O, C["schema"][K]>,
-        StampedFieldNames<Data, K, "create">,
-        StampedFieldNames<Data, K, "update">
-      >,
-    Stamps<Data, C["schema"]>
+    StampedPayload<
+      O,
+      OperationPayload<O, C["schema"][K]>,
+      C["schema"][K],
+      StampedFieldNames<Data, K, "create">,
+      StampedFieldNames<Data, K, "update">,
+      Stamps<Data, C["schema"]>
+    >
   >;
 };
 
-type StampedClauses<
+/** The call's own clauses, rebuilt: a create's rows, an update's, or both. */
+type StampedPayload<
   O,
   Payload,
+  M,
   Create extends PropertyKey,
   Update extends PropertyKey,
-> = O extends "create"
-  ? UnwritableClause<"data", Create>
-  : O extends "createMany"
-    ? UnwritableRows<Payload, Create>
-    : O extends "update" | "updateMany"
-      ? UnwritableClause<"data", Update>
-      : O extends "upsert"
-        ? UnwritableClause<"create", Create> &
-            UnwritableClause<"update", Update>
-        : unknown;
-
-type Unwritable<Fields extends PropertyKey> = {
-  readonly [Field in Fields]?: never;
+  Context,
+> = {
+  [Key in keyof Payload]: Key extends CreateClause<O>
+    ? StampedRow<Payload[Key], M, Create, Context>
+    : Key extends UpdateClause<O>
+      ? StampedRow<Payload[Key], M, Update, Context>
+      : Payload[Key];
 };
 
-type UnwritableClause<Clause extends string, Fields extends PropertyKey> = [
-  Fields,
-] extends [never]
-  ? unknown
-  : { readonly [Key in Clause]?: Unwritable<Fields> };
+type CreateClause<O> = O extends "upsert"
+  ? "create"
+  : O extends "create" | "createMany"
+    ? "data"
+    : never;
 
-/** Each row of a `createMany`, so a row's own keys stay known to it. */
-type UnwritableRows<Payload, Fields extends PropertyKey> = [Fields] extends [
-  never,
-]
-  ? unknown
-  : Payload extends { readonly data: readonly (infer Row)[] }
-    ? { readonly data: readonly (Row & Unwritable<Fields>)[] }
-    : unknown;
+type UpdateClause<O> = O extends "upsert"
+  ? "update"
+  : O extends "update" | "updateMany"
+    ? "data"
+    : never;
 
 /** What a nested write needs to find the fields its target's stamps write. */
 interface Stamps<Data, S> {
   readonly data: Data;
   readonly schema: S;
 }
+
+type Unwritable<Fields extends PropertyKey> = {
+  readonly [Field in Fields]?: never;
+};
+
+/**
+ * A row of `M` without the fields the chain writes on it, each offered back
+ * as `?: never`: a field the schema requires may be left out, and no value is
+ * accepted. Its relations' writes are rebuilt for their own targets. Mapped
+ * types resolve a member only when it is read, so a call pays for the depth
+ * it spells, never for the schema's.
+ */
+type StampedRow<
+  Row,
+  M,
+  Fields extends PropertyKey,
+  Context,
+> = Row extends readonly (infer Item)[]
+  ? StampedRow<Item, M, Fields, Context>[]
+  : Row extends object
+    ? M extends Model<infer State>
+      ? {
+          [Key in keyof Row as Key extends Fields
+            ? never
+            : Key]: Key extends keyof State["relations"]
+            ? StampedRelation<
+                Row[Key],
+                GetTargetModel<State["relations"][Key]>,
+                Context
+              >
+            : Row[Key];
+        } & Unwritable<Fields>
+      : Row
+    : Row;
+
+/** A relation with variants has no one target: it is not rebuilt. */
+type StampedRelation<Value, Target, Context> = [Target] extends [never]
+  ? Value
+  : Target extends Model<any>
+    ? Value extends object
+      ? {
+          [Verb in keyof Value]: StampedVerb<
+            Verb,
+            Value[Verb],
+            Target,
+            Context
+          >;
+        }
+      : Value
+    : Value;
+
+/** The verbs that create or update a target; every other verb is left alone. */
+type StampedVerb<
+  Verb,
+  Value,
+  Target extends Model<any>,
+  Context,
+> = Verb extends "create"
+  ? StampedRow<
+      Value,
+      Target,
+      TargetStampedFields<Context, Target, "create">,
+      Context
+    >
+  : Verb extends "createMany"
+    ? StampedArms<Value, Target, "data", never, Context>
+    : Verb extends "connectOrCreate" | "upsert"
+      ? StampedArms<Value, Target, "create", "update", Context>
+      : Verb extends "update" | "updateMany"
+        ? StampedUpdate<Value, Target, Context>
+        : Value;
+
+/** A nested update: a row, or its target and then its data. */
+type StampedUpdate<
+  Value,
+  Target extends Model<any>,
+  Context,
+> = Value extends readonly (infer Item)[]
+  ? StampedUpdate<Item, Target, Context>[]
+  : Value extends { readonly data: unknown }
+    ? StampedArms<Value, Target, never, "data", Context>
+    : StampedRow<
+        Value,
+        Target,
+        TargetStampedFields<Context, Target, "update">,
+        Context
+      >;
+
+/** A nested verb's create and update arms, rebuilt; an array, item by item. */
+type StampedArms<
+  Value,
+  Target extends Model<any>,
+  CreateKey,
+  UpdateKey,
+  Context,
+> = Value extends readonly (infer Item)[]
+  ? StampedArms<Item, Target, CreateKey, UpdateKey, Context>[]
+  : Value extends object
+    ? {
+        [Key in keyof Value]: Key extends CreateKey
+          ? StampedRow<
+              Value[Key],
+              Target,
+              TargetStampedFields<Context, Target, "create">,
+              Context
+            >
+          : Key extends UpdateKey
+            ? StampedRow<
+                Value[Key],
+                Target,
+                TargetStampedFields<Context, Target, "update">,
+                Context
+              >
+            : Value[Key];
+      }
+    : Value;
 
 /**
  * The fields the chain writes on a relation's target. A target is found by
@@ -644,124 +753,6 @@ type NamesTarget<Names, Target extends Model<any>, S> = Names extends keyof S
       >
     : never
   : never;
-
-/*
- * The nested guard reads the call's own argument, as `NoExtraOperationKeys`
- * does: it follows only the relations and verbs the call spells, so a call's
- * cost is its own depth, never the schema's.
- */
-
-type Element<Value> = Value extends readonly (infer Item)[] ? Item : Value;
-
-/**
- * One guard, or one per item when the call spells an array. An item keeps its
- * own keys beside the guard: an array is checked item by item against each
- * member of an intersection, so a guard alone would call them excess.
- */
-type EachGuard<Value, Guard> = Value extends readonly (infer Item)[]
-  ? readonly (Item & Guard)[]
-  : Guard;
-
-/** One nested row: its target's stamped fields, then its own relations. */
-type RowGuard<Target extends Model<any>, Row, Kind, Context> = Row &
-  ([TargetStampedFields<Context, Target, Kind>] extends [never]
-    ? unknown
-    : Unwritable<TargetStampedFields<Context, Target, Kind>>) &
-  RelationsGuard<Target, Row, Context>;
-
-/** The verbs that create or update a target; every other verb is left alone. */
-type VerbGuard<
-  Verb,
-  Target extends Model<any>,
-  Value,
-  Context,
-> = Verb extends "create"
-  ? EachGuard<Value, RowGuard<Target, Element<Value>, "create", Context>>
-  : Verb extends "createMany"
-    ? Value extends { readonly data: infer Rows }
-      ? {
-          readonly data?: EachGuard<
-            Rows,
-            RowGuard<Target, Element<Rows>, "create", Context>
-          >;
-        }
-      : unknown
-    : Verb extends "connectOrCreate" | "upsert"
-      ? EachGuard<Value, ArmsGuard<Target, Element<Value>, Context>>
-      : Verb extends "update" | "updateMany"
-        ? EachGuard<
-            Value,
-            Element<Value> extends { readonly data: infer Row }
-              ? { readonly data?: RowGuard<Target, Row, "update", Context> }
-              : RowGuard<Target, Element<Value>, "update", Context>
-          >
-        : unknown;
-
-/** `connectOrCreate`'s and `upsert`'s arms: a create and an update. */
-type ArmsGuard<Target extends Model<any>, Arms, Context> = (Arms extends {
-  readonly create: infer Row;
-}
-  ? { readonly create?: RowGuard<Target, Row, "create", Context> }
-  : unknown) &
-  (Arms extends { readonly update: infer Row }
-    ? { readonly update?: RowGuard<Target, Row, "update", Context> }
-    : unknown);
-
-/** A relation with variants has no one target: it is not narrowed. */
-type RelationGuard<Target, Given, Context> = [Target] extends [never]
-  ? unknown
-  : Target extends Model<any>
-    ? Given extends object
-      ? {
-          readonly [Verb in keyof Given]?: VerbGuard<
-            Verb,
-            Target,
-            Given[Verb],
-            Context
-          >;
-        }
-      : unknown
-    : unknown;
-
-type RelationsGuard<M, Given, Context> = Given extends object
-  ? M extends Model<infer State>
-    ? {
-        readonly [Key in Extract<
-          keyof Given,
-          keyof State["relations"]
-        >]?: RelationGuard<
-          GetTargetModel<State["relations"][Key]>,
-          Given[Key],
-          Context
-        >;
-      }
-    : unknown
-  : unknown;
-
-/** The writes a call nests through its model's relations. */
-type NestedStampGuard<Context, O, M, Arg> = [Context] extends [never]
-  ? unknown
-  : O extends "create" | "update" | "updateMany"
-    ? Arg extends { readonly data: infer Row }
-      ? { readonly data?: RelationsGuard<M, Row, Context> }
-      : unknown
-    : O extends "createMany"
-      ? Arg extends { readonly data: infer Rows }
-        ? {
-            readonly data?: EachGuard<
-              Rows,
-              Element<Rows> & RelationsGuard<M, Element<Rows>, Context>
-            >;
-          }
-        : unknown
-      : O extends "upsert"
-        ? (Arg extends { readonly create: infer Row }
-            ? { readonly create?: RelationsGuard<M, Row, Context> }
-            : unknown) &
-            (Arg extends { readonly update: infer Row }
-              ? { readonly update?: RelationsGuard<M, Row, Context> }
-              : unknown)
-        : unknown;
 
 /** A payload with the operation's placed controls beside its own keys. */
 type WithControls<T, Controls> = [keyof Controls] extends [never]
@@ -1413,7 +1404,6 @@ type Operation<
   ClientDefaults = never,
   Controls = NoControls,
   Payload = OperationPayload<O, M>,
-  Nested = never,
   ClientPayload = WithControls<Payload, Controls>,
 > = undefined extends ClientPayload
   ? <Arg extends ClientPayload>(
@@ -1427,8 +1417,7 @@ type Operation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >
   : <Arg extends ClientPayload>(
-      args: NoExtraOperationKeys<O, Arg, ClientPayload, M> &
-        NestedStampGuard<Nested, O, M, Arg>
+      args: NoExtraOperationKeys<O, Arg, ClientPayload, M>
     ) => PendingOperation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >;

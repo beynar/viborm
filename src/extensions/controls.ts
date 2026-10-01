@@ -92,12 +92,13 @@ export type DeletionContribution = {
  * call passed for that control (a call that passed none writes nothing
  * there), or, on `update`, one of the field's update operators
  * (`{ increment: 1 }`). A call that writes one of these fields itself is
- * refused, even one that passed no value for its control. When the model
- * names here are written out (not built from a `string[]`), the extended
- * client's types accept no value there either, nested writes included. When
- * two extensions name a field, the later one writes it. Give such a field a
- * default or make it nullable in the schema: the call's data is checked
- * before the extension writes it.
+ * refused, even one that passed no value for its control. A create may leave
+ * out such a field even where the schema requires it: the call's data is
+ * checked with it counted as given. When the model names here are known to
+ * the types (written out, or kept by a `const` type parameter, not a plain
+ * `string[]`), the extended client's types agree, nested writes included:
+ * the field accepts no value and may be left out. When two extensions name a
+ * field, the later one writes it.
  */
 export type DataContribution = {
   readonly models: {
@@ -261,9 +262,9 @@ type EntryStamps<
 /**
  * What one definition's `data` writes: one member per model and kind. A
  * definition whose model names are lost (`{ [model: string]: ... }`, as a
- * recipe that takes `string[]` builds) writes nothing the types can name:
- * every field stays in the payloads, and the call is still refused when it
- * passes one.
+ * recipe called with a plain `string[]` builds) writes nothing the types can
+ * name: every field stays in the payloads, and the call is still refused
+ * when it passes one.
  */
 export type DefinitionData<Definition> = Definition extends {
   readonly data: { readonly models: infer Models };

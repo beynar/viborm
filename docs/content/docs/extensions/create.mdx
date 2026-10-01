@@ -502,28 +502,30 @@ await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updat
   reported at `data.<field>` too. A field the extension writes only on create
   can still be set by an update.
 - The types agree when the extension names its models where the types can
-  read them, as a `data` entry written inline does. On the extended client,
-  each field the extension writes accepts no value in that model's create
-  and update data, in the call's own data and in every create and update it
-  nests through a relation: passing one is an editor error. The base client
-  still accepts it.
+  read them, as a `data` entry written inline does, or a
+  [recipe](/docs/extensions/recipes) given a written list of names. On the
+  extended client, each field the extension writes accepts no value in that
+  model's create and update data, in the call's own data and in every create
+  and update it nests through a relation: passing one is an editor error.
+  The base client still accepts it.
 - A field your schema requires may be left out of a create when an
   extension writes it on that call: the call's data is checked against the
   schema with that field counted as given, at the root and in every nested
   create, and the extension then writes it. A required foreign key such as
-  `tenantId` counts as given for its relation too. When the call does not
-  pass the control the field names, nothing writes it, so leaving it out is
-  refused as missing, as on a model no extension writes. The types do not
-  know this yet: on the extended client such a field stays required in the
-  create input, and when the extension names its models inline it also
-  accepts no value, so no create of the model compiles. In TypeScript, make
-  it nullable or give it a default for now.
-- A recipe that takes its models as a plain `string[]`, as the
-  [recipes](/docs/extensions/recipes) do, cannot tell the types which models
-  it names, so the types leave every field in place: passing one of its
-  fields compiles and is refused when the call runs. The model names are not
-  checked either. A `data` entry written inline that names a model your
-  schema lacks is an editor error.
+  `tenantId` counts as given for its relation too. The types say the same:
+  on the extended client such a field is optional in the create data of the
+  models the extension names, at the root and in a create nested through a
+  relation. When the call does not pass the control the field names, nothing
+  writes it, so leaving it out is refused as missing when the call runs, as
+  on a model no extension writes; mark the control `required` so the call
+  must pass it.
+- What the types cannot see: names built at runtime (a plain `string[]`)
+  narrow nothing, so passing a field compiles and is refused when the call
+  runs, and a required field cannot be left out in your editor; and a
+  create nested through a relation with variants is not rebuilt, so there a
+  required field is still asked for. A `data` entry, or a recipe's list,
+  that names a model your schema lacks is an editor error where the
+  extension is applied.
 - When two extensions write the same field of a model, the one applied later
   wins, on every call. Each writes its other fields.
 - A field whose control the call did not pass is not written, and the call
