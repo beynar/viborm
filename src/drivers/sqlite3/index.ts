@@ -6,7 +6,7 @@
 
 import { Buffer } from "node:buffer";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { sqliteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -46,6 +46,44 @@ import {
 import type { QueryResult } from "../types";
 
 type SQLite3Database = Database.Database;
+type SQLite3Statement = Database.Statement;
+
+/**
+ * Compiling SQL costs about as much as running a small read (~4 µs), and the
+ * engine emits the same text for the same query shape, so each database keeps
+ * its recent statements: one map for positional reads (raw, safe integers) and
+ * one for keyed reads and writes, since a statement's modes are its own state.
+ * Only a stock `prepare` is bypassed; a database whose `prepare` was replaced
+ * sees every call. Oldest-first eviction bounds the native memory held.
+ */
+const STATEMENT_CACHE_LIMIT = 100;
+const statementCaches = new WeakMap<
+  SQLite3Database,
+  readonly [Map<string, SQLite3Statement>, Map<string, SQLite3Statement>]
+>();
+const stockPrepare = Database.prototype.prepare;
+
+function cachedStatement(
+  db: SQLite3Database,
+  sql: string,
+  positional: boolean
+): SQLite3Statement {
+  if (db.prepare !== stockPrepare) return db.prepare(sql);
+  let caches = statementCaches.get(db);
+  if (!caches) {
+    caches = [new Map(), new Map()];
+    statementCaches.set(db, caches);
+  }
+  const cache = caches[positional ? 0 : 1];
+  let statement = cache.get(sql);
+  if (statement === undefined) {
+    statement = db.prepare(sql);
+    if (cache.size === STATEMENT_CACHE_LIMIT)
+      cache.delete(cache.keys().next().value as string);
+    cache.set(sql, statement);
+  }
+  return statement;
+}
 
 function convertValuesForSQLite3(values: unknown[]): unknown[] {
   return values.map((parameter) => {
@@ -94,8 +132,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     sqliteResultParser.parseRelation;
   private static readonly canonicalDriverParseResult =
     sqliteResultParser.parseResult;
-  // The adapter is immutable, so every driver shares one.
-  readonly adapter: DatabaseAdapter = sqliteAdapter;
+  readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions = true;
@@ -230,7 +267,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
           return { kind: "borrowed", result };
         }
         const values = convertValuesForSQLite3(params);
-        const prepared = client.prepare(statement);
+        const prepared = cachedStatement(client, statement, true);
         if (!prepared.reader) {
           const result = prepared.run(...values);
           const borrowed = { rows: [], rowCount: result.changes };
@@ -300,7 +337,11 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     values: unknown[] | undefined,
     safeIntegers: boolean
   ): QueryResult<T> {
-    const stmt = db.prepare(sql);
+    // Raw SQL keeps a fresh statement: its integer mode is the database's own
+    // default, which a cached statement would not follow.
+    const stmt = safeIntegers
+      ? cachedStatement(db, sql, false)
+      : db.prepare(sql);
 
     if (stmt.reader) {
       if (safeIntegers) {

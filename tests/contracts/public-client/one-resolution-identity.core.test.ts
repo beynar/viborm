@@ -129,4 +129,29 @@ describe("one resolution, one index", () => {
     await plain.$disconnect();
     await hidden.$disconnect();
   });
+
+  test("clients over one schema object reuse its resolution until the object changes", () => {
+    const tag = s.model({ id: s.string().id() });
+    const record: Record<string, unknown> = { tag };
+    const build = () =>
+      createClient({
+        schema: record as { tag: typeof tag },
+        driver: new PlanningDriver("postgresql"),
+      });
+    build();
+    build();
+    // A relation whose target is not registered fails resolution: the changed
+    // object is resolved again rather than answered from the first client.
+    record.dangling = s.model({
+      id: s.string().id(),
+      tagId: s.string(),
+      tag: s
+        .toOne(() => s.model({ id: s.string().id() }))
+        .fields("tagId")
+        .references("id"),
+    });
+    expect(build).toThrow();
+    delete record.dangling;
+    expect(build).not.toThrow();
+  });
 });
