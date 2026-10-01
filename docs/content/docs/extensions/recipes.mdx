@@ -182,7 +182,13 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
   and values; past that, the oldest is prepared again when it comes back,
   which is slower but gives the same answer. Tenancy with both modes in use
   keeps 128 tenants. Values that only `data` uses, such as `actor`, take no
-  room.
+  room. A value a `rows` filter names does take room: on a client with the
+  optimistic lock, each update or delete that passes a new `expectedVersion`
+  takes an entry, so steady writes push tenants out. To keep the tenants,
+  apply the lock on a client of its own, such as
+  `const locked = db.$extends(optimisticLock([...]))`, and send the locked
+  writes there: `db` keeps its own 256 entries, and the lock's versions
+  never take them.
 - **Cached reads are keyed on the value**, so two tenants never share a
   cache entry.
 - **Combine them freely.** Apply them in any order, before any extension

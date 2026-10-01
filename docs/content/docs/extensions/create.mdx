@@ -419,7 +419,11 @@ version: every model you name, and `tenantId` written on every create.
   control. Tenancy's `all` still takes one per tenant, since its default
   mode names `tenant`: with both modes in use, a client keeps 128 tenants.
   Values that only `data` uses, such as audit's `actor`, take no room: they
-  are put in for their call alone.
+  are put in for their call alone. Every value a filter names does: the
+  optimistic lock's `expectedVersion` takes an entry for each new version,
+  and on a client that also has tenancy it pushes tenants out. Apply such an
+  extension on a client of its own (`db.$extends(...)` keeps a memo apart
+  from `db`'s).
 - Cached reads are keyed on the value, so two tenants never share an entry. A
   value that is not plain data, such as a `Decimal` or a `Map`, is prepared
   for its call alone and skips the cache.

@@ -32,6 +32,10 @@ import { Decimal } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import {
+  optimisticLock,
+  tenancy as tenancyRecipe,
+} from "@tests/fixtures/extension-recipes";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, test } from "vitest";
@@ -993,6 +997,40 @@ describe("controls: rows bound to the call", () => {
     expect(binding.bound.size).toBe(256);
     expect(call("t0")).not.toBe(first);
     expect(call("t1")).not.toBe(kept[1]);
+  });
+
+  test("the lock's version takes room beside the tenant: each new version on one client pushes tenants out; a client of its own leaves them", () => {
+    const tenanted = appendResolvedExtension(
+      undefined,
+      tenancyRecipe(["post"]),
+      schema
+    );
+    const locked = appendResolvedExtension(
+      tenanted,
+      optimisticLock(["post"]),
+      schema
+    );
+    const binding = locked.callRows!;
+    // Every combination takes both default domains, which name both values.
+    expect(binding.references.map((names) => [...names].sort())).toEqual(
+      Array.from({ length: 4 }, () => ["expectedVersion", "tenant"])
+    );
+    const read = callRows(binding, "post", { tenant: "acme" }).domain;
+    expect(callRows(binding, "post", { tenant: "acme" }).domain).toBe(read);
+    for (let version = 0; version < 256; version++) {
+      callRows(binding, "post", { tenant: "acme", expectedVersion: version });
+    }
+    expect(binding.bound.size).toBe(256);
+    const again = callRows(binding, "post", { tenant: "acme" }).domain;
+    expect(again).not.toBe(read);
+    expect(again).toEqual(read);
+    // The client the lock was applied to keeps its own memo: its tenant stays.
+    const tenantOnly = tenanted.callRows!;
+    expect(tenantOnly).not.toBe(binding);
+    const kept = callRows(tenantOnly, "post", { tenant: "acme" }).domain;
+    expect(binding.bound.size).toBe(256);
+    expect(tenantOnly.bound.size).toBe(1);
+    expect(callRows(tenantOnly, "post", { tenant: "acme" }).domain).toBe(kept);
   });
 
   test("a chain whose predicates name no control keeps its precomputed facts: nothing is bound or kept", () => {

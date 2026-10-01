@@ -11,13 +11,17 @@
  * private. Each of the recipe file's top-level blocks (the imports,
  * `perModel`, tenancy, audit, the optimistic lock) must appear verbatim in the
  * guide's recipes page, so the page, the fixture the behaviour tests run and
- * the packed consumer are one text. Its `use.ts` runs §1.1's use block
- * against `viborm/sqlite3`, then audit and the lock applied over tenancy,
- * with each result checked.
+ * the packed consumer are one text. Its `use.ts` runs §1.1's calls against
+ * `viborm/sqlite3` (the first read with an `include` added, to observe the
+ * related filter), then audit and the lock applied over tenancy, with each
+ * result checked. Last, it runs the page's three use blocks verbatim, each in
+ * a scope of its own over the plain client, and checks what they wrote: the
+ * lock's block twice, the second time on a row that moved on.
  *
  *   A. TYPES — `tsc --strict` over the consumer, against the published
  *              declarations: the recipes compile with no cast, the use block
- *              type-checks, and the four `@ts-expect-error` lines (the
+ *              and the page's use blocks type-check, and the four
+ *              `@ts-expect-error` lines (the
  *              controls' value and placement types) are needed.
  *   B. RUN   — Node runs the same file (type stripping): a tenant reads only
  *              its rows, through a relation too; a create is stamped with the
@@ -47,6 +51,22 @@ const GUIDE = join(
   "extensions",
   "recipes.mdx"
 );
+
+const USE_BLOCK = /```ts\n(const db = base\.\$extends\([^`]*?)```/g;
+
+/** The page's use blocks, in page order: tenancy, audit, the lock. */
+function guideUseBlocks() {
+  const blocks = [...readFileSync(GUIDE, "utf8").matchAll(USE_BLOCK)].map(
+    (match) => match[1]
+  );
+  if (blocks.length !== 3) {
+    throw new Error(
+      `The recipes page must carry three use blocks starting "const db = base.$extends(", found ${blocks.length}`
+    );
+  }
+  return blocks;
+}
+const [tenancyUse, auditUse, lockUse] = guideUseBlocks();
 
 /** The recipes from their first import on, spelled as a consumer spells them. */
 function consumerRecipes() {
@@ -140,7 +160,7 @@ const issues = (error: unknown) => {
 };
 const sorted = (rows: readonly { id: string }[]) => rows.map((row) => row.id).sort();
 
-// §1.1's use block.
+// §1.1's calls, the first read with an include to observe the related filter.
 const title = "new";
 const db = base.$extends(tenancy(["post", "comment"]));
 const acme = await db.post.findMany({ tenant: "acme", include: { comments: true } });
@@ -218,6 +238,51 @@ assert.deepEqual(
   [{ path: "data.version", message: 'Field "version" is written by extension "optimisticLock"' }]
 );
 assert.equal((await base.post.findUniqueOrThrow({ where: { id: written.id } })).title, "t");
+
+// The page's use blocks, verbatim, each in its own scope over the plain client.
+const session = { userId: "ann" };
+{
+  const title = "guide tenancy";
+  const refused = await failure(
+    (async () => {
+${tenancyUse}    })()
+  );
+  assert.deepEqual(issues(refused), [{ path: "tenant", message: 'Control "tenant" is required' }]);
+  const rows = await base.post.findMany({ where: { title } });
+  assert.deepEqual(
+    rows.map((row) => row.tenantId),
+    ["acme"]
+  );
+}
+const target = await base.post.create({ data: { title: "guide", version: 3 } });
+{
+  const { id } = target;
+  const title = "guide audit";
+${auditUse}  const rows = await base.post.findMany({ where: { title } });
+  assert.deepEqual(
+    rows.map((row) => [row.id === id, row.createdBy, row.updatedBy]).sort(),
+    [
+      [false, "ann", null],
+      [true, null, "ann"],
+    ]
+  );
+}
+{
+  const { id } = target;
+  const data = { title: "guide lock" };
+${lockUse}  const row = await base.post.findUniqueOrThrow({ where: { id } });
+  assert.deepEqual([row.title, row.version], ["guide lock", 4]);
+}
+{
+  const { id } = target;
+  const data = { title: "stale" };
+  const moved = await failure(
+    (async () => {
+${lockUse}    })()
+  );
+  assert.ok(moved instanceof NotFoundError);
+  assert.equal((await base.post.findUniqueOrThrow({ where: { id } })).title, "guide lock");
+}
 
 export async function flagged() {
   // @ts-expect-error tenant takes a string
