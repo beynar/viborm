@@ -211,8 +211,9 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // the public client on the interactive and the batch-only substrate.
 // Compression C1: a root delete whose projection reads to-many relations, and
 // a third substrate without RETURNING (15 cells on each of three drivers).
+// F2: a limited deleteMany's premise and effect take one window (16 cells).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 69,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 72,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)

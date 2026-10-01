@@ -419,6 +419,12 @@ type PreparedPredicate =
        * joins it (a premise that names its own visibility).
        */
       readonly unscoped?: true;
+    }
+  | {
+      /** The first `limit` rows of `selector` in key order ({@link Queries.window}). */
+      readonly kind: "window";
+      readonly selector: PreparedSelector;
+      readonly limit: number;
     };
 /**
  * A conjunction of nothing states nothing; every other prepared predicate is a
@@ -1777,11 +1783,41 @@ export class Queries {
         where: this.lowerSelector(selector, mutated, mutated),
         suffix: adapter.clauses.limit(this.value(limit)),
       };
-    const alias = this.alias();
+    return { where: this.capped(selector, limit, false) };
+  }
+  /**
+   * The first `limit` rows of `selector` in key order, as prepared meaning: a
+   * limited window two statements of one atomic unit both name — a premise
+   * about the window, then the effect over it — and agree on by construction,
+   * because a total order leaves the same data one answer. An unordered
+   * `LIMIT` leaves the provider free to answer each statement differently.
+   * Its rows are rows of `selector`, so the selector's facts hold for them.
+   */
+  window(selector: PreparedSelector, limit: number): PreparedSelector {
+    return Object.freeze({
+      model: selector.model,
+      facts: selector.facts,
+      predicate: Object.freeze({ kind: "window", selector, limit }),
+    });
+  }
+  /**
+   * `<keys> IN (SELECT <keys> FROM <model> WHERE <selector> [ORDER BY <keys>]
+   * LIMIT <limit>)`, the keys outside addressed through `alias`: a mutation's
+   * limit where the provider has no `UPDATE … LIMIT`, and a {@link window}.
+   */
+  private capped(
+    selector: PreparedSelector,
+    limit: number,
+    ordered: boolean,
+    alias?: string
+  ): Sql {
+    const adapter = this.adapter;
+    const model = selector.model;
+    const inner = this.alias();
     const keys = this.schema.keys(model);
-    const targetColumns = keys.map((field) => this.column(model, field));
+    const targetColumns = keys.map((field) => this.column(model, field, alias));
     const selectedColumns = keys.map((field) =>
-      this.column(model, field, alias)
+      this.column(model, field, inner)
     );
     const target =
       targetColumns.length === 1
@@ -1789,13 +1825,17 @@ export class Queries {
         : sql`(${sql.join(targetColumns, ", ")})`;
     const capped = assembleAdapterSelect(adapter, {
       columns: sql.join(selectedColumns, ", "),
-      from: this.table(model, alias),
-      where: this.lowerSelector(selector, alias),
+      from: this.table(model, inner),
+      where: this.lowerSelector(selector, inner),
+      orderBy: ordered
+        ? sql.join(
+            selectedColumns.map((column) => adapter.orderBy.asc(column)),
+            ", "
+          )
+        : undefined,
       limit: this.value(limit),
     });
-    return {
-      where: adapter.operators.in(target, adapter.subqueries.scalar(capped)),
-    };
+    return adapter.operators.in(target, adapter.subqueries.scalar(capped));
   }
   lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
     return this.adapter.operators.and(
@@ -2391,6 +2431,8 @@ export class Queries {
         return this.lowerOperation(predicate, alias);
       case "relation":
         return this.lowerRelationPredicate(predicate, alias, mutationTarget);
+      case "window":
+        return this.capped(predicate.selector, predicate.limit, true, alias);
     }
   }
   private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {

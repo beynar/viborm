@@ -1737,7 +1737,15 @@ export class Commands {
   /**
    * A tombstoning root delete's plan: `effect` behind its referential premise,
    * stated first — no candidate is still referenced through a restricting
-   * slot. A model without such a slot runs `effect` alone.
+   * slot. A model without such a slot runs `effect` alone, under the limit.
+   *
+   * A `limit` makes the premise and the effect name ONE window, the first
+   * `limit` candidates in key order, so a reference outside it does not refuse
+   * the delete and one inside it does, as the database refuses the hard delete
+   * of those rows. An interactive session READS the window — the lock below,
+   * limited — and both take its rows by identity; a batch states it in SQL in
+   * both statements ({@link Queries.window}), whose total order gives the one
+   * atomic unit one answer.
    *
    * An interactive session locks the candidates before it asks (DC14): the
    * premise is then a later statement, so it sees a child a concurrent writer
@@ -1748,19 +1756,21 @@ export class Commands {
    */
   private unreferenced(
     candidates: PreparedSelector,
+    limit: number | undefined,
     single: boolean,
-    effect: () => Promise<unknown>
+    effect: (window: PreparedSelector, limit?: number) => Promise<unknown>
   ): PhysicalPlan {
     const blocked = this.blocked(candidates);
-    if (!blocked) return { single, run: effect };
+    if (!blocked) return { single, run: () => effect(candidates, limit) };
     const ctx = this.context;
+    const queries = ctx.queries;
     const model = candidates.model;
     const failure = this.restriction(model);
     return {
       single: false,
       run: async () => {
         const locked = (selector: PreparedSelector, take?: number) =>
-          ctx.queries.select(
+          queries.select(
             model,
             {
               take,
@@ -1771,13 +1781,26 @@ export class Commands {
             undefined,
             { selector, forUpdate: !ctx.usesBatch }
           );
-        if (!ctx.usesBatch) await ctx.read(locked(candidates), true);
-        const query = locked(blocked, 1);
+        // The window, where a limit names one: the locking read, limited, is
+        // in total key order as every windowed read is (`Queries.select`).
+        let window: PreparedSelector | undefined;
+        if (!ctx.usesBatch) {
+          const rows = await ctx.read(locked(candidates, limit), true);
+          if (limit !== undefined)
+            window = queries.includeIdentities(
+              model,
+              rows.map((row) => ctx.schema.identity(model, row))
+            );
+        } else if (limit !== undefined)
+          window = queries.window(candidates, limit);
+        const within = (selector: PreparedSelector) =>
+          window ? queries.andSelectors(model, [selector, window]) : selector;
+        const query = locked(within(blocked), 1);
         // A packaged array member states it inside the array's atomic unit.
         if (ctx.preparesBatch)
           ctx.packageGuard(model, query.sql, "notExists", failure);
         else await ctx.requireAbsent(query, this.restrictFailure(model)());
-        return effect();
+        return effect(within(candidates));
       },
     };
   }
@@ -2016,8 +2039,8 @@ export class Commands {
             ctx.deleteMany(model, selector, args.limit, projection, missing),
         };
       const values = tombstone.admitted;
-      return this.unreferenced(selector, single, () =>
-        ctx.updateMany(model, selector, values, args.limit, projection, missing)
+      return this.unreferenced(selector, args.limit, single, (window, limit) =>
+        ctx.updateMany(model, window, values, limit, projection, missing)
       );
     }
     if (ctx.operation === "upsert") {

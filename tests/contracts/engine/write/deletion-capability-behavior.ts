@@ -707,6 +707,76 @@ export function runDeletionCapabilityBehavior(
       expect(physicalDeletes()).toEqual([]);
     });
 
+    test("a limited deleteMany's premise reads the window its effect tombstones: the first `limit` candidates in key order, as the hard delete removes", async () => {
+      const { base, db } = context;
+      const tombstoned = async () =>
+        (await base.post.findMany({ where: { deletedAt: { not: null } } }))
+          .map((row) => row.id)
+          .sort((left, right) => left - right);
+      // Post 10 has the live comment 100 and 13 tag 1's junction row, both
+      // restricting; 11 is free. A restricted row INSIDE the window refuses.
+      expect(
+        await failure(
+          db.post.deleteMany({ where: { id: { in: [10, 11] } }, limit: 1 })
+        )
+      ).toBeInstanceOf(ForeignKeyError);
+      // A window that covers both, and no limit at all, take 13 too.
+      for (const limit of [2, undefined])
+        expect(
+          await failure(
+            db.post.deleteMany({ where: { id: { in: [11, 13] } }, limit })
+          )
+        ).toBeInstanceOf(ForeignKeyError);
+      expect(await tombstoned()).toEqual([12]);
+      expect(physicalDeletes()).toEqual([]);
+      // The hard delete of the same windows over fresh rows: the database
+      // refuses 10's, and removes 11 and keeps 13.
+      expect(
+        await failure(
+          db.post.deleteMany({
+            where: { id: { in: [10, 11] } },
+            limit: 1,
+            mode: "hard",
+          })
+        )
+      ).toBeInstanceOf(ForeignKeyError);
+      expect(
+        await db.post.deleteMany({
+          where: { id: { in: [11, 13] } },
+          limit: 1,
+          mode: "hard",
+          select: { id: true },
+        })
+      ).toEqual([{ id: 11 }]);
+      await base.post.create({ data: { id: 11, authorId: 1, title: "p11" } });
+      const removed = physicalDeletes().length;
+      // The same window, tombstoned: 13 is referenced outside it.
+      expect(
+        await db.post.deleteMany({
+          where: { id: { in: [11, 13] } },
+          limit: 1,
+          select: { id: true, deletedById: true },
+        })
+      ).toEqual([{ id: 11, deletedById: ACTOR }]);
+      expect(await tombstoned()).toEqual([11, 12]);
+      // Inside an array transaction (a packaged premise on a batch-only
+      // substrate): 15 is referenced by note 1 outside the window of 14.
+      expect(
+        await db.$transaction([
+          db.post.deleteMany({ where: { id: { in: [14, 15] } }, limit: 1 }),
+        ])
+      ).toEqual([{ count: 1 }]);
+      expect(
+        await failure(
+          db.$transaction([
+            db.post.deleteMany({ where: { id: { in: [13, 16] } }, limit: 1 }),
+          ])
+        )
+      ).toBeInstanceOf(ForeignKeyError);
+      expect(await tombstoned()).toEqual([11, 12, 14]);
+      expect(physicalDeletes()).toHaveLength(removed);
+    });
+
     test("set over a required foreign key keeps today's refusal, and removes no target row", async () => {
       const { base, db } = context;
       const refused = await failure(
