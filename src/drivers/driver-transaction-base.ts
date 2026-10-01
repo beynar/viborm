@@ -219,21 +219,26 @@ export abstract class DriverTransactionBase<
     return this.dispatchStatement(
       executionContext,
       hasStatementObservers,
-      // Async so a transform or bind-capacity refusal is a rejection, never a
-      // synchronous throw out of the queue or the observer.
-      async (gate) => {
-        transformedQuery ??= this.applyTrustedStatementTransforms(
-          query,
-          executionContext,
-          "execute"
-        );
-        return this.sendStatement(
-          this.buildStatement(transformedQuery),
-          transformedQuery.values,
-          executionContext,
-          executeProvider,
-          gate
-        );
+      // A transform or bind-capacity refusal must be a rejection, never a
+      // synchronous throw out of the queue or the observer; caught here rather
+      // than with an async wrapper, which costs a promise per statement.
+      (gate) => {
+        try {
+          transformedQuery ??= this.applyTrustedStatementTransforms(
+            query,
+            executionContext,
+            "execute"
+          );
+          return this.sendStatement(
+            this.buildStatement(transformedQuery),
+            transformedQuery.values,
+            executionContext,
+            executeProvider,
+            gate
+          );
+        } catch (error) {
+          return Promise.reject(error);
+        }
       }
     );
   }
