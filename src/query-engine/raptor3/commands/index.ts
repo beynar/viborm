@@ -10,7 +10,12 @@ import {
 } from "../shared/operation-context";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
 import { PreparedDomain, Queries } from "../shared/query";
-import type { CallRows, CallScope, RowDomain } from "../shared/row-scope";
+import {
+  type CallRows,
+  type CallScope,
+  parseStamped,
+  type RowDomain,
+} from "../shared/row-scope";
 import {
   type Arguments,
   type EngineConfig,
@@ -209,11 +214,17 @@ export function createCommandEngine(config: EngineConfig) {
     }
 
     get args(): Arguments {
-      return (this.#admitted ??= schema.admit(
-        this.#model,
-        this.#operation,
-        this.#rawArgs
-      ));
+      return (this.#admitted ??= this.#admit());
+    }
+
+    /** Admitted where a required field the call's stamps write may be left out. */
+    #admit(): Arguments {
+      const stamps = this.#scope?.rows.stamps;
+      return stamps === undefined
+        ? schema.admit(this.#model, this.#operation, this.#rawArgs)
+        : parseStamped(stamps, () =>
+            schema.admit(this.#model, this.#operation, this.#rawArgs)
+          );
     }
 
     #read(): Read | undefined {

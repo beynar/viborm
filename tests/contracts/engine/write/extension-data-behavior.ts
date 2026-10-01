@@ -31,7 +31,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * Fixture: posts, comments (optional foreign key to a post) and tags (a
  * junction with posts), each with `createdBy`, `updatedBy` and `deletedAt`;
  * posts also `version` (default 0) and `source`. The stamped fields are
- * nullable: the call's data is checked before the extension writes them.
+ * nullable here; a required one is `stamped-required-behavior.ts`'s.
  */
 
 export function dataSchema() {

@@ -9,6 +9,7 @@
 
 import { PgDriver } from "@drivers/pg";
 import { runExtensionDataBehavior } from "@tests/contracts/engine/write/extension-data-behavior";
+import { runStampedRequiredBehavior } from "@tests/contracts/engine/write/stamped-required-behavior";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
@@ -17,6 +18,10 @@ describeIf("pg Driver", () => {
   beforeEach(dropEveryLiveTable);
 
   runExtensionDataBehavior({
+    name: "pg",
+    createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+  });
+  runStampedRequiredBehavior({
     name: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
   });

@@ -400,6 +400,13 @@ composition boundary. Convert their thrown failures and promises there. A
 validated VibORM schema is trusted downstream; do not add a second shape or
 async check inside object, relation, or operation-schema consumers.
 
+The one piece of state a parse reads beyond its schema and input follows from
+this rule: the fields the caller's context provides (`parseProviding`,
+`primitives/object.ts`). It is set for one synchronous parse and restored in
+a `finally`, so it never outlives the parse, a throw, or a nested call. An
+object whose `provides` option names a model counts such a required field as
+given; validation learns field names by model, never who provides them.
+
 ### Rule 3: Generic Primitives Only
 No domain-specific logic here. `v.email()` or `v.url()` belong in the scalar layer, not validation.
 

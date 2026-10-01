@@ -7,6 +7,7 @@
  */
 
 import { runExtensionDataBehavior } from "@tests/contracts/engine/write/extension-data-behavior";
+import { runStampedRequiredBehavior } from "@tests/contracts/engine/write/stamped-required-behavior";
 import {
   createMySQL2Driver,
   dropEveryLiveTable,
@@ -19,6 +20,10 @@ describeIf("MySQL2 Driver", () => {
   beforeEach(dropEveryLiveTable);
 
   runExtensionDataBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+  runStampedRequiredBehavior({
     name: "MySQL2",
     createDriver: createMySQL2Driver,
   });

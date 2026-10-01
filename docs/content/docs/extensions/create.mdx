@@ -507,12 +507,17 @@ await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updat
   and update data, in the call's own data and in every create and update it
   nests through a relation: passing one is an editor error. The base client
   still accepts it.
-- Make every field an extension writes nullable or give it a default in your
-  schema. The call's data is checked against the schema before the extension
-  adds the field, so a required field the call leaves out is refused as
-  missing. Such a field can be neither passed nor left out, so every create
-  of that model is refused, and is an editor error when the types know the
-  model.
+- A field your schema requires may be left out of a create when an
+  extension writes it on that call: the call's data is checked against the
+  schema with that field counted as given, at the root and in every nested
+  create, and the extension then writes it. A required foreign key such as
+  `tenantId` counts as given for its relation too. When the call does not
+  pass the control the field names, nothing writes it, so leaving it out is
+  refused as missing, as on a model no extension writes. The types do not
+  know this yet: on the extended client such a field stays required in the
+  create input, and when the extension names its models inline it also
+  accepts no value, so no create of the model compiles. In TypeScript, make
+  it nullable or give it a default for now.
 - A recipe that takes its models as a plain `string[]`, as the
   [recipes](/docs/extensions/recipes) do, cannot tell the types which models
   it names, so the types leave every field in place: passing one of its

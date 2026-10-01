@@ -1,3 +1,4 @@
+import { parseProviding } from "@validation/primitives/object";
 import type { PreparedDomain } from "./query";
 import type { Input } from "./schema";
 
@@ -52,6 +53,23 @@ export interface ModelStamps {
   readonly create?: Stamp;
   readonly update?: Stamp;
 }
+
+/**
+ * Parse the caller's data where validation knows what the call's create
+ * stamps write ({@link parseProviding}, by the model's TS name): a required
+ * field a stamp writes may be left out, as the stamp writes it after
+ * admission. A field whose control the call left out is not written, so it
+ * is still asked for. `parse` is synchronous; a call without stamps never
+ * comes here.
+ */
+export const parseStamped = <T>(
+  stamps: ReadonlyMap<string, ModelStamps>,
+  parse: () => T
+): T =>
+  parseProviding(
+    (model, field) => stamps.get(model)?.create?.values[field] !== undefined,
+    parse
+  );
 
 /**
  * One root call's row facts, resolved from its controls outside the engine:

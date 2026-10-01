@@ -158,7 +158,13 @@ admitted again from the tombstone's raw data and stamped there. Stamps that
 name a control are put in per call outside the engine (`callRows`), never in
 the per-value domain memo, so a tenant's domain is one object whoever writes. A
 `connect`/`set` that only moves a foreign key (`MEMBERSHIP_MOVE`) is not
-stamped, as no `updatedAt` moves there. A physical delete writes nothing.
+stamped, as no `updatedAt` moves there. A physical delete writes nothing. A
+field the schema requires and a create stamp writes may be left out by the
+caller (owner ruling 2, plan v4 §7.5): the call's admission and a captured
+member's re-admission (`CommandExecution.memberData`) run inside
+`parseStamped` (`shared/row-scope.ts`), which tells validation, for that one
+synchronous parse, which fields of which model the call's create stamps
+write; a call without stamps parses outside it, as before.
 
 `RelationBody` binds membership lazily at the first admitted ordinary verb or
 tagged variant and caches it per variant. That binding owns literal requirements;
@@ -1945,7 +1951,8 @@ operation) and the ENVELOPE restart
 (`run`'s deferred arm, which runs
 the body once outside the region and again inside it). A re-plan is safe because
 admission is memoised one level above the body — `commands/index.ts`'s
-`admitted ??= schema.admit(…)` — so the second tree is built from the SAME
+`admitted ??= this.#admit()` (`schema.admit`, inside `parseStamped` when the
+call has stamps) — so the second tree is built from the SAME
 admitted arguments — the ROOT admission runs once; a captured member of a
 selected series is admitted again by the re-plan, so a member's own defaults
 and transforms run once per ATTEMPT (the shipped whole-operation re-run

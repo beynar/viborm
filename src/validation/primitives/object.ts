@@ -73,6 +73,47 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
    * every filter object into a union of one variant per operator.
    */
   refuse?: (value: Record<string, unknown>) => string | undefined;
+  /**
+   * The name this object's fields are provided under. Inside
+   * {@link parseProviding}, a required field the caller's context provides
+   * under this name may be absent: the required-field check and the
+   * `requiresOneOfKeySets` check count it as given. Outside, it changes
+   * nothing.
+   */
+  provides?: string;
+}
+
+/** Which fields, of the object a `provides` name names, the caller's context provides. */
+type ProvidedFields = (name: string, field: string) => boolean;
+
+/**
+ * The provided fields of the parse in progress. Set by
+ * {@link parseProviding} for one synchronous parse and restored, to the
+ * enclosing parse's value or to `undefined`, in its `finally`: no field is
+ * provided outside it, after it throws, or to another call.
+ */
+let provided: ProvidedFields | undefined;
+
+/** Does the parse in progress provide `field` of the object named `name`? */
+const isProvided = (name: string | undefined, field: string): boolean =>
+  name !== undefined && provided?.(name, field) === true;
+
+/**
+ * Run `parse` where `fields` are provided by the caller's context: an object
+ * whose `provides` name they list takes such a required field as absent, not
+ * missing, so the caller may leave it out (someone else writes it after the
+ * parse). `parse` must be synchronous: the context lives until it returns or
+ * throws and is then restored, so a nested call sees its own fields and its
+ * caller's come back after it.
+ */
+export function parseProviding<T>(fields: ProvidedFields, parse: () => T): T {
+  const outer = provided;
+  provided = fields;
+  try {
+    return parse();
+  } finally {
+    provided = outer;
+  }
 }
 
 /**
@@ -432,6 +473,7 @@ function createObjectValidator(
     omit,
     nonEmpty,
     refuse,
+    provides,
   } = options;
   let keys: readonly string[] = EMPTY_METADATA_ARRAY;
   let keyIndex = EMPTY_KEY_INDEX;
@@ -614,7 +656,7 @@ function createObjectValidator(
                 key,
                 inputValueScratch,
                 inputValueScratchIndexByName
-              ) !== undefined
+              ) !== undefined || isProvided(provides, key)
           )
         );
         if (!hasAlternative) {
@@ -740,7 +782,8 @@ function createObjectValidator(
         // Key is required (partial: false OR in atLeast) and schema doesn't accept undefined
         if (
           (!partial || requiredByAtLeast?.[i] === true) &&
-          !acceptsUndefined[i]
+          !acceptsUndefined[i] &&
+          !isProvided(provides, key)
         ) {
           return {
             issues: [

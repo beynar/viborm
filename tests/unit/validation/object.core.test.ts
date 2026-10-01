@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import v, { type InferInput, parse } from "@validation";
+import { parseProviding } from "@validation/primitives/object";
 import type { Prettify } from "@validation/types";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
@@ -1192,5 +1193,99 @@ describe("object wrapper combinations", () => {
     expect(parse(plain, { name: "Ada" }).issues).toBeDefined();
     expect(strict.options.partial).toBe(false);
     expect(parse(strict, {})).toEqual({ value: {} });
+  });
+
+  describe("provides option: required fields the caller's context provides", () => {
+    // `tenantId` is required both ways: by `atLeast` and as the column half
+    // of a required edge (`requiresOneOfKeySets`); `title` only by `atLeast`.
+    const post = v.object(
+      { title: v.string(), tenantId: v.string(), tenant: v.string() },
+      {
+        atLeast: ["title"],
+        requiresOneOfKeySets: [[["tenantId"], ["tenant"]]],
+        provides: "post",
+      }
+    );
+    const row = v.object(
+      { title: v.string(), tenantId: v.string() },
+      { partial: false, provides: "post" }
+    );
+    const unnamed = v.object(
+      { title: v.string(), tenantId: v.string() },
+      { partial: false }
+    );
+    const tenantOfPost = (name: string, field: string) =>
+      name === "post" && field === "tenantId";
+    const nothing = () => false;
+
+    test("outside parseProviding nothing is provided: today's refusals, byte for byte", () => {
+      expect(parse(post, { title: "a" }).issues).toEqual([
+        { message: "Missing required fields: one of tenantId or tenant" },
+      ]);
+      expect(parse(row, { title: "a" }).issues).toEqual([
+        { message: "Missing required field: tenantId", path: ["tenantId"] },
+      ]);
+    });
+
+    test("a provided field may be absent: the key-set check and the required-field check count it as given", () => {
+      expect(
+        parseProviding(tenantOfPost, () => parse(post, { title: "a" }))
+      ).toEqual({ value: { title: "a" } });
+      expect(
+        parseProviding(tenantOfPost, () => parse(row, { title: "a" }))
+      ).toEqual({ value: { title: "a", tenantId: undefined } });
+    });
+
+    test("only what the context lists, under this object's name, is provided", () => {
+      expect(
+        parseProviding(tenantOfPost, () => parse(row, { tenantId: "t" })).issues
+      ).toEqual([
+        { message: "Missing required field: title", path: ["title"] },
+      ]);
+      expect(
+        parseProviding(tenantOfPost, () => parse(unnamed, { title: "a" }))
+          .issues
+      ).toEqual([
+        { message: "Missing required field: tenantId", path: ["tenantId"] },
+      ]);
+      expect(
+        parseProviding(
+          (name, field) => name === "comment" && field === "tenantId",
+          () => parse(row, { title: "a" })
+        ).issues
+      ).toBeDefined();
+    });
+
+    test("a nested parseProviding sees its own fields, and the enclosing ones come back after it", () => {
+      const seen = parseProviding(tenantOfPost, () => {
+        const inner = parseProviding(nothing, () => parse(row, { title: "a" }));
+        return { inner, outer: parse(row, { title: "a" }) };
+      });
+      expect(seen.inner.issues).toBeDefined();
+      expect(seen.outer.issues).toBeUndefined();
+      expect(parse(row, { title: "a" }).issues).toBeDefined();
+    });
+
+    test("a parse that throws leaves no provided field behind", () => {
+      const thrown = new Error("refused mid-parse");
+      expect(() =>
+        parseProviding(tenantOfPost, () => {
+          parseProviding(tenantOfPost, () => {
+            throw thrown;
+          });
+        })
+      ).toThrow(thrown);
+      expect(parse(row, { title: "a" }).issues).toEqual([
+        { message: "Missing required field: tenantId", path: ["tenantId"] },
+      ]);
+    });
+
+    test("omit keeps the name, so a nested copy of a create is provided too", () => {
+      const nested = v.omit(row, ["title"]);
+      expect(parseProviding(tenantOfPost, () => parse(nested, {}))).toEqual({
+        value: { tenantId: undefined },
+      });
+      expect(parse(nested, {}).issues).toBeDefined();
+    });
   });
 });

@@ -20,10 +20,11 @@ export const perModel = <T>(models: readonly string[], build: () => T) =>
   Object.fromEntries(models.map((model) => [model, build()]));
 ```
 
-Every field these recipes write must be nullable or have a default in your
-schema: the call's data is checked against the schema before the extension
-adds the field, so a required field the call leaves out is refused as
-missing.
+When the call runs, a field these recipes write may be required in your
+schema: a create may leave it out and the recipe writes it. The types still
+ask for it, since a plain `string[]` does not tell them which models the
+recipe names, so in TypeScript make each such field nullable or give it a
+default, as below.
 
 ```ts
 const post = s.model({

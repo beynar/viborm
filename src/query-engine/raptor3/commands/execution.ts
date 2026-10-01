@@ -17,6 +17,7 @@ import type {
   PreparedSelector,
   Query,
 } from "../shared/query";
+import { parseStamped } from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import {
   type Membership,
@@ -1514,8 +1515,24 @@ export class CommandExecution {
     attempt.series.set(occurrence, prepared);
     return prepared;
   }
-  /** One captured member's update data, admitted from the series' raw data. */
+  /**
+   * One captured member's update data, admitted from the series' raw data as
+   * the call was: a nested create in it may leave out what the call's stamps
+   * write.
+   */
   private memberData(
+    selection: Selection,
+    membership: BoundMembership | undefined,
+    raw: Input
+  ): Input {
+    const stamps = this.context.scope?.rows.stamps;
+    return stamps === undefined
+      ? this.admitMember(selection, membership, raw)
+      : parseStamped(stamps, () =>
+          this.admitMember(selection, membership, raw)
+        );
+  }
+  private admitMember(
     selection: Selection,
     membership: BoundMembership | undefined,
     raw: Input

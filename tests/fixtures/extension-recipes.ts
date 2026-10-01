@@ -6,8 +6,9 @@
  * optimistic lock §1.3, verbatim.
  *
  * A field an extension writes on create is declared nullable (or with a
- * default) in the schemas that use them: the call's data is checked before
- * the extension writes it (decision U2-1).
+ * default) in most schemas that use them, as the types still ask for a
+ * required one; at runtime a required one may be left out (owner ruling 2,
+ * `tests/contracts/engine/write/stamped-required-behavior.ts`).
  */
 
 import { defineExtension } from "@src/index";
