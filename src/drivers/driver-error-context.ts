@@ -36,6 +36,7 @@ import {
   isArrayValue,
   isError,
   isRecord,
+  isTrustedCode,
   safeArrayLength,
   safeOwnPropertyDescriptor,
 } from "../errors/diagnostic-safety";
@@ -347,8 +348,11 @@ function getCloneConstructor(error: VibORMError): unknown {
   }
 }
 
+// The code shape rule, not membership in the enum object: reading the enum's
+// values would keep the whole object in every bundle, while member accesses
+// are inlined. The snapshot already passed the same rule when it was taken.
 function isVibORMErrorCode(value: unknown): value is VibORMErrorCode {
-  return Object.values(VibORMErrorCode).some((code) => code === value);
+  return isTrustedCode(value);
 }
 
 export function buildMeta(
