@@ -39,6 +39,7 @@ import { Sql, sql } from "@sql";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse } from "@validation";
 import { projectableScalarNames } from "@validation/model/core/projection";
+import { normalizeBinaryValue } from "@validation/primitives/binary-shapes";
 import {
   type DateTimePhysicalForm,
   decodePhysicalDateTime,
@@ -5863,8 +5864,6 @@ const TIME_TEXT =
   /^(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|[+-](\d{2})(?::?(\d{2}))?)?$/;
 const TIME_ZONE_SUFFIX = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
 const TRAILING_FRACTION_ZEROS = /\.?0+$/;
-const HEX_BYTES = /^(?:[0-9a-fA-F]{2})*$/;
-const BASE64_PROVIDER = /^base64:type\d+:(.*)$/;
 
 /** The provider timestamp grammar; the domain rules are the codec's. */
 function providerTimestamp(value: string): Date | undefined {
@@ -5978,40 +5977,15 @@ function decodeTime(value: unknown): string {
   return time;
 }
 
-/** Every driver's binary spelling, normalized to one fresh Uint8Array. */
+/**
+ * Every driver's binary spelling, normalized to one fresh Uint8Array by the one
+ * binary-shape owner (`validation/primitives/binary-shapes.ts`); the refusal's
+ * wording is this boundary's.
+ */
 function decodeBlob(value: unknown): Uint8Array {
-  if (value instanceof Uint8Array) return new Uint8Array(value);
-  if (value instanceof ArrayBuffer) return new Uint8Array(value.slice(0));
-  if (ArrayBuffer.isView(value))
-    return new Uint8Array(
-      value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
-    );
-  if (Array.isArray(value)) return Uint8Array.from(value as number[]);
-  if (typeof value === "string") {
-    const provider = BASE64_PROVIDER.exec(value);
-    if (provider) return base64Bytes(provider[1]!);
-    const hex = value.startsWith("\\x") ? value.slice(2) : value;
-    if (HEX_BYTES.test(hex)) {
-      const bytes = new Uint8Array(hex.length / 2);
-      for (let index = 0; index < bytes.length; index += 1)
-        bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
-      return bytes;
-    }
-    return base64Bytes(value);
-  }
+  const { bytes } = normalizeBinaryValue(value);
+  if (bytes) return bytes;
   throw new InvalidScalarResult("blob", "the value is not a binary value");
-}
-
-function base64Bytes(value: string): Uint8Array {
-  try {
-    const binary = atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1)
-      bytes[index] = binary.charCodeAt(index);
-    return bytes;
-  } catch {
-    throw new InvalidScalarResult("blob", "the value is not a binary value");
-  }
 }
 
 /** One dimension of a provider's own array output text: `{a,"b,c",NULL}`. */
