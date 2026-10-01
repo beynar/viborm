@@ -1,4 +1,6 @@
-# Extension capabilities v3.1, `viborm/soft-delete` and v4: final qualification record (U7, amended by the U7 repair, the compression pass, the trusted-definitions decision and v4)
+# Extension capabilities v3.1, `viborm/soft-delete` and v4: final qualification record (U7, amended by the U7 repair, the compression pass, the trusted-definitions decision, v4 and the owner rulings on v4)
+
+**Section 00000 (owner rulings on v4, qualified on 54f6bfdca) supersedes section 0000 wherever they differ.**
 
 **Section 0000 (v4: rows bound to the call and `data`, qualified on 68672cccc) supersedes section 000 wherever they differ.**
 
@@ -14,6 +16,142 @@ One thing still blocks a clean exit and needs the owner:
 And one qualification gap remains: **MySQL has never executed a witness** (no server; Docker down). PostgreSQL now has: the repair ran the pg-driver lane on a scratch PostgreSQL 18.3 server (§0.2).
 
 Labels: **MEASURED** means run in the qualification or the repair unless another unit is named. **JUDGEMENT** means reasoning, not measurement.
+
+## 00000. Owner rulings on v4 (2026-10-01)
+
+The owner gave five rulings on the open items of §0000.8. This section says what each one changed, and records the qualification of the branch after them, run on **54f6bfdca** against the v4 record commit **727621e3b**. **It supersedes §0000 (and, through it, every earlier section) wherever they differ.** Labels: **MEASURED** means run by this qualification on 54f6bfdca unless another unit is named; **JUDGEMENT** means reasoning.
+
+Verdict in one line: every gate is green apart from the seven known raptor3 reds; ruling 3 is in the code; rulings 1, 4 and 5 keep things as they are; ruling 2 is **not** in the code and waits on the owner's choice (§00000.2); PostgreSQL and MySQL still have not run a v4 witness.
+
+### 00000.1 The five rulings and what changed
+
+| Ruling (owner, 2026-10-01) | What changed | Where |
+| --- | --- | --- |
+| (1) The base bundle at +5.4 KB gzip over main is accepted; the v3.1 "+5 KB" bar is replaced by the measured figure. | Nothing in the code. STOP U3R-1 is closed. The plan and the record say so. | plan §4; §0000 head; §0000.8 item 6 |
+| (2) A field an extension writes that the schema requires must work: the caller need not pass it. | **Nothing landed.** Unit R2 found that the running code can do it, but TypeScript callers cannot leave the field out without a change to the types, which the unit was not allowed to make, so it stopped. The rulings repair widened the running-code design to cover a required foreign key (`tenantId` pointing at a tenant table). The choice is now the owner's (§00000.2). | plan §7.5; §0000.8 item 2 |
+| (3) A `required` control is asked for only on the models its own extension names (in `rows.models`, `data.models` or `deletion.models`); other models are left alone. | **In the code** (R1, bbd95b061). On another model the control is still accepted and checked, but leaving it out is not refused. An extension that names no model at all asks on every model, as before. One place decides which models ask (`placeControls`); the check only reads it. The rulings repair (54f6bfdca) added the missing pin for `rows.models`, rewrote the guard ledger row and measured the types. | src/extensions/controls.ts; plan §2.1; guard-ownership-ledger.md; create.mdx, recipes.mdx |
+| (4) The 256-entry memo stays shared, as is. | Nothing in the code. | plan §7.3; §0000.8 item 4 |
+| (5) The recipes keep `string[]`, as is. | Nothing in the code. | plan §7.6; §0000.8 item 5 |
+
+Commits after the v4 record: **bbd95b061** "fix(extensions): a required control is asked only on the models its extension names (R1)" and **54f6bfdca** "test(extensions): pin rows-only required placement, measure R1's types, record ruling 2's stop with the foreign-key case (rulings repair)". Together: 8 files, +253 / −24 lines; one source file (`src/extensions/controls.ts`), one test file, four architecture documents and two guide pages. The source stayed frozen during this qualification: every gate passed, so there is no "(rulings qualify repair)" commit.
+
+### 00000.2 Ruling 2 is waiting on the owner
+
+What a TypeScript user sees today, MEASURED by R2 and the review with a type probe on the branch:
+- With a recipe (`string[]`, kept by ruling 5), a required `tenantId` stays required in the create input. Leaving it out does not compile; passing it is refused when the call runs. So no TypeScript call can create that row.
+- With a `data` entry written inline, the whole create argument becomes impossible to type.
+
+So ruling 2 cannot reach TypeScript users unless the types change. The running-code part is ready as a patch (design B, held with this run's working files, not in the repository): validation is told which fields the call's extension writes, by model name, and stops asking the caller for them. It covers root and nested creates and the required foreign key. Its cost, MEASURED at the rulings repair: +18 runtime lines; pg-representative +364 raw / +101 gzip; +21 types / +76 instantiations on the client-2 and floor programs. The owner's three options are written out in plan §7.5: (1) land design B for the running code only and keep telling TypeScript users to declare the field nullable or with a default; (2) also fund a types unit; (3) keep today's rule (nullable or default).
+
+**JUDGEMENT:** until the owner chooses, today's rule stands and the guide says so: a field an extension writes must be nullable or have a default.
+
+### 00000.3 Identity
+
+| Item | Value |
+| --- | --- |
+| Qualified source (HEAD before this docs commit) | **54f6bfdca4de2a0553fcbe374520e6acd6faf467**, tree 6c38c510a0df9f8854b5d2b642a9c19abd068ca6 |
+| v4 record commit (the base of this section) | 727621e3b. Its `src`, `tests` and `scripts` are byte-for-byte those of 68672cccc, the source §0000 qualified (MEASURED: all 1,970 archived files have the same blob hashes). |
+| Main | origin/main = merge-base = 30ff17e69 |
+| Commits over main | 38 |
+| Trailers over main | 37 `Claude Fable 5.1` and 1 `Claude Opus 5.5` (54f6bfdca). The v4 commits were reworded to `Claude Fable 5.1` before R1, so their hashes differ from those §0000.1 lists (for example the V4 repair is now 8ddd6cd98, not 68672cccc). This record's commit follows the session's attribution reminder (`Claude Opus 5.5`), as 54f6bfdca did. |
+| Working tree before this commit | Clean. Nothing pushed, nothing amended, no history rewritten. |
+
+### 00000.4 Lines, MEASURED
+
+Same scanner and files as §0000.2 (runtime lines are what remains after `esbuild 0.25.4 --loader=ts --format=esm`), on path-limited archives. Cells are **TS code lines / runtime lines**.
+
+| Perimeter | main 30ff17e69 | v4 727621e3b | **HEAD 54f6bfdca** | HEAD − v4 | HEAD − main |
+| --- | --- | --- | --- | --- | --- |
+| `src/extensions/controls.ts` | 0 / 0 | 493 / 247 | **502 / 255** | +9 / **+8** | +502 / +255 |
+| Four extension files (chain, controls, definition, rows) | 770 / 440 | 1,847 / 1,020 | 1,856 / 1,028 | +9 / +8 | +1,086 / +588 |
+| Eight files (§000.2) | 2,111 / 1,231 | 3,266 / 1,821 | 3,275 / 1,829 | +9 / +8 | +1,164 / +598 |
+| Production perimeter (34 files) | 21,528 / 14,379 | 23,717 / 15,498 | **23,726 / 15,506** | +9 / **+8** | +2,198 / **+1,127** |
+
+Tests: `extension-controls.core.test.ts` grows from 1,454 to 1,634 TS code lines (+180) and from 38 to 41 tests (two from R1, one from the repair). R1 counted controls.ts as 241 → 249 with a slightly different counter; both counters agree on +8.
+
+### 00000.5 Gates, run one at a time, MEASURED on 54f6bfdca
+
+- **Static checks:**
+  - Biome on the 2 code files changed since 727621e3b (controls.ts and its test), check only: 0 diagnostics.
+  - `tsc` (typescript-native, whole tsconfig): exit 0, no output, 10 s.
+  - Refusal census at 727621e3b and at HEAD: 204 and 204 sites, the two reports identical apart from the revision in their header line (invariant 25 / 24, inherited 76 / 76, candidate 44 / 35, no sentence 59). Expected: R1 does not touch raptor3.
+  - Dead-symbol gate (layer-write-engine): 75/75.
+  - Manifests and script gates: no manifest holds a cell count for the changed test file, so none changed. raptor3 `post-g3-row-scopes` 103/103 and `post-g3-deletion-sites` 69/69 ("contract gate verified"); coverage-policy 11/11, credential-free-ci 4/4, raptor3-campaign-receipts 41/41, raptor3-refusal-census 8/8, bounded-process 16/16, test-run-lock 6/6, raptor3-cli 10/10 (226 s). The first raptor3-cli attempt was refused at once ("Vitest (PID 42355) already owns this workspace"; that process had exited by the time I looked, and nothing else was running in the worktree); the rerun alone passed.
+- **Direct vitest per layer project:** validation 998, scalars 1,159, operation-schemas 1,364, relations 119, schema-validation 470, schema-json 431, query-engine 739, write-engine 82, adapters 190, drivers 988, client **675** (672 at §0000), cache 85, instrumentation 185, migrations 1,899. In total **446 files, 9,384 passed, 0 failed.**
+- **coverage-extensions** (direct): 20 files, 414/414 (411 at §0000).
+- **raptor3:** 207 files (200 passed, 7 failed); **2,176 passed, 7 failed**, the same as §0000. The 7 are exactly the known reds: cs02-structure-measure; g3 sqlite-campaign and transport-campaign; g4 sqlite-campaign, transport-campaign, write-campaign and write-transport-campaign. raptor3-provider: 9 files, 32/32.
+- **provider-sqlite3:** 16 files, 881 passed, 1 skipped (same as §0000).
+- **Live PGlite**, each lane alone through `node scripts/run-credential-free-tests.mjs --only …`, teardown verified (ceiling 2,560 MiB). No PGlite file changed; these are the lanes that use controls:
+
+| Lane | Passed | Wall | Peak RSS (MiB) |
+| --- | --- | --- | --- |
+| pglite-bound-rows | 7/7 | 7.4 s | 1,737.0 |
+| pglite-extension-data | 8/8 | 8.3 s | 1,900.4 |
+| pglite-deletion-capability | 15/15 | 11.7 s | 1,752.5 |
+| pglite-row-scopes | 24/24 | 17.5 s | 1,568.7 |
+| pglite-soft-delete | 12/12 | 9.9 s | 1,745.0 |
+
+- **Lock scripts**, one at a time:
+
+| Script | Result | Time | Details |
+| --- | --- | --- | --- |
+| `pnpm test:types` | exit 0 | 10 s | whole estate, native; 7,397.0 MiB (ceiling 8,192) |
+| `pnpm test:core` | exit 0 | 50 s | 446 files, 9,384/9,384; 1,256.5 MiB (ceiling 1,536) |
+| `pnpm test:package` | exit 0 | 29 s | 14/14, including the extension-recipes packed consumer (its `required` checks are on models its recipes name, so ruling 3 does not change them); 991.9 MiB |
+| `pnpm test:coverage` | exit 0 | 635 s | every threshold held, see below |
+| `pnpm test:layer:client` | exit 0 on the rerun | 42 s | 675/675; type chunks 1,402.1 / 1,442.6 / 1,439.0 / 1,397.9 MiB. The first run passed every test but type chunk 4 missed its 6-second wall limit (6.08 s, 1,310.9 MiB) while other projects on the machine were busy; rerun once alone, it passed. |
+| `pnpm test:layer:query-engine` | exit 0 | 15 s | 739/739; types 1,405.3 MiB |
+| `pnpm test:layer:instrumentation` | exit 0 | 11 s | 185/185; types 1,412.5 MiB |
+
+- **Coverage** from `pnpm test:coverage` (statements / branches / functions / lines, floor in parentheses):
+  - Public, schema, validation, sql, instrumentation, **extensions (414 tests)**, errors, adapters and CLI: 100 / 100 / 100 / 100 (100).
+  - query-engine core: 93.83 / 94.29 / 94.44 / 93.83 (87 / 91 / 90 / 87), the same as §0000.
+  - drivers: 96.04 / 92.69 / 96.06 / 96.04 (96 / 92.5 / 96 / 96), the same.
+  - client: 96.33 / **94.45** / 96.5 / 96.33 (96 / 94 / 96 / 96); branches were 94.37 at §0000.
+  - cache: 100 (98). migrations: 98.68 / 97.3 / 99.89 / 98.68 (98 / 97.3 / 98 / 98), the same.
+
+### 00000.6 Bundle, MEASURED
+
+tsdown + `scripts/measure-bundle.mjs` on fresh path-limited archives of each revision, built one after another. v4 and HEAD were each built twice from two separate archives; both builds gave the same bytes, gzip included, so one row each is shown. Cells are raw / gzip / brotli.
+
+| Fixture | main 30ff17e69 | v4 727621e3b | **HEAD 54f6bfdca** | HEAD − v4 | HEAD − main |
+| --- | --- | --- | --- | --- | --- |
+| **pg-representative** | 543,896 / 160,066 / 135,512 | 561,130 / 165,532 / 140,209 | **561,272 / 165,586 / 140,331** | +142 / **+54** / +122 | +17,376 / **+5,520** / +4,819 |
+| pg-soft-delete | n/a | 562,026 / 165,897 / 140,708 | 562,168 / 165,946 / 140,482 | +142 / +49 / −226 | n/a |
+| full | 917,160 / 267,890 / 221,230 | 935,052 / 273,519 / 226,193 | 935,194 / 273,581 / 226,203 | +142 / +62 / +10 | +18,034 / +5,691 / +4,973 |
+| soft-delete entry | n/a | 759 / 395 / 349 | 759 / 395 / 349 | 0 | n/a |
+| ids-only; decimal-only | 93,221 / 27,891; 93,072 / 27,867 | 93,221 / 27,892; 93,072 / 27,868 | 93,221 / 27,892; 93,072 / 27,868 | 0 | 0 raw |
+
+main, v4 and HEAD reproduce §0000.4 and R1's numbers exactly.
+
+**For the owner (JUDGEMENT on a MEASURED number).** Ruling 1 accepted "+5.4 KB gzip over main", the figure §0000.4 measured (+5,395 to +5,466 B). Ruling 3's code adds 54 B, so the base entry is now **+5,520 B gzip over main**. That is 5.39 KiB, inside "+5.4 KB" if a KB is 1,024 bytes (5,530 B, 10 B to spare), and 54 B above the top of the range the owner saw. I did not treat it as a stop: the ruling names "+5.4 KB", and the 54 B come from a change the owner ruled for. The owner should know the margin is now about 10 bytes.
+
+### 00000.7 Types, MEASURED
+
+tsc 5.9.3 `--extendedDiagnostics` under `node --max-old-space-size=1280`, on path-limited archives of v4 (727621e3b) and HEAD, configs extending `tests/types/tsconfig.layer.json`. **2 rounds**, order swapped (v4 then HEAD, then HEAD then v4), 24 runs, every run exit 0 with 0 errors, counts identical in both rounds. `client-1..4` are the four programs `scripts/run-layer-core.mjs` makes at HEAD (the same as at v4, since no type test changed). `client-2 (base chunking)` is the program §0000.5 and the rulings repair called client-2. Cells are types / instantiations; RSS is the larger of the 2 runs.
+
+| Program | v4 727621e3b | **HEAD 54f6bfdca** | HEAD − v4 | HEAD RSS max MiB |
+| --- | --- | --- | --- | --- |
+| client-1 | 780,153 / 3,072,954 | 780,162 / 3,072,958 | +9; +4 | 1,481.3 |
+| client-2 | 865,725 / 3,747,799 | 865,734 / 3,747,803 | +9; +4 | 1,438.5 |
+| client-3 | 885,404 / 3,934,104 | 885,413 / 3,934,108 | +9; +4 | 1,453.1 |
+| client-4 | 809,824 / 3,483,006 | 809,833 / 3,483,010 | +9; +4 | 1,477.9 |
+| schema-only floor | 751,770 / 2,932,600 | 751,779 / 2,932,604 | +9; +4 | 1,454.9 |
+| client-2 (base chunking) | 866,355 / 3,720,576 | 866,364 / 3,720,580 | +9; +4 | 1,442.8 |
+
+Every program pays the same +9 types and +4 instantiations (about +0.001%), as the rulings repair measured. The v4 counts reproduce §0000.5 exactly. The largest run is 1,481.3 MiB, under the 1,536 MiB limit.
+
+### 00000.8 Open owner items and gaps
+
+1. **Ruling 2** is waiting on the owner's choice (§00000.2, plan §7.5). The design-B patch and its probes live only in this run's working files; if they are cleaned up before the owner decides, they would have to be rebuilt.
+2. **Bundle margin**: +5,520 B gzip over main against "+5.4 KB" (§00000.6).
+3. **PostgreSQL and MySQL** have still not run a v4 witness (no server, no Docker this run).
+4. Still owed from §0000.8 item 7: the PR description, and one trailer (54f6bfdca, and this record's commit) that differs from the branch's `Claude Fable 5.1`. Nothing was pushed.
+5. **The relayed request.** The run was started by the message "sorry re ask the last two". This run did what the workflow computed (the qualification); if the owner meant asking again about the last two open points (most likely ruling 2's choice and the bundle margin), that still needs the owner.
+
+### 00000.9 Decisions
+
+This run's decision log (R1, R2, the rulings repair, and this qualification's Q2-1 to Q2-7) is appended to `extension-capabilities-decisions.md` under "v4 owner rulings: the run's decision log".
 
 ## 0000. v4: bound rows and data (2026-10-01)
 
