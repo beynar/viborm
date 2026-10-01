@@ -12,7 +12,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector/promises";
 import { createRequire, SourceMap } from "node:module";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -24,7 +24,8 @@ const { values: o } = parseArgs({
 });
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(`${root}/package.json`);
-const out = `${root}/node_modules/.probe-shrink`;
+// One output folder per checkout: worktrees may share one node_modules.
+const out = `${root}/node_modules/.probe-shrink-${basename(root)}`;
 mkdirSync(out, { recursive: true });
 
 writeFileSync(
@@ -121,7 +122,7 @@ const url = pathToFileURL(bundle).href;
 // takePreciseCoverage resets the counters: each take is one phase's delta.
 const take = async () =>
   (await session.post("Profiler.takePreciseCoverage")).result.find(
-    (x) => x.url.endsWith("/.probe-shrink/app.mjs")
+    (x) => x.url.endsWith(`/.probe-shrink-${basename(root)}/app.mjs`)
   ) ?? { functions: [] };
 const phases = [];
 const app = await import(url);
