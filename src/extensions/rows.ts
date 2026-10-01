@@ -31,9 +31,11 @@ interface BoundRowsMember {
  * A chain's row facts, resolved once when an extension is applied: one
  * {@link CallRows} per combination of its `rows` members' modes, with and
  * without the tombstones, each with the chain's `data` stamps, so a call only
- * looks its facts up. When the combination's predicates, the default ones or
- * the stamps name a control, a call takes those facts with its values put in,
- * kept per combination and values.
+ * looks its facts up. When the combination's predicates or the default ones
+ * name a control, a call takes those facts with its values put in, kept per
+ * combination and values. When a stamp names one, the call's values are put
+ * in its stamps for that call alone: they take no room in that memo, so a
+ * tenant keeps one domain whoever writes.
  */
 export interface RowsBinding {
   readonly members: readonly BoundRowsMember[];
@@ -43,13 +45,14 @@ export interface RowsBinding {
   /** Indexed by mode combination: the call deletes physically. */
   readonly physical: readonly CallRows[];
   /**
-   * Indexed by mode combination: the controls its domain, the default domain
-   * and the stamps name; empty when none does, and the call takes the facts
-   * above.
+   * Indexed by mode combination: the controls its domain and the default
+   * domain name; empty when none does, and the call takes the facts above.
    */
   readonly references: readonly (readonly string[])[];
   /** Facts with a call's values put in, by combination and values. */
   readonly bound: Map<string, CallRows>;
+  /** A stamp names a control: each call puts its values in the stamps. */
+  readonly bindsStamps: boolean;
 }
 
 const NO_DELETION: Readonly<Record<string, ResolvedDeletion>> = Object.freeze(
@@ -98,12 +101,9 @@ function collectReferences(
   }
 }
 
-/** The controls a list of domains' predicates name, beside `named`. */
-function referencesOf(
-  domains: readonly RowDomain[],
-  named: ReadonlySet<string>
-): readonly string[] {
-  const names = new Set(named);
+/** The controls a list of domains' predicates name. */
+function referencesOf(domains: readonly RowDomain[]): readonly string[] {
+  const names = new Set<string>();
   for (const { root, related } of domains) {
     for (const list of [...root.values(), ...related.values()]) {
       for (const where of list) collectReferences(where, names, true);
@@ -182,7 +182,8 @@ function boundDomain(
 
 /**
  * A stamp bound: a field whose value names a control the call did not pass is
- * not written. The same object when no field names a control.
+ * not written, and stays the extension's (its owner is kept, so the call may
+ * not write it either). The same object when no field names a control.
  */
 function boundStamp(
   stamp: Stamp | undefined,
@@ -199,21 +200,23 @@ function boundStamp(
   return changed ? Object.freeze({ values, owners: stamp.owners }) : stamp;
 }
 
-/** Each model's stamps bound; the same map when none names a control. */
+/** Each model's stamps bound; an entry naming no control is kept as is. */
 function boundStamps(
   stamps: ReadonlyMap<string, ModelStamps>,
   controls: AdmittedControls | undefined
 ): ReadonlyMap<string, ModelStamps> {
   const bound = new Map<string, ModelStamps>();
-  let changed = false;
   for (const [model, entry] of stamps) {
     const create = boundStamp(entry.create, controls);
     const update = boundStamp(entry.update, controls);
-    const same = create === entry.create && update === entry.update;
-    changed ||= !same;
-    bound.set(model, same ? entry : Object.freeze({ create, update }));
+    bound.set(
+      model,
+      create === entry.create && update === entry.update
+        ? entry
+        : Object.freeze({ create, update })
+    );
   }
-  return changed ? bound : stamps;
+  return bound;
 }
 
 function boundFacts(
@@ -228,7 +231,6 @@ function boundFacts(
       facts.defaults === facts.domain
         ? domain
         : boundDomain(facts.defaults, controls),
-    ...(facts.stamps && { stamps: boundStamps(facts.stamps, controls) }),
   });
 }
 
@@ -313,10 +315,9 @@ export function bindRows(
       tombstones === undefined
         ? physical
         : physical.map((facts) => Object.freeze({ ...facts, tombstones })),
-    references: domains.map((domain) =>
-      referencesOf([domain, defaults], stampReferences)
-    ),
+    references: domains.map((domain) => referencesOf([domain, defaults])),
     bound: new Map(),
+    bindsStamps: stampReferences.size > 0,
   });
 }
 
@@ -325,8 +326,8 @@ export function bindRows(
  * controls chose (an absent one reads as its default), and whether it deletes
  * physically — its model's `deletion` entry names a `removeWhen` the call's
  * controls match. That control is placed only on the deletes of the models
- * the entry manages, so no other call can match it. When a predicate names a
- * control, the call's values are put in.
+ * the entry manages, so no other call can match it. When a predicate or a
+ * stamp names a control, the call's values are put in.
  */
 export function callRows(
   binding: RowsBinding,
@@ -345,6 +346,22 @@ export function callRows(
     Object.entries(removeWhen).every(
       ([control, value]) => controls?.[control] === value
     );
+  const facts = domainFacts(binding, physical, combination, controls);
+  return binding.bindsStamps
+    ? Object.freeze({
+        ...facts,
+        stamps: boundStamps(facts.stamps!, controls),
+      })
+    : facts;
+}
+
+/** The combination's facts with the call's values put in its domains. */
+function domainFacts(
+  binding: RowsBinding,
+  physical: boolean,
+  combination: number,
+  controls: AdmittedControls | undefined
+): CallRows {
   const facts = (physical ? binding.physical : binding.tombstoning)[
     combination
   ]!;

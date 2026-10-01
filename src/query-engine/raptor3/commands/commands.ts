@@ -173,14 +173,16 @@ export interface Deletion {
   located: Selection;
   origin: Origin;
   /**
-   * The admitted tombstone of a managed model: the row is updated by its
-   * identity with these values instead of removed, and keeps every link.
+   * The admitted tombstone of a managed model, as scalar values: the row is
+   * updated by its identity with these instead of removed, and keeps every
+   * link.
    */
   values?: Input;
 }
 /**
  * One occurrence's tombstone data: as generated, and the scalar values update
- * admission and the call's stamps made of it.
+ * admission and the call's stamps made of it (`Commands.stamp`), written as
+ * they are.
  */
 export interface TombstoneData {
   readonly raw: Input;
@@ -451,8 +453,10 @@ export class Commands {
    * with what the call's extensions write on every `kind` of `model`: their
    * fields, admitted here once per occurrence per attempt through the model's
    * update-data schema, as a tombstone is (a create takes each field's whole
-   * value), written over the occurrence's own. A field the caller wrote in
-   * `raw` is refused: the extension owns it.
+   * value), written over the occurrence's own. A field an extension declares
+   * for `kind` is refused when the caller wrote it in `raw`, even on a call
+   * that left it unwritten (its control absent): the extension owns it. The
+   * refusal's path names the field, not where the occurrence sits.
    */
   stamp(
     model: AnyModel,
@@ -464,8 +468,9 @@ export class Commands {
     const stamp = this.context.scope?.rows.stamps?.get(name)?.[kind];
     if (stamp === undefined)
       return this.context.schema.scalars(model, admitted);
-    const fields = Object.keys(stamp.values);
-    const taken = fields.find((field) => raw?.[field] !== undefined);
+    const taken = Object.keys(stamp.owners).find(
+      (field) => raw?.[field] !== undefined
+    );
     if (taken !== undefined) {
       const extension = stamp.owners[taken];
       throw new ValidationError(
@@ -481,7 +486,7 @@ export class Commands {
     }
     const values = this.context.schema.update(model, stamp.values, true);
     const stamped = { ...admitted };
-    for (const field of fields) {
+    for (const field of Object.keys(stamp.values)) {
       stamped[field] =
         kind === "create" ? wholeValue(values[field])?.value : values[field];
     }
@@ -2010,7 +2015,7 @@ export class Commands {
           run: () =>
             ctx.deleteMany(model, selector, args.limit, projection, missing),
         };
-      const values = ctx.schema.scalars(model, tombstone.admitted);
+      const values = tombstone.admitted;
       return this.unreferenced(selector, single, () =>
         ctx.updateMany(model, selector, values, args.limit, projection, missing)
       );

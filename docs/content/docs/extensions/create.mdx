@@ -420,6 +420,8 @@ await db.post.findMany(); // ValidationError: control "tenant" is required
   mode takes no room when neither its filters nor the default mode's name a
   control. Tenancy's `all` still takes one per tenant, since its default
   mode names `tenant`: with both modes in use, a client keeps 128 tenants.
+  Values that only `data` uses, such as audit's `actor`, take no room: they
+  are put in for their call alone.
 - Cached reads are keyed on the value, so two tenants never share an entry. A
   value that is not plain data, such as a `Decimal` or a `Map`, is prepared
   for its call alone and skips the cache.
@@ -490,17 +492,22 @@ await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updat
   writes nothing, as it does not refresh `updatedAt` either. A delete that
   stays physical writes nothing. Raw SQL is not touched.
 - A call that writes one of these fields itself is refused with a
-  `ValidationError` at `data.<field>` that names the extension. A field the
-  extension writes only on create can still be set by an update.
+  `ValidationError` at `data.<field>` that names the extension. The path
+  names the field, not where it sits: a nested create or an `upsert` arm is
+  reported at `data.<field>` too. A field the extension writes only on create
+  can still be set by an update.
 - Make every field an extension writes nullable or give it a default in your
   schema. The call's data is checked against the schema before the extension
   adds the field, so a required field the call leaves out is refused as
   missing. The field still appears in your create and update types; passing
   it is refused when the call runs.
 - When two extensions write the same field of a model, the one applied later
-  wins. Each writes its other fields.
-- A field whose control the call did not pass is not written; mark the
-  control `required` when it must always be there, as audit does.
+  wins, on every call. Each writes its other fields.
+- A field whose control the call did not pass is not written, and the call
+  may not write it either: it stays the extension's. When the later of two
+  extensions names a control there, a call without it writes neither
+  extension's value. Mark the control `required` when it must always be
+  there, as audit does.
 
 Both capabilities together make an optimistic lock: the row is filtered on the
 version the call expects, and every update moves the version on.

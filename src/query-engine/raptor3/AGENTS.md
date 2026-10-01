@@ -130,8 +130,11 @@ writes, per model, the declared fields on every create and every update of it.
 stamp once per occurrence per attempt through `EngineSchema.update(model,
 values, true)`, as a tombstone is (a create takes each field's whole value),
 writes it over the occurrence's admitted data, and refuses a caller whose raw
-data names a stamped field (`ValidationError` at `data.<field>`, naming the
-extension). Every site that turns one occurrence's admitted data into
+data names a field an extension declares for that kind, written on this call
+or not (`ValidationError` at `data.<field>`, naming the extension; the path
+names the field, not the occurrence's position). It returns scalar values:
+a tombstone's are written as they are, with no second `schema.scalars`.
+Every site that turns one occurrence's admitted data into
 `schema.scalars` calls it: `Commands.create` (root create on the record route,
 the upsert create arm, relation-bearing `createMany`, nested `create`,
 `createMany`, `connectOrCreate` and the nested upsert's create arm),
@@ -141,7 +144,9 @@ arm, every captured series member), the folds (`rootCreate`, `rootUpdate`,
 both `rootUpsert` arms), relation-free root `createMany` rows and `updateMany`,
 the nested relation-free `updateMany`, and `Commands.tombstone`, whose stamped
 data every tombstone site reads; a captured member a series tombstones is
-admitted again from the tombstone's raw data and stamped there. A
+admitted again from the tombstone's raw data and stamped there. Stamps that
+name a control are put in per call outside the engine (`callRows`), never in
+the per-value domain memo, so a tenant's domain is one object whoever writes. A
 `connect`/`set` that only moves a foreign key (`MEMBERSHIP_MOVE`) is not
 stamped, as no `updatedAt` moves there. A physical delete writes nothing.
 

@@ -90,7 +90,8 @@ export type DeletionContribution = {
  * call passed for that control (a call that passed none writes nothing
  * there), or, on `update`, one of the field's update operators
  * (`{ increment: 1 }`). A call that writes one of these fields itself is
- * refused. Give such a field a default or make it nullable in the schema:
+ * refused, even one that passed no value for its control. When two
+ * extensions name a field, the later one writes it. Give such a field a default or make it nullable in the schema:
  * the call's data is checked before the extension writes it.
  */
 export type DataContribution = {

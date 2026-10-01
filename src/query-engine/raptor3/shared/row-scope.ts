@@ -40,7 +40,10 @@ export interface Stamp {
    * constants and, on an update, the field's update operators.
    */
   readonly values: Input;
-  /** Which extension writes each field: a caller who writes it is refused. */
+  /**
+   * Which extension writes each field: a caller who writes it is refused,
+   * even when the call left it out of `values` (its control absent).
+   */
   readonly owners: Readonly<Record<string, string>>;
 }
 
@@ -53,8 +56,8 @@ export interface ModelStamps {
 /**
  * One root call's row facts, resolved from its controls outside the engine:
  * the engine never sees a control or a mode, and an extension's name only as
- * the owner a refusal names. Objects are shared by every call that resolves
- * to the same facts.
+ * the owner a refusal names. Its domains are shared by every call that
+ * resolves to the same ones; stamps that name a control are the call's own.
  */
 export interface CallRows {
   /** The domain the call's own controls select. */

@@ -1132,26 +1132,62 @@ describe("data: fields an extension writes", () => {
     user: { update: owned({ name: "touched" }, "a") },
   };
 
-  test("a stamp's control takes the call's value, kept per value; a field whose control the call did not pass is not written", () => {
+  test("a stamp's control takes the call's value, put in per call; a field whose control the call did not pass is not written but stays owned", () => {
     const binding = bindRows(undefined, undefined, audit);
-    expect(binding.references).toEqual([["actor"]]);
+    expect(binding.references).toEqual([[]]);
+    expect(binding.bindsStamps).toBe(true);
     const facts = callRows(binding, "post", { actor: "ann" });
     const post = facts.stamps!.get("post")!;
     expect(post.create!.values).toEqual({ createdBy: "ann", source: "api" });
     expect(post.create!.owners).toBe(audit.post.create.owners);
     expect(post.update).toBe(audit.post.update);
     expect(facts.stamps!.get("user")).toBe(audit.user);
-    expect(callRows(binding, "post", { actor: "ann" })).toBe(facts);
+    expect(facts.domain).toBe(binding.physical[0]!.domain);
+    expect(binding.bound.size).toBe(0);
     const absent = callRows(binding, "post", undefined);
-    expect(absent.stamps!.get("post")!.create!.values).toEqual({
+    expect(absent.stamps!.get("post")!.create).toEqual({
+      values: { source: "api" },
+      owners: { createdBy: "a", source: "a" },
+    });
+  });
+
+  test("stamps take no room in the domain memo: one tenant keeps one domain whoever writes, past 256 writers", () => {
+    const scoped = {
+      control: "scope",
+      default: "tenant",
+      models: {
+        post: {
+          tenant: { root: { tenantId: { control: "tenant" } } },
+          all: {},
+        },
+      },
+    } as const;
+    const binding = bindRows([scoped], undefined, audit);
+    expect(binding.references).toEqual([["tenant"], ["tenant"]]);
+    const read = callRows(binding, "post", { tenant: "acme" });
+    const ann = callRows(binding, "post", { tenant: "acme", actor: "ann" });
+    const bob = callRows(binding, "post", { tenant: "acme", actor: "bob" });
+    expect(ann.domain).toBe(read.domain);
+    expect(bob.domain).toBe(read.domain);
+    expect(bob.defaults).toBe(read.defaults);
+    expect(bob.stamps!.get("post")!.create!.values).toEqual({
+      createdBy: "bob",
       source: "api",
     });
+    for (let index = 0; index < 300; index++) {
+      callRows(binding, "post", { tenant: "acme", actor: `a${index}` });
+    }
+    expect(binding.bound.size).toBe(1);
+    expect(callRows(binding, "post", { tenant: "acme" }).domain).toBe(
+      read.domain
+    );
   });
 
   test("constant stamps keep the precomputed facts; bound rows leave them as declared", () => {
     const constant = { user: audit.user };
     const binding = bindRows(undefined, undefined, constant);
     expect(binding.references).toEqual([[]]);
+    expect(binding.bindsStamps).toBe(false);
     const facts = callRows(binding, "user", undefined);
     expect(facts).toBe(binding.physical[0]);
     expect(facts.stamps!.get("user")).toBe(audit.user);

@@ -395,18 +395,24 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
           message: 'Field "createdBy" is written by extension "audit"',
         },
       ]);
-      expect(
-        await failure(
-          db.post.create({
-            data: {
-              id: 1,
-              title: "a",
-              comments: { create: [{ id: 10, body: "x", createdBy: "m" }] },
-            },
-            actor: "ann",
-          })
-        )
-      ).toBeInstanceOf(ValidationError);
+      // The path names the field, not where the occurrence sits.
+      const nested = await failure(
+        db.post.create({
+          data: {
+            id: 1,
+            title: "a",
+            comments: { create: [{ id: 10, body: "x", createdBy: "m" }] },
+          },
+          actor: "ann",
+        })
+      );
+      expect(nested).toBeInstanceOf(ValidationError);
+      expect((nested as ValidationError).issues).toEqual([
+        {
+          path: "data.createdBy",
+          message: 'Field "createdBy" is written by extension "audit"',
+        },
+      ]);
       expect(await base.post.count()).toBe(0);
       await db.post.create({
         data: { id: 1, title: "a", updatedBy: "imported" },
@@ -430,7 +436,7 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       expect(await stamped("post")).toEqual([[1, "fixed", "bob"]]);
     });
 
-    test("two extensions on one model: both write their fields, the later one wins a field both write and owns its refusal", async () => {
+    test("two extensions on one model: both write their fields, the later one wins a field both write and owns it, its control absent too", async () => {
       const { base, logged } = context;
       const later = logged.$extends(audit(MODELS)).$extends(origin);
       await later.post.create({
@@ -467,6 +473,46 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
           path: "data.createdBy",
           message: 'Field "createdBy" is written by extension "origin"',
         },
+      ]);
+      // A field the call leaves unwritten (its control absent) is still the
+      // extension's: the caller may not write it either.
+      const unwritten = await failure(
+        later.post.create({
+          data: { id: 4, title: "d", source: "me" },
+          actor: "ann",
+        })
+      );
+      expect((unwritten as ValidationError).issues).toEqual([
+        {
+          path: "data.source",
+          message: 'Field "source" is written by extension "origin"',
+        },
+      ]);
+      // The later extension owns `source` even on a call without its
+      // control: the earlier constant is not written then.
+      const imported = defineExtension({
+        name: "imported",
+        data: { models: { post: { create: { source: "import" } } } },
+      });
+      const replaced = logged.$extends(imported).$extends(origin);
+      await replaced.post.create({ data: { id: 5, title: "e" } });
+      await replaced.post.create({
+        data: { id: 6, title: "f" },
+        device: "cli",
+      });
+      await logged
+        .$extends(imported)
+        .post.create({ data: { id: 7, title: "g" } });
+      expect(
+        await base.post.findMany({
+          ...byId,
+          where: { id: { gte: 4 } },
+          select: { id: true, source: true },
+        })
+      ).toEqual([
+        { id: 5, source: null },
+        { id: 6, source: "cli" },
+        { id: 7, source: "import" },
       ]);
     });
 

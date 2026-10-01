@@ -1099,13 +1099,7 @@ export class CommandExecution {
         const model = command.located.model;
         // A tombstone updates the row it located, by identity, and keeps it.
         if (command.values)
-          await ctx.update(
-            model,
-            row,
-            ctx.schema.scalars(model, command.values),
-            member,
-            "delete"
-          );
+          await ctx.update(model, row, command.values, member, "delete");
         else await ctx.delete(model, row, member);
         return;
       }

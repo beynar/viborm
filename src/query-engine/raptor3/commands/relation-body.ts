@@ -789,7 +789,7 @@ export class RelationBody {
               ...(verb === "updateMany" || tombstone
                 ? {
                     values: tombstone
-                      ? context.schema.scalars(edge.target, data)
+                      ? data
                       : this.commands.stamp(
                           edge.target,
                           "update",
