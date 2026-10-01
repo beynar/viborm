@@ -292,11 +292,12 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
         try {
           return txFn(query.sql, query.params ?? []);
         } catch (error) {
-          throw this.normalizeExecutionError(
+          throw this.normalizeStatementFailure(
             error,
             query.sql,
             this.getBatchDiagnosticParameters(query),
-            statementContext
+            statementContext,
+            true
           );
         }
       })

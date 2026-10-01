@@ -658,25 +658,6 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     }
   }
 
-  protected normalizeExecutionError(
-    error: unknown,
-    sql: string,
-    params: unknown[],
-    context: QueryExecutionContext
-  ): Error {
-    return normalizeDriverError(error, {
-      driverName: this.driverName,
-      dialect: this.dialect,
-      model: context.model,
-      operation: context.operation,
-      correlationId: context.correlationId,
-      query: sql,
-      params,
-      diagnostics: this.getErrorDisclosure(context),
-      forceContext: true,
-    });
-  }
-
   protected getBatchDiagnosticParameters(query: BatchQuery): unknown[] {
     try {
       const snapshot = Reflect.get(query, BATCH_DIAGNOSTIC_PARAMS);
@@ -747,19 +728,20 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         }
       );
     }
-    if (this.isDisconnecting) {
-      return new ConnectionError("Database connection is closing", {
-        code: VibORMErrorCode.CONNECTION_CLOSED,
-        diagnostics: this.getErrorDisclosure(context),
-        meta: {
-          driver: this.driverName,
-          model: context.model,
-          operation: context.operation,
-          correlationId: context.correlationId,
-        },
-      });
-    }
-    return new ConnectionError("Database connection cleanup is incomplete", {
+    return this.connectionClosedError(
+      this.isDisconnecting
+        ? "Database connection is closing"
+        : "Database connection cleanup is incomplete",
+      context
+    );
+  }
+
+  /** The one `CONNECTION_CLOSED` refusal shape, for each closed-transport reason. */
+  protected connectionClosedError(
+    message: string,
+    context: QueryExecutionContext
+  ): ConnectionError {
+    return new ConnectionError(message, {
       code: VibORMErrorCode.CONNECTION_CLOSED,
       diagnostics: this.getErrorDisclosure(context),
       meta: {
@@ -802,7 +784,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   // ============================================================
 
   /** Normalize one provider statement failure at its existing trust boundary. */
-  private normalizeStatementFailure(
+  protected normalizeStatementFailure(
     error: unknown,
     sql: string,
     params: unknown[],

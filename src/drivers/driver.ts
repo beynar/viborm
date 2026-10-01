@@ -1,12 +1,13 @@
 /** Driver connection lifecycle and transaction-bound execution surface. */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { ConnectionError, TransactionError, VibORMErrorCode } from "@errors";
+import { TransactionError } from "@errors";
 import type { Sql } from "@sql";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
 import {
   type DriverResultParser,
   type NestedTransactionObservation,
+  type OfficialDriverLifecycleExecutionGate,
   ungatedLifecycleExecution,
 } from "./driver-instrumentation";
 import { DriverTransactionBase } from "./driver-transaction-base";
@@ -20,6 +21,7 @@ import type {
   TransactionForm,
   TransactionOptionSupport,
   TransactionOptions,
+  TransactionPlan,
 } from "./shared/transaction-options";
 import { runSavepoint } from "./shared/transactions";
 import { toTransactionOperationError } from "./transaction-lifecycle-error";
@@ -47,126 +49,104 @@ export abstract class Driver<
   /**
    * Connect to the database with instrumentation.
    */
-  async _connect(context?: QueryExecutionContext): Promise<void> {
-    const executionContext = this.resolveExecutionContext(context, "connect");
-    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
-    const doConnect = async () => {
-      await this.getClient(executionContext);
-    };
-
-    const executeConnect = (gate = ungatedLifecycleExecution) =>
-      gate.execute(doConnect);
-    if (this.serializeTransactions && !this.inTransaction) {
-      this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      if (!hasLifecycleObservers) {
-        return this.connectionQueue.enqueue(executeConnect);
-      }
-      return this.observeTrustedDriverLifecycle(
-        "connection",
-        executionContext,
-        "connect",
-        (gate) => this.connectionQueue.enqueue(() => executeConnect(gate))
-      );
-    }
-    return hasLifecycleObservers
-      ? this.observeTrustedDriverLifecycle(
-          "connection",
-          executionContext,
-          "connect",
-          executeConnect
-        )
-      : executeConnect();
+  _connect(context?: QueryExecutionContext): Promise<void> {
+    return this.runConnectionLifecycle("connect", context, (ctx, gate) =>
+      gate.execute(async () => {
+        await this.getClient(ctx);
+      })
+    );
   }
 
   /**
    * Disconnect from the database with instrumentation.
    */
-  async _disconnect(context?: QueryExecutionContext): Promise<void> {
-    const executionContext = this.resolveExecutionContext(
+  _disconnect(context?: QueryExecutionContext): Promise<void> {
+    return this.runConnectionLifecycle(
+      "disconnect",
       context,
-      "disconnect"
-    );
-    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
-    const executeDisconnect = async (gate = ungatedLifecycleExecution) => {
-      if (this.isDisconnecting) {
-        throw new ConnectionError("Database connection is closing", {
-          code: VibORMErrorCode.CONNECTION_CLOSED,
-          diagnostics: this.getErrorDisclosure(executionContext),
-          meta: {
-            driver: this.driverName,
-            model: executionContext.model,
-            operation: executionContext.operation,
-            correlationId: executionContext.correlationId,
-          },
-        });
-      }
-      this.isDisconnecting = true;
-      const doDisconnect = async () => {
-        if (this.initPromise) {
-          try {
-            await this.initPromise;
-          } catch {
-            // Ignore init errors during disconnect
-          }
-        }
-
-        const closingClient = this.closeRetryClient ?? this.client;
-        if (!closingClient) return;
-        try {
-          await this.closeClient(closingClient);
-        } catch (error) {
-          // A provider may make the transport unusable before its close promise
-          // rejects. Keep the exact handle for cleanup retry, but remove it from
-          // every path that can query it or call it connected.
-          this.closeRetryClient = closingClient;
-          if (this.client === closingClient) this.client = null;
-          this.initPromise = null;
-          throw normalizeDriverConnectionError(
-            error,
-            {
-              driverName: this.driverName,
-              model: executionContext.model,
-              operation: executionContext.operation,
-              correlationId: executionContext.correlationId,
-              diagnostics: this.getErrorDisclosure(executionContext),
-            },
-            "Database disconnection failed"
+      async (executionContext, gate) => {
+        if (this.isDisconnecting) {
+          throw this.connectionClosedError(
+            "Database connection is closing",
+            executionContext
           );
         }
-      };
+        this.isDisconnecting = true;
+        const doDisconnect = async () => {
+          if (this.initPromise) {
+            try {
+              await this.initPromise;
+            } catch {
+              // Ignore init errors during disconnect
+            }
+          }
 
-      const disconnectPromise = gate.execute(doDisconnect);
+          const closingClient = this.closeRetryClient ?? this.client;
+          if (!closingClient) return;
+          try {
+            await this.closeClient(closingClient);
+          } catch (error) {
+            // A provider may make the transport unusable before its close
+            // promise rejects. Keep the exact handle for cleanup retry, but
+            // remove it from every path that can query it or call it connected.
+            this.closeRetryClient = closingClient;
+            if (this.client === closingClient) this.client = null;
+            this.initPromise = null;
+            throw normalizeDriverConnectionError(
+              error,
+              {
+                driverName: this.driverName,
+                model: executionContext.model,
+                operation: executionContext.operation,
+                correlationId: executionContext.correlationId,
+                diagnostics: this.getErrorDisclosure(executionContext),
+              },
+              "Database disconnection failed"
+            );
+          }
+        };
 
-      try {
-        await disconnectPromise;
-        this.client = null;
-        this.initPromise = null;
-        this.closeRetryClient = null;
-      } finally {
-        this.isDisconnecting = false;
+        const disconnectPromise = gate.execute(doDisconnect);
+        try {
+          await disconnectPromise;
+          this.client = null;
+          this.initPromise = null;
+          this.closeRetryClient = null;
+        } finally {
+          this.isDisconnecting = false;
+        }
       }
-    };
+    );
+  }
 
-    if (this.serializeTransactions && !this.inTransaction) {
+  /**
+   * The one connect/disconnect dispatch: queued on a single-connection
+   * driver, observed when a trusted observer wants the lifecycle.
+   */
+  private async runConnectionLifecycle(
+    boundary: "connect" | "disconnect",
+    context: QueryExecutionContext | undefined,
+    body: (
+      context: QueryExecutionContext,
+      gate: OfficialDriverLifecycleExecutionGate
+    ) => Promise<void>
+  ): Promise<void> {
+    const executionContext = this.resolveExecutionContext(context, boundary);
+    const run = (gate = ungatedLifecycleExecution) =>
+      body(executionContext, gate);
+    const queued = this.serializeTransactions && !this.inTransaction;
+    if (queued) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      if (!hasLifecycleObservers) {
-        return this.connectionQueue.enqueue(executeDisconnect);
-      }
-      return this.observeTrustedDriverLifecycle(
-        "connection",
-        executionContext,
-        "disconnect",
-        (gate) => this.connectionQueue.enqueue(() => executeDisconnect(gate))
-      );
     }
-    return hasLifecycleObservers
-      ? this.observeTrustedDriverLifecycle(
-          "connection",
-          executionContext,
-          "disconnect",
-          executeDisconnect
-        )
-      : executeDisconnect();
+    if (!this.hasTrustedObservers(executionContext)) {
+      return queued ? this.connectionQueue.enqueue(run) : run();
+    }
+    return this.observeTrustedDriverLifecycle(
+      "connection",
+      executionContext,
+      boundary,
+      queued ? (gate) => this.connectionQueue.enqueue(() => run(gate)) : run
+    );
   }
 
   // ===========================================================================
@@ -426,16 +406,25 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     });
   }
 
+  /**
+   * One statement-level operation of this scope: refused while a nested
+   * savepoint owns the scope, tracked so the scope can drain it, and run in
+   * the scope's order.
+   */
+  private scoped<T>(method: string, operation: () => Promise<T>): Promise<T> {
+    const activeSavepointError = this.getActiveSavepointUseError(method);
+    if (activeSavepointError) return Promise.reject(activeSavepointError);
+    return this.trackTransactionOperation(
+      () => this.enqueueScopeOperation(operation),
+      true
+    );
+  }
+
   override _execute<T = Record<string, unknown>>(
     query: Sql,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const activeSavepointError = this.getActiveSavepointUseError("execute");
-    if (activeSavepointError) return Promise.reject(activeSavepointError);
-    return this.trackTransactionOperation(
-      () => this.enqueueScopeOperation(() => super._execute<T>(query, context)),
-      true
-    );
+    return this.scoped("execute", () => super._execute<T>(query, context));
   }
 
   override _executeRaw<T = Record<string, unknown>>(
@@ -443,14 +432,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     params?: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const activeSavepointError = this.getActiveSavepointUseError("executeRaw");
-    if (activeSavepointError) return Promise.reject(activeSavepointError);
-    return this.trackTransactionOperation(
-      () =>
-        this.enqueueScopeOperation(() =>
-          super._executeRaw<T>(sql, params, context)
-        ),
-      true
+    return this.scoped("executeRaw", () =>
+      super._executeRaw<T>(sql, params, context)
     );
   }
 
@@ -473,16 +456,16 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   }
 
   /**
-   * Refuse a malformed or unhonorable option before touching savepoint state,
-   * preserving the rule that a refusal happens before any provider work.
+   * Resolve the options, or answer the refusal for a malformed or unhonorable
+   * one, before touching savepoint state — preserving the rule that a refusal
+   * happens before any provider work.
    */
-  private readNestedOptionsError(
+  private resolveNestedOptions(
     options: unknown,
     form: TransactionForm
-  ): Error | undefined {
+  ): TransactionPlan | undefined | Error {
     try {
-      this.resolveTransactionOptions(options, form);
-      return undefined;
+      return this.resolveTransactionOptions(options, form);
     } catch (error) {
       return toTransactionOperationError(error);
     }
@@ -494,19 +477,11 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     context?: QueryExecutionContext,
     committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
-    const optionsError = this.readNestedOptionsError(options, "batch");
-    if (optionsError) return Promise.reject(optionsError);
+    const plan = this.resolveNestedOptions(options, "batch");
+    if (plan instanceof Error) return Promise.reject(plan);
     if (queries.length === 0) return Promise.resolve([]);
-    const activeSavepointError = this.getActiveSavepointUseError(
-      "$transaction([...])"
-    );
-    if (activeSavepointError) return Promise.reject(activeSavepointError);
-    return this.trackTransactionOperation(
-      () =>
-        this.enqueueScopeOperation(() =>
-          super._executeBatch<T>(queries, options, context, committed)
-        ),
-      true
+    return this.scoped("$transaction([...])", () =>
+      super._executeBatch<T>(queries, options, context, committed)
     );
   }
 
@@ -515,8 +490,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     options?: TransactionOptions,
     context?: QueryExecutionContext
   ): Promise<T> {
-    const optionsError = this.readNestedOptionsError(options, "callback");
-    if (optionsError) return Promise.reject(optionsError);
+    const plan = this.resolveNestedOptions(options, "callback");
+    if (plan instanceof Error) return Promise.reject(plan);
     const isAdmittedWithTransactionDispatch =
       this.hasAdmittedWithTransactionDispatch;
     if (!isAdmittedWithTransactionDispatch) {
@@ -530,7 +505,6 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
         return Promise.reject(error);
       }
     }
-    const plan = this.resolveTransactionOptions(options, "callback");
     const executionContext = this.resolveExecutionContext(
       context,
       "transaction"
@@ -575,8 +549,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     options?: TransactionOptions,
     context?: QueryExecutionContext
   ): Promise<T> {
-    const optionsError = this.readNestedOptionsError(options, "callback");
-    if (optionsError) return Promise.reject(optionsError);
+    const plan = this.resolveNestedOptions(options, "callback");
+    if (plan instanceof Error) return Promise.reject(plan);
     const activeSavepointError = this.getActiveSavepointUseError(
       "$transaction(callback)"
     );
