@@ -11,7 +11,6 @@
 import {
   getFieldSqlName,
   getModelSqlName,
-  getRelationSqlName,
   hydrateSchemaNames,
   isSchemaHydrated,
 } from "@src/schema/hydration";
@@ -108,17 +107,6 @@ describe("Shared Scalar Across Models", () => {
       'Scalar "email" not found in nameRegistry'
     );
   });
-
-  test("getRelationName throws for non-hydrated models", () => {
-    const user = model({
-      id: string().id(),
-    });
-
-    // Without hydration, getRelationName should throw
-    expect(() => user["~"].getRelationName("posts")).toThrow(
-      'Relation "posts" not found in nameRegistry'
-    );
-  });
 });
 
 describe("Schema hydration metadata", () => {
@@ -141,14 +129,12 @@ describe("Schema hydration metadata", () => {
     expect(isSchemaHydrated({ parent, child })).toBe(true);
     expect(getModelSqlName(parent)).toBe("parents");
     expect(getFieldSqlName(parent, "id")).toBe("parent_id");
-    // The relation's name lands in the MODEL's registry. Hydration writes no
-    // source model onto the relation itself: one relation object may be reused
-    // under more than one model (`.extends()`), so a source binding on it would
-    // be a second, mutable answer to a question the schema already owns.
-    expect(parent["~"].getRelationName("children")).toEqual({
-      ts: "children",
-      sql: "children",
-    });
+    // Hydration writes no source model onto the relation itself: one relation
+    // object may be reused under more than one model (`.extends()`), so a
+    // source binding on it would be a second, mutable answer to a question the
+    // schema already owns. A relation's key is its only name, so the model's
+    // registry holds scalars alone.
+    expect([...parent["~"].nameRegistry.fields.keys()]).toEqual(["id"]);
     expect(children["~"].state).not.toHaveProperty("source");
   });
 
@@ -178,15 +164,5 @@ describe("Schema hydration metadata", () => {
     },
   ])("rejects an invalid $boundary", ({ schema, message }) => {
     expect(() => hydrateSchemaNames(schema())).toThrow(message);
-  });
-});
-
-describe("coverage low value", () => {
-  test("forwards the unused relation SQL-name helper to the model registry", () => {
-    const child = model({ id: string().id() });
-    const parent = model({ children: toMany(() => child) });
-    hydrateSchemaNames({ parent, child });
-
-    expect(getRelationSqlName(parent, "children")).toBe("children");
   });
 });
