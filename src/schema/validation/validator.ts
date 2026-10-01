@@ -244,6 +244,23 @@ export function validateClientSchemaOrThrow(
   return validateResolvedSchemaOrThrow(models, SELECTOR_RULES);
 }
 
+/**
+ * The client gate for a schema `viborm check` already validated: relation
+ * resolution only, because the engine needs its topology. The identity,
+ * table-name, selector-name and cycle checks are the check command's.
+ */
+export function resolveCheckedSchemaOrThrow(
+  models: Record<string, Model<any>>
+): ResolvedRelationIndex {
+  const schema: Schema = new Map(Object.entries(models));
+  const resolution = resolveSchemaRelations(schema, buildContext(schema), true);
+  if (resolution.ok) return resolution.index;
+  throw validationError(
+    resolution.issues.filter((issue) => issue.severity === "error"),
+    resolution.cause
+  );
+}
+
 /** One construction path for every thrown schema-validation result. */
 function validationError(
   issues: readonly SchemaValidationIssue[],

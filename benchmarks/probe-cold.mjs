@@ -24,6 +24,8 @@ const { values: o } = parseArgs({
     samples: { type: "string", default: "15" },
     worker: { type: "string" },
     out: { type: "string", default: "/tmp/viborm-probe-cold" },
+    // Arms whose client is created with skipSchemaValidation (e.g. "B").
+    "skip-validation": { type: "string", default: "" },
   },
 });
 const self = fileURLToPath(import.meta.url);
@@ -43,7 +45,7 @@ const query = {
   },
 };
 
-const entry = (lib, dir, workload) =>
+const entry = (lib, dir, workload, skip) =>
   lib === "drizzle"
     ? `import { defineRelations } from "${dir}/node_modules/drizzle-orm/index.js";
 import { sqliteTable, text, integer } from "${dir}/node_modules/drizzle-orm/sqlite-core/index.js";
@@ -63,7 +65,7 @@ export function schema() {
   const post = s.model({ id: s.string().id(), title: s.string(), content: s.string().nullable(), published: s.boolean(), views: s.int(), authorId: s.string(), author: s.toOne(() => user).fields("authorId").references("id") }).map("posts");
   return { user, post };
 }
-export const client = (schema, database) => createClient({ schema, driver: new SQLite3Driver({ client: database }) });
+export const client = (schema, database) => createClient({ schema, driver: new SQLite3Driver({ client: database })${skip ? ", skipSchemaValidation: true" : ""} });
 export const first = (c) => ${query.viborm[workload]};`;
 
 async function bundle(label, lib, dir, workload) {
@@ -77,7 +79,10 @@ async function bundle(label, lib, dir, workload) {
   mkdirSync(o.out, { recursive: true });
   const input = `${o.out}/${label}-entry.mjs`;
   const output = `${o.out}/${label}-${workload}.mjs`;
-  writeFileSync(input, entry(lib, dir, workload));
+  writeFileSync(
+    input,
+    entry(lib, dir, workload, o["skip-validation"].split(",").includes(label))
+  );
   await esbuild.build({
     entryPoints: [input],
     outfile: output,
@@ -100,7 +105,8 @@ async function sample(file) {
   );
   const u = db.prepare("INSERT INTO users VALUES (?,?,?,?)");
   const p = db.prepare("INSERT INTO posts VALUES (?,?,?,?,?,?)");
-  for (let i = 0; i < 100; i++) u.run(`u${i}`, `User ${i}`, `u${i}@x.com`, 20 + i);
+  for (let i = 0; i < 100; i++)
+    u.run(`u${i}`, `User ${i}`, `u${i}@x.com`, 20 + i);
   for (let i = 0; i < 1000; i++)
     p.run(`p${i}`, `Post ${i}`, `c${i}`, i % 2, i, `u${i % 100}`);
   const t0 = performance.now();
@@ -110,7 +116,12 @@ async function sample(file) {
   const t2 = performance.now();
   await app.first(c);
   const t3 = performance.now();
-  return { evaluate: t1 - t0, construct: t2 - t1, first: t3 - t2, total: t3 - t0 };
+  return {
+    evaluate: t1 - t0,
+    construct: t2 - t1,
+    first: t3 - t2,
+    total: t3 - t0,
+  };
 }
 
 if (o.worker) {
@@ -133,15 +144,13 @@ for (const [label, lib, dir] of arms)
 const results = new Map(files.map(([label]) => [label, []]));
 for (let i = 0; i < Number(o.samples); i++)
   for (const [label, file] of i % 2 ? [...files].reverse() : files)
-    results
-      .get(label)
-      .push(
-        JSON.parse(
-          execFileSync(process.execPath, [self, "--worker", file], {
-            encoding: "utf8",
-          })
-        )
-      );
+    results.get(label).push(
+      JSON.parse(
+        execFileSync(process.execPath, [self, "--worker", file], {
+          encoding: "utf8",
+        })
+      )
+    );
 for (const [label, file] of files) {
   const xs = results.get(label);
   const m = (k) => median(xs.map((x) => x[k])).toFixed(2);

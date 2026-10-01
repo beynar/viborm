@@ -38,8 +38,14 @@ export type Schema = Record<string, Model<any>>;
  *
  * @param schema - The schema object mapping model names to Model instances
  */
-export function hydrateSchemaNames(schema: Schema): void {
+export function hydrateSchemaNames(schema: Schema, checked = false): void {
   const registrations = Object.entries(schema);
+  // A schema `viborm check` validated binds its names without re-proving them.
+  if (checked) {
+    for (const [modelKey, model] of registrations)
+      bindModelNames(modelKey, model);
+    return;
+  }
   // TWO ordered phases. The preflight proves every model's identity and name
   // stability BEFORE a single registry write, so a schema that fails validation
   // never leaves models 0..N-1 bound while model N is refused.

@@ -69,6 +69,8 @@ export interface VibORMConfig {
 export interface LoadConfigOptions {
   /** Path to config file (default: ./viborm.config.ts) */
   config?: string;
+  /** Leave validation to the caller (`viborm check` reports every issue). */
+  skipValidation?: boolean;
 }
 
 export interface LoadedConfig {
@@ -191,7 +193,7 @@ export async function loadConfig(
   }
 
   // Validate schema before proceeding
-  validateSchemaOrThrow(models);
+  if (!options.skipValidation) validateSchemaOrThrow(models);
 
   return {
     client: config.client,

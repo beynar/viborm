@@ -64,7 +64,10 @@ import { isWriteOperation } from "@query-engine/routed-operations";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
-import { validateClientSchemaOrThrow } from "@schema/validation/validator";
+import {
+  resolveCheckedSchemaOrThrow,
+  validateClientSchemaOrThrow,
+} from "@schema/validation/validator";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import { executeArrayTransaction } from "./array-transaction";
 import { assertDecimalDomainsFitProvider } from "./decimal-provider-limits";
@@ -160,6 +163,13 @@ function isRawMethodName(prop: string | symbol): prop is keyof RawSurface {
 export interface VibORMConfig<S extends Schema = Schema> {
   schema: S;
   driver: AnyDriver;
+  /**
+   * Skip the schema checks every client otherwise runs when it is created, for
+   * a schema `viborm check` validates (in a build or CI step). The client still
+   * resolves relations, which it needs to run queries; it trusts identifiers,
+   * table and selector names, and the absence of required-relation cycles.
+   */
+  skipSchemaValidation?: boolean;
 }
 
 export interface DriverConfig<S extends Schema = Schema>
@@ -1218,8 +1228,9 @@ export class VibORM<C extends VibORMConfig> {
     // ClientInitializationError instead of a bare Error; already-typed failures pass through
     // unchanged so their own code survives.
     const orm = assertConstructed(() => {
-      const reused = reusablePreparation(config.schema);
-      if (!reused) hydrateSchemaNames(config.schema);
+      const checked = config.skipSchemaValidation === true;
+      const reused = reusablePreparation(config.schema, checked);
+      if (!reused) hydrateSchemaNames(config.schema, checked);
       // The selected adapter's physical capability, asked once here and before
       // any provider I/O (plan §3.1). A decimal domain no dialect could store is
       // a definition error, and the caller learns it at the line that bound the
@@ -1230,7 +1241,7 @@ export class VibORM<C extends VibORMConfig> {
       // ONE resolution for the whole client lifecycle: the gate's index goes
       // straight into the constructor, so the registry and query scopes are
       // composed over the same object (§11.4.10).
-      const prepared = reused ?? prepareSchema(config.schema);
+      const prepared = reused ?? prepareSchema(config.schema, checked);
       prepared.fittingDialects.add(config.driver.dialect);
       return new VibORM<C>(config, prepared);
     });
@@ -1247,6 +1258,8 @@ interface PreparedSchema {
   readonly registry: ReturnType<typeof createModelRegistry>;
   /** Dialects whose decimal storage limits this schema already fits. */
   readonly fittingDialects: Set<string>;
+  /** Whether the full client validation ran, not only relation resolution. */
+  readonly validated: boolean;
 }
 
 /**
@@ -1258,9 +1271,13 @@ interface PreparedSchema {
  */
 const preparedSchemas = new WeakMap<object, PreparedSchema>();
 
-function reusablePreparation(schema: Schema): PreparedSchema | undefined {
+function reusablePreparation(
+  schema: Schema,
+  checked: boolean
+): PreparedSchema | undefined {
   const prepared = preparedSchemas.get(schema);
-  if (!prepared) return;
+  // A validating client never reuses a preparation that skipped validation.
+  if (!(prepared && (prepared.validated || checked))) return;
   const keys = Object.keys(schema);
   if (keys.length !== prepared.entries.length) return;
   for (const [index, [key, model]] of prepared.entries.entries()) {
@@ -1269,8 +1286,10 @@ function reusablePreparation(schema: Schema): PreparedSchema | undefined {
   return prepared;
 }
 
-function prepareSchema(schema: Schema): PreparedSchema {
-  const relations = validateClientSchemaOrThrow(schema);
+function prepareSchema(schema: Schema, checked: boolean): PreparedSchema {
+  const relations = checked
+    ? resolveCheckedSchemaOrThrow(schema)
+    : validateClientSchemaOrThrow(schema);
   const schemaRegistry = createResolvedSchemaRegistry(schema, relations);
   const prepared: PreparedSchema = {
     entries: Object.entries(schema),
@@ -1278,6 +1297,7 @@ function prepareSchema(schema: Schema): PreparedSchema {
     schemaRegistry,
     registry: createModelRegistry(schema, schemaRegistry, relations),
     fittingDialects: new Set(),
+    validated: !checked,
   };
   preparedSchemas.set(schema, prepared);
   return prepared;
@@ -1360,6 +1380,10 @@ export const createClientFromDriverConfig = <
   schema: C["schema"];
   driver: D;
 }> => {
-  const schema = config.schema;
-  return VibORM.create({ schema, driver });
+  const { schema, skipSchemaValidation } = config;
+  return VibORM.create({
+    schema,
+    driver,
+    ...(skipSchemaValidation === undefined ? {} : { skipSchemaValidation }),
+  });
 };

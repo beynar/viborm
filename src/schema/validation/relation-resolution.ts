@@ -287,7 +287,10 @@ type VariantMapEntry = VariantOneEntry | VariantManyEntry;
 
 export function resolveSchemaRelations(
   schema: Schema,
-  context: ValidationContext
+  context: ValidationContext,
+  // A schema `viborm check` validated skips the passes that only report
+  // (required cycles, junction claims); everything the topology needs runs.
+  checked = false
 ): RelationResolution {
   const issues: SchemaValidationIssue[] = [];
   const registration = registerModels(schema);
@@ -353,8 +356,10 @@ export function resolveSchemaRelations(
       { slot: partner.node.slot, edge }
     );
   }
-  reportJunctionTableClaims(publication);
-  reportRequiredCycles(publication, registration.byIdentity);
+  if (!checked) {
+    reportJunctionTableClaims(publication);
+    reportRequiredCycles(publication, registration.byIdentity);
+  }
 
   resolveVariantCarriers(
     { schema, context, nodes, endpoints, verdicts },
