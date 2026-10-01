@@ -99,15 +99,12 @@ export class SchemaValidator {
 
   /** Validate all registered models */
   validate(rules: ValidationRule[] = allRules): ValidationResult {
-    // Build context once (O(n) models)
-    const ctx = buildContext(this.schema);
-    this.resolution ??= resolveRegistered(this.schema, ctx);
     const errors: SchemaValidationIssue[] = [];
     const warnings: SchemaValidationIssue[] = [];
     for (const issue of schemaIssues(
       this.schema,
-      ctx,
-      this.resolution,
+      buildContext(this.schema),
+      this.resolve(),
       rules
     )) {
       (issue.severity === "error" ? errors : warnings).push(issue);
