@@ -899,7 +899,7 @@ describe("controls: required", () => {
     ]);
   });
 
-  test("a required control is asked for only on the models its extension names in rows, data or deletion; an extension that names none asks on every model (owner ruling, 2026-10-01)", () => {
+  test("a required control is asked for only on the models its extension names in rows, data or deletion, each alone enough; an extension that names none asks on every model (owner ruling, 2026-10-01)", () => {
     const required = (definition: Parameters<typeof placeControls>[0]) =>
       placeControls(definition).map(({ name, required: on }) => [
         name,
@@ -924,6 +924,26 @@ describe("controls: required", () => {
         },
       })
     ).toEqual([["mode", ["post"]]]);
+    // Rows alone name the model: the control is asked there only.
+    expect(
+      required({
+        name: "scoped",
+        controls: { tenant: { oneOf: ["acme"], required: true } },
+        rows: {
+          control: "scope",
+          default: "tenant",
+          models: {
+            post: {
+              tenant: { root: { tenantId: { control: "tenant" } } },
+              all: {},
+            },
+          },
+        },
+      })
+    ).toEqual([
+      ["tenant", ["post"]],
+      ["scope", undefined],
+    ]);
     expect(
       required({
         name: "audit",
@@ -1024,6 +1044,45 @@ describe("controls: required", () => {
     expect(
       await issues(callUnchecked(db, "tag", "findMany", { actor: "ann" }))
     ).toEqual([expect.objectContaining({ path: "actor" })]);
+  });
+  test("an extension that names a model in rows alone asks for its required control there, and nowhere else", async () => {
+    const note = s.model({
+      id: s.string().id(),
+      tenantId: s.string().nullable(),
+    });
+    const tag = s.model({ id: s.string().id() });
+    const base = createClient({
+      schema: { note, tag },
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    const db = base.$extends(
+      defineExtension({
+        name: "scoped",
+        controls: { tenant: { oneOf: ["acme"], required: true } },
+        rows: {
+          control: "scope",
+          default: "tenant",
+          models: {
+            note: {
+              tenant: { root: { tenantId: { control: "tenant" } } },
+              all: {},
+            },
+          },
+        },
+      })
+    );
+    const refused = await failure(callUnchecked(db, "note", "findMany", {}));
+    expect((refused as ValidationError).issues).toEqual([
+      { path: "tenant", message: 'Control "tenant" is required' },
+    ]);
+    await expect(
+      db.note.findMany({ tenant: "acme", select: { id: true } })
+    ).resolves.toEqual([]);
+    await expect(db.tag.findMany({ select: { id: true } })).resolves.toEqual(
+      []
+    );
   });
 });
 
