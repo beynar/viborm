@@ -30,8 +30,10 @@ export type ControlPlacement =
  * One argument an extension declares. Its values are a closed list or a
  * Standard Schema; `on` names the operations that accept it (every operation
  * when absent). With `required`, a call on one of those operations that does
- * not pass it is refused. A value held in a variable keeps its literal type
- * only with `as const`, as a held enum clause does.
+ * not pass it is refused, on the models the extension names in `rows`,
+ * `data` or `deletion` only; an extension that names no model asks for it on
+ * every model. A value held in a variable keeps its literal type only with
+ * `as const`, as a held enum clause does.
  */
 export type ControlDeclaration = (
   | { readonly oneOf: readonly (string | number | boolean)[] }
@@ -322,6 +324,11 @@ export interface ResolvedControl {
   readonly operations: ReadonlySet<string>;
   /** The models that accept it; every model when absent. */
   readonly models?: ReadonlySet<string>;
+  /**
+   * Where a call that does not pass it is refused: on every model that
+   * accepts it (`true`), on these models only, or nowhere when absent.
+   */
+  readonly required?: true | ReadonlySet<string>;
   /** What an absent argument admits: the `rows` control's default mode. */
   readonly fallback?: ControlLiteral;
 }
@@ -331,15 +338,23 @@ export interface ResolvedControl {
  * `deletion.removeWhen` names goes on the deletes of the models `deletion`
  * manages; the `rows` control on every candidate-selecting operation of every
  * model, its values the mode names; every other control where its own `on`
- * says (every operation without one), on every model.
+ * says (every operation without one), on every model. A `required` control
+ * is asked for only on the models the definition names in `rows`, `data` or
+ * `deletion`, and on every model when it names none.
  */
 export function placeControls(
   definition: RuntimeExtensionDefinition
 ): readonly ResolvedControl[] {
   const placed: ResolvedControl[] = [];
-  const { name: extension, controls, rows, deletion } = definition;
+  const { name: extension, controls, rows, deletion, data } = definition;
   const removeWhen = deletion?.removeWhen ?? {};
   const managed = new Set(Object.keys(deletion?.models ?? {}));
+  const named = new Set([
+    ...managed,
+    ...Object.keys(rows?.models ?? {}),
+    ...Object.keys(data?.models ?? {}),
+  ]);
+  const requiredOn = named.size === 0 ? true : named;
   for (const [name, declaration] of Object.entries(controls ?? {})) {
     const removes = Object.hasOwn(removeWhen, name);
     placed.push({
@@ -348,6 +363,7 @@ export function placeControls(
       declaration,
       operations: removes ? DELETE_OPERATIONS : placementOf(declaration.on),
       models: removes ? managed : undefined,
+      required: declaration.required === true ? requiredOn : undefined,
     });
   }
   if (rows !== undefined) {
@@ -398,7 +414,8 @@ export interface ControlAdmission {
  * Remove every control placed on this operation from its arguments and admit
  * each once, before any request handler runs. A key naming a control placed
  * elsewhere stays in the arguments, where core validation refuses it as an
- * unknown key. A required control the call did not pass is refused here.
+ * unknown key. A control the call did not pass is refused here on the models
+ * its placement requires it on.
  */
 export function admitControls(
   model: string,
@@ -434,8 +451,9 @@ export function admitControls(
       raw === undefined
         ? control.fallback
         : admitControl(control, raw, model, operation);
+    const { required } = control;
     if (value !== undefined) admitted.push([control.name, value]);
-    else if (control.declaration.required === true) {
+    else if (required === true || required?.has(model)) {
       throw invalidControl(control, model, operation, ["is required"]);
     }
   }

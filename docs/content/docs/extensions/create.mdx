@@ -285,10 +285,11 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
   path. A `schema` that throws, is asynchronous or cannot be read is a
   `QueryError`; a VibORM error it throws passes through.
 - `required: true` makes the argument mandatory on the operations `on`
-  names: a call that leaves it out is a `ValidationError` at its path, before
-  anything runs. Without `on`, that is every operation of every model,
-  including models no filter of the extension names: there the value is asked
-  for and changes nothing.
+  names, for the models the extension itself names in `rows`, `data` or
+  `deletion`: a call that leaves it out is a `ValidationError` at its path,
+  before anything runs. A model the extension does not name still accepts the
+  argument where `on` places it, but does not ask for it. An extension that
+  names no model at all (only controls) asks for it on every model.
 - Control names are one list per client, shared with `rows.control`. Do not
   take a name core already uses as an argument (`where`, `data`, `select`, …)
   or one another extension declares.

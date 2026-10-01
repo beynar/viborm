@@ -92,6 +92,8 @@ A member with a reference gets a second step: `callRows` substitutes the admitte
 
 **`required` on a control** (new, one line of declaration, one refusal at admission): `controls: { tenant: { schema, required: true } }`. `admitControls` refuses a call on an operation the control is placed on when the value is absent, with a `ValidationError` at path `tenant`. A rows control (the mode) is never required: an absent one is its default.
 
+*(Owner ruling, 2026-10-01; R1.)* A `required` control is asked for only on the models its own extension names: the keys of that extension's `rows.models`, `data.models` and `deletion.models`. On a model outside them the control is still accepted wherever its `on` places it, and checked, but a call that leaves it out is not refused, so tenancy asks for a tenant on the models it filters and nowhere else, and audit asks for an actor on the writes of the models it stamps. An extension that names no model at all (only controls) keeps the first rule: the value is asked for on every model its `on` covers. The placement owns the rule (`placeControls` gives each control the models that require it, `ResolvedControl.required`); admission only reads it. Types: unchanged, since every control is already optional in the types.
+
 **Cache key.** Already right: a read that admitted a control is keyed on `[args, controls, rows]` (src/client/client.ts:493-500), so two tenants never share an entry and the rows identity carries the reference marker, not a value.
 
 **What the engine does not learn.** Nothing. `RowDomain` still holds plain `where` inputs. Preparation, correlation, lookups by purpose, the unique-key conjunction, the RETURNING decline (DC10), the ON CONFLICT gate (DC11), cursors and the M2 reference scopes are untouched.
@@ -157,6 +159,8 @@ Runtime lines are what counts (types stripped with esbuild, as the v3.1 final re
 
 Stop and revise if: the `data` Omit breaches the type budget (fallback in §2.2 Types); the site list in §2.2 misses a site the spike finds; a bound predicate needs the engine to learn about controls.
 
+*(Owner ruling, 2026-10-01.)* The base bundle limit over main is the measured figure, +5.4 KB gzip (final record §0000.4: +5,395 to +5,466 B on pg-representative), in place of the v3.1 §5.2 "+5 KB over main" bar. STOP U3R-1 is closed by the owner.
+
 ## 5. Milestones
 
 ### 5.1 P1 spike (measure, no commit): 
@@ -200,6 +204,8 @@ Composition: §1.3 end to end, including the `NotFoundError` when the version mo
 1. Collision rule for `data`: refuse the caller's same field (recommended, one guard), or let the extension silently win.
 2. Ship the three acceptance extensions as entries, or keep them as guide recipes.
 3. The memo cap (256) and eviction (oldest): fine as a documented ceiling, or measured against a tenant count you have in mind.
+   *(Owner ruling, 2026-10-01: kept as is.)* One 256-entry memo per extended client, shared by every value a `rows` filter names, as the U4 repair below describes.
    *(U4 repair, 2026-10-01.)* The ceiling counts every value a `rows` filter names, not tenants alone: a memo key holds each control the combination's filters or the default filters name. On a chain with tenancy and the optimistic lock, each update or delete with a new `expectedVersion` takes an entry, so steady writes push tenants out of the 256 (results stay correct; only the cost claim "128 tenants" fails there). recipes.mdx and create.mdx now say so, with the remedy: apply the lock on a client of its own (`db.$extends(lock)` builds its own memo, `db` keeps its tenants). Witness: extension-controls.core.test.ts, "the lock's version takes room beside the tenant". Still the owner's call if one shared ceiling for tenants is wanted (for instance a memo per rows member).
 4. If the `data` type narrowing breaches the budget: accept the fallback (field stays in the type, refused at runtime), or drop `data` types altogether.
 5. *(Added at the U2 repair, 2026-10-01; open.)* A schema-required stamped field: keep option (c) (declare stamped fields nullable or with a default; U3 narrows only those), or fund option (a) (stamp the raw arguments before admission) or (b) (a validator per chain) in a dedicated unit so a required `tenantId` need not be passed. *(U3 repair: also open under this item.)* U3 shipped a stricter type than "narrows only those": a schema-required stamped field accepts no value and stays required, so every create of that model is an editor error on a client whose types know the model. Keep it (types and runtime agree that such a create cannot succeed), or narrow only nullable and defaulted fields as the U2-repair wording says (the required field then compiles and is refused when the call runs).
+6. *(Owner ruling, 2026-10-01: kept as is.)* The §1 recipes keep taking `readonly string[]`: they narrow nothing in the types (U3 repair note in §2.2), and the runtime refusal of a stamped field stands alone for them.

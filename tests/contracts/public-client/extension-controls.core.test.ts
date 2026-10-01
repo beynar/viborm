@@ -24,6 +24,7 @@ import {
   ValidationError,
 } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
+import { placeControls } from "@extensions/controls";
 import { defineExtension } from "@extensions/definition";
 import { bindRows, callRows } from "@extensions/rows";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
@@ -33,6 +34,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import {
+  audit,
   optimisticLock,
   tenancy as tenancyRecipe,
 } from "@tests/fixtures/extension-recipes";
@@ -821,7 +823,7 @@ describe("controls: required", () => {
     { path: "tenant", message: 'Control "tenant" is required' },
   ];
 
-  test("a call that does not pass a required control is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
+  test("an extension that names no model asks for a required control on every model: a call that does not pass it is refused at its path on every operation it is placed on, before it writes; passed, it is admitted", async () => {
     const base = await seededBase();
     const db = base.$extends({
       name: "tenant",
@@ -895,6 +897,133 @@ describe("controls: required", () => {
     expect((unmoded as ValidationError).issues).toEqual([
       { path: "mode", message: 'Control "mode" is required' },
     ]);
+  });
+
+  test("a required control is asked for only on the models its extension names in rows, data or deletion; an extension that names none asks on every model (owner ruling, 2026-10-01)", () => {
+    const required = (definition: Parameters<typeof placeControls>[0]) =>
+      placeControls(definition).map(({ name, required: on }) => [
+        name,
+        on === true || on === undefined ? on : [...on].sort(),
+      ]);
+    expect(required(tenancyRecipe(["post", "user"]))).toEqual([
+      ["tenant", ["post", "user"]],
+      ["scope", undefined],
+    ]);
+    expect(required(audit(["post"]))).toEqual([["actor", ["post"]]]);
+    expect(required(optimisticLock(["post"]))).toEqual([
+      ["expectedVersion", undefined],
+      ["versionCheck", undefined],
+    ]);
+    expect(
+      required({
+        name: "managed",
+        controls: { mode: { oneOf: ["soft", "hard"], required: true } },
+        deletion: {
+          removeWhen: { mode: "hard" },
+          models: { post: { at: "deletedAt" } },
+        },
+      })
+    ).toEqual([["mode", ["post"]]]);
+    expect(
+      required({
+        name: "audit",
+        controls: { actor: { oneOf: ["ann"], required: true, on: "writes" } },
+      })
+    ).toEqual([["actor", true]]);
+  });
+
+  test("tenancy asks for a tenant on the model it manages and audit for an actor on its writes; a model they do not name is not asked, still accepts both values and checks them", async () => {
+    const note = s.model({
+      id: s.string().id(),
+      body: s.string(),
+      tenantId: s.string().nullable(),
+      createdBy: s.string().nullable(),
+      updatedBy: s.string().nullable(),
+    });
+    const tag = s.model({ id: s.string().id(), label: s.string() });
+    const base = createClient({
+      schema: { note, tag },
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    const db = base.$extends(tenancyRecipe(["note"])).$extends(audit(["note"]));
+    const issues = async (pending: Promise<unknown>) => {
+      const refused = await failure(pending);
+      expect(refused).toBeInstanceOf(ValidationError);
+      return (refused as ValidationError).issues;
+    };
+    // The managed model: every operation asks for the tenant, every write
+    // for the actor too.
+    for (const operation of ROUTED_OPERATIONS) {
+      expect(
+        await issues(callUnchecked(db, "note", operation, {})),
+        operation
+      ).toEqual([{ path: "tenant", message: 'Control "tenant" is required' }]);
+    }
+    expect(
+      await issues(
+        callUnchecked(db, "note", "create", {
+          data: { id: "n1", body: "x" },
+          tenant: "acme",
+        })
+      )
+    ).toEqual([{ path: "actor", message: 'Control "actor" is required' }]);
+    await expect(
+      db.note.create({
+        data: { id: "n1", body: "x" },
+        tenant: "acme",
+        actor: "ann",
+      })
+    ).resolves.toMatchObject({ tenantId: "acme", createdBy: "ann" });
+    await expect(
+      db.note.findMany({ tenant: "acme", select: { id: true } })
+    ).resolves.toEqual([{ id: "n1" }]);
+    // The other model: nothing is asked, on any operation.
+    for (const operation of ROUTED_OPERATIONS) {
+      const outcome = await callUnchecked(db, "tag", operation, {}).then(
+        () => undefined,
+        (error: unknown) => error
+      );
+      const paths =
+        outcome instanceof ValidationError
+          ? outcome.issues.map((issue) => issue.path)
+          : [];
+      expect(paths, operation).not.toContain("tenant");
+      expect(paths, operation).not.toContain("actor");
+    }
+    await expect(
+      db.tag.create({ data: { id: "t1", label: "a" }, select: { id: true } })
+    ).resolves.toEqual({ id: "t1" });
+    await expect(
+      db.tag.update({
+        where: { id: "t1" },
+        data: { label: "b" },
+        select: { label: true },
+      })
+    ).resolves.toEqual({ label: "b" });
+    await expect(db.tag.findMany({ select: { id: true } })).resolves.toEqual([
+      { id: "t1" },
+    ]);
+    // There both values are still accepted where `on` places them, checked,
+    // and change nothing.
+    await expect(
+      db.tag.create({
+        data: { id: "t2", label: "c" },
+        tenant: "acme",
+        actor: "ann",
+        select: { id: true },
+      })
+    ).resolves.toEqual({ id: "t2" });
+    await expect(
+      db.tag.findMany({ tenant: "globex", select: { id: true } })
+    ).resolves.toEqual([{ id: "t1" }, { id: "t2" }]);
+    expect(
+      await issues(callUnchecked(db, "tag", "findMany", { tenant: 1 }))
+    ).toEqual([expect.objectContaining({ path: "tenant" })]);
+    expect(
+      await issues(callUnchecked(db, "tag", "findMany", { actor: "ann" }))
+    ).toEqual([expect.objectContaining({ path: "actor" })]);
   });
 });
 
