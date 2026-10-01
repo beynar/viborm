@@ -3,7 +3,7 @@ import {
   getOfficialCacheQueryCapability,
   OFFICIAL_CACHE_NAME,
   registerOfficialCacheChain,
-} from "@cache/extension";
+} from "@cache/capability";
 import {
   getOfficialDefaultOmitChainCapability,
   getOfficialDefaultOmitRequestCapability,

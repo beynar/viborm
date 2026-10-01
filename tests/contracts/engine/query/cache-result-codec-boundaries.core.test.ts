@@ -1,3 +1,5 @@
+// The route's cache codec belongs to the cache runtime `viborm/cache` loads.
+import "@cache/runtime";
 import {
   materializeJsonValue,
   snapshotJsonValue,

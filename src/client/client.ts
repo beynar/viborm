@@ -3,14 +3,13 @@ import type {
   CacheInvalidationOptions,
   WithCacheOptions,
 } from "@cache";
-import type {
-  OfficialCacheExtension,
-  OfficialCacheQueryContribution,
-} from "@cache/extension";
 import {
   bindOfficialCacheChain,
   getOfficialCacheChainCapability,
-} from "@cache/extension";
+  type OfficialCacheExtension,
+  type OfficialCacheQueryContribution,
+  officialCacheRuntime,
+} from "@cache/capability";
 import type { AnyDriver } from "@drivers";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
@@ -51,14 +50,6 @@ import {
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
-import {
-  createCacheExecutionOptions,
-  executeCachedResultOperation,
-  invalidateManualCache,
-  prepareMutationCacheInput,
-  prepareMutationCacheWriteOutcome,
-  validateCacheableOperation,
-} from "@query-engine/cache-flow";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import {
   attachPendingCacheExecution,
@@ -574,7 +565,10 @@ export class VibORM<C extends VibORMConfig> {
               );
         let requestArgs = transformed ?? {};
         if (officialCache !== undefined && isWrite) {
-          const prepared = prepareMutationCacheInput(operation, requestArgs);
+          const prepared = officialCacheRuntime().prepareMutationCacheInput(
+            operation,
+            requestArgs
+          );
           requestArgs = prepared.args;
           cacheOptions = prepared.options;
         }
@@ -592,7 +586,7 @@ export class VibORM<C extends VibORMConfig> {
       officialCache === undefined || !isWrite
         ? undefined
         : (context) =>
-            prepareMutationCacheWriteOutcome(
+            officialCacheRuntime().prepareMutationCacheWriteOutcome(
               officialCache.driver,
               modelNameStr,
               operation,
@@ -636,7 +630,8 @@ export class VibORM<C extends VibORMConfig> {
     clientOmit: ClientOmitResolver | undefined,
     config?: WithCacheOptions
   ): CachedClient<C> {
-    const options = createCacheExecutionOptions(
+    const runtime = officialCacheRuntime();
+    const options = runtime.createCacheExecutionOptions(
       config,
       capability.waitUntil,
       readDriverIdentity(engine.driver)
@@ -644,7 +639,7 @@ export class VibORM<C extends VibORMConfig> {
     const officialReadCache = Object.freeze({ capability, options });
     return this.createCachedProxy(({ modelName, operation, args }) => {
       try {
-        validateCacheableOperation(operation);
+        runtime.validateCacheableOperation(operation);
         return this.prepareModelOperation(
           engine,
           modelName,
@@ -709,7 +704,7 @@ export class VibORM<C extends VibORMConfig> {
           return execute();
         }
         const cacheResult = readPendingCacheResult(pendingOperation);
-        return executeCachedResultOperation(
+        return officialCacheRuntime().executeCachedResultOperation(
           cacheRead.capability.driver,
           modelName,
           operation,
@@ -1153,7 +1148,7 @@ export class VibORM<C extends VibORMConfig> {
         );
         if (officialCache === undefined) return undefined;
         return async (...keys: string[]) => {
-          await invalidateManualCache(
+          await officialCacheRuntime().invalidateManualCache(
             officialCache.driver,
             keys,
             createOperationExecutionContext(

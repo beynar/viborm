@@ -4,6 +4,7 @@
  * method is called. Every operation is served by the single (V2) engine.
  */
 
+import { isCacheManagedExecution } from "@cache/capability";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import {
   InvalidTransactionInputError,
@@ -17,7 +18,7 @@ import {
 } from "@extensions/query";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
-import { type CacheResultCodec, isCacheManagedExecution } from "./cache-flow";
+import type { CacheResultCodec } from "./cache-flow";
 import {
   createPendingOperationContext,
   createPendingOperationInstrumentationFacts,

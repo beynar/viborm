@@ -25,7 +25,6 @@ import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import { isError } from "../errors/diagnostic-safety";
 import { isWriteOperation } from "./routed-operations";
-import type { PrepareOptions } from "./types";
 
 const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "findFirst",
@@ -145,11 +144,7 @@ function mutationCacheInputError(
   });
 }
 
-export function isCacheManagedExecution(
-  options: PrepareOptions | undefined
-): boolean {
-  return options?.skipSpan === true;
-}
+export { isCacheManagedExecution } from "@cache/capability";
 
 /** Prepare the cache listener consumed by the shared write-outcome rail. */
 export function prepareMutationCacheWriteOutcome(
