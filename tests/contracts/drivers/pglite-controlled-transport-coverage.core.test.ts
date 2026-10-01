@@ -8,8 +8,7 @@
  * `Sql` becomes the positional statement and parameter list this provider
  * receives.
  *
- * A stock PGlite instance is deliberately NOT built here: it is what makes a
- * driver a consumable-result candidate (AGENTS.md Rule 5), it costs a WASM
+ * A stock PGlite instance is deliberately NOT built here: it costs a WASM
  * database, and a core test may not own one. The branches that need a real
  * instance stay uncovered in this lane rather than being forged.
  */

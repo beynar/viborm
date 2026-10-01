@@ -1,17 +1,13 @@
 /** Driver connection lifecycle and transaction-bound execution surface. */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import {
-  ConnectionError,
-  FeatureNotSupportedError,
-  TransactionError,
-  VibORMErrorCode,
-} from "@errors";
+import { TransactionError } from "@errors";
 import type { Sql } from "@sql";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
 import {
   type DriverResultParser,
   type NestedTransactionObservation,
+  type OfficialDriverLifecycleExecutionGate,
   ungatedLifecycleExecution,
 } from "./driver-instrumentation";
 import { DriverTransactionBase } from "./driver-transaction-base";
@@ -19,19 +15,15 @@ import { normalizeDriverConnectionError } from "./error-mapping";
 import { observePromiseRejection } from "./rejection-observed-promise";
 import { SavepointQueue } from "./savepoint-queue";
 import { defineImmutableDriverFact } from "./shared/driver-options";
-import {
-  leasePinnedCommand,
-  type PinnedSessionControl,
-  type PinnedSessionReservation,
-} from "./shared/pinned-session";
-import { withSuppressedFailure } from "./shared/suppressed-failure";
+import type { PinnedSessionReservation } from "./shared/pinned-session";
 import type {
   BatchTransactionOptions,
   TransactionForm,
   TransactionOptionSupport,
   TransactionOptions,
+  TransactionPlan,
 } from "./shared/transaction-options";
-import { runSavepoint, runTransactionLifecycle } from "./shared/transactions";
+import { runSavepoint } from "./shared/transactions";
 import { toTransactionOperationError } from "./transaction-lifecycle-error";
 import type {
   BatchQuery,
@@ -57,126 +49,104 @@ export abstract class Driver<
   /**
    * Connect to the database with instrumentation.
    */
-  async _connect(context?: QueryExecutionContext): Promise<void> {
-    const executionContext = this.resolveExecutionContext(context, "connect");
-    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
-    const doConnect = async () => {
-      await this.getClient(executionContext);
-    };
-
-    const executeConnect = (gate = ungatedLifecycleExecution) =>
-      gate.execute(doConnect);
-    if (this.serializeTransactions && !this.inTransaction) {
-      this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      if (!hasLifecycleObservers) {
-        return this.connectionQueue.enqueue(executeConnect);
-      }
-      return this.observeTrustedDriverLifecycle(
-        "connection",
-        executionContext,
-        "connect",
-        (gate) => this.connectionQueue.enqueue(() => executeConnect(gate))
-      );
-    }
-    return hasLifecycleObservers
-      ? this.observeTrustedDriverLifecycle(
-          "connection",
-          executionContext,
-          "connect",
-          executeConnect
-        )
-      : executeConnect();
+  _connect(context?: QueryExecutionContext): Promise<void> {
+    return this.runConnectionLifecycle("connect", context, (ctx, gate) =>
+      gate.execute(async () => {
+        await this.getClient(ctx);
+      })
+    );
   }
 
   /**
    * Disconnect from the database with instrumentation.
    */
-  async _disconnect(context?: QueryExecutionContext): Promise<void> {
-    const executionContext = this.resolveExecutionContext(
+  _disconnect(context?: QueryExecutionContext): Promise<void> {
+    return this.runConnectionLifecycle(
+      "disconnect",
       context,
-      "disconnect"
-    );
-    const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
-    const executeDisconnect = async (gate = ungatedLifecycleExecution) => {
-      if (this.isDisconnecting) {
-        throw new ConnectionError("Database connection is closing", {
-          code: VibORMErrorCode.CONNECTION_CLOSED,
-          diagnostics: this.getErrorDisclosure(executionContext),
-          meta: {
-            driver: this.driverName,
-            model: executionContext.model,
-            operation: executionContext.operation,
-            correlationId: executionContext.correlationId,
-          },
-        });
-      }
-      this.isDisconnecting = true;
-      const doDisconnect = async () => {
-        if (this.initPromise) {
-          try {
-            await this.initPromise;
-          } catch {
-            // Ignore init errors during disconnect
-          }
-        }
-
-        const closingClient = this.closeRetryClient ?? this.client;
-        if (!closingClient) return;
-        try {
-          await this.closeClient(closingClient);
-        } catch (error) {
-          // A provider may make the transport unusable before its close promise
-          // rejects. Keep the exact handle for cleanup retry, but remove it from
-          // every path that can query it or call it connected.
-          this.closeRetryClient = closingClient;
-          if (this.client === closingClient) this.client = null;
-          this.initPromise = null;
-          throw normalizeDriverConnectionError(
-            error,
-            {
-              driverName: this.driverName,
-              model: executionContext.model,
-              operation: executionContext.operation,
-              correlationId: executionContext.correlationId,
-              diagnostics: this.getErrorDisclosure(executionContext),
-            },
-            "Database disconnection failed"
+      async (executionContext, gate) => {
+        if (this.isDisconnecting) {
+          throw this.connectionClosedError(
+            "Database connection is closing",
+            executionContext
           );
         }
-      };
+        this.isDisconnecting = true;
+        const doDisconnect = async () => {
+          if (this.initPromise) {
+            try {
+              await this.initPromise;
+            } catch {
+              // Ignore init errors during disconnect
+            }
+          }
 
-      const disconnectPromise = gate.execute(doDisconnect);
+          const closingClient = this.closeRetryClient ?? this.client;
+          if (!closingClient) return;
+          try {
+            await this.closeClient(closingClient);
+          } catch (error) {
+            // A provider may make the transport unusable before its close
+            // promise rejects. Keep the exact handle for cleanup retry, but
+            // remove it from every path that can query it or call it connected.
+            this.closeRetryClient = closingClient;
+            if (this.client === closingClient) this.client = null;
+            this.initPromise = null;
+            throw normalizeDriverConnectionError(
+              error,
+              {
+                driverName: this.driverName,
+                model: executionContext.model,
+                operation: executionContext.operation,
+                correlationId: executionContext.correlationId,
+                diagnostics: this.getErrorDisclosure(executionContext),
+              },
+              "Database disconnection failed"
+            );
+          }
+        };
 
-      try {
-        await disconnectPromise;
-        this.client = null;
-        this.initPromise = null;
-        this.closeRetryClient = null;
-      } finally {
-        this.isDisconnecting = false;
+        const disconnectPromise = gate.execute(doDisconnect);
+        try {
+          await disconnectPromise;
+          this.client = null;
+          this.initPromise = null;
+          this.closeRetryClient = null;
+        } finally {
+          this.isDisconnecting = false;
+        }
       }
-    };
+    );
+  }
 
-    if (this.serializeTransactions && !this.inTransaction) {
+  /**
+   * The one connect/disconnect dispatch: queued on a single-connection
+   * driver, observed when a trusted observer wants the lifecycle.
+   */
+  private async runConnectionLifecycle(
+    boundary: "connect" | "disconnect",
+    context: QueryExecutionContext | undefined,
+    body: (
+      context: QueryExecutionContext,
+      gate: OfficialDriverLifecycleExecutionGate
+    ) => Promise<void>
+  ): Promise<void> {
+    const executionContext = this.resolveExecutionContext(context, boundary);
+    const run = (gate = ungatedLifecycleExecution) =>
+      body(executionContext, gate);
+    const queued = this.serializeTransactions && !this.inTransaction;
+    if (queued) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      if (!hasLifecycleObservers) {
-        return this.connectionQueue.enqueue(executeDisconnect);
-      }
-      return this.observeTrustedDriverLifecycle(
-        "connection",
-        executionContext,
-        "disconnect",
-        (gate) => this.connectionQueue.enqueue(() => executeDisconnect(gate))
-      );
     }
-    return hasLifecycleObservers
-      ? this.observeTrustedDriverLifecycle(
-          "connection",
-          executionContext,
-          "disconnect",
-          executeDisconnect
-        )
-      : executeDisconnect();
+    if (!this.hasTrustedObservers(executionContext)) {
+      return queued ? this.connectionQueue.enqueue(run) : run();
+    }
+    return this.observeTrustedDriverLifecycle(
+      "connection",
+      executionContext,
+      boundary,
+      queued ? (gate) => this.connectionQueue.enqueue(() => run(gate)) : run
+    );
   }
 
   // ===========================================================================
@@ -201,7 +171,8 @@ export abstract class Driver<
    * The PHYSICAL session a pinned command would run on, when that session can
    * be shared with ANOTHER driver, or absent when it cannot.
    *
-   * Its presence is what makes the lease below command-wide across drivers
+   * Its presence is what makes the migration lease (`withPinnedSession` in
+   * `src/migrations/pinned-session.ts`) command-wide across drivers
    * rather than only across one driver's queue. Absent on every provider that
    * reserves a dedicated connection out of a pool: those sessions are already
    * physically apart, and two migration commands on a pool are arbitrated by
@@ -209,222 +180,6 @@ export abstract class Driver<
    * client a caller may hand to several drivers.
    */
   protected physicalPinnedSession?(): Promise<object>;
-
-  /**
-   * Whether this driver can pin a session, answered without reserving one.
-   *
-   * Migration admission asks this BEFORE any provider work, so an effectful
-   * command on a transport with no interactive session refuses before it
-   * connects.
-   */
-  _canPinSession(): boolean {
-    return this.pinnedSession !== undefined;
-  }
-
-  /**
-   * Runs `body` against ONE reserved producer.
-   *
-   * The view handed to the body is this exact driver with its client pinned to
-   * the reservation, so every statement — the lock, the authoritative reads,
-   * the DDL, the tracking writes, and the unlock — runs on the same physical
-   * session, and a transaction opened inside the body runs on it too instead of
-   * acquiring a second pooled connection.
-   *
-   * The producer is discarded rather than released when the body throws or
-   * condemns it: a session whose lock state is unknown must not go back into a
-   * pool.
-   *
-   * On a driver whose one connection IS the session, the whole call is one job
-   * of the queue that already owns that connection — see the lease below.
-   */
-  async _withPinnedSession<T>(
-    body: (
-      pinned: Driver<TClient, TTransaction>,
-      control: PinnedSessionControl
-    ) => Promise<T>
-  ): Promise<T> {
-    const reserve = this.pinnedSession;
-    if (reserve === undefined) {
-      // Two reachable shapes, one refusal. The shipped migration paths ask
-      // `_canPinSession()` at their admission boundary and refuse
-      // `DRIVER_NOT_SUPPORTED` before any provider work, so this arm covers
-      // what admission cannot see: a caller reaching the driver primitive
-      // directly with a custom driver that implements no hook, and a caller
-      // reaching it on a view that IS an already-reserved session
-      // (`createPinnedSessionView` withdraws the hook).
-      throw new FeatureNotSupportedError(
-        this.driverName,
-        "pinnedSession",
-        "No session can be reserved through this driver: either the transport has no interactive session at all, or this view is itself one reserved session and reserving again would take a SECOND connection. A migration lock is session-scoped, so either way it could be released by a different connection — or never released at all."
-      );
-    }
-
-    const runSession = async (): Promise<T> => {
-      const reservation = await reserve.call(this);
-      let discarded = false;
-      const control: PinnedSessionControl = {
-        discard: () => {
-          discarded = true;
-        },
-      };
-
-      let value: T;
-      try {
-        value = await body(
-          this.createPinnedSessionView(reservation.session),
-          control
-        );
-      } catch (bodyFailure) {
-        // The body's failure is what the caller asked for and what the command
-        // has to report. Awaiting the release in a `finally` made a release
-        // rejection REPLACE it — the caller of a reset that dropped half an
-        // estate on a dying socket was told only that the producer would not go
-        // back. The release still runs, and still condemns the producer; its
-        // own failure is recorded beside the body's (§3.5).
-        discarded = true;
-        try {
-          await reservation.release(true);
-        } catch (releaseFailure) {
-          throw withSuppressedFailure(bodyFailure, releaseFailure);
-        }
-        throw bodyFailure;
-      }
-      // Nothing else failed, so a release failure IS the failure.
-      await reservation.release(discarded);
-      return value;
-    };
-
-    // A provider that reserves a DEDICATED connection — `pg`, postgres.js, Bun
-    // SQL, MySQL2 — hands back a producer that is already physically apart from
-    // everything else its pool is serving, and there is nothing here to lease:
-    // two migration commands on a pool are arbitrated by the real session lock,
-    // and serializing them on this driver would be a regression.
-    //
-    // A single-connection driver reserves the connection every other caller
-    // shares (plan §3.5: "PGlite — its single client UNDER THE EXISTING DRIVER
-    // QUEUE"), so the whole session — the reservation, the acquisition, the
-    // decisions, the DDL, the unlock and the release — is ONE job of that queue.
-    // Leasing anything narrower lets a second command in between two of this
-    // one's statements, and a PostgreSQL session advisory lock is REENTRANT: on
-    // one session the second command re-acquires the lock the first is holding
-    // instead of waiting for it.
-    if (this.serializeTransactions) {
-      // Reaching for the originating driver while its one connection is
-      // transaction-bound is the refusal this driver already owns for every
-      // other operation; here it is what stands between that caller and a wait
-      // on its own holder. It is answered BEFORE the lease, not inside it: a
-      // driver that waited for a lease another driver holds — on a client whose
-      // provider serializes a transaction against every other statement — would
-      // wait for a command that cannot finish until this transaction does.
-      this.assertBaseOperationAllowedDuringTransaction(
-        this.resolveExecutionContext(undefined, "pinnedSession")
-      );
-      const identify = this.physicalPinnedSession;
-      if (identify === undefined) {
-        return this.connectionQueue.enqueue(runSession);
-      }
-      // The queue lease stays: it is what keeps this driver's own statements
-      // out of the session. The physical lease is what keeps ANOTHER driver's
-      // command out of it — and what refuses one outright when that session's
-      // advisory-lock state was condemned, through this driver or any other.
-      const session = await identify.call(this);
-      return leasePinnedCommand(this.driverName, session, () =>
-        this.connectionQueue.enqueue(runSession)
-      );
-    }
-    return runSession();
-  }
-
-  /**
-   * This driver, viewed with its client pinned to one reserved session.
-   *
-   * Defined rather than constructed: the view IS the concrete driver for every
-   * other purpose — same adapter, same result parser, same capabilities — and
-   * only the producer, the queue answer, the transaction owner and the
-   * reservation hook differ. The facts it restates are `readonly`, hence
-   * `defineProperties`. The transport assertion is forwarded EXACTLY: a pinned
-   * session never derives, upgrades, or drops it, exactly as a
-   * transaction-bound view does not.
-   */
-  private createPinnedSessionView(
-    session: TClient | TTransaction
-  ): Driver<TClient, TTransaction> {
-    const view: Driver<TClient, TTransaction> = Object.create(this);
-    const support = this.transactionOptionSupport();
-    Object.defineProperties(view, {
-      client: { value: session, writable: true },
-      // `getClient()` returns a present client without consulting `initPromise`,
-      // but a pinned view must never be able to start a second connection.
-      initPromise: { value: null, writable: true },
-      // The lease holds this driver's connection queue for the WHOLE session,
-      // so a statement issued THROUGH this view must not wait on that queue: it
-      // would be waiting for its own holder. The view is not opting out of
-      // serialization — it IS the serialized job, and exclusivity for the whole
-      // session is stronger than exclusivity per statement. On a driver that
-      // took a dedicated connection there was no queueing here to begin with.
-      serializeTransactions: { value: false },
-      // §3.5's "one physical producer" made structural: the view IS the
-      // reservation, so it has no reservation to give. Without this it
-      // inherited the hook and answered `_canPinSession() === true`, and a
-      // nested `withLockedMigrationProducer` would have taken a SECOND
-      // connection — one that then waits forever on PostgreSQL for the advisory
-      // lock the first one holds, or times out on MySQL — instead of refusing.
-      pinnedSession: { value: undefined },
-      // The provider's own `transaction()` acquires a connection, which is what
-      // pinning exists to prevent. A descriptor is how a `protected abstract`
-      // member is replaced per-instance; it is also where the transaction
-      // handle widens to the session, which is the honest shape here.
-      transaction: { value: this.runPinnedTransaction },
-      // A driver whose `maxWait` bounds its connection-queue wait ("queue")
-      // has nothing left to bound on this view: the lease already holds the
-      // queue for the whole session, so accepting the option here would
-      // accept a bound it cannot apply. Dedicated-connection drivers keep
-      // their own answer.
-      transactionOptionSupport: {
-        value: (): TransactionOptionSupport =>
-          support.maxWait === "queue"
-            ? {
-                ...support,
-                maxWait: "unsupported",
-                maxWaitReason:
-                  "the pinned session holds the connection queue's lease for its whole duration, so there is no queue wait to bound",
-              }
-            : support,
-      },
-      migrationNamespaceAttestation: {
-        value: this.migrationNamespaceAttestation,
-      },
-    });
-    return view;
-  }
-
-  /**
-   * One transaction on the already-reserved session.
-   *
-   * Every provider's own `transaction()` acquires a connection — that is the
-   * behaviour a pinned session exists to prevent — and most of them refuse
-   * outright when handed a connection instead of a pool. `BEGIN`/`COMMIT`/
-   * `ROLLBACK` on the reserved producer is the one form that means the same
-   * thing on every transport admitted to pinning, and it keeps the lock and the
-   * transaction on one session.
-   */
-  protected runPinnedTransaction<T>(
-    session: TClient | TTransaction,
-    fn: (tx: TClient | TTransaction) => Promise<T>,
-    context?: QueryExecutionContext
-  ): Promise<T> {
-    const statement = async (sql: string) => {
-      await this.executeRaw(session, sql, undefined, context);
-    };
-    return runTransactionLifecycle({
-      begin: () => statement("BEGIN"),
-      // The session IS the transaction here: there is no second handle to hand
-      // out, and a nested `$transaction` on it runs as a SAVEPOINT.
-      callback: () => fn(session),
-      commit: () => statement("COMMIT"),
-      rollback: () => statement("ROLLBACK"),
-    });
-  }
 
   async disconnect(): Promise<void> {
     return this._disconnect();
@@ -651,16 +406,25 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     });
   }
 
+  /**
+   * One statement-level operation of this scope: refused while a nested
+   * savepoint owns the scope, tracked so the scope can drain it, and run in
+   * the scope's order.
+   */
+  private scoped<T>(method: string, operation: () => Promise<T>): Promise<T> {
+    const activeSavepointError = this.getActiveSavepointUseError(method);
+    if (activeSavepointError) return Promise.reject(activeSavepointError);
+    return this.trackTransactionOperation(
+      () => this.enqueueScopeOperation(operation),
+      true
+    );
+  }
+
   override _execute<T = Record<string, unknown>>(
     query: Sql,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const activeSavepointError = this.getActiveSavepointUseError("execute");
-    if (activeSavepointError) return Promise.reject(activeSavepointError);
-    return this.trackTransactionOperation(
-      () => this.enqueueScopeOperation(() => super._execute<T>(query, context)),
-      true
-    );
+    return this.scoped("execute", () => super._execute<T>(query, context));
   }
 
   override _executeRaw<T = Record<string, unknown>>(
@@ -668,14 +432,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     params?: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const activeSavepointError = this.getActiveSavepointUseError("executeRaw");
-    if (activeSavepointError) return Promise.reject(activeSavepointError);
-    return this.trackTransactionOperation(
-      () =>
-        this.enqueueScopeOperation(() =>
-          super._executeRaw<T>(sql, params, context)
-        ),
-      true
+    return this.scoped("executeRaw", () =>
+      super._executeRaw<T>(sql, params, context)
     );
   }
 
@@ -698,16 +456,16 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   }
 
   /**
-   * Refuse a malformed or unhonorable option before touching savepoint state,
-   * preserving the rule that a refusal happens before any provider work.
+   * Resolve the options, or answer the refusal for a malformed or unhonorable
+   * one, before touching savepoint state — preserving the rule that a refusal
+   * happens before any provider work.
    */
-  private readNestedOptionsError(
+  private resolveNestedOptions(
     options: unknown,
     form: TransactionForm
-  ): Error | undefined {
+  ): TransactionPlan | undefined | Error {
     try {
-      this.resolveTransactionOptions(options, form);
-      return undefined;
+      return this.resolveTransactionOptions(options, form);
     } catch (error) {
       return toTransactionOperationError(error);
     }
@@ -719,19 +477,11 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     context?: QueryExecutionContext,
     committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
-    const optionsError = this.readNestedOptionsError(options, "batch");
-    if (optionsError) return Promise.reject(optionsError);
+    const plan = this.resolveNestedOptions(options, "batch");
+    if (plan instanceof Error) return Promise.reject(plan);
     if (queries.length === 0) return Promise.resolve([]);
-    const activeSavepointError = this.getActiveSavepointUseError(
-      "$transaction([...])"
-    );
-    if (activeSavepointError) return Promise.reject(activeSavepointError);
-    return this.trackTransactionOperation(
-      () =>
-        this.enqueueScopeOperation(() =>
-          super._executeBatch<T>(queries, options, context, committed)
-        ),
-      true
+    return this.scoped("$transaction([...])", () =>
+      super._executeBatch<T>(queries, options, context, committed)
     );
   }
 
@@ -740,8 +490,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     options?: TransactionOptions,
     context?: QueryExecutionContext
   ): Promise<T> {
-    const optionsError = this.readNestedOptionsError(options, "callback");
-    if (optionsError) return Promise.reject(optionsError);
+    const plan = this.resolveNestedOptions(options, "callback");
+    if (plan instanceof Error) return Promise.reject(plan);
     const isAdmittedWithTransactionDispatch =
       this.hasAdmittedWithTransactionDispatch;
     if (!isAdmittedWithTransactionDispatch) {
@@ -755,7 +505,6 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
         return Promise.reject(error);
       }
     }
-    const plan = this.resolveTransactionOptions(options, "callback");
     const executionContext = this.resolveExecutionContext(
       context,
       "transaction"
@@ -800,8 +549,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     options?: TransactionOptions,
     context?: QueryExecutionContext
   ): Promise<T> {
-    const optionsError = this.readNestedOptionsError(options, "callback");
-    if (optionsError) return Promise.reject(optionsError);
+    const plan = this.resolveNestedOptions(options, "callback");
+    if (plan instanceof Error) return Promise.reject(plan);
     const activeSavepointError = this.getActiveSavepointUseError(
       "$transaction(callback)"
     );

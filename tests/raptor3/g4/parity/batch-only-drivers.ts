@@ -110,7 +110,7 @@ export class NoIndexBatchOnlyDriver extends BatchOnlyDriver {
  * discards its temporaries between batches (D-53).
  *
  * Neon HTTP dispatches each batch as its own non-interactive transaction and
- * reserves nothing — `Driver._canPinSession()` is false, because the driver
+ * reserves nothing — `canPinSession(driver)` is false, because the driver
  * declares no `pinnedSession` hook — so the TEMP table the D-50 batch
  * reference scratch lives in belongs to one dispatched unit and is gone by the
  * next. It models Neon HTTP only: D1 pins no session either, but refuses

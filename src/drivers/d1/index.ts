@@ -356,11 +356,12 @@ export class D1Driver extends Driver<D1Database, D1Database> {
         const values = query.params ? convertValuesForSQLite(query.params) : [];
         statements.push(client.prepare(query.sql).bind(...values));
       } catch (error) {
-        throw this.normalizeExecutionError(
+        throw this.normalizeStatementFailure(
           error,
           query.sql,
           this.getBatchDiagnosticParameters(query),
-          statementContext
+          statementContext,
+          true
         );
       }
     }

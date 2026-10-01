@@ -17,11 +17,6 @@ import type { Schema } from "@client/types";
 import type { Sql } from "@sql";
 import Database from "better-sqlite3";
 import {
-  activateConsumableResultProducer,
-  deactivateConsumableResultProducer,
-  registerConsumableResultCandidate,
-} from "../consumable-result-candidate";
-import {
   type AnyDriver,
   Driver,
   type DriverResultParser,
@@ -175,14 +170,6 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     if (this.suppliedClient) {
       this.client = this.suppliedClient;
     }
-    if (SQLite3Driver.isConsumableCandidate(this)) {
-      registerConsumableResultCandidate(
-        this,
-        SQLite3Driver.canonicalExecuteEntry,
-        SQLite3Driver.isConsumableCandidate,
-        SQLite3Driver.isConsumableProducer
-      );
-    }
     if (SQLite3Driver.isPositionalCandidate(this)) {
       registerPositionalResultDriver(
         this,
@@ -200,18 +187,13 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     if (this.suppliedClient !== undefined) {
       return this.suppliedClient;
     }
-    deactivateConsumableResultProducer(this);
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
     const options = this.driverOptions.options ?? {};
-    const isConsumableClient = SQLite3Driver.isConsumableCandidate(this);
 
     const db = new Database(dataDir, options);
     // better-sqlite3 happens to enable this already; stated explicitly so FK
     // enforcement is a viborm guarantee, not an inherited library default.
     db.pragma("foreign_keys = ON");
-    if (isConsumableClient && SQLite3Driver.isConsumableCandidate(this)) {
-      activateConsumableResultProducer(this, db);
-    }
     return db;
   }
 
@@ -222,11 +204,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     if (db === this.suppliedClient) {
       return;
     }
-    try {
-      db.close();
-    } finally {
-      deactivateConsumableResultProducer(this, db);
-    }
+    db.close();
   }
 
   protected async execute<T>(
@@ -377,33 +355,12 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     return { rows: [] as T[], rowCount: result.changes };
   }
 
-  private static isConsumableProducer(
-    driver: AnyDriver,
-    client: object
-  ): boolean {
-    if (!(driver instanceof SQLite3Driver)) return false;
-    return (
-      SQLite3Driver.isConsumableCandidate(driver) &&
-      Object.getPrototypeOf(client) === Database.prototype &&
-      driver.client === client
-    );
-  }
-
-  private static isConsumableCandidate(driver: AnyDriver): boolean {
-    if (!(driver instanceof SQLite3Driver)) return false;
-    return (
-      driver.suppliedClient === undefined &&
-      driver.driverOptions.options?.nativeBinding === undefined &&
-      SQLite3Driver.hasCanonicalProducerSurface(driver)
-    );
-  }
-
   /**
    * Whether the surface a caller can reach on this instance is still the
    * SHIPPED one.
    *
    * The result leg asks for the parser OBJECT, not for one of its hooks: a
-   * consumable result hands out the provider's own row objects, so a driver is
+   * positional result hands out the provider's own row arrays, so a driver is
    * stock only while `result` IS `sqliteResultParser` — the object
    * `shared/sqlite-utils.ts` owns — and anything a caller put there instead,
    * whatever hook it spells, is a middleware that will see those rows and
@@ -411,9 +368,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
    * "unchanged typed execution/parser surfaces", where "a parser middleware …
    * stays borrowed"). Asking only about `parseResult` asked a narrower
    * question, and since D-35 left the shipped parser with no result hook of its
-   * own it admitted every object that merely lacks one (Arnaud's D-39;
-   * `PGliteDriver.hasCanonicalProducerSurface` states the same rule over the
-   * surface PGlite ships).
+   * own it admitted every object that merely lacks one (Arnaud's D-39).
    *
    * The adapter leg is unchanged, and is a different question: the adapter is
    * this driver's own object, captured once at construction, so what is asked

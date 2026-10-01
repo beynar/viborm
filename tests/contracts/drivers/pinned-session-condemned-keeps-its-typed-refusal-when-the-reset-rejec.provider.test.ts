@@ -1,6 +1,7 @@
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
 import { ConnectionError } from "@errors";
+import { withPinnedSession } from "@src/migrations/pinned-session";
 import { describe, expect, it } from "vitest";
 import {
   discardingBody,
@@ -16,7 +17,7 @@ describe("PGlite condemns the one client it cannot hand back", () => {
       failResetOn(client, prototypeTrapProxy());
       const driver = new PGliteDriver({ client, namespace: "public" });
       const thrown = await rejection(
-        driver._withPinnedSession(discardingBody())
+        withPinnedSession(driver, discardingBody())
       );
       expect(thrown).toBeInstanceOf(ConnectionError);
       expect(thrown instanceof Error ? thrown.message : "").toContain(
@@ -26,7 +27,7 @@ describe("PGlite condemns the one client it cannot hand back", () => {
         thrown instanceof ConnectionError ? thrown.originalCause : undefined
       ).toBeInstanceOf(Error);
       const second = await rejection(
-        driver._withPinnedSession(() => Promise.resolve(1))
+        withPinnedSession(driver, () => Promise.resolve(1))
       );
       expect(second instanceof Error ? second.message : "").toContain(
         "will pin no further migration session"

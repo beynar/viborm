@@ -23,6 +23,10 @@ import type {
   TransactionOptionSupport,
 } from "@drivers/shared";
 import type { QueryResult } from "@drivers/types";
+import {
+  canPinSession,
+  withPinnedSession,
+} from "@src/migrations/pinned-session";
 import { describe, expect, test } from "vitest";
 
 interface FakeSession {
@@ -175,15 +179,15 @@ class StatelessDriver extends Driver<FakeSession, FakeSession> {
 
 describe("pinning capability is answered before any provider work", () => {
   test("reports the capability from the presence of the reservation hook", () => {
-    expect(new PinnableDriver()._canPinSession()).toBe(true);
-    expect(new StatelessDriver()._canPinSession()).toBe(false);
+    expect(canPinSession(new PinnableDriver())).toBe(true);
+    expect(canPinSession(new StatelessDriver())).toBe(false);
   });
 
   test("refuses to run a pinned body on a transport with no session", async () => {
     const driver = new StatelessDriver();
 
     await expect(
-      driver._withPinnedSession(() => Promise.resolve("unreachable"))
+      withPinnedSession(driver, () => Promise.resolve("unreachable"))
     ).rejects.toThrow(NO_SESSION);
   });
 
@@ -191,11 +195,11 @@ describe("pinning capability is answered before any provider work", () => {
     const driver = new PinnableDriver();
     let nested: unknown;
 
-    await driver._withPinnedSession(async (pinned) => {
-      expect(pinned._canPinSession()).toBe(false);
-      nested = await pinned
-        ._withPinnedSession(() => Promise.resolve("second"))
-        .catch((caught: unknown) => caught);
+    await withPinnedSession(driver, async (pinned) => {
+      expect(canPinSession(pinned)).toBe(false);
+      nested = await withPinnedSession(pinned, () =>
+        Promise.resolve("second")
+      ).catch((caught: unknown) => caught);
       return "done";
     });
 
@@ -211,7 +215,7 @@ describe("the pinned view is the same driver on one producer", () => {
     const driver = new PinnableDriver();
 
     await expect(
-      driver._withPinnedSession(async (pinned) => {
+      withPinnedSession(driver, async (pinned) => {
         expect(pinned.adapter).toBe(driver.adapter);
         await pinned._executeRaw("SELECT pg_advisory_lock(1)");
         await pinned._executeRaw("SELECT pg_advisory_unlock(1)");
@@ -230,7 +234,7 @@ describe("the pinned view is the same driver on one producer", () => {
     const driver = new PinnableDriver();
 
     await expect(
-      driver._withPinnedSession((pinned) =>
+      withPinnedSession(driver, (pinned) =>
         pinned._transaction(async (tx) => {
           await pinned._executeRaw("CREATE TABLE entry (id int)");
           return tx.id;
@@ -251,7 +255,7 @@ describe("the pinned view is the same driver on one producer", () => {
     const driver = new PinnableDriver();
 
     await expect(
-      driver._withPinnedSession((pinned) =>
+      withPinnedSession(driver, (pinned) =>
         pinned._transaction(() => Promise.reject(new Error("DDL failed")))
       )
     ).rejects.toThrow("DDL failed");
@@ -270,7 +274,7 @@ describe("the pinned view is the same driver on one producer", () => {
       support: QUEUE_SUPPORT,
     });
 
-    await driver._withPinnedSession(async (pinned) => {
+    await withPinnedSession(driver, async (pinned) => {
       await expect(
         pinned._transaction(() => Promise.resolve("started"), { maxWait: 10 })
       ).rejects.toThrow(NO_QUEUE_WAIT);
@@ -281,7 +285,7 @@ describe("the pinned view is the same driver on one producer", () => {
   test("keeps an acquisition-bounded maxWait the view can still apply", async () => {
     const driver = new PinnableDriver({ support: ACQUISITION_SUPPORT });
 
-    await driver._withPinnedSession(async (pinned) => {
+    await withPinnedSession(driver, async (pinned) => {
       await expect(
         pinned._transaction(() => Promise.resolve("started"), { maxWait: 10 })
       ).resolves.toBe("started");
@@ -301,7 +305,7 @@ describe("pinned session exclusivity", () => {
     const gate = held();
     const order: string[] = [];
 
-    const pinning = driver._withPinnedSession(async () => {
+    const pinning = withPinnedSession(driver, async () => {
       order.push("session-start");
       await gate.promise;
       order.push("session-end");
@@ -326,14 +330,14 @@ describe("pinned session exclusivity", () => {
     const gate = held();
     const order: string[] = [];
 
-    const holding = first._withPinnedSession(async () => {
+    const holding = withPinnedSession(first, async () => {
       order.push("first-start");
       await gate.promise;
       order.push("first-end");
       return "first";
     });
     await flush();
-    const waiting = second._withPinnedSession(() => {
+    const waiting = withPinnedSession(second, () => {
       order.push("second");
       return Promise.resolve("second");
     });
@@ -352,7 +356,7 @@ describe("pinned session exclusivity", () => {
     const driver = new PinnableDriver();
 
     await expect(
-      driver._withPinnedSession(() =>
+      withPinnedSession(driver, () =>
         Promise.reject(new Error("migration body failed"))
       )
     ).rejects.toThrow("migration body failed");
@@ -363,7 +367,7 @@ describe("pinned session exclusivity", () => {
     const driver = new PinnableDriver();
 
     await expect(
-      driver._withPinnedSession((_pinned, control: PinnedSessionControl) => {
+      withPinnedSession(driver, (_pinned, control: PinnedSessionControl) => {
         control.discard();
         return Promise.resolve("unlock could not be proven");
       })

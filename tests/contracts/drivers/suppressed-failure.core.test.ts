@@ -8,7 +8,7 @@
  * stays inspectable beside it, and nothing in the recording can itself throw,
  * whatever either value is made of.
  *
- * The two owners that apply it are `Driver._withPinnedSession`, whose release
+ * The two owners that apply it are `withPinnedSession`, whose release
  * runs after the body, and the migration lock's `releaseAfterFailure`. This
  * suite owns the driver half and the rule itself; the migration half is pinned
  * by `tests/unit/migrations/pinned-migration-session.core.test.ts`.
@@ -23,6 +23,7 @@ import {
   withSuppressedFailure,
 } from "@drivers/shared";
 import type { QueryResult } from "@drivers/types";
+import { withPinnedSession } from "@src/migrations/pinned-session";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -299,7 +300,7 @@ describe("a pinned session's release failure never replaces the body's", () => {
     const bodyFailure = new Error("the estate half-dropped");
 
     const thrown = await rejection(
-      driver._withPinnedSession(() => Promise.reject(bodyFailure))
+      withPinnedSession(driver, () => Promise.reject(bodyFailure))
     );
 
     expect(thrown).toBe(bodyFailure);
@@ -321,7 +322,7 @@ describe("a pinned session's release failure never replaces the body's", () => {
     plantHostileSuppressedFailures(bodyFailure);
 
     const thrown = await rejection(
-      driver._withPinnedSession(() => Promise.reject(bodyFailure))
+      withPinnedSession(driver, () => Promise.reject(bodyFailure))
     );
 
     expect(thrown).toBe(bodyFailure);
@@ -335,7 +336,7 @@ describe("a pinned session's release failure never replaces the body's", () => {
     const driver = new ReleaseFailingDriver(releaseFailure);
 
     const thrown = await rejection(
-      driver._withPinnedSession(() => Promise.resolve("done"))
+      withPinnedSession(driver, () => Promise.resolve("done"))
     );
 
     // Nothing else failed, so the cleanup failure IS the failure — hiding it

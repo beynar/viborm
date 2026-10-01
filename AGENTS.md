@@ -175,11 +175,10 @@ Sequential transaction fallback preserves statement semantics: model and safe
 verbatim raw statements use raw execution. Do not infer rawness from a public
 shape or add a public batch discriminant.
 
-Provider transport is borrowed by default. Only the exact stock SQLite3 and
-PGlite drivers with their internally created active client and unchanged typed
-execution/parser surfaces can become a consumable-result candidate. A supplied
-client, subclass, execution override, parser middleware, cache-managed read,
-transaction, array batch, raw call, or manual parser entry stays borrowed.
+Provider transport is borrowed by default. Only the exact stock SQLite3 driver
+with unchanged typed execution/parser surfaces hands out its provider's own
+positional rows (`src/drivers/positional-result.ts`). A subclass, execution
+override, parser middleware, or foreign client stays borrowed.
 
 The executor keeps execute → proof → parse lexical: execute the exact typed
 entry, recheck the same active producer, then synchronously parse that exact

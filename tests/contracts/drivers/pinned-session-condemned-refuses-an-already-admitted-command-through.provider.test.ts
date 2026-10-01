@@ -1,5 +1,6 @@
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { withPinnedSession } from "@src/migrations/pinned-session";
 import { describe, expect, it } from "vitest";
 import { failResetOn, rejection } from "./pinned-session-condemned-fixtures";
 
@@ -19,7 +20,7 @@ describe("PGlite condemns the one client it cannot hand back", () => {
         releaseAlpha = resolve;
       });
       const condemning = rejection(
-        alpha._withPinnedSession(async (_pinned, control) => {
+        withPinnedSession(alpha, async (_pinned, control) => {
           alphaEntered();
           await held;
           control.discard();
@@ -29,7 +30,7 @@ describe("PGlite condemns the one client it cannot hand back", () => {
       await running;
       let bodyRan = false;
       const refused = rejection(
-        beta._withPinnedSession(async (pinned) => {
+        withPinnedSession(beta, async (pinned) => {
           bodyRan = true;
           await pinned._executeRaw("CREATE TABLE beta_ran (id int)");
           return "body ran";
