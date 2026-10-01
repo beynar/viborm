@@ -1,4 +1,110 @@
-# Extension capabilities v3.1, `viborm/soft-delete` and v4: final qualification record (U7, amended by the U7 repair, the compression pass, the trusted-definitions decision, v4 and the owner rulings on v4)
+# Extension capabilities v3.1, `viborm/soft-delete` and v4: final qualification record (U7, amended by the U7 repair, the compression pass, the trusted-definitions decision, v4 and the owner rulings on v4, ruling 2 included)
+
+## Ruling 2 landed: a required stamped field (2026-10-01)
+
+Qualified on **061fcde00**. This section supersedes every section below wherever they differ. Labels: **MEASURED** means run by this qualification on 061fcde00 (or on a scratch archive whose `src`, `tests` and `scripts` were checked byte for byte against it); **JUDGEMENT** means reasoning.
+
+Verdict in one line: ruling 2 is in the code and in the types; every gate is green apart from the seven known raptor3 reds; the runtime and type budgets hold; the base bundle is now **+6,035 B gzip over main**, above the "+5.4 KB" the owner accepted (§R2.4); PostgreSQL and MySQL have still not run a witness.
+
+### R2.1 What changed
+
+The owner ruled on 2026-10-01: "Recipes keep model names, field becomes optional". Three commits carry it.
+
+| Commit | What it does |
+| --- | --- |
+| 6d1d60f78 (T1) | The running code. A field the schema requires and the call's extension writes on create may be left out, at every create site: root `create`, both `createMany` routes, `upsert`, and every nested create, `createMany`, `connectOrCreate` and upsert create arm, including a captured row that a relation-bearing or nested `updateMany` admits again. A required foreign key such as `tenantId` for `tenant` counts as given for its relation too. Validation is told, for one parse, which fields of which model the caller's context provides (`provides`, `parseProviding`); it learns field names by model, never an extension. A client without `data` takes today's path. |
+| 9a5e9d084 (T2) | The types. On a client whose chain declares `data` for models the types can name, each field the chain writes is removed from those models' create and update rows and offered back as `?: never`, at the root and in every create and update nested through a relation, at any depth. The three recipes take `<const Models extends readonly string[]>`, so the reader writes no `as const`; `perModel` holds the one key-map cast, in user-land code. A misspelt model in a recipe's list is an editor error at `$extends`. |
+| 061fcde00 (ruling 2 repair) | The executing review's three findings, each reproduced first on 9a5e9d084. (1) A create could write the stamped foreign key through its relation: under tenant "acme", `org: { connect: { id: "globex" } }` stored globex. The call is now refused at `data.<relation>` with the field's message, and the types refuse that relation on the models the chain names. (2) T2's types find a nested create's target by its shallow surface, so an unnamed model with a named model's surface is narrowed with it; T2 had dropped this from its "not covered" list. It is documented again (guide, ledger), not changed. (3) `provides` was a member of the public `ObjectOptions`, with a link to an unexported function; it moved to a private options type, and the built declarations no longer mention it. |
+
+What a TypeScript user sees now, with `tenancy(["post", "comment"])` over a schema where `tenantId` is required:
+
+- `db.post.create({ data: { title }, tenant: "acme" })` compiles and runs; passing `tenantId` is an editor error and is refused when the call runs.
+- On `comment`, where `tenantId` is the foreign key of a required `tenant` relation, neither is asked for, and writing `tenant: { connect }` is an editor error and is refused when the call runs (`data.tenant`).
+- A model the recipe does not name, the base client, and a client without `data` keep today's types and today's checks.
+
+### R2.2 Type budget. MEASURED.
+
+typescript 5.9 `--extendedDiagnostics`, heap 1,280 MB, 6ee4c4592's chunking (as `scripts/run-layer-core.mjs` chunks it), two alternating rounds over three trees; every number was identical in both rounds. Ceiling: +2% types and instantiations over 6ee4c4592 on every program, peak RSS 1,536 MiB.
+
+| Program | 6ee4c4592 types / inst | 8dce0d121 (before T1) | 061fcde00 | Over 6ee4c4592 | Over 8dce0d121 |
+| --- | --- | --- | --- | --- | --- |
+| client-1 | 775,209 / 3,046,004 | 780,211 / 3,073,088 | 781,610 / 3,082,059 | +0.83% / +1.18% | +1,399 / +8,971 |
+| client-2 | 856,225 / 3,662,216 | 866,413 / 3,720,710 | 865,399 / 3,718,687 | +1.07% / +1.54% | −1,014 / −2,023 |
+| client-3 | 829,689 / 3,618,241 | 834,745 / 3,647,503 | 836,177 / 3,656,186 | +0.78% / +1.05% | +1,432 / +8,683 |
+| client-4 | 774,671 / 3,157,202 | 781,094 / 3,192,297 | 782,560 / 3,202,701 | +1.02% / +1.44% | +1,466 / +10,404 |
+| instrumentation | 767,818 / 3,217,453 | 772,856 / 3,230,401 | 774,172 / 3,252,939 | +0.83% / +1.10% | +1,316 / +22,538 |
+| floor | 746,821 / 2,905,463 | 751,828 / 2,932,734 | 753,221 / 2,941,490 | +0.86% / +1.24% | +1,393 / +8,756 |
+
+Peak RSS at 061fcde00: 1,491.2 MiB (client-1). The repair alone, over T2: +21 to +23 types and −22 to −15 instantiations on each program; the witness file on its own +833 types / +10,250 instantiations. Room left on the tightest program (client-2): 0.46% of instantiations, about 16,800.
+
+### R2.3 Runtime lines. MEASURED.
+
+esbuild 0.25.4 `--loader=ts`, non-blank lines, against 8dce0d121 (budget +60):
+
+| File | 8dce0d121 | T2 | 061fcde00 |
+| --- | --- | --- | --- |
+| validation/primitives/object.ts | 404 | 417 | 417 |
+| validation/model/core/create.ts | 154 | 155 | 155 |
+| raptor3/commands/index.ts | 209 | 216 | 216 |
+| raptor3/commands/execution.ts | 1,348 | 1,360 | 1,360 |
+| raptor3/commands/commands.ts | 1,472 | 1,472 | 1,488 |
+| raptor3/shared/row-scope.ts | 0 | 8 | 8 |
+| Total | | +41 | **+57** |
+
+T2 adds no runtime line (client/types.ts, extensions/controls.ts and definition.ts strip identically).
+
+### R2.4 Bundle. MEASURED.
+
+tsdown and `scripts/measure-bundle.mjs` on path-limited archives, raw / gzip / brotli bytes. The first head build missed the build runner's RSS ceiling at teardown (1,555.9 MiB); rerun alone, it passed (1,163.9 MiB) and measured the same bytes.
+
+| Fixture | main 30ff17e69 | 8dce0d121 | T2 9a5e9d084 | 061fcde00 | Over 8dce0d121 | Over main |
+| --- | --- | --- | --- | --- | --- | --- |
+| **pg-representative** | 543,896 / 160,066 / 135,512 | 562,086 / 165,854 / 140,444 | 562,598 / 165,989 / 140,707 | **562,898 / 166,101 / 140,773** | +812 / **+247** / +329 | +19,002 / **+6,035** / +5,261 |
+| pg-soft-delete | n/a | 562,982 / 166,203 / 140,829 | 563,494 / 166,345 / 140,828 | 563,794 / 166,452 / 141,054 | +812 / +249 / +225 | |
+| ids-only | 93,221 / 27,891 / 24,508 | 93,221 / 27,892 / 24,528 | 93,298 / 27,918 / 24,538 | 93,298 / 27,918 / 24,538 | +77 / +26 / +10 | +77 / +27 / +30 |
+| full | 917,160 / 267,890 / 221,230 | 936,008 / 273,879 / 226,515 | 936,533 / 274,073 / 226,779 | 936,833 / 274,171 / 226,836 | +825 / +292 / +321 | |
+| soft-delete-entry | n/a | 759 / 395 / 349 | 759 / 395 / 349 | 759 / 395 / 349 | 0 | |
+
+Ruling 2's own budget (+400 B gzip on pg-representative) holds: **+247 B**.
+
+**Over main, stated plainly (for the owner).** The base entry is now **+6,035 B gzip over main** (5.89 KiB). The owner accepted "+5.4 KB" (the +5,395 to +5,466 B §0000.4 measured). It is over that by 505 B if a KB is 1,024 bytes (5,530 B), or 635 B if it is 1,000. Ruling 2 accounts for 247 B of it. The rest came before: the owner-rulings record stood at +5,520 B, and the external review fixes (785ff3d32, 506c5b263, 3283236fa) brought it to +5,790 B (165,856 B gzip at 3283236fa). This is an owner item, not a stop: no unit's budget is breached, but the cumulative figure the owner ruled on is.
+
+### R2.5 Gates on 061fcde00, MEASURED, one at a time
+
+| Gate | Result |
+| --- | --- |
+| Biome on the 20 code files changed since 8dce0d121 | clean |
+| tsc (typescript-native, whole tsconfig) | exit 0, 0 lines of output |
+| Refusal census, 8dce0d121 / 9a5e9d084 / HEAD | 204 sites each; reports identical apart from the header and line numbers |
+| Dead-symbol gate (`dead-symbol-gate.core.test.ts`) | 75 of 75 |
+| Manifests | `post-g3-deletion-sites` gate through `run-raptor3.mjs`: 99 of 99 (96 at T1, 99 with the repair's cell); `raptor3-campaign-receipts.test.mjs` 41/41; `raptor3-refusal-census.test.mjs` 8/8; `coverage-policy.test.mjs` 11/11; `credential-free-ci.test.mjs` 4/4 |
+| All 14 layer projects (direct vitest) | 446 files, 9,392 tests passed: validation 1,004, scalars 1,159, operation-schemas 1,364, relations 119, schema-validation 470, schema-json 431, query-engine 739, write-engine 82, adapters 190, drivers 988, client 677, cache 85, instrumentation 185, migrations 1,899 |
+| raptor3 | 2,206 passed, 7 failed = the known reds (cs02 and the six generation campaigns: g3 sqlite and transport, g4 sqlite, transport, write and write-transport) |
+| raptor3-provider / provider-sqlite3 / coverage-extensions | 32 / 881 passed + 1 skipped / 416 |
+| PGlite, bounded runner, alone (`pglite-extension-data`, the only PGlite file touched) | 16 of 16 (15 at T1), 13.0 s, peak 1,737.5 MiB of 2,560; teardown verified |
+| `pnpm test:types` | exit 0 (whole estate, native, 8.1 s) |
+| `pnpm test:core` | 446 files, 9,392 tests passed |
+| `pnpm test:package` | 14 of 14, including the packed public-surface golden (no export changed) and the guide's recipes built from the packed package |
+| `pnpm test:coverage` | exit 0; every subsystem at or above its floor; validation and extensions 100/100/100/100 |
+| `pnpm test:layer:client` | 677 passed; type shards 1–4 passed (7.9–10.0 s wall) |
+| `pnpm test:layer:query-engine` | 739 passed; type shard passed |
+| `pnpm test:layer:instrumentation` | 185 passed; type shard passed |
+
+Repair witnesses (MEASURED): `stamped-required-behavior.ts` gains one cell ("a caller who writes it through its foreign key's relation is refused too": connect to another tenant, connect to the call's own, create, connectOrCreate; root create, a `createMany` row, a nested create; nothing stored), red on 3 of 3 SQLite substrates with 9a5e9d084's `commands.ts`, green after; `extension-data.core.types.ts` gains 2 `@ts-expect-error` (33 in all), both unused when `HoldsField` never matches. The reviewer's own probe, rerun on the repaired tree: the cross-tenant connect is refused on SQLite3, batch-only and without RETURNING, and nothing is stored; every other refusal it records is byte-identical to 9a5e9d084's. In the reviewer's type probe the one new error is that connect.
+
+### R2.6 Gaps, stated plainly
+
+1. **Bundle over main**: +6,035 B gzip against the accepted "+5.4 KB" (§R2.4). Owner item.
+2. **PostgreSQL and MySQL** have not run a witness of ruling 2 (no server). The docker consumers are registered; SQLite3, batch-only, no-RETURNING SQLite and PGlite ran.
+3. **The types find a nested create's target by its shallow surface.** An unnamed model whose fields and relations equal a named model's is narrowed with it in a nested create: the editor lets a required stamped field be left out there, and the call is refused as missing when it runs. Documented in the guide and the ledger; not changed (the model type carries no name).
+4. **Not rebuilt in the types**: a create nested through a relation with variants still asks for a required stamped field, although the running code accepts it left out. A recipe called with a plain `string[]` narrows nothing.
+5. **What the repair now refuses, JUDGEMENT**: under tenancy a create cannot write the tenant relation at all, even to connect the call's own tenant (the field rule also refuses an equal value). With a composite foreign key that includes `tenantId`, that relation is refused too; the caller writes the other key column instead. Narrowing this to "refuse only another tenant" needs the connected row's value, which is not known when the stamp is checked.
+6. **Updates move rows between tenants as before.** Tenancy writes `tenantId` on create only, so an update may set `tenantId`, or its relation, unrefused; the rows domain decides which rows an update takes. Unchanged by ruling 2.
+7. **The orientation test in `taken`** (the relation's foreign key is on this model) has no witness of its own: it matters only for an inverse relation whose partner key shares a stamped field's name, such as a composite self-reference holding `tenantId`. JUDGEMENT.
+8. **Type budget room** after ruling 2: 0.46% of instantiations on client-2, 0.56% on client-4.
+9. **Trailers**: 46 commits over main before this record, 41 `Claude Fable 5.1` and 5 `Claude Opus 5.5` (T1, T2, the repair and two earlier); this record's commit follows the session's attribution reminder too. Normalising needs a reword at PR time (owner).
+
+**The section "External review fixes" (qualified on 3283236fa) supersedes §00000 wherever they differ.**
 
 ## External review fixes (2026-10-01)
 
