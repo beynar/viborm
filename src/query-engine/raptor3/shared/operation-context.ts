@@ -3243,45 +3243,6 @@ export class OperationContext {
       throw new TypeError("UPDATE did not produce the required record");
     return { ...published, ...rows[0] };
   }
-  async associate(
-    edge: Membership,
-    source: Input,
-    target: Input,
-    member: Member
-  ): Promise<void> {
-    if (edge.kind === "reference") {
-      const model = edge.owner === "source" ? edge.source : edge.target;
-      const row = edge.owner === "source" ? source : target;
-      const values = Object.fromEntries(
-        edge.pairs.map((pair) =>
-          edge.owner === "source"
-            ? [pair.source, target[pair.target]]
-            : [pair.target, source[pair.source]]
-        )
-      );
-      await this.update(
-        model,
-        this.schema.identity(model, row),
-        values,
-        member
-      );
-      return;
-    }
-    await this.link(
-      edge,
-      Object.fromEntries([
-        ...edge.sourceSide.members.map((pair) => [
-          pair.junctionField,
-          source[pair.referencedField],
-        ]),
-        ...edge.targetSide.members.map((pair) => [
-          pair.junctionField,
-          target[pair.referencedField],
-        ]),
-      ]),
-      member
-    );
-  }
   /**
    * Has this captured slot already been spent — and, if it had not, spend it.
    *
