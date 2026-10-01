@@ -101,7 +101,7 @@ data, true)`, so `updatedAt` and field transforms behave as an update's and a
 re-plan re-admits captured members at the same instant. Root `delete` and
 `deleteMany` are ONE plan, the hard delete's own: a tombstone swaps only the
 effect, `OperationContext.updateMany` for `deleteMany`, with the same
-selector, limit (its window, below), projection and missing-row identity; `updateMany` re-reads a
+selector, limit (a guarded tombstone's window is key-ordered, below), projection and missing-row identity; `updateMany` re-reads a
 relation projection by identity, as `deleteMany` captures it, because no
 RETURNING carries one; a nested `Deletion`
 placement carries `values` and updates the located row by identity, keeping
@@ -115,10 +115,14 @@ effect, never also in the effect's WHERE: `Commands.unreferenced` at the root
 (`RelationBody.requireUnreferenced`, the parent's own link excepted). Under a
 root `limit` the premise and the effect take ONE window, the first `limit`
 candidates in key order, so a reference outside it does not refuse the delete:
-an interactive session reads and locks the window and both take its rows by
-identity; a batch states `Queries.window` (`keys IN (SELECT … ORDER BY keys
-LIMIT n)`) in both statements, whose total order gives the one atomic unit one
-answer. Nested `deleteMany` takes no `limit`. The requirement's
+an interactive session reads and locks the window and both take the candidates
+up to its last key (`Queries.through`, a row-value `<=`: one bound value per
+key however long the window); a batch states `Queries.window` (`keys IN
+(SELECT … ORDER BY keys LIMIT n)`) in both statements, whose total order gives
+the one atomic unit one answer. The hard delete and a tombstone on a model
+without a restricting slot take the provider's first `limit` rows, unordered:
+the windows agree only where the provider's order is key order. Nested
+`deleteMany` takes no `limit`. The requirement's
 slots are `EngineSchema.restrictingSlots`, read from the migration
 serializer's own ON DELETE owners, and its relation predicates are `unscoped`:
 they read the child model's default related domain, whatever the call chose.

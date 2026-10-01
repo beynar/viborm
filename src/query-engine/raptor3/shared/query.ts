@@ -336,6 +336,10 @@ export interface SelectorRead {
   readonly equals: Map<string, unknown>;
   readonly exact: boolean;
 }
+/** Expressions compared as one: a row value, or the expression itself alone. */
+function rowValue(items: Sql[]): Sql {
+  return items.length === 1 ? items[0]! : sql`(${sql.join(items, ", ")})`;
+}
 function newSelectorFacts(exact = true): SelectorFacts {
   return {
     fields: new Set(),
@@ -425,6 +429,12 @@ type PreparedPredicate =
       readonly kind: "window";
       readonly selector: PreparedSelector;
       readonly limit: number;
+    }
+  | {
+      /** The rows whose key is at most `last`'s ({@link Queries.through}). */
+      readonly kind: "through";
+      readonly model: AnyModel;
+      readonly last: Input;
     };
 /**
  * A conjunction of nothing states nothing; every other prepared predicate is a
@@ -1801,6 +1811,20 @@ export class Queries {
     });
   }
   /**
+   * The rows whose key is at most `last`'s in key order: over a selector whose
+   * key-ordered read ended at `last`, that read's rows, at one bound value per
+   * key however many they are (keys are NOT NULL: a row-value `<=`).
+   */
+  through(model: AnyModel, last: Input): PreparedSelector {
+    const facts = newSelectorFacts(false);
+    for (const field of this.schema.keys(model)) facts.fields.add(field);
+    return Object.freeze({
+      model,
+      facts,
+      predicate: Object.freeze({ kind: "through", model, last }),
+    });
+  }
+  /**
    * `<keys> IN (SELECT <keys> FROM <model> WHERE <selector> [ORDER BY <keys>]
    * LIMIT <limit>)`, the keys outside addressed through `alias`: a mutation's
    * limit where the provider has no `UPDATE … LIMIT`, and a {@link window}.
@@ -1819,10 +1843,6 @@ export class Queries {
     const selectedColumns = keys.map((field) =>
       this.column(model, field, inner)
     );
-    const target =
-      targetColumns.length === 1
-        ? targetColumns[0]!
-        : sql`(${sql.join(targetColumns, ", ")})`;
     const capped = assembleAdapterSelect(adapter, {
       columns: sql.join(selectedColumns, ", "),
       from: this.table(model, inner),
@@ -1835,7 +1855,10 @@ export class Queries {
         : undefined,
       limit: this.value(limit),
     });
-    return adapter.operators.in(target, adapter.subqueries.scalar(capped));
+    return adapter.operators.in(
+      rowValue(targetColumns),
+      adapter.subqueries.scalar(capped)
+    );
   }
   lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
     return this.adapter.operators.and(
@@ -2433,6 +2456,16 @@ export class Queries {
         return this.lowerRelationPredicate(predicate, alias, mutationTarget);
       case "window":
         return this.capped(predicate.selector, predicate.limit, true, alias);
+      case "through": {
+        const { model, last } = predicate;
+        const keys = this.schema.keys(model);
+        return a.operators.lte(
+          rowValue(keys.map((field) => this.column(model, field, alias))),
+          rowValue(
+            keys.map((field) => this.fieldValue(model, field, last[field]))
+          )
+        );
+      }
     }
   }
   private preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
@@ -3423,16 +3456,11 @@ export class Queries {
     const keyColumns = order.map((term) =>
       this.column(model, term.field!, sourceAlias)
     );
-    if (sargable) {
-      const row = (expressions: Sql[]) =>
-        expressions.length === 1
-          ? expressions[0]!
-          : sql`(${sql.join(expressions, ", ")})`;
+    if (sargable)
       return (descending ? a.operators.lte : a.operators.gte)(
-        row(order.map((term) => term.expression)),
+        rowValue(order.map((term) => term.expression)),
         a.subqueries.scalar(cursorRow(keyColumns))
       );
-    }
     const cursorAlias = this.alias();
     const carrier = (index: number) => `${CURSOR_CARRIER_PREFIX}${index}`;
     const derived = cursorRow(

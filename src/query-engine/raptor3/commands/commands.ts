@@ -1741,11 +1741,17 @@ export class Commands {
    *
    * A `limit` makes the premise and the effect name ONE window, the first
    * `limit` candidates in key order, so a reference outside it does not refuse
-   * the delete and one inside it does, as the database refuses the hard delete
-   * of those rows. An interactive session READS the window — the lock below,
-   * limited — and both take its rows by identity; a batch states it in SQL in
-   * both statements ({@link Queries.window}), whose total order gives the one
-   * atomic unit one answer.
+   * the delete and one inside it does: the refusal the database gives a hard
+   * delete of those same rows. The hard delete and a model without such a slot
+   * take the provider's first `limit` rows instead, unordered; the windows
+   * agree where the provider's order is key order. An interactive session
+   * READS the window — the lock below, limited — and both statements take the
+   * candidates up to its last key ({@link Queries.through}), one bound value
+   * per key however long it is; a row that becomes a candidate below that key
+   * after the lock is taken with them, as the unlimited form takes every
+   * candidate its effect finds. A batch states the window in SQL in both
+   * statements ({@link Queries.window}), whose total order gives the one atomic
+   * unit one answer.
    *
    * An interactive session locks the candidates before it asks (DC14): the
    * premise is then a later statement, so it sees a child a concurrent writer
@@ -1782,15 +1788,16 @@ export class Commands {
             { selector, forUpdate: !ctx.usesBatch }
           );
         // The window, where a limit names one: the locking read, limited, is
-        // in total key order as every windowed read is (`Queries.select`).
+        // in total key order as every windowed read is (`Queries.select`), so
+        // its rows are the candidates up to its last key.
         let window: PreparedSelector | undefined;
         if (!ctx.usesBatch) {
           const rows = await ctx.read(locked(candidates, limit), true);
+          const last = rows.at(-1);
           if (limit !== undefined)
-            window = queries.includeIdentities(
-              model,
-              rows.map((row) => ctx.schema.identity(model, row))
-            );
+            window = last
+              ? queries.through(model, ctx.schema.identity(model, last))
+              : queries.includeIdentities(model, []);
         } else if (limit !== undefined)
           window = queries.window(candidates, limit);
         const within = (selector: PreparedSelector) =>

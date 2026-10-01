@@ -49,17 +49,25 @@ export function runDeletionRaceBehavior(provider: DeletionRaceProvider): void {
     let context: Awaited<ReturnType<typeof openDeletionFixture>>;
     let armed: { pattern: RegExp; rival: () => Promise<Settled> } | undefined;
     let rival: Promise<Settled> | undefined;
+    /** The rival was still pending when the paused operation resumed. */
+    let rivalWaited: boolean | undefined;
 
     beforeEach(async () => {
       armed = undefined;
       rival = undefined;
+      rivalWaited = undefined;
       context = await openDeletionFixture(
         provider.createDriver(async (sql) => {
           const pending = armed;
           if (pending === undefined || !pending.pattern.test(sql)) return;
           armed = undefined;
-          rival = pending.rival();
+          let settled = false;
+          rival = pending.rival().then((outcome) => {
+            settled = true;
+            return outcome;
+          });
           await Promise.race([rival, grace()]);
+          rivalWaited = !settled;
         })
       );
     });
@@ -177,6 +185,59 @@ export function runDeletionRaceBehavior(provider: DeletionRaceProvider): void {
         tombstoned: true,
         children: [],
       });
+    });
+
+    // A limited deleteMany locks its window and no other candidate: a rival
+    // reaching a row inside it waits for the tombstone, one reaching a
+    // candidate outside it does not wait at all.
+    test("a create connecting a post inside a limited deleteMany's window, between the requirement and the tombstone: the delete wins, the create is refused", async () => {
+      const { db } = context;
+      const outcome = await race(
+        POST_TOMBSTONE,
+        () => db.post.deleteMany({ where: { id: { in: [14, 16] } }, limit: 1 }),
+        () =>
+          db.comment.create({
+            data: { id: 300, body: "raced", post: { connect: { id: 14 } } },
+          })
+      );
+      expect(outcome.first).toEqual({
+        status: "fulfilled",
+        value: { count: 1 },
+      });
+      expect(rivalWaited).toBe(true);
+      expect(outcome.second).toMatchObject({
+        status: "rejected",
+        reason: { name: "NestedWriteError" },
+      });
+      expect(await postAndChildren()).toEqual({
+        tombstoned: true,
+        children: [],
+      });
+    });
+
+    test("a create connecting a candidate outside a limited deleteMany's window does not wait for it: both succeed", async () => {
+      const { base, db } = context;
+      const outcome = await race(
+        POST_TOMBSTONE,
+        () => db.post.deleteMany({ where: { id: { in: [11, 14] } }, limit: 1 }),
+        () =>
+          db.comment.create({
+            data: { id: 300, body: "outside", post: { connect: { id: 14 } } },
+            select: { id: true },
+          })
+      );
+      expect(outcome).toEqual({
+        first: { status: "fulfilled", value: { count: 1 } },
+        second: { status: "fulfilled", value: { id: 300 } },
+      });
+      expect(rivalWaited).toBe(false);
+      expect(await postAndChildren()).toEqual({
+        tombstoned: false,
+        children: [{ id: 300 }],
+      });
+      expect(
+        (await base.post.findUniqueOrThrow({ where: { id: 11 } })).deletedAt
+      ).not.toBeNull();
     });
 
     // v2 §4.5 consumer 3: the conjunction keeps the unique key, so an upsert

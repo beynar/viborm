@@ -27,7 +27,8 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * FK, default RESTRICT); `post` <- `comment.post` (RESTRICT), `note.post`
  * (optional, RESTRICT), `vote.post` (CASCADE), `pin.post` (optional, default
  * SET NULL), and the `post`/`tag` junction whose post-side key RESTRICTs.
- * `author`, `post` and `comment` are managed. Rows: authors 1-3; posts 10, 11,
+ * `shelf`, keyed by `(a, b)`, <- `book.shelf` (RESTRICT, both columns).
+ * `author`, `post`, `comment` and `shelf` are managed. Rows: authors 1-3; posts 10, 11,
  * 14 (author 1), 12 (tombstone), 13 (author 2), 15, 16 (author 3); comments
  * 100 (post 10), 101 and 102 (tombstones, posts 10 and 12); tag 1 links post
  * 13; vote 1 and pin 1 on post 11; notes 1 (post 15), 2 and 4 (post 16), 3
@@ -121,7 +122,26 @@ function deletionSchema(ledger: string[]) {
       .fields("postId")
       .references("id"),
   });
-  return { author, post, comment, tag, vote, note, pin };
+  // A composite key, and a child that RESTRICTs through both of its columns.
+  const shelf = s
+    .model({
+      a: s.int(),
+      b: s.int(),
+      deletedAt: s.dateTime().nullable(),
+      books: s.toMany(() => book),
+    })
+    .id(["a", "b"]);
+  const book = s.model({
+    id: s.int().id(),
+    shelfA: s.int(),
+    shelfB: s.int(),
+    shelf: s
+      .toOne(() => shelf)
+      .fields("shelfA", "shelfB")
+      .references("a", "b")
+      .onDelete("restrict"),
+  });
+  return { author, post, comment, tag, vote, note, pin, shelf, book };
 }
 
 const modes = {
@@ -137,7 +157,7 @@ const softDelete = {
   rows: {
     control: "deleted",
     default: "without",
-    models: { author: modes, post: modes, comment: modes },
+    models: { author: modes, post: modes, comment: modes, shelf: modes },
   },
   deletion: {
     removeWhen: { mode: "hard" },
@@ -145,6 +165,7 @@ const softDelete = {
       author: { at: "deletedAt" },
       post: { at: "deletedAt", assign: { deletedById: ACTOR } },
       comment: { at: "deletedAt" },
+      shelf: { at: "deletedAt" },
     },
   },
 } as const;
@@ -775,6 +796,69 @@ export function runDeletionCapabilityBehavior(
       ).toBeInstanceOf(ForeignKeyError);
       expect(await tombstoned()).toEqual([11, 12, 14]);
       expect(physicalDeletes()).toHaveLength(removed);
+    });
+
+    // A window read by an interactive session is stated in the premise and
+    // the effect at a constant cost in bound values, however long it is: a
+    // `limit` of 1000 is the chunked-delete idiom, and SQLite verifies 999.
+    test("a limited deleteMany's window costs the same bound values however long it is", async () => {
+      const { base, db } = context;
+      // Posts 1000-3099 are free but 3050, which comment 200 references.
+      await base.post.createMany({
+        data: Array.from({ length: 2100 }, (_, index) => ({
+          id: 1000 + index,
+          authorId: 2,
+          title: `w${index}`,
+        })),
+      });
+      await base.comment.create({ data: { id: 200, postId: 3050, body: "w" } });
+      const window = { where: { id: { gte: 1000 } }, limit: 1000 } as const;
+      const tombstoned = async () =>
+        (
+          await base.post.findMany({
+            where: { id: { gte: 1000 }, deletedAt: { not: null } },
+            select: { id: true },
+            orderBy: { id: "asc" },
+          })
+        ).map((row) => row.id);
+      expect(await db.post.deleteMany(window)).toEqual({ count: 1000 });
+      expect(await db.$transaction([db.post.deleteMany(window)])).toEqual([
+        { count: 1000 },
+      ]);
+      // The third window, 3000-3099, holds 3050.
+      expect(await failure(db.post.deleteMany(window))).toBeInstanceOf(
+        ForeignKeyError
+      );
+      const ids = await tombstoned();
+      expect(ids).toHaveLength(2000);
+      expect([ids[0], ids.at(-1)]).toEqual([1000, 2999]);
+      // An empty window matches nothing, in the premise as in the effect.
+      expect(
+        await db.post.deleteMany({ where: { id: { gte: 5000 } }, limit: 10 })
+      ).toEqual({ count: 0 });
+      // A composite key: shelves (1, 1-300) and (2, 1-300); book 1 holds
+      // (2, 250). Key order puts (1, *) and (2, 1-200) in a window of 500.
+      await base.shelf.createMany({
+        data: [1, 2].flatMap((a) =>
+          Array.from({ length: 300 }, (_, index) => ({ a, b: index + 1 }))
+        ),
+      });
+      await base.book.create({ data: { id: 1, shelfA: 2, shelfB: 250 } });
+      expect(await db.shelf.deleteMany({ limit: 500 })).toEqual({
+        count: 500,
+      });
+      expect(await failure(db.shelf.deleteMany({ limit: 100 }))).toBeInstanceOf(
+        ForeignKeyError
+      );
+      expect(
+        await base.shelf.findMany({
+          where: { deletedAt: null },
+          select: { a: true, b: true },
+          orderBy: [{ a: "asc" }, { b: "asc" }],
+          take: 1,
+        })
+      ).toEqual([{ a: 2, b: 201 }]);
+      expect(physicalDeletes()).toEqual([]);
     });
 
     test("set over a required foreign key keeps today's refusal, and removes no target row", async () => {
