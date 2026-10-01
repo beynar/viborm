@@ -344,45 +344,20 @@ export function buildSchema<
   extras?: TExtras
 ): VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
   TExtras & { type: string; options: Opts; acceptsUndefined: boolean } {
-  const validate = buildValidator(baseValidate, options, type);
-
   // Pre-compute whether this schema accepts undefined
   // True if: optional, or has a default value
   const acceptsUndefined =
     options?.optional === true || options?.default !== undefined;
 
-  const schema = {
-    type,
-    options,
-    acceptsUndefined,
-    ...extras,
-    "~standard": {
-      version: 1 as const,
-      vendor: "viborm" as const,
-      validate,
-      // Lazy jsonSchema - converter is created when first accessed
-      get jsonSchema() {
-        const converter = createJsonSchemaConverter(
-          schema as unknown as VibSchema<unknown, unknown>
-        );
-        // Replace getter with static value for subsequent access
-        Object.defineProperty(this, "jsonSchema", {
-          value: converter,
-          writable: false,
-          enumerable: true,
-        });
-        return converter;
-      },
-    },
-  };
-
-  // Add the inferred property for type branding
-  Object.defineProperty(schema, " vibInferred", {
-    value: undefined,
-    enumerable: false,
-  });
-
-  return schema as VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
+  // `createSchema` owns the Standard Schema carrier and its lazy JSON Schema
+  // converter; a scalar adds only its options and wrapper metadata.
+  return Object.assign(
+    createSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>>(
+      type,
+      buildValidator(baseValidate, options, type)
+    ),
+    { options, acceptsUndefined, ...extras }
+  ) as VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
     TExtras & { options: Opts; type: string; acceptsUndefined: boolean };
 }
 
