@@ -220,6 +220,24 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
         [13, null],
         [14, 2],
       ]);
+      // Ordering by a to-one relation reads the tenant's target: comment
+      // 13's post is globex's, so it sorts as a comment without one.
+      const acmeComments = await db.comment.findMany({
+        orderBy: [
+          { post: { title: { sort: "desc", nulls: "last" } } },
+          { id: "asc" },
+        ],
+        tenant: "acme",
+      });
+      expect(ids(acmeComments)).toEqual([14, 10, 13]);
+      const unbound = await base.comment.findMany({
+        where: { tenantId: "acme" },
+        orderBy: [
+          { post: { title: { sort: "desc", nulls: "last" } } },
+          { id: "asc" },
+        ],
+      });
+      expect(ids(unbound)).toEqual([13, 14, 10]);
       const posts = async (where: object) =>
         ids(await db.post.findMany({ ...byId, where, tenant: "acme" }));
       expect(await posts({ comments: { some: {} } })).toEqual([1, 2]);

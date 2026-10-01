@@ -28,9 +28,9 @@ interface BoundRowsMember {
 /**
  * A chain's row facts, resolved once when an extension is applied: one
  * {@link CallRows} per combination of its `rows` members' modes, with and
- * without the tombstones, so a call only looks its facts up. When a
- * predicate names a control, a call takes those facts with its values put
- * in, kept per combination and values.
+ * without the tombstones, so a call only looks its facts up. When the
+ * combination's predicates, or the default ones, name a control, a call takes
+ * those facts with its values put in, kept per combination and values.
  */
 export interface RowsBinding {
   readonly members: readonly BoundRowsMember[];
@@ -39,8 +39,11 @@ export interface RowsBinding {
   readonly tombstoning: readonly CallRows[];
   /** Indexed by mode combination: the call deletes physically. */
   readonly physical: readonly CallRows[];
-  /** The controls the predicates name; empty when none does. */
-  readonly references: readonly string[];
+  /**
+   * Indexed by mode combination: the controls its domain and the default
+   * domain name; empty when neither does, and the call takes the facts above.
+   */
+  readonly references: readonly (readonly string[])[];
   /** Facts with a call's values put in, by combination and values. */
   readonly bound: Map<string, CallRows>;
 }
@@ -56,6 +59,9 @@ const BOUND_LIMIT = 256;
 /** A named control the call did not pass. */
 const ABSENT = Symbol("absent");
 
+/** The keys whose items are filters: a filter is never a reference. */
+const LOGICAL = new Set(["AND", "OR", "NOT"]);
+
 /** `{ control: "<name>" }` where a predicate takes a value. */
 function referenceOf(value: unknown): string | undefined {
   if (!isPlainRecord(value)) return undefined;
@@ -67,27 +73,51 @@ function referenceOf(value: unknown): string | undefined {
     : undefined;
 }
 
-/** Every control a predicate's values name, at any depth. */
-function collectReferences(value: unknown, names: Set<string>): void {
-  const name = referenceOf(value);
+/**
+ * Every control a predicate's values name, at any depth. `filter` marks a
+ * filter's place (the predicate, an item of `AND`/`OR`/`NOT`), where
+ * `{ control }` is a field.
+ */
+function collectReferences(
+  value: unknown,
+  names: Set<string>,
+  filter: boolean
+): void {
+  const name = filter ? undefined : referenceOf(value);
   if (name !== undefined) names.add(name);
-  else if (Array.isArray(value) || isPlainRecord(value)) {
-    for (const item of Object.values(value)) collectReferences(item, names);
+  else if (Array.isArray(value)) {
+    for (const item of value) collectReferences(item, names, filter);
+  } else if (isPlainRecord(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      collectReferences(item, names, LOGICAL.has(key));
+    }
   }
+}
+
+/** The controls a list of domains' predicates name. */
+function referencesOf(domains: readonly RowDomain[]): readonly string[] {
+  const names = new Set<string>();
+  for (const { root, related } of domains) {
+    for (const list of [...root.values(), ...related.values()]) {
+      for (const where of list) collectReferences(where, names, true);
+    }
+  }
+  return [...names];
 }
 
 /** The value with the call's values put in: itself when it names none. */
 function boundValue(
   value: unknown,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  filter: boolean
 ): unknown {
-  const name = referenceOf(value);
+  const name = filter ? undefined : referenceOf(value);
   if (name !== undefined) {
     const given = controls?.[name];
     return given === undefined ? ABSENT : given;
   }
   if (Array.isArray(value)) {
-    const items = value.map((item) => boundValue(item, controls));
+    const items = value.map((item) => boundValue(item, controls, filter));
     if (items.includes(ABSENT)) return ABSENT;
     return items.every((item, index) => item === value[index]) ? value : items;
   }
@@ -105,7 +135,7 @@ function boundWhere(
 ): Input | typeof ABSENT {
   let copy: Input | undefined;
   for (const [key, item] of Object.entries(where)) {
-    const value = boundValue(item, controls);
+    const value = boundValue(item, controls, LOGICAL.has(key));
     if (value === ABSENT) return ABSENT;
     if (value !== item) (copy ??= { ...where })[key] = value;
   }
@@ -183,15 +213,7 @@ export function bindRows(
 ): RowsBinding {
   const declared = rows ?? [];
   let stride = 1;
-  const references = new Set<string>();
   const members = declared.map((member): BoundRowsMember => {
-    for (const entry of Object.values(member.models)) {
-      for (const predicates of Object.values(entry)) {
-        for (const where of Object.values(predicates)) {
-          collectReferences(Object.values(where), references);
-        }
-      }
-    }
     const modes = rowsModes(member);
     const bound = {
       control: member.control,
@@ -240,7 +262,7 @@ export function bindRows(
         : domains.map((domain) =>
             Object.freeze({ domain, defaults, tombstones })
           ),
-    references: [...references],
+    references: domains.map((domain) => referencesOf([domain, defaults])),
     bound: new Map(),
   });
 }
@@ -273,9 +295,10 @@ export function callRows(
   const facts = (physical ? binding.physical : binding.tombstoning)[
     combination
   ]!;
-  if (binding.references.length === 0) return facts;
+  const references = binding.references[combination]!;
+  if (references.length === 0) return facts;
   const values: Record<string, unknown> = {};
-  for (const name of binding.references) {
+  for (const name of references) {
     if (controls?.[name] !== undefined) values[name] = controls[name];
   }
   // A value no key spells by its content (a Map keys as `{}`) is bound for

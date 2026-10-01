@@ -28,6 +28,7 @@ import { defineExtension } from "@extensions/definition";
 import { bindRows, callRows } from "@extensions/rows";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { s } from "@schema";
+import { Decimal } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -931,7 +932,10 @@ describe("controls: rows bound to the call", () => {
 
   test("a reference at any depth takes the call's value, null included; everything else is kept as written", () => {
     const binding = bindRows([tenancy, soft], undefined);
-    expect(binding.references).toEqual(["tenant", "author", "by"]);
+    // Every combination takes the default domain, which names all three.
+    expect(binding.references).toEqual(
+      Array.from({ length: 4 }, () => ["tenant", "author", "by"])
+    );
     const facts = callRows(binding, "post", {
       scope: "tenant",
       deleted: "without",
@@ -992,19 +996,84 @@ describe("controls: rows bound to the call", () => {
   });
 
   test("a chain whose predicates name no control keeps its precomputed facts: nothing is bound or kept", () => {
-    // A whole filter is never a reference: `control` there is a field.
-    const field = {
-      control: "kind",
-      default: "a",
-      models: { post: { a: { root: { control: "x" } } } },
-    } as const;
-    expect(bindRows([field], undefined).references).toEqual([]);
     const binding = bindRows([soft], undefined);
-    expect(binding.references).toEqual([]);
+    expect(binding.references).toEqual([[], []]);
     expect(callRows(binding, "post", { deleted: "with" })).toBe(
       binding.physical[1]
     );
     expect(binding.bound.size).toBe(0);
+  });
+
+  test("a filter is never a reference, at the top or as an item of AND, OR and NOT: `control` there is a field", () => {
+    const named = { control: "x" };
+    const field = {
+      control: "kind",
+      default: "a",
+      models: {
+        post: {
+          a: {
+            root: named,
+            related: { AND: [named], OR: [named], NOT: named },
+          },
+        },
+      },
+    } as const;
+    const binding = bindRows([field], undefined);
+    expect(binding.references).toEqual([[]]);
+    const facts = callRows(binding, "post", { x: "value" });
+    expect(facts).toBe(binding.physical[0]);
+    expect(facts.domain.root.get("post")).toEqual([named]);
+    expect(facts.domain.related.get("post")).toEqual([
+      { AND: [named], OR: [named], NOT: named },
+    ]);
+    // Under such a filter, a field's value is still one.
+    const nested = bindRows(
+      [
+        {
+          ...field,
+          models: {
+            post: { a: { root: { NOT: { control: { control: "x" } } } } },
+          },
+        },
+      ],
+      undefined
+    );
+    expect(nested.references).toEqual([["x"]]);
+    expect(
+      callRows(nested, "post", { x: "value" }).domain.root.get("post")
+    ).toEqual([{ NOT: { control: "value" } }]);
+  });
+
+  test("a combination binds only when its predicates or the default ones name a control", () => {
+    // The default mode names nothing: its calls keep the precomputed facts.
+    const optIn = {
+      control: "scope",
+      default: "all",
+      models: { post: { all: {}, tenant: { related: tenantRelated } } },
+    } as const;
+    const binding = bindRows([optIn], undefined);
+    expect(binding.references).toEqual([[], ["tenant"]]);
+    expect(callRows(binding, "post", { tenant: "acme" })).toBe(
+      binding.physical[0]
+    );
+    expect(binding.bound.size).toBe(0);
+    // Tenancy's `all` names nothing, but its default domain does: two
+    // tenants keep two entries, one domain, each its own default domain.
+    const tenancyBinding = bindRows([tenancy], undefined);
+    const acme = callRows(tenancyBinding, "post", {
+      scope: "all",
+      tenant: "acme",
+    });
+    const globex = callRows(tenancyBinding, "post", {
+      scope: "all",
+      tenant: "globex",
+    });
+    expect(tenancyBinding.bound.size).toBe(2);
+    expect(acme.domain).toBe(globex.domain);
+    expect(acme.domain).toBe(tenancyBinding.physical[1]!.domain);
+    expect(globex.defaults.related.get("post")).toEqual([
+      { tenantId: "globex" },
+    ]);
   });
 
   test("a value no key spells by its content is bound for its call alone", () => {
@@ -1263,6 +1332,55 @@ describe("controls: the cache key", () => {
     await expect(
       db.$withCache().post.findMany({ scope: "x", select: { id: true } })
     ).resolves.toEqual([{ id: "p1" }]);
+    expect(recorder.keys).toEqual([]);
+  });
+
+  test("a rows value that is not plain data bypasses the cache, and each call reads its own value", async () => {
+    const price = s.model({
+      id: s.int().id(),
+      amount: s.decimal({ precision: 10, scale: 2 }),
+    });
+    const base = createClient({
+      schema: { price },
+      driver: createInMemorySQLite3Driver(),
+    });
+    clients.push(base);
+    await syncLiveSchema(base);
+    for (const [id, amount] of [
+      [1, "1.5"],
+      [2, "3"],
+    ] as const)
+      await base.price.create({ data: { id, amount: new Decimal(amount) } });
+    const recorder = new KeyRecordingCache();
+    const db = base
+      .$extends(cache({ driver: recorder, version: "v" }))
+      .$extends({
+        name: "floor",
+        // A Decimal is a class instance: no key spells it by its content.
+        controls: {
+          floor: { schema: standard<Decimal>((value) => ({ value })) },
+        },
+        rows: {
+          control: "scope",
+          default: "above",
+          models: {
+            price: {
+              above: { root: { amount: { gte: { control: "floor" } } } },
+            },
+          },
+        },
+      });
+    const above = async (floor: string) =>
+      (
+        await db.$withCache().price.findMany({
+          select: { id: true },
+          orderBy: { id: "asc" },
+          floor: new Decimal(floor),
+        })
+      ).map((row) => row.id);
+    expect(await above("2")).toEqual([2]);
+    expect(await above("1")).toEqual([1, 2]);
+    expect(await above("2")).toEqual([2]);
     expect(recorder.keys).toEqual([]);
   });
 });

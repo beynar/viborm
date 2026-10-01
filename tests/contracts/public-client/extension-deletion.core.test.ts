@@ -2,7 +2,8 @@
  * The `deletion` capability's call facts (extension-capabilities plan v3.1
  * §2.2-2.3): how a chain's `rows` and `deletion` resolve to one call's
  * domains and tombstones, row predicates bound as written, one instant per
- * call across re-plans and array members, and a declaration without rows.
+ * call across re-plans and array members, a domain bound to the call's
+ * value resolved once across a re-plan, and a declaration without rows.
  * The provider behaviour (tombstones at every site, the referential
  * requirement, `mode: "hard"`) is `deletion-capability-behavior.ts`, run on
  * SQLite3, the batch-only substrate and PGlite.
@@ -22,7 +23,14 @@ import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
+
+// Every call's row facts are resolved through this spy, a passthrough: it
+// counts the resolutions one call makes across its attempts.
+vi.mock("@extensions/rows", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@extensions/rows")>();
+  return { ...actual, callRows: vi.fn(actual.callRows) };
+});
 
 /**
  * Batch-only SQLite on which another writer commits one statement right before
@@ -111,6 +119,63 @@ describe("one instant per call, admitted per occurrence per attempt", () => {
     });
     expect(rows.map((row) => row.deletedById)).toEqual([ACTOR, ACTOR, ACTOR]);
     expect(new Set(rows.map((row) => row.deletedAt!.getTime())).size).toBe(1);
+  });
+
+  test("a re-plan under a domain bound to the call's value resolves it once: both attempts take the same author", async () => {
+    const driver = new RacingSQLite3Driver({ dataDir: ":memory:" });
+    const { base, db, ledger } = await fixture(driver);
+    const own = db.$extends({
+      name: "test.byAuthor",
+      controls: { author: { oneOf: [1, 2, 3] } },
+      rows: {
+        control: "authors",
+        default: "own",
+        models: {
+          post: {
+            own: {
+              root: { authorId: { control: "author" } },
+              related: { authorId: { control: "author" } },
+            },
+            all: {},
+          },
+        },
+      },
+    });
+    // Post 19 is another author's and sits on the same tag.
+    for (const [id, authorId] of [
+      [17, 1],
+      [18, 1],
+      [19, 3],
+    ] as const)
+      await base.post.create({
+        data: { id, title: `p${id}`, authorId, tags: { connect: [{ id: 2 }] } },
+      });
+    ledger.length = 0;
+    driver.inject = {
+      when: POST_UPDATE,
+      sql: `INSERT INTO "post_tag" ("postId", "tagId") VALUES (14, 2)`,
+    };
+    const resolutions = vi.mocked(callRows);
+    resolutions.mockClear();
+    await own.tag.update({
+      where: { id: 2 },
+      data: { posts: { deleteMany: {} } },
+      author: 1,
+    });
+    expect(driver.inject).toBeUndefined();
+    // Attempt 1 captures 17 and 18; the re-plan 14, 17 and 18: never 19.
+    expect(ledger).toEqual(Array.from({ length: 7 }, () => ACTOR));
+    expect(resolutions).toHaveBeenCalledTimes(1);
+    const rows = await base.post.findMany({
+      where: { id: { in: [14, 17, 18, 19] } },
+      orderBy: { id: "asc" },
+    });
+    expect(rows.map((row) => row.deletedById)).toEqual([
+      ACTOR,
+      ACTOR,
+      ACTOR,
+      null,
+    ]);
   });
 
   test("array members each get their own instant, and a refused member rolls the array back", async () => {

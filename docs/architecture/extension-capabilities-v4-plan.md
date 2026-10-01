@@ -167,7 +167,7 @@ Each unit: implementer, adversarial executing reviewer, repair; lock scripts and
 
 Bound rows:
 - Tenant A's reads never return B's rows: root reads, includes, to-one and to-many, quantifiers (`some`/`none`/`every`), counts, aggregates, ordering by a relation, cursors, recursion.
-- Nested writes under A cannot reach B's rows: `connect`, `update`, `delete`, `set` through a relation give `NotFoundError`, as a hidden row does today.
+- Nested writes under A cannot reach B's rows: `connect`, `update`, `delete`, `set` through a relation give `NestedWriteError`, as a hidden row does today. (Corrected at the U1 repair: this line first said `NotFoundError`; today's class for a hidden nested target is `NestedWriteError`, and root writes give `NotFoundError`.)
 - Unique lookups decline the RETURNING fast path under a bound domain (DC10) and `upsert` converges only within the tenant.
 - The cache: A and B never share an entry; the same tenant on two clients from one config shares the key; a non-canonical value bypasses.
 - `required`: an absent value is refused on every placed operation, with the path; not refused where the control is not placed.

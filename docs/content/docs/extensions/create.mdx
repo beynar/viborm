@@ -285,7 +285,9 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
   `QueryError`; a VibORM error it throws passes through.
 - `required: true` makes the argument mandatory on the operations `on`
   names: a call that leaves it out is a `ValidationError` at its path, before
-  anything runs. Without `on`, that is every operation of every model.
+  anything runs. Without `on`, that is every operation of every model,
+  including models no filter of the extension names: there the value is asked
+  for and changes nothing.
 - Control names are one list per client, shared with `rows.control`. Do not
   take a name core already uses as an argument (`where`, `data`, `select`, …)
   or one another extension declares.
@@ -392,17 +394,28 @@ await db.post.findMany(); // ValidationError: control "tenant" is required
 ```
 
 - The reference can sit anywhere a filter takes a value, at any depth:
-  `{ tenantId: { in: { control: "tenants" } } }`, or inside `AND`, `OR` and
-  `NOT`. It names a control of the same extension.
+  `{ tenantId: { in: { control: "tenants" } } }`, or on a field inside `AND`,
+  `OR` and `NOT`. Declare the control in the same extension: naming another
+  extension's control is not supported.
+- A filter itself is never a reference: the whole filter of a mode, and each
+  filter inside `AND`, `OR` and `NOT`. There `{ control: "x" }` filters a
+  field named `control`. Where a value goes, write
+  `{ control: { equals: "x" } }` to filter that field.
+- Give the control a schema that accepts a plain value: a string, a number, a
+  date, or a list of them. The value is put in as it is, so an object's keys
+  become filter operators: a tenant of `{ not: "acme" }` would show every
+  other tenant's rows.
 - A call that does not pass the control drops every filter that names it:
   that filter hides nothing. Mark the control `required` when a missing value
   must be refused instead, as tenancy does.
-- Each value is prepared once and then reused, for up to 256 distinct values
-  per client; past that, the oldest is prepared again when it comes back.
-- Cached reads are keyed on the value, so two tenants never share an entry.
-- Inside a filter, an object whose only key is `control`, holding a name,
-  reads as a reference. To filter a field that is itself named `control`,
-  write `{ control: { equals: "x" } }`.
+- Each mode and value is prepared once and then reused. A client keeps up to
+  256 of them; past that, the oldest is prepared again when it comes back. A
+  mode takes no room when neither its filters nor the default mode's name a
+  control. Tenancy's `all` still takes one per tenant, since its default
+  mode names `tenant`: with both modes in use, a client keeps 128 tenants.
+- Cached reads are keyed on the value, so two tenants never share an entry. A
+  value that is not plain data, such as a `Decimal` or a `Map`, is prepared
+  for its call alone and skips the cache.
 - Pass the tenant from your own server's session, never from the request:
   the extension keeps a call inside the tenant it names, it does not check
   that the caller may name it. `create` does not fill `tenantId` for you yet.
