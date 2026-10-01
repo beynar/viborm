@@ -500,7 +500,11 @@ await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updat
   `ValidationError` at `data.<field>` that names the extension. The path
   names the field, not where it sits: a nested create or an `upsert` arm is
   reported at `data.<field>` too. A field the extension writes only on create
-  can still be set by an update.
+  can still be set by an update. Writing the field through a relation
+  counts too: when the field is the relation's foreign key (`tenantId` for
+  `tenant`), a create that connects or creates through that relation is
+  refused at `data.<relation>`, and on the extended client the relation
+  accepts no value in that model's create data.
 - The types agree when the extension names its models where the types can
   read them, as a `data` entry written inline does, or a
   [recipe](/docs/extensions/recipes) given a written list of names. On the
@@ -523,9 +527,13 @@ await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updat
   narrow nothing, so passing a field compiles and is refused when the call
   runs, and a required field cannot be left out in your editor; and a
   create nested through a relation with variants is not rebuilt, so there a
-  required field is still asked for. A `data` entry, or a recipe's list,
-  that names a model your schema lacks is an editor error where the
-  extension is applied.
+  required field is still asked for. The types find a nested create's
+  model by its fields, not by its name, so a model the extension does not
+  name, whose fields and relations are the same as a named model's, is
+  treated like it in a nested create: the editor lets a required field be
+  left out there, and the call is refused as missing when it runs. A
+  `data` entry, or a recipe's list, that names a model your schema lacks is
+  an editor error where the extension is applied.
 - When two extensions write the same field of a model, the one applied later
   wins, on every call. Each writes its other fields.
 - A field whose control the call did not pass is not written, and the call

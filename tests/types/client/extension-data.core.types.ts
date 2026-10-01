@@ -502,6 +502,15 @@ export async function aRequiredTenantMayBeLeftOut() {
     data: { id: 1, body: "b", articleId: 1 },
     tenant: "acme",
   });
+  await tenants.reply.create({
+    // @ts-expect-error - its relation would write tenantId: it takes nothing
+    data: { id: 1, body: "b", articleId: 1, tenant: { connect: { id: "x" } } },
+    tenant: "acme",
+  });
+  // The base client still writes it through the relation.
+  await plainTenants.reply.create({
+    data: { id: 1, body: "b", articleId: 1, tenant: { connect: { id: "x" } } },
+  });
   await tenants.article.createMany({
     data: [{ id: 2, title: "b" }],
     tenant: "acme",
@@ -549,6 +558,17 @@ export async function aNestedCreateMayLeaveItOutToo() {
       title: "a",
       // @ts-expect-error - a nested create may not pass it either
       replies: { create: [{ id: 1, body: "b", tenantId: "globex" }] },
+    },
+    tenant: "acme",
+  });
+  await tenants.article.create({
+    data: {
+      id: 1,
+      title: "a",
+      replies: {
+        // @ts-expect-error - nor write it through its relation
+        create: [{ id: 1, body: "b", tenant: { connect: { id: "x" } } }],
+      },
     },
     tenant: "acme",
   });

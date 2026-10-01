@@ -186,7 +186,11 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
   one of them is refused with a `ValidationError` at `data.<field>` that
   names the extension, even when the call did not pass the control. The path
   names the field, not where it sits: a nested create or an `upsert` arm is
-  reported at `data.<field>` too.
+  reported at `data.<field>` too. Writing it through a relation counts: when
+  `tenantId` is the foreign key of a `tenant` relation, a create that passes
+  `tenant: { connect: ... }` (or `create`, or `connectOrCreate`) is refused
+  at `data.tenant`, since the row would take the connected tenant, not the
+  call's.
 - **Your editor knows what they write.** Each recipe keeps the model names
   you pass it, so on the models it names a field it writes may be left out
   of a create, at the top level and in a create nested through a relation,
@@ -198,7 +202,11 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
   a required one cannot be left out in your editor, so pass the names as a
   written list. A create nested through a relation with variants is not
   rebuilt: there the field is asked for as the schema has it, although the
-  call accepts it left out.
+  call accepts it left out. And the types find a nested create's model by
+  its fields, not its name: a model the recipe does not name, but whose
+  fields and relations are the same as a named model's, is treated like it
+  in a nested create. There the editor lets you leave the field out, and
+  the call is refused as missing when it runs.
 - **Each tenant is prepared once.** A client keeps up to 256 prepared modes
   and values; past that, the oldest is prepared again when it comes back,
   which is slower but gives the same answer. Tenancy with both modes in use

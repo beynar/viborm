@@ -454,6 +454,67 @@ export function runStampedRequiredBehavior(
       });
     });
 
+    test("a caller who writes it through its foreign key's relation is refused too: connect, create and connectOrCreate, at the root and nested", async () => {
+      const { base, db } = context;
+      await base.tenant.create({ data: { id: "globex" } });
+      // The path names what the caller wrote, not where its row sits.
+      const through = (operation: string) => ({
+        validation: true,
+        name: "ValidationError",
+        message: `Validation failed for ${operation}: Field "tenantId" is written by extension "tenancy"`,
+        issues: [
+          {
+            path: "data.tenant",
+            message: 'Field "tenantId" is written by extension "tenancy"',
+          },
+        ],
+      });
+      const writes = [
+        { connect: { id: "globex" } },
+        { connect: { id: "acme" } },
+        { create: { id: "initech" } },
+        {
+          connectOrCreate: {
+            where: { id: "globex" },
+            create: { id: "globex" },
+          },
+        },
+      ];
+      for (const tenant of writes) {
+        expect(
+          await refusal(
+            db.comment.create({ data: { id: 10, body: "x", tenant }, ...ACME })
+          )
+        ).toEqual(through("create"));
+        expect(
+          await refusal(
+            db.comment.createMany({
+              data: [{ id: 10, body: "x", tenant }],
+              ...ACME,
+            })
+          )
+        ).toEqual(through("createMany"));
+        expect(
+          await refusal(
+            db.post.create({
+              data: {
+                id: 1,
+                title: "a",
+                comments: { create: [{ id: 10, body: "x", tenant }] },
+              },
+              ...ACME,
+            })
+          )
+        ).toEqual(through("create"));
+      }
+      expect(await stored()).toEqual({
+        post: [],
+        comment: [],
+        tag: [],
+        board: [],
+      });
+    });
+
     test("a call refused mid-parse leaves no provided field behind: the next unextended create still asks for it", async () => {
       const { base, db } = context;
       const midParse = await refusal(

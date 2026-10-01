@@ -142,7 +142,9 @@ values, true)`, as a tombstone is (a create takes each field's whole value),
 writes it over the occurrence's admitted data, and refuses a caller whose raw
 data names a field an extension declares for that kind, written on this call
 or not (`ValidationError` at `data.<field>`, naming the extension; the path
-names the field, not the occurrence's position). It returns scalar values:
+names the field, not the occurrence's position), or writes the relation
+whose foreign key, on this model, holds such a field (`data.<relation>`: a
+`tenant: { connect }` would store another tenant; ruling 2 repair). It returns scalar values:
 a tombstone's are written as they are, with no second `schema.scalars`.
 Every site that turns one occurrence's admitted data into
 `schema.scalars` calls it: `Commands.create` (root create on the record route,

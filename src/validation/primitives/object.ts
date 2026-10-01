@@ -73,13 +73,17 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
    * every filter object into a union of one variant per operator.
    */
   refuse?: (value: Record<string, unknown>) => string | undefined;
-  /**
-   * The name this object's fields are provided under. Inside
-   * {@link parseProviding}, a required field the caller's context provides
-   * under this name may be absent: the required-field check and the
-   * `requiresOneOfKeySets` check count it as given. Outside, it changes
-   * nothing.
-   */
+}
+
+/**
+ * The options the validator reads besides the public ones. `provides` is the
+ * name this object's fields are provided under: inside {@link parseProviding},
+ * a required field the caller's context provides under it may be absent (the
+ * required-field check and the `requiresOneOfKeySets` check count it as
+ * given); outside, it changes nothing. A model's create schemas pass it with
+ * their other options; it is not public, so it shapes no input type.
+ */
+interface ValidatorOptions extends ObjectOptions {
   provides?: string;
 }
 
@@ -462,7 +466,7 @@ function readObjectInputValue(
  */
 function createObjectValidator(
   entries: ObjectEntries,
-  options: ObjectOptions = {}
+  options: ValidatorOptions = {}
 ): (value: unknown) => ValidationResult<Record<string, unknown>> {
   const {
     partial = true,

@@ -456,7 +456,7 @@ export class Commands {
    * value), written over the occurrence's own. A field an extension declares
    * for `kind` is refused when the caller wrote it in `raw`, even on a call
    * that left it unwritten (its control absent): the extension owns it. The
-   * refusal's path names the field, not where the occurrence sits.
+   * refusal's path names what was written, not where the occurrence sits.
    */
   stamp(
     model: AnyModel,
@@ -468,17 +468,16 @@ export class Commands {
     const stamp = this.context.scope?.rows.stamps?.get(name)?.[kind];
     if (stamp === undefined)
       return this.context.schema.scalars(model, admitted);
-    const taken = Object.keys(stamp.owners).find(
-      (field) => raw?.[field] !== undefined
-    );
+    const taken = this.taken(model, stamp.owners, raw);
     if (taken !== undefined) {
-      const extension = stamp.owners[taken];
+      const [path, field] = taken;
+      const extension = stamp.owners[field];
       throw new ValidationError(
         { kind: "operation", operation: this.context.operation, model: name },
         [
           {
-            path: `data.${taken}`,
-            message: `Field "${taken}" is written by extension "${extension}"`,
+            path: `data.${path}`,
+            message: `Field "${field}" is written by extension "${extension}"`,
           },
         ],
         { meta: { model: name, extension } }
@@ -491,6 +490,27 @@ export class Commands {
         kind === "create" ? wholeValue(values[field])?.value : values[field];
     }
     return this.context.schema.scalars(model, stamped);
+  }
+  /**
+   * Where `raw` writes a field `owners` lists, as [what it wrote, the field]:
+   * the field itself, or a relation whose foreign key on `model` holds it.
+   */
+  private taken(
+    model: AnyModel,
+    owners: Readonly<Record<string, string>>,
+    raw: Input | undefined
+  ): readonly [string, string] | undefined {
+    for (const field of Object.keys(owners))
+      if (raw?.[field] !== undefined) return [field, field];
+    for (const [name, { edge }] of this.context.schema.index.get(model)!) {
+      if (raw?.[name] === undefined || edge.kind !== "foreignKey") continue;
+      if (edge.owner.source !== model || edge.owner.field !== name) continue;
+      const pair = edge.reference.members.find(
+        ({ foreignField }) => owners[foreignField] !== undefined
+      );
+      if (pair) return [name, pair.foreignField];
+    }
+    return undefined;
   }
   /**
    * A write's candidates: the caller's selector AND the call's domain for

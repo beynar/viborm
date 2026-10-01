@@ -53,7 +53,9 @@ Versioning.
   create and update data, nested writes included.
 - **Added: a call cannot write a field an extension writes.** It is refused
   with a `ValidationError` at `data.<field>` that names the extension, at any
-  depth, even when the call did not pass the extension's control.
+  depth, even when the call did not pass the extension's control. Writing it
+  through the relation whose foreign key it is (`tenant: { connect: ... }`
+  for `tenantId`) is refused too, at `data.<relation>`.
 - **Added: a `rows` filter can use a value the call passes.** Write
   `{ control: "<name>" }` where a filter takes a value, at any depth (inside
   `in`, `AND`, `OR` and `NOT` too), and each call sees the rows that match the

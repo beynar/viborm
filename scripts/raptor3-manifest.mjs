@@ -213,9 +213,11 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // a third substrate without RETURNING (15 cells on each of three drivers).
 // F2: a limited deleteMany's premise and effect take one window (16 cells).
 // v4 T1 (owner ruling 2): a required field the data capability writes is left
-// out at every create site (7 cells on each of three drivers).
+// out at every create site (7 cells on each of three drivers). Ruling 2
+// repair: a caller who writes it through its foreign key's relation is
+// refused (1 cell on each of three drivers).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 96,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 99,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)

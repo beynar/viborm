@@ -632,15 +632,34 @@ type StampedRow<
           [Key in keyof Row as Key extends Fields
             ? never
             : Key]: Key extends keyof State["relations"]
-            ? StampedRelation<
-                Row[Key],
-                GetTargetModel<State["relations"][Key]>,
-                Context
-              >
+            ? HoldsField<State["relations"][Key], Fields> extends true
+              ? never
+              : StampedRelation<
+                  Row[Key],
+                  GetTargetModel<State["relations"][Key]>,
+                  Context
+                >
             : Row[Key];
         } & Unwritable<Fields>
       : Row
     : Row;
+
+/**
+ * Does the relation's foreign key, on this side, hold a field the chain
+ * writes? Its connect or create would write that field, so the call is
+ * refused when it writes the relation, and it accepts nothing.
+ */
+type HoldsField<Relation, Fields> = Relation extends {
+  readonly "~": {
+    readonly state: {
+      readonly foreignKey: { readonly fields: readonly (infer Field)[] };
+    };
+  };
+}
+  ? [Extract<Field, Fields>] extends [never]
+    ? false
+    : true
+  : false;
 
 /** A relation with variants has no one target: it is not rebuilt. */
 type StampedRelation<Value, Target, Context> = [Target] extends [never]
