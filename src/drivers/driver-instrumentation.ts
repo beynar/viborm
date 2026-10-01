@@ -704,6 +704,17 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     return EMPTY_DIAGNOSTIC_PARAMS;
   }
 
+  /** The open, usable client, when there is one: no wait for {@link getClient}. */
+  protected connectedClient(): TClient | TTransaction | undefined {
+    if (
+      this.transactionPoisonError ||
+      this.isDisconnecting ||
+      this.closeRetryClient !== null
+    )
+      return undefined;
+    return this.client ?? undefined;
+  }
+
   /**
    * Get or initialize the client.
    */

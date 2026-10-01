@@ -16,12 +16,19 @@ import {
 import type { Schema } from "@client/types";
 import type { D1Database } from "@cloudflare/workers-types";
 import { QueryError } from "@errors";
+import type { Sql } from "@sql";
 import {
+  type AnyDriver,
   Driver,
   type DriverResultParser,
   type QueryExecutionContext,
 } from "../driver";
 import { isNormalizedResultRow } from "../normalized-result";
+import {
+  assertPositionalRows,
+  type ProjectionExecutionResult,
+  registerPositionalResultDriver,
+} from "../positional-result";
 import {
   classifySQLiteStatementResult,
   convertValuesForSQLite,
@@ -150,6 +157,13 @@ function normalizeD1Result<T>(
 // ============================================================
 
 export class D1Driver extends Driver<D1Database, D1Database> {
+  private static readonly canonicalTypedStatement =
+    D1Driver.prototype.executeTypedStatement;
+  private static readonly canonicalPositionalExecute =
+    D1Driver.prototype.executePositional;
+  private static readonly canonicalDriverParseField =
+    sqliteResultParser.parseField;
+
   // D1's authorizer refuses temporary objects (`SQLITE_AUTH`, the whole batch
   // rejected), witnessed by `tests/providers/workers/d1.test.ts`.
   readonly adapter: DatabaseAdapter = new SQLiteAdapter({
@@ -162,12 +176,91 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   readonly supportsOrderedCommittedSegments = true;
 
   private readonly driverOptions: D1DriverOptions;
+  private readonly canonicalAdapter = this.adapter;
+  private readonly canonicalAdapterResult = this.adapter.result;
+  private readonly canonicalAdapterParseField = this.adapter.result.parseField;
+  private readonly canonicalAdapterParseRelation =
+    this.adapter.result.parseRelation;
+  private readonly canonicalAdapterParseResult =
+    this.adapter.result.parseResult;
 
   constructor(options: D1DriverOptions) {
     super("sqlite", "d1");
     this.driverOptions = options;
     // D1 database is passed directly from Worker environment
     this.client = options.database;
+    registerPositionalResultDriver(
+      this,
+      (query, context) => this.executePositional(query, context),
+      D1Driver.isPositionalCandidate
+    );
+  }
+
+  /**
+   * A collection read as positional rows: D1's `raw({ columnNames: true })`
+   * names the columns once instead of materializing every column name on
+   * every row, which is the larger share of a read's CPU in a Worker.
+   */
+  private executePositional(
+    query: Sql,
+    context: QueryExecutionContext
+  ): Promise<ProjectionExecutionResult> {
+    return this.executeTypedStatement(
+      query,
+      context,
+      async (
+        client,
+        sql,
+        params,
+        executionContext
+      ): Promise<ProjectionExecutionResult> => {
+        const values = convertValuesForSQLite(params);
+        const raw: unknown = await client
+          .prepare(sql)
+          .bind(...values)
+          .raw({ columnNames: true });
+        const [header, ...rows] = Array.isArray(raw) ? raw : [];
+        const columns = header ?? [];
+        if (
+          !(
+            Array.isArray(raw) &&
+            Array.isArray(columns) &&
+            columns.every((column: unknown) => typeof column === "string")
+          )
+        )
+          throw malformedD1Result(
+            executionContext,
+            "the positional rows are malformed"
+          );
+        assertPositionalRows(rows, columns, {
+          provider: this.driverName,
+          operation: executionContext.operation ?? "execute",
+        });
+        return { kind: "positional", rows, columns };
+      }
+    );
+  }
+
+  /**
+   * Positional rows skip the keyed result surface, so they are used only while
+   * that surface is the shipped one: the stock parsers and this driver's own
+   * typed statement lifecycle. Anything a caller replaced keeps keyed rows.
+   */
+  private static isPositionalCandidate(driver: AnyDriver): boolean {
+    if (!(driver instanceof D1Driver)) return false;
+    return (
+      Object.getPrototypeOf(driver) === D1Driver.prototype &&
+      driver.executeTypedStatement === D1Driver.canonicalTypedStatement &&
+      driver.executePositional === D1Driver.canonicalPositionalExecute &&
+      driver.result === sqliteResultParser &&
+      driver.result.parseField === D1Driver.canonicalDriverParseField &&
+      driver.adapter === driver.canonicalAdapter &&
+      driver.adapter.result === driver.canonicalAdapterResult &&
+      driver.adapter.result.parseField === driver.canonicalAdapterParseField &&
+      driver.adapter.result.parseRelation ===
+        driver.canonicalAdapterParseRelation &&
+      driver.adapter.result.parseResult === driver.canonicalAdapterParseResult
+    );
   }
 
   protected async initClient(): Promise<D1Database> {

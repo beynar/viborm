@@ -232,7 +232,8 @@ export abstract class DriverTransactionBase<
         executionParams,
         executionContext
       );
-      const client = await this.getClient(executionContext);
+      const client =
+        this.connectedClient() ?? (await this.getClient(executionContext));
       return gate.execute(
         {
           context: executionContext,
@@ -260,7 +261,7 @@ export abstract class DriverTransactionBase<
     if (!hasStatementObservers) {
       if (this.serializeTransactions && !this.inTransaction) {
         this.assertBaseOperationAllowedDuringTransaction(executionContext);
-        return this.connectionQueue.enqueue(executeQuery);
+        return this.connectionQueue.run(executeQuery);
       }
       return executeQuery();
     }
@@ -268,7 +269,7 @@ export abstract class DriverTransactionBase<
       this.observeTrustedStatement(executionContext, executeQuery);
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      return this.connectionQueue.enqueue(executeObserved);
+      return this.connectionQueue.run(executeObserved);
     }
     return executeObserved();
   }
@@ -325,7 +326,8 @@ export abstract class DriverTransactionBase<
         provider: this.driverName,
         operation: executionContext.operation ?? "executeRaw",
       };
-      const client = await this.getClient(executionContext);
+      const client =
+        this.connectedClient() ?? (await this.getClient(executionContext));
       const executeProvider = async () => {
         const providerResult = await this.executeRaw<T>(
           client,
@@ -356,7 +358,7 @@ export abstract class DriverTransactionBase<
     if (!this.hasTrustedObservers(executionContext)) {
       if (this.serializeTransactions && !this.inTransaction) {
         this.assertBaseOperationAllowedDuringTransaction(executionContext);
-        return this.connectionQueue.enqueue(executeQuery);
+        return this.connectionQueue.run(executeQuery);
       }
       return executeQuery();
     }
@@ -364,7 +366,7 @@ export abstract class DriverTransactionBase<
       this.observeTrustedStatement(executionContext, executeQuery);
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      return this.connectionQueue.enqueue(executeObserved);
+      return this.connectionQueue.run(executeObserved);
     }
     return executeObserved();
   }
