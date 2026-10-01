@@ -12,9 +12,14 @@ import {
   registerOfficialDefaultOmitChain,
 } from "@client/default-omit-extension";
 import type { Schema } from "@client/types";
+import type {
+  ModelStamps,
+  Stamp,
+} from "@query-engine/raptor3/shared/row-scope";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import {
+  type DataContribution,
   type DeletionContribution,
   placeControls,
   type ResolvedControl,
@@ -105,7 +110,8 @@ export interface ResolvedDeletion {
 
 /**
  * Absent on an unextended client; frozen whenever it exists, except the
- * `controls`, `rows` and `deletion` data a definition wrote, held as written.
+ * `controls`, `rows`, `deletion` and `data` values a definition wrote, held
+ * as written.
  */
 export interface ResolvedExtensionChain {
   readonly controls?: ResolvedControls;
@@ -116,7 +122,12 @@ export interface ResolvedExtensionChain {
    */
   readonly rows?: readonly RowsContribution[];
   readonly deletion?: Readonly<Record<string, ResolvedDeletion>>;
-  /** Derived from `rows` and `deletion`: what each call's controls resolve to. */
+  /** Per model, every extension's `data` fields: a later one wins a field. */
+  readonly data?: Readonly<Record<string, ModelStamps>>;
+  /**
+   * Derived from `rows`, `deletion` and `data`: what each call's controls
+   * resolve to.
+   */
   readonly callRows?: RowsBinding;
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
@@ -365,6 +376,38 @@ function appendDeletion(
   return Object.freeze(entries);
 }
 
+/** One kind's fields with an extension's own merged in: it wins a field. */
+function withStamp(
+  previous: Stamp | undefined,
+  extension: string,
+  fields: Readonly<Record<string, unknown>> | undefined
+): Stamp | undefined {
+  if (fields === undefined) return previous;
+  const owners = { ...previous?.owners };
+  for (const field of Object.keys(fields)) owners[field] = extension;
+  return Object.freeze({
+    values: { ...previous?.values, ...fields },
+    owners: Object.freeze(owners),
+  });
+}
+
+function appendData(
+  previous: Readonly<Record<string, ModelStamps>> | undefined,
+  extension: string,
+  data: DataContribution
+): Readonly<Record<string, ModelStamps>> {
+  const entries: Record<string, ModelStamps> = Object.create(null);
+  Object.assign(entries, previous);
+  for (const [model, entry] of Object.entries(data.models)) {
+    const known = entries[model];
+    entries[model] = Object.freeze({
+      create: withStamp(known?.create, extension, entry.create),
+      update: withStamp(known?.update, extension, entry.update),
+    });
+  }
+  return Object.freeze(entries);
+}
+
 /** The cache's query leaves the chain's handlers; its control is its own. */
 function asOfficialCacheDefinition(
   definition: RuntimeExtensionDefinition
@@ -541,14 +584,19 @@ export function appendResolvedExtension(
           definition.name,
           effectiveDefinition.deletion
         );
+  const data =
+    effectiveDefinition.data === undefined
+      ? chain?.data
+      : appendData(chain?.data, definition.name, effectiveDefinition.data);
   const callRows =
-    rows === chain?.rows && deletion === chain?.deletion
+    rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
       ? chain?.callRows
-      : bindRows(rows, deletion);
+      : bindRows(rows, deletion, data);
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),
     ...(deletion === undefined ? {} : { deletion }),
+    ...(data === undefined ? {} : { data }),
     ...(callRows === undefined ? {} : { callRows }),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,

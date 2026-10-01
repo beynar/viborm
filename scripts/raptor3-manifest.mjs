@@ -212,7 +212,7 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // Compression C1: a root delete whose projection reads to-many relations, and
 // a third substrate without RETURNING (15 cells on each of three drivers).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 45,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 69,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)

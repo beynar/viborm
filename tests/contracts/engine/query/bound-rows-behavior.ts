@@ -20,8 +20,10 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * "Bound rows"): the guide's tenancy recipe (§1.1, `tests/fixtures/
  * extension-recipes.ts`), through public entry points, on a real database.
  * Its rows predicates name the `tenant` control; each call's value is put in
- * before the engine sees the predicate. `base` is the same database without
- * the extension: its answers are the negative control beside each tenant's.
+ * before the engine sees the predicate, and its `data` writes `tenantId` on
+ * every create, so `tenantId` is nullable here: the call's data is checked
+ * before the extension writes it. `base` is the same database without the
+ * extension: its answers are the negative control beside each tenant's.
  *
  * Fixture (hand-computed oracles below). Posts (tenant, title, parent):
  * 1 (acme, a, -), 2 (acme, b, 1), 3 (globex, c, -), 4 (acme, d, 3),
@@ -35,7 +37,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 export function boundRowsSchema() {
   const post = s.model({
     id: s.int().id(),
-    tenantId: s.string(),
+    tenantId: s.string().nullable(),
     title: s.string(),
     parentId: s.int().nullable(),
     parent: s
@@ -49,7 +51,7 @@ export function boundRowsSchema() {
   });
   const comment = s.model({
     id: s.int().id(),
-    tenantId: s.string(),
+    tenantId: s.string().nullable(),
     body: s.string(),
     postId: s.int(),
     post: s
@@ -59,7 +61,7 @@ export function boundRowsSchema() {
   });
   const tag = s.model({
     id: s.int().id(),
-    tenantId: s.string(),
+    tenantId: s.string().nullable(),
     name: s.string(),
     posts: s.toMany(() => post),
   });
@@ -359,7 +361,7 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
       ).toBe(2);
     });
 
-    test("root writes take the tenant's rows: another tenant's key is not found, and an upsert converges only within the tenant", async () => {
+    test("root writes take the tenant's rows: another tenant's key is not found, and an upsert converges only within the tenant and its create arm is the tenant's", async () => {
       const { base, db } = context;
       expect(
         await failure(
@@ -382,7 +384,7 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
       const upsert = (id: number, tenant: string) =>
         db.post.upsert({
           where: { id },
-          create: { id, tenantId: tenant, title: "new" },
+          create: { id, title: "new" },
           update: { title: "upserted" },
           select: { id: true, title: true },
           tenant,
@@ -408,6 +410,10 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
       expect(ids(await base.comment.findMany(byId))).toEqual([
         10, 11, 12, 14, 15, 16,
       ]);
+      // The create arm took the call's tenant from the recipe's `data`.
+      expect(
+        (await base.post.findUniqueOrThrow({ where: { id: 6 } })).tenantId
+      ).toBe("globex");
     });
 
     test("an array transaction binds each member to its own tenant; another tenant's key rolls every member back", async () => {

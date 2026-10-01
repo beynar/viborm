@@ -87,7 +87,8 @@ records the domain's fields among its dependency facts, as a to-many one does.
 convergence and a hidden conflict's rethrow behave as without a domain, and
 marks the selector `scoped`, so the two consumers that trust the key alone —
 the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
-decline. The engine never sees a control, a mode or an extension name.
+decline. The engine never sees a control or a mode, and an extension's name
+only as the owner a stamp's refusal names.
 
 *Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
 `tombstones` (absent when its controls matched `removeWhen`) writes an update
@@ -122,6 +123,27 @@ live child under a tombstone; measured on PostgreSQL with
 `tests/providers/docker/pg-deletion-races.test.ts`.
 Statement attribution, observers, errors and `NotFoundError` verbs still say
 the caller's delete (`ctx.operation`).
+
+*Stamps (extension `data`, plan v4 §2.2).* A call whose facts carry `stamps`
+writes, per model, the declared fields on every create and every update of it.
+`Commands.stamp(model, kind, admitted, raw)` is the one owner: it admits the
+stamp once per occurrence per attempt through `EngineSchema.update(model,
+values, true)`, as a tombstone is (a create takes each field's whole value),
+writes it over the occurrence's admitted data, and refuses a caller whose raw
+data names a stamped field (`ValidationError` at `data.<field>`, naming the
+extension). Every site that turns one occurrence's admitted data into
+`schema.scalars` calls it: `Commands.create` (root create on the record route,
+the upsert create arm, relation-bearing `createMany`, nested `create`,
+`createMany`, `connectOrCreate` and the nested upsert's create arm),
+`Commands.update` (root update on the record route, the upsert update arm,
+relation-bearing `updateMany`, nested `update` and the nested upsert's update
+arm, every captured series member), the folds (`rootCreate`, `rootUpdate`,
+both `rootUpsert` arms), relation-free root `createMany` rows and `updateMany`,
+the nested relation-free `updateMany`, and `Commands.tombstone`, whose stamped
+data every tombstone site reads; a captured member a series tombstones is
+admitted again from the tombstone's raw data and stamped there. A
+`connect`/`set` that only moves a foreign key (`MEMBERSHIP_MOVE`) is not
+stamped, as no `updatedAt` moves there. A physical delete writes nothing.
 
 `RelationBody` binds membership lazily at the first admitted ordinary verb or
 tagged variant and caches it per variant. That binding owns literal requirements;

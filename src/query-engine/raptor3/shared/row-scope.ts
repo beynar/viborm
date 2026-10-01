@@ -33,10 +33,28 @@ export interface Tombstone {
   readonly assign: Input;
 }
 
+/** What the call's extensions write on one kind of write of one model. */
+export interface Stamp {
+  /**
+   * Scalar `data` input, as declared with the call's control values put in:
+   * constants and, on an update, the field's update operators.
+   */
+  readonly values: Input;
+  /** Which extension writes each field: a caller who writes it is refused. */
+  readonly owners: Readonly<Record<string, string>>;
+}
+
+/** A model's stamps: on every create, and on every update, tombstones too. */
+export interface ModelStamps {
+  readonly create?: Stamp;
+  readonly update?: Stamp;
+}
+
 /**
  * One root call's row facts, resolved from its controls outside the engine:
- * the engine never sees a control, a mode or an extension name. Objects are
- * shared by every call that resolves to the same facts.
+ * the engine never sees a control or a mode, and an extension's name only as
+ * the owner a refusal names. Objects are shared by every call that resolves
+ * to the same facts.
  */
 export interface CallRows {
   /** The domain the call's own controls select. */
@@ -48,6 +66,8 @@ export interface CallRows {
    * physically (its controls match the declaration's `removeWhen`).
    */
   readonly tombstones?: ReadonlyMap<string, Tombstone>;
+  /** Per model (its TS name), the fields its creates and updates write. */
+  readonly stamps?: ReadonlyMap<string, ModelStamps>;
 }
 
 /** The row facts one prepared call carries, and its one instant. */

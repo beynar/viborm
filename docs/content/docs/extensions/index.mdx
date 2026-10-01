@@ -1,6 +1,6 @@
 ---
 title: Extensions
-description: Extend request, query, statement, observation, client, and model boundaries, and declare arguments, visible rows, and what a delete does
+description: Extend request, query, statement, observation, client, and model boundaries, and declare arguments, visible rows, what a delete does, and fields an extension writes
 icon: puzzle
 ---
 
@@ -45,14 +45,15 @@ An extension has one name and any subset of nine capabilities:
 | `client` | Derived client proxy | Add typed dollar-prefixed methods |
 | `model` | Derived model delegate | Add typed model methods |
 | `controls` | Operation arguments | Declare an argument; only the declaring extension's handlers see its value |
-| `rows` | Which rows an operation sees | Constant row filters per model, chosen per call by one argument |
+| `rows` | Which rows an operation sees | Row filters per model, chosen per call by one argument, with the call's values |
 | `deletion` | What a delete does | Turn a delete of a model into an update with fixed data and the call's time |
+| `data` | Fields every create and update writes | Fixed values or the call's values, written by the extension, never by the caller |
 
 These are one extension language, not one universal hook. Request transforms
 are synchronous. Query interceptors are asynchronous and authoritative.
 Statement transforms are trusted low-level SQL rewrites. Observers are
 protected and failure-contained. Client and model factories change the static
-surface. `controls`, `rows` and `deletion` are plain data: core applies them at
+surface. `controls`, `rows`, `deletion` and `data` are plain data: core applies them at
 every place they concern, so an extension declares what it wants instead of
 rewriting queries.
 

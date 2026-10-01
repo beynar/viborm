@@ -3,6 +3,7 @@ import {
   NotFoundError,
   TransactionError,
   UnsupportedOperationError,
+  ValidationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
@@ -15,7 +16,7 @@ import {
   type SelectorFacts,
   wholeValue,
 } from "../shared/query";
-import type { RowPurpose } from "../shared/row-scope";
+import type { ModelStamps, RowPurpose } from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import { type Membership, physicalField } from "../shared/storage";
 import {
@@ -177,7 +178,10 @@ export interface Deletion {
    */
   values?: Input;
 }
-/** One occurrence's tombstone data: as generated, and as update admission made it. */
+/**
+ * One occurrence's tombstone data: as generated, and the scalar values update
+ * admission and the call's stamps made of it.
+ */
 export interface TombstoneData {
   readonly raw: Input;
   readonly admitted: Input;
@@ -329,6 +333,13 @@ export function isSeriesOccurrence(
   return occurrence.command.kind === "selectedSeries";
 }
 
+/**
+ * The data of an update that only moves a membership (a `connect` or `set`
+ * writing the row's foreign key): no extension stamps it, as no `updatedAt`
+ * moves there.
+ */
+export const MEMBERSHIP_MOVE: Input = Object.freeze({});
+
 /** Construction owns branch order; every storage consumer names exact produced fields. */
 export class Commands {
   private nextMutation = 0;
@@ -356,7 +367,7 @@ export class Commands {
       fields: new Assignments(
         model,
         "create",
-        this.context.schema.scalars(model, admitted),
+        this.stamp(model, "create", admitted, raw),
         raw,
         undefined,
         [],
@@ -384,7 +395,9 @@ export class Commands {
       fields: new Assignments(
         model,
         "update",
-        this.context.schema.scalars(model, admitted),
+        admitted === MEMBERSHIP_MOVE
+          ? {}
+          : this.stamp(model, "update", admitted, raw),
         raw,
         located.fields,
         undefined,
@@ -412,8 +425,9 @@ export class Commands {
    * What THIS occurrence of a delete of `model` writes instead of removing the
    * row: the declared constant data and the call's one instant, admitted once
    * through the model's update-data schema, which adds `updatedAt` and the set
-   * envelopes. `undefined` where the delete is physical: the model has no
-   * declaration, or the call's controls chose to delete physically.
+   * envelopes, with the call's update stamp: a tombstone is an update.
+   * `undefined` where the delete is physical: the model has no declaration,
+   * or the call's controls chose to delete physically.
    */
   tombstone(model: AnyModel): TombstoneData | undefined {
     const scope = this.context.scope;
@@ -423,7 +437,55 @@ export class Commands {
       tombstone.at === undefined
         ? tombstone.assign
         : { ...tombstone.assign, [tombstone.at]: scope.instant() };
-    return { raw, admitted: this.context.schema.update(model, raw, true) };
+    return {
+      raw,
+      admitted: this.stamp(
+        model,
+        "update",
+        this.context.schema.update(model, raw, true)
+      ),
+    };
+  }
+  /**
+   * One occurrence's scalar values (`schema.scalars` of its admitted data)
+   * with what the call's extensions write on every `kind` of `model`: their
+   * fields, admitted here once per occurrence per attempt through the model's
+   * update-data schema, as a tombstone is (a create takes each field's whole
+   * value), written over the occurrence's own. A field the caller wrote in
+   * `raw` is refused: the extension owns it.
+   */
+  stamp(
+    model: AnyModel,
+    kind: keyof ModelStamps,
+    admitted: Input,
+    raw?: Input
+  ): Input {
+    const name = model["~"].names.ts!;
+    const stamp = this.context.scope?.rows.stamps?.get(name)?.[kind];
+    if (stamp === undefined)
+      return this.context.schema.scalars(model, admitted);
+    const fields = Object.keys(stamp.values);
+    const taken = fields.find((field) => raw?.[field] !== undefined);
+    if (taken !== undefined) {
+      const extension = stamp.owners[taken];
+      throw new ValidationError(
+        { kind: "operation", operation: this.context.operation, model: name },
+        [
+          {
+            path: `data.${taken}`,
+            message: `Field "${taken}" is written by extension "${extension}"`,
+          },
+        ],
+        { meta: { model: name, extension } }
+      );
+    }
+    const values = this.context.schema.update(model, stamp.values, true);
+    const stamped = { ...admitted };
+    for (const field of fields) {
+      stamped[field] =
+        kind === "create" ? wholeValue(values[field])?.value : values[field];
+    }
+    return this.context.schema.scalars(model, stamped);
   }
   /**
    * A write's candidates: the caller's selector AND the call's domain for
@@ -1644,14 +1706,15 @@ export class Commands {
    */
   private rootUpdate(
     model: AnyModel,
-    args: Arguments
+    args: Arguments,
+    raw: Arguments
   ): (() => Promise<unknown>) | undefined {
     const ctx = this.context;
     if (ctx.schema.namesRelation(model, args.data)) return undefined;
     if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
     const projection = ctx.queries.prepareProjection(model, args);
     if (!returningSafeProjection(projection)) return undefined;
-    const values = ctx.schema.scalars(model, args.data);
+    const values = this.stamp(model, "update", args.data, raw.data);
     const selector = ctx.queries.candidates(
       ctx.queries.prepareSelector(model, args.where, true),
       "root"
@@ -1749,7 +1812,8 @@ export class Commands {
    */
   private rootUpsert(
     model: AnyModel,
-    args: Arguments
+    args: Arguments,
+    raw: Arguments
   ): PhysicalPlan | undefined {
     const ctx = this.context;
     const capabilities = ctx.driver.adapter.capabilities;
@@ -1761,14 +1825,14 @@ export class Commands {
       ctx.schema.namesRelation(model, args.update!)
     )
       return undefined;
-    const updates = ctx.schema.scalars(model, args.update!);
+    const updates = this.stamp(model, "update", args.update!, raw.update);
     const fields = Object.keys(updates);
     if (fields.length === 0) return undefined;
     if (ctx.schema.keys(model).some((key) => updates[key] !== undefined))
       return undefined;
     const projection = ctx.queries.prepareProjection(model, args);
     if (!returningSafeProjection(projection)) return undefined;
-    const values = ctx.schema.scalars(model, args.create!);
+    const values = this.stamp(model, "create", args.create!, raw.create);
     const missing = () =>
       ctx.createMany(model, [values], projection, false, () => {
         throw new TypeError("INSERT did not produce the required record");
@@ -1839,14 +1903,15 @@ export class Commands {
   }
   private rootCreate(
     model: AnyModel,
-    args: Arguments
+    args: Arguments,
+    raw: Arguments
   ): (() => Promise<unknown>) | undefined {
     const ctx = this.context;
     if (ctx.schema.namesRelation(model, args.data)) return undefined;
     if (!ctx.driver.adapter.capabilities.supportsReturning) return undefined;
     const projection = ctx.queries.prepareProjection(model, args);
     if (!returningSafeProjection(projection)) return undefined;
-    const values = ctx.schema.scalars(model, args.data);
+    const values = this.stamp(model, "create", args.data, raw.data);
     return () =>
       ctx.createMany(model, [values], projection, false, () => {
         throw new TypeError("INSERT did not produce the required record");
@@ -1866,11 +1931,11 @@ export class Commands {
     const returning = adapter.capabilities.supportsReturning;
     if (ctx.operation === "createMany") {
       const rows = entries(args.data);
+      const rawRows = entries(raw.data);
       const relationBearing = rows.some((row) =>
         model["~"].relationNames.some((name) => row[name] !== undefined)
       );
       if (relationBearing) {
-        const rawRows = entries(raw.data);
         const records = rows.map((row, index) => {
           const record = this.create(model, row, rawRows[index]!);
           if (args.skipDuplicates)
@@ -1892,7 +1957,9 @@ export class Commands {
         };
       }
       const projection = bulkProjection(ctx, model, args);
-      const values = rows.map((row) => ctx.schema.scalars(model, row));
+      const values = rows.map((row, index) =>
+        this.stamp(model, "create", row, rawRows[index])
+      );
       const recoverableSkip =
         args.skipDuplicates === true &&
         adapter.mutations.skipDuplicatesStrategy === "recoverableUniqueError";
@@ -1949,7 +2016,7 @@ export class Commands {
       );
     }
     if (ctx.operation === "upsert") {
-      const folded = this.rootUpsert(model, args);
+      const folded = this.rootUpsert(model, args, raw);
       if (folded) return folded;
       const missing = this.create(model, args.create!, raw.create!);
       missing.operation = "upsert";
@@ -2062,8 +2129,8 @@ export class Commands {
     if (ctx.operation === "create" || ctx.operation === "update") {
       const folded =
         ctx.operation === "update"
-          ? this.rootUpdate(model, args)
-          : this.rootCreate(model, args);
+          ? this.rootUpdate(model, args, raw)
+          : this.rootCreate(model, args, raw);
       if (folded) return { single: true, run: folded };
       const root =
         ctx.operation === "create"
@@ -2099,7 +2166,7 @@ export class Commands {
         ctx.queries.prepareSelector(model, args.where),
         "root"
       );
-      const values = ctx.schema.scalars(model, updateData);
+      const values = this.stamp(model, "update", updateData, raw.data);
       return {
         single: !projection || returning,
         run: () =>

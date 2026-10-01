@@ -1488,7 +1488,11 @@ export class CommandExecution {
               located,
               origin: series.mutation.origin,
               ...(raw && {
-                values: this.memberData(selection, membership, raw),
+                values: this.commands.stamp(
+                  selection.model,
+                  "update",
+                  this.memberData(selection, membership, raw)
+                ),
               }),
             };
           }

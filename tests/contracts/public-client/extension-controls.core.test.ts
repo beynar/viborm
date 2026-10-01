@@ -1113,6 +1113,108 @@ describe("controls: rows bound to the call", () => {
   });
 });
 
+describe("data: fields an extension writes", () => {
+  // Plan v4 §2.2. The engine's sites are witnessed on real databases
+  // (tests/contracts/engine/write/extension-data-behavior.ts); here, how a
+  // chain holds the declarations and how a call's values are put in.
+  const owned = <Values extends Record<string, unknown>>(
+    values: Values,
+    owner: string
+  ) => ({
+    values,
+    owners: Object.fromEntries(Object.keys(values).map((key) => [key, owner])),
+  });
+  const audit = {
+    post: {
+      create: owned({ createdBy: { control: "actor" }, source: "api" }, "a"),
+      update: owned({ version: { increment: 1 } }, "a"),
+    },
+    user: { update: owned({ name: "touched" }, "a") },
+  };
+
+  test("a stamp's control takes the call's value, kept per value; a field whose control the call did not pass is not written", () => {
+    const binding = bindRows(undefined, undefined, audit);
+    expect(binding.references).toEqual([["actor"]]);
+    const facts = callRows(binding, "post", { actor: "ann" });
+    const post = facts.stamps!.get("post")!;
+    expect(post.create!.values).toEqual({ createdBy: "ann", source: "api" });
+    expect(post.create!.owners).toBe(audit.post.create.owners);
+    expect(post.update).toBe(audit.post.update);
+    expect(facts.stamps!.get("user")).toBe(audit.user);
+    expect(callRows(binding, "post", { actor: "ann" })).toBe(facts);
+    const absent = callRows(binding, "post", undefined);
+    expect(absent.stamps!.get("post")!.create!.values).toEqual({
+      source: "api",
+    });
+  });
+
+  test("constant stamps keep the precomputed facts; bound rows leave them as declared", () => {
+    const constant = { user: audit.user };
+    const binding = bindRows(undefined, undefined, constant);
+    expect(binding.references).toEqual([[]]);
+    const facts = callRows(binding, "user", undefined);
+    expect(facts).toBe(binding.physical[0]);
+    expect(facts.stamps!.get("user")).toBe(audit.user);
+    const scoped = {
+      control: "scope",
+      default: "tenant",
+      models: { post: { tenant: { root: { tenantId: { control: "t" } } } } },
+    } as const;
+    const bound = bindRows([scoped], undefined, constant);
+    const tenant = callRows(bound, "post", { t: "acme" });
+    expect(tenant.domain.root.get("post")).toEqual([{ tenantId: "acme" }]);
+    expect(tenant.stamps).toBe(bound.physical[0]!.stamps);
+    // A tombstoning call writes them too: a tombstone is an update.
+    const managed = bindRows(
+      undefined,
+      { post: { extension: "managed", assign: {} } },
+      constant
+    );
+    expect(callRows(managed, "post", undefined).stamps!.get("user")).toBe(
+      audit.user
+    );
+  });
+
+  test("a chain merges every extension's fields per model and kind: a later extension wins a field and owns it", () => {
+    const first = appendResolvedExtension(
+      undefined,
+      {
+        name: "first",
+        data: { models: { post: { create: { title: "a", authorId: "u" } } } },
+      },
+      schema
+    );
+    const second = appendResolvedExtension(
+      first,
+      {
+        name: "second",
+        data: {
+          models: {
+            post: { create: { title: "b" }, update: { title: "c" } },
+            user: { update: { name: "d" } },
+          },
+        },
+      },
+      schema
+    );
+    expect(second.data!.post).toEqual({
+      create: {
+        values: { title: "b", authorId: "u" },
+        owners: { title: "second", authorId: "first" },
+      },
+      update: { values: { title: "c" }, owners: { title: "second" } },
+    });
+    expect(second.data!.user).toEqual({
+      update: { values: { name: "d" }, owners: { name: "second" } },
+    });
+    expect(second.callRows!.physical[0]!.stamps!.get("post")).toBe(
+      second.data!.post
+    );
+    const third = appendResolvedExtension(second, { name: "third" }, schema);
+    expect(third.callRows).toBe(second.callRows);
+  });
+});
+
 describe("controls: the order a chain takes", () => {
   test("rows cannot follow a result consumer", () => {
     const consumer = definitionClient().$extends({

@@ -2,7 +2,9 @@ import { isCanonicalKeyData, stableStringify } from "@cache/key";
 import type {
   CallRows,
   ModelDomain,
+  ModelStamps,
   RowDomain,
+  Stamp,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
@@ -28,9 +30,10 @@ interface BoundRowsMember {
 /**
  * A chain's row facts, resolved once when an extension is applied: one
  * {@link CallRows} per combination of its `rows` members' modes, with and
- * without the tombstones, so a call only looks its facts up. When the
- * combination's predicates, or the default ones, name a control, a call takes
- * those facts with its values put in, kept per combination and values.
+ * without the tombstones, each with the chain's `data` stamps, so a call only
+ * looks its facts up. When the combination's predicates, the default ones or
+ * the stamps name a control, a call takes those facts with its values put in,
+ * kept per combination and values.
  */
 export interface RowsBinding {
   readonly members: readonly BoundRowsMember[];
@@ -40,8 +43,9 @@ export interface RowsBinding {
   /** Indexed by mode combination: the call deletes physically. */
   readonly physical: readonly CallRows[];
   /**
-   * Indexed by mode combination: the controls its domain and the default
-   * domain name; empty when neither does, and the call takes the facts above.
+   * Indexed by mode combination: the controls its domain, the default domain
+   * and the stamps name; empty when none does, and the call takes the facts
+   * above.
    */
   readonly references: readonly (readonly string[])[];
   /** Facts with a call's values put in, by combination and values. */
@@ -94,9 +98,12 @@ function collectReferences(
   }
 }
 
-/** The controls a list of domains' predicates name. */
-function referencesOf(domains: readonly RowDomain[]): readonly string[] {
-  const names = new Set<string>();
+/** The controls a list of domains' predicates name, beside `named`. */
+function referencesOf(
+  domains: readonly RowDomain[],
+  named: ReadonlySet<string>
+): readonly string[] {
+  const names = new Set(named);
   for (const { root, related } of domains) {
     for (const list of [...root.values(), ...related.values()]) {
       for (const where of list) collectReferences(where, names, true);
@@ -173,6 +180,42 @@ function boundDomain(
     : Object.freeze({ root, related });
 }
 
+/**
+ * A stamp bound: a field whose value names a control the call did not pass is
+ * not written. The same object when no field names a control.
+ */
+function boundStamp(
+  stamp: Stamp | undefined,
+  controls: AdmittedControls | undefined
+): Stamp | undefined {
+  if (stamp === undefined) return undefined;
+  const values: Record<string, unknown> = {};
+  let changed = false;
+  for (const [field, value] of Object.entries(stamp.values)) {
+    const bound = boundValue(value, controls, false);
+    changed ||= bound !== value;
+    if (bound !== ABSENT) values[field] = bound;
+  }
+  return changed ? Object.freeze({ values, owners: stamp.owners }) : stamp;
+}
+
+/** Each model's stamps bound; the same map when none names a control. */
+function boundStamps(
+  stamps: ReadonlyMap<string, ModelStamps>,
+  controls: AdmittedControls | undefined
+): ReadonlyMap<string, ModelStamps> {
+  const bound = new Map<string, ModelStamps>();
+  let changed = false;
+  for (const [model, entry] of stamps) {
+    const create = boundStamp(entry.create, controls);
+    const update = boundStamp(entry.update, controls);
+    const same = create === entry.create && update === entry.update;
+    changed ||= !same;
+    bound.set(model, same ? entry : Object.freeze({ create, update }));
+  }
+  return changed ? bound : stamps;
+}
+
 function boundFacts(
   facts: CallRows,
   controls: AdmittedControls | undefined
@@ -185,6 +228,7 @@ function boundFacts(
       facts.defaults === facts.domain
         ? domain
         : boundDomain(facts.defaults, controls),
+    ...(facts.stamps && { stamps: boundStamps(facts.stamps, controls) }),
   });
 }
 
@@ -209,7 +253,8 @@ function modelDomain(
 
 export function bindRows(
   rows: readonly RowsContribution[] | undefined,
-  deletion: Readonly<Record<string, ResolvedDeletion>> | undefined
+  deletion: Readonly<Record<string, ResolvedDeletion>> | undefined,
+  data?: Readonly<Record<string, ModelStamps>>
 ): RowsBinding {
   const declared = rows ?? [];
   let stride = 1;
@@ -251,7 +296,15 @@ export function bindRows(
     ]!;
   const tombstones =
     deletion === undefined ? undefined : new Map(Object.entries(deletion));
-  const physical = domains.map((domain) => Object.freeze({ domain, defaults }));
+  const stamps = data === undefined ? undefined : new Map(Object.entries(data));
+  const stampReferences = new Set<string>();
+  for (const entry of stamps?.values() ?? []) {
+    collectReferences(entry.create?.values, stampReferences, true);
+    collectReferences(entry.update?.values, stampReferences, true);
+  }
+  const physical = domains.map((domain) =>
+    Object.freeze({ domain, defaults, ...(stamps && { stamps }) })
+  );
   return Object.freeze({
     members,
     deletion: deletion ?? NO_DELETION,
@@ -259,10 +312,10 @@ export function bindRows(
     tombstoning:
       tombstones === undefined
         ? physical
-        : domains.map((domain) =>
-            Object.freeze({ domain, defaults, tombstones })
-          ),
-    references: domains.map((domain) => referencesOf([domain, defaults])),
+        : physical.map((facts) => Object.freeze({ ...facts, tombstones })),
+    references: domains.map((domain) =>
+      referencesOf([domain, defaults], stampReferences)
+    ),
     bound: new Map(),
   });
 }

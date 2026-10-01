@@ -83,6 +83,25 @@ export type DeletionContribution = {
   };
 };
 
+/**
+ * Fields an extension writes on the models named here: `create` on every
+ * create of the model, `update` on every update of it, a soft delete's
+ * included. A value is a constant, `{ control: "<name>" }` for the value the
+ * call passed for that control (a call that passed none writes nothing
+ * there), or, on `update`, one of the field's update operators
+ * (`{ increment: 1 }`). A call that writes one of these fields itself is
+ * refused. Give such a field a default or make it nullable in the schema:
+ * the call's data is checked before the extension writes it.
+ */
+export type DataContribution = {
+  readonly models: {
+    readonly [model: string]: {
+      readonly create?: ScalarFields;
+      readonly update?: ScalarFields;
+    };
+  };
+};
+
 // =============================================================================
 // CONTROL STATE: what a chain's controls add to each (model, operation)
 // =============================================================================

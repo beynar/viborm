@@ -59,6 +59,7 @@ deliberately small so the query protocol is visible.
 | Accept a new call argument | `controls` | Declared values, checked once; only your handlers see them |
 | Hide rows from every query | `rows` | Filters per model, chosen per call, with the call's values |
 | Change what a delete does | `deletion` | An update with fixed data and the call's time |
+| Write fields on every create and update | `data` | Fixed values or the call's values, never the caller's |
 
 Do not put every concern into `query`. Each capability exposes only the facts
 and authority appropriate to its boundary.
@@ -385,10 +386,16 @@ export const tenancy = (models: readonly string[]) =>
         all: {}, // an operator's view: every tenant
       })),
     },
+    data: {
+      models: perModel(models, () => ({
+        create: { tenantId: { control: "tenant" } },
+      })),
+    },
   });
 
 const db = client.$extends(tenancy(["post", "comment"]));
 await db.post.findMany({ tenant: "acme" }); // acme's posts, and only acme's comments
+await db.post.create({ data: { title }, tenant: "acme" }); // tenantId is written for you
 await db.post.findMany({ tenant: "acme", scope: "all" }); // every tenant
 await db.post.findMany(); // ValidationError: control "tenant" is required
 ```
@@ -418,7 +425,8 @@ await db.post.findMany(); // ValidationError: control "tenant" is required
   for its call alone and skips the cache.
 - Pass the tenant from your own server's session, never from the request:
   the extension keeps a call inside the tenant it names, it does not check
-  that the caller may name it. `create` does not fill `tenantId` for you yet.
+  that the caller may name it. The `data` member writes `tenantId` on every
+  create (see below), so a caller cannot create a row in another tenant.
 
 ## Change what a delete does with `deletion`
 
@@ -451,6 +459,74 @@ that names no control is not caught and misbehaves at the first call.
 
 The official [soft delete](/docs/extensions/soft-delete) is these three
 capabilities plus two model methods.
+
+## Write fields with `data`
+
+For the models `data.models` names, the extension writes fields itself:
+`create` on every create of the model, `update` on every update of it. A value
+is a constant, `{ control: "<name>" }` for the value the call passed, or, for
+`update`, one of the field's update operators such as `{ increment: 1 }`.
+
+```ts
+export const audit = (models: readonly string[]) =>
+  defineExtension({
+    name: "audit",
+    controls: { actor: { schema: v.string(), required: true, on: "writes" } },
+    data: {
+      models: perModel(models, () => ({
+        create: { createdBy: { control: "actor" } },
+        update: { updatedBy: { control: "actor" } },
+      })),
+    },
+  });
+
+await db.post.create({ data: { title }, actor: "ann" }); // createdBy: "ann"
+await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updatedBy: "bob"
+```
+
+- Every create and update writes the fields: root and nested, one row or
+  many, `upsert` either way. A soft delete is an update, so it writes the
+  `update` fields too. A `connect` or `set` that only moves a foreign key
+  writes nothing, as it does not refresh `updatedAt` either. A delete that
+  stays physical writes nothing. Raw SQL is not touched.
+- A call that writes one of these fields itself is refused with a
+  `ValidationError` at `data.<field>` that names the extension. A field the
+  extension writes only on create can still be set by an update.
+- Make every field an extension writes nullable or give it a default in your
+  schema. The call's data is checked against the schema before the extension
+  adds the field, so a required field the call leaves out is refused as
+  missing. The field still appears in your create and update types; passing
+  it is refused when the call runs.
+- When two extensions write the same field of a model, the one applied later
+  wins. Each writes its other fields.
+- A field whose control the call did not pass is not written; mark the
+  control `required` when it must always be there, as audit does.
+
+Both capabilities together make an optimistic lock: the row is filtered on the
+version the call expects, and every update moves the version on.
+
+```ts
+export const optimisticLock = (models: readonly string[]) =>
+  defineExtension({
+    name: "optimisticLock",
+    controls: {
+      expectedVersion: { schema: v.number(), on: ["update", "delete"] },
+    },
+    rows: {
+      control: "versionCheck",
+      default: "checked",
+      models: perModel(models, () => ({
+        checked: { root: { version: { control: "expectedVersion" } } },
+        unchecked: {},
+      })),
+    },
+    data: {
+      models: perModel(models, () => ({ update: { version: { increment: 1 } } })),
+    },
+  });
+
+await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundError when the row moved on
+```
 
 ## Methods that call another extension's arguments
 

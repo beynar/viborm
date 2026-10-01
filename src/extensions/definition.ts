@@ -6,6 +6,7 @@ import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type {
   ControlsContribution,
+  DataContribution,
   DeletionContribution,
   RowsContribution,
 } from "./controls";
@@ -37,8 +38,8 @@ type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
 /**
  * One extension definition as the chain binds it: a host-owned frozen
- * snapshot of the six handler members, and `controls`, `rows` and `deletion`
- * as the definition wrote them.
+ * snapshot of the six handler members, and `controls`, `rows`, `deletion`
+ * and `data` as the definition wrote them.
  */
 export interface RuntimeExtensionDefinition {
   readonly name: string;
@@ -51,13 +52,14 @@ export interface RuntimeExtensionDefinition {
   readonly controls?: ControlsContribution;
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
+  readonly data?: DataContribution;
 }
 
 export type ControlLiteral = string | number | boolean;
 
 /**
- * What `$extends` hands the chain. `controls`, `rows` and `deletion` are
- * trusted as their types state them: TypeScript checks them where the
+ * What `$extends` hands the chain. `controls`, `rows`, `deletion` and `data`
+ * are trusted as their types state them: TypeScript checks them where the
  * definition is written, and nothing checks them at runtime (owner decision,
  * 2026-09-30). Every other member is read behind the boundary below.
  */
@@ -65,6 +67,7 @@ export type ExtensionDefinitionInput = Readonly<Record<string, unknown>> & {
   readonly controls?: ControlsContribution;
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
+  readonly data?: DataContribution;
 };
 
 const DEFINITION_KEYS = new Set([
@@ -78,6 +81,7 @@ const DEFINITION_KEYS = new Set([
   "controls",
   "rows",
   "deletion",
+  "data",
 ]);
 
 export function extensionError(message: string, extension?: string): never {
@@ -250,7 +254,8 @@ function snapshotModelFactories(
 /**
  * Read a caller-owned definition once. The six handler members are validated
  * and frozen as host-owned snapshots, so a failed application cannot mutate
- * the supplied value; `controls`, `rows` and `deletion` are bound as written.
+ * the supplied value; `controls`, `rows`, `deletion` and `data` are bound as
+ * written.
  */
 export function normalizeExtensionDefinition(
   value: ExtensionDefinitionInput,
@@ -319,7 +324,7 @@ export function normalizeExtensionDefinition(
     rawModel === undefined
       ? undefined
       : snapshotModelFactories(rawModel, name, schema);
-  const { controls, rows, deletion } = value;
+  const { controls, rows, deletion, data } = value;
 
   return Object.freeze({
     name,
@@ -332,6 +337,7 @@ export function normalizeExtensionDefinition(
     ...(controls ? { controls } : {}),
     ...(rows ? { rows } : {}),
     ...(deletion ? { deletion } : {}),
+    ...(data ? { data } : {}),
   });
 }
 
@@ -407,6 +413,7 @@ type ExtensionMembers<
   readonly controls?: ControlsContribution;
   readonly rows?: RowsContribution;
   readonly deletion?: DeletionContribution;
+  readonly data?: DataContribution;
   readonly client?: (
     scope: ExtensionClientScope<C, X>
   ) => ExtensionMethodRecord;

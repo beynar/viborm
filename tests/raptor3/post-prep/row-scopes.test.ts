@@ -212,7 +212,7 @@ describe("unique keys under a bound domain (SQLite3)", () => {
   const upsert = (id: number, tenant: string) =>
     ({
       where: { id },
-      create: { id, tenantId: tenant, title: "new" },
+      create: { id, title: "new" },
       update: { title: "upserted" },
       tenant,
     }) as const;

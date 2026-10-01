@@ -24,7 +24,7 @@ import type {
   SeriesOccurrence,
   SetMutation,
 } from "./commands";
-import { membershipRaceFailure } from "./commands";
+import { MEMBERSHIP_MOVE, membershipRaceFailure } from "./commands";
 import {
   type BoundMembership,
   membershipFields,
@@ -787,7 +787,16 @@ export class RelationBody {
               model: edge.target,
               selector,
               ...(verb === "updateMany" || tombstone
-                ? { values: context.schema.scalars(edge.target, data) }
+                ? {
+                    values: tombstone
+                      ? context.schema.scalars(edge.target, data)
+                      : this.commands.stamp(
+                          edge.target,
+                          "update",
+                          data,
+                          record(rawMembers[index]!.data)
+                        ),
+                  }
                 : {}),
               operation: verb,
               origin,
@@ -1036,7 +1045,7 @@ export class RelationBody {
     if (conditionalParentBinding && !conditionalParentBinding.target.found) {
       const { lookup } = conditionalParentBinding.target;
       conditionalParentBinding.target.found = this.commands.occurrence(
-        this.commands.update(lookup, {}, {}, true),
+        this.commands.update(lookup, MEMBERSHIP_MOVE, {}, true),
         "after"
       );
     }

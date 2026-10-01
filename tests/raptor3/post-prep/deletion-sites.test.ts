@@ -9,6 +9,7 @@
  */
 
 import { runDeletionCapabilityBehavior } from "@tests/contracts/engine/write/deletion-capability-behavior";
+import { runExtensionDataBehavior } from "@tests/contracts/engine/write/extension-data-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import {
   createBatchOnlySQLite3Driver,
@@ -26,6 +27,21 @@ describe("the deletion capability's sites", () => {
     createDriver: createBatchOnlySQLite3Driver,
   });
   runDeletionCapabilityBehavior({
+    name: "SQLite3 without RETURNING",
+    createDriver: createNonReturningSQLite3Driver,
+  });
+});
+
+describe("the data capability's sites", () => {
+  runExtensionDataBehavior({
+    name: "SQLite3",
+    createDriver: createInMemorySQLite3Driver,
+  });
+  runExtensionDataBehavior({
+    name: "SQLite3 batch-only",
+    createDriver: createBatchOnlySQLite3Driver,
+  });
+  runExtensionDataBehavior({
     name: "SQLite3 without RETURNING",
     createDriver: createNonReturningSQLite3Driver,
   });
