@@ -73,8 +73,9 @@ request of an isolate. Workers Logs reports CPU in whole milliseconds.
 ## Tear down
 
 ```bash
-for w in viborm-perf-viborm-now viborm-perf-viborm-before viborm-perf-drizzle; do cf workers delete "$w"; done
-cf d1 delete <database-id>
+# Deletes ask for confirmation; --force confirms them non-interactively.
+for w in viborm-perf-viborm-now viborm-perf-viborm-before viborm-perf-drizzle; do cf workers delete "$w" --force; done
+cf d1 delete <database-id> --force
 cf dns records list -z viborm.dev     # find the perf host's record id
-cf dns records delete <record-id> -z viborm.dev
+cf dns records delete <record-id> -z viborm.dev --force
 ```
