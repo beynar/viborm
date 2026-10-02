@@ -219,9 +219,11 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // the extension steps back where the caller writes the field or its
 // relation; the data capability's one refusal cell became one create-site
 // and one update-site cell (+1 on each of three drivers), and the two
-// refusal cells of the required field became the two step-back cells.
+// refusal cells of the required field became the two step-back cells. S2
+// (owner ruling 2026-10-02): a limited deleteMany or updateMany takes the
+// first rows by key, hard or soft (+1 on each of three drivers).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 102,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 105,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)

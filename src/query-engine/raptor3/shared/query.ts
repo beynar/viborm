@@ -1788,20 +1788,22 @@ export class Queries {
     const mutated = model["~"].names.sql!;
     if (limit === undefined)
       return { where: this.lowerSelector(selector, mutated, mutated) };
-    if (adapter.capabilities.supportsMutationRowLimit)
-      return {
-        where: this.lowerSelector(selector, mutated, mutated),
-        suffix: adapter.clauses.limit(this.value(limit)),
-      };
-    return { where: this.capped(selector, limit, false) };
+    // A limited write takes the first `limit` rows in key order, the order a
+    // read's `take` completes with: every path picks the same rows. MySQL,
+    // which refuses a `LIMIT` inside `IN`, states it on the statement itself.
+    if (!adapter.capabilities.supportsMutationRowLimit)
+      return { where: this.capped(selector, limit) };
+    return {
+      where: this.lowerSelector(selector, mutated, mutated),
+      suffix: sql`${adapter.clauses.orderBy(this.ascendingKeys(model))} ${adapter.clauses.limit(this.value(limit))}`,
+    };
   }
   /**
    * The first `limit` rows of `selector` in key order, as prepared meaning: a
    * limited window two statements of one atomic unit both name — a premise
    * about the window, then the effect over it — and agree on by construction,
-   * because a total order leaves the same data one answer. An unordered
-   * `LIMIT` leaves the provider free to answer each statement differently.
-   * Its rows are rows of `selector`, so the selector's facts hold for them.
+   * because a total order leaves the same data one answer. Its rows are rows
+   * of `selector`, so the selector's facts hold for them.
    */
   window(selector: PreparedSelector, limit: number): PreparedSelector {
     return Object.freeze({
@@ -1817,7 +1819,7 @@ export class Queries {
    */
   through(model: AnyModel, last: Input): PreparedSelector {
     const facts = newSelectorFacts(false);
-    for (const field of this.schema.keys(model)) facts.fields.add(field);
+    for (const field of this.keyOrder(model)) facts.fields.add(field);
     return Object.freeze({
       model,
       facts,
@@ -1825,39 +1827,42 @@ export class Queries {
     });
   }
   /**
-   * `<keys> IN (SELECT <keys> FROM <model> WHERE <selector> [ORDER BY <keys>]
-   * LIMIT <limit>)`, the keys outside addressed through `alias`: a mutation's
-   * limit where the provider has no `UPDATE … LIMIT`, and a {@link window}.
+   * `<keys> IN (SELECT <keys> FROM <model> WHERE <selector> ORDER BY <keys>
+   * LIMIT <limit>)`, the keys outside addressed through `alias`: the first
+   * `limit` rows in key order, a mutation's limit where the provider has no
+   * `UPDATE … LIMIT`, and a {@link window}.
    */
   private capped(
     selector: PreparedSelector,
     limit: number,
-    ordered: boolean,
     alias?: string
   ): Sql {
     const adapter = this.adapter;
     const model = selector.model;
     const inner = this.alias();
-    const keys = this.schema.keys(model);
-    const targetColumns = keys.map((field) => this.column(model, field, alias));
-    const selectedColumns = keys.map((field) =>
-      this.column(model, field, inner)
-    );
+    const keys = this.keyOrder(model);
     const capped = assembleAdapterSelect(adapter, {
-      columns: sql.join(selectedColumns, ", "),
+      columns: sql.join(
+        keys.map((field) => this.column(model, field, inner)),
+        ", "
+      ),
       from: this.table(model, inner),
       where: this.lowerSelector(selector, inner),
-      orderBy: ordered
-        ? sql.join(
-            selectedColumns.map((column) => adapter.orderBy.asc(column)),
-            ", "
-          )
-        : undefined,
+      orderBy: this.ascendingKeys(model, inner),
       limit: this.value(limit),
     });
     return adapter.operators.in(
-      rowValue(targetColumns),
+      rowValue(keys.map((field) => this.column(model, field, alias))),
       adapter.subqueries.scalar(capped)
+    );
+  }
+  /** `<key> ASC, …` in {@link keyOrder}, the keys addressed through `alias`. */
+  private ascendingKeys(model: AnyModel, alias?: string): Sql {
+    return sql.join(
+      this.keyOrder(model).map((field) =>
+        this.adapter.orderBy.asc(this.column(model, field, alias))
+      ),
+      ", "
     );
   }
   lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
@@ -2455,10 +2460,10 @@ export class Queries {
       case "relation":
         return this.lowerRelationPredicate(predicate, alias, mutationTarget);
       case "window":
-        return this.capped(predicate.selector, predicate.limit, true, alias);
+        return this.capped(predicate.selector, predicate.limit, alias);
       case "through": {
         const { model, last } = predicate;
-        const keys = this.schema.keys(model);
+        const keys = this.keyOrder(model);
         return a.operators.lte(
           rowValue(keys.map((field) => this.column(model, field, alias))),
           rowValue(
@@ -3366,7 +3371,7 @@ export class Queries {
     for (const term of terms) {
       if (term.field !== undefined) ordered.add(term.field);
     }
-    const identity = this.identityOrder(model);
+    const identity = this.keyOrder(model);
     const completion =
       cursorFields.length === 0 ? identity : [...identity, ...cursorFields];
     for (const field of completion) {
@@ -3385,8 +3390,12 @@ export class Queries {
     }
     return terms;
   }
-  /** The cursor's tie-break identity: a bare scalar id, else the row key. */
-  private identityOrder(model: AnyModel): readonly string[] {
+  /**
+   * The model's key order: a bare scalar id, else the row key's fields in
+   * declaration order. A windowed read's tie-break, and the order a limited
+   * write takes its rows in ({@link capped}, {@link through}).
+   */
+  keyOrder(model: AnyModel): readonly string[] {
     const catalog = getModelKeyCatalog(model);
     const bare = catalog.addressableKeys.find(
       (key) => key.kind === "primary" && key.name === undefined

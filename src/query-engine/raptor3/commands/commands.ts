@@ -1735,9 +1735,8 @@ export class Commands {
    * A `limit` makes the premise and the effect name ONE window, the first
    * `limit` candidates in key order, so a reference outside it does not refuse
    * the delete and one inside it does: the refusal the database gives a hard
-   * delete of those same rows. The hard delete and a model without such a slot
-   * take the provider's first `limit` rows instead, unordered; the windows
-   * agree where the provider's order is key order. An interactive session
+   * delete of those same rows, which every limited write takes in that order
+   * too (`Queries.lowerMutationLimit`). An interactive session
    * READS the window — the lock below, limited — and both statements take the
    * candidates up to its last key ({@link Queries.through}), one bound value
    * per key however long it is; a row that becomes a candidate below that key

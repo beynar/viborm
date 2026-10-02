@@ -1409,7 +1409,8 @@ export class CommandExecution {
         }),
       };
     }
-    const keys = ctx.schema.keys(selection.model);
+    // Key order, as every limited write takes its rows (`Queries.keyOrder`).
+    const keys = ctx.queries.keyOrder(selection.model);
     const rows = await ctx.read(
       ctx.queries.select(
         selection.model,

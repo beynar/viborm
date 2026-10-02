@@ -118,10 +118,18 @@ an interactive session reads and locks the window and both take the candidates
 up to its last key (`Queries.through`, a row-value `<=`: one bound value per
 key however long the window); a batch states `Queries.window` (`keys IN
 (SELECT … ORDER BY keys LIMIT n)`) in both statements, whose total order gives
-the one atomic unit one answer. The hard delete and a tombstone on a model
-without a restricting slot take the provider's first `limit` rows, unordered:
-the windows agree only where the provider's order is key order. Nested
-`deleteMany` takes no `limit`. The requirement's
+the one atomic unit one answer. Every limited set write takes the same
+rows, the first `limit` in key order (owner ruling 2026-10-02: "like we do
+in findMany we order shallowly by id"): the hard delete, a tombstone without a
+restricting slot, `updateMany`, and the per-row capture of a relation-bearing
+`updateMany`. `Queries.lowerMutationLimit` owns the spelling: the ordered
+keyed subquery (`Queries.capped`, which `Queries.window` lowers to as well),
+or `ORDER BY keys LIMIT n` on the statement itself where the provider has
+`UPDATE … LIMIT` (MySQL, which refuses a `LIMIT` inside `IN`). Key order is
+`Queries.keyOrder`, the tie-break a read's `take` completes with: a bare
+scalar id, else the row key's fields in DECLARATION order, which is not the
+constraint's order when `.id([...])` lists them otherwise; `Queries.through`
+compares in it too. Nested `deleteMany` takes no `limit`. The requirement's
 slots are `EngineSchema.restrictingSlots`, read from the migration
 serializer's own ON DELETE owners, and its relation predicates are `unscoped`:
 they read the child model's default related domain, whatever the call chose.

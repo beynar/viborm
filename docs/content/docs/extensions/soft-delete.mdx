@@ -164,6 +164,10 @@ write the tombstone instead of removing the row:
   live rows it tombstoned.
 - A delete only takes **live** rows, whatever `deleted` says. Deleting a
   tombstone again is `NotFoundError`, as deleting a missing row is.
+- `deleteMany` with `limit` takes the first live rows by id: `limit: 10`
+  tombstones the ten first rows not deleted already, ordered by primary key,
+  the rows `mode: "hard"` would delete on the same data. The live-child check
+  looks only at those rows.
 - Nothing cascades and no link is removed: foreign keys, join-table rows and
   memberships stay, so a restore brings the row back with its relations.
 - `updatedAt` fields are refreshed, as by any update.

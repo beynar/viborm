@@ -85,6 +85,21 @@ Versioning.
   `renderOperationResultType` stay schema-only. `Client`'s
   optional third type parameter is now the chain's controls (see "Changed
   (types)" below), and `$withCache()` accepts the chain's controls.
+- **Behaviour change: a limited `deleteMany` or `updateMany` takes the first
+  rows by id.** `limit: n` now takes the first `n` matching rows ordered by
+  primary key, ascending (a compound key field by field, in the order the
+  model declares them), as `findMany` with `take` and no `orderBy` does. Before,
+  it took whichever rows the database reached first, which differed between
+  databases and could differ between the hard and the soft delete of the same
+  rows. Now every path picks the same rows: a hard delete, a soft delete with
+  or without a restricting child (skipping rows deleted already), a scalar
+  update, an update whose `data` carries a relation, inside
+  `$transaction([...])`, and with or without `RETURNING`. The SQL gains an
+  `ORDER BY` on the primary key: inside the key subquery on PostgreSQL and
+  SQLite, and on the statement itself on MySQL. On a compound key whose
+  `.id([...])` lists the fields in another order than the model declares
+  them, an update whose `data` carries a relation now runs its rows in that
+  declaration order too.
 - **Changed (types): extension typing for plugins generic over their client.**
   Inside a function generic over `VibORMClient<C, X>`, index a model with
   `M[K & keyof M]`: `VibORMClient<C, X>["post"]` is now a TypeScript error

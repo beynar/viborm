@@ -27,12 +27,14 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * FK, default RESTRICT); `post` <- `comment.post` (RESTRICT), `note.post`
  * (optional, RESTRICT), `vote.post` (CASCADE), `pin.post` (optional, default
  * SET NULL), and the `post`/`tag` junction whose post-side key RESTRICTs.
- * `shelf`, keyed by `(a, b)`, <- `book.shelf` (RESTRICT, both columns).
- * `author`, `post`, `comment` and `shelf` are managed. Rows: authors 1-3; posts 10, 11,
- * 14 (author 1), 12 (tombstone), 13 (author 2), 15, 16 (author 3); comments
- * 100 (post 10), 101 and 102 (tombstones, posts 10 and 12); tag 1 links post
- * 13; vote 1 and pin 1 on post 11; notes 1 (post 15), 2 and 4 (post 16), 3
- * (none).
+ * `shelf`, keyed by `(b, a)` and key-ordered by `(a, b)`, <- `book.shelf`
+ * (RESTRICT, both columns); `folder` <- `file.folder` (RESTRICT); `entry`,
+ * referenced by nothing. `author`, `post`, `comment`, `shelf`, `entry` and
+ * `folder` are managed. Rows: authors 1-3; posts 10, 11, 14 (author 1), 12
+ * (tombstone), 13 (author 2), 15, 16 (author 3); comments 100 (post 10), 101
+ * and 102 (tombstones, posts 10 and 12); tag 1 links post 13; vote 1 and pin 1
+ * on post 11; notes 1 (post 15), 2 and 4 (post 16), 3 (none); entries and
+ * folders "1"-"5", inserted "5", "3", "1", "4", "2"; file 1 (folder "3").
  */
 
 const T = new Date("2026-01-01T00:00:00.000Z");
@@ -42,6 +44,8 @@ const UPDATE_STATEMENT = /^\s*UPDATE\b/i;
 const TOMBSTONE_WRITE = /^\s*UPDATE\s+\S+\s+SET\s+["`]?deletedAt\b/i;
 const ACTOR = "actor-1";
 const QUOTED_NAME = /'[^']+'/g;
+/** Entry and folder keys, in insertion order. */
+const KEYS_OUT_OF_ORDER = ["5", "3", "1", "4", "2"] as const;
 
 function deletionSchema(ledger: string[]) {
   const author = s.model({
@@ -123,6 +127,8 @@ function deletionSchema(ledger: string[]) {
       .references("id"),
   });
   // A composite key, and a child that RESTRICTs through both of its columns.
+  // The constraint lists `b` first; key order is the declaration order, `a`
+  // then `b`, as a read's `take` completes with.
   const shelf = s
     .model({
       a: s.int(),
@@ -130,7 +136,7 @@ function deletionSchema(ledger: string[]) {
       deletedAt: s.dateTime().nullable(),
       books: s.toMany(() => book),
     })
-    .id(["a", "b"]);
+    .id(["b", "a"]);
   const book = s.model({
     id: s.int().id(),
     shelfA: s.int(),
@@ -141,7 +147,41 @@ function deletionSchema(ledger: string[]) {
       .references("a", "b")
       .onDelete("restrict"),
   });
-  return { author, post, comment, tag, vote, note, pin, shelf, book };
+  // String keys, inserted out of key order: storage order is not key order.
+  // `entry` has no restricting child; `folder` is restricted by `file`.
+  const entry = s.model({
+    id: s.string().id(),
+    body: s.string(),
+    deletedAt: s.dateTime().nullable(),
+  });
+  const folder = s.model({
+    id: s.string().id(),
+    deletedAt: s.dateTime().nullable(),
+    files: s.toMany(() => file),
+  });
+  const file = s.model({
+    id: s.int().id(),
+    folderId: s.string(),
+    folder: s
+      .toOne(() => folder)
+      .fields("folderId")
+      .references("id")
+      .onDelete("restrict"),
+  });
+  return {
+    author,
+    post,
+    comment,
+    tag,
+    vote,
+    note,
+    pin,
+    shelf,
+    book,
+    entry,
+    folder,
+    file,
+  };
 }
 
 const modes = {
@@ -157,7 +197,14 @@ const softDelete = {
   rows: {
     control: "deleted",
     default: "without",
-    models: { author: modes, post: modes, comment: modes, shelf: modes },
+    models: {
+      author: modes,
+      post: modes,
+      comment: modes,
+      shelf: modes,
+      entry: modes,
+      folder: modes,
+    },
   },
   deletion: {
     removeWhen: { mode: "hard" },
@@ -166,6 +213,8 @@ const softDelete = {
       post: { at: "deletedAt", assign: { deletedById: ACTOR } },
       comment: { at: "deletedAt" },
       shelf: { at: "deletedAt" },
+      entry: { at: "deletedAt" },
+      folder: { at: "deletedAt" },
     },
   },
 } as const;
@@ -222,6 +271,11 @@ export async function openDeletionFixture(driver: AnyDriver) {
     [4, 16],
   ] as const)
     await base.note.create({ data: { id, postId } });
+  for (const id of KEYS_OUT_OF_ORDER) {
+    await base.entry.create({ data: { id, body: `e${id}` } });
+    await base.folder.create({ data: { id } });
+  }
+  await base.file.create({ data: { id: 1, folderId: "3" } });
   const db = base
     .$extends({
       name: "test.statements",
@@ -837,7 +891,8 @@ export function runDeletionCapabilityBehavior(
         await db.post.deleteMany({ where: { id: { gte: 5000 } }, limit: 10 })
       ).toEqual({ count: 0 });
       // A composite key: shelves (1, 1-300) and (2, 1-300); book 1 holds
-      // (2, 250). Key order puts (1, *) and (2, 1-200) in a window of 500.
+      // (2, 250). Key order, `a` then `b` though the constraint lists `b`
+      // first, puts (1, *) and (2, 1-200) in a window of 500.
       await base.shelf.createMany({
         data: [1, 2].flatMap((a) =>
           Array.from({ length: 300 }, (_, index) => ({ a, b: index + 1 }))
@@ -859,6 +914,84 @@ export function runDeletionCapabilityBehavior(
         })
       ).toEqual([{ a: 2, b: 201 }]);
       expect(physicalDeletes()).toEqual([]);
+    });
+
+    // Owner ruling (2026-10-02): a limited deleteMany takes the first `limit`
+    // rows the call may take ordered by key, as findMany's `take` does; for a
+    // soft delete, the rows not tombstoned already. Entries and folders were
+    // inserted "5", "3", "1", "4", "2", so storage order is not key order.
+    test("a limited deleteMany or updateMany takes the first `limit` rows by key, hard or soft, with or without a restricting child", async () => {
+      const { base, db } = context;
+      const sorted = (rows: readonly { id: string }[]) =>
+        rows.map((row) => row.id).sort();
+      const state = async (model: "entry" | "folder") =>
+        (
+          await (model === "entry"
+            ? base.entry.findMany({ orderBy: { id: "asc" } })
+            : base.folder.findMany({ orderBy: { id: "asc" } }))
+        ).map((row) => `${row.id}${row.deletedAt ? " tombstone" : ""}`);
+      // No restricting child. Hard: "1" and "2" go.
+      expect(await db.entry.deleteMany({ limit: 2, mode: "hard" })).toEqual({
+        count: 2,
+      });
+      expect(await state("entry")).toEqual(["3", "4", "5"]);
+      // The same data again, "1" and "2" now stored last; soft: the same two.
+      for (const id of ["1", "2"])
+        await base.entry.create({ data: { id, body: `e${id}` } });
+      expect(
+        sorted(await db.entry.deleteMany({ limit: 2, select: { id: true } }))
+      ).toEqual(["1", "2"]);
+      // A tombstone is not a candidate: the next live rows by key, "3" for
+      // the delete, "4" for the update, then "4" inside an array transaction.
+      expect(await db.entry.deleteMany({ limit: 1 })).toEqual({ count: 1 });
+      expect(
+        await db.entry.updateMany({ data: { body: "picked" }, limit: 1 })
+      ).toEqual({ count: 1 });
+      expect(
+        (await base.entry.findMany({ where: { body: "picked" } })).map(
+          (row) => row.id
+        )
+      ).toEqual(["4"]);
+      expect(
+        await db.$transaction([db.entry.deleteMany({ limit: 1 })])
+      ).toEqual([{ count: 1 }]);
+      expect(await state("entry")).toEqual([
+        "1 tombstone",
+        "2 tombstone",
+        "3 tombstone",
+        "4 tombstone",
+        "5",
+      ]);
+      // A restricting child: file 1 holds folder "3", outside a window of two.
+      expect(await db.folder.deleteMany({ limit: 2, mode: "hard" })).toEqual({
+        count: 2,
+      });
+      expect(await state("folder")).toEqual(["3", "4", "5"]);
+      for (const id of ["1", "2"]) await base.folder.create({ data: { id } });
+      expect(
+        sorted(await db.folder.deleteMany({ limit: 2, select: { id: true } }))
+      ).toEqual(["1", "2"]);
+      // The next window is "3" and "4": the soft and the hard delete are both
+      // refused, alone and inside an array transaction.
+      for (const mode of ["soft", "hard"] as const) {
+        expect(
+          await failure(db.folder.deleteMany({ limit: 2, mode }))
+        ).toBeInstanceOf(ForeignKeyError);
+        expect(
+          await failure(
+            db.$transaction([db.folder.deleteMany({ limit: 1, mode })])
+          )
+        ).toBeInstanceOf(ForeignKeyError);
+      }
+      await base.file.deleteMany({});
+      expect(await db.folder.deleteMany({ limit: 2 })).toEqual({ count: 2 });
+      expect(await state("folder")).toEqual([
+        "1 tombstone",
+        "2 tombstone",
+        "3 tombstone",
+        "4 tombstone",
+        "5",
+      ]);
     });
 
     test("set over a required foreign key keeps today's refusal, and removes no target row", async () => {

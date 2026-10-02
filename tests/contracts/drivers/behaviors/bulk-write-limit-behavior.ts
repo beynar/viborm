@@ -28,21 +28,29 @@ const depot = s
     id: s.string().id(),
     region: s.string(),
     crates: s.toMany(() => crate),
+    shipments: s.toMany(() => shipment),
   })
   .map("limit_depots");
 
 /**
  * A compound primary key, which is the shape that decides whether the
  * PK-subquery form of `limit` is portable at all: PostgreSQL and SQLite have to
- * accept the row-value spelling `(a, b) IN (SELECT a, b …)`.
+ * accept the row-value spelling `(a, b) IN (SELECT a, b … ORDER BY a, b)`. The
+ * constraint lists `code` first; key order is the declaration order,
+ * `tenantId` then `code`, as `findMany`'s `take` completes with.
  */
 const shipment = s
   .model({
     tenantId: s.string(),
     code: s.string(),
     tag: s.string(),
+    depotId: s.string().nullable(),
+    depot: s
+      .toOne(() => depot)
+      .fields("depotId")
+      .references("id"),
   })
-  .id(["tenantId", "code"])
+  .id(["code", "tenantId"])
   .map("limit_shipments");
 
 const schema = { crate, depot, shipment };
@@ -59,24 +67,22 @@ export interface BulkWriteLimitBehaviorOptions {
 /**
  * `updateMany` / `deleteMany` `limit` (Prisma 6.x), per driver.
  *
- * THE CONTRACT IS "HOW MANY", NOT "WHICH". `limit` caps the number of affected
- * rows at `min(matching, limit)`; it does not say which of the matching rows get
- * picked, because a bulk write takes no `orderBy` — Prisma's own `limit` has the
- * same hole. Every assertion below is therefore written against the CARDINALITY
- * and against membership in the matching set. Nothing asserts identity, and
- * nothing may start to: the dialects reach the cap by different means (MySQL's
- * native `UPDATE … LIMIT n`, a primary-key subquery everywhere else), so a test
- * that pinned "the first two by id" would pass on PostgreSQL/SQLite and fail on
- * MySQL for a reason that is not a defect.
+ * `limit` takes the first `limit` matching rows ordered by primary key,
+ * ascending (a compound key in declaration order), as `findMany`'s `take`
+ * does without an `orderBy` (owner ruling, 2026-10-02). Every dialect states
+ * the order: an ordered primary-key subquery on PostgreSQL and SQLite, and
+ * `UPDATE/DELETE … ORDER BY <key> LIMIT n` on MySQL, which refuses a `LIMIT`
+ * inside `IN`. The seeds below insert rows OUT of key order, so a limit that
+ * read the table in storage order would pick other rows.
  *
- * What IS portable and is pinned here:
- *  - the count is `min(matching, limit)` in all three orderings of the pair;
+ * Pinned here:
+ *  - the count is `min(matching, limit)`, and the rows taken are the first
+ *    ones by key;
  *  - `limit: 0` affects nothing and returns `{ count: 0 }` / `[]`;
  *  - rows outside the `where` are never touched, at any limit;
  *  - a relation filter composes with the cap (this is the MySQL ERROR 1093 case:
- *    the derived-table wrapper and the native LIMIT have to coexist);
- *  - the `select` arm returns EXACTLY the affected rows, so its length is the
- *    same `min(matching, limit)` and its rows are the ones that actually changed;
+ *    the derived-table wrapper and the ordered native LIMIT have to coexist);
+ *  - the `select` arm returns EXACTLY the affected rows;
  *  - a compound primary key works, which is what the row-value `IN` is for.
  */
 export function runBulkWriteLimitBehavior({
@@ -99,17 +105,20 @@ export function runBulkWriteLimitBehavior({
       }
     });
 
-    /** Five "keep" rows and two "other" rows that no `where` below matches. */
+    /**
+     * Five "keep" rows and two "other" rows that no `where` below matches,
+     * inserted out of key order.
+     */
     const seedCrates = async () => {
       await client!.crate.createMany({
         data: [
-          { id: "c1", tag: "keep", qty: 1 },
-          { id: "c2", tag: "keep", qty: 2 },
-          { id: "c3", tag: "keep", qty: 3 },
-          { id: "c4", tag: "keep", qty: 4 },
-          { id: "c5", tag: "keep", qty: 5 },
-          { id: "o1", tag: "other", qty: 6 },
           { id: "o2", tag: "other", qty: 7 },
+          { id: "c5", tag: "keep", qty: 5 },
+          { id: "c3", tag: "keep", qty: 3 },
+          { id: "c1", tag: "keep", qty: 1 },
+          { id: "o1", tag: "other", qty: 6 },
+          { id: "c4", tag: "keep", qty: 4 },
+          { id: "c2", tag: "keep", qty: 2 },
         ],
       });
     };
@@ -127,7 +136,7 @@ export function runBulkWriteLimitBehavior({
     // deleteMany
     // -----------------------------------------------------------------------
 
-    test("deleteMany limit below the matching count removes exactly limit rows", async () => {
+    test("deleteMany limit below the matching count removes the first limit rows by key", async () => {
       await seedCrates();
 
       const result = await client!.crate.deleteMany({
@@ -136,9 +145,7 @@ export function runBulkWriteLimitBehavior({
       });
       expect(result).toEqual({ count: 2 });
 
-      // Three of the five survive — WHICH three is not part of the contract.
-      const survivors = await crateIds({ tag: "keep" });
-      expect(survivors).toHaveLength(3);
+      expect(await crateIds({ tag: "keep" })).toEqual(["c3", "c4", "c5"]);
       // …and the cap never reached outside the filter.
       expect(await crateIds({ tag: "other" })).toEqual(["o1", "o2"]);
     });
@@ -183,14 +190,14 @@ export function runBulkWriteLimitBehavior({
       expect(await client!.crate.deleteMany({ limit: 3 })).toEqual({
         count: 3,
       });
-      expect(await client!.crate.count({})).toBe(4);
+      expect(await crateIds({})).toEqual(["c4", "c5", "o1", "o2"]);
     });
 
     // -----------------------------------------------------------------------
     // updateMany
     // -----------------------------------------------------------------------
 
-    test("updateMany limit below the matching count updates exactly limit rows", async () => {
+    test("updateMany limit below the matching count updates the first limit rows by key", async () => {
       await seedCrates();
 
       const result = await client!.crate.updateMany({
@@ -200,13 +207,8 @@ export function runBulkWriteLimitBehavior({
       });
       expect(result).toEqual({ count: 2 });
 
-      const moved = await crateIds({ tag: "moved" });
-      expect(moved).toHaveLength(2);
-      // Every row the cap picked came from the matching set.
-      for (const id of moved) {
-        expect(["c1", "c2", "c3", "c4", "c5"]).toContain(id);
-      }
-      expect(await crateIds({ tag: "keep" })).toHaveLength(3);
+      expect(await crateIds({ tag: "moved" })).toEqual(["c1", "c2"]);
+      expect(await crateIds({ tag: "keep" })).toEqual(["c3", "c4", "c5"]);
       expect(await crateIds({ tag: "other" })).toEqual(["o1", "o2"]);
     });
 
@@ -258,15 +260,17 @@ export function runBulkWriteLimitBehavior({
         })
       ).toEqual({ count: 2 });
 
-      const bumped = await client!.crate.findMany({
-        where: { qty: { gte: 100 } },
-        select: { id: true, qty: true },
-      });
-      expect(bumped).toHaveLength(2);
-      // The increment applied once, not once per candidate row.
-      for (const row of bumped) {
-        expect(row.qty).toBeLessThan(200);
-      }
+      // The first two by key, incremented once each.
+      expect(
+        await client!.crate.findMany({
+          where: { qty: { gte: 100 } },
+          select: { id: true, qty: true },
+          orderBy: { id: "asc" },
+        })
+      ).toEqual([
+        { id: "c1", qty: 101 },
+        { id: "c2", qty: 102 },
+      ]);
     });
 
     // -----------------------------------------------------------------------
@@ -282,10 +286,10 @@ export function runBulkWriteLimitBehavior({
       });
       await client!.crate.createMany({
         data: [
-          { id: "n1", tag: "keep", qty: 1, depotId: "d1" },
-          { id: "n2", tag: "keep", qty: 2, depotId: "d1" },
           { id: "n3", tag: "keep", qty: 3, depotId: "d1" },
           { id: "s1", tag: "keep", qty: 4, depotId: "d2" },
+          { id: "n2", tag: "keep", qty: 2, depotId: "d1" },
+          { id: "n1", tag: "keep", qty: 1, depotId: "d1" },
         ],
       });
     };
@@ -303,11 +307,7 @@ export function runBulkWriteLimitBehavior({
         })
       ).toEqual({ count: 2 });
 
-      const picked = await crateIds({ tag: "picked" });
-      expect(picked).toHaveLength(2);
-      for (const id of picked) {
-        expect(["n1", "n2", "n3"]).toContain(id);
-      }
+      expect(await crateIds({ tag: "picked" })).toEqual(["n1", "n2"]);
       // The southern crate was never a candidate.
       expect(await crateIds({ depotId: "d2" })).toEqual(["s1"]);
     });
@@ -322,8 +322,56 @@ export function runBulkWriteLimitBehavior({
         })
       ).toEqual({ count: 1 });
 
-      expect(await crateIds({ depotId: "d1" })).toHaveLength(2);
+      expect(await crateIds({ depotId: "d1" })).toEqual(["n2", "n3"]);
       expect(await crateIds({ depotId: "d2" })).toEqual(["s1"]);
+    });
+
+    test("a relation-bearing updateMany limit takes the same first rows by key as the scalar form", async () => {
+      await client!.depot.create({ data: { id: "d1", region: "north" } });
+      await seedCrates();
+
+      // Captured row by row, in key order.
+      expect(
+        await client!.crate.updateMany({
+          where: { tag: "keep" },
+          data: { tag: "linked", depot: { connect: { id: "d1" } } },
+          limit: 2,
+        })
+      ).toEqual({ count: 2 });
+      expect(await crateIds({ depotId: "d1" })).toEqual(["c1", "c2"]);
+
+      // A compound key whose constraint lists `code` first: both forms take
+      // (t1, a) and (t1, b), the declaration order.
+      await client!.shipment.createMany({
+        data: [
+          { tenantId: "t2", code: "a", tag: "new" },
+          { tenantId: "t1", code: "c", tag: "new" },
+          { tenantId: "t1", code: "a", tag: "new" },
+          { tenantId: "t1", code: "b", tag: "new" },
+        ],
+      });
+      const shipments = async (where: Record<string, unknown>) =>
+        (
+          await client!.shipment.findMany({
+            where: where as never,
+            select: { tenantId: true, code: true },
+            orderBy: [{ tenantId: "asc" }, { code: "asc" }],
+          })
+        ).map((row) => `${row.tenantId}${row.code}`);
+      expect(
+        await client!.shipment.updateMany({
+          data: { depot: { connect: { id: "d1" } } },
+          limit: 2,
+        })
+      ).toEqual({ count: 2 });
+      expect(await shipments({ depotId: "d1" })).toEqual(["t1a", "t1b"]);
+      expect(
+        await client!.shipment.updateMany({
+          data: { tag: "scalar" },
+          limit: 2,
+        })
+      ).toEqual({ count: 2 });
+      expect(await shipments({ tag: "scalar" })).toEqual(["t1a", "t1b"]);
     });
 
     // -----------------------------------------------------------------------
@@ -340,14 +388,12 @@ export function runBulkWriteLimitBehavior({
         select: { id: true, tag: true },
       });
 
-      expect(rows).toHaveLength(2);
-      for (const row of rows) {
-        expect(row.tag).toBe("returned");
-        expect(["c1", "c2", "c3", "c4", "c5"]).toContain(row.id);
-      }
-      // The returned rows ARE the changed rows: no more, no fewer.
-      const changed = await crateIds({ tag: "returned" });
-      expect(changed.sort()).toEqual(rows.map((row) => row.id).sort());
+      // The returned rows ARE the changed rows, the first two by key.
+      expect(rows.map((row) => `${row.id} ${row.tag}`).sort()).toEqual([
+        "c1 returned",
+        "c2 returned",
+      ]);
+      expect(await crateIds({ tag: "returned" })).toEqual(["c1", "c2"]);
     });
 
     test("deleteMany with select returns exactly the capped rows", async () => {
@@ -359,13 +405,8 @@ export function runBulkWriteLimitBehavior({
         select: { id: true, qty: true },
       });
 
-      expect(rows).toHaveLength(3);
-      const removed = new Set(rows.map((row) => row.id));
-      const survivors = await crateIds({ tag: "keep" });
-      expect(survivors).toHaveLength(2);
-      for (const id of survivors) {
-        expect(removed.has(id)).toBe(false);
-      }
+      expect(rows.map((row) => row.id).sort()).toEqual(["c1", "c2", "c3"]);
+      expect(await crateIds({ tag: "keep" })).toEqual(["c4", "c5"]);
     });
 
     test("a select-carrying bulk write with limit 0 returns an empty row set", async () => {
@@ -393,13 +434,13 @@ export function runBulkWriteLimitBehavior({
     // Compound primary key — the row-value IN
     // -----------------------------------------------------------------------
 
-    test("limit works on a model with a compound primary key", async () => {
+    test("limit works on a model with a compound primary key, in key order", async () => {
       await client!.shipment.createMany({
         data: [
+          { tenantId: "t2", code: "a", tag: "other" },
+          { tenantId: "t1", code: "c", tag: "keep" },
           { tenantId: "t1", code: "a", tag: "keep" },
           { tenantId: "t1", code: "b", tag: "keep" },
-          { tenantId: "t1", code: "c", tag: "keep" },
-          { tenantId: "t2", code: "a", tag: "other" },
         ],
       });
 
@@ -410,9 +451,13 @@ export function runBulkWriteLimitBehavior({
           limit: 2,
         })
       ).toEqual({ count: 2 });
-      expect(await client!.shipment.count({ where: { tag: "compound" } })).toBe(
-        2
-      );
+      expect(
+        await client!.shipment.findMany({
+          where: { tag: "compound" },
+          select: { code: true },
+          orderBy: { code: "asc" },
+        })
+      ).toEqual([{ code: "a" }, { code: "b" }]);
 
       expect(
         await client!.shipment.deleteMany({ where: { tag: "keep" }, limit: 5 })
@@ -468,8 +513,8 @@ export function runBulkWriteLimitBehavior({
         ])
       ).toEqual([{ count: 0 }, { count: 2 }]);
 
-      expect(await crateIds({ tag: "keep" })).toHaveLength(3);
-      expect(await crateIds({ tag: "capped" })).toHaveLength(2);
+      expect(await crateIds({ tag: "keep" })).toEqual(["c3", "c4", "c5"]);
+      expect(await crateIds({ tag: "capped" })).toEqual(["c1", "c2"]);
     });
 
     // -----------------------------------------------------------------------
