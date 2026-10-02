@@ -228,8 +228,12 @@ function droppedSkipMessage(
   return `createMany skipDuplicates cannot skip ${rows} on driver "${driver}" (no savepoint in this scope to undo a duplicate) in ${model}.${operation}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
 }
 
-/** Client lineages (by their engine schema) and the models already warned. */
-const droppedSkipWarnings = new WeakMap<EngineSchema, Set<string>>();
+/**
+ * Client lineages (by the driver the client was created with) and the models
+ * already warned. Not by engine schema: clients over one schema object share
+ * it, so a second client would never warn.
+ */
+const droppedSkipWarnings = new WeakMap<AnyDriver, Set<string>>();
 
 /**
  * Warn ONCE per client lineage and model — not per row, not per call. The
@@ -238,14 +242,14 @@ const droppedSkipWarnings = new WeakMap<EngineSchema, Set<string>>();
  * off.
  */
 function warnDroppedSkip(
-  schema: EngineSchema,
+  lineage: AnyDriver,
   model: string,
   operation: Operation,
   message: string,
   attribution: QueryExecutionContext | undefined
 ): void {
-  let warned = droppedSkipWarnings.get(schema);
-  if (!warned) droppedSkipWarnings.set(schema, (warned = new Set()));
+  let warned = droppedSkipWarnings.get(lineage);
+  if (!warned) droppedSkipWarnings.set(lineage, (warned = new Set()));
   if (warned.has(model)) return;
   warned.add(model);
   const presented = getOfficialInstrumentationChainCapability(
@@ -440,6 +444,8 @@ export class OperationContext {
    * attribution (g4/unit03/note.md B-4).
    */
   readonly #callerAttribution: QueryExecutionContext | undefined;
+  /** The client lineage's own driver: a transaction binding never replaces it. */
+  readonly #factoryDriver: AnyDriver;
   constructor(
     schema: EngineSchema,
     factoryDriver: AnyDriver,
@@ -453,6 +459,7 @@ export class OperationContext {
     this.modelName = modelName;
     this.operation = operation;
     this.#callerAttribution = callerAttribution;
+    this.#factoryDriver = factoryDriver;
     this.#ownership = prepareBatch
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
@@ -678,7 +685,7 @@ export class OperationContext {
     )
       return true;
     warnDroppedSkip(
-      this.schema,
+      this.#factoryDriver,
       this.modelName,
       this.operation,
       droppedSkipMessage(

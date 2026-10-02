@@ -1,5 +1,5 @@
 ℹ tsdown v0.19.0-beta.4 powered by rolldown v1.0.0-beta.58
-ℹ config file: /Users/arnaud/.codex/worktrees/performance-review/viborm/tsdown.config.ts 
+ℹ config file: /Users/arnaud/.codex/worktrees/performance-review/viborm/tsdown.config.ts
 ℹ entry: src/index.ts, src/cli/index.ts, src/schema/exports.ts, src/schema/json/index.ts, src/drivers/exports.ts, src/sql/sql.ts, src/drivers/pg/index.ts, src/drivers/postgres/index.ts, src/drivers/pglite/index.ts, src/drivers/neon-http/index.ts, src/drivers/bun-sql/index.ts, src/drivers/mysql2/index.ts, src/drivers/planetscale/index.ts, src/drivers/sqlite3/index.ts, src/drivers/libsql/index.ts, src/drivers/d1/index.ts, src/drivers/bun-sqlite/index.ts, src/cache/exports.ts, src/cache/drivers/memory.ts, src/cache/drivers/cloudflare-kv.ts, src/migrations/index.ts, src/migrations/storage/fs.ts, src/config.ts, src/client/exports.ts, src/validation/index.ts, src/instrumentation/exports.ts, src/adapters/index.ts, benchmarks/internal/operation.ts
 ℹ target: node22
 ℹ tsconfig: tsconfig.json
