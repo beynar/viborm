@@ -253,13 +253,16 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
           return { kind: "borrowed", result: borrowed };
         }
         producer = client;
-        const columns = prepared.columns().map((column) => column.name);
         // A statement runs once, so integers are read exactly on that one run.
         // A re-read could not be proven harmless: a transform can make this an
         // `UPDATE … RETURNING`, and even a statement SQLite reports read-only
         // may call an application function with an observable effect.
         prepared.safeIntegers(true);
         const rows = prepared.raw().all(...values) as unknown[][];
+        // Read after the run: SQLite reprepares a cached statement whose
+        // schema changed (`SELECT *` after ADD COLUMN), so metadata read
+        // before it would describe the previous columns.
+        const columns = prepared.columns().map((column) => column.name);
         assertPositionalRows(rows, columns, resultContext);
         return { kind: "positional", rows, columns };
       }

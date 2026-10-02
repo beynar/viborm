@@ -114,4 +114,34 @@ describe("sqlite3 positional reads past 2^53", () => {
       await driver.disconnect();
     }
   });
+
+  test("a cached statement reprepared after a schema change reads its new columns", async () => {
+    const driver = new SQLite3Driver();
+    const client = createClient({ schema, driver });
+    try {
+      await driver._executeRaw(
+        'CREATE TABLE "item" ("id" INTEGER PRIMARY KEY, "big" INTEGER NOT NULL, "n" INTEGER NOT NULL)'
+      );
+      await driver._executeRaw(`INSERT INTO "item" VALUES (1, ${EXACT}, 0)`);
+      const starred = client.$extends(
+        defineExtension<typeof schema>()({
+          name: "select-star",
+          statement: () => sql`SELECT * FROM "item"`,
+        })
+      );
+      await expect(starred.item.findMany()).resolves.toEqual([
+        { id: 1, big: EXACT, n: 0 },
+      ]);
+      // SQLite reprepares the cached statement on its next run, so `*` now
+      // names four columns; metadata read before that run still says three.
+      await driver._executeRaw(
+        'ALTER TABLE "item" ADD COLUMN "label" TEXT NOT NULL DEFAULT \'x\''
+      );
+      await expect(starred.item.findMany()).resolves.toEqual([
+        { id: 1, big: EXACT, n: 0 },
+      ]);
+    } finally {
+      await driver.disconnect();
+    }
+  });
 });
