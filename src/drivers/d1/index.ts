@@ -157,6 +157,8 @@ function normalizeD1Result<T>(
 // ============================================================
 
 export class D1Driver extends Driver<D1Database, D1Database> {
+  private static readonly canonicalExecuteEntry = D1Driver.prototype._execute;
+  private static readonly canonicalExecute = D1Driver.prototype.execute;
   private static readonly canonicalTypedStatement =
     D1Driver.prototype.executeTypedStatement;
   private static readonly canonicalPositionalExecute =
@@ -242,14 +244,17 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   }
 
   /**
-   * Positional rows skip the keyed result surface, so they are used only while
-   * that surface is the shipped one: the stock parsers and this driver's own
-   * typed statement lifecycle. Anything a caller replaced keeps keyed rows.
+   * Positional rows skip the keyed result surface and dispatch to the binding
+   * directly, so they are used only while both are the shipped ones: the stock
+   * parsers, and this driver's own execution entry, provider execute and typed
+   * statement lifecycle. Anything a caller replaced keeps keyed rows.
    */
   private static isPositionalCandidate(driver: AnyDriver): boolean {
     if (!(driver instanceof D1Driver)) return false;
     return (
       Object.getPrototypeOf(driver) === D1Driver.prototype &&
+      driver._execute === D1Driver.canonicalExecuteEntry &&
+      driver.execute === D1Driver.canonicalExecute &&
       driver.executeTypedStatement === D1Driver.canonicalTypedStatement &&
       driver.executePositional === D1Driver.canonicalPositionalExecute &&
       driver.result === sqliteResultParser &&

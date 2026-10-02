@@ -56,4 +56,39 @@ describe("D1 positional transport", () => {
     expect(run).toHaveBeenCalled();
     expect(raw).not.toHaveBeenCalled();
   });
+
+  test("a driver whose provider execute was wrapped keeps the wrapper's rows", async () => {
+    const { database, raw } = fakeDatabase();
+    const driver = new D1Driver({ database });
+    // biome-ignore lint/suspicious/noExplicitAny: wrapping the protected provider hook is the point.
+    const wrapped = driver as any;
+    const execute = wrapped.execute.bind(driver);
+    wrapped.execute = async (...args: unknown[]) => {
+      const result = await execute(...args);
+      return {
+        ...result,
+        rows: result.rows.map((row: Record<string, unknown>) => ({
+          ...row,
+          id: 42,
+        })),
+      };
+    };
+    const client = createClient({ schema: { entry }, driver });
+    await expect(client.entry.findMany()).resolves.toEqual([
+      { id: 42, title: "first" },
+      { id: 42, title: "second" },
+    ]);
+    expect(raw).not.toHaveBeenCalled();
+  });
+
+  test("a driver whose _execute was replaced keeps keyed rows", async () => {
+    const { database, raw, run } = fakeDatabase();
+    const driver = new D1Driver({ database });
+    const original = driver._execute.bind(driver);
+    driver._execute = (query, context) => original(query, context);
+    const client = createClient({ schema: { entry }, driver });
+    await client.entry.findMany();
+    expect(run).toHaveBeenCalled();
+    expect(raw).not.toHaveBeenCalled();
+  });
 });

@@ -268,11 +268,14 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
         producer = client;
         const columns = prepared.columns().map((column) => column.name);
         // Numbers are cheaper than BigInts to fetch and decode. A cell past
-        // ±2^53 may have been rounded, so that read is repeated exactly; both
-        // reads run synchronously, and only the exact one is kept.
-        prepared.safeIntegers(false);
+        // ±2^53 may have been rounded, so a read-only statement is read again
+        // exactly (both reads run synchronously; only the exact one is kept).
+        // A statement that writes — a transform may make the collection read
+        // an `UPDATE … RETURNING` — must not run twice: it is read exactly on
+        // its one execution.
+        prepared.safeIntegers(!prepared.readonly);
         let rows = prepared.raw().all(...values) as unknown[][];
-        if (hasUnsafeNumber(rows)) {
+        if (prepared.readonly && hasUnsafeNumber(rows)) {
           prepared.safeIntegers(true);
           rows = prepared.all(...values) as unknown[][];
         }

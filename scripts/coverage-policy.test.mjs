@@ -334,6 +334,7 @@ test("driver coverage isolates provider resources and admits only audited local 
     "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
     "tests/contracts/drivers/provider-result-contracts.core.test.ts",
     "tests/contracts/drivers/sqlite-binary-values.core.test.ts",
+    "tests/contracts/drivers/sqlite-positional-effects.core.test.ts",
     "tests/contracts/drivers/sqlite-positional-transport.core.test.ts",
     "tests/contracts/drivers/sqlite-statement-cache.core.test.ts",
     "tests/contracts/drivers/sqlite-temporary-objects.core.test.ts",
