@@ -34,24 +34,15 @@ export interface Tombstone {
   readonly assign: Input;
 }
 
-/** What the call's extensions write on one kind of write of one model. */
-export interface Stamp {
-  /**
-   * Scalar `data` input, as declared with the call's control values put in:
-   * constants and, on an update, the field's update operators.
-   */
-  readonly values: Input;
-  /**
-   * Which extension writes each field: a caller who writes it is refused,
-   * even when the call left it out of `values` (its control absent).
-   */
-  readonly owners: Readonly<Record<string, string>>;
-}
-
-/** A model's stamps: on every create, and on every update, tombstones too. */
+/**
+ * A model's stamps: what the call's extensions write on every create, and on
+ * every update, tombstones too. Each is scalar `data` input, as declared with
+ * the call's control values put in: constants and, on an update, the field's
+ * update operators.
+ */
 export interface ModelStamps {
-  readonly create?: Stamp;
-  readonly update?: Stamp;
+  readonly create?: Input;
+  readonly update?: Input;
 }
 
 /**
@@ -67,15 +58,15 @@ export const parseStamped = <T>(
   parse: () => T
 ): T =>
   parseProviding(
-    (model, field) => stamps.get(model)?.create?.values[field] !== undefined,
+    (model, field) => stamps.get(model)?.create?.[field] !== undefined,
     parse
   );
 
 /**
  * One root call's row facts, resolved from its controls outside the engine:
- * the engine never sees a control or a mode, and an extension's name only as
- * the owner a refusal names. Its domains are shared by every call that
- * resolves to the same ones; stamps that name a control are the call's own.
+ * the engine never sees a control, a mode or an extension's name. Its domains
+ * are shared by every call that resolves to the same ones; stamps that name a
+ * control are the call's own.
  */
 export interface CallRows {
   /** The domain the call's own controls select. */

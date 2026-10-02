@@ -215,9 +215,13 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // v4 T1 (owner ruling 2): a required field the data capability writes is left
 // out at every create site (7 cells on each of three drivers). Ruling 2
 // repair: a caller who writes it through its foreign key's relation is
-// refused (1 cell on each of three drivers).
+// refused (1 cell on each of three drivers). S1 (owner ruling 2026-10-02):
+// the extension steps back where the caller writes the field or its
+// relation; the data capability's one refusal cell became one create-site
+// and one update-site cell (+1 on each of three drivers), and the two
+// refusal cells of the required field became the two step-back cells.
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 99,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 102,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)

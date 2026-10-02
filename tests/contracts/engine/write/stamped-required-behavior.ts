@@ -35,6 +35,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 export function requiredTenantSchema() {
   const tenant = s.model({
     id: s.string().id(),
+    slug: s.string().nullable().unique(),
     comments: s.toMany(() => comment),
   });
   const post = s.model({
@@ -412,107 +413,154 @@ export function runStampedRequiredBehavior(
       expect((await stored()).post).toEqual(acme(1));
     });
 
-    test("a caller who writes the field is still refused, at the root and nested", async () => {
-      const { db } = context;
-      const written = {
-        validation: true,
-        name: "ValidationError",
-        message:
-          'Validation failed for create: Field "tenantId" is written by extension "tenancy"',
-        issues: [
-          {
-            path: "data.tenantId",
-            message: 'Field "tenantId" is written by extension "tenancy"',
-          },
+    test("a caller who writes the field keeps its value, at the root and nested, on a create and on an update; a row that leaves it out, or writes it undefined, takes the call's tenant", async () => {
+      const { base, db } = context;
+      await base.tenant.create({ data: { id: "globex" } });
+      await db.post.create({
+        data: { id: 1, title: "a", tenantId: "globex" },
+        ...ACME,
+      });
+      await db.post.create({
+        data: { id: 2, title: "b", tenantId: undefined },
+        ...ACME,
+      });
+      await db.post.createMany({
+        data: [
+          { id: 3, title: "c", tenantId: "globex" },
+          { id: 4, title: "d" },
         ],
-      };
-      expect(
-        await refusal(
-          db.post.create({
-            data: { id: 1, title: "a", tenantId: "globex" },
-            ...ACME,
-          })
-        )
-      ).toEqual(written);
-      expect(
-        await refusal(
-          db.post.create({
-            data: {
-              id: 1,
-              title: "a",
-              comments: { create: [{ id: 10, body: "x", tenantId: "acme" }] },
-            },
-            ...ACME,
-          })
-        )
-      ).toEqual(written);
+        ...ACME,
+      });
+      await db.post.upsert({
+        where: { id: 5 },
+        create: { id: 5, title: "e", tenantId: "globex" },
+        update: { title: "never" },
+        ...ACME,
+      });
+      await db.post.create({
+        data: {
+          id: 6,
+          title: "f",
+          comments: {
+            create: [
+              { id: 10, body: "x", tenantId: "globex" },
+              { id: 11, body: "y" },
+            ],
+          },
+        },
+        ...ACME,
+      });
+      // Tenancy stamps creates only: an update writes what the caller
+      // writes, into another tenant too, and the tenant's reads lose the row.
+      await db.post.update({
+        where: { id: 4 },
+        data: { tenantId: "globex" },
+        ...ACME,
+      });
+      const globex = (...ids: number[]) => ids.map((id) => [id, "globex"]);
       expect(await stored()).toEqual({
-        post: [],
-        comment: [],
+        post: [
+          [1, "globex"],
+          [2, "acme"],
+          [3, "globex"],
+          [4, "globex"],
+          [5, "globex"],
+          [6, "acme"],
+        ],
+        comment: [...globex(10), ...acme(11)],
         tag: [],
         board: [],
       });
     });
 
-    test("a caller who writes it through its foreign key's relation is refused too: connect, create and connectOrCreate, at the root and nested", async () => {
+    test("a caller who writes its foreign key's relation decides the key: connect by id or by another unique field, create and connectOrCreate, at the root, in a createMany row and nested; an update stamp steps back the same way", async () => {
       const { base, db } = context;
-      await base.tenant.create({ data: { id: "globex" } });
-      // The path names what the caller wrote, not where its row sits.
-      const through = (operation: string) => ({
-        validation: true,
-        name: "ValidationError",
-        message: `Validation failed for ${operation}: Field "tenantId" is written by extension "tenancy"`,
-        issues: [
-          {
-            path: "data.tenant",
-            message: 'Field "tenantId" is written by extension "tenancy"',
-          },
-        ],
-      });
-      const writes = [
-        { connect: { id: "globex" } },
-        { connect: { id: "acme" } },
-        { create: { id: "initech" } },
-        {
-          connectOrCreate: {
-            where: { id: "globex" },
-            create: { id: "globex" },
-          },
-        },
-      ];
-      for (const tenant of writes) {
-        expect(
-          await refusal(
-            db.comment.create({ data: { id: 10, body: "x", tenant }, ...ACME })
-          )
-        ).toEqual(through("create"));
-        expect(
-          await refusal(
-            db.comment.createMany({
-              data: [{ id: 10, body: "x", tenant }],
-              ...ACME,
-            })
-          )
-        ).toEqual(through("createMany"));
-        expect(
-          await refusal(
-            db.post.create({
-              data: {
-                id: 1,
-                title: "a",
-                comments: { create: [{ id: 10, body: "x", tenant }] },
+      await base.tenant.create({ data: { id: "globex", slug: "gx" } });
+      const writes = (cell: number) =>
+        [
+          [{ connect: { id: "globex" } }, "globex"],
+          [{ connect: { slug: "gx" } }, "globex"],
+          [{ create: { id: `new${cell}` } }, `new${cell}`],
+          [
+            {
+              connectOrCreate: {
+                where: { id: `made${cell}` },
+                create: { id: `made${cell}` },
               },
-              ...ACME,
-            })
-          )
-        ).toEqual(through("create"));
+            },
+            `made${cell}`,
+          ],
+        ] as const;
+      const expected: [number, string][] = [];
+      let id = 10;
+      for (const [tenant, stored] of writes(1)) {
+        await db.comment.create({ data: { id, body: "x", tenant }, ...ACME });
+        expected.push([id++, stored]);
       }
-      expect(await stored()).toEqual({
-        post: [],
-        comment: [],
-        tag: [],
-        board: [],
+      for (const [tenant, stored] of writes(2)) {
+        await db.comment.createMany({
+          data: [{ id, body: "x", tenant }],
+          ...ACME,
+        });
+        expected.push([id++, stored]);
+      }
+      for (const [tenant, stored] of writes(3)) {
+        await db.post.create({
+          data: {
+            id,
+            title: "a",
+            comments: { create: [{ id, body: "x", tenant }] },
+          },
+          ...ACME,
+        });
+        expected.push([id++, stored]);
+      }
+      expect((await stored()).comment).toEqual(expected);
+      // An extension that writes the key on every update steps back too.
+      const retenant = javascript(
+        base.$extends(
+          defineExtension({
+            name: "retenant",
+            data: {
+              models: { comment: { update: { tenantId: "acme" } } },
+            },
+          })
+        )
+      );
+      await retenant.comment.update({
+        where: { id: 12 },
+        data: { tenant: { connect: { slug: "gx" } } },
       });
+      await retenant.comment.update({
+        where: { id: 13 },
+        data: { body: "y" },
+      });
+      await retenant.comment.updateMany({
+        where: { id: 16 },
+        data: { tenant: { connect: { id: "globex" } } },
+      });
+      // A relation write that leaves the key alone keeps it from the stamp
+      // as well: the row stays with the tenant the caller updated.
+      await retenant.comment.update({
+        where: { id: 17 },
+        data: { tenant: { update: { slug: "m2" } } },
+      });
+      expect(
+        (await stored()).comment.filter(([comment]) =>
+          [12, 13, 16, 17].includes(comment as number)
+        )
+      ).toEqual([
+        [12, "globex"],
+        [13, "acme"],
+        [16, "globex"],
+        [17, "made2"],
+      ]);
+      expect(
+        await base.tenant.findMany({
+          where: { slug: "m2" },
+          select: { id: true },
+        })
+      ).toEqual([{ id: "made2" }]);
     });
 
     test("a call refused mid-parse leaves no provided field behind: the next unextended create still asks for it", async () => {

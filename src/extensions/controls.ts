@@ -91,14 +91,15 @@ export type DeletionContribution = {
  * included. A value is a constant, `{ control: "<name>" }` for the value the
  * call passed for that control (a call that passed none writes nothing
  * there), or, on `update`, one of the field's update operators
- * (`{ increment: 1 }`). A call that writes one of these fields itself is
- * refused, even one that passed no value for its control. A create may leave
- * out such a field even where the schema requires it: the call's data is
- * checked with it counted as given. When the model names here are known to
- * the types (written out, or kept by a `const` type parameter, not a plain
- * `string[]`), the extended client's types agree, nested writes included:
- * the field accepts no value and may be left out. When two extensions name a
- * field, the later one writes it.
+ * (`{ increment: 1 }`). A field is written only where the caller left it
+ * out: a call that writes it itself, or writes the relation whose foreign key
+ * holds it, keeps its own value there. A create may leave out such a field
+ * even where the schema requires it: the call's data is checked with it
+ * counted as given. When the model names here are known to the types
+ * (written out, or kept by a `const` type parameter, not a plain
+ * `string[]`), the extended client's types agree, nested creates included:
+ * the field is optional on a create. When two extensions name a field, the
+ * later one writes it, and a value the caller writes wins over both.
  */
 export type DataContribution = {
   readonly models: {
@@ -240,31 +241,27 @@ export type OperationControls<Controls, ModelName, Operation> = {
 // DATA STATE: the fields a chain's `data` writes, per model
 // =============================================================================
 
-/** The fields one `data` entry writes on its models, for one kind of write. */
-export interface StampedFields<
-  Models = PropertyKey,
-  Kind = "create" | "update",
-  Fields = PropertyKey,
-> {
+/**
+ * The fields one `data` entry writes on its models' creates: there they may
+ * be left out even where the schema requires them. An update's fields need
+ * nothing, as every field of an update is optional already.
+ */
+export interface StampedFields<Models = PropertyKey, Fields = PropertyKey> {
   readonly models: Models;
-  readonly kind: Kind;
   readonly fields: Fields;
 }
 
-type EntryStamps<
-  Model,
-  Entry,
-  Kind extends "create" | "update",
-> = Kind extends keyof Entry
-  ? StampedFields<Model, Kind, keyof NonNullable<Entry[Kind]>>
+type CreateStamps<Model, Entry> = "create" extends keyof Entry
+  ? Entry extends { readonly create?: infer Fields }
+    ? StampedFields<Model, keyof NonNullable<Fields>>
+    : never
   : never;
 
 /**
- * What one definition's `data` writes: one member per model and kind. A
+ * What one definition's `data` writes on creates: one member per model. A
  * definition whose model names are lost (`{ [model: string]: ... }`, as a
  * recipe called with a plain `string[]` builds) writes nothing the types can
- * name: every field stays in the payloads, and the call is still refused
- * when it passes one.
+ * name: its required fields stay required in the payloads.
  */
 export type DefinitionData<Definition> = Definition extends {
   readonly data: { readonly models: infer Models };
@@ -272,19 +269,13 @@ export type DefinitionData<Definition> = Definition extends {
   ? string extends keyof Models
     ? never
     : {
-        [Model in keyof Models]:
-          | EntryStamps<Model, Models[Model], "create">
-          | EntryStamps<Model, Models[Model], "update">;
+        [Model in keyof Models]: CreateStamps<Model, Models[Model]>;
       }[keyof Models]
   : never;
 
-/** The fields a chain writes on one model, on a create or on an update. */
-export type StampedFieldNames<Data, ModelName, Kind> =
-  Data extends StampedFields<
-    infer Models,
-    Kind,
-    infer Fields extends PropertyKey
-  >
+/** The fields a chain writes on every create of one model. */
+export type StampedFieldNames<Data, ModelName> =
+  Data extends StampedFields<infer Models, infer Fields extends PropertyKey>
     ? ModelName extends Models
       ? Fields
       : never

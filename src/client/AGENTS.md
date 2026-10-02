@@ -289,7 +289,7 @@ provider dispatch, parsing, result order, and commit publication.
 | `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup; every extension's `data` merged per model, kind and field, a later extension owning a field it names |
 | `src/extensions/controls.ts` | Declared-control types, placement per (model, operation), and the one admission of a call's controls, which refuses a `required` control the call left out; the `rows` and `data` slots of the extension state (`RowsModels`, `DefinitionData`) |
 | `src/extensions/rows.ts` | Row domains, tombstones, stamps and row identity bound once per application; a call's facts looked up from its admitted controls, the one walker that puts a control's value where a filter or a stamp names it, and the per-value memo (256 entries, oldest evicted) of bound domains |
-| `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of `data`: one owner admits a model's stamp per occurrence and attempt, writes it over the occurrence, and refuses a caller who writes a stamped field; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
+| `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of `data`: one owner admits a model's stamp per occurrence and attempt and puts it under the occurrence: a field the caller writes, by name or through the relation holding it, stays the caller's; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
 | `src/extensions/methods.ts` | Client/model factory types, collisions, state merging, and concrete-view binding; on a chain that declares `data`, the model delegate's five narrowed writes (`ExtensionModelDelegate`) |
 | `src/extensions/request.ts` | Synchronous request-transform contract and runner |
 | `src/extensions/query.ts` | Query interception, authoritative continuation, and write-outcome rail |
@@ -310,30 +310,34 @@ client, `ExtendedOperationResult` and model-mapped query handlers
 context through `ContextualOperationResult`. `OperationResult`,
 `InferDatabase` and `renderOperationResultType` are schema-only and say so.
 
-The payloads have one owner for what an extension's `data` writes: the
-extension state's `data` slot (`StampedFields` per model and kind, filled by
-`DefinitionData` in `controls.ts`). On a chain that declares `data`,
-`ExtensionModelDelegate` (`src/extensions/methods.ts`) swaps a model's five
-write operations for `StampedOperations` (`types.ts`), whose payload
-(`StampedPayload`) rebuilds the call's create and update rows: `StampedRow`
-drops the fields written there and offers each back as `?: never`, so a
-field the schema requires may be left out and none may be passed (owner
-ruling, plan v4 §7.5; the runtime counts such a field as given, T1). The same
-row type follows the model's relations into nested creates and updates
-(`StampedRelation`, `StampedVerb`, `StampedArms`), finding a target's fields
-by its shallow surface; a relation with variants is not rebuilt. Mapped types
-resolve a member only when it is read, so a call pays for the depth it spells.
-Keep the payload level a plain mapped type: a conditional there was measured
-at +14k instantiations on client-2, on programs that declare no `data`. A
-definition whose model names are lost (`{ [model: string]: ... }`, a recipe
-called with a plain `string[]`) adds nothing to the slot: the types cannot say
-which models it writes, so they narrow none and the runtime refusal stands
-alone. The guide's recipes keep their names (`const` type parameter). A
-chain without `data` the types can name keeps `Client` exactly; `Client`
-itself takes no `data` parameter (as one, it cost the instrumentation type
-program +14% types and +26% instantiations, measured at U3). `OperationPayload` stays the
-schema-only payload, so what reads it (a query handler's argument, for one)
-is not narrowed; the runtime refusal covers those.
+The payloads have one owner for what an extension's `data` writes on
+create: the extension state's `data` slot (`StampedFields` per model, filled
+by `DefinitionData` in `controls.ts` from each entry's `create` fields; an
+update's fields are optional already, so `update` adds nothing). On a chain
+whose slot is not empty, `ExtensionModelDelegate` (`src/extensions/methods.ts`)
+swaps a model's five write operations for `StampedOperations` (`types.ts`),
+whose payload (`StampedPayload`) rebuilds the call's create rows:
+`StampedRow` makes each field written there optional with its own type, so a
+field the schema requires may be left out (owner ruling, plan v4 §7.5; the
+runtime counts such a field as given, T1) and a value passed is the caller's,
+which the runtime keeps over the stamp (owner ruling 2026-10-02, plan v4
+§7.1). The relation that holds such a field keeps its own input. The same
+row type follows the model's relations, through update rows too, into nested
+creates (`StampedRelation`, `StampedVerb`, `StampedArms`), finding a target's
+fields by its shallow surface; a relation with variants is not rebuilt.
+Mapped types resolve a member only when it is read, so a call pays for the
+depth it spells. Keep the payload level a plain mapped type: a conditional
+there was measured at +14k instantiations on client-2, on programs that
+declare no `data`. A definition whose model names are lost
+(`{ [model: string]: ... }`, a recipe called with a plain `string[]`) adds
+nothing to the slot: the types cannot say which models it writes, so a
+required field stays required. The guide's recipes keep their names (`const`
+type parameter). A chain without create `data` the types can name keeps
+`Client` exactly; `Client` itself takes no `data` parameter (as one, it cost
+the instrumentation type program +14% types and +26% instantiations,
+measured at U3). `OperationPayload` stays the schema-only payload, so what
+reads it (a query handler's argument, for one) is not narrowed: a required
+stamped field is asked for there, and the runtime accepts it left out.
 
 Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, and

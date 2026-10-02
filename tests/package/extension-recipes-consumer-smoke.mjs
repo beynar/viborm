@@ -21,16 +21,19 @@
  *   A. TYPES — `tsc --strict` over the consumer, against the published
  *              declarations: the recipes compile, the use block and the
  *              page's use blocks type-check with a required `tenantId` left
- *              out of every create (root and nested), and the six
- *              `@ts-expect-error` lines (a caller's stamped field, twice,
- *              and the controls' value and placement types) are needed.
+ *              out of every create (root and nested), a caller's own
+ *              `tenantId` and `version` accepted, and the four
+ *              `@ts-expect-error` lines (the controls' value and placement
+ *              types) are needed.
  *   B. RUN   — Node runs the same file (type stripping): a tenant reads only
  *              its rows, through a relation too; a create is stamped with the
- *              tenant; `scope: "all"` reads every tenant; a missing tenant, a
- *              missing actor and a caller's stamped field are refused at their
- *              paths; another tenant's row is `NotFoundError`; audit stamps
- *              root and nested writes; the lock moves the version on and a
- *              stale version is `NotFoundError`.
+ *              tenant; `scope: "all"` reads every tenant; a missing tenant and
+ *              a missing actor are refused at their paths; a `tenantId` the
+ *              caller writes goes to that tenant, and the call's tenant still
+ *              reads only its rows; another tenant's row is `NotFoundError`;
+ *              audit stamps root and nested writes; the lock moves the
+ *              version on, a stale version is `NotFoundError`, and a version
+ *              the caller writes wins over the increment.
  *
  * Run after `pnpm package:build`.
  */
@@ -177,11 +180,11 @@ assert.equal((await db.post.findMany({ tenant: "acme", scope: "all" })).length, 
 assert.deepEqual(issues(await failure(db.post.findMany())), [
   { path: "tenant", message: 'Control "tenant" is required' },
 ]);
-assert.deepEqual(
-  // @ts-expect-error tenancy writes tenantId
-  issues(await failure(db.post.create({ data: { title, tenantId: "globex" }, tenant: "acme" }))),
-  [{ path: "data.tenantId", message: 'Field "tenantId" is written by extension "tenancy"' }]
-);
+// A tenantId written by hand is the caller's: the row goes to that tenant,
+// and the call's tenant still reads only its own rows.
+const handWritten = await db.post.create({ data: { title, tenantId: "globex" }, tenant: "acme" });
+assert.equal(handWritten.tenantId, "globex");
+assert.deepEqual(sorted(await db.post.findMany({ tenant: "acme" })), sorted([seeded, created]));
 assert.ok(
   (await failure(
     db.post.update({ where: { id: globex.id }, data: { title: "x" }, tenant: "acme" })
@@ -226,21 +229,14 @@ assert.ok(
     })
   )) instanceof NotFoundError
 );
-assert.deepEqual(
-  issues(
-    await failure(
-      stamped.post.update({
-        where: { id: written.id },
-        // @ts-expect-error the lock writes version
-        data: { version: 7 },
-        tenant: "acme",
-        actor: "bob",
-      })
-    )
-  ),
-  [{ path: "data.version", message: 'Field "version" is written by extension "optimisticLock"' }]
-);
-assert.equal((await base.post.findUniqueOrThrow({ where: { id: written.id } })).title, "t");
+// A version written by hand wins over the increment.
+const reset = await stamped.post.update({
+  where: { id: written.id },
+  data: { version: 7 },
+  tenant: "acme",
+  actor: "bob",
+});
+assert.deepEqual([reset.title, reset.version], ["t", 7]);
 
 // The page's use blocks, verbatim, each in its own scope over the plain client.
 const session = { userId: "ann" };

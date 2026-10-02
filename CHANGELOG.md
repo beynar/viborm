@@ -49,13 +49,17 @@ Versioning.
   on that call, a required foreign key such as `tenantId` included. When
   TypeScript knows the models the `data` entry names (written inline, or
   passed to a recipe as a written list), the client's types agree: those
-  fields may be left out of its create data and accept no value in its
-  create and update data, nested writes included.
-- **Added: a call cannot write a field an extension writes.** It is refused
-  with a `ValidationError` at `data.<field>` that names the extension, at any
-  depth, even when the call did not pass the extension's control. Writing it
-  through the relation whose foreign key it is (`tenant: { connect: ... }`
-  for `tenantId`) is refused too, at `data.<relation>`.
+  fields are optional in its create data, nested creates included, and keep
+  their own types.
+- **Added: an extension fills a field only when the caller left it out.** A
+  call that writes a field an extension writes keeps its own value, at any
+  depth, on a create and on an update, and wins over every extension that
+  writes it. Writing it through the relation whose foreign key it is
+  (`tenant: { connect: ... }` for `tenantId`) counts as writing it: the
+  relation decides the key. A field written as `undefined` counts as left
+  out. Under tenancy, reads stay with the call's tenant but writes are not
+  enforced: a caller who writes `tenantId`, or connects a tenant, by hand
+  writes into that tenant.
 - **Added: a `rows` filter can use a value the call passes.** Write
   `{ control: "<name>" }` where a filter takes a value, at any depth (inside
   `in`, `AND`, `OR` and `NOT` too), and each call sees the rows that match the
@@ -73,7 +77,7 @@ Versioning.
   in this release, to copy into your code. They are recipes, not package
   entries. Each keeps the model names you pass it, with no `as const`, so
   your editor lets a required `tenantId` be left out of a create of those
-  models and refuses a value for it.
+  models.
 - **Added: `ExtensionState` and `ExtendedOperationResult`** are exported from
   `viborm`, for plugins generic over the client they receive.
   `ExtendedOperationResult` and a model-mapped query handler's `proceed()`

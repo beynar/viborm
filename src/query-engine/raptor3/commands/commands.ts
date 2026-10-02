@@ -3,7 +3,6 @@ import {
   NotFoundError,
   TransactionError,
   UnsupportedOperationError,
-  ValidationError,
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
@@ -453,64 +452,38 @@ export class Commands {
    * with what the call's extensions write on every `kind` of `model`: their
    * fields, admitted here once per occurrence per attempt through the model's
    * update-data schema, as a tombstone is (a create takes each field's whole
-   * value), written over the occurrence's own. A field an extension declares
-   * for `kind` is refused when the caller wrote it in `raw`, even on a call
-   * that left it unwritten (its control absent): the extension owns it. The
-   * refusal's path names what was written, not where the occurrence sits.
+   * value), put under the occurrence's own. The caller's data (`raw`) wins a
+   * field it writes, by name or through the relation whose foreign key on
+   * `model` holds it (owner ruling, 2026-10-02): the extension writes nothing
+   * there, and that relation decides the key. A tombstone has no caller data,
+   * so all of it is written.
    */
   stamp(
     model: AnyModel,
     kind: keyof ModelStamps,
     admitted: Input,
-    raw?: Input
+    raw: Input = {}
   ): Input {
     const name = model["~"].names.ts!;
     const stamp = this.context.scope?.rows.stamps?.get(name)?.[kind];
     if (stamp === undefined)
       return this.context.schema.scalars(model, admitted);
-    const taken = this.taken(model, stamp.owners, raw);
-    if (taken !== undefined) {
-      const [path, field] = taken;
-      const extension = stamp.owners[field];
-      throw new ValidationError(
-        { kind: "operation", operation: this.context.operation, model: name },
-        [
-          {
-            path: `data.${path}`,
-            message: `Field "${field}" is written by extension "${extension}"`,
-          },
-        ],
-        { meta: { model: name, extension } }
-      );
+    const written = new Set<string>();
+    for (const [relation, { edge }] of this.context.schema.index.get(model)!) {
+      if (raw[relation] === undefined || edge.kind !== "foreignKey") continue;
+      if (edge.owner.source !== model || edge.owner.field !== relation)
+        continue;
+      for (const { foreignField } of edge.reference.members)
+        written.add(foreignField);
     }
-    const values = this.context.schema.update(model, stamp.values, true);
+    const values = this.context.schema.update(model, stamp, true);
     const stamped = { ...admitted };
-    for (const field of Object.keys(stamp.values)) {
+    for (const field of Object.keys(stamp)) {
+      if (raw[field] !== undefined || written.has(field)) continue;
       stamped[field] =
         kind === "create" ? wholeValue(values[field])?.value : values[field];
     }
     return this.context.schema.scalars(model, stamped);
-  }
-  /**
-   * Where `raw` writes a field `owners` lists, as [what it wrote, the field]:
-   * the field itself, or a relation whose foreign key on `model` holds it.
-   */
-  private taken(
-    model: AnyModel,
-    owners: Readonly<Record<string, string>>,
-    raw: Input | undefined
-  ): readonly [string, string] | undefined {
-    for (const field of Object.keys(owners))
-      if (raw?.[field] !== undefined) return [field, field];
-    for (const [name, { edge }] of this.context.schema.index.get(model)!) {
-      if (raw?.[name] === undefined || edge.kind !== "foreignKey") continue;
-      if (edge.owner.source !== model || edge.owner.field !== name) continue;
-      const pair = edge.reference.members.find(
-        ({ foreignField }) => owners[foreignField] !== undefined
-      );
-      if (pair) return [name, pair.foreignField];
-    }
-    return undefined;
   }
   /**
    * A write's candidates: the caller's selector AND the call's domain for

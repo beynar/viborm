@@ -1480,38 +1480,27 @@ describe("data: fields an extension writes", () => {
   // Plan v4 §2.2. The engine's sites are witnessed on real databases
   // (tests/contracts/engine/write/extension-data-behavior.ts); here, how a
   // chain holds the declarations and how a call's values are put in.
-  const owned = <Values extends Record<string, unknown>>(
-    values: Values,
-    owner: string
-  ) => ({
-    values,
-    owners: Object.fromEntries(Object.keys(values).map((key) => [key, owner])),
-  });
   const audit = {
     post: {
-      create: owned({ createdBy: { control: "actor" }, source: "api" }, "a"),
-      update: owned({ version: { increment: 1 } }, "a"),
+      create: { createdBy: { control: "actor" }, source: "api" },
+      update: { version: { increment: 1 } },
     },
-    user: { update: owned({ name: "touched" }, "a") },
+    user: { update: { name: "touched" } },
   };
 
-  test("a stamp's control takes the call's value, put in per call; a field whose control the call did not pass is not written but stays owned", () => {
+  test("a stamp's control takes the call's value, put in per call; a field whose control the call did not pass is not written", () => {
     const binding = bindRows(undefined, undefined, audit);
     expect(binding.references).toEqual([[]]);
     expect(binding.bindsStamps).toBe(true);
     const facts = callRows(binding, "post", { actor: "ann" });
     const post = facts.stamps!.get("post")!;
-    expect(post.create!.values).toEqual({ createdBy: "ann", source: "api" });
-    expect(post.create!.owners).toBe(audit.post.create.owners);
+    expect(post.create).toEqual({ createdBy: "ann", source: "api" });
     expect(post.update).toBe(audit.post.update);
     expect(facts.stamps!.get("user")).toBe(audit.user);
     expect(facts.domain).toBe(binding.physical[0]!.domain);
     expect(binding.bound.size).toBe(0);
     const absent = callRows(binding, "post", undefined);
-    expect(absent.stamps!.get("post")!.create).toEqual({
-      values: { source: "api" },
-      owners: { createdBy: "a", source: "a" },
-    });
+    expect(absent.stamps!.get("post")!.create).toEqual({ source: "api" });
   });
 
   test("stamps take no room in the domain memo: one tenant keeps one domain whoever writes, past 256 writers", () => {
@@ -1533,7 +1522,7 @@ describe("data: fields an extension writes", () => {
     expect(ann.domain).toBe(read.domain);
     expect(bob.domain).toBe(read.domain);
     expect(bob.defaults).toBe(read.defaults);
-    expect(bob.stamps!.get("post")!.create!.values).toEqual({
+    expect(bob.stamps!.get("post")!.create).toEqual({
       createdBy: "bob",
       source: "api",
     });
@@ -1574,7 +1563,7 @@ describe("data: fields an extension writes", () => {
     );
   });
 
-  test("a chain merges every extension's fields per model and kind: a later extension wins a field and owns it", () => {
+  test("a chain merges every extension's fields per model and kind: a later extension wins a field", () => {
     const first = appendResolvedExtension(
       undefined,
       {
@@ -1597,15 +1586,10 @@ describe("data: fields an extension writes", () => {
       schema
     );
     expect(second.data!.post).toEqual({
-      create: {
-        values: { title: "b", authorId: "u" },
-        owners: { title: "second", authorId: "first" },
-      },
-      update: { values: { title: "c" }, owners: { title: "second" } },
+      create: { title: "b", authorId: "u" },
+      update: { title: "c" },
     });
-    expect(second.data!.user).toEqual({
-      update: { values: { name: "d" }, owners: { name: "second" } },
-    });
+    expect(second.data!.user).toEqual({ update: { name: "d" } });
     expect(second.callRows!.physical[0]!.stamps!.get("post")).toBe(
       second.data!.post
     );

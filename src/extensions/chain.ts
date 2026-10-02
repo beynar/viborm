@@ -12,10 +12,8 @@ import {
   registerOfficialDefaultOmitChain,
 } from "@client/default-omit-extension";
 import type { Schema } from "@client/types";
-import type {
-  ModelStamps,
-  Stamp,
-} from "@query-engine/raptor3/shared/row-scope";
+import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import {
@@ -378,22 +376,16 @@ function appendDeletion(
 
 /** One kind's fields with an extension's own merged in: it wins a field. */
 function withStamp(
-  previous: Stamp | undefined,
-  extension: string,
+  previous: Input | undefined,
   fields: Readonly<Record<string, unknown>> | undefined
-): Stamp | undefined {
-  if (fields === undefined) return previous;
-  const owners = { ...previous?.owners };
-  for (const field of Object.keys(fields)) owners[field] = extension;
-  return Object.freeze({
-    values: { ...previous?.values, ...fields },
-    owners: Object.freeze(owners),
-  });
+): Input | undefined {
+  return fields === undefined
+    ? previous
+    : Object.freeze({ ...previous, ...fields });
 }
 
 function appendData(
   previous: Readonly<Record<string, ModelStamps>> | undefined,
-  extension: string,
   data: DataContribution
 ): Readonly<Record<string, ModelStamps>> {
   const entries: Record<string, ModelStamps> = Object.create(null);
@@ -401,8 +393,8 @@ function appendData(
   for (const [model, entry] of Object.entries(data.models)) {
     const known = entries[model];
     entries[model] = Object.freeze({
-      create: withStamp(known?.create, extension, entry.create),
-      update: withStamp(known?.update, extension, entry.update),
+      create: withStamp(known?.create, entry.create),
+      update: withStamp(known?.update, entry.update),
     });
   }
   return Object.freeze(entries);
@@ -587,7 +579,7 @@ export function appendResolvedExtension(
   const data =
     effectiveDefinition.data === undefined
       ? chain?.data
-      : appendData(chain?.data, definition.name, effectiveDefinition.data);
+      : appendData(chain?.data, effectiveDefinition.data);
   const callRows =
     rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
       ? chain?.callRows

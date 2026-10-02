@@ -96,11 +96,13 @@ await db.post.findMany(); // ValidationError: control "tenant" is required
   `NotFoundError`, and reaching it through a relation (`connect`, a nested
   `update`, `delete` or `set`) is a `NestedWriteError`, as for any row the
   extension hides.
-- A create that passes `tenantId` itself is refused with a
-  `ValidationError` at `data.tenantId`. An update may still change
-  `tenantId`: the recipe writes it on create only. Add
-  `update: { tenantId: { control: "tenant" } }` to pin it on every update
-  too.
+- Reads are kept to the call's tenant; writes are not enforced. The
+  extension fills `tenantId` only when the caller left it out: a create that
+  writes `tenantId`, or connects a tenant through its relation, by hand
+  writes into that tenant, and so does an update that changes it (the recipe
+  writes `tenantId` on create only). The call's tenant then no longer reads
+  that row. If callers must not choose a tenant, do not let them pass
+  `tenantId` or the tenant relation to your write calls.
 
 ## Audit stamping
 
@@ -177,29 +179,29 @@ await db.post.update({ where: { id }, data, expectedVersion: 3 }); // NotFoundEr
   of the models you name must check.
 - `updateMany`, `upsert` and `deleteMany` do not take `expectedVersion`:
   they check nothing, and `updateMany` and `upsert` move the version on.
-- A create that passes `version` itself is accepted; an update that does is
-  refused with a `ValidationError` at `data.version`.
+- A create or an update that writes `version` itself keeps that value: on
+  an update it replaces the increment. The `expectedVersion` check still
+  reads the version the row had.
 
 ## What every recipe shares
 
-- **Fields the extension writes are the extension's.** A call that writes
-  one of them is refused with a `ValidationError` at `data.<field>` that
-  names the extension, even when the call did not pass the control. The path
-  names the field, not where it sits: a nested create or an `upsert` arm is
-  reported at `data.<field>` too. Writing it through a relation counts: when
-  `tenantId` is the foreign key of a `tenant` relation, a create that passes
-  `tenant: { connect: ... }` (or `create`, or `connectOrCreate`) is refused
-  at `data.tenant`, since the row would take the connected tenant, not the
-  call's.
+- **The extension fills a field only when the caller left it out.** A call
+  that writes one of the fields keeps its own value there, at the root and
+  in every nested create or update, and the extension writes nothing for
+  that field. A field written as `undefined` counts as left out. Writing it
+  through a relation counts as writing it: when `tenantId` is the foreign
+  key of a `tenant` relation, a call that passes `tenant: { connect: ... }`
+  (or `create`, `connectOrCreate`, or a nested `update` of the tenant)
+  decides the key itself. When two recipes write the same field, the one
+  applied later wins, and the caller wins over both.
 - **Your editor knows what they write.** Each recipe keeps the model names
-  you pass it, so on the models it names a field it writes may be left out
-  of a create, at the top level and in a create nested through a relation,
-  and passing it is an editor error. A model it does not name keeps its
-  fields as the schema has them, and a misspelt model name is an editor
-  error where the recipe is applied. Two cases the types do not see. A
-  list built at runtime (a plain `string[]`) tells them no names, so it
-  narrows nothing: the field compiles and is refused when the call runs, and
-  a required one cannot be left out in your editor, so pass the names as a
+  you pass it, so on the models it names a field it writes on create may be
+  left out of a create, at the top level and in a create nested through a
+  relation; written by hand, it keeps its own type. A model it does not name
+  keeps its fields as the schema has them, and a misspelt model name is an
+  editor error where the recipe is applied. Two cases the types do not see.
+  A list built at runtime (a plain `string[]`) tells them no names, so a
+  required field cannot be left out in your editor: pass the names as a
   written list. A create nested through a relation with variants is not
   rebuilt: there the field is asked for as the schema has it, although the
   call accepts it left out. And the types find a nested create's model by

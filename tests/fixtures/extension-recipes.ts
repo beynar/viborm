@@ -8,8 +8,9 @@
  * Each recipe keeps the model names it is given (a `const` type parameter,
  * so the reader writes no `as const`), and `perModel` keys its map by them:
  * the client types then know which models a recipe writes, so a field it
- * writes may be left out of a create even where the schema requires it, and
- * may not be passed (owner ruling, plan v4 §7.5). `perModel` holds the one
+ * writes may be left out of a create even where the schema requires it
+ * (owner ruling, plan v4 §7.5), and a value the caller writes is the
+ * caller's (owner ruling 2026-10-02, plan v4 §7.1). `perModel` holds the one
  * cast, the same key-map cast as the soft-delete entry's `perModel`.
  */
 

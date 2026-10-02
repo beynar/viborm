@@ -1,17 +1,18 @@
 /**
  * The types of an extension's `data` (extension-capabilities plan v4 §2.2
  * Types, §6 Data "Types"): on a client whose chain declares `data` for a
- * model, the fields it writes accept nothing in that model's create and
- * update payloads (`create`, `createMany` rows, `upsert`'s two arms,
- * `update`, `updateMany`) and in every create and update the call nests
- * through a relation, because the call is refused when it passes one. They
- * may be left out even where the schema requires them, at the top level and
- * nested, because the chain writes them (owner ruling, plan v4 §7.5). The
- * base client still accepts them and still asks for a required one. A
- * misspelt model in an inline `data` declaration is an editor error. The
- * guide's recipes keep the model names they are given, so they narrow those
- * models and no other; a list whose names the types cannot see narrows
- * nothing. The runtime halves are
+ * model's creates, the fields it writes there may be left out of that model's
+ * create rows (`create`, `createMany` rows, `upsert`'s create arm) even where
+ * the schema requires them, at the top level and in every create the call
+ * nests through a relation, because the chain writes each one the caller
+ * leaves out (owner ruling, plan v4 §7.5). A caller may still write one, with
+ * the field's own type, and that value stands, as may the relation whose
+ * foreign key holds it (owner ruling 2026-10-02, plan v4 §7.1). An update's
+ * fields are optional already and keep their types. The base client still
+ * asks for a required one. A misspelt model in an inline `data` declaration
+ * is an editor error. The guide's recipes keep the model names they are
+ * given, so they narrow those models and no other; a list whose names the
+ * types cannot see narrows nothing. The runtime halves are
  * `tests/contracts/engine/write/extension-data-behavior.ts` and
  * `tests/contracts/engine/write/stamped-required-behavior.ts`.
  *
@@ -57,11 +58,11 @@ const comment = s.model({
     .fields("postId")
     .references("id"),
 });
-// A to-many target stamped on both kinds of write.
+// A to-many target stamped on both kinds of write, its `createdBy` required.
 const note = s.model({
   id: s.int().id(),
   text: s.string(),
-  createdBy: s.string().nullable(),
+  createdBy: s.string(),
   updatedBy: s.string().nullable(),
   postId: s.int(),
   post: s
@@ -102,55 +103,58 @@ const stamped = base.$extends(
   })
 );
 
-export async function stampedFieldsAreRefused() {
+export async function aStampedFieldIsTheCallersWhenWritten() {
   await stamped.post.create({ data: { id: 1, title: "a" }, actor: "ann" });
+  // A value the caller writes stands; it keeps the field's own type.
   await stamped.post.create({
-    // @ts-expect-error - audit writes createdBy on every create of post
-    data: { id: 1, title: "a", createdBy: "mallory" },
+    data: { id: 1, title: "a", createdBy: "import" },
+    actor: "ann",
+  });
+  await stamped.post.create({
+    // @ts-expect-error - createdBy is a string
+    data: { id: 1, title: "a", createdBy: 1 },
     actor: "ann",
   });
   await stamped.post.createMany({
     data: [
       { id: 2, title: "b" },
-      // @ts-expect-error - and on every createMany row
-      { id: 3, title: "c", createdBy: "mallory" },
+      { id: 3, title: "c", createdBy: "import" },
     ],
     actor: "ann",
   });
-  await stamped.post.update({
-    where: { id: 1 },
-    data: { title: "b" },
+  await stamped.post.createMany({
+    // @ts-expect-error - and in every createMany row
+    data: [{ id: 3, title: "c", createdBy: 1 }],
     actor: "ann",
   });
-  await stamped.post.update({
+  await stamped.post.upsert({
     where: { id: 1 },
-    // @ts-expect-error - audit writes updatedBy on every update of post
-    data: { updatedBy: "mallory" },
-    actor: "ann",
-  });
-  await stamped.post.updateMany({
-    // @ts-expect-error - updateMany too
-    data: { updatedBy: "mallory" },
+    create: { id: 1, title: "a", createdBy: "import" },
+    update: { updatedBy: "import" },
     actor: "ann",
   });
   await stamped.post.upsert({
     where: { id: 1 },
     // @ts-expect-error - upsert's create arm is a create
-    create: { id: 1, title: "a", createdBy: "mallory" },
+    create: { id: 1, title: "a", createdBy: 1 },
     update: { title: "b" },
     actor: "ann",
   });
-  await stamped.post.upsert({
+  // An update's fields are optional already: they keep their types, update
+  // operators included.
+  await stamped.post.update({
     where: { id: 1 },
-    create: { id: 1, title: "a" },
-    // @ts-expect-error - upsert's update arm is an update
-    update: { updatedBy: "mallory" },
+    data: { updatedBy: "import", version: { increment: 5 } },
+    actor: "ann",
+  });
+  await stamped.post.updateMany({
+    data: { updatedBy: "import" },
     actor: "ann",
   });
   await stamped.post.update({
     where: { id: 1 },
-    // @ts-expect-error - an update operator is refused as well as a value
-    data: { version: { increment: 1 } },
+    // @ts-expect-error - updatedBy is a string
+    data: { updatedBy: 1 },
     actor: "ann",
   });
 }
@@ -178,120 +182,74 @@ export async function otherFieldsPass() {
   });
 }
 
-export async function nestedWritesAreNarrowed() {
-  await stamped.comment.create({
-    data: {
-      id: 1,
-      body: "x",
-      // @ts-expect-error - a nested create of post
-      post: { create: { id: 1, title: "a", createdBy: "x" } },
-    },
-    actor: "ann",
-  });
-  await stamped.comment.create({
-    data: {
-      id: 1,
-      body: "x",
-      post: {
-        connectOrCreate: {
-          where: { id: 1 },
-          // @ts-expect-error - connectOrCreate's create
-          create: { id: 1, title: "a", createdBy: "x" },
-        },
-      },
-    },
-    actor: "ann",
-  });
-  await stamped.comment.update({
-    where: { id: 1 },
-    // @ts-expect-error - a nested update of post
-    data: { post: { update: { updatedBy: "x" } } },
-    actor: "ann",
-  });
-  await stamped.comment.update({
-    where: { id: 1 },
-    data: {
-      post: {
-        upsert: {
-          create: { id: 1, title: "a" },
-          // @ts-expect-error - a nested upsert's update arm
-          update: { updatedBy: "x" },
-        },
-      },
-    },
-    actor: "ann",
-  });
-  await stamped.comment.update({
-    where: { id: 1 },
-    data: { post: { update: { title: "b", createdBy: "import" } } },
-    actor: "ann",
-  });
-  // At any depth, item by item.
+export async function nestedCreatesMayLeaveItOut() {
+  // `note` requires createdBy, and audit writes it on every create of note.
+  await stamped.note.create({ data: { id: 1, text: "x", postId: 1 } });
   await stamped.post.create({
     data: {
       id: 1,
       title: "a",
-      comments: {
+      notes: {
         create: [
-          {
-            id: 2,
-            body: "y",
-            // @ts-expect-error - post again, two relations down
-            post: { create: { id: 3, title: "z", createdBy: "q" } },
-          },
+          { id: 1, text: "x" },
+          { id: 2, text: "y", createdBy: "m" },
         ],
+        createMany: { data: [{ id: 3, text: "z" }] },
+        connectOrCreate: { where: { id: 4 }, create: { id: 4, text: "w" } },
       },
     },
     actor: "ann",
   });
-  // A to-many target, through each verb that writes it.
+  await stamped.post.update({
+    where: { id: 1 },
+    data: {
+      notes: {
+        upsert: {
+          where: { id: 5 },
+          create: { id: 5, text: "v" },
+          update: { text: "u", updatedBy: "m" },
+        },
+        update: { where: { id: 1 }, data: { updatedBy: "m" } },
+        updateMany: [{ where: { id: 2 }, data: { createdBy: "import" } }],
+      },
+    },
+    actor: "ann",
+  });
   await stamped.post.create({
     data: {
       id: 1,
       title: "a",
-      notes: {
-        createMany: {
-          // @ts-expect-error - a nested createMany row
-          data: [{ id: 1, text: "x", createdBy: "m" }],
+      // @ts-expect-error - a value written keeps its type, nested too
+      notes: { create: [{ id: 1, text: "x", createdBy: 1 }] },
+    },
+    actor: "ann",
+  });
+  // At any depth, item by item: a note under a post under a comment.
+  await stamped.comment.create({
+    data: {
+      id: 1,
+      body: "x",
+      post: {
+        create: {
+          id: 3,
+          title: "z",
+          notes: { create: [{ id: 6, text: "t" }] },
         },
       },
-    },
-    actor: "ann",
-  });
-  await stamped.post.update({
-    where: { id: 1 },
-    data: {
-      notes: {
-        // @ts-expect-error - a nested updateMany entry
-        updateMany: [{ where: { id: 1 }, data: { updatedBy: "m" } }],
-      },
-    },
-    actor: "ann",
-  });
-  await stamped.post.update({
-    where: { id: 1 },
-    data: {
-      notes: {
-        // @ts-expect-error - a to-many update names its row, then its data
-        update: { where: { id: 1 }, data: { updatedBy: "m" } },
-      },
-    },
-    actor: "ann",
-  });
-  await stamped.post.update({
-    where: { id: 1 },
-    data: {
-      notes: { update: { where: { id: 1 }, data: { createdBy: "import" } } },
     },
     actor: "ann",
   });
   // A transaction's client is the same client.
   await stamped.$transaction(async (tx) => {
     await tx.post.create({
-      // @ts-expect-error - the transaction client narrows the same fields
-      data: { id: 1, title: "a", createdBy: "mallory" },
+      data: { id: 1, title: "a", notes: { create: { id: 7, text: "s" } } },
       actor: "ann",
     });
+  });
+  // The base client still asks for it.
+  await base.post.create({
+    // @ts-expect-error - createdBy is required on a note
+    data: { id: 1, title: "a", notes: { create: { id: 8, text: "r" } } },
   });
 }
 
@@ -309,7 +267,7 @@ export async function baseClientAcceptsThem() {
 
 export async function aRequiredStampedFieldMayBeLeftOut() {
   // The schema requires `owner` and the extension writes it: the caller
-  // leaves it out, and may not pass it.
+  // may leave it out, or write it with its own type.
   await stamped.ledger.create({ data: { id: 1 }, actor: "ann" });
   await stamped.ledger.createMany({ data: [{ id: 1 }], actor: "ann" });
   await stamped.ledger.upsert({
@@ -318,8 +276,9 @@ export async function aRequiredStampedFieldMayBeLeftOut() {
     update: {},
     actor: "ann",
   });
-  // @ts-expect-error - passing it is refused
   await stamped.ledger.create({ data: { id: 1, owner: "a" }, actor: "a" });
+  // @ts-expect-error - owner is a string
+  await stamped.ledger.create({ data: { id: 1, owner: 1 }, actor: "a" });
   // The base client still asks for it.
   // @ts-expect-error - owner is required
   await base.ledger.create({ data: { id: 1 } });
@@ -361,11 +320,7 @@ export async function aRecipeNarrowsTheModelsItNames() {
   });
   // @ts-expect-error - so invoice still asks for it
   await audited.invoice.create({ data: { id: 1 }, actor: "ann" });
-  await audited.post.create({
-    // @ts-expect-error - audit writes createdBy on post
-    data: { id: 1, title: "a", createdBy: "mallory" },
-    actor: "ann",
-  });
+  await audited.post.create({ data: { id: 1, title: "a" }, actor: "ann" });
   // A misspelt model in the list is an editor error where it is applied.
   // @ts-expect-error - no model "psot" in this schema
   base.$extends(audit(["psot"]));
@@ -386,9 +341,9 @@ export async function optimisticLockTypes() {
     expectedVersion: 3,
   });
   type _updated = Expect<Equal<typeof updated.version, number>>;
+  // A version the caller writes wins over the increment.
   await locked.post.update({
     where: { id: 1 },
-    // @ts-expect-error - the lock moves the version on every update of post
     data: { version: 4 },
     expectedVersion: 3,
   });
@@ -404,7 +359,8 @@ export async function optimisticLockTypes() {
   await locked.post.findMany({ expectedVersion: 3 });
 }
 
-// Two inline declarations on one client: each one's fields are refused.
+// Two inline declarations on one client: each one's fields are the caller's
+// when written.
 const both = stamped.$extends(
   defineExtension({
     name: "tenancy",
@@ -422,14 +378,13 @@ export async function twoExtensions() {
     actor: "ann",
   });
   await both.post.create({
-    // @ts-expect-error - tenancy writes tenantId
-    data: { id: 1, title: "a", tenantId: "globex" },
+    data: { id: 1, title: "a", tenantId: "globex", createdBy: "import" },
     tenant: "acme",
     actor: "ann",
   });
   await both.post.create({
-    // @ts-expect-error - audit writes createdBy
-    data: { id: 1, title: "a", createdBy: "mallory" },
+    // @ts-expect-error - tenantId is a string
+    data: { id: 1, title: "a", tenantId: 1 },
     tenant: "acme",
     actor: "ann",
   });
@@ -443,8 +398,7 @@ export async function twoExtensions() {
 }
 
 // A list whose names the types cannot see (a plain `string[]`) narrows
-// nothing: the fields stay in every payload, and a call that passes one is
-// refused when it runs.
+// nothing: a required field stays required, and a value passed stands.
 declare const names: string[];
 const listed = base.$extends(audit(names));
 
@@ -492,19 +446,34 @@ const tenants = plainTenants.$extends(tenancy(["article", "reply"]));
 
 export async function aRequiredTenantMayBeLeftOut() {
   await tenants.article.create({ data: { id: 1, title: "a" }, tenant: "acme" });
+  // Written by hand, it is the caller's: that tenant is written.
   await tenants.article.create({
-    // @ts-expect-error - tenancy writes tenantId
     data: { id: 1, title: "a", tenantId: "globex" },
     tenant: "acme",
   });
-  // A required foreign key: neither it nor its relation is asked for.
+  // A required foreign key: neither it nor its relation is asked for, and
+  // either may be written.
   await tenants.reply.create({
     data: { id: 1, body: "b", articleId: 1 },
     tenant: "acme",
   });
   await tenants.reply.create({
-    // @ts-expect-error - its relation would write tenantId: it takes nothing
+    data: { id: 1, body: "b", articleId: 1, tenantId: "globex" },
+    tenant: "acme",
+  });
+  await tenants.reply.create({
     data: { id: 1, body: "b", articleId: 1, tenant: { connect: { id: "x" } } },
+    tenant: "acme",
+  });
+  await tenants.reply.create({
+    // @ts-expect-error - the relation keeps its own input
+    data: { id: 1, body: "b", articleId: 1, tenant: { connect: { no: "x" } } },
+    tenant: "acme",
+  });
+  // An update writes what the caller writes: tenancy stamps creates only.
+  await tenants.reply.update({
+    where: { id: 1 },
+    data: { tenant: { connect: { id: "globex" } } },
     tenant: "acme",
   });
   // The base client still writes it through the relation.
@@ -552,12 +521,17 @@ export async function aNestedCreateMayLeaveItOutToo() {
     },
     tenant: "acme",
   });
+  // A nested create may write it, or its relation.
   await tenants.article.create({
     data: {
       id: 1,
       title: "a",
-      // @ts-expect-error - a nested create may not pass it either
-      replies: { create: [{ id: 1, body: "b", tenantId: "globex" }] },
+      replies: {
+        create: [
+          { id: 1, body: "b", tenantId: "globex" },
+          { id: 2, body: "c", tenant: { connect: { id: "x" } } },
+        ],
+      },
     },
     tenant: "acme",
   });
@@ -565,10 +539,8 @@ export async function aNestedCreateMayLeaveItOutToo() {
     data: {
       id: 1,
       title: "a",
-      replies: {
-        // @ts-expect-error - nor write it through its relation
-        create: [{ id: 1, body: "b", tenant: { connect: { id: "x" } } }],
-      },
+      // @ts-expect-error - tenantId is a string
+      replies: { create: [{ id: 1, body: "b", tenantId: 1 }] },
     },
     tenant: "acme",
   });

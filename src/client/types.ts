@@ -532,7 +532,7 @@ type PlacedOperationControls<Controls, ModelName, O> = [
   : OperationControls<Controls, ModelName, O>;
 
 // =============================================================================
-// `data`: THE FIELDS A CHAIN WRITES ARE NOT THE CALLER'S
+// `data`: A FIELD A CHAIN WRITES ON CREATE MAY BE LEFT OUT
 // =============================================================================
 
 /** The operations that write a model's data: where `data` narrows. */
@@ -544,11 +544,12 @@ export type StampedOperation =
   | "upsert";
 
 /**
- * One model's write operations on a client whose chain declares `data`. The
- * fields the chain writes accept nothing, in the call's own data and in every
- * create and update it nests through a relation, because the call is refused
- * when it passes one. They may always be left out, even where the schema
- * requires them: the chain writes them (owner ruling, plan v4 §7.5).
+ * One model's write operations on a client whose chain declares `data` for
+ * creates. The fields the chain writes on a create are optional there, even
+ * where the schema requires them, in the call's own rows and in every create
+ * it nests through a relation: the chain writes each one the caller leaves
+ * out, and a caller who writes one keeps its value (owner rulings, plan v4
+ * §7.5 and §7.1).
  */
 export type StampedOperations<
   C extends VibORMConfig,
@@ -567,26 +568,21 @@ export type StampedOperations<
       O,
       OperationPayload<O, C["schema"][K]>,
       C["schema"][K],
-      StampedFieldNames<Data, K, "create">,
-      StampedFieldNames<Data, K, "update">,
+      StampedFieldNames<Data, K>,
       Stamps<Data, C["schema"]>
     >
   >;
 };
 
-/** The call's own clauses, rebuilt: a create's rows, an update's, or both. */
-type StampedPayload<
-  O,
-  Payload,
-  M,
-  Create extends PropertyKey,
-  Update extends PropertyKey,
-  Context,
-> = {
+/**
+ * The call's own clauses, rebuilt: a create's rows, and an update's for the
+ * creates they nest.
+ */
+type StampedPayload<O, Payload, M, Fields extends PropertyKey, Context> = {
   [Key in keyof Payload]: Key extends CreateClause<O>
-    ? StampedRow<Payload[Key], M, Create, Context>
+    ? StampedRow<Payload[Key], M, Fields, Context>
     : Key extends UpdateClause<O>
-      ? StampedRow<Payload[Key], M, Update, Context>
+      ? StampedRow<Payload[Key], M, never, Context>
       : Payload[Key];
 };
 
@@ -608,16 +604,12 @@ interface Stamps<Data, S> {
   readonly schema: S;
 }
 
-type Unwritable<Fields extends PropertyKey> = {
-  readonly [Field in Fields]?: never;
-};
-
 /**
- * A row of `M` without the fields the chain writes on it, each offered back
- * as `?: never`: a field the schema requires may be left out, and no value is
- * accepted. Its relations' writes are rebuilt for their own targets. Mapped
- * types resolve a member only when it is read, so a call pays for the depth
- * it spells, never for the schema's.
+ * A row of `M` whose `Fields` are optional, each with its own type: a field
+ * the schema requires may be left out, and a value passed is the caller's.
+ * Its relations' writes are rebuilt for their own targets. Mapped types
+ * resolve a member only when it is read, so a call pays for the depth it
+ * spells, never for the schema's.
  */
 type StampedRow<
   Row,
@@ -632,34 +624,17 @@ type StampedRow<
           [Key in keyof Row as Key extends Fields
             ? never
             : Key]: Key extends keyof State["relations"]
-            ? HoldsField<State["relations"][Key], Fields> extends true
-              ? never
-              : StampedRelation<
-                  Row[Key],
-                  GetTargetModel<State["relations"][Key]>,
-                  Context
-                >
+            ? StampedRelation<
+                Row[Key],
+                GetTargetModel<State["relations"][Key]>,
+                Context
+              >
             : Row[Key];
-        } & Unwritable<Fields>
+        } & {
+          [Key in keyof Row as Key extends Fields ? Key : never]?: Row[Key];
+        }
       : Row
     : Row;
-
-/**
- * Does the relation's foreign key, on this side, hold a field the chain
- * writes? Its connect or create would write that field, so the call is
- * refused when it writes the relation, and it accepts nothing.
- */
-type HoldsField<Relation, Fields> = Relation extends {
-  readonly "~": {
-    readonly state: {
-      readonly foreignKey: { readonly fields: readonly (infer Field)[] };
-    };
-  };
-}
-  ? [Extract<Field, Fields>] extends [never]
-    ? false
-    : true
-  : false;
 
 /** A relation with variants has no one target: it is not rebuilt. */
 type StampedRelation<Value, Target, Context> = [Target] extends [never]
@@ -684,12 +659,7 @@ type StampedVerb<
   Target extends Model<any>,
   Context,
 > = Verb extends "create"
-  ? StampedRow<
-      Value,
-      Target,
-      TargetStampedFields<Context, Target, "create">,
-      Context
-    >
+  ? StampedRow<Value, Target, TargetStampedFields<Context, Target>, Context>
   : Verb extends "createMany"
     ? StampedArms<Value, Target, "data", never, Context>
     : Verb extends "connectOrCreate" | "upsert"
@@ -707,12 +677,7 @@ type StampedUpdate<
   ? StampedUpdate<Item, Target, Context>[]
   : Value extends { readonly data: unknown }
     ? StampedArms<Value, Target, never, "data", Context>
-    : StampedRow<
-        Value,
-        Target,
-        TargetStampedFields<Context, Target, "update">,
-        Context
-      >;
+    : StampedRow<Value, Target, never, Context>;
 
 /** A nested verb's create and update arms, rebuilt; an array, item by item. */
 type StampedArms<
@@ -729,35 +694,25 @@ type StampedArms<
           ? StampedRow<
               Value[Key],
               Target,
-              TargetStampedFields<Context, Target, "create">,
+              TargetStampedFields<Context, Target>,
               Context
             >
           : Key extends UpdateKey
-            ? StampedRow<
-                Value[Key],
-                Target,
-                TargetStampedFields<Context, Target, "update">,
-                Context
-              >
+            ? StampedRow<Value[Key], Target, never, Context>
             : Value[Key];
       }
     : Value;
 
 /**
- * The fields the chain writes on a relation's target. A target is found by
- * its shallow surface, as `rows` finds a hidden one: a model that shares its
- * surface with a stamped model is narrowed with it.
+ * The fields the chain writes on a create of a relation's target. A target
+ * is found by its shallow surface, as `rows` finds a hidden one: a model
+ * that shares its surface with a stamped model is narrowed with it.
  */
 type TargetStampedFields<
   Context,
   Target extends Model<any>,
-  Kind,
 > = Context extends Stamps<infer Data, infer S>
-  ? Data extends StampedFields<
-      infer Models,
-      Kind,
-      infer Fields extends PropertyKey
-    >
+  ? Data extends StampedFields<infer Models, infer Fields extends PropertyKey>
     ? true extends NamesTarget<Extract<Models, keyof S>, Target, S>
       ? Fields
       : never

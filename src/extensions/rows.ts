@@ -4,7 +4,6 @@ import type {
   ModelDomain,
   ModelStamps,
   RowDomain,
-  Stamp,
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
@@ -182,22 +181,21 @@ function boundDomain(
 
 /**
  * A stamp bound: a field whose value names a control the call did not pass is
- * not written, and stays the extension's (its owner is kept, so the call may
- * not write it either). The same object when no field names a control.
+ * not written. The same object when no field names a control.
  */
 function boundStamp(
-  stamp: Stamp | undefined,
+  stamp: Input | undefined,
   controls: AdmittedControls | undefined
-): Stamp | undefined {
+): Input | undefined {
   if (stamp === undefined) return undefined;
   const values: Record<string, unknown> = {};
   let changed = false;
-  for (const [field, value] of Object.entries(stamp.values)) {
+  for (const [field, value] of Object.entries(stamp)) {
     const bound = boundValue(value, controls, false);
     changed ||= bound !== value;
     if (bound !== ABSENT) values[field] = bound;
   }
-  return changed ? Object.freeze({ values, owners: stamp.owners }) : stamp;
+  return changed ? Object.freeze(values) : stamp;
 }
 
 /** Each model's stamps bound; an entry naming no control is kept as is. */
@@ -301,8 +299,8 @@ export function bindRows(
   const stamps = data === undefined ? undefined : new Map(Object.entries(data));
   const stampReferences = new Set<string>();
   for (const entry of stamps?.values() ?? []) {
-    collectReferences(entry.create?.values, stampReferences, true);
-    collectReferences(entry.update?.values, stampReferences, true);
+    collectReferences(entry.create, stampReferences, true);
+    collectReferences(entry.update, stampReferences, true);
   }
   const physical = domains.map((domain) =>
     Object.freeze({ domain, defaults, ...(stamps && { stamps }) })

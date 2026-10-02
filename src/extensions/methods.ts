@@ -111,7 +111,8 @@ type MethodsForModel<
 
 /**
  * One model's delegate after the chain's methods and controls. On a chain
- * that declares `data`, its writes refuse the fields the chain writes.
+ * that declares create `data`, its writes may leave out the fields the chain
+ * writes on a create.
  */
 export type ExtensionModelDelegate<
   C extends VibORMConfig,

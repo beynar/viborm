@@ -87,8 +87,7 @@ records the domain's fields among its dependency facts, as a to-many one does.
 convergence and a hidden conflict's rethrow behave as without a domain, and
 marks the selector `scoped`, so the two consumers that trust the key alone —
 the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
-decline. The engine never sees a control or a mode, and an extension's name
-only as the owner a stamp's refusal names.
+decline. The engine never sees a control, a mode or an extension's name.
 
 *Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
 `tombstones` (absent when its controls matched `removeWhen`) writes an update
@@ -139,12 +138,14 @@ writes, per model, the declared fields on every create and every update of it.
 `Commands.stamp(model, kind, admitted, raw)` is the one owner: it admits the
 stamp once per occurrence per attempt through `EngineSchema.update(model,
 values, true)`, as a tombstone is (a create takes each field's whole value),
-writes it over the occurrence's admitted data, and refuses a caller whose raw
-data names a field an extension declares for that kind, written on this call
-or not (`ValidationError` at `data.<field>`, naming the extension; the path
-names the field, not the occurrence's position), or writes the relation
-whose foreign key, on this model, holds such a field (`data.<relation>`: a
-`tenant: { connect }` would store another tenant; ruling 2 repair). It returns scalar values:
+and puts it under the occurrence's admitted data: a field the caller's raw
+data writes, by name or through the relation whose foreign key on this model
+holds it, is the caller's, and the stamp writes nothing there (owner ruling,
+2026-10-02, plan v4 §7.1; it replaced the refusal of both). Dropping the
+held field is what lets a relation write that leaves the key alone (a nested
+`update` of the tenant) keep it; a `connect` or `create` would set the key
+over an unrequested stamp anyway. A tombstone has no caller data and takes
+the whole stamp. It returns scalar values:
 a tombstone's are written as they are, with no second `schema.scalars`.
 Every site that turns one occurrence's admitted data into
 `schema.scalars` calls it: `Commands.create` (root create on the record route,

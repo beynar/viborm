@@ -496,49 +496,49 @@ await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updat
   `update` fields too. A `connect` or `set` that only moves a foreign key
   writes nothing, as it does not refresh `updatedAt` either. A delete that
   stays physical writes nothing. Raw SQL is not touched.
-- A call that writes one of these fields itself is refused with a
-  `ValidationError` at `data.<field>` that names the extension. The path
-  names the field, not where it sits: a nested create or an `upsert` arm is
-  reported at `data.<field>` too. A field the extension writes only on create
-  can still be set by an update. Writing the field through a relation
-  counts too: when the field is the relation's foreign key (`tenantId` for
-  `tenant`), a create that connects or creates through that relation is
-  refused at `data.<relation>`, and on the extended client the relation
-  accepts no value in that model's create data.
+- The extension fills a field only when the caller left it out. A call that
+  writes one of these fields itself keeps its own value, and the extension
+  writes nothing there, at the root and in every nested create or update. A
+  field written as `undefined` counts as left out. Writing the field through
+  a relation counts as writing it: when the field is the relation's foreign
+  key (`tenantId` for `tenant`), a call that writes that relation
+  (`connect`, `create`, `connectOrCreate`, even a nested `update` of the
+  tenant) decides the key, and the extension steps back. So under tenancy,
+  reads stay with the call's tenant, but writes are not enforced: a caller
+  who writes `tenantId`, or connects a tenant, by hand writes into that
+  tenant, on a create and on an update. A soft delete has no data from the
+  caller, so the extension always writes its `update` fields there.
 - The types agree when the extension names its models where the types can
   read them, as a `data` entry written inline does, or a
   [recipe](/docs/extensions/recipes) given a written list of names. On the
-  extended client, each field the extension writes accepts no value in that
-  model's create and update data, in the call's own data and in every create
-  and update it nests through a relation: passing one is an editor error.
-  The base client still accepts it.
+  extended client, each field the extension writes on create is optional in
+  that model's create data, in the call's own data and in every create it
+  nests through a relation, and it keeps its own type when you write it. The
+  relation that holds it may be written too. An update's fields are optional
+  already and keep their types.
 - A field your schema requires may be left out of a create when an
   extension writes it on that call: the call's data is checked against the
   schema with that field counted as given, at the root and in every nested
   create, and the extension then writes it. A required foreign key such as
-  `tenantId` counts as given for its relation too. The types say the same:
-  on the extended client such a field is optional in the create data of the
-  models the extension names, at the root and in a create nested through a
-  relation. When the call does not pass the control the field names, nothing
-  writes it, so leaving it out is refused as missing when the call runs, as
-  on a model no extension writes; mark the control `required` so the call
-  must pass it.
+  `tenantId` counts as given for its relation too. When the call does not
+  pass the control the field names, nothing writes it, so leaving it out is
+  refused as missing when the call runs, as on a model no extension writes;
+  mark the control `required` so the call must pass it.
 - What the types cannot see: names built at runtime (a plain `string[]`)
-  narrow nothing, so passing a field compiles and is refused when the call
-  runs, and a required field cannot be left out in your editor; and a
-  create nested through a relation with variants is not rebuilt, so there a
-  required field is still asked for. The types find a nested create's
-  model by its fields, not by its name, so a model the extension does not
-  name, whose fields and relations are the same as a named model's, is
-  treated like it in a nested create: the editor lets a required field be
-  left out there, and the call is refused as missing when it runs. A
-  `data` entry, or a recipe's list, that names a model your schema lacks is
-  an editor error where the extension is applied.
+  narrow nothing, so a required field cannot be left out in your editor;
+  and a create nested through a relation with variants is not rebuilt, so
+  there a required field is still asked for. The types find a nested
+  create's model by its fields, not by its name, so a model the extension
+  does not name, whose fields and relations are the same as a named
+  model's, is treated like it in a nested create: the editor lets a
+  required field be left out there, and the call is refused as missing when
+  it runs. A `data` entry, or a recipe's list, that names a model your
+  schema lacks is an editor error where the extension is applied.
 - When two extensions write the same field of a model, the one applied later
-  wins, on every call. Each writes its other fields.
-- A field whose control the call did not pass is not written, and the call
-  may not write it either: it stays the extension's. When the later of two
-  extensions names a control there, a call without it writes neither
+  wins, on every call, and a value the caller writes wins over both. Each
+  extension writes its other fields.
+- A field whose control the call did not pass is not written. When the later
+  of two extensions names a control there, a call without it writes neither
   extension's value. Mark the control `required` when it must always be
   there, as audit does.
 

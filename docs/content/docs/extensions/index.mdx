@@ -52,7 +52,7 @@ An extension has one name and any subset of ten capabilities:
 | `controls` | Operation arguments | Declare an argument; only the declaring extension's handlers see its value |
 | `rows` | Which rows an operation sees | Row filters per model, chosen per call by one argument, with the call's values |
 | `deletion` | What a delete does | Turn a delete of a model into an update with fixed data and the call's time |
-| `data` | Fields every create and update writes | Fixed values or the call's values, written by the extension, never by the caller |
+| `data` | Fields every create and update writes | Fixed values or the call's values, written where the caller left the field out |
 
 These are one extension language, not one universal hook. Request transforms
 are synchronous. Query interceptors are asynchronous and authoritative.

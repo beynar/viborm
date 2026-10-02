@@ -1,6 +1,6 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { NotFoundError, ValidationError } from "@errors";
+import { NotFoundError } from "@errors";
 import { s } from "@schema";
 import { defineExtension } from "@src/index";
 import {
@@ -19,7 +19,9 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * database: the guide's audit (§1.2), tenancy (§1.1) and optimistic lock
  * (§1.3) recipes (`tests/fixtures/extension-recipes.ts`).
  *
- * Every place the engine writes one occurrence's data writes the stamp:
+ * Every place the engine writes one occurrence's data writes the stamp,
+ * unless the caller's own data there writes the field, whose value then
+ * stands (owner ruling, 2026-10-02):
  * creates (root create, both `createMany` forms, `upsert`'s create arm on
  * both routes, nested `create`, `createMany`, `connectOrCreate` and `upsert`)
  * and updates (root update, both `updateMany` forms, `upsert`'s update arm
@@ -380,66 +382,218 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       ).toHaveLength(1);
     });
 
-    test("a caller who writes a stamped field is refused at its path, nested too; a field the extension does not write on that kind passes", async () => {
-      const { base, db } = context;
-      const refused = await failure(
-        db.post.create({
-          // @ts-expect-error - the client's types refuse a stamped field too
-          data: { id: 1, title: "a", createdBy: "mallory" },
-          actor: "ann",
-        })
-      );
-      expect(refused).toBeInstanceOf(ValidationError);
-      expect((refused as ValidationError).issues).toEqual([
-        {
-          path: "data.createdBy",
-          message: 'Field "createdBy" is written by extension "audit"',
-        },
-      ]);
-      // The path names the field, not where the occurrence sits.
-      const nested = await failure(
-        db.post.create({
-          data: {
-            id: 1,
-            title: "a",
-            // @ts-expect-error - the client's types refuse a stamped field too
-            comments: { create: [{ id: 10, body: "x", createdBy: "m" }] },
-          },
-          actor: "ann",
-        })
-      );
-      expect(nested).toBeInstanceOf(ValidationError);
-      expect((nested as ValidationError).issues).toEqual([
-        {
-          path: "data.createdBy",
-          message: 'Field "createdBy" is written by extension "audit"',
-        },
-      ]);
-      expect(await base.post.count()).toBe(0);
+    test("a caller who writes a stamped field keeps its value at every create site; a row that leaves it out, or writes it undefined, takes the stamp", async () => {
+      const { db } = context;
       await db.post.create({
-        data: { id: 1, title: "a", updatedBy: "imported" },
+        data: { id: 1, title: "a", createdBy: "c1" },
         actor: "ann",
       });
-      expect(await stamped("post")).toEqual([[1, "ann", "imported"]]);
-      expect(
-        await failure(
-          db.post.update({
-            where: { id: 1 },
-            // @ts-expect-error - the client's types refuse a stamped field too
-            data: { updatedBy: "mallory" },
-            actor: "ann",
-          })
-        )
-      ).toBeInstanceOf(ValidationError);
+      await db.post.create({
+        data: { id: 2, title: "b", createdBy: undefined },
+        actor: "ann",
+      });
+      await db.post.create({
+        data: {
+          id: 8,
+          title: "h",
+          comments: {
+            create: [
+              { id: 10, body: "x", createdBy: "c10" },
+              { id: 14, body: "v" },
+            ],
+            createMany: {
+              data: [
+                { id: 11, body: "y", createdBy: "c11" },
+                { id: 15, body: "u" },
+              ],
+            },
+            connectOrCreate: [
+              {
+                where: { id: 12 },
+                create: { id: 12, body: "z", createdBy: "c12" },
+              },
+            ],
+          },
+        },
+        actor: "bob",
+      });
+      await db.post.createMany({
+        data: [
+          { id: 3, title: "c", createdBy: "c3" },
+          { id: 4, title: "d" },
+        ],
+        actor: "cy",
+      });
+      await db.post.createMany({
+        data: [
+          {
+            id: 5,
+            title: "e",
+            createdBy: "c5",
+            tags: {
+              create: [
+                { id: 30, name: "t", createdBy: "c30" },
+                { id: 31, name: "s" },
+              ],
+            },
+          },
+        ],
+        actor: "dee",
+      });
+      await db.post.upsert({
+        where: { id: 6 },
+        create: { id: 6, title: "f", createdBy: "c6" },
+        update: { title: "never" },
+        actor: "fay",
+      });
+      await db.$transaction([
+        db.post.upsert({
+          where: { id: 7 },
+          create: { id: 7, title: "g", createdBy: "c7" },
+          update: { title: "never" },
+          actor: "gus",
+        }),
+      ]);
+      await db.post.update({
+        where: { id: 1 },
+        data: {
+          comments: {
+            upsert: [
+              {
+                where: { id: 13 },
+                create: { id: 13, body: "w", createdBy: "c13" },
+                update: { body: "never" },
+              },
+            ],
+          },
+        },
+        actor: "eve",
+      });
+      expect(await stamped("post")).toEqual([
+        [1, "c1", "eve"],
+        [2, "ann", null],
+        [3, "c3", null],
+        [4, "cy", null],
+        [5, "c5", null],
+        [6, "c6", null],
+        [7, "c7", null],
+        [8, "bob", null],
+      ]);
+      expect(await stamped("comment")).toEqual([
+        [10, "c10", null],
+        [11, "c11", null],
+        [12, "c12", null],
+        [13, "c13", null],
+        [14, "bob", null],
+        [15, "bob", null],
+      ]);
+      expect(await stamped("tag")).toEqual([
+        [30, "c30", null],
+        [31, "dee", null],
+      ]);
+    });
+
+    test("a caller who writes a stamped field keeps its value at every update site, captured members too; an update that leaves it out takes the stamp", async () => {
+      const { base, db } = context;
+      for (const id of [1, 2, 3, 4, 5, 6, 7])
+        await base.post.create({ data: { id, title: `p${id}` } });
+      for (const [id, postId] of [
+        [10, 2],
+        [11, 2],
+        [13, 4],
+      ] as const)
+        await base.comment.create({ data: { id, postId, body: `c${id}` } });
+      await base.tag.create({
+        data: { id: 30, name: "t", posts: { connect: [{ id: 5 }] } },
+      });
+      await db.post.update({
+        where: { id: 1 },
+        data: { title: "a", updatedBy: "u1" },
+        actor: "hal",
+      });
+      await db.post.update({
+        where: { id: 2 },
+        data: {
+          title: "b",
+          comments: {
+            update: [
+              { where: { id: 10 }, data: { body: "x", updatedBy: "u10" } },
+            ],
+            updateMany: [{ where: { id: 11 }, data: { body: "y" } }],
+          },
+        },
+        actor: "ivy",
+      });
+      await db.post.updateMany({
+        where: { id: { in: [3, 4] } },
+        data: { title: "m", updatedBy: "u34" },
+        actor: "jo",
+      });
+      // Each captured member is admitted again: its own value stands, and
+      // the tag it nests takes the stamp.
+      await db.post.updateMany({
+        where: { id: 5 },
+        data: {
+          title: "n",
+          updatedBy: "u5",
+          tags: { updateMany: [{ where: {}, data: { name: "u" } }] },
+        },
+        actor: "kim",
+      });
+      await db.post.upsert({
+        where: { id: 6 },
+        create: { id: 6, title: "never" },
+        update: { title: "f", updatedBy: "u6" },
+        actor: "lee",
+      });
+      await db.$transaction([
+        db.post.upsert({
+          where: { id: 7 },
+          create: { id: 7, title: "never" },
+          update: { title: "g", updatedBy: "u7" },
+          actor: "max",
+        }),
+      ]);
+      await db.post.update({
+        where: { id: 4 },
+        data: {
+          comments: {
+            upsert: [
+              {
+                where: { id: 13 },
+                create: { id: 13, body: "never" },
+                update: { body: "w", updatedBy: "u13" },
+              },
+            ],
+          },
+        },
+        actor: "eve",
+      });
+      expect(await stamped("post")).toEqual([
+        [1, null, "u1"],
+        [2, null, "ivy"],
+        [3, null, "u34"],
+        [4, null, "eve"],
+        [5, null, "u5"],
+        [6, null, "u6"],
+        [7, null, "u7"],
+      ]);
+      expect(await stamped("comment")).toEqual([
+        [10, null, "u10"],
+        [11, null, "ivy"],
+        [13, null, "u13"],
+      ]);
+      expect(await stamped("tag")).toEqual([[30, null, "kim"]]);
+      // A field audit writes only on create is the caller's on an update.
       await db.post.update({
         where: { id: 1 },
         data: { createdBy: "fixed" },
         actor: "bob",
       });
-      expect(await stamped("post")).toEqual([[1, "fixed", "bob"]]);
+      expect((await stamped("post"))[0]).toEqual([1, "fixed", "bob"]);
     });
 
-    test("two extensions on one model: both write their fields, the later one wins a field both write and owns it, its control absent too", async () => {
+    test("two extensions on one model: both write their fields, the later one wins a field both write, its control absent too; the caller wins over both", async () => {
       const { base, logged } = context;
       const later = logged.$extends(audit(MODELS)).$extends(origin);
       await later.post.create({
@@ -465,34 +619,17 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
         { id: 2, createdBy: "system", source: null },
         { id: 3, createdBy: "bob", source: "web" },
       ]);
-      const refused = await failure(
-        later.post.create({
-          // @ts-expect-error - the client's types refuse a stamped field too
-          data: { id: 4, title: "d", createdBy: "x" },
-          actor: "ann",
-        })
-      );
-      expect((refused as ValidationError).issues).toEqual([
-        {
-          path: "data.createdBy",
-          message: 'Field "createdBy" is written by extension "origin"',
-        },
-      ]);
-      // A field the call leaves unwritten (its control absent) is still the
-      // extension's: the caller may not write it either.
-      const unwritten = await failure(
-        later.post.create({
-          // @ts-expect-error - the client's types refuse a stamped field too
-          data: { id: 4, title: "d", source: "me" },
-          actor: "ann",
-        })
-      );
-      expect((unwritten as ValidationError).issues).toEqual([
-        {
-          path: "data.source",
-          message: 'Field "source" is written by extension "origin"',
-        },
-      ]);
+      // The caller wins over both, its value written whether the call
+      // passes the control or not.
+      await later.post.create({
+        data: { id: 4, title: "d", createdBy: "x", source: "me" },
+        actor: "ann",
+        device: "cli",
+      });
+      await later.post.create({
+        data: { id: 8, title: "h", source: "me" },
+        actor: "ann",
+      });
       // The later extension owns `source` even on a call without its
       // control: the earlier constant is not written then.
       const imported = defineExtension({
@@ -515,13 +652,18 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
           select: { id: true, source: true },
         })
       ).toEqual([
+        { id: 4, source: "me" },
         { id: 5, source: null },
         { id: 6, source: "cli" },
         { id: 7, source: "import" },
+        { id: 8, source: "me" },
       ]);
+      expect(
+        (await base.post.findUniqueOrThrow({ where: { id: 4 } })).createdBy
+      ).toBe("x");
     });
 
-    test("tenancy writes the call's tenant on every create; another tenant is never written", async () => {
+    test("tenancy writes the call's tenant on every create that leaves it out; a caller who writes another tenant writes into it", async () => {
       const { base, logged } = context;
       const db = logged.$extends(tenancy(MODELS));
       await db.post.create({
@@ -551,15 +693,34 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       expect(ids(await db.post.findMany({ ...byId, tenant: "acme" }))).toEqual([
         1,
       ]);
+      // Writes are not enforced: a caller who writes tenantId writes into
+      // that tenant, on a create and on an update; reads stay the tenant's.
       expect(
-        await failure(
-          db.post.create({
-            // @ts-expect-error - the client's types refuse a stamped field too
-            data: { id: 3, title: "c", tenantId: "globex" },
-            tenant: "acme",
-          })
-        )
-      ).toBeInstanceOf(ValidationError);
+        await db.post.create({
+          data: { id: 3, title: "c", tenantId: "globex" },
+          tenant: "acme",
+          select: { tenantId: true },
+        })
+      ).toEqual({ tenantId: "globex" });
+      expect(
+        await db.post.update({
+          where: { id: 1 },
+          data: { tenantId: "globex" },
+          tenant: "acme",
+          select: { tenantId: true },
+        })
+      ).toEqual({ tenantId: "globex" });
+      expect(
+        await base.post.findMany({
+          ...byId,
+          select: { id: true, tenantId: true },
+        })
+      ).toEqual([
+        { id: 1, tenantId: "globex" },
+        { id: 2, tenantId: "globex" },
+        { id: 3, tenantId: "globex" },
+      ]);
+      expect(await db.post.findMany({ tenant: "acme" })).toEqual([]);
     });
 
     test("the optimistic lock: an update increments the version through the update schema; a moved version is NotFound", async () => {
@@ -605,10 +766,20 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
           select: { version: true },
         })
       ).toEqual({ version: 2 });
+      // A version the caller writes wins over the increment; the check
+      // still reads the expected one.
       expect(
-        await failure(db.post.delete({ where: { id: 2 }, expectedVersion: 1 }))
+        await db.post.update({
+          where: { id: 2 },
+          data: { title: "e", version: 10 },
+          expectedVersion: 2,
+          select: { version: true },
+        })
+      ).toEqual({ version: 10 });
+      expect(
+        await failure(db.post.delete({ where: { id: 2 }, expectedVersion: 2 }))
       ).toBeInstanceOf(NotFoundError);
-      await db.post.delete({ where: { id: 2 }, expectedVersion: 2 });
+      await db.post.delete({ where: { id: 2 }, expectedVersion: 10 });
       expect(await base.post.findUnique({ where: { id: 2 } })).toBeNull();
     });
   });
