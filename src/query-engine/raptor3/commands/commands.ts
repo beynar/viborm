@@ -449,14 +449,15 @@ export class Commands {
   }
   /**
    * One occurrence's scalar values (`schema.scalars` of its admitted data)
-   * with what the call's extensions write on every `kind` of `model`: their
-   * fields, admitted here once per occurrence per attempt through the model's
-   * update-data schema, as a tombstone is (a create takes each field's whole
-   * value), put under the occurrence's own. The caller's data (`raw`) wins a
-   * field it writes, by name or through the relation whose foreign key on
-   * `model` holds it (owner ruling, 2026-10-02): the extension writes nothing
-   * there, and that relation decides the key. A tombstone has no caller data,
-   * so all of it is written.
+   * with what the call's extensions write on every `kind` of `model`, put
+   * under the occurrence's own. The caller's data (`raw`) wins a field it
+   * writes, by name or through the relation whose foreign key on `model` holds
+   * it (owner ruling, 2026-10-02): the extension writes nothing there, and that
+   * relation decides the key. Only the fields kept are admitted, once per
+   * occurrence per attempt through the model's update-data schema, as a
+   * tombstone is (a create takes each field's whole value): a value the
+   * caller replaced is never seen by the field's schema. A tombstone has no
+   * caller data, so all of it is written.
    */
   stamp(
     model: AnyModel,
@@ -476,13 +477,15 @@ export class Commands {
       for (const { foreignField } of edge.reference.members)
         written.add(foreignField);
     }
-    const values = this.context.schema.update(model, stamp, true);
+    const kept: Input = {};
+    for (const field of Object.keys(stamp))
+      if (raw[field] === undefined && !written.has(field))
+        kept[field] = stamp[field];
+    const values = this.context.schema.update(model, kept, true);
     const stamped = { ...admitted };
-    for (const field of Object.keys(stamp)) {
-      if (raw[field] !== undefined || written.has(field)) continue;
+    for (const field of Object.keys(kept))
       stamped[field] =
         kind === "create" ? wholeValue(values[field])?.value : values[field];
-    }
     return this.context.schema.scalars(model, stamped);
   }
   /**

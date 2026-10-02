@@ -221,9 +221,11 @@ export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
 // and one update-site cell (+1 on each of three drivers), and the two
 // refusal cells of the required field became the two step-back cells. S2
 // (owner ruling 2026-10-02): a limited deleteMany or updateMany takes the
-// first rows by key, hard or soft (+1 on each of three drivers).
+// first rows by key, hard or soft (+1 on each of three drivers). Step-back
+// repair: a stamp value the caller replaces is never admitted (+1 on each of
+// three drivers).
 export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/deletion-sites.test.ts": 105,
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 108,
 });
 export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
   Object.keys(POST_G3_DELETION_SITE_COUNTS)

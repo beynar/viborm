@@ -143,13 +143,15 @@ the caller's delete (`ctx.operation`).
 
 *Stamps (extension `data`, plan v4 §2.2).* A call whose facts carry `stamps`
 writes, per model, the declared fields on every create and every update of it.
-`Commands.stamp(model, kind, admitted, raw)` is the one owner: it admits the
-stamp once per occurrence per attempt through `EngineSchema.update(model,
-values, true)`, as a tombstone is (a create takes each field's whole value),
-and puts it under the occurrence's admitted data: a field the caller's raw
-data writes, by name or through the relation whose foreign key on this model
-holds it, is the caller's, and the stamp writes nothing there (owner ruling,
-2026-10-02, plan v4 §7.1; it replaced the refusal of both). Dropping the
+`Commands.stamp(model, kind, admitted, raw)` is the one owner. A field the
+caller's raw data writes, by name or through the relation whose foreign key
+on this model holds it, is the caller's, and the stamp writes nothing there
+(owner ruling, 2026-10-02, plan v4 §7.1; it replaced the refusal of both).
+The fields it keeps, and only those, are admitted once per occurrence per
+attempt through `EngineSchema.update(model, values, true)`, as a tombstone
+is (a create takes each field's whole value), and put under the
+occurrence's admitted data: a value the caller replaced never reaches its
+field's schema. Dropping the
 held field is what lets a relation write that leaves the key alone (a nested
 `update` of the tenant) keep it; a `connect` or `create` would set the key
 over an unrequested stamp anyway. A tombstone has no caller data and takes

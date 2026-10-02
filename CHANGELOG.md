@@ -57,7 +57,8 @@ Versioning.
   writes it. Writing it through the relation whose foreign key it is
   (`tenant: { connect: ... }` for `tenantId`) counts as writing it: the
   relation decides the key. A field written as `undefined` counts as left
-  out. Under tenancy, reads stay with the call's tenant but writes are not
+  out. A value the extension would have written there is not checked either,
+  so a field's own schema never sees or refuses it. Under tenancy, reads stay with the call's tenant but writes are not
   enforced: a caller who writes `tenantId`, or connects a tenant, by hand
   writes into that tenant.
 - **Added: a `rows` filter can use a value the call passes.** Write

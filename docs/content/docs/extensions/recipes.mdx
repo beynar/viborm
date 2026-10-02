@@ -49,7 +49,9 @@ const post = s.model({
 ## Tenancy
 
 Each call says which tenant it works for. It sees only that tenant's rows,
-through every relation, and every row it creates belongs to that tenant.
+through every relation, and every row it creates belongs to that tenant,
+unless the call writes `tenantId` or the tenant relation itself (see the last
+point below).
 
 ```ts
 export const tenancy = <const Models extends readonly string[]>(

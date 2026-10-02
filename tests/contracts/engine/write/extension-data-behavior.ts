@@ -32,9 +32,19 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  *
  * Fixture: posts, comments (optional foreign key to a post) and tags (a
  * junction with posts), each with `createdBy`, `updatedBy` and `deletedAt`;
- * posts also `version` (default 0) and `source`. The stamped fields are
+ * posts also `version` (default 0) and `source`, whose schema logs every
+ * value it admits and refuses `REFUSED_SOURCE`. The stamped fields are
  * nullable here; a required one is `stamped-required-behavior.ts`'s.
  */
+
+/** Every value `post.source`'s schema admitted, in order. */
+const admittedSources: string[] = [];
+const REFUSED_SOURCE = "refused";
+const admitSource = (value: string) => {
+  admittedSources.push(value);
+  if (value === REFUSED_SOURCE) throw new Error("source refused");
+  return value;
+};
 
 export function dataSchema() {
   const post = s.model({
@@ -42,7 +52,10 @@ export function dataSchema() {
     title: s.string(),
     createdBy: s.string().nullable(),
     updatedBy: s.string().nullable(),
-    source: s.string().nullable(),
+    source: s
+      .string()
+      .schema(v.string({ transform: admitSource }))
+      .nullable(),
     tenantId: s.string().nullable(),
     version: s.int().default(0),
     deletedAt: s.dateTime().nullable(),
@@ -661,6 +674,30 @@ export function runExtensionDataBehavior(provider: DataProvider): void {
       expect(
         (await base.post.findUniqueOrThrow({ where: { id: 4 } })).createdBy
       ).toBe("x");
+    });
+
+    test("a stamp value the caller replaces is never admitted: the field's schema neither sees it nor refuses the call", async () => {
+      const { base, logged } = context;
+      const db = logged.$extends(origin);
+      admittedSources.length = 0;
+      await db.post.create({
+        data: { id: 1, title: "a", source: "web" },
+        device: REFUSED_SOURCE,
+      });
+      await db.post.create({ data: { id: 2, title: "b" }, device: "cli" });
+      await expect(
+        db.post.create({ data: { id: 3, title: "c" }, device: REFUSED_SOURCE })
+      ).rejects.toThrow("source refused");
+      expect(admittedSources).toEqual(["web", "cli", REFUSED_SOURCE]);
+      expect(
+        await base.post.findMany({
+          ...byId,
+          select: { id: true, source: true },
+        })
+      ).toEqual([
+        { id: 1, source: "web" },
+        { id: 2, source: "cli" },
+      ]);
     });
 
     test("tenancy writes the call's tenant on every create that leaves it out; a caller who writes another tenant writes into it", async () => {
