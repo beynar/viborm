@@ -1,6 +1,7 @@
 import { createClient } from "@client/client";
 import { D1Driver } from "@drivers/d1";
 import { s } from "@schema";
+import { defineExtension } from "@src/index";
 import { describe, expect, test, vi } from "vitest";
 
 type D1Database = ConstructorParameters<typeof D1Driver>[0]["database"];
@@ -74,6 +75,38 @@ describe("D1 positional transport", () => {
       };
     };
     const client = createClient({ schema: { entry }, driver });
+    await expect(client.entry.findMany()).resolves.toEqual([
+      { id: 42, title: "first" },
+      { id: 42, title: "second" },
+    ]);
+    expect(raw).not.toHaveBeenCalled();
+  });
+
+  test("an execute wrapper installed while the statement is processed still runs", async () => {
+    const { database, raw } = fakeDatabase();
+    const driver = new D1Driver({ database });
+    // biome-ignore lint/suspicious/noExplicitAny: wrapping the protected provider hook is the point.
+    const wrapped = driver as any;
+    const execute = wrapped.execute.bind(driver);
+    const client = createClient({ schema: { entry }, driver }).$extends(
+      defineExtension<{ entry: typeof entry }>()({
+        name: "late-wrapper",
+        // Eligibility was decided before this transform ran.
+        statement: ({ statement }) => {
+          wrapped.execute = async (...args: unknown[]) => {
+            const result = await execute(...args);
+            return {
+              ...result,
+              rows: result.rows.map((row: Record<string, unknown>) => ({
+                ...row,
+                id: 42,
+              })),
+            };
+          };
+          return statement;
+        },
+      })
+    );
     await expect(client.entry.findMany()).resolves.toEqual([
       { id: 42, title: "first" },
       { id: 42, title: "second" },

@@ -23,7 +23,10 @@ import {
   type DriverResultParser,
   type QueryExecutionContext,
 } from "../driver";
-import { isNormalizedResultRow } from "../normalized-result";
+import {
+  assertNormalizedQueryResult,
+  isNormalizedResultRow,
+} from "../normalized-result";
 import {
   assertPositionalRows,
   type ProjectionExecutionResult,
@@ -216,6 +219,22 @@ export class D1Driver extends Driver<D1Database, D1Database> {
         params,
         executionContext
       ): Promise<ProjectionExecutionResult> => {
+        // Transforms and observers ran after admission and may have replaced
+        // an execution surface: decide again at dispatch, and let a replaced
+        // surface run as ordinary execution.
+        if (!D1Driver.isPositionalCandidate(this)) {
+          const result = await this.execute<unknown>(
+            client,
+            sql,
+            params,
+            executionContext
+          );
+          assertNormalizedQueryResult(result, {
+            provider: this.driverName,
+            operation: executionContext.operation ?? "execute",
+          });
+          return { kind: "borrowed", result };
+        }
         const values = convertValuesForSQLite(params);
         const raw: unknown = await client
           .prepare(sql)

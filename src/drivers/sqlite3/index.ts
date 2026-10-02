@@ -58,19 +58,6 @@ const statementCaches = new WeakMap<
 >();
 const stockPrepare = Database.prototype.prepare;
 
-function hasUnsafeNumber(rows: unknown[][]): boolean {
-  for (const row of rows) {
-    for (const cell of row) {
-      if (
-        typeof cell === "number" &&
-        (cell > Number.MAX_SAFE_INTEGER || cell < Number.MIN_SAFE_INTEGER)
-      )
-        return true;
-    }
-  }
-  return false;
-}
-
 function cachedStatement(
   db: SQLite3Database,
   sql: string,
@@ -267,18 +254,12 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
         }
         producer = client;
         const columns = prepared.columns().map((column) => column.name);
-        // Numbers are cheaper than BigInts to fetch and decode. A cell past
-        // ±2^53 may have been rounded, so a read-only statement is read again
-        // exactly (both reads run synchronously; only the exact one is kept).
-        // A statement that writes — a transform may make the collection read
-        // an `UPDATE … RETURNING` — must not run twice: it is read exactly on
-        // its one execution.
-        prepared.safeIntegers(!prepared.readonly);
-        let rows = prepared.raw().all(...values) as unknown[][];
-        if (prepared.readonly && hasUnsafeNumber(rows)) {
-          prepared.safeIntegers(true);
-          rows = prepared.all(...values) as unknown[][];
-        }
+        // A statement runs once, so integers are read exactly on that one run.
+        // A re-read could not be proven harmless: a transform can make this an
+        // `UPDATE … RETURNING`, and even a statement SQLite reports read-only
+        // may call an application function with an observable effect.
+        prepared.safeIntegers(true);
+        const rows = prepared.raw().all(...values) as unknown[][];
         assertPositionalRows(rows, columns, resultContext);
         return { kind: "positional", rows, columns };
       }
