@@ -442,6 +442,24 @@ No replacement transport is created while cleanup is unresolved.
 Provider-specific listeners and retained failure state follow the same
 proven-success boundary.
 
+### Why some classes use `#private` and others TypeScript `private`
+TypeScript `private` names survive minification as full property names; ES
+`#private` names are mangled, which is what keeps the shipped bundle small. New
+private members are `#private` by default. The exceptions are members whose
+methods run with a receiver other than an instance the class constructed, which
+`#private` refuses with a TypeError:
+
+- `src/drivers/` and `src/migrations/`: a driver is delegated through
+  `Object.create(driver)` (migration command views, pinned sessions).
+- `src/sql/`: `Sql` copies cross the safe-raw inspection surfaces.
+- `src/schema/scalars/`: builder methods are deliberately borrowable across
+  kinds; schema validation, not a TypeError, refuses the result.
+
+TypeScript also refuses `a?.#x`, so a member read through an optional chain
+stays `private`. Tests observe behaviour, never a private member: a test that
+patches a prototype method to count calls pins an implementation, not a
+contract.
+
 ### Why OTel is dynamically imported
 OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dynamic `import()` with catch allows graceful degradation when `@opentelemetry/api` isn't installed.
 

@@ -13,14 +13,13 @@
  */
 
 import assert from "node:assert/strict";
-import type { Operations } from "@client/types";
 import { createClient } from "@client/client";
+import type { Operations } from "@client/types";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
 
@@ -38,7 +37,10 @@ const post = s
     id: s.int().id(),
     title: s.string(),
     authorId: s.int().nullable(),
-    author: s.toOne(() => author).fields("authorId").references("id"),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
   })
   .map("rv2g_posts");
 
@@ -100,7 +102,11 @@ async function world() {
     await client.$disconnect();
     database.close();
   });
-  return { database, driver, engine: createTestCommandEngine({ schema, driver }) };
+  return {
+    database,
+    driver,
+    engine: createTestCommandEngine({ schema, driver }),
+  };
 }
 
 type Shape = readonly [string, string, string, Record<string, unknown>];
@@ -111,7 +117,12 @@ const shapes: readonly Shape[] = [
   ["count", "author", "count", {}],
   ["aggregate", "author", "aggregate", { _count: true }],
   ["groupBy", "author", "groupBy", { by: ["age"], _count: true }],
-  ["create scalar", "author", "create", { data: { id: 20, name: "E", age: 1 } }],
+  [
+    "create scalar",
+    "author",
+    "create",
+    { data: { id: 20, name: "E", age: 1 } },
+  ],
   [
     "createMany 1 row",
     "author",
@@ -206,40 +217,26 @@ const shapes: readonly Shape[] = [
 ];
 
 describe("G4-02 review — the envelope rule's real owner", () => {
-  it("the sentinel recovery never runs, and `single` is not `one statement`", async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: private-method instrumentation
-    const proto = OperationContext.prototype as any;
-    const original = proto.restart;
-    let restarts = 0;
-    proto.restart = function patched(this: unknown, ...rest: unknown[]) {
-      restarts++;
-      return original.apply(this, rest);
-    };
+  it("`single` is not `one statement`: no one-statement shape opens an envelope", async () => {
     const table: Record<string, unknown>[] = [];
-    try {
-      for (const [name, model, operation, args] of shapes) {
-        const w = await world();
-        w.driver.reset();
-        let outcome = "ok";
-        try {
-          await w.engine.execute(model, operation as Operations, args);
-        } catch (error) {
-          outcome = (error as Error).name;
-        }
-        table.push({
-          shape: name,
-          statements: w.driver.statements.length,
-          transactions: w.driver.transactionCalls,
-          outcome,
-        });
+    for (const [name, model, operation, args] of shapes) {
+      const w = await world();
+      w.driver.reset();
+      let outcome = "ok";
+      try {
+        await w.engine.execute(model, operation as Operations, args);
+      } catch (error) {
+        outcome = (error as Error).name;
       }
-    } finally {
-      proto.restart = original;
+      table.push({
+        shape: name,
+        statements: w.driver.statements.length,
+        transactions: w.driver.transactionCalls,
+        outcome,
+      });
     }
     // eslint-disable-next-line no-console
     console.log("ENVTABLE", JSON.stringify(table));
-    // eslint-disable-next-line no-console
-    console.log("RESTARTS", restarts);
 
     const oneStatementWithEnvelope = table.filter(
       (row) => row.statements === 1 && (row.transactions as number) > 0
@@ -248,11 +245,6 @@ describe("G4-02 review — the envelope rule's real owner", () => {
       oneStatementWithEnvelope,
       [],
       "an operation that issues one statement must show no BEGIN/COMMIT (note §5, falsifier D-a)"
-    );
-    assert.equal(
-      restarts,
-      0,
-      "the sentinel recovery never runs for any admitted verb shape"
     );
   });
 });

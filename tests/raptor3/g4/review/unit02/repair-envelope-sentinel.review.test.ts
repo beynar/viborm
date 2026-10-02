@@ -15,10 +15,9 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
 
@@ -108,24 +107,6 @@ async function measure<T>(
   };
 }
 
-/** Count `restart()` calls for the duration of one call. */
-async function countingRestarts<T>(run: () => Promise<T>) {
-  // biome-ignore lint/suspicious/noExplicitAny: observing the private sentinel is the point.
-  const prototype = OperationContext.prototype as any;
-  const original = prototype.restart;
-  let restarts = 0;
-  prototype.restart = function counted(this: unknown, ...rest: unknown[]) {
-    restarts++;
-    return original.apply(this, rest);
-  };
-  try {
-    const value = await run();
-    return { value, restarts };
-  } finally {
-    prototype.restart = original;
-  }
-}
-
 describe("G4-02 review (repair) — the envelope sentinel on a second construction", () => {
   it("createMany with different presented column sets is still ONE statement and no envelope, as shipped", async () => {
     const w = await world();
@@ -134,14 +115,15 @@ describe("G4-02 review (repair) — the envelope sentinel on a second constructi
       { name: "B" },
       { name: "C", nickname: "c" },
     ];
-    const observed = await countingRestarts(() =>
-      measure(w.driver, () => w.engine.execute("author", "createMany", { data: rows }))
-    );
+    const observed = {
+      value: await measure(w.driver, () =>
+        w.engine.execute("author", "createMany", { data: rows })
+      ),
+    };
     // eslint-disable-next-line no-console
     console.log(
       "HETEROGENEOUS",
       JSON.stringify({
-        restarts: observed.restarts,
         cost: {
           statements: observed.value.statements,
           transactions: observed.value.transactions,
@@ -173,18 +155,17 @@ describe("G4-02 review (repair) — the envelope sentinel on a second constructi
     // INSERT with no envelope — and the cost equals the shipped engine's.
     assert.equal(observed.value.statements, 1);
     assert.equal(observed.value.transactions, 0);
-    assert.equal(observed.restarts, 0);
   });
 
   it("a row presenting NO columns beside a valued row is still one statement on both routes", async () => {
     const w = await world();
-    const observed = await countingRestarts(() =>
-      measure(w.driver, () =>
+    const observed = {
+      value: await measure(w.driver, () =>
         w.engine.execute("blank", "createMany", {
           data: [{}, { label: "x", rank: 2 }],
         })
-      )
-    );
+      ),
+    };
     const shipped = await measure(w.driver, async () =>
       w.client.blank.createMany({ data: [{}, { label: "y", rank: 3 }] })
     );
@@ -192,7 +173,6 @@ describe("G4-02 review (repair) — the envelope sentinel on a second constructi
     console.log(
       "EMPTYCOLUMNSET",
       JSON.stringify({
-        restarts: observed.restarts,
         candidate: {
           statements: observed.value.statements,
           transactions: observed.value.transactions,
@@ -247,20 +227,19 @@ describe("G4-02 review (repair) — the envelope sentinel on a second constructi
         { name: "Q", nickname: "q" },
       ],
     });
-    const observed = await countingRestarts(() =>
-      measure(w.driver, () =>
+    const observed = {
+      value: await measure(w.driver, () =>
         w.engine.execute("author", "updateMany", {
           where: { name: { in: ["P", "Q"] } },
           data: { age: { increment: 1 } },
           select: { name: true, age: true },
         })
-      )
-    );
+      ),
+    };
     // eslint-disable-next-line no-console
     console.log(
       "ONESTATEMENT",
       JSON.stringify({
-        restarts: observed.restarts,
         statements: observed.value.statements,
         transactions: observed.value.transactions,
         value: observed.value.value,
@@ -268,6 +247,5 @@ describe("G4-02 review (repair) — the envelope sentinel on a second constructi
     );
     assert.equal(observed.value.statements, 1);
     assert.equal(observed.value.transactions, 0);
-    assert.equal(observed.restarts, 0);
   });
 });

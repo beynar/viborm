@@ -273,14 +273,14 @@ export class OperationContext {
   get preparesBatch(): boolean {
     return this.#ownership === "batch-preparation";
   }
-  readonly #memberRollback: (MemberRollback) | undefined;
-  readonly #operationRegion: (MemberRollback) | undefined;
+  readonly #memberRollback: MemberRollback | undefined;
+  readonly #operationRegion: MemberRollback | undefined;
   /** Where this operation states its own durable write phase ({@link WriteOutcomeSeam}). */
-  readonly #writeOutcome: (WriteOutcomeSeam) | undefined;
+  readonly #writeOutcome: WriteOutcomeSeam | undefined;
   /** True only while the operation's OWN region is the current transport. */
   #ownRegionOpen = false;
   #transport: AnyDriver;
-  #attemptStore: (TransportAttempt) | undefined;
+  #attemptStore: TransportAttempt | undefined;
   /**
    * The operation's disposable transport attempt, built on its FIRST use.
    *
@@ -298,11 +298,11 @@ export class OperationContext {
   private get queued(): readonly BatchQuery[] {
     return this.#attemptStore?.pending ?? NO_QUEUED_STATEMENTS;
   }
-  #committedMemberSet: (Set<Member>) | undefined;
-  #memberAttributionMap: (WeakMap<Member, MemberAttribution>) | undefined;
-  #continuationList: (Continuation[]) | undefined;
+  #committedMemberSet: Set<Member> | undefined;
+  #memberAttributionMap: WeakMap<Member, MemberAttribution> | undefined;
+  #continuationList: Continuation[] | undefined;
   /** The captured junction slots this attempt has already vacated ({@link link}). */
-  #vacatedMemberships: (SpentSlots) | undefined;
+  #vacatedMemberships: SpentSlots | undefined;
   /** Generated-output continuations declared so far; none until one is. */
   get #continuationCount(): number {
     return this.#continuationList?.length ?? 0;
@@ -322,7 +322,9 @@ export class OperationContext {
    * what made a raceable assertion over a captured member set unrecoverable.
    */
   get #committedProgress(): boolean {
-    return this.#committedSegments > 0 || this.#mayHaveCommittedSegment === true;
+    return (
+      this.#committedSegments > 0 || this.#mayHaveCommittedSegment === true
+    );
   }
   /**
    * Has this operation admitted a DYNAMIC member — one whose defaults and
@@ -346,7 +348,7 @@ export class OperationContext {
    * one fact {@link failure} asks to decide whether an uncertain outcome is
    * PUBLIC progress or stays internal.
    */
-  #setWindow: (Member) | undefined;
+  #setWindow: Member | undefined;
   /**
    * A write-outcome listener that failed while {@link submit} acknowledged its
    * committed segment, HELD until the operation's own answer to that batch is
@@ -359,8 +361,8 @@ export class OperationContext {
    * it) and composes only once `operation.parse` has answered (`:1332-1343`).
    */
   private heldOutcomeFailure?: { readonly failure: unknown };
-  #atomicAssertionRejection: (unknown) | undefined;
-  #incompletePreparationSentinel: (Error) | undefined;
+  #atomicAssertionRejection: unknown | undefined;
+  #incompletePreparationSentinel: Error | undefined;
   /**
    * The preparation sentinel, built on its FIRST use and never before.
    *
@@ -382,7 +384,7 @@ export class OperationContext {
     ));
   }
   #preparedParser: ((results: QueryResult<unknown>[]) => unknown) | undefined;
-  #preparedGuardList: (PreparedBatchGuard[]) | undefined;
+  #preparedGuardList: PreparedBatchGuard[] | undefined;
   /**
    * Failures this operation has ALREADY ANSWERED with, which {@link failure}
    * returns unchanged: the premise it raised about the world (see `published`),
@@ -393,8 +395,8 @@ export class OperationContext {
    * progress-bearing aggregate of its PROGRESSIVE path is a different failure
    * that is attributed (`:1037-1046`) and is not marked here.
    */
-  #answeredFailureSet: (WeakSet<object>) | undefined;
-  #correlationIdValue: (string) | undefined;
+  #answeredFailureSet: WeakSet<object> | undefined;
+  #correlationIdValue: string | undefined;
   /**
    * This operation's correlation id, minted on its FIRST read and then stable
    * for the operation's life. The client route always hands its own trusted
@@ -414,7 +416,7 @@ export class OperationContext {
    */
   #envelope: "open" | "deferred" | "statement" = "open";
   #performed = 0;
-  #requiresEnvelopeSentinel: (Error) | undefined;
+  #requiresEnvelopeSentinel: Error | undefined;
   /**
    * The envelope sentinel, built on its FIRST use and never before — the same
    * control-flow value as {@link incompletePreparation} and for the same
@@ -591,7 +593,7 @@ export class OperationContext {
    * stated inside (`g4/parity/ordered-observation.test.ts` "nothing of the unit
    * commits", `lax-to-one.test.ts`, 8 cells).
    */
-  #executingMember: (Member) | undefined;
+  #executingMember: Member | undefined;
   async executeMember<T>(
     execute: () => Promise<T>,
     member?: Member
@@ -870,7 +872,7 @@ export class OperationContext {
    * while a batch whose placeholders exceed the provider's limit is constructed
    * twice and raises the sentinel exactly once
    * (`g4/unit02/physical-envelope.test.ts`: 2 statements, 1 transaction,
-   * `restarts === 1`, every row written once).
+   * every row written once).
    */
   async run<T>(body: () => Promise<T>, single = false): Promise<T> {
     if (
@@ -887,10 +889,7 @@ export class OperationContext {
     }
   }
   /** A write's envelope, out of line from reads, which need none. */
-  async #runWrite<T>(
-    body: () => Promise<T>,
-    single: boolean
-  ): Promise<T> {
+  async #runWrite<T>(body: () => Promise<T>, single: boolean): Promise<T> {
     try {
       if (!single) this.#requireAtomicUnit();
       const region = this.#region();
@@ -902,7 +901,7 @@ export class OperationContext {
       } catch (error) {
         if (error !== this.requiresEnvelope) throw error;
       }
-      this.restart();
+      this.#restart();
       return await this.#regionAttempt(region, body);
     } catch (error) {
       throw this.#runFailure(error);
@@ -988,8 +987,7 @@ export class OperationContext {
     }
   }
   /** Discard the un-executed plan so the body can be constructed again. */
-  // TS private, not #restart: physical-envelope.test counts calls on the prototype.
-  private restart(attempt = new TransportAttempt()): void {
+  #restart(attempt = new TransportAttempt()): void {
     this.#attemptStore = attempt;
     this.#continuationList = undefined;
     this.#vacatedMemberships = undefined;
@@ -1058,7 +1056,7 @@ export class OperationContext {
       if (this.recoveryRejection(error)?.kind !== "insert") throw error;
       const replacement = this.spendRecovery();
       if (!replacement) throw error;
-      this.restart(replacement);
+      this.#restart(replacement);
       return await this.#withinRegion(region, body);
     }
   }
@@ -1085,7 +1083,7 @@ export class OperationContext {
       if (this.recoveryRejection(error)?.kind !== "assertion") throw error;
       const replacement = this.spendRecovery();
       if (!replacement) throw error;
-      this.restart(replacement);
+      this.#restart(replacement);
       return await body();
     }
   }
@@ -2113,7 +2111,10 @@ export class OperationContext {
         // dispatched write whose rollback the transport cannot prove may be
         // visible, and a unique rejection is the one class that proves it.
         if (owned && !(error instanceof UniqueConstraintError))
-          await this.#stateWriteOutcome(this.#writeOutcome?.mayBeVisible, error);
+          await this.#stateWriteOutcome(
+            this.#writeOutcome?.mayBeVisible,
+            error
+          );
         throw error;
       }
       let decoded: { readonly failure: unknown } | { readonly value: unknown };
@@ -2752,11 +2753,7 @@ export class OperationContext {
       undefined
     ).where;
   }
-  #updatedIdentity(
-    model: AnyModel,
-    identity: Input,
-    values: Input
-  ): Input {
+  #updatedIdentity(model: AnyModel, identity: Input, values: Input): Input {
     const q = this.queries;
     return Object.fromEntries(
       this.schema
