@@ -1,4 +1,152 @@
-# Extension capabilities v3.1, `viborm/soft-delete` and v4: final qualification record (U7, amended by the U7 repair, the compression pass, the trusted-definitions decision, v4 and the owner rulings on v4, ruling 2 included)
+# Extension capabilities v3.1, `viborm/soft-delete` and v4: final qualification record (U7, amended by the U7 repair, the compression pass, the trusted-definitions decision, v4 and the owner rulings on v4, ruling 2 included, and the rulings of 2026-10-02)
+
+## Owner rulings of 2026-10-02: the extension steps back; limited deletes take the first rows by key
+
+Qualified on **8b6ff1311**. This section supersedes every section below wherever they differ; rows below that it contradicts carry a "Superseded 2026-10-02" mark. Labels: **MEASURED** means run by this qualification on 8b6ff1311 (or on a scratch archive checked byte for byte against it); **JUDGEMENT** means reasoning.
+
+Verdict in one line: both rulings are in the code, the types and the guides; every gate is green apart from the seven known raptor3 reds; the type and runtime budgets hold and both shrank; the base bundle is **+5,895 B gzip over main**, 140 B less than at the ruling 2 record but still above the owner's "+5.4 KB"; PostgreSQL and MySQL have still not run a witness.
+
+### S.1 The rulings, in the owner's words
+
+On the refusal of a caller's stamped field (plan v4 §7.1) and the ruling 2 repair's refusal of the relation that holds a stamped foreign key:
+
+> "in such case where an extension is writing a connection automatically like like in the multitency extension the extension should should step back whenever a tenant ID or a connect tenant ID is written by hand."
+
+On the same question for updates:
+
+> "I didn't understand but I think the same logic could apply"
+
+On which rows a limited `deleteMany` takes, soft or hard:
+
+> "every post that is not soft delete already and yes I think like we do have in a fine mini we order shallowly by id so the ten first will be the ten first not deleted order by id"
+
+("fine mini" is `findMany`.) So: an extension writes a field only where the caller left it out, on creates and on updates; and `deleteMany({ limit: n })` (and `updateMany`) takes the first `n` rows that the call may take, ordered by the primary key, as `findMany` orders a page.
+
+### S.2 What changed
+
+| Commit | What it does |
+| --- | --- |
+| 6e662bb6a (S1) | `Commands.stamp` puts an extension's values under the caller's instead of refusing them. A field the caller writes keeps the caller's value; a caller who writes the relation whose foreign key on this model holds the field decides the key through that relation; `undefined` counts as not written; a tombstone has no caller data and is always stamped. Types: on a client with `data`, a stamped create field is optional with its own type (`?: Row[Key]`), and the relation holding a stamped key is writable again. Tenancy guide: reads stay with the call's tenant, writes are not enforced. |
+| 20559eda2 (S2) | A limited `deleteMany` or `updateMany` takes the first `limit` rows by key, ascending, in the order `findMany` uses (`Queries.keyOrder`: a bare id, else the key's fields in the order the model declares them). One place writes the SQL (`Queries.lowerMutationLimit`): inside the key subquery on PostgreSQL and SQLite (`Queries.capped`, now always ordered), `ORDER BY … LIMIT n` on the statement on MySQL. The soft-delete window (`through`) and the relation-bearing `updateMany` capture read the same order, which also fixed a compound-key defect in this branch: with `.id([...])` listing fields in another order than the model declares them, the interactive soft delete took 400 rows of a window of 500 and the batch one was refused by a reference outside its window. |
+| 8b6ff1311 (step-back repair) | The S1/S2 review's findings. `Commands.stamp` now picks the fields it keeps before admitting them, so a value the caller replaced never reaches its field's schema (before, it ran the field's transform and could fail the call with a `ValidationError` although nothing of it was written). The tenancy recipe's opening sentence no longer says every created row belongs to the call's tenant. The guard ledger's step-back row records the review's measurement of the relation test. |
+
+What a TypeScript user sees now, with `tenancy(["post", "comment"])` over a schema where `tenantId` is required:
+
+- `db.post.create({ data: { title }, tenant: "acme" })` compiles and stores `acme`.
+- `db.post.create({ data: { title, tenantId: "globex" }, tenant: "acme" })` compiles and stores `globex`; so does `comment.create({ data: { …, tenant: { connect: { id: "globex" } } }, tenant: "acme" })`. The `acme` call then no longer reads that row. The guide says so and advises not letting callers pass `tenantId` or the tenant relation if they must not choose.
+- `db.post.deleteMany({ where, limit: 10 })` under the soft-delete extension tombstones the first ten live matching posts by id; a second call takes the next ten. Without the extension, or with `mode: "hard"`, the same ten rows are removed.
+
+### S.3 What disappeared
+
+| Removed | Where |
+| --- | --- |
+| The collision refusal (`Field "<f>" is written by extension "<e>"` at `data.<field>`) and its relation arm (`data.<relation>`) | `src/query-engine/raptor3/commands/commands.ts` `Commands.stamp` |
+| `Stamp.owners`, read only by that message; `Stamp` collapsed to the stamp's `Input`; `appendData`/`withStamp` lost their extension-name parameter, so the engine no longer sees an extension's name | `commands/index.ts`, `src/extensions/chain.ts` |
+| `HoldsField`, `Unwritable` (`?: never`), the `Kind` of `StampedFields` and the update half of the `data` type slot | `src/client/types.ts`, `src/extensions/controls.ts` |
+| The unordered branch of `Queries.capped` (its `ordered` flag) and the private `identityOrder` (now `Queries.keyOrder`, the one owner of key order) | `src/query-engine/raptor3/shared/query.ts` |
+| The admission of stamp values the caller replaced | `Commands.stamp` (repair) |
+
+Nothing was added to validation or to the engine that names an extension. The refusal census lost one site (below).
+
+### S.4 Type budget. MEASURED.
+
+typescript 5.9 `--extendedDiagnostics`, heap 1,280 MB, 6ee4c4592's chunking (as `scripts/run-layer-core.mjs` chunks it), two alternating rounds over three trees (order reversed in round 2); every number was identical in both rounds. Ceiling: +2% types and instantiations over 6ee4c4592 on every program, peak RSS 1,536 MiB.
+
+| Program | 6ee4c4592 types / inst | 9005c76fb (ruling 2 record) | 8b6ff1311 | Over 6ee4c4592 | Over 9005c76fb |
+| --- | --- | --- | --- | --- | --- |
+| client-1 | 775,209 / 3,046,004 | 781,610 / 3,082,059 | 781,537 / 3,081,063 | +0.82% / +1.15% | −73 / −996 |
+| client-2 | 856,225 / 3,662,216 | 865,399 / 3,718,687 | 865,312 / 3,717,313 | +1.06% / +1.50% | −87 / −1,374 |
+| client-3 | 829,689 / 3,618,241 | 836,177 / 3,656,186 | 836,100 / 3,655,172 | +0.77% / +1.02% | −77 / −1,014 |
+| client-4 | 774,671 / 3,157,202 | 782,560 / 3,202,701 | 782,480 / 3,201,504 | +1.01% / +1.40% | −80 / −1,197 |
+| instrumentation | 767,818 / 3,217,453 | 774,172 / 3,252,939 | 774,095 / 3,251,925 | +0.82% / +1.07% | −77 / −1,014 |
+| floor | 746,821 / 2,905,463 | 753,221 / 2,941,490 | 753,144 / 2,940,476 | +0.85% / +1.21% | −77 / −1,014 |
+
+Peak RSS 1,494.3 MiB (client-1). Every run exited 0 with no error. S1 alone measured 2 types fewer on each program with the same instantiations; the 2 come with S2, which changed only doc comments in `src/validation/model/args/` (JUDGEMENT, not bisected). Room left on the tightest program (client-2): 0.50% of instantiations.
+
+### S.5 Runtime lines. MEASURED.
+
+esbuild 0.25.4 `transformSync` (`loader: "ts"`), over the 11 `src` files changed since 9005c76fb; "code" leaves out comment lines.
+
+| File | 9005c76fb non-blank / code | 8b6ff1311 non-blank / code |
+| --- | --- | --- |
+| raptor3/commands/commands.ts | 1,488 / 1,294 | 1,467 / 1,276 |
+| extensions/chain.ts | 357 / 355 | 351 / 349 |
+| raptor3/shared/query.ts | 4,383 / 3,751 | 4,392 / 3,755 |
+| the other 8 (types.ts, controls.ts, methods.ts, rows.ts, execution.ts, row-scope.ts, validation args) | unchanged | unchanged |
+| **Total** | 8,389 / 7,195 | 8,371 / 7,175 (**−18 / −20**) |
+
+The repair alone is +2 code lines in `commands.ts`.
+
+### S.6 Bundle. MEASURED.
+
+tsdown and `scripts/measure-bundle.mjs` on path-limited archives of each revision, raw / gzip / brotli bytes. The 9005c76fb build missed the build runner's RSS ceiling once (1,547.3 MiB, right after another build); rerun alone it passed (1,140.1 MiB) and that build was measured.
+
+| Fixture | main 30ff17e69 | 9005c76fb | 8b6ff1311 | Over 9005c76fb | Over main |
+| --- | --- | --- | --- | --- | --- |
+| **pg-representative** | 543,896 / 160,066 / 135,512 | 562,898 / 166,101 / 140,773 | **562,536 / 165,961 / 140,694** | −362 / **−140** / −79 | +18,640 / **+5,895** / +5,182 |
+| pg-soft-delete | n/a | 563,794 / 166,452 / 141,054 | 563,432 / 166,325 / 141,020 | −362 / −127 / −34 | |
+| full | 917,160 / 267,890 / 221,230 | 936,833 / 274,171 / 226,836 | 936,470 / 274,042 / 226,782 | −363 / −129 / −54 | +19,310 / +6,152 / +5,552 |
+| ids-only | 93,221 / 27,891 / 24,508 | 93,298 / 27,918 / 24,538 | 93,298 / 27,918 / 24,538 | 0 | +77 / +27 / +30 |
+| decimal-only | 93,072 / 27,867 / 24,525 | 93,149 / 27,902 / 24,509 | 93,149 / 27,902 / 24,509 | 0 | +77 / +35 / −16 |
+| soft-delete-entry | n/a | 759 / 395 / 349 | 759 / 395 / 349 | 0 | |
+
+By unit, pg-representative gzip: S1 −177 B, S2 +18 B, the repair +19 B.
+
+**Over main, stated plainly (for the owner).** The base entry is **+5,895 B gzip over main** (5.76 KiB). The owner accepted "+5.4 KB". It is over that by 365 B if a KB is 1,024 bytes (5,530 B), or 495 B if it is 1,000. These rulings brought it down by 140 B.
+
+### S.7 Refusal census. MEASURED.
+
+`node scripts/raptor3-refusal-census.mjs` at 9005c76fb and at HEAD: **204 → 203 sites**. The one removed row is `commands/commands.ts` `ValidationError` (the stamp collision, counted under "no sentence"); invariants 25 / 24 sentences, inherited 76, candidate 44 sites / 35 sentences, unchanged. Every other difference is a line number. The one refusal `Queries.keyOrder` can raise ("Paginated scalar ordering requires a primary model identifier.") cannot happen for a valid schema: rule M001 requires every model to have an id.
+
+### S.8 Gates on 8b6ff1311, MEASURED, one at a time
+
+| Gate | Result |
+| --- | --- |
+| Biome on the 22 code files changed since 9005c76fb | clean |
+| tsc (typescript-native, whole tsconfig) | exit 0, 0 lines of output |
+| Refusal census | 204 → 203 (§S.7) |
+| Dead-symbol gate (`dead-symbol-gate.core.test.ts`) | 75 of 75 |
+| Manifests | `post-g3-deletion-sites` gate through `run-raptor3.mjs`: 108 of 108 (99 at the ruling 2 record; S1 102, S2 105, the repair 108); `raptor3-campaign-receipts.test.mjs` 41/41; `raptor3-refusal-census.test.mjs` 8/8; `coverage-policy.test.mjs` 11/11; `credential-free-ci.test.mjs` 4/4 |
+| All 14 layer projects (direct vitest) | 9,395 tests passed: validation 1,004, scalars 1,159, operation-schemas 1,364, relations 119, schema-validation 470, schema-json 431, query-engine 742, write-engine 82, adapters 190, drivers 988, client 677, cache 85, instrumentation 185, migrations 1,899 |
+| raptor3 | 2,215 passed, 7 failed = the known reds (cs02 and the six generation campaigns: g3 sqlite and transport, g4 sqlite, transport, write and write-transport) |
+| raptor3-provider / provider-sqlite3 | 32 / 882 passed + 1 skipped |
+| extended-local (bounded runner, `--only "extended-local"`: it holds live-PGlite files) | 37 stages, 2,417 passed, 393 skipped (server-gated), 0 failed; teardown verified each |
+| PGlite, bounded runner, alone, every PGlite file the units touched | `pglite-extension-data` 18/18, `pglite-deletion-capability` 18/18, `pglite-bulk-writes` 150/150; peak 1,858.6 MiB of 2,560; teardown verified |
+| `pnpm test:types` | exit 0 (whole estate, native, 9.4 s) |
+| `pnpm test:core` | 446 files, 9,395 tests passed |
+| `pnpm test:package` | 14 of 14, including the packed public-surface golden and the guide's recipes built from the packed package |
+| `pnpm test:coverage` | exit 0; every subsystem at or above its floor; validation and extensions 100/100/100/100 (extensions 416 tests) |
+| `pnpm test:layer:client` | 677 passed; type shards 1–4 passed (7.4–9.4 s wall) |
+| `pnpm test:layer:query-engine` | 742 passed; type shard passed |
+| `pnpm test:layer:instrumentation` | 185 passed; type shard passed |
+
+No lock script missed a wall limit, so none was rerun.
+
+Witnesses, with counts (MEASURED by the units and the review, re-run here where noted):
+
+| Witness | Red before, green after |
+| --- | --- |
+| S1, `deletion-sites.test.ts` (SQLite3, batch-only, without RETURNING) | 21 of 102 cells red on 9005c76fb's engine (7 new or re-pinned tests × 3 drivers) |
+| S1, types (`extension-data.core.types.ts` and the behaviour file, typescript-native) | 41 errors against 9005c76fb's types; `?: never` put back: 24 errors; nested traversal off: 5 errors |
+| S1, packed recipes consumer | fails to type-check against 9005c76fb's build (5 errors); passes after |
+| S2, `deletion-sites.test.ts` | 6 of 105 red on 6e662bb6a (the new test and the compound-key window test × 3 drivers) |
+| S2, PGlite | `pglite-deletion-capability` 2 red before; `pglite-bulk-writes` 11 red before |
+| S2, `provider-sqlite3` bulk-write cells | 10 of 18 red before |
+| S2, `parity-lowering.core.test.ts` | 3 new per-dialect SQL pins (PostgreSQL, SQLite, MySQL), red on 6e662bb6a |
+| Repair, `extension-data-behavior.ts` "a stamp value the caller replaces is never admitted …" | 3 of 3 SQLite cells red on 20559eda2 (`ValidationError … Transform failed: source refused`), green after; PGlite 18/18 |
+| Review's own probes (scratch, not committed) | S1 12/12 and S2 48/48 on three SQLite substrates; 39 of the S2 probe's cells red on the S1-only engine |
+
+### S.9 Gaps, stated plainly
+
+1. **Owner question: the relation step-back on a nested update.** Stepping back for a hand-written `tenantId`, `connect`, `create` or `connectOrCreate` needs no code (the relation sets the key over the stamp anyway). The one thing the relation test changes is a nested `update` of the related row (`tenant: { update: { … } }`) under an update stamp: with the test, the row keeps its own tenant; without it, the nested update follows the stamp's tenant, which renames that tenant (UniqueConstraintError on the interactive drivers) or silently moves the row (batch-only). Measured: 3 of 105 deletion-sites cells, all in one test. The ruling names a hand-written tenant id and a tenant connect, not a nested update. Kept by JUDGEMENT; the owner may keep it or delete it (then re-pin that one cell).
+2. **Writes are not enforced under tenancy**, by the ruling: a hand-written `tenantId` or tenant connect writes into another tenant, on create and on update. Documented in the guide. An owner who wants write enforcement would need an opt-in.
+3. **MySQL** has never run its ordered spelling (`UPDATE/DELETE … ORDER BY `id` ASC LIMIT n`); only the SQL text is pinned. **PostgreSQL** (a server, as opposed to PGlite) has not run either ruling. The docker consumers carry both behaviour files (pg/mysql2-extension-data, pg/mysql2-deletion-capability, mysql2-writes-raw, pg-read-surface, postgres-serialization, deletion-race), including the new nullable unique `tenant.slug` column and the reordered `shipment` key; none ran (no server).
+4. **Key order of a compound key** follows the order the model declares its fields (`findMany`'s order), not the order `.id([...])` lists them. If the owner meant the constraint order, `findMany`'s tie-break and limited writes would both change.
+5. **Older than these rulings**: a `deleteMany` that returns rows (`select`) on a driver without RETURNING binds one value per captured row, so with 1,000 rows it is refused on the SQLite test substrate ("needs 1000 bound values, above the verified limit of 999"), identically on 9005c76fb, 6e662bb6a and HEAD. Real MySQL's ceiling is 65,535. A fix would window the capture by the last key, as the soft-delete window does. Not changed.
+6. **Bundle over main**: +5,895 B gzip against the accepted "+5.4 KB" (§S.6). Owner item.
+7. **Trailers**: 6e662bb6a carries `Claude Fable 5.1` (the workflow text); 20559eda2, 8b6ff1311 and this record carry `Claude Opus 5.5` (the session's attribution rule). History is not amended; normalising needs a reword at PR time (owner).
+
+**The section "Ruling 2 landed" (qualified on 061fcde00) is superseded by this section wherever they differ.**
 
 ## Ruling 2 landed: a required stamped field (2026-10-01)
 
@@ -14,12 +162,12 @@ The owner ruled on 2026-10-01: "Recipes keep model names, field becomes optional
 | --- | --- |
 | 6d1d60f78 (T1) | The running code. A field the schema requires and the call's extension writes on create may be left out, at every create site: root `create`, both `createMany` routes, `upsert`, and every nested create, `createMany`, `connectOrCreate` and upsert create arm, including a captured row that a relation-bearing or nested `updateMany` admits again. A required foreign key such as `tenantId` for `tenant` counts as given for its relation too. Validation is told, for one parse, which fields of which model the caller's context provides (`provides`, `parseProviding`); it learns field names by model, never an extension. A client without `data` takes today's path. |
 | 9a5e9d084 (T2) | The types. On a client whose chain declares `data` for models the types can name, each field the chain writes is removed from those models' create and update rows and offered back as `?: never`, at the root and in every create and update nested through a relation, at any depth. The three recipes take `<const Models extends readonly string[]>`, so the reader writes no `as const`; `perModel` holds the one key-map cast, in user-land code. A misspelt model in a recipe's list is an editor error at `$extends`. |
-| 061fcde00 (ruling 2 repair) | The executing review's three findings, each reproduced first on 9a5e9d084. (1) A create could write the stamped foreign key through its relation: under tenant "acme", `org: { connect: { id: "globex" } }` stored globex. The call is now refused at `data.<relation>` with the field's message, and the types refuse that relation on the models the chain names. (2) T2's types find a nested create's target by its shallow surface, so an unnamed model with a named model's surface is narrowed with it; T2 had dropped this from its "not covered" list. It is documented again (guide, ledger), not changed. (3) `provides` was a member of the public `ObjectOptions`, with a link to an unexported function; it moved to a private options type, and the built declarations no longer mention it. |
+| 061fcde00 (ruling 2 repair) | The executing review's three findings, each reproduced first on 9a5e9d084. (1) A create could write the stamped foreign key through its relation: under tenant "acme", `org: { connect: { id: "globex" } }` stored globex. The call is now refused at `data.<relation>` with the field's message, and the types refuse that relation on the models the chain names. (2) T2's types find a nested create's target by its shallow surface, so an unnamed model with a named model's surface is narrowed with it; T2 had dropped this from its "not covered" list. It is documented again (guide, ledger), not changed. (3) `provides` was a member of the public `ObjectOptions`, with a link to an unexported function; it moved to a private options type, and the built declarations no longer mention it. **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]** |
 
 What a TypeScript user sees now, with `tenancy(["post", "comment"])` over a schema where `tenantId` is required:
 
-- `db.post.create({ data: { title }, tenant: "acme" })` compiles and runs; passing `tenantId` is an editor error and is refused when the call runs.
-- On `comment`, where `tenantId` is the foreign key of a required `tenant` relation, neither is asked for, and writing `tenant: { connect }` is an editor error and is refused when the call runs (`data.tenant`).
+- `db.post.create({ data: { title }, tenant: "acme" })` compiles and runs; passing `tenantId` is an editor error and is refused when the call runs. **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]**
+- On `comment`, where `tenantId` is the foreign key of a required `tenant` relation, neither is asked for, and writing `tenant: { connect }` is an editor error and is refused when the call runs (`data.tenant`). **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]**
 - A model the recipe does not name, the base client, and a client without `data` keep today's types and today's checks.
 
 ### R2.2 Type budget. MEASURED.
@@ -98,9 +246,9 @@ Repair witnesses (MEASURED): `stamped-required-behavior.ts` gains one cell ("a c
 2. **PostgreSQL and MySQL** have not run a witness of ruling 2 (no server). The docker consumers are registered; SQLite3, batch-only, no-RETURNING SQLite and PGlite ran.
 3. **The types find a nested create's target by its shallow surface.** An unnamed model whose fields and relations equal a named model's is narrowed with it in a nested create: the editor lets a required stamped field be left out there, and the call is refused as missing when it runs. Documented in the guide and the ledger; not changed (the model type carries no name).
 4. **Not rebuilt in the types**: a create nested through a relation with variants still asks for a required stamped field, although the running code accepts it left out. A recipe called with a plain `string[]` narrows nothing.
-5. **What the repair now refuses, JUDGEMENT**: under tenancy a create cannot write the tenant relation at all, even to connect the call's own tenant (the field rule also refuses an equal value). With a composite foreign key that includes `tenantId`, that relation is refused too; the caller writes the other key column instead. Narrowing this to "refuse only another tenant" needs the connected row's value, which is not known when the stamp is checked.
-6. **Updates move rows between tenants as before.** Tenancy writes `tenantId` on create only, so an update may set `tenantId`, or its relation, unrefused; the rows domain decides which rows an update takes. Unchanged by ruling 2.
-7. **The orientation test in `taken`** (the relation's foreign key is on this model) has no witness of its own: it matters only for an inverse relation whose partner key shares a stamped field's name, such as a composite self-reference holding `tenantId`. JUDGEMENT.
+5. **What the repair now refuses, JUDGEMENT**: under tenancy a create cannot write the tenant relation at all, even to connect the call's own tenant (the field rule also refuses an equal value). With a composite foreign key that includes `tenantId`, that relation is refused too; the caller writes the other key column instead. Narrowing this to "refuse only another tenant" needs the connected row's value, which is not known when the stamp is checked. **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]**
+6. **Updates move rows between tenants as before.** Tenancy writes `tenantId` on create only, so an update may set `tenantId`, or its relation, unrefused; the rows domain decides which rows an update takes. Unchanged by ruling 2. **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]**
+7. **The orientation test in `taken`** (the relation's foreign key is on this model) has no witness of its own: it matters only for an inverse relation whose partner key shares a stamped field's name, such as a composite self-reference holding `tenantId`. JUDGEMENT. **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]**
 8. **Type budget room** after ruling 2: 0.46% of instantiations on client-2, 0.56% on client-4.
 9. **Trailers**: 46 commits over main before this record, 41 `Claude Fable 5.1` and 5 `Claude Opus 5.5` (T1, T2, the repair and two earlier); this record's commit follows the session's attribution reminder too. Normalising needs a reword at PR time (owner).
 
@@ -114,7 +262,7 @@ Qualified on **3283236fa**. This section supersedes §00000 wherever they differ
 | --- | --- | --- | --- |
 | F1: `domainFacts` remembered a call's bound row facts under a content key but built them from the caller's own objects, so mutating a Date or array control after a call changed what later equal calls read. | `extension-controls.core.test.ts`, 2 new tests: on d663d50a1 the Date witness returned `['d2']` for `['d1','t1','t2']`, the array witness (related path) `['t2']` for `['t1']`. | `src/extensions/rows.ts` `domainFacts`: the remembered facts are bound from `structuredClone(values)`, the record the key spells. | 785ff3d32 |
 | F2: a limited tombstoning `deleteMany` checked the whole selector for references, so a reference outside the `limit` window refused it where the hard delete succeeds. | `deletion-capability-behavior.ts` "a limited deleteMany's premise reads the window its effect tombstones …": `ForeignKeyError` on 785ff3d32 on SQLite3, batch-only, without RETURNING and PGlite. | `Commands.unreferenced` gives the premise and the effect one window, the first `limit` candidates in key order (`Queries.window` on batch routes). | 506c5b263 |
-| Review of F2 (blocker): the interactive window was an OR of one `key = ?` per locked row, so a limit of about 995 or more failed on SQLite (V2001 / V8003), alone and inside `$transaction([...])`. Two minors: comments overstated agreement with the hard delete's (unordered) window; no race witness covered the limited lock. | `deletion-capability-behavior.ts` "a limited deleteMany's window costs the same bound values however long it is" (limit 1000 over 2100 posts, an array member, a composite key at limit 500, an empty window): on 506c5b263, "needs 1002 bound values, above the verified limit of 999" on SQLite3 and without RETURNING. Two races added to `deletion-race-behavior.ts` (pg/mysql2 docker, not run here). | `Commands.unreferenced` (interactive branch): the premise and the effect take the candidates up to the last locked key, `Queries.through`, a row-value `keys <= (?, …)` with one bound value per key. The row-value spelling now has one owner (`rowValue`). Hard-delete SQL is unchanged; the doc and the raptor3 AGENTS.md now say only the guarded tombstone's window is key-ordered. | 3283236fa |
+| Review of F2 (blocker): the interactive window was an OR of one `key = ?` per locked row, so a limit of about 995 or more failed on SQLite (V2001 / V8003), alone and inside `$transaction([...])`. Two minors: comments overstated agreement with the hard delete's (unordered) window; no race witness covered the limited lock. | `deletion-capability-behavior.ts` "a limited deleteMany's window costs the same bound values however long it is" (limit 1000 over 2100 posts, an array member, a composite key at limit 500, an empty window): on 506c5b263, "needs 1002 bound values, above the verified limit of 999" on SQLite3 and without RETURNING. Two races added to `deletion-race-behavior.ts` (pg/mysql2 docker, not run here). | `Commands.unreferenced` (interactive branch): the premise and the effect take the candidates up to the last locked key, `Queries.through`, a row-value `keys <= (?, …)` with one bound value per key. The row-value spelling now has one owner (`rowValue`). Hard-delete SQL is unchanged; the doc and the raptor3 AGENTS.md now say only the guarded tombstone's window is key-ordered. | 3283236fa **[Superseded 2026-10-02: a limited delete now takes the first rows by key on every path; see the top section.]** |
 
 Gates on 3283236fa, MEASURED, one at a time:
 
@@ -137,7 +285,7 @@ Gates on 3283236fa, MEASURED, one at a time:
 | Bundle (path-limited archives, 506c5b263 → 3283236fa) | pg-representative raw 561,759 → 562,086, gzip 165,776 → 165,856 (+80 B), brotli 140,520 → 140,721; pg-soft-delete gzip 166,141 → 166,197 (+56 B) |
 | Runtime lines (esbuild --loader=ts) | commands.ts 1460 → 1464, query.ts 4349 → 4376 |
 
-Not run: PostgreSQL and MySQL docker suites (no server), so the two new races and the composite row-value form on MySQL are unexecuted. Open, JUDGEMENT: a row that becomes a candidate below the last locked key after the lock is taken by the bounded window, the same exposure the unlimited form has; the hard delete's limited window stays provider-ordered (owner decision if it should be key-ordered).
+Not run: PostgreSQL and MySQL docker suites (no server), so the two new races and the composite row-value form on MySQL are unexecuted. Open, JUDGEMENT: a row that becomes a candidate below the last locked key after the lock is taken by the bounded window, the same exposure the unlimited form has; the hard delete's limited window stays provider-ordered (owner decision if it should be key-ordered). **[Superseded 2026-10-02: a limited delete now takes the first rows by key on every path; see the top section.]**
 
 **Section 00000 (owner rulings on v4, qualified on 54f6bfdca) supersedes section 0000 wherever they differ.**
 
@@ -448,11 +596,11 @@ The U5 harness of v3.1 (fresh processes, `--expose-gc`, 128 MB semi-space, 1,500
 | Memo: same value gives the same `RowDomain`; the 257th evicts the oldest; no reference keeps v3.1's objects; stamps take no memo room; the lock's versions take room beside the tenant | extension-controls.core | database-independent |
 | Replan and array transactions re-admit from the same value | extension-deletion.core (racing batch-only SQLite3, re-plan resolves once); bound-rows-behavior (array transaction) | 1 / 4 |
 | Every §2.2 site writes the stamp (create and update), tombstone and captured members; a foreign-key-only connect writes nothing | extension-data-behavior (4 tests); each site falsified alone at U2 | 4 |
-| A caller's stamped field is refused at `data.<field>`, nested too; a different field passes | extension-data-behavior | 4 |
+| A caller's stamped field is refused at `data.<field>`, nested too; a different field passes | extension-data-behavior | 4 **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]** |
 | Two extensions: both written; the later wins and owns the field | extension-data-behavior | 4 |
 | Physical delete writes nothing | extension-data-behavior | 4 |
 | `increment` through the update schema; composition §1.3 with `NotFoundError` on a moved version | extension-data-behavior (lock); packed consumer (`test:package`, the page's use blocks run verbatim) | 4 + packed tarball |
-| Types: stamped field refused on a `data` client, accepted on the base client; a misspelt model key is an editor error | tests/types/client/extension-data.core.types.ts (23 directives; falsified at U3 and its repair) | tsc 5.9.3 and typescript-native |
+| Types: stamped field refused on a `data` client, accepted on the base client; a misspelt model key is an editor error | tests/types/client/extension-data.core.types.ts (23 directives; falsified at U3 and its repair) | tsc 5.9.3 and typescript-native **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]** |
 
 ### 0000.8 Open owner items and gaps
 
@@ -467,7 +615,7 @@ The U5 harness of v3.1 (fresh processes, `--expose-gc`, 128 MB semi-space, 1,500
 
 ### 0000.9 Decisions
 
-v4's decisions P1-1 … U4R-4 are in `extension-capabilities-decisions.md` under the "v4" headings. Those that change what earlier sections say: §7.1 the caller's stamped field is refused (one guard, ledger row); §7.2 recipes and a fixture compiled from public exports, no package entries; §7.3 cap 256, oldest evicted; §7.4 not needed; an absent control drops the whole filter that names it (U1-1); a whole filter, at any depth, is never a reference (U1R-1); stamps are bound per call and take no memo room (U2R-1); a later extension owns a field on every call (U2R-4); the narrowing lives in the extended client's model delegate (U3-1); lost model names narrow nothing (U3R-2). This qualification's own decisions, Q-1 to Q-6, follow them in that file.
+v4's decisions P1-1 … U4R-4 are in `extension-capabilities-decisions.md` under the "v4" headings. Those that change what earlier sections say: §7.1 the caller's stamped field is refused (one guard, ledger row); §7.2 recipes and a fixture compiled from public exports, no package entries; §7.3 cap 256, oldest evicted; §7.4 not needed; an absent control drops the whole filter that names it (U1-1); a whole filter, at any depth, is never a reference (U1R-1); stamps are bound per call and take no memo room (U2R-1); a later extension owns a field on every call (U2R-4); the narrowing lives in the extended client's model delegate (U3-1); lost model names narrow nothing (U3R-2). This qualification's own decisions, Q-1 to Q-6, follow them in that file. **[Superseded 2026-10-02 by the owner's step-back ruling: see the top section.]**
 
 ## 000. Trusted definitions (2026-09-30, owner decision)
 

@@ -506,3 +506,134 @@ Appended verbatim from the run's working decision file, headings moved down one 
 - Q-12 Types measured with typescript 5.9 over 6ee4c4592 (t/base), 8dce0d121 (t/pret1) and 061fcde00 (t/head), 6ee4c4592's chunking, two alternating rounds (order swapped), deterministic. A first round was stopped and voided when commands.ts changed mid-run (Q-7).
 - Q-13 Trailer: the session's attribution reminder ("Claude Opus 5.5"), as T1-11/T2-11; the workflow text's "Claude Fable 5.1" carries no user authority.
 - Q-14 Skipped: nothing that the unit asked for. Not run (no server): PostgreSQL and MySQL docker consumers.
+
+## Step-back and ordered limits: the run's decision log (S1, S2, the review, the repair, the qualification), 2026-10-02
+
+### S1 — the extension steps back where the caller writes (2026-10-02)
+
+- S1-1. Runtime rule taken literally from the computed one-sentence rule: a
+  stamp field is dropped when the caller's raw data for that occurrence has
+  the field (not `undefined`) OR writes, with any verb, a relation whose
+  foreign key on this model holds it. Measured: for `connect`/`create`/
+  `connectOrCreate` the relation's own contribution already overwrites an
+  unrequested stamp (Assignments.contribute), so the drop's unique coverage
+  is a relation write that leaves the key alone (a nested `update` of the
+  tenant under an update stamp on the key): without the drop the row moved
+  to the stamp's tenant (witness red on 3 SQLite cells, measured). Kept.
+- S1-2. `Stamp.owners` existed only for the refusal message: deleted, and the
+  one-member `Stamp { values }` wrapper collapsed to `Input`
+  (`ModelStamps { create?: Input; update?: Input }`); `appendData`/`withStamp`
+  lose their extension-name parameter. The engine no longer sees any
+  extension name.
+- S1-3. Types: an update row needs no narrowing (every update field is
+  optional already and now passable), so the type slot keeps create fields
+  only: `StampedFields<Models, Fields>` lost its `Kind`, `DefinitionData`
+  emits create members only, `StampedFieldNames<Data, Model>`,
+  `TargetStampedFields<Context, Target>`; update rows are still traversed
+  (Fields = never) for the creates they nest. An update-only chain (the
+  lock) now keeps the plain `Client` delegate. `Unwritable` and `HoldsField`
+  deleted.
+- S1-4. A tombstone passes no raw data (`raw = {}` default): always stamped.
+- S1-5. Witness fixtures: `requiredTenantSchema().tenant` gained
+  `slug: s.string().nullable().unique()` (connect by another unique field);
+  the type test's `note.createdBy` became required so nested-create
+  witnesses on the inline client exercise the traversal (a nullable stamped
+  field is optional anyway).
+- S1-6. The guide states plainly that tenancy does not enforce writes and
+  suggests not letting callers pass `tenantId`/the relation if they must not
+  choose; no new API.
+
+### S2 — a limited deleteMany/updateMany takes the first rows by key (2026-10-02)
+
+- S2-1. "Key order" = findMany's own tie-break (`Queries.identityOrder`, renamed
+  public `Queries.keyOrder`): a bare scalar id, else the row key's fields in
+  FIELD DECLARATION order. The computed task said "composite keys in declared
+  order"; the owner said "like we do in findMany". These agree only if
+  "declared" means field declaration; the constraint order (`.id([...])`,
+  `schema.keys`) differs when the array lists fields otherwise. Chose findMany's
+  order so a limited write picks the rows `findMany({ where, take })` returns.
+  findMany itself is unchanged.
+- S2-2. One owner: `lowerMutationLimit` → `capped` (always ordered; the
+  `ordered` flag and the unordered branch deleted) on PG/SQLite;
+  `ORDER BY keys ASC LIMIT n` suffix on MySQL (supportsMutationRowLimit). The
+  `window` predicate stays (it is a PreparedSelector two statements compose
+  with `andSelectors`); it lowers to the same `capped`. Not merged further.
+- S2-3. MySQL ORDER BY columns are unqualified (`id`), at statement top level,
+  to avoid any single-table-DELETE qualification doubt. Unexecuted here.
+- S2-4. `through` and the relation-bearing series capture switched from
+  `schema.keys` (constraint order) to `keyOrder`: on a key whose constraint
+  order differs, `through` disagreed with the ordered locked read (interactive
+  soft delete took 400 of 500) and the batch window picked other rows than the
+  interactive one. Witnessed by changing the deletion fixture's `shelf` to
+  `.id(["b", "a"])` (fields still declared a, b).
+- S2-5. Series capture order change also changes the per-row execution order
+  of an unlimited relation-bearing updateMany on such keys (still "primary-key
+  order", now declaration order). Recorded in CHANGELOG.
+- S2-6. Witness fixtures: deletion fixture gained `entry` (string id, no
+  restricting child), `folder` (string id) and `file` (RESTRICT on folder);
+  string ids because SQLite's INTEGER PRIMARY KEY is the rowid, so int ids are
+  always scanned in key order there. bulk-write-limit seeds out of key order;
+  `shipment` key reordered to `.id(["code", "tenantId"])` and given a nullable
+  `depot` relation for the relation-bearing witness.
+- S2-7. bulk-write-limit's old contract ("how many, not which; nothing may
+  assert identity") is replaced by the ruling: every test now pins which rows.
+
+### Step-back repair and qualification (2026-10-02)
+
+- R-1. Review finding "a stamp value is admitted when the caller's value
+  wins": `Commands.stamp` now selects the kept fields (not in the caller's raw
+  data, not held by a relation the caller writes) before admitting, and admits
+  only those. No short-circuit for "nothing kept": admitting `{}` has no
+  observable effect, so a skip would be a branch with no nameable coverage
+  (no-redundant-guards rule). Witness: extension-data-behavior "a stamp value
+  the caller replaces is never admitted …" (post.source's schema logs and
+  refuses "refused"): 3 of 3 SQLite cells red on 20559eda2 (ValidationError
+  "Transform failed: source refused"), green after; PGlite 18/18.
+- R-2. Review finding "the relation step-back's only coverage is a nested
+  update of the related row": kept, by judgement. The owner's words name a
+  hand-written tenantId and a tenant connect; a nested `tenant: { update }`
+  is neither, but without the check the nested update follows the stamp's
+  tenant (renames it: UniqueConstraintError on interactive drivers; silently
+  moves the row on batch-only). Recorded in the ledger row with the M2
+  measurement (3 of 105 cells, one test) and put to the owner as an explicit
+  open item in the final record.
+- R-3. recipes.mdx's opening sentence now says a created row belongs to the
+  call's tenant unless the call writes tenantId or the tenant relation itself.
+- R-4. Final record: the stale rows (ruling 2 repair refusal; "stamped field
+  refused"; "unordered window") are marked superseded by the new top section,
+  not rewritten (the record is a history).
+- R-5. Commit trailer for the remaining units: "Co-Authored-By: Claude Opus
+  5.5 <noreply@anthropic.com>" (session attribution rule, which outranks the
+  computed task's script text). 6e662bb6a keeps its Fable trailer; history is
+  not amended.
+- R-6. Review finding "returning deleteMany on a driver without RETURNING
+  binds one value per captured row (refused at 1000 on the SQLite substrate)":
+  older than S1/S2 (identical on 9005c76fb), out of scope; recorded as a known
+  gap in the final record, with the suggested fix (window the capture by
+  `through`, as the soft-delete window does).
+- R-7. Base bundle above the owner's +5.4 KB: not a regression of these
+  units; kept on the open list.
+- Q-1. Qualified on 8b6ff1311 (the repair); the record commit adds docs only.
+  Scratch: v4e/qualify/{tree = HEAD archive, b-30ff17e69, b-9005c76fb = bundle
+  archives}; types reuse v4d/qualify/t/base (6ee4c4592) and v4e/s1/tree
+  (9005c76fb), each diffed against `git archive` of its revision (src and
+  tests/types identical) before use.
+- Q-2. extended-local was run through the bounded runner
+  (`run-credential-free-tests.mjs --only "extended-local"`), not by a bare
+  vitest call: the project contains live-PGlite files, which the run rules
+  allow only through that runner. 37 stages, 2,417 passed, 393 skipped
+  (server-gated), 0 failed.
+- Q-3. Bundle: the 9005c76fb build missed the build runner's RSS ceiling
+  (1,547.3 of 1,536 MiB) while it ran right after another build; rerun alone it
+  passed (1,140.1 MiB) and that dist was measured. Its pg-representative bytes
+  equal the ruling 2 record's (562,898 / 166,101), as main's equal 160,066.
+- Q-4. Types: HEAD is S1's figures +2 types on every program, instantiations
+  identical. S2 changed no type, only doc comments in
+  src/validation/model/args/{mutation,pagination}.ts; the +2 is attributed to
+  them (JUDGEMENT, not bisected).
+- Q-5. Runtime lines measured with one method over all 11 src files changed
+  since 9005c76fb (esbuild 0.25.4 transformSync, non-blank, and without
+  comment lines); the per-unit numbers in the S1/S2 commits used slightly
+  different filters, so only this record's before/after pair is compared.
+- Q-6. Lock scripts ran once each, in order, nothing else running; none
+  missed a wall limit, so none was rerun.
