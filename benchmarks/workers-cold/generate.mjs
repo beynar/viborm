@@ -90,6 +90,19 @@ for (const spec of o.arm ?? []) {
   const dir = `${o.out}/${arm}`;
   mkdirSync(`${dir}/src`, { recursive: true });
   writeFileSync(`${dir}/src/index.js`, source(arm, lib, path));
+  // `cf deploy` refuses a project that does not declare wrangler (>= 4.100).
+  writeFileSync(
+    `${dir}/package.json`,
+    `${JSON.stringify(
+      {
+        name: `viborm-perf-${arm}`,
+        private: true,
+        devDependencies: { cf: "^1.0.0-beta.10", wrangler: "4.145.0" },
+      },
+      null,
+      2
+    )}\n`
+  );
   writeFileSync(
     `${dir}/wrangler.jsonc`,
     JSON.stringify(
