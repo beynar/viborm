@@ -194,8 +194,15 @@ describe("D-15 type anchor: the relocated shape is the base's shape", () => {
     readonly raceable: boolean;
   }
 
-  it("is mutually assignable with the deleted declaration", () => {
-    expectTypeOf<PreparedBatchGuard["failure"]>().toMatchTypeOf<BaseFailure>();
+  it("keeps every failure the deleted declaration had, and grows by one kind only", () => {
     expectTypeOf<BaseFailure>().toMatchTypeOf<PreparedBatchGuard["failure"]>();
+    // Extension capabilities U3 repair: a tombstoning delete's referential
+    // premise, packaged into an array member, is rebuilt as `ForeignKeyError`.
+    expectTypeOf<
+      Exclude<PreparedBatchGuard["failure"]["kind"], BaseFailure["kind"]>
+    >().toEqualTypeOf<"foreignKey">();
+    expectTypeOf<Omit<PreparedBatchGuard["failure"], "kind">>().toEqualTypeOf<
+      Omit<BaseFailure, "kind">
+    >();
   });
 });

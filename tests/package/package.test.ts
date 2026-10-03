@@ -23,6 +23,14 @@ const scripts = [
   ],
   ["preserves packaged error names", "./error-names-smoke.mjs"],
   ["works without the optional OpenTelemetry peer", "./otel-absent-smoke.mjs"],
+  [
+    "lets a third party build soft delete from public exports alone",
+    "./soft-delete-consumer-smoke.mjs",
+  ],
+  [
+    "lets a third party build the guide's extension recipes from public exports alone",
+    "./extension-recipes-consumer-smoke.mjs",
+  ],
   ["enforces the release artifact contract", "./release-contract-smoke.mjs"],
   ["requires exact-main CI before release", "./release-ci-smoke.mjs"],
   [

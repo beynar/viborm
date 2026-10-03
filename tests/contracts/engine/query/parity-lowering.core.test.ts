@@ -70,7 +70,21 @@ const employee = s
   })
   .map("parity_lowering_employees");
 
-const schema = { employee };
+/**
+ * A compound key whose constraint lists its fields in the other order than the
+ * model declares them: key order is the declaration order (`row`, then `col`),
+ * the order a read's `take` completes with.
+ */
+const seat = s
+  .model({
+    row: s.int(),
+    col: s.int(),
+    label: s.string(),
+  })
+  .id(["col", "row"])
+  .map("parity_lowering_seats");
+
+const schema = { employee, seat };
 beforeAll(() => hydrateSchemaNames(schema));
 
 const paris = { longitude: 2.3522, latitude: 48.8566 };
@@ -180,6 +194,64 @@ describe.each(dialectCases)("$name mutation correlation", (dialectCase) => {
     // MySQL ERROR 1093: a subquery may not read the table being mutated.
     const wrapped = DERIVED_TABLE_WRAP.test(update);
     expect(wrapped).toBe(dialectCase.dialect === "mysql");
+  });
+});
+
+/**
+ * A limited `deleteMany`/`updateMany` takes the first `limit` rows in key
+ * order, the order a read's `take` completes with (owner ruling, 2026-10-02):
+ * PostgreSQL and SQLite through the keyed subquery, ordered; MySQL, which
+ * refuses a `LIMIT` inside `IN`, on the statement itself. The compound key is
+ * ordered in declaration order (`row`, `col`), not in its constraint's. MySQL
+ * cannot execute here: its text is the only witness of its spelling.
+ */
+const LIMITED_WRITES: Record<string, readonly string[]> = {
+  PostgreSQL: [
+    'DELETE FROM "public"."parity_lowering_employees" WHERE "id" IN (SELECT "q0"."id" FROM "public"."parity_lowering_employees" AS "q0" WHERE "q0"."views" > $1 ORDER BY "q0"."id" ASC LIMIT $2)',
+    'UPDATE "public"."parity_lowering_employees" SET "name" = $1 WHERE "id" IN (SELECT "q0"."id" FROM "public"."parity_lowering_employees" AS "q0" WHERE "q0"."views" > $2 ORDER BY "q0"."id" ASC LIMIT $3)',
+    'DELETE FROM "public"."parity_lowering_employees" WHERE "id" IN (SELECT "q0"."id" FROM "public"."parity_lowering_employees" AS "q0" WHERE EXISTS (SELECT 1 FROM "public"."parity_lowering_employees" AS "q1" WHERE ("q0"."id" = "q1"."managerId" AND "q1"."name" = $1)) ORDER BY "q0"."id" ASC LIMIT $2)',
+    'DELETE FROM "public"."parity_lowering_seats" WHERE ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "public"."parity_lowering_seats" AS "q0" WHERE "q0"."label" = $1 ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT $2)',
+    'UPDATE "public"."parity_lowering_seats" SET "label" = $1 WHERE ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "public"."parity_lowering_seats" AS "q0" WHERE "q0"."label" = $2 ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT $3)',
+  ],
+  MySQL: [
+    "DELETE FROM `parity_lowering_employees` WHERE `parity_lowering_employees`.`views` > ? ORDER BY `id` ASC LIMIT 2",
+    "UPDATE `parity_lowering_employees` SET `name` = ? WHERE `parity_lowering_employees`.`views` > ? ORDER BY `id` ASC LIMIT 2",
+    "DELETE FROM `parity_lowering_employees` WHERE EXISTS (SELECT * FROM (SELECT 1 FROM `parity_lowering_employees` AS `q0` WHERE (`parity_lowering_employees`.`id` = `q0`.`managerId` AND (`q0`.`name` = ? AND BINARY `q0`.`name` = ?))) AS `q1`) ORDER BY `id` ASC LIMIT 2",
+    "DELETE FROM `parity_lowering_seats` WHERE (`parity_lowering_seats`.`label` = ? AND BINARY `parity_lowering_seats`.`label` = ?) ORDER BY `row` ASC, `col` ASC LIMIT 2",
+    "UPDATE `parity_lowering_seats` SET `label` = ? WHERE (`parity_lowering_seats`.`label` = ? AND BINARY `parity_lowering_seats`.`label` = ?) ORDER BY `row` ASC, `col` ASC LIMIT 2",
+  ],
+  SQLite: [
+    'DELETE FROM "parity_lowering_employees" WHERE "id" IN (SELECT "q0"."id" FROM "parity_lowering_employees" AS "q0" WHERE "q0"."views" > ? ORDER BY "q0"."id" ASC LIMIT ?)',
+    'UPDATE "parity_lowering_employees" SET "name" = ? WHERE "id" IN (SELECT "q0"."id" FROM "parity_lowering_employees" AS "q0" WHERE "q0"."views" > ? ORDER BY "q0"."id" ASC LIMIT ?)',
+    'DELETE FROM "parity_lowering_employees" WHERE "id" IN (SELECT "q0"."id" FROM "parity_lowering_employees" AS "q0" WHERE EXISTS (SELECT 1 FROM "parity_lowering_employees" AS "q1" WHERE ("q0"."id" = "q1"."managerId" AND "q1"."name" COLLATE BINARY = ?)) ORDER BY "q0"."id" ASC LIMIT ?)',
+    'DELETE FROM "parity_lowering_seats" WHERE ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "parity_lowering_seats" AS "q0" WHERE "q0"."label" COLLATE BINARY = ? ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT ?)',
+    'UPDATE "parity_lowering_seats" SET "label" = ? WHERE ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "parity_lowering_seats" AS "q0" WHERE "q0"."label" COLLATE BINARY = ? ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT ?)',
+  ],
+};
+
+describe.each(dialectCases)("$name limited writes", (dialectCase) => {
+  test("take the first `limit` rows in key order", async () => {
+    const { driver, client } = loweringClient(dialectCase);
+    await client.employee.deleteMany({ where: { views: { gt: 0 } }, limit: 2 });
+    await client.employee.updateMany({
+      where: { views: { gt: 0 } },
+      data: { name: "x" },
+      limit: 2,
+    });
+    // A relation filter: MySQL hides the mutated table (ERROR 1093) AND
+    // orders the statement.
+    await client.employee.deleteMany({
+      where: { reports: { some: { name: "mid" } } },
+      limit: 2,
+    });
+    await client.seat.deleteMany({ where: { label: "a" }, limit: 2 });
+    await client.seat.updateMany({
+      where: { label: "a" },
+      data: { label: "b" },
+      limit: 2,
+    });
+    await client.$disconnect();
+    expect(driver.statements).toEqual(LIMITED_WRITES[dialectCase.name]);
   });
 });
 

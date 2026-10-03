@@ -140,6 +140,22 @@ const DELETED_INSTRUMENTATION_SYMBOLS = [
   "startActiveSpanSync",
 ] as const;
 
+/**
+ * Deleted by the extension capabilities' controls unit (plan v3.1 §2.1, ruling
+ * 7): the mutation `cache` argument became the official cache's declared
+ * control, so the post-request-transform extraction and the payload-type
+ * plumbing that carried `cache` beside the operation's own keys are gone.
+ */
+const DELETED_CONTROL_MIGRATION_SYMBOLS = [
+  "prepareMutationCacheInput",
+  "PreparedMutationCacheInput",
+  "parseMutationCacheOptions",
+  "mutationCacheInputError",
+  "ClientOperationPayload",
+  "IsClientCacheEnabled",
+  "WithoutCacheKey",
+] as const;
+
 /** Deleted source files of the instrumentation encapsulation, relative to src. */
 const RETIRED_INSTRUMENTATION_FILES = [
   "cache/cache-instrumentation.ts",
@@ -235,5 +251,13 @@ describe("dead-symbol gate: the instrumentation encapsulation's deletions stay d
         existsSync(join(SRC, path))
       )
     ).toEqual([]);
+  });
+});
+
+describe("dead-symbol gate: the cache argument's retired extraction stays deleted", () => {
+  it.each(
+    DELETED_CONTROL_MIGRATION_SYMBOLS
+  )("the deleted symbol '%s' appears in no src file", (name) => {
+    expect(occurrences(name)).toEqual([]);
   });
 });

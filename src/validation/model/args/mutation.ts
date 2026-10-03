@@ -223,8 +223,9 @@ export const getUpdateArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * subquery in a `RETURNING` list can correlate (it cannot).
  *
  * `limit` (Prisma 6.x) caps how many rows the UPDATE affects — including on the
- * returning arm, where exactly the capped rows come back. WHICH rows is
- * deliberately unspecified: a bulk write takes no `orderBy`.
+ * returning arm, where exactly the capped rows come back. The engine takes the
+ * first matching rows by primary key, ascending; a bulk write takes no
+ * `orderBy`.
  */
 export type UpdateManyArgs<
   M extends AnyModel,
@@ -321,8 +322,8 @@ export const getDeleteArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
  * `include` is refused, for the same reason as the other bulk writes (see
  * `restrictToScalarProjection`).
  *
- * `limit` (Prisma 6.x) caps how many rows the DELETE removes — see
- * `UpdateManyArgs` for the "how many, not which" contract.
+ * `limit` (Prisma 6.x) caps how many rows the DELETE removes, the first
+ * matching rows by primary key — see `UpdateManyArgs`.
  */
 export type DeleteManyArgs<
   M extends AnyModel,

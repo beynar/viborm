@@ -1,0 +1,334 @@
+---
+title: Soft delete
+description: Keep deleted rows as tombstones, hide them from reads, restore or purge them
+icon: trash
+---
+
+`softDelete()` is the official soft-delete extension. On the models you name, a
+delete stops removing the row: it writes the time (and, optionally, who did
+it) into the row instead. Reads then skip those rows, everywhere a query
+reaches them.
+
+The extension is one file of about 100 lines, built only from public extension
+capabilities (`controls`, `rows` and `deletion`, see
+[Create an extension](/docs/extensions/create#declare-arguments-with-controls)). It
+lives in its own entry point, so an application that does not import it pays
+nothing for it.
+
+```ts
+import { s } from "viborm";
+import { softDelete } from "viborm/soft-delete";
+
+const post = s.model({
+  id: s.string().id(),
+  title: s.string(),
+  createdAt: s.dateTime(),
+  authorId: s.string(),
+  author: s.toOne(() => user).fields("authorId").references("id"),
+  deletedAt: s.dateTime().nullable(), // the marker: null while the post is live
+  deletedById: s.string().nullable(), // optional: who deleted it
+});
+
+const db = softDelete({
+  models: { post: { deletedAt: "deletedAt", deletedBy: "deletedById" } },
+  actor: session.userId,
+})(base);
+
+await db.user.findMany({ include: { posts: true } }); // each user's live posts
+await db.post.findMany({ deleted: "only" });          // recycle bin
+await db.post.delete({ where: { id: "p1" } });        // tombstones p1, returns it
+await db.post.restore({ where: { id: "p1" }, select: { id: true } }); // { id }
+```
+
+`softDelete(config)` returns a function that takes a client and returns a new
+client. The client you pass in is unchanged: keep it for maintenance work that
+must see every row.
+
+Apply `defaultOmit()` and any other extension that declares `rows` before
+`softDelete()`: the `restore` methods it adds are model methods, and neither
+may follow those. The [cache](#caching) can go on either side.
+
+## Configuration
+
+| Option | Meaning |
+|---|---|
+| `models.<model>.deletedAt` | A `DateTime` field of that model. `null` means live; a delete writes the call's time into it. Make it `.nullable()`. |
+| `models.<model>.deletedBy` | Optional. A scalar field that receives `actor` on delete and is cleared on restore. |
+| `actor` | Optional. The value written into `deletedBy`. Without it, `deletedBy` is written `null`. |
+
+A definition is not checked at runtime. TypeScript flags a misspelt member in
+your editor; an unknown model name, a field of the wrong type or a `removeWhen`
+that names no control is not caught and misbehaves at the first call.
+In `softDelete`, a model name the schema lacks is still refused when the
+extension is applied, through its `restore` methods.
+
+### One actor per client, one actor per transaction
+
+`actor` is fixed for the client `softDelete()` returns. For a per-request actor,
+derive one client per request:
+
+```ts
+function clientFor(session: Session) {
+  return softDelete({ models, actor: session.userId })(base);
+}
+```
+
+Deriving costs two `$extends` calls, about 11 µs (an estimate: two derived
+clients at about 5.5 µs each, from one measurement). A transaction client has
+no `$extends`, so **one transaction has one actor**: derive the client with the
+right actor before calling `$transaction`, and use a separate transaction for a
+different actor.
+
+## Reading: `deleted`
+
+Every read, count, aggregate, `groupBy`, update and delete of **every** model
+accepts `deleted`:
+
+| Value | Rows the call selects | Posts reached through a relation |
+|---|---|---|
+| `"without"` (default) | live rows | live posts |
+| `"with"` | every row | every post |
+| `"only"` | tombstones only | live posts |
+
+The domain applies wherever a query reaches a managed model through a to-many
+relation: `include` and `select` of related rows, `some`/`none`/`every`,
+`_count`, ordering by a relation count, nested pages, and recursive reads (a
+tombstoned node cuts its branch). A cursor that points at a hidden row is a
+missing cursor: the page is empty.
+
+```ts
+await db.post.count();                        // live posts
+await db.post.count({ deleted: "only" });     // tombstones
+await db.user.findMany({ where: { posts: { none: {} } } }); // users with no live post
+```
+
+On a model you did not configure, `deleted` changes nothing about that model's
+own rows; it only chooses what its relations to managed models show. `only` on
+such a model reads its related posts live, like `without`.
+
+### Recipes: `with` and `only`
+
+- **Recycle bin:** `findMany({ deleted: "only" })`. The bin's posts show their
+  live related rows.
+- **Deleted posts with everything related, deleted or not:**
+  `findMany({ deleted: "with", where: { deletedAt: { not: null } } })`.
+- **Filtering on the marker needs `deleted`.** Without it,
+  `where: { deletedAt: { not: null } }` returns `[]`: the live default is added
+  to your filter.
+
+### To-one relations read `null` for a tombstone
+
+A to-one relation to a configured model (say a `comment` model with a
+required `post`, or a polymorphic `subject` one of whose targets is `post`)
+reads `null` while its target is a tombstone, as if the target were missing,
+and a nested `connect` or `update` through it treats the tombstone as missing
+too. The example's `post.author` is unchanged: `user` is not configured.
+`is`/`isNot` filters and ordering by a to-one field read the same way, and an
+upward recursive read (`parent` with `recurse`) stops at a tombstoned node.
+
+```ts
+const comment = await db.comment.findUniqueOrThrow({
+  where: { id: "c1" },
+  include: { post: true },
+});
+comment.post; // Post | null: null while the post is a tombstone
+```
+
+So on a client with the extension, TypeScript types every to-one relation to
+a configured model as `| null`, even one that is required in the schema and
+even under `deleted: "with"` (the type does not read the call's mode). A
+to-one relation to a model you did not configure keeps its type, unless that
+model has exactly the same field and relation names as a configured one:
+TypeScript compares models by those names and cannot tell the two apart, so
+both read `| null`.
+
+A reference that points at a row that does not exist at all is still an
+error, as it is without the extension: a polymorphic relation whose row is
+gone throws "references a missing record", while one whose row is a
+tombstone reads `null`.
+
+`OperationResult`, `InferDatabase` and `renderOperationResultType` describe
+the schema alone and do not know about the extension: on a soft-delete
+client they type a to-one relation as present where it can read `null`. Use
+`ExtendedOperationResult<typeof db, "comment", "findMany", Args>` for the
+client's own result types. A model-mapped query handler applied to the
+soft-delete client reads its `proceed()` result the same way.
+
+## Deleting
+
+`delete`, `deleteMany`, and nested `delete`/`deleteMany` through a relation
+write the tombstone instead of removing the row:
+
+- `delete` returns the row as it is after the tombstone (its "post-image"),
+  including `deletedAt` and `deletedBy`. `deleteMany` returns `{ count }` of the
+  live rows it tombstoned.
+- A delete only takes **live** rows, whatever `deleted` says. Deleting a
+  tombstone again is `NotFoundError`, as deleting a missing row is.
+- `deleteMany` with `limit` takes the first live rows by id: `limit: 10`
+  tombstones the ten first rows not deleted already, ordered by primary key,
+  the rows `mode: "hard"` would delete on the same data. The live-child check
+  looks only at those rows.
+- Nothing cascades and no link is removed: foreign keys, join-table rows and
+  memberships stay, so a restore brings the row back with its relations.
+- `updatedAt` fields are refreshed, as by any update.
+- Query and observe handlers, errors and logs still see a `delete`.
+
+### One timestamp per call
+
+Every row one call tombstones gets the same `deletedAt`, nested rows included.
+Separate calls get separate times, even inside one transaction. That lets you
+undo one call:
+
+```ts
+await db.user.update({
+  where: { id: "u1" },
+  data: { posts: { deleteMany: { title: { startsWith: "draft" } } } },
+});
+// All of those posts share one deletedAt, t:
+await db.post.restoreMany({ where: { authorId: "u1", deletedAt: t } });
+```
+
+To delete or restore a parent together with its children under one shared
+time, write the marker yourself in one transaction:
+`updateMany({ data: { deletedAt: at } })` per model. That bypasses the
+extension: no actor, no live-rows rule and no referential check.
+
+### What happens to related rows
+
+What the database would do on a physical delete, and what a soft delete does
+instead:
+
+| `onDelete` toward the deleted model | `mode: "hard"` | Soft delete |
+|---|---|---|
+| `cascade` | Children are deleted | Children stay live. Delete them first, in the same transaction (two calls, two times) |
+| `setNull` | Foreign key set to `null` | Foreign key kept, pointing at the tombstone |
+| `restrict`, `noAction` | Refused while any child exists, tombstones included | Refused with `ForeignKeyError` while a **live** child exists; tombstoned children do not block |
+| join table `cascade` | Join rows removed | Memberships kept |
+| join table `restrict`, `noAction` | Refused while any membership exists | Refused while a membership to a live row exists |
+
+The live-child check reads the child model's default (live) rows whatever the
+call's `deleted` says. A child model you did not configure has no tombstones,
+so any child blocks, as the database does. A nested `delete` does not count the
+parent it runs under: the parent's own link never blocks it.
+
+On PostgreSQL and MySQL the check holds under concurrency too: a soft delete
+locks the rows it is about to tombstone before it looks for live children. A
+`create` that connects one of them at the same moment either lands first, and
+the delete is refused, or waits and then finds its target deleted.
+
+`set` over a **required** foreign key keeps today's refusal ("rows removed from
+the set cannot be disconnected. Delete them instead."), and counts tombstoned
+children too. Purge the tombstoned child first.
+
+## Restoring
+
+`restore` and `restoreMany` exist on the configured models. They take the
+model's own `update`/`updateMany` arguments without `data`, select only
+tombstones, and clear `deletedAt` and `deletedBy`:
+
+```ts
+const { id } = await db.post.restore({ where: { id: "p1" }, select: { id: true } });
+await db.post.restoreMany({ where: { deletedAt: { gte: since } } });
+```
+
+- The result is narrowed like `update`'s: `select` and `include` shape it.
+- Restoring a live row is `NotFoundError`.
+- TypeScript flags `data` and a misspelt key in your editor. It also flags
+  another extension's argument on `restore`, such as the cache's `cache`
+  option: pass it on an ordinary `update` instead.
+- Restoring a row whose unique key a live row now holds fails with
+  `UniqueConstraintError`; inside a transaction the transaction rolls back.
+
+## Purging: `mode: "hard"`
+
+`mode: "hard"` on `delete` or `deleteMany` of a configured model deletes
+physically, with the database's own referential actions. TypeScript flags
+`mode` on any other model or operation.
+
+```ts
+await db.post.deleteMany({
+  where: { deletedAt: { lt: cutoff } },
+  deleted: "only",
+  mode: "hard",
+});
+```
+
+:::warning
+**A purge says `deleted: "only"`.** `mode: "hard"` keeps the live default.
+Without `deleted: "only"`, the purge above deletes nothing (live rows have no
+`deletedAt`). Filtered on `createdAt` instead,
+`deleteMany({ where: { createdAt: { lt: cutoff } }, mode: "hard" })` deletes
+old **live** posts and keeps every tombstone. VibORM does not refuse either
+call.
+:::
+
+## Unique keys
+
+A tombstone keeps its values, so a total unique index still counts it:
+re-creating a row with a soft-deleted row's email fails with
+`UniqueConstraintError`. To make a key unique among live rows only, use a
+partial unique index:
+
+```ts
+const user = s
+  .model({
+    id: s.string().id(),
+    email: s.string(),
+    deletedAt: s.dateTime().nullable(),
+  })
+  .index(["email"], { unique: true, where: '"deletedAt" IS NULL' });
+```
+
+- `where` is raw SQL naming the physical column. PostgreSQL and SQLite build
+  it; MySQL has no partial index and refuses the declaration (use a generated
+  column there).
+- **The cost:** a partial index is not a unique selector. `findUnique`,
+  `upsert`, `connect` and `connectOrCreate` by `email` become errors, flagged by
+  TypeScript in your editor; use `findFirst({ where: { email } })`.
+
+`upsert` and `connectOrCreate` never restore: a tombstone holding the key is a
+conflict. Restore first, or pass `deleted: "with"` to `upsert` to update the
+tombstone as it is.
+
+## Caching
+
+With the official [cache](/docs/extensions/cache), a cached read is keyed on
+its resolved `deleted` value: an absent `deleted` and `deleted: "without"`
+share one entry, `"with"` and `"only"` have their own. A soft-delete client and
+the client it was built from never share entries. A delete with
+`cache: { autoInvalidate: true }` clears its model's entries like a hard
+delete; entries of other models that include the deleted row stay until they
+expire or are invalidated, as after a hard delete. The cache works in either
+order: `softDelete(config)(client.$extends(cache(…)))` or
+`softDelete(config)(client).$extends(cache(…))`.
+
+## Adopting soft delete
+
+1. Add `deletedAt: s.dateTime().nullable()` (and the actor field, if any) and
+   migrate before deploying the extension.
+2. Replace `where: { deletedAt: … }` filters with `deleted`.
+3. Backfill a boolean `isDeleted` into a nullable `DateTime` marker.
+4. List the `cascade` relations that stop firing and the `restrict` relations
+   that now refuse a delete while live children exist.
+5. Decide your unique keys (partial unique index or not) and review raw SQL.
+6. Removing the extension is not a rollback: every tombstone reappears in
+   reads.
+
+## Not covered
+
+Soft delete controls which rows reads and deletes see. It does **not** apply
+to:
+
+- `create` and `createMany`, or the `data` of an update;
+- linking and unlinking (`connect`, `disconnect`, `set`) beyond the rules above;
+- which fields a query may use;
+- raw SQL (`$queryRaw`, `$executeRaw`) and statement transforms, which see
+  every row.
+
+`deleted: "with"` and raw SQL reach every tombstone: soft delete is not
+erasure. A marker is not a version: deleting, restoring and deleting again
+leaves no trace of the first deletion.
+
+**Never use soft delete (or the `rows` capability it is built on) for tenant
+isolation or authorization.** Any caller can pass `deleted: "with"`, and raw SQL
+ignores it.

@@ -27,14 +27,21 @@ import type {
   GraphRecurse,
 } from "@validation/relations/recurrence";
 import type { DecimalUpdateOperationKeys } from "@validation/scalars";
-import type { CacheInvalidationOptions } from "../cache/schema";
+import type {
+  NoControls,
+  OperationControls,
+  StampedFieldNames,
+  StampedFields,
+} from "../extensions/controls";
 import type { VibORMConfig } from "./client";
 import type {
   AggregateResultType,
   BatchPayload,
+  ClientHiddenContext,
   ClientResultOmitContext,
   ClientResultOmitEntry,
   CountResultType,
+  GetTargetModel,
   GroupByResultType,
   InferSelectInclude,
   MergeClientOmit,
@@ -50,6 +57,8 @@ export type Schema = Record<string, Model<any>>;
  * Schema-only application types, keyed by the schema's model names.
  * Row uses the default scalar projection and respects schema-level omission;
  * client extensions and defaultOmit are not part of this schema-only view.
+ * On a client whose extensions declare `rows`, a to-one relation can read
+ * `null` where these types say it cannot: use `ExtendedOperationResult`.
  */
 export type InferDatabase<S extends Schema> = {
   [K in keyof S]: {
@@ -358,6 +367,25 @@ type ClientRelationOmitContext<C extends VibORMConfig> = [
   ? never
   : ClientResultOmitContext<ClientRelationOmitEntries<C>>;
 
+/**
+ * The result context of a client whose chain declares `rows` over `Models`:
+ * its relation omission defaults, and the shallow surfaces of the models a
+ * relation read can find hidden. Without `rows`, exactly the omission context.
+ * The schema's names are filtered BY `Models`, so a definition typed over
+ * every string hides every model rather than none.
+ */
+export type ClientRowsContext<C extends VibORMConfig, Models extends string> =
+  | ClientRelationOmitContext<C>
+  | ([Models] extends [never]
+      ? never
+      : ClientHiddenContext<
+          {
+            [K in Extract<keyof C["schema"], Models>]: ModelResultSurface<
+              C["schema"][K]
+            >;
+          }[Extract<keyof C["schema"], Models>]
+        >);
+
 declare const defaultOperationResultArgs: unique symbol;
 type DefaultOperationResultArgs = typeof defaultOperationResultArgs;
 
@@ -444,7 +472,12 @@ type OperationResultWithClientDefaults<
                     : never
   : never;
 
-/** Public operation result helper for one operation and its declared args. */
+/**
+ * Public operation result helper for one operation and its declared args.
+ * Schema-only: on a client whose extensions declare `rows`, a to-one relation
+ * can read `null` where this type says it cannot. `ExtendedOperationResult`
+ * types a derived client's results.
+ */
 export type OperationResult<
   O extends Operations,
   M extends Model<any>,
@@ -452,18 +485,23 @@ export type OperationResult<
   DefaultOmit = undefined,
 > = OperationResultWithClientDefaults<O, M, Args, DefaultOmit, never>;
 
-/** One concrete client's result, including its top-level and relation defaults. */
-export type ClientOperationResult<
+/**
+ * One concrete client's result under the result context it computed: its
+ * top-level and relation defaults, and the surfaces its `rows` can hide
+ * (`ClientRowsContext`). The one owner every client-bound result reads.
+ */
+export type ContextualOperationResult<
   C extends VibORMConfig,
   ModelName extends keyof C["schema"],
   O extends Operations,
   Args,
+  ClientDefaults,
 > = OperationResultWithClientDefaults<
   O,
   C["schema"][ModelName],
   Args,
   ClientDefaultOmit<C, ModelName>,
-  ClientRelationOmitContext<C>
+  ClientDefaults
 >;
 
 /**
@@ -473,7 +511,7 @@ export type ClientOperationResult<
 export type Client<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
-  ExtensionCache extends boolean = false,
+  Controls extends object = NoControls,
 > = {
   [K in keyof C["schema"]]: {
     [O in Operations]: Operation<
@@ -481,35 +519,221 @@ export type Client<
       C["schema"][K],
       ClientDefaultOmit<C, K>,
       ClientDefaults,
-      ExtensionCache
+      PlacedOperationControls<Controls, K, O>
     >;
   };
 };
 
-export type ClientRelationDefaults<C extends VibORMConfig> =
-  ClientRelationOmitContext<C>;
+/** The controls one (model, operation) accepts; none without a declaration. */
+type PlacedOperationControls<Controls, ModelName, O> = [
+  keyof Controls,
+] extends [never]
+  ? NoControls
+  : OperationControls<Controls, ModelName, O>;
 
-type WithoutCacheKey<T> = T extends { cache?: infer _ }
-  ? Omit<T, "cache"> & {}
-  : T;
+// =============================================================================
+// `data`: A FIELD A CHAIN WRITES ON CREATE MAY BE LEFT OUT
+// =============================================================================
 
-type IsClientCacheEnabled<ExtensionCache extends boolean> = [
-  ExtensionCache,
-] extends [true]
-  ? true
-  : false;
+/** The operations that write a model's data: where `data` narrows. */
+export type StampedOperation =
+  | "create"
+  | "createMany"
+  | "update"
+  | "updateMany"
+  | "upsert";
 
-type ClientOperationPayload<
-  O extends Operations,
-  T,
-  ExtensionCache extends boolean,
-> = O extends MutationOperations
-  ? IsClientCacheEnabled<ExtensionCache> extends true
-    ? T extends object
-      ? Omit<T, "cache"> & { cache?: CacheInvalidationOptions }
-      : T
-    : WithoutCacheKey<T>
-  : WithoutCacheKey<T>;
+/**
+ * One model's write operations on a client whose chain declares `data` for
+ * creates. The fields the chain writes on a create are optional there, even
+ * where the schema requires them, in the call's own rows and in every create
+ * it nests through a relation: the chain writes each one the caller leaves
+ * out, and a caller who writes one keeps its value (owner rulings, plan v4
+ * §7.5 and §7.1).
+ */
+export type StampedOperations<
+  C extends VibORMConfig,
+  ClientDefaults,
+  Controls,
+  Data,
+  K extends keyof C["schema"],
+> = {
+  [O in StampedOperation]: Operation<
+    O,
+    C["schema"][K],
+    ClientDefaultOmit<C, K>,
+    ClientDefaults,
+    PlacedOperationControls<Controls, K, O>,
+    StampedPayload<
+      O,
+      OperationPayload<O, C["schema"][K]>,
+      C["schema"][K],
+      StampedFieldNames<Data, K>,
+      Stamps<Data, C["schema"]>
+    >
+  >;
+};
+
+/**
+ * The call's own clauses, rebuilt: a create's rows, and an update's for the
+ * creates they nest.
+ */
+type StampedPayload<O, Payload, M, Fields extends PropertyKey, Context> = {
+  [Key in keyof Payload]: Key extends CreateClause<O>
+    ? StampedRow<Payload[Key], M, Fields, Context>
+    : Key extends UpdateClause<O>
+      ? StampedRow<Payload[Key], M, never, Context>
+      : Payload[Key];
+};
+
+type CreateClause<O> = O extends "upsert"
+  ? "create"
+  : O extends "create" | "createMany"
+    ? "data"
+    : never;
+
+type UpdateClause<O> = O extends "upsert"
+  ? "update"
+  : O extends "update" | "updateMany"
+    ? "data"
+    : never;
+
+/** What a nested write needs to find the fields its target's stamps write. */
+interface Stamps<Data, S> {
+  readonly data: Data;
+  readonly schema: S;
+}
+
+/**
+ * A row of `M` whose `Fields` are optional, each with its own type: a field
+ * the schema requires may be left out, and a value passed is the caller's.
+ * Its relations' writes are rebuilt for their own targets. Mapped types
+ * resolve a member only when it is read, so a call pays for the depth it
+ * spells, never for the schema's.
+ */
+type StampedRow<
+  Row,
+  M,
+  Fields extends PropertyKey,
+  Context,
+> = Row extends readonly (infer Item)[]
+  ? StampedRow<Item, M, Fields, Context>[]
+  : Row extends object
+    ? M extends Model<infer State>
+      ? {
+          [Key in keyof Row as Key extends Fields
+            ? never
+            : Key]: Key extends keyof State["relations"]
+            ? StampedRelation<
+                Row[Key],
+                GetTargetModel<State["relations"][Key]>,
+                Context
+              >
+            : Row[Key];
+        } & {
+          [Key in keyof Row as Key extends Fields ? Key : never]?: Row[Key];
+        }
+      : Row
+    : Row;
+
+/** A relation with variants has no one target: it is not rebuilt. */
+type StampedRelation<Value, Target, Context> = [Target] extends [never]
+  ? Value
+  : Target extends Model<any>
+    ? Value extends object
+      ? {
+          [Verb in keyof Value]: StampedVerb<
+            Verb,
+            Value[Verb],
+            Target,
+            Context
+          >;
+        }
+      : Value
+    : Value;
+
+/** The verbs that create or update a target; every other verb is left alone. */
+type StampedVerb<
+  Verb,
+  Value,
+  Target extends Model<any>,
+  Context,
+> = Verb extends "create"
+  ? StampedRow<Value, Target, TargetStampedFields<Context, Target>, Context>
+  : Verb extends "createMany"
+    ? StampedArms<Value, Target, "data", never, Context>
+    : Verb extends "connectOrCreate" | "upsert"
+      ? StampedArms<Value, Target, "create", "update", Context>
+      : Verb extends "update" | "updateMany"
+        ? StampedUpdate<Value, Target, Context>
+        : Value;
+
+/** A nested update: a row, or its target and then its data. */
+type StampedUpdate<
+  Value,
+  Target extends Model<any>,
+  Context,
+> = Value extends readonly (infer Item)[]
+  ? StampedUpdate<Item, Target, Context>[]
+  : Value extends { readonly data: unknown }
+    ? StampedArms<Value, Target, never, "data", Context>
+    : StampedRow<Value, Target, never, Context>;
+
+/** A nested verb's create and update arms, rebuilt; an array, item by item. */
+type StampedArms<
+  Value,
+  Target extends Model<any>,
+  CreateKey,
+  UpdateKey,
+  Context,
+> = Value extends readonly (infer Item)[]
+  ? StampedArms<Item, Target, CreateKey, UpdateKey, Context>[]
+  : Value extends object
+    ? {
+        [Key in keyof Value]: Key extends CreateKey
+          ? StampedRow<
+              Value[Key],
+              Target,
+              TargetStampedFields<Context, Target>,
+              Context
+            >
+          : Key extends UpdateKey
+            ? StampedRow<Value[Key], Target, never, Context>
+            : Value[Key];
+      }
+    : Value;
+
+/**
+ * The fields the chain writes on a create of a relation's target. A target
+ * is found by its shallow surface, as `rows` finds a hidden one: a model
+ * that shares its surface with a stamped model is narrowed with it.
+ */
+type TargetStampedFields<
+  Context,
+  Target extends Model<any>,
+> = Context extends Stamps<infer Data, infer S>
+  ? Data extends StampedFields<infer Models, infer Fields extends PropertyKey>
+    ? true extends NamesTarget<Extract<Models, keyof S>, Target, S>
+      ? Fields
+      : never
+    : never
+  : never;
+
+type NamesTarget<Names, Target extends Model<any>, S> = Names extends keyof S
+  ? S[Names] extends Model<any>
+    ? SameModelResultSurface<
+        ModelResultSurface<Target>,
+        ModelResultSurface<S[Names]>
+      >
+    : never
+  : never;
+
+/** A payload with the operation's placed controls beside its own keys. */
+type WithControls<T, Controls> = [keyof Controls] extends [never]
+  ? T
+  : T extends object
+    ? T & Controls
+    : T;
 
 /**
  * Every key ONE clause accepts, taking the union across a union-typed clause
@@ -1152,9 +1376,9 @@ type Operation<
   M extends Model<any>,
   DefaultOmit = undefined,
   ClientDefaults = never,
-  ExtensionCache extends boolean = false,
+  Controls = NoControls,
   Payload = OperationPayload<O, M>,
-  ClientPayload = ClientOperationPayload<O, Payload, ExtensionCache>,
+  ClientPayload = WithControls<Payload, Controls>,
 > = undefined extends ClientPayload
   ? <Arg extends ClientPayload>(
       args?: NoExtraOperationKeys<
@@ -1180,7 +1404,8 @@ type CachedOperation<
   M extends Model<any>,
   DefaultOmit = undefined,
   ClientDefaults = never,
-  Payload = OperationPayload<O, M>,
+  Controls = NoControls,
+  Payload = WithControls<OperationPayload<O, M>, Controls>,
 > = undefined extends Payload
   ? <Arg extends Payload>(
       args?: NoExtraOperationKeys<
@@ -1210,13 +1435,15 @@ type CachedOperation<
 export type CachedClient<
   C extends VibORMConfig,
   ClientDefaults = ClientRelationOmitContext<C>,
+  Controls extends object = NoControls,
 > = {
   [K in keyof C["schema"]]: {
     [O in CacheableOperations]: CachedOperation<
       O,
       C["schema"][K],
       ClientDefaultOmit<C, K>,
-      ClientDefaults
+      ClientDefaults,
+      PlacedOperationControls<Controls, K, O>
     >;
   };
 };

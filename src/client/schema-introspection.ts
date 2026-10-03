@@ -157,7 +157,9 @@ export function validateOperationPayload(
 
 /**
  * Render the concrete return type for one validated public operation payload.
- * Client extensions and `defaultOmit()` are not part of this schema-only view.
+ * Client extensions and `defaultOmit()` are not part of this schema-only view:
+ * on a client whose extensions declare `rows`, a to-one relation can read
+ * `null` where the rendered type says it cannot.
  *
  * A payload with a recursive relation slot renders as declarations — a
  * `VibORMOperationResult` alias followed by one `VibORMRecursiveNodeN` alias per

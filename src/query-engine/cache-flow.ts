@@ -3,11 +3,7 @@ import type {
   CacheInvalidationOptions,
   WithCacheOptions,
 } from "@cache";
-import {
-  type CacheExecutionOptions,
-  cacheInvalidationSchema,
-  withCacheSchema,
-} from "@cache";
+import { type CacheExecutionOptions, withCacheSchema } from "@cache";
 import {
   type DetachedCacheResultCodec,
   executeCachedWithResultCodec,
@@ -39,112 +35,6 @@ const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "exist",
 ]);
 
-export interface PreparedMutationCacheInput {
-  readonly args: Record<string, unknown>;
-  readonly options: CacheInvalidationOptions | undefined;
-}
-
-type MutationInputDescriptors = Map<PropertyKey, PropertyDescriptor>;
-
-/**
- * Remove and validate the client-owned mutation cache option before the core
- * operation schema sees the payload. The absent-key arm preserves identity.
- */
-export function prepareMutationCacheInput(
-  operation: string,
-  input: Record<string, unknown>
-): PreparedMutationCacheInput {
-  if (!isWriteOperation(operation)) {
-    return { args: input, options: undefined };
-  }
-
-  let descriptors: MutationInputDescriptors;
-  try {
-    descriptors = new Map();
-    for (const key of Reflect.ownKeys(input)) {
-      const descriptor = Object.getOwnPropertyDescriptor(input, key);
-      if (descriptor) descriptors.set(key, descriptor);
-    }
-  } catch (cause) {
-    throw mutationCacheInputError(
-      `Mutation cache options for '${operation}' could not be inspected.`,
-      cause
-    );
-  }
-  const cacheDescriptor = descriptors.get("cache");
-  if (cacheDescriptor === undefined) {
-    return { args: input, options: undefined };
-  }
-
-  let cache: unknown;
-  try {
-    cache =
-      "value" in cacheDescriptor
-        ? cacheDescriptor.value
-        : cacheDescriptor.get?.call(input);
-  } catch (cause) {
-    throw mutationCacheInputError(
-      `Mutation cache options for '${operation}' could not be read.`,
-      cause
-    );
-  }
-
-  const args: Record<string, unknown> = {};
-  for (const [key, descriptor] of descriptors) {
-    if (key === "cache") continue;
-    // `getOwnPropertyDescriptor` has already normalized and validated every
-    // descriptor. Defining that descriptor on a fresh ordinary object cannot
-    // fail, so a catch here only advertised a recovery path that JavaScript
-    // cannot reach.
-    Object.defineProperty(args, key, descriptor);
-  }
-  const options =
-    cache === undefined
-      ? undefined
-      : parseMutationCacheOptions(operation, cache);
-  return { args, options };
-}
-
-function parseMutationCacheOptions(
-  operation: string,
-  cache: unknown
-): CacheInvalidationOptions {
-  try {
-    const parsed = parse(cacheInvalidationSchema, cache);
-    if (parsed.issues) {
-      throw new CacheConfigurationError(
-        `Invalid mutation cache options: ${parsed.issues.map((issue) => issue.message).join(", ")}`,
-        { cause: readValidationFailureCause(parsed) }
-      );
-    }
-    const invalidate =
-      parsed.value.invalidate === undefined
-        ? undefined
-        : [...parsed.value.invalidate];
-    return Object.freeze({
-      autoInvalidate: parsed.value.autoInvalidate,
-      ...(invalidate === undefined ? {} : { invalidate }),
-    });
-  } catch (cause) {
-    if (isCacheConfigurationError(cause)) throw cause;
-    throw mutationCacheInputError(
-      `Mutation cache options for '${operation}' could not be validated.`,
-      cause
-    );
-  }
-}
-
-function mutationCacheInputError(
-  message: string,
-  cause: unknown
-): CacheConfigurationError {
-  return new CacheConfigurationError(message, {
-    cause: isError(cause)
-      ? cause
-      : new Error("A non-Error value was thrown.", { cause }),
-  });
-}
-
 export function isCacheManagedExecution(
   options: PrepareOptions | undefined
 ): boolean {
@@ -156,12 +46,11 @@ export function prepareMutationCacheWriteOutcome(
   cache: CacheDriver,
   modelName: string,
   operation: string,
-  readCacheOptions: () => CacheInvalidationOptions | undefined,
+  options: CacheInvalidationOptions | undefined,
   context: QueryExecutionContext,
   officialScope: object
 ): WriteOutcomeRegistration | undefined {
   if (!isWriteOperation(operation)) return undefined;
-  const options = readCacheOptions();
 
   return Object.freeze({
     extension: "viborm.cache",
@@ -193,32 +82,6 @@ export function prepareMutationCacheWriteOutcome(
       }
     },
   });
-}
-
-/**
- * Classify a `catch (cause)` binding — an `unknown` this module did not create.
- *
- * The `catch` is deliberately kept: `instanceof` walks the LEFT operand's
- * prototype chain, so it is itself a throw site whenever that operand is a
- * Proxy whose `getPrototypeOf` trap throws. A bare `instanceof` here would let
- * that trap's exception escape `parseMutationCacheOptions`, replacing the
- * cache-configuration failure this boundary owns with an arbitrary raw value —
- * the caller would lose the typed `CacheConfigurationError` that names what
- * actually went wrong, and a `catch (e) { if (e instanceof CacheConfigurationError) }`
- * written against the documented surface would silently stop matching.
- *
- * Do not "simplify" this back to `value instanceof CacheConfigurationError`.
- * `isError` in `errors/diagnostic-safety.ts` is contained for the same reason,
- * and `mutationCacheInputError` below relies on both staying total.
- */
-function isCacheConfigurationError(
-  value: unknown
-): value is CacheConfigurationError {
-  try {
-    return value instanceof CacheConfigurationError;
-  } catch {
-    return false;
-  }
 }
 
 export function validateCacheableOperation(operation: string): void {

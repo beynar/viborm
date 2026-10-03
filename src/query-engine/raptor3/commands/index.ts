@@ -9,7 +9,13 @@ import {
   OperationContext,
 } from "../shared/operation-context";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
-import { Queries } from "../shared/query";
+import { PreparedDomain, Queries } from "../shared/query";
+import {
+  type CallRows,
+  type CallScope,
+  parseStamped,
+  type RowDomain,
+} from "../shared/row-scope";
 import {
   type Arguments,
   type EngineConfig,
@@ -155,17 +161,44 @@ export function createCommandEngine(config: EngineConfig) {
     config.driver.adapter,
     config.driver.result
   );
+  // Each row domain a call selects is prepared once for this engine view, and
+  // read through the one `Queries` it owns; write contexts share the prepared
+  // domain. A client without `rows` never reaches the map.
+  const domains = new WeakMap<RowDomain, PreparedDomain>();
+  const domainOf = (rows: RowDomain): PreparedDomain => {
+    let domain = domains.get(rows);
+    if (domain === undefined) {
+      domain = new PreparedDomain(rows, queries);
+      domains.set(rows, domain);
+    }
+    return domain;
+  };
   class PreparedCommand implements PreparedOperation {
     readonly #operation: Operation;
     readonly #model: EngineConfig["schema"][string];
     readonly #modelName: string;
     readonly #rawArgs: unknown;
     readonly #missing: (() => NotFoundError) | undefined;
+    readonly #scope: CallScope | undefined;
     #admitted: Arguments | undefined;
     #prepared: Read | undefined;
     #facts: PreparedRead | undefined;
 
-    constructor(modelName: string, requested: Operations, rawArgs: unknown) {
+    constructor(
+      modelName: string,
+      requested: Operations,
+      rawArgs: unknown,
+      rows?: CallRows
+    ) {
+      // The call's one instant lives with the prepared call, so a replan and
+      // every occurrence it re-admits share it.
+      let instant: Date | undefined;
+      this.#scope = rows && {
+        rows,
+        domain: domainOf(rows.domain),
+        defaults: domainOf(rows.defaults),
+        instant: () => (instant ??= new Date()),
+      };
       this.#operation = admittedOperation(requested);
       this.#model = config.schema[modelName]!;
       this.#modelName = modelName;
@@ -181,16 +214,22 @@ export function createCommandEngine(config: EngineConfig) {
     }
 
     get args(): Arguments {
-      return (this.#admitted ??= schema.admit(
-        this.#model,
-        this.#operation,
-        this.#rawArgs
-      ));
+      return (this.#admitted ??= this.#admit());
+    }
+
+    /** Admitted where a required field the call's stamps write may be left out. */
+    #admit(): Arguments {
+      const stamps = this.#scope?.rows.stamps;
+      return stamps === undefined
+        ? schema.admit(this.#model, this.#operation, this.#rawArgs)
+        : parseStamped(stamps, () =>
+            schema.admit(this.#model, this.#operation, this.#rawArgs)
+          );
     }
 
     #read(): Read | undefined {
       if (!isReadOperation(this.#operation)) return undefined;
-      return (this.#prepared ??= queries.read(
+      return (this.#prepared ??= (this.#scope?.domain.reads ?? queries).read(
         this.#model,
         this.#operation,
         this.args
@@ -249,7 +288,8 @@ export function createCommandEngine(config: EngineConfig) {
             this.#operation,
             binding,
             false,
-            attribution
+            attribution,
+            this.#scope
           )
         );
       } catch (error) {
@@ -271,7 +311,8 @@ export function createCommandEngine(config: EngineConfig) {
         this.#operation,
         undefined,
         true,
-        attribution
+        attribution,
+        this.#scope
       );
       const value = this.#read();
       if (value) {
@@ -309,7 +350,8 @@ export function createCommandEngine(config: EngineConfig) {
         this.#operation,
         undefined,
         true,
-        attribution
+        attribution,
+        this.#scope
       );
       try {
         await this.#body(context);
@@ -323,8 +365,10 @@ export function createCommandEngine(config: EngineConfig) {
   const prepare = (
     modelName: string,
     requested: Operations,
-    rawArgs: unknown
-  ): PreparedOperation => new PreparedCommand(modelName, requested, rawArgs);
+    rawArgs: unknown,
+    rows?: CallRows
+  ): PreparedOperation =>
+    new PreparedCommand(modelName, requested, rawArgs, rows);
   return {
     prepare,
     async execute(

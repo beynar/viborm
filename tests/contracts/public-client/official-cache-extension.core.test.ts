@@ -37,7 +37,7 @@ function applyUnsafe(client: object, extension: unknown): object {
  * here reads the definition rather than a bound capability.
  */
 function appendOfficial(
-  extension: unknown,
+  extension: Readonly<Record<string, unknown>>,
   chain?: ResolvedExtensionChain
 ): ResolvedExtensionChain {
   return appendResolvedExtension(chain, extension, schema);
@@ -73,7 +73,9 @@ describe("official cache extension foundation", () => {
 
     expect(getOfficialCacheChainCapability(chain)).toBeUndefined();
     expect(extension.name).toBe("viborm.cache");
-    expect(Reflect.ownKeys(extension)).toEqual(["name", "query"]);
+    // The mutation `cache` argument is the extension's one declared control.
+    expect(Reflect.ownKeys(extension)).toEqual(["name", "query", "controls"]);
+    expect([...(chain.controls?.names ?? [])]).toEqual(["cache"]);
     expect(Object.isFrozen(extension)).toBe(true);
     expect(Object.isFrozen(config)).toBe(false);
     expect(reads).toEqual({ driver: 1, version: 1, waitUntil: 1 });

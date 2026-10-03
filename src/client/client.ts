@@ -1,8 +1,4 @@
-import type {
-  CacheExecutionOptions,
-  CacheInvalidationOptions,
-  WithCacheOptions,
-} from "@cache";
+import type { CacheExecutionOptions, WithCacheOptions } from "@cache";
 import type {
   OfficialCacheExtension,
   OfficialCacheQueryContribution,
@@ -10,7 +6,9 @@ import type {
 import {
   bindOfficialCacheChain,
   getOfficialCacheChainCapability,
+  readMutationCacheOptions,
 } from "@cache/extension";
+import { isCanonicalKeyData } from "@cache/key";
 import type { AnyDriver } from "@drivers";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
@@ -28,9 +26,11 @@ import {
 } from "@errors";
 import {
   appendResolvedExtension,
+  lookupPlacedControls,
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
+import type { AdmittedControls } from "@extensions/controls";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
@@ -55,7 +55,6 @@ import {
   createCacheExecutionOptions,
   executeCachedResultOperation,
   invalidateManualCache,
-  prepareMutationCacheInput,
   prepareMutationCacheWriteOutcome,
   validateCacheableOperation,
 } from "@query-engine/cache-flow";
@@ -94,7 +93,14 @@ import {
   type RawOperation,
   type RawSurface,
 } from "./raw";
-import type { CachedClient, Client, Operations, Schema } from "./types";
+import type {
+  CachedClient,
+  Client,
+  ClientRowsContext,
+  ContextualOperationResult,
+  Operations,
+  Schema,
+} from "./types";
 import { assertNonEmptyUniqueWhere } from "./unique-where-guard";
 
 interface OfficialReadCache {
@@ -193,8 +199,9 @@ type OrdinaryOfficialExtensionGuard<Definition> = Definition extends {
 type OfficialAwareDefinition<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
+  Self = unknown,
 > =
-  | ContextualExtensionDefinition<C, X>
+  | ContextualExtensionDefinition<C, X, Self>
   | OfficialCacheExtension
   | OfficialDefaultOmitExtension;
 
@@ -226,7 +233,7 @@ type ExtensionAdmission<
   ? OfficialCacheAdmission<Definition, X>
   : Definition extends OfficialDefaultOmitExtension
     ? OfficialDefaultOmitAdmission<Definition, C, X>
-    : Definition extends ContextualExtensionDefinition<C, X>
+    : Definition extends ContextualExtensionDefinition<C, X, Definition>
       ? ExactExtensionDefinition<Definition, C, X> &
           OrdinaryOfficialExtensionGuard<Definition> &
           SchemaBoundExtensionAdmission<Definition, C>
@@ -320,76 +327,94 @@ export type VibORMClient<
   // never declared `Symbol.asyncDispose`. The interactive `tx` client is
   // deliberately NOT disposable: `$transaction` owns that driver's lifetime.
   AsyncDisposeMember &
+  VibORMClientMembers<C, X> &
   Omit<
     {
-      /** Access the underlying driver */
-      $driver: AnyDriver;
-      /** Access the schema (models) */
-      $schema: C["schema"];
-      /**
-       * Run operations in a transaction or batch
-       *
-       * @example Dynamic transaction (callback) - operations can depend on each other
-       * ```ts
-       * await client.$transaction(async (tx) => {
-       *   const user = await tx.user.create({ data: { name: "Alice" } });
-       *   await tx.post.create({ data: { title: "Hello", authorId: user.id } });
-       * });
-       * ```
-       *
-       * @example Batch (array) - independent operations, atomic execution
-       * ```ts
-       * const [users, posts] = await client.$transaction([
-       *   client.user.findMany(),
-       *   client.post.findMany(),
-       * ]);
-       * ```
-       *
-       * @example Options - honored or refused, never ignored
-       * ```ts
-       * await client.$transaction(async (tx) => { ... }, {
-       *   isolationLevel: "Serializable",
-       *   timeout: 10_000,
-       *   maxWait: 2000,
-       * });
-       * ```
-       *
-       * Each option is honored where the driver can honor it and rejected with
-       * a typed `UnsupportedOperationError` (V8003) where it cannot — see
-       * [Transactions](/docs/client/transactions) for the per-driver contract.
-       * The array form takes `isolationLevel` only: a preplanned array has no
-       * interactive window for `timeout` or `maxWait` to bound.
-       */
-      $transaction: {
-        // Overload 1: Dynamic transaction (callback)
-        <T>(
-          fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
-          options?: TransactionOptions
-        ): Promise<T>;
-        // Overload 2: Batch of independent operations (Prisma-style)
-        <T extends BatchTransactionOperation<unknown>[]>(
-          operations: [...T],
-          options?: BatchTransactionOptions
-        ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
-      };
-      /** Connect to the database */
-      $connect: () => Promise<void>;
-      /** Disconnect from the database */
-      $disconnect: () => Promise<void>;
       /** Create a client with cache - only read operations available */
-      $withCache: (config?: WithCacheOptions) => CachedClient<C>;
+      $withCache: (
+        config?: WithCacheOptions
+      ) => CachedClient<C, ClientRowsContext<C, X["rows"]>, X["controls"]>;
       /** Invalidate cache entries by keys or patterns (use * suffix for prefix matching) */
       $invalidate: (...keys: string[]) => Promise<void>;
-      /** Return an immutable client view with one more named extension. */
-      $extends: <const Definition extends OfficialAwareDefinition<C, X>>(
-        extension: Definition & ExtensionAdmission<Definition, C, X>
-      ) => VibORMClient<
-        AppliedClientConfig<C, Definition>,
-        AppliedExtensionState<X, Definition>
-      >;
     },
     HasExtensionCache<X> extends true ? "never" : "$withCache" | "$invalidate"
   >;
+
+/**
+ * The client members no extension state removes. An interface outside the
+ * `Omit` above, so a body generic over the extension state still reaches them.
+ */
+interface VibORMClientMembers<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+> {
+  /** Access the underlying driver */
+  $driver: AnyDriver;
+  /** Access the schema (models) */
+  $schema: C["schema"];
+  /**
+   * Run operations in a transaction or batch
+   *
+   * @example Dynamic transaction (callback) - operations can depend on each other
+   * ```ts
+   * await client.$transaction(async (tx) => {
+   *   const user = await tx.user.create({ data: { name: "Alice" } });
+   *   await tx.post.create({ data: { title: "Hello", authorId: user.id } });
+   * });
+   * ```
+   *
+   * @example Batch (array) - independent operations, atomic execution
+   * ```ts
+   * const [users, posts] = await client.$transaction([
+   *   client.user.findMany(),
+   *   client.post.findMany(),
+   * ]);
+   * ```
+   *
+   * @example Options - honored or refused, never ignored
+   * ```ts
+   * await client.$transaction(async (tx) => { ... }, {
+   *   isolationLevel: "Serializable",
+   *   timeout: 10_000,
+   *   maxWait: 2000,
+   * });
+   * ```
+   *
+   * Each option is honored where the driver can honor it and rejected with
+   * a typed `UnsupportedOperationError` (V8003) where it cannot — see
+   * [Transactions](/docs/client/transactions) for the per-driver contract.
+   * The array form takes `isolationLevel` only: a preplanned array has no
+   * interactive window for `timeout` or `maxWait` to bound.
+   */
+  $transaction: {
+    // Overload 1: Dynamic transaction (callback)
+    <T>(
+      fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
+      options?: TransactionOptions
+    ): Promise<T>;
+    // Overload 2: Batch of independent operations (Prisma-style)
+    <T extends BatchTransactionOperation<unknown>[]>(
+      operations: [...T],
+      options?: BatchTransactionOptions
+    ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
+  };
+  /** Connect to the database */
+  $connect: () => Promise<void>;
+  /** Disconnect from the database */
+  $disconnect: () => Promise<void>;
+  /**
+   * Return an immutable client view with one more named extension. The
+   * bound is F-bounded: the definition's own model keys are checked.
+   */
+  $extends: <
+    const Definition extends OfficialAwareDefinition<C, X, Definition>,
+  >(
+    extension: Definition & ExtensionAdmission<Definition, C, X>
+  ) => VibORMClient<
+    AppliedClientConfig<C, Definition>,
+    AppliedExtensionState<X, Definition>
+  >;
+}
 
 type ApplyClientExtensions<
   C extends VibORMConfig,
@@ -431,6 +456,49 @@ export type ExtendedClient<
   : Base extends VibORMClient<infer C, infer X>
     ? ApplyClientExtensions<C, X, Extensions>
     : never;
+
+/** The extension type-state a derived client carries. */
+export type ExtensionState = ExtensionStateConstraint;
+
+/**
+ * One operation's result on a derived client, as that client's own delegate
+ * types it: its `defaultOmit` applied to `Args`, and a to-one relation whose
+ * target the chain's `rows` can hide typed `| null`. Index the client with
+ * `M[K & keyof M]` in a plugin generic over it.
+ */
+export type ExtendedOperationResult<
+  Client,
+  ModelName,
+  O extends Operations,
+  Args,
+> = Client extends VibORMClient<infer C, infer X>
+  ? ContextualOperationResult<
+      C,
+      ModelName & keyof C["schema"],
+      O,
+      Args,
+      ClientRowsContext<C, X["rows"]>
+    >
+  : never;
+
+/**
+ * What one cached read is keyed on. A read that admitted no control keeps
+ * today's key, the prepared arguments byte for byte; otherwise the key is the
+ * pair of those arguments and the admitted controls, which no base key can
+ * spell (its arguments are always an object), and, on a chain with `rows`,
+ * those declarations themselves, since the same control value selects
+ * different rows under different declarations. A control value that is not
+ * plain data has no canonical form: `undefined` bypasses the cache.
+ */
+function cacheKeyOf(
+  args: Record<string, unknown>,
+  controls: AdmittedControls | undefined,
+  rows: ResolvedExtensionChain["rows"]
+): unknown {
+  if (controls === undefined) return args;
+  if (!isCanonicalKeyData(controls)) return undefined;
+  return rows === undefined ? [args, controls] : [args, controls, rows];
+}
 
 /**
  * VibORM Client
@@ -537,23 +605,24 @@ export class VibORM<C extends VibORMConfig> {
     }
 
     const rawArgs = (args ?? {}) as Record<string, unknown>;
-    let cacheOptions: CacheInvalidationOptions | undefined;
     const isWrite = isWriteOperation(operation);
+    const chain = engine.extensionChain;
 
     const requestHandlers = lookupResolvedExtensionHandlers(
-      engine.extensionChain,
+      chain,
       "request",
       modelNameStr,
       operation
     );
-    const hasOperationObservers =
-      (engine.extensionChain?.observe.length ?? 0) > 0;
+    const hasOperationObservers = (chain?.observe.length ?? 0) > 0;
+    const hasPlacedControls =
+      lookupPlacedControls(chain, modelNameStr, operation).length > 0;
     let operationArgs: Record<string, unknown> = rawArgs;
     let prepareInput: PrepareOperationInput | undefined;
 
     if (
       requestHandlers === undefined &&
-      !(officialCache !== undefined && isWrite) &&
+      !hasPlacedControls &&
       !hasOperationObservers
     ) {
       const requestArgs = rawArgs;
@@ -565,23 +634,21 @@ export class VibORM<C extends VibORMConfig> {
       // Request code stays behind PendingOperation's first preparation
       // boundary. That boundary memoizes both this callback's value and its
       // failure when several lifecycle entry points observe the same
-      // operation.
-      prepareInput = () => {
+      // operation, and hands it the arguments with their controls removed.
+      prepareInput = (controlFreeArgs, controls) => {
         const transformed =
           requestHandlers === undefined
-            ? rawArgs
+            ? controlFreeArgs
             : applyRequestTransforms(
                 modelNameStr,
                 operation,
-                rawArgs,
-                requestHandlers
+                controlFreeArgs,
+                requestHandlers,
+                chain?.controls === undefined
+                  ? undefined
+                  : { names: chain.controls.names, admitted: controls }
               );
-        let requestArgs = transformed ?? {};
-        if (officialCache !== undefined && isWrite) {
-          const prepared = prepareMutationCacheInput(operation, requestArgs);
-          requestArgs = prepared.args;
-          cacheOptions = prepared.options;
-        }
+        const requestArgs = transformed ?? {};
         const omittedArgs = clientOmit
           ? applyClientOmit(model, operation, requestArgs, clientOmit)
           : requestArgs;
@@ -595,12 +662,12 @@ export class VibORM<C extends VibORMConfig> {
       | undefined =
       officialCache === undefined || !isWrite
         ? undefined
-        : (context) =>
+        : (context, controls) =>
             prepareMutationCacheWriteOutcome(
               officialCache.driver,
               modelNameStr,
               operation,
-              () => cacheOptions,
+              readMutationCacheOptions(controls),
               context,
               officialCache.scope
             );
@@ -713,11 +780,17 @@ export class VibORM<C extends VibORMConfig> {
           return execute();
         }
         const cacheResult = readPendingCacheResult(pendingOperation);
+        const key = cacheKeyOf(
+          cacheResult.args,
+          cacheResult.controls,
+          engine.extensionChain?.rows
+        );
+        if (key === undefined) return execute();
         return executeCachedResultOperation(
           cacheRead.capability.driver,
           modelName,
           operation,
-          cacheResult.args,
+          key,
           () => execute(),
           {
             ...cacheRead.options,

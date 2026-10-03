@@ -24,7 +24,7 @@ import type {
   SeriesOccurrence,
   SetMutation,
 } from "./commands";
-import { membershipRaceFailure } from "./commands";
+import { MEMBERSHIP_MOVE, membershipRaceFailure } from "./commands";
 import {
   type BoundMembership,
   membershipFields,
@@ -93,13 +93,23 @@ export class RelationBody {
   private supplier?: Supplier;
   private readonly direct: boolean;
   private readonly hasSupply: boolean;
+  private readonly commands: Commands;
+  private readonly parent: RecordCommand;
+  private readonly slot: ResolvedSlot;
+  private readonly admitted: Input;
+  private readonly raw: Input;
   constructor(
-    private readonly commands: Commands,
-    private readonly parent: RecordCommand,
-    private readonly slot: ResolvedSlot,
-    private readonly admitted: Input,
-    private readonly raw: Input
+    commands: Commands,
+    parent: RecordCommand,
+    slot: ResolvedSlot,
+    admitted: Input,
+    raw: Input
   ) {
+    this.commands = commands;
+    this.parent = parent;
+    this.slot = slot;
+    this.admitted = admitted;
+    this.raw = raw;
     this.direct =
       !slot.member &&
       (slot.edge.kind === "variantRowCarrier" ||
@@ -260,12 +270,33 @@ export class RelationBody {
         const lax = payload === true;
         for (const selector of lax ? [undefined] : entries(payload)) {
           const origin = entryOrigin();
+          const unique = nestedTargetAddressesConstraint(edge, verb);
+          // A delete takes related rows; a managed target is tombstoned, from
+          // the default domain's too, and keeps every link it has. A
+          // disconnect is physical: it may detach a row no domain shows.
+          const tombstone =
+            verb === "delete"
+              ? this.commands.tombstone(edge.target)
+              : undefined;
           const outgoing = this.commands.lookup(
             edge.target,
             {
               kind: "query",
               where: selector,
-              unique: nestedTargetAddressesConstraint(edge, verb),
+              unique,
+              ...(verb === "delete"
+                ? {
+                    selector: this.commands.candidates(
+                      this.commands.context.queries.prepareSelector(
+                        edge.target,
+                        selector,
+                        unique
+                      ),
+                      "related",
+                      tombstone !== undefined
+                    ),
+                  }
+                : {}),
               membership: { edge, parent: parent.located!.fields },
             },
             lax
@@ -293,8 +324,24 @@ export class RelationBody {
             outgoing.retained = () =>
               membershipRaceFailure(verb, edge.name, "removed");
           const outgoingOccurrence = this.requireLookup(outgoing);
+          const deletion: Deletion = {
+            kind: "delete",
+            located: outgoing,
+            origin,
+            ...(tombstone && { values: tombstone.admitted }),
+          };
+          if (tombstone)
+            this.requireUnreferenced(
+              edge,
+              parent.located!.fields,
+              outgoing.selector,
+              origin
+            );
           if (edge.kind === "reference" && edge.owner === "source") {
-            if (!hasSupply && edge.clearability.kind === "columns") {
+            if (
+              !(hasSupply || tombstone) &&
+              edge.clearability.kind === "columns"
+            ) {
               const contribution = {
                 origin,
                 scope: edge.scope,
@@ -313,12 +360,7 @@ export class RelationBody {
               );
             }
             if (verb === "delete")
-              this.commands.place(
-                parent,
-                { kind: "delete", located: outgoing, origin },
-                "after",
-                origin
-              );
+              this.commands.place(parent, deletion, "after", origin);
           } else {
             // A lax removal names no target: it clears whatever member the
             // slot holds at execution (at most one on a to-one edge), which is
@@ -340,13 +382,11 @@ export class RelationBody {
             // `junctionDeleteTargets` then `childDelete`). A `disconnect`
             // places the removal alone, and a reference-held target carries its
             // own foreign key, so it places the deletion alone.
-            if (verb === "delete" && edge.kind === "junction")
+            if (verb === "delete" && edge.kind === "junction" && !tombstone)
               this.commands.place(parent, removal, "after", origin);
             this.commands.place(
               parent,
-              verb === "delete"
-                ? { kind: "delete", located: outgoing, origin }
-                : removal,
+              verb === "delete" ? deletion : removal,
               "after",
               origin
             );
@@ -498,10 +538,13 @@ export class RelationBody {
             )
               createdTargets.push(addressed);
           }
+          // Targets are related rows: a hidden one is not found, so a connect
+          // never links it and an upsert never updates it.
           let selectionSource: SelectionSource = {
             kind: "query",
             where: conditional.where as Input | undefined,
             selector: ownSelector,
+            purpose: "related",
           };
           let facts: SelectorFacts | undefined;
           if (suppliedSelector) {
@@ -509,6 +552,7 @@ export class RelationBody {
             const ownFacts = queries.selectorFacts(ownSelector);
             const supplierFacts = queries.selectorFacts(supplierSelector);
             facts = ownFacts.fields.size === 0 ? supplierFacts : ownFacts;
+            // The supplier's selector already takes related rows.
             selectionSource = {
               kind: "query",
               selector: queries.andSelectors(edge.target, [
@@ -523,6 +567,7 @@ export class RelationBody {
               where: selectionSource.where,
               selector: selectionSource.selector,
               producer: continuation.producer,
+              purpose: selectionSource.purpose,
             };
             continuation.producer.select(
               storedFields(this.commands.context.schema, edge.target)
@@ -573,6 +618,7 @@ export class RelationBody {
                 where: selectionSource.where,
                 selector: selectionSource.selector,
                 membership,
+                purpose: selectionSource.purpose,
               };
           }
           const lookup = this.commands.lookup(
@@ -717,28 +763,52 @@ export class RelationBody {
           // must still be materialised through the join table, and a
           // relation-bearing `updateMany` still owns a record per member.
           const context = this.commands.context;
+          // A managed target's members are tombstoned: their candidates are the
+          // call's and the default domain's, and they keep every link.
+          const tombstone =
+            verb === "deleteMany"
+              ? this.commands.tombstone(edge.target)
+              : undefined;
+          const selector = this.commands.candidates(
+            context.queries.prepareSelector(edge.target, where),
+            "related",
+            tombstone !== undefined
+          );
+          const data = tombstone ? tombstone.admitted : record(input.data);
           if (
             edge.kind === "reference" &&
             (verb === "deleteMany" ||
-              !context.schema.namesRelation(edge.target, record(input.data)))
+              !context.schema.namesRelation(edge.target, data))
           ) {
             const mutation: SetMutation = {
               kind: "set",
               edge,
               parent: parent.fields,
               model: edge.target,
-              selector: context.queries.prepareSelector(edge.target, where),
-              ...(verb === "updateMany"
+              selector,
+              ...(verb === "updateMany" || tombstone
                 ? {
-                    values: context.schema.scalars(
-                      edge.target,
-                      record(input.data)
-                    ),
+                    values: tombstone
+                      ? data
+                      : this.commands.stamp(
+                          edge.target,
+                          "update",
+                          data,
+                          record(rawMembers[index]!.data)
+                        ),
                   }
                 : {}),
               operation: verb,
               origin,
             };
+            if (tombstone)
+              this.requireUnreferenced(
+                edge,
+                parent.fields,
+                selector,
+                origin,
+                true
+              );
             this.commands.place(parent, mutation, "after", origin);
             continue;
           }
@@ -747,6 +817,7 @@ export class RelationBody {
             {
               kind: "query",
               where,
+              selector,
               membership: { edge, parent: parent.fields },
             },
             () =>
@@ -762,22 +833,28 @@ export class RelationBody {
                   kind: "update",
                   raw: record(rawMembers[index]!.data),
                 }
-              : { kind: "delete", origin };
+              : {
+                  kind: "delete",
+                  origin,
+                  ...(tombstone && { raw: tombstone.raw }),
+                };
           const analysis: RecordCommand | Deletion =
             mutation.kind === "update"
-              ? this.commands.update(
-                  selection,
-                  record(input.data),
-                  mutation.raw,
-                  true
-                )
-              : { kind: "delete", located: selection, origin };
+              ? this.commands.update(selection, data, mutation.raw, true)
+              : {
+                  kind: "delete",
+                  located: selection,
+                  origin,
+                  ...(tombstone && { values: tombstone.admitted }),
+                };
           if (analysis.kind === "record") analysis.origin = origin;
           const series: SelectedSeries = {
             selection,
             analysis,
             mutation,
           };
+          if (tombstone)
+            this.requireUnreferenced(edge, parent.fields, selector, origin);
           const target = this.commands.place(
             parent,
             this.commands.selectedSeries(series),
@@ -791,6 +868,38 @@ export class RelationBody {
       default:
         unreachable(verb, "relation verb");
     }
+  }
+  /**
+   * A tombstoning nested delete's referential requirement, placed right before
+   * its effect: no candidate in this parent's slot is still referenced through
+   * a restricting slot. The parent's own link is excepted: the tombstone keeps
+   * it, where a hard delete removes it before the row.
+   */
+  private requireUnreferenced(
+    edge: Membership,
+    parent: Assignments,
+    candidates: PreparedSelector,
+    origin: Origin,
+    lock?: true
+  ): void {
+    const commands = this.commands;
+    const schema = commands.context.schema;
+    const slots = schema.restrictingSlots(edge.target);
+    if (slots.length === 0) return;
+    const except = slots.find(
+      (slot) =>
+        schema.index.get(edge.target)?.get(slot)?.edge === edge.scope.edge &&
+        !(edge.target === edge.source && slot === edge.name)
+    );
+    const requirement: AbsenceRequirement = {
+      kind: "absent",
+      model: edge.target,
+      membership: { edge, parent },
+      excluding: [],
+      failure: commands.restrictFailure(edge.target),
+      restrict: { candidates, except, lock },
+    };
+    commands.place(this.parent, requirement, "after", origin);
   }
   private requireLookup(
     lookup: Selection | JunctionCapture | AbsenceRequirement
@@ -829,6 +938,7 @@ export class RelationBody {
           kind: "query",
           where,
           unique: nestedTargetAddressesConstraint(edge, "set"),
+          purpose: "related",
         },
         () =>
           new NestedWriteError(
@@ -935,7 +1045,7 @@ export class RelationBody {
     if (conditionalParentBinding && !conditionalParentBinding.target.found) {
       const { lookup } = conditionalParentBinding.target;
       conditionalParentBinding.target.found = this.commands.occurrence(
-        this.commands.update(lookup, {}, {}, true),
+        this.commands.update(lookup, MEMBERSHIP_MOVE, {}, true),
         "after"
       );
     }
@@ -1004,7 +1114,8 @@ export class RelationBody {
             ? target.found?.command.fields
             : undefined,
         requested:
-          !premise || (target.kind === "choose" && target.missing !== undefined),
+          !premise ||
+          (target.kind === "choose" && target.missing !== undefined),
       });
       if (contribution)
         this.commands.publishMembership(
@@ -1015,8 +1126,7 @@ export class RelationBody {
       return occurrence;
     }
     if (conditionalParentBinding && conditionalFound) {
-      const { edge: reference, target: conditionalTarget } =
-        conditionalParentBinding;
+      const { edge: reference } = conditionalParentBinding;
       const contribution = origin
         ? {
             origin,

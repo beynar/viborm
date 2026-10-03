@@ -5,11 +5,17 @@ import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type {
+  ControlsContribution,
+  DataContribution,
+  DeletionContribution,
+  RowsContribution,
+} from "./controls";
+import type {
   EmptyClientExtensionState,
   ExtensionClientScope,
   ExtensionMethodDefinitionGuard,
   ExtensionMethodRecord,
-  ExtensionModelClient,
+  ExtensionModelDelegate,
   ExtensionStateConstraint,
   ResultConsumerContextOf,
   RuntimeClientMethodContribution,
@@ -30,7 +36,11 @@ import type { StatementHandler } from "./statement";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
 
-/** Host-owned frozen snapshot of one validated extension definition. */
+/**
+ * One extension definition as the chain binds it: a host-owned frozen
+ * snapshot of the six handler members, and `controls`, `rows`, `deletion`
+ * and `data` as the definition wrote them.
+ */
 export interface RuntimeExtensionDefinition {
   readonly name: string;
   readonly request?: RuntimeRequestContribution;
@@ -39,7 +49,26 @@ export interface RuntimeExtensionDefinition {
   readonly observe?: RuntimeExtensionFunction;
   readonly client?: RuntimeClientMethodContribution;
   readonly model?: RuntimeModelMethodContribution;
+  readonly controls?: ControlsContribution;
+  readonly rows?: RowsContribution;
+  readonly deletion?: DeletionContribution;
+  readonly data?: DataContribution;
 }
+
+export type ControlLiteral = string | number | boolean;
+
+/**
+ * What `$extends` hands the chain. `controls`, `rows`, `deletion` and `data`
+ * are trusted as their types state them: TypeScript checks them where the
+ * definition is written, and nothing checks them at runtime (owner decision,
+ * 2026-09-30). Every other member is read behind the boundary below.
+ */
+export type ExtensionDefinitionInput = Readonly<Record<string, unknown>> & {
+  readonly controls?: ControlsContribution;
+  readonly rows?: RowsContribution;
+  readonly deletion?: DeletionContribution;
+  readonly data?: DataContribution;
+};
 
 const DEFINITION_KEYS = new Set([
   "name",
@@ -49,6 +78,10 @@ const DEFINITION_KEYS = new Set([
   "observe",
   "client",
   "model",
+  "controls",
+  "rows",
+  "deletion",
+  "data",
 ]);
 
 export function extensionError(message: string, extension?: string): never {
@@ -219,11 +252,13 @@ function snapshotModelFactories(
 }
 
 /**
- * Read a caller-owned definition once, validate it, and freeze only host-owned
- * snapshots. A failed application therefore cannot mutate the supplied value.
+ * Read a caller-owned definition once. The six handler members are validated
+ * and frozen as host-owned snapshots, so a failed application cannot mutate
+ * the supplied value; `controls`, `rows`, `deletion` and `data` are bound as
+ * written.
  */
 export function normalizeExtensionDefinition(
-  value: unknown,
+  value: ExtensionDefinitionInput,
   schema?: Schema
 ): RuntimeExtensionDefinition {
   if (!isRecord(value)) {
@@ -289,6 +324,7 @@ export function normalizeExtensionDefinition(
     rawModel === undefined
       ? undefined
       : snapshotModelFactories(rawModel, name, schema);
+  const { controls, rows, deletion, data } = value;
 
   return Object.freeze({
     name,
@@ -298,6 +334,10 @@ export function normalizeExtensionDefinition(
     ...(observe ? { observe } : {}),
     ...(client ? { client } : {}),
     ...(model ? { model } : {}),
+    ...(controls ? { controls } : {}),
+    ...(rows ? { rows } : {}),
+    ...(deletion ? { deletion } : {}),
+    ...(data ? { data } : {}),
   });
 }
 
@@ -306,23 +346,77 @@ type ExtensionConfig<S extends Schema> = {
   readonly driver: AnyDriver;
 };
 
+/**
+ * A model factory, declared as a method so a factory typed against the client
+ * it extends (`(delegate: M[K & keyof M]) => …`, generic over that client) is
+ * compared in either direction rather than only contravariantly.
+ */
+type ModelMethodFactory<Delegate> = {
+  factory(delegate: Delegate): ExtensionMethodRecord;
+}["factory"];
+
+/**
+ * One factory per schema model. A definition's model key is looked up here by
+ * index, never by a conditional: a key outside the schema reads `never` (the
+ * factory is refused where it is written), and a key set generic over the
+ * client is substituted rather than deferred, so a plugin generic over `C`
+ * type-checks and meets the schema check when it is applied.
+ */
+type ModelFactoryTable<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+> = {
+  readonly [ModelName in keyof C["schema"]]: ModelMethodFactory<
+    ExtensionModelDelegate<C, X, ModelName>
+  >;
+};
+
+/** The model keys a definition's own `model` map names. */
+type DefinitionModelKeys<Self> = Self extends {
+  readonly model?: infer Factories;
+}
+  ? keyof Factories
+  : never;
+
+/**
+ * `Self` is the definition itself when `$extends` checks it (F-bounded), so
+ * its model keys come from the definition; otherwise every schema model.
+ */
 export type ContextualExtensionDefinition<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  Self = unknown,
+> = ExtensionMembers<C, X> & {
+  readonly model?: unknown extends Self
+    ? {
+        readonly [ModelName in keyof C["schema"]]?: ModelMethodFactory<
+          ExtensionModelDelegate<C, X, ModelName>
+        >;
+      }
+    : {
+        readonly [ModelName in DefinitionModelKeys<Self>]?: ModelFactoryTable<
+          C,
+          X
+        >[ModelName & keyof C["schema"]];
+      };
+};
+
+type ExtensionMembers<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
 > = {
   readonly name: string;
   readonly request?: GenericRequestHandler | RequestHandlerMap<C["schema"]>;
-  readonly query?: GenericQueryHandler | QueryHandlerMap<C>;
+  readonly query?: GenericQueryHandler | QueryHandlerMap<C, X["rows"]>;
   readonly statement?: StatementHandler;
   readonly observe?: ObserveHandler;
+  readonly controls?: ControlsContribution;
+  readonly rows?: RowsContribution;
+  readonly deletion?: DeletionContribution;
+  readonly data?: DataContribution;
   readonly client?: (
     scope: ExtensionClientScope<C, X>
   ) => ExtensionMethodRecord;
-  readonly model?: {
-    readonly [ModelName in keyof C["schema"]]?: (
-      delegate: ExtensionModelClient<C, X>[ModelName]
-    ) => ExtensionMethodRecord;
-  };
 };
 
 type SchemaGenericExtensionDefinition = Omit<
@@ -414,6 +508,26 @@ type ComponentMapGuard<
   ? { readonly [K in Key]: OperationMapGuard<Component, S> }
   : unknown;
 
+/**
+ * A `data` entry names a model of the schema: a misspelt model reads `never`
+ * where it is written. Model names a definition did not keep
+ * (`{ [model: string]: ... }`) cannot be checked, and a definition that knows
+ * no schema yet is checked where it is applied.
+ */
+type DataModelsGuard<Definition, S extends Schema> = string extends keyof S
+  ? unknown
+  : Definition extends {
+        readonly data: { readonly models: infer Models };
+      }
+    ? string extends keyof Models
+      ? unknown
+      : {
+          readonly data: {
+            readonly models: Record<Exclude<keyof Models, keyof S>, never>;
+          };
+        }
+    : unknown;
+
 /** Structural refusal for non-fresh extension definitions and contributions. */
 export type ExactExtensionDefinition<
   Definition,
@@ -422,6 +536,7 @@ export type ExactExtensionDefinition<
 > = UnknownDefinitionKeys<Definition> &
   ComponentMapGuard<Definition, "request", C["schema"]> &
   ComponentMapGuard<Definition, "query", C["schema"]> &
+  DataModelsGuard<Definition, C["schema"]> &
   ExtensionMethodDefinitionGuard<Definition, C, X>;
 
 export type DefineExtensionBinder<S extends Schema> = <const Definition>(
@@ -452,7 +567,7 @@ export function defineExtension(
   ...definitions: [] | [definition: ClientExtension]
 ): unknown {
   if (definitions.length === 0) {
-    return (schemaDefinition: unknown) =>
+    return (schemaDefinition: ExtensionDefinitionInput) =>
       normalizeExtensionDefinition(schemaDefinition);
   }
   return normalizeExtensionDefinition(definitions[0]);

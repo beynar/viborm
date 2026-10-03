@@ -338,12 +338,14 @@ factories. Default omit is overridable presentation, not authorization.
 Instrumentation SQL and parameter disclosure default to off and are configured
 separately for tracing, logging and error diagnostics.
 
-Custom extensions have six capabilities: `request`, `query`, `statement`,
-`observe`, `client`, and `model`. A mutation or raw query interceptor must call
-`proceed()` exactly once. Read the lifecycle and continuation rules before
-porting hooks. See [Extensions](/docs/extensions),
-[Caching](/docs/extensions/cache), [Instrumentation](/docs/extensions/instrumentation),
-and [Default omit](/docs/extensions/omit).
+Custom extensions have ten capabilities: `request`, `query`, `statement`,
+`observe`, `client`, `model`, `controls`, `rows`, `deletion`, and `data`. A mutation or
+raw query interceptor must call `proceed()` exactly once. Read the lifecycle
+and continuation rules before porting hooks. A soft-delete middleware becomes
+the official [soft-delete extension](/docs/extensions/soft-delete). See
+[Extensions](/docs/extensions), [Caching](/docs/extensions/cache),
+[Instrumentation](/docs/extensions/instrumentation), and
+[Default omit](/docs/extensions/omit).
 
 ## 6. Update raw SQL calls and their results
 

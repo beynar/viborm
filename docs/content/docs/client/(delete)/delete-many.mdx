@@ -94,12 +94,13 @@ write statement is sent at all. A negative or fractional `limit` is a validation
 error. `limit` caps the returning form too — with `select` you get back exactly
 the rows that were removed.
 
-:::warning
-`limit` says **how many**, not **which** — see
-  [`updateMany`](/docs/client/update-many#capping-how-many-rows-are-updated) for
-  the full explanation. A bulk write takes no `orderBy`, so the selection is
-  unspecified and differs between databases.
-:::
+`limit` takes the first rows by id: the matching rows ordered by primary key,
+ascending, as [`findMany`](/docs/client/find-many) with `take` and no `orderBy`
+orders them. A compound primary key is ordered field by field, in the order the
+model declares the fields. With `limit: 2` over ids 5, 3, 1, 4 and 2, ids 1 and
+2 are deleted, whatever order the rows were inserted in, on every database.
+A bulk write takes no `orderBy`: to delete other rows first, read their ids
+with `findMany` and delete by those ids.
 
 ## Options
 

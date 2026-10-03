@@ -2,6 +2,7 @@ import {
   getOfficialCacheChainDefinition,
   getOfficialCacheQueryCapability,
   OFFICIAL_CACHE_NAME,
+  officialCacheControls,
   registerOfficialCacheChain,
 } from "@cache/extension";
 import {
@@ -11,8 +12,20 @@ import {
   registerOfficialDefaultOmitChain,
 } from "@client/default-omit-extension";
 import type { Schema } from "@client/types";
+import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
+import type { Input } from "@query-engine/raptor3/shared/schema";
+import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import {
+  type DataContribution,
+  type DeletionContribution,
+  placeControls,
+  type ResolvedControl,
+  type RowsContribution,
+} from "./controls";
+import {
+  type ControlLiteral,
+  type ExtensionDefinitionInput,
   extensionError,
   normalizeExtensionDefinition,
   type RuntimeExtensionDefinition,
@@ -26,6 +39,7 @@ import {
   getTrustedProtectedObserverCapability,
   registerOfficialInstrumentationChain,
 } from "./observation";
+import { bindRows, type RowsBinding } from "./rows";
 
 /** The fixed name admission reserves for the official instrumentation extension. */
 export const OFFICIAL_INSTRUMENTATION_NAME = "viborm.instrumentation";
@@ -37,13 +51,23 @@ export interface ResolvedExtensionHandler<
   readonly handler: Handler;
 }
 
+/**
+ * A request or query handler. The controls its extension declares travel
+ * with it: the only ones its `context.controls` shows.
+ */
+export interface ResolvedOperationHandler<
+  Handler extends CallableFunction = CallableFunction,
+> extends ResolvedExtensionHandler<Handler> {
+  readonly controls?: readonly string[];
+}
+
 /** One precompiled handler array for each exact execution target. */
 export interface ResolvedExtensionOperationLookup {
-  readonly global: readonly ResolvedExtensionHandler[];
+  readonly global: readonly ResolvedOperationHandler[];
   readonly models: Readonly<
     Record<
       string,
-      Readonly<Record<string, readonly ResolvedExtensionHandler[]>>
+      Readonly<Record<string, readonly ResolvedOperationHandler[]>>
     >
   >;
 }
@@ -54,8 +78,55 @@ export interface ResolvedExtension {
   readonly model?: RuntimeModelMethodContribution;
 }
 
-/** Absent on an unextended client; fully frozen whenever it exists. */
+/** Who owns a request or query handler: its extension and that one's controls. */
+interface OperationHandlerOwner {
+  readonly name: string;
+  readonly controls?: readonly string[];
+}
+
+/** One precompiled control list for each (model, operation) that has one. */
+export interface ResolvedControls {
+  /** Every control name on the chain: one name space. */
+  readonly names: ReadonlySet<string>;
+  /** Every control on the chain, in application order: the index's one source. */
+  readonly all: readonly ResolvedControl[];
+  /** Controls placed on an operation of every model. */
+  readonly operations: Readonly<Record<string, readonly ResolvedControl[]>>;
+  /** Per model, its operations' lists, every-model controls included. */
+  readonly models: Readonly<
+    Record<string, Readonly<Record<string, readonly ResolvedControl[]>>>
+  >;
+}
+
+/** What a delete of one managed model writes, and who declared it. */
+export interface ResolvedDeletion {
+  readonly extension: string;
+  readonly at?: string;
+  readonly assign: Readonly<Record<string, unknown>>;
+  readonly removeWhen?: Readonly<Record<string, ControlLiteral>>;
+}
+
+/**
+ * Absent on an unextended client; frozen whenever it exists, except the
+ * `controls`, `rows`, `deletion` and `data` values a definition wrote, held
+ * as written.
+ */
 export interface ResolvedExtensionChain {
+  readonly controls?: ResolvedControls;
+  /**
+   * Every `rows` member, as declared (plain data): also a cached read's key,
+   * so two chains whose `rows` differ never share an entry and two that
+   * declare the same always do.
+   */
+  readonly rows?: readonly RowsContribution[];
+  readonly deletion?: Readonly<Record<string, ResolvedDeletion>>;
+  /** Per model, every extension's `data` fields: a later one wins a field. */
+  readonly data?: Readonly<Record<string, ModelStamps>>;
+  /**
+   * Derived from `rows`, `deletion` and `data`: what each call's controls
+   * resolve to.
+   */
+  readonly callRows?: RowsBinding;
   readonly extensions: readonly ResolvedExtension[];
   readonly hasCache: boolean;
   readonly hasRequestHandlers: boolean;
@@ -73,7 +144,7 @@ export function lookupResolvedExtensionHandlers(
   component: "request" | "query",
   model: string | undefined,
   operation: string
-): readonly ResolvedExtensionHandler[] | undefined {
+): readonly ResolvedOperationHandler[] | undefined {
   if (chain === undefined) return undefined;
   const lookup = chain[component];
   const global = lookup.global.length === 0 ? undefined : lookup.global;
@@ -83,6 +154,23 @@ export function lookupResolvedExtensionHandlers(
   return lookup.models[model]?.[operation] ?? global;
 }
 
+/** The controls one (model, operation) accepts; the shared empty list when none. */
+export function lookupPlacedControls(
+  chain: ResolvedExtensionChain | undefined,
+  model: string,
+  operation: string
+): readonly ResolvedControl[] {
+  const controls = chain?.controls;
+  if (controls === undefined) return NO_CONTROLS;
+  return (
+    controls.models[model]?.[operation] ??
+    controls.operations[operation] ??
+    NO_CONTROLS
+  );
+}
+
+const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
+
 function resolvedHandler(
   extension: Pick<ResolvedExtension, "name">,
   handler: CallableFunction
@@ -90,12 +178,23 @@ function resolvedHandler(
   return Object.freeze({ extension: extension.name, handler });
 }
 
+function resolvedOperationHandler(
+  extension: OperationHandlerOwner,
+  handler: CallableFunction
+): ResolvedOperationHandler {
+  return Object.freeze(
+    extension.controls === undefined
+      ? { extension: extension.name, handler }
+      : { extension: extension.name, handler, controls: extension.controls }
+  );
+}
+
 function appendModelHandler(
-  models: Record<string, Record<string, ResolvedExtensionHandler[]>>,
+  models: Record<string, Record<string, ResolvedOperationHandler[]>>,
   model: string,
   operation: string,
-  handler: ResolvedExtensionHandler,
-  global: readonly ResolvedExtensionHandler[]
+  handler: ResolvedOperationHandler,
+  global: readonly ResolvedOperationHandler[]
 ): void {
   const operations = (models[model] ??= Object.create(null));
   const handlers = (operations[operation] ??= [...global]);
@@ -103,8 +202,8 @@ function appendModelHandler(
 }
 
 function appendGlobalHandler(
-  models: Record<string, Record<string, ResolvedExtensionHandler[]>>,
-  handler: ResolvedExtensionHandler
+  models: Record<string, Record<string, ResolvedOperationHandler[]>>,
+  handler: ResolvedOperationHandler
 ): void {
   for (const operations of Object.values(models)) {
     for (const handlers of Object.values(operations)) handlers.push(handler);
@@ -113,22 +212,22 @@ function appendGlobalHandler(
 
 function appendOperationHandlers(
   previous: ResolvedExtensionOperationLookup | undefined,
-  extension: Pick<ResolvedExtension, "name">,
+  extension: OperationHandlerOwner,
   contribution: RuntimeExtensionDefinition["request"]
 ): ResolvedExtensionOperationLookup {
   if (contribution === undefined && previous !== undefined) return previous;
 
   const models: Record<
     string,
-    Record<string, ResolvedExtensionHandler[]>
+    Record<string, ResolvedOperationHandler[]>
   > = Object.create(null);
-  const global: ResolvedExtensionHandler[] = previous
+  const global: ResolvedOperationHandler[] = previous
     ? [...previous.global]
     : [];
 
   if (previous) {
     for (const [modelName, operationMap] of Object.entries(previous.models)) {
-      const operations: Record<string, ResolvedExtensionHandler[]> =
+      const operations: Record<string, ResolvedOperationHandler[]> =
         Object.create(null);
       for (const [operation, handlers] of Object.entries(operationMap)) {
         operations[operation] = [...handlers];
@@ -139,7 +238,7 @@ function appendOperationHandlers(
 
   if (contribution) {
     if (isFunction(contribution)) {
-      const handler = resolvedHandler(extension, contribution);
+      const handler = resolvedOperationHandler(extension, contribution);
       global.push(handler);
       appendGlobalHandler(models, handler);
     } else {
@@ -149,7 +248,7 @@ function appendOperationHandlers(
             models,
             modelName,
             operation,
-            resolvedHandler(extension, handler),
+            resolvedOperationHandler(extension, handler),
             global
           );
         }
@@ -159,12 +258,12 @@ function appendOperationHandlers(
 
   const frozenModels: Record<
     string,
-    Readonly<Record<string, readonly ResolvedExtensionHandler[]>>
+    Readonly<Record<string, readonly ResolvedOperationHandler[]>>
   > = Object.create(null);
   for (const [modelName, operationMap] of Object.entries(models)) {
     const frozenOperations: Record<
       string,
-      readonly ResolvedExtensionHandler[]
+      readonly ResolvedOperationHandler[]
     > = Object.create(null);
     for (const [operation, handlers] of Object.entries(operationMap)) {
       frozenOperations[operation] = Object.freeze(handlers);
@@ -211,11 +310,105 @@ function appendObserver(
   return appendFlatHandler(previous, extension, handler);
 }
 
-function stripOfficialCacheQuery(
+/**
+ * Add one definition's controls to the chain's name space, then index every
+ * control of the chain by operation, for every model and for each model some
+ * control names.
+ */
+function appendControls(
+  previous: ResolvedControls | undefined,
+  declarations: readonly ResolvedControl[]
+): ResolvedControls {
+  const names = new Set(previous?.names);
+  for (const { name } of declarations) names.add(name);
+  const all = Object.freeze([
+    ...(previous?.all ?? []),
+    ...declarations.map((control) => Object.freeze(control)),
+  ]);
+  const lists = (model?: string) => {
+    const byOperation: Record<string, readonly ResolvedControl[]> =
+      Object.create(null);
+    for (const operation of ROUTED_OPERATIONS) {
+      const placed = all.filter(
+        (control) =>
+          control.operations.has(operation) &&
+          (control.models === undefined ||
+            (model !== undefined && control.models.has(model)))
+      );
+      if (placed.length > 0) byOperation[operation] = Object.freeze(placed);
+    }
+    return Object.freeze(byOperation);
+  };
+  const models: Record<string, ReturnType<typeof lists>> = Object.create(null);
+  for (const control of all) {
+    for (const model of control.models ?? []) models[model] ??= lists(model);
+  }
+  return Object.freeze({
+    names,
+    all,
+    operations: lists(),
+    models: Object.freeze(models),
+  });
+}
+
+const NO_ASSIGN: Readonly<Record<string, unknown>> = Object.freeze({});
+
+/** One entry per managed model on the chain: a later entry replaces one. */
+function appendDeletion(
+  previous: Readonly<Record<string, ResolvedDeletion>> | undefined,
+  extension: string,
+  deletion: DeletionContribution
+): Readonly<Record<string, ResolvedDeletion>> {
+  const entries: Record<string, ResolvedDeletion> = Object.create(null);
+  Object.assign(entries, previous);
+  for (const [model, entry] of Object.entries(deletion.models)) {
+    entries[model] = Object.freeze({
+      extension,
+      ...entry,
+      assign: entry.assign ?? NO_ASSIGN,
+      ...(deletion.removeWhen === undefined
+        ? {}
+        : { removeWhen: deletion.removeWhen }),
+    });
+  }
+  return Object.freeze(entries);
+}
+
+/** One kind's fields with an extension's own merged in: it wins a field. */
+function withStamp(
+  previous: Input | undefined,
+  fields: Readonly<Record<string, unknown>> | undefined
+): Input | undefined {
+  return fields === undefined
+    ? previous
+    : Object.freeze({ ...previous, ...fields });
+}
+
+function appendData(
+  previous: Readonly<Record<string, ModelStamps>> | undefined,
+  data: DataContribution
+): Readonly<Record<string, ModelStamps>> {
+  const entries: Record<string, ModelStamps> = Object.create(null);
+  Object.assign(entries, previous);
+  for (const [model, entry] of Object.entries(data.models)) {
+    const known = entries[model];
+    entries[model] = Object.freeze({
+      create: withStamp(known?.create, entry.create),
+      update: withStamp(known?.update, entry.update),
+    });
+  }
+  return Object.freeze(entries);
+}
+
+/** The cache's query leaves the chain's handlers; its control is its own. */
+function asOfficialCacheDefinition(
   definition: RuntimeExtensionDefinition
 ): RuntimeExtensionDefinition {
   const { query: _officialCacheQuery, ...ordinaryDefinition } = definition;
-  return Object.freeze(ordinaryDefinition);
+  return Object.freeze({
+    ...ordinaryDefinition,
+    controls: officialCacheControls,
+  });
 }
 
 function stripOfficialDefaultOmitRequest(
@@ -263,7 +456,7 @@ function assertOfficialExtensionAdmission(options: {
 
 export function appendResolvedExtension(
   chain: ResolvedExtensionChain | undefined,
-  value: unknown,
+  value: ExtensionDefinitionInput,
   schema: Schema
 ): ResolvedExtensionChain {
   const definition = normalizeExtensionDefinition(value, schema);
@@ -298,6 +491,12 @@ export function appendResolvedExtension(
       definition.name
     );
   }
+  if (definition.rows !== undefined && chain?.hasResultConsumers === true) {
+    extensionError(
+      `Extension "${definition.name}" declares rows, which cannot follow an extension that defines model-mapped query, client, or model behavior.`,
+      definition.name
+    );
+  }
   const incomingOfficial = getTrustedProtectedObserverCapability(
     definition.observe
   );
@@ -324,7 +523,12 @@ export function appendResolvedExtension(
       ? incomingDefaultOmit === undefined
         ? definition
         : stripOfficialDefaultOmitRequest(definition)
-      : stripOfficialCacheQuery(definition);
+      : asOfficialCacheDefinition(definition);
+  const declaredControls =
+    effectiveDefinition.controls === undefined &&
+    effectiveDefinition.rows === undefined
+      ? undefined
+      : placeControls(effectiveDefinition);
   const resolved: ResolvedExtension = Object.freeze({
     name: definition.name,
     ...(effectiveDefinition.client === undefined
@@ -334,20 +538,58 @@ export function appendResolvedExtension(
       ? {}
       : { model: effectiveDefinition.model }),
   });
+  const handlerOwner: OperationHandlerOwner =
+    declaredControls === undefined
+      ? resolved
+      : {
+          name: definition.name,
+          controls: Object.freeze(
+            declaredControls.map((control) => control.name)
+          ),
+        };
   const extensions = Object.freeze(
     chain ? [...chain.extensions, resolved] : [resolved]
   );
   const request = appendOperationHandlers(
     chain?.request,
-    resolved,
+    handlerOwner,
     effectiveDefinition.request
   );
   const query = appendOperationHandlers(
     chain?.query,
-    resolved,
+    handlerOwner,
     effectiveDefinition.query
   );
+  const controls =
+    declaredControls === undefined
+      ? chain?.controls
+      : appendControls(chain?.controls, declaredControls);
+  const rows =
+    effectiveDefinition.rows === undefined
+      ? chain?.rows
+      : Object.freeze([...(chain?.rows ?? []), effectiveDefinition.rows]);
+  const deletion =
+    effectiveDefinition.deletion === undefined
+      ? chain?.deletion
+      : appendDeletion(
+          chain?.deletion,
+          definition.name,
+          effectiveDefinition.deletion
+        );
+  const data =
+    effectiveDefinition.data === undefined
+      ? chain?.data
+      : appendData(chain?.data, effectiveDefinition.data);
+  const callRows =
+    rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
+      ? chain?.callRows
+      : bindRows(rows, deletion, data);
   const resolvedChain = Object.freeze({
+    ...(controls === undefined ? {} : { controls }),
+    ...(rows === undefined ? {} : { rows }),
+    ...(deletion === undefined ? {} : { deletion }),
+    ...(data === undefined ? {} : { data }),
+    ...(callRows === undefined ? {} : { callRows }),
     extensions,
     hasCache: incomingCache !== undefined || chain?.hasCache === true,
     hasRequestHandlers: hasCompiledHandlers(request),

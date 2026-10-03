@@ -7,6 +7,7 @@
 import { CacheInvalidKeyError } from "@errors";
 import { fieldRefPayload, isFieldRef } from "@schema/field-ref";
 import { isJsonNullSentinel } from "@schema/json-null";
+import { isPlainRecord } from "@schema/relation/terminal";
 import { isSql } from "@sql";
 
 /**
@@ -218,7 +219,9 @@ function brandToken(namespace: string, body: string): string {
  * It is only ever handed a VALIDATED payload (see
  * `PendingOperation.cacheKeyArgs`), so the non-JSON values it can meet are the
  * ones validation deliberately admits: a field reference, an SQL fragment, and
- * a JSON null sentinel.
+ * a JSON null sentinel. Admitted control values reach it only once
+ * {@link isCanonicalKeyData} accepts them: in a read's key, and as the key of
+ * the facts `rows` binds to a call's values (`extensions/rows.ts`).
  *
  * EVERY ONE OF THEM KEYS IN THE RESERVED NAMESPACE, because a user document is
  * allowed to look exactly like any of them. A JSON column takes an arbitrary
@@ -240,7 +243,10 @@ function brandToken(namespace: string, body: string): string {
  * refactor from being wrong again, so the rule here is structural instead:
  * what is not a JSON value does not serialize like one.
  */
-function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
+export function stableStringify(
+  value: unknown,
+  seen = new WeakSet<object>()
+): string {
   if (value === null) return "null";
   if (value === undefined) return "";
 
@@ -334,6 +340,49 @@ function stableStringify(value: unknown, seen = new WeakSet<object>()): string {
     .filter((k) => obj[k] !== undefined)
     .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k], seen)}`);
   return `{${pairs.join(",")}}`;
+}
+
+/**
+ * Whether {@link stableStringify} keys this value by its content: plain
+ * records and arrays of JSON scalars, bigints, valid `Date`s and
+ * `Uint8Array`s. A class instance would key as its own enumerable fields (a
+ * `Map` as `{}`), a function or symbol throws, and a cycle throws; the caller
+ * bypasses the cache for any of those rather than alias or fail. A value it
+ * cannot inspect is not canonical either.
+ */
+export function isCanonicalKeyData(value: unknown): boolean {
+  try {
+    return hasCanonicalForm(value, new Set());
+  } catch {
+    return false;
+  }
+}
+
+function hasCanonicalForm(value: unknown, seen: Set<object>): boolean {
+  if (value === null) return true;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+    case "bigint":
+      return true;
+    case "number":
+      return Number.isFinite(value);
+    case "object":
+      break;
+    default:
+      return false;
+  }
+  // The two instance kinds `stableStringify` brands, tested as it tests them.
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  if (value instanceof Uint8Array) return true;
+  if (seen.has(value)) return false;
+  if (!(Array.isArray(value) || isPlainRecord(value))) return false;
+  seen.add(value);
+  const canonical = Object.values(value).every((entry) =>
+    hasCanonicalForm(entry, seen)
+  );
+  seen.delete(value);
+  return canonical;
 }
 
 /**

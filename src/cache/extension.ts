@@ -1,9 +1,13 @@
 import { CacheConfigurationError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
+import type { AdmittedControls } from "@extensions/controls";
 import type {
   GenericQueryHandler,
   OfficialGenericQueryHandler,
 } from "@extensions/query";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { parse } from "@validation";
+import { readValidationFailureCause } from "@validation/parse-failure";
 import {
   isFunction,
   isNumber,
@@ -17,6 +21,10 @@ import {
   type WaitUntilFn,
 } from "./driver";
 import { createOfficialCacheNamespace } from "./key";
+import {
+  type CacheInvalidationOptions,
+  cacheInvalidationSchema,
+} from "./schema";
 
 export const OFFICIAL_CACHE_NAME = "viborm.cache";
 
@@ -25,11 +33,79 @@ export type OfficialCacheQueryContribution = OfficialGenericQueryHandler & {
   bind(thisArg: unknown): GenericQueryHandler;
 };
 
+/**
+ * A mutation's `cache` argument is the cache's declared control (ruling 7):
+ * core removes and admits it before request handlers run, through the cache's
+ * own parser, so a malformed value is still a `CacheConfigurationError`.
+ */
+export type OfficialCacheControls = {
+  readonly cache: {
+    readonly schema: StandardSchemaV1<CacheInvalidationOptions>;
+    readonly on: "writes";
+  };
+};
+
 /** The official value accepted by the dedicated `$extends` overload. */
 export type OfficialCacheExtension = {
   readonly name: typeof OFFICIAL_CACHE_NAME;
   readonly query: OfficialCacheQueryContribution;
+  readonly controls: OfficialCacheControls;
 };
+
+/** Every option object the cache's control admitted, for its typed read. */
+const admittedMutationOptions = new WeakMap<object, CacheInvalidationOptions>();
+
+/**
+ * The cache's own parser, run by core's control admission. `parse` returns a
+ * thrown validator as issues, so every refusal here is one
+ * `CacheConfigurationError`.
+ */
+function admitMutationCacheOptions(cache: unknown): CacheInvalidationOptions {
+  const parsed = parse(cacheInvalidationSchema, cache);
+  if (parsed.issues) {
+    throw new CacheConfigurationError(
+      `Invalid mutation cache options: ${parsed.issues.map((issue) => issue.message).join(", ")}`,
+      { cause: readValidationFailureCause(parsed) }
+    );
+  }
+  const invalidate =
+    parsed.value.invalidate === undefined
+      ? undefined
+      : [...parsed.value.invalidate];
+  const options: CacheInvalidationOptions = Object.freeze({
+    autoInvalidate: parsed.value.autoInvalidate,
+    ...(invalidate === undefined ? {} : { invalidate }),
+  });
+  admittedMutationOptions.set(options, options);
+  return options;
+}
+
+/**
+ * The cache's one declaration. The chain places it for any definition carrying
+ * the cache's query, whatever `controls` that definition spells: the query is
+ * the cache's identity, so its control cannot be forged or left out.
+ */
+export const officialCacheControls: OfficialCacheControls = Object.freeze({
+  cache: Object.freeze({
+    schema: Object.freeze({
+      "~standard": Object.freeze({
+        version: 1,
+        vendor: "viborm",
+        validate: (value: unknown) =>
+          Object.freeze({ value: admitMutationCacheOptions(value) }),
+      }),
+    }),
+    on: "writes",
+  }),
+});
+
+/** The mutation options a call's `cache` control admitted, if it gave one. */
+export function readMutationCacheOptions(
+  controls: AdmittedControls | undefined
+): CacheInvalidationOptions | undefined {
+  const admitted = controls?.cache;
+  return isRecord(admitted) ? admittedMutationOptions.get(admitted) : undefined;
+}
 
 export interface CacheExtensionConfig {
   readonly driver: CacheDriver;
@@ -174,7 +250,11 @@ export function cache(config: CacheExtensionConfig): unknown {
   const capability = snapshotConfig(config);
   const query: GenericQueryHandler = ({ proceed }) => proceed();
   capabilitiesByQuery.set(query, capability);
-  return Object.freeze({ name: OFFICIAL_CACHE_NAME, query });
+  return Object.freeze({
+    name: OFFICIAL_CACHE_NAME,
+    query,
+    controls: officialCacheControls,
+  });
 }
 
 export function getOfficialCacheQueryCapability(

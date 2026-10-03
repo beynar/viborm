@@ -210,6 +210,52 @@ export type SameModelResultSurface<Left, Right> =
       : false
     : false;
 
+/**
+ * The shallow surfaces of the models whose rows a client's `rows` can hide
+ * from a relation read (`ClientRowsContext`, ./types.ts). It rides the same
+ * result context as the omission defaults, as one more member of the union.
+ */
+export interface ClientHiddenContext<Surfaces> {
+  readonly hidden: Surfaces;
+}
+
+/**
+ * `null` where a relation read can find this target hidden, and nothing
+ * otherwise. Models are compared by their shallow surface, as the omission
+ * defaults are: a target that shares its surface with a hidden model widens
+ * with it, and a surface too wide to compare widens too, both on the `| null`
+ * side. It distributes over the context, so a client without `rows` never
+ * resolves a target, and TypeScript measures the context parameter of every
+ * result type through it cheaply: the `[Hidden] extends [never]` form it
+ * replaces cost the schema-only floor 33,535 types (measured, U7 repair).
+ */
+type HiddenTargetNull<
+  R extends AnyRelation,
+  Context,
+> = Context extends ClientHiddenContext<infer Hidden>
+  ? true extends HidesTarget<R, Hidden>
+    ? null
+    : never
+  : never;
+
+type HidesTarget<R extends AnyRelation, Hidden> = Hidden extends unknown
+  ? IsUsableModelResultSurface<Hidden> extends false
+    ? true
+    : MatchesSurface<TargetSurfaces<R>, Hidden>
+  : never;
+
+type MatchesSurface<Surface, Hidden> = Surface extends unknown
+  ? IsUsableModelResultSurface<Surface> extends false
+    ? true
+    : SameModelResultSurface<Surface, Hidden>
+  : never;
+
+/** The shallow surface of each model a relation can target. */
+type TargetSurfaces<R extends AnyRelation> =
+  IsVariantTarget<R> extends true
+    ? ModelResultSurface<GetPolymorphicTarget<R, PolymorphicPublicTypes<R>>>
+    : ModelResultSurface<GetTargetModel<R>>;
+
 /** One configured model's compact, client-owned result default. */
 export interface ClientResultOmitEntry<Surface, Omission, Unique> {
   readonly surface: Surface;
@@ -302,7 +348,7 @@ type ResolveClientOmit<
           : EntryOmission<Matches>;
 
 /** Get the target model itself without resolving its recursive state. */
-type GetTargetModel<R extends AnyRelation> =
+export type GetTargetModel<R extends AnyRelation> =
   TargetGetter<R> extends () => infer Target
     ? Target extends Model<any>
       ? Target
@@ -530,6 +576,19 @@ type WrapRelationNode<S extends ModelState, K, R extends AnyRelation, T> = [
   : WrapRelation<S, K, R, T>;
 
 /**
+ * A singular slot whose target the client's `rows` can hide reads `null` when
+ * it is hidden, whatever the membership proves about the stored reference.
+ * Applied beside {@link WrapRelation}, never inside it: a recursive slot is
+ * always a self relation, which may be empty already (CM002), so only the
+ * outer slot of a node ever needs it.
+ */
+type OrHidden<T, R extends AnyRelation, ClientDefaults> = [T] extends [never]
+  ? never
+  : Cardinality<R> extends "many"
+    ? T
+    : T | HiddenTargetNull<R, ClientDefaults>;
+
+/**
  * One finite named wrapper for an ordinary inferred node. The wrapper recurs
  * only through its relation property, so the ordinary projection is inferred
  * once rather than expanded once per requested depth. The repeated key is
@@ -582,14 +641,18 @@ export type InferRelationResult<
   K,
   R extends AnyRelation,
   ClientDefaults = never,
-> = WrapRelation<
-  S,
-  K,
+> = OrHidden<
+  WrapRelation<
+    S,
+    K,
+    R,
+    ApplyOmit<
+      InferModelOutput<GetTargetModelState<R>>,
+      ResolveClientOmit<GetTargetModel<R>, ClientDefaults>
+    >
+  >,
   R,
-  ApplyOmit<
-    InferModelOutput<GetTargetModelState<R>>,
-    ResolveClientOmit<GetTargetModel<R>, ClientDefaults>
-  >
+  ClientDefaults
 >;
 
 type InferPolymorphicTargetVariant<
@@ -751,7 +814,9 @@ export type InferPolymorphicResult<
 > = Cardinality<R> extends "many"
   ? readonly PolymorphicCollectionVariants<R, Projection, ClientDefaults>[]
   : SlotMayBeEmpty<SourceModelOf<S>, K, R> extends false
-    ? PolymorphicVariants<R, Projection, ClientDefaults>
+    ?
+        | PolymorphicVariants<R, Projection, ClientDefaults>
+        | HiddenTargetNull<R, ClientDefaults>
     : PolymorphicVariants<R, Projection, ClientDefaults> | null;
 
 // =============================================================================
@@ -1055,26 +1120,30 @@ type InferRelationNodeResult<
   R extends AnyRelation,
   Node,
   ClientDefaults = never,
-> = WrapRelationNode<
-  S,
-  K,
-  R,
-  ApplyRecurrence<
+> = OrHidden<
+  WrapRelationNode<
     S,
     K,
     R,
-    Node,
-    InferSelectInclude<
-      GetTargetModelState<R>,
+    ApplyRecurrence<
+      S,
+      K,
+      R,
       Node,
-      NodeSelect<Node>,
-      MergeClientOmit<
-        ResolveClientOmit<GetTargetModel<R>, ClientDefaults>,
-        NodeOmit<Node>
-      >,
-      ClientDefaults
+      InferSelectInclude<
+        GetTargetModelState<R>,
+        Node,
+        NodeSelect<Node>,
+        MergeClientOmit<
+          ResolveClientOmit<GetTargetModel<R>, ClientDefaults>,
+          NodeOmit<Node>
+        >,
+        ClientDefaults
+      >
     >
-  >
+  >,
+  R,
+  ClientDefaults
 >;
 
 // =============================================================================

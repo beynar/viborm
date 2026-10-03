@@ -56,6 +56,10 @@ deliberately small so the query protocol is visible.
 | Record lifecycle completion | `observe` | Protected, failure-contained observation |
 | Add client methods | `client` | Factory returning dollar-prefixed functions |
 | Add model methods | `model` | Per-model factory returning functions |
+| Accept a new call argument | `controls` | Declared values, checked once; only your handlers see them |
+| Hide rows from every query | `rows` | Filters per model, chosen per call, with the call's values |
+| Change what a delete does | `deletion` | An update with fixed data and the call's time |
+| Write fields on every create and update | `data` | Fixed values or the call's values, never the caller's |
 
 Do not put every concern into `query`. Each capability exposes only the facts
 and authority appropriate to its boundary.
@@ -245,6 +249,350 @@ raw errors. Their throws, rejected promises, and returned promises cannot alter
 or delay the application operation. Their synchronous JavaScript still runs on
 the application thread, so keep it small.
 
+## Declare arguments with `controls`
+
+A control is a call argument your extension declares. Core takes it out of the
+arguments before any request handler runs, checks it once, and hands its value
+to your extension's own request and query handlers in `controls`. No other
+extension sees it, and no request handler can add or change it.
+
+```ts
+const auditReason = defineExtension({
+  name: "audit-reason",
+  controls: {
+    reason: { oneOf: ["typo", "moderation", "legal"], on: "writes" },
+  },
+  async query(context) {
+    const result = await context.proceed();
+    if (context.kind === "model") {
+      recordAudit(context.model, context.operation, context.controls?.reason);
+    }
+    return result;
+  },
+});
+
+const db = client.$extends(auditReason);
+await db.post.update({ where: { id }, data: { title }, reason: "typo" });
+```
+
+- Values come from `oneOf` (a closed list) or `schema` (any Standard Schema).
+  A value held in a variable keeps its literal type only with `as const`.
+- `on` says which operations accept it: `"reads"`, `"writes"`, `"all"` (the
+  default) or a list of operation names. TypeScript flags it elsewhere in your
+  editor, and an undeclared or misplaced control is refused at runtime as an
+  unknown argument is.
+- A value outside the declaration is a `ValidationError` at the control's
+  path. A `schema` that throws, is asynchronous or cannot be read is a
+  `QueryError`; a VibORM error it throws passes through.
+- `required: true` makes the argument mandatory on the operations `on`
+  names, for the models the extension itself names in `rows`, `data` or
+  `deletion`: a call that leaves it out is a `ValidationError` at its path,
+  before anything runs. A model the extension does not name still accepts the
+  argument where `on` places it, but does not ask for it. An extension that
+  names no model at all (only controls) asks for it on every model.
+- Control names are one list per client, shared with `rows.control`. Do not
+  take a name core already uses as an argument (`where`, `data`, `select`, …)
+  or one another extension declares.
+- The official [cache](/docs/extensions/cache) declares its mutation `cache`
+  option this way. A cached read is keyed on the controls it received.
+
+## Choose visible rows with `rows`
+
+`rows` declares, per model, filters that every query of the client applies,
+and a control that picks one set of filters per call:
+
+```ts
+const archiving = defineExtension({
+  name: "archiving",
+  controls: { purge: { oneOf: [true] } },
+  rows: {
+    control: "archived", // the call argument that picks a mode
+    default: "hide", // the mode of a call that does not say
+    models: {
+      project: {
+        hide: { root: { archivedAt: null }, related: { archivedAt: null } },
+        show: {},
+        only: { root: { archivedAt: { not: null } } },
+      },
+    },
+  },
+  deletion: {
+    removeWhen: { purge: true },
+    models: { project: { at: "archivedAt", assign: { archivedBy: "system" } } },
+  },
+});
+
+const db = client.$extends(archiving);
+await db.project.findMany(); // projects not archived
+await db.project.findMany({ archived: "only" }); // archived projects
+```
+
+- `root` filters the rows the call itself selects; `related` filters rows
+  reached through a relation. An absent filter filters nothing, so a model
+  without an entry reads as before.
+- Every model entry declares the same mode names, `default` among them. The
+  control is accepted by every operation that selects rows (reads, `count`,
+  `aggregate`, `groupBy`, updates, `upsert`, deletes) of every model;
+  `create` and `createMany` do not take it.
+- Filters are `where` data on scalar fields: constants, or a value the call
+  passes (below). TypeScript does not check their field names in your
+  editor.
+- Core applies them everywhere a query selects rows: root reads and writes,
+  aggregates, cursors, `include`/`select` of every relation,
+  `some`/`none`/`every` and `is`/`isNot`, relation counts and ordering,
+  recursive reads, and the targets of nested writes. A to-one relation whose
+  target is filtered out reads `null`, so on a client with `rows` TypeScript
+  types a to-one relation to a model with an entry as `| null`, required or
+  not, in every mode. Models are compared by their field and relation names:
+  a model without an entry that has exactly the names of one with an entry
+  reads `| null` too. A reference to a row that does not exist at all is
+  still an error.
+- `OperationResult`, `InferDatabase` and `renderOperationResultType` describe
+  the schema alone: on a client with `rows` they type a to-one relation as
+  present where it can read `null`. `ExtendedOperationResult` types the
+  client's own results, and a model-mapped query handler's `proceed()` reads
+  the `rows` of the client it is applied to. A `rows` entry in the handler's
+  own definition is not seen: declare `rows` in an earlier `$extends` step.
+- A client with `rows` keys its cached reads on the declarations, so it never
+  shares a cache entry with a client without them.
+- Apply an extension with `rows` before any extension that adds model-mapped
+  `query` handlers or `client`/`model` methods: after one, the application is
+  refused, as `defaultOmit()` is.
+- `rows` decides which rows are visible. It is not authorization: any caller
+  can choose another mode or pass another value, and raw SQL, `create` and
+  update `data` are not filtered.
+
+### Filter by a value the call passes
+
+A filter can take a control's value instead of a constant: write
+`{ control: "<name>" }` where the value goes. Each call then sees the rows
+that match the value it passed. This is how one client serves every tenant:
+
+```ts
+import { defineExtension } from "viborm";
+import { v } from "viborm/validation";
+
+const tenancy = defineExtension({
+  name: "tenancy",
+  controls: { tenant: { schema: v.string(), required: true } },
+  rows: {
+    control: "scope",
+    default: "tenant",
+    models: {
+      post: {
+        tenant: {
+          root: { tenantId: { control: "tenant" } },
+          related: { tenantId: { control: "tenant" } },
+        },
+        all: {}, // an operator's view: every tenant
+      },
+    },
+  },
+});
+
+const db = client.$extends(tenancy);
+await db.post.findMany({ tenant: "acme" }); // acme's posts
+await db.post.findMany({ tenant: "acme", scope: "all" }); // every tenant
+await db.post.findMany(); // ValidationError: control "tenant" is required
+```
+
+The [tenancy recipe](/docs/extensions/recipes#tenancy) is the complete
+version: every model you name, and `tenantId` written on every create.
+
+- The reference can sit anywhere a filter takes a value, at any depth:
+  `{ tenantId: { in: { control: "tenants" } } }`, or on a field inside `AND`,
+  `OR` and `NOT`. Declare the control in the same extension: naming another
+  extension's control is not supported.
+- A filter itself is never a reference: the whole filter of a mode, and each
+  filter inside `AND`, `OR` and `NOT`. There `{ control: "x" }` filters a
+  field named `control`. Where a value goes, write
+  `{ control: { equals: "x" } }` to filter that field.
+- Give the control a schema that accepts a plain value: a string, a number, a
+  date, or a list of them. The value is put in as it is, so an object's keys
+  become filter operators: a tenant of `{ not: "acme" }` would show every
+  other tenant's rows.
+- A call that does not pass the control drops every filter that names it:
+  that filter hides nothing. Mark the control `required` when a missing value
+  must be refused instead, as tenancy does.
+- Each mode and value is prepared once and then reused. A client keeps up to
+  256 of them; past that, the oldest is prepared again when it comes back. A
+  mode takes no room when neither its filters nor the default mode's name a
+  control. Tenancy's `all` still takes one per tenant, since its default
+  mode names `tenant`: with both modes in use, a client keeps 128 tenants.
+  Values that only `data` uses, such as audit's `actor`, take no room: they
+  are put in for their call alone. Every value a filter names does: the
+  optimistic lock's `expectedVersion` takes an entry for each new version,
+  and on a client that also has tenancy it pushes tenants out. Apply such an
+  extension on a client of its own (`db.$extends(...)` keeps a memo apart
+  from `db`'s).
+- Cached reads are keyed on the value, so two tenants never share an entry. A
+  value that is not plain data, such as a `Decimal` or a `Map`, is prepared
+  for its call alone and skips the cache.
+- Pass the tenant from your own server's session, never from the request:
+  the extension keeps a call inside the tenant it names, it does not check
+  that the caller may name it. The recipe's `data` member writes `tenantId`
+  on every create, so a caller cannot create a row in another tenant.
+
+## Change what a delete does with `deletion`
+
+For the models `deletion.models` names, a delete (root, bulk, nested, or a
+member a relation write removes) becomes an update: `at` receives the call's
+time and `assign` its constant data. The row stays, with every link.
+
+- The update is admitted like any update: `updatedAt` is refreshed and field
+  transforms run once per row. Handlers, errors and logs still see a `delete`,
+  and `delete` returns the row after the update.
+- Every row one call updates this way gets the same time; separate calls get
+  their own.
+- A delete takes only the rows the model's **default** `rows` mode shows,
+  whatever the call's control says, so deleting a hidden row is
+  `NotFoundError`. A model with a `deletion` entry and no `rows` entry has
+  every row eligible: deleting it again writes a new time.
+- It is refused with `ForeignKeyError` while a row the child model's default
+  mode shows still references it through a foreign key that restricts deletes,
+  as the database refuses a physical delete.
+- `removeWhen` names control values (declared `oneOf` values of a control that
+  says no `on`) for which the delete stays physical. That control is accepted
+  only on `delete` and `deleteMany` of the managed models.
+- `at` must be a `DateTime` field; `assign` names scalar fields, never `at`'s.
+  An entry that writes nothing behaves as an update with empty `data`: a root
+  delete fails, a nested one does nothing.
+
+A definition is not checked at runtime. TypeScript flags a misspelt member in
+your editor; an unknown model name, a field of the wrong type or a `removeWhen`
+that names no control is not caught and misbehaves at the first call.
+
+The official [soft delete](/docs/extensions/soft-delete) is these three
+capabilities plus two model methods.
+
+## Write fields with `data`
+
+For the models `data.models` names, the extension writes fields itself:
+`create` on every create of the model, `update` on every update of it. A value
+is a constant, `{ control: "<name>" }` for the value the call passed, or, for
+`update`, one of the field's update operators such as `{ increment: 1 }`.
+
+```ts
+const audit = defineExtension({
+  name: "audit",
+  controls: { actor: { schema: v.string(), required: true, on: "writes" } },
+  data: {
+    models: {
+      post: {
+        create: { createdBy: { control: "actor" } },
+        update: { updatedBy: { control: "actor" } },
+      },
+    },
+  },
+});
+
+const db = client.$extends(audit);
+await db.post.create({ data: { title }, actor: "ann" }); // createdBy: "ann"
+await db.post.update({ where: { id }, data: { title }, actor: "bob" }); // updatedBy: "bob"
+```
+
+- Every create and update writes the fields: root and nested, one row or
+  many, `upsert` either way. A soft delete is an update, so it writes the
+  `update` fields too. A `connect` or `set` that only moves a foreign key
+  writes nothing, as it does not refresh `updatedAt` either. A delete that
+  stays physical writes nothing. Raw SQL is not touched.
+- The extension fills a field only when the caller left it out. A call that
+  writes one of these fields itself keeps its own value, and the extension
+  writes nothing there, at the root and in every nested create or update. A
+  field written as `undefined` counts as left out. Writing the field through
+  a relation counts as writing it: when the field is the relation's foreign
+  key (`tenantId` for `tenant`), a call that writes that relation
+  (`connect`, `create`, `connectOrCreate`, even a nested `update` of the
+  tenant) decides the key, and the extension steps back. So under tenancy,
+  reads stay with the call's tenant, but writes are not enforced: a caller
+  who writes `tenantId`, or connects a tenant, by hand writes into that
+  tenant, on a create and on an update. A soft delete has no data from the
+  caller, so the extension always writes its `update` fields there.
+- The types agree when the extension names its models where the types can
+  read them, as a `data` entry written inline does, or a
+  [recipe](/docs/extensions/recipes) given a written list of names. On the
+  extended client, each field the extension writes on create is optional in
+  that model's create data, in the call's own data and in every create it
+  nests through a relation, and it keeps its own type when you write it. The
+  relation that holds it may be written too. An update's fields are optional
+  already and keep their types.
+- A field your schema requires may be left out of a create when an
+  extension writes it on that call: the call's data is checked against the
+  schema with that field counted as given, at the root and in every nested
+  create, and the extension then writes it. A required foreign key such as
+  `tenantId` counts as given for its relation too. When the call does not
+  pass the control the field names, nothing writes it, so leaving it out is
+  refused as missing when the call runs, as on a model no extension writes;
+  mark the control `required` so the call must pass it.
+- What the types cannot see: names built at runtime (a plain `string[]`)
+  narrow nothing, so a required field cannot be left out in your editor;
+  and a create nested through a relation with variants is not rebuilt, so
+  there a required field is still asked for. The types find a nested
+  create's model by its fields, not by its name, so a model the extension
+  does not name, whose fields and relations are the same as a named
+  model's, is treated like it in a nested create: the editor lets a
+  required field be left out there, and the call is refused as missing when
+  it runs. A `data` entry, or a recipe's list, that names a model your
+  schema lacks is an editor error where the extension is applied.
+- When two extensions write the same field of a model, the one applied later
+  wins, on every call, and a value the caller writes wins over both. Each
+  extension writes its other fields.
+- A field whose control the call did not pass is not written. When the later
+  of two extensions names a control there, a call without it writes neither
+  extension's value. Mark the control `required` when it must always be
+  there, as audit does.
+
+Both capabilities together make an optimistic lock: the row is filtered on the
+version the call expects, and every update moves the version on. The
+[recipes](/docs/extensions/recipes) give it in full, with tenancy and audit
+stamping.
+
+## Methods that call another extension's arguments
+
+A model method that passes an argument an earlier extension declared needs
+the client that already carries that extension. Apply in two steps, and type
+the second step's factories against the first step's client:
+
+```ts
+const archived = client.$extends(archiving); // step A: controls, rows, deletion
+
+const db = archived.$extends({
+  // step B: methods typed against step A's client
+  name: "archiving.unarchive",
+  model: {
+    project: (delegate: (typeof archived)["project"]) => ({
+      unarchive: (id: string) =>
+        delegate.update({
+          where: { id },
+          data: { archivedAt: null, archivedBy: null },
+          archived: "only",
+        }),
+    }),
+  },
+});
+
+await db.project.unarchive("p1");
+```
+
+A plugin generic over the client it receives (a function of
+`VibORMClient<C, X>`, with `C extends VibORMConfig` and
+`X extends ExtensionState`) cannot see a model's methods inside that function,
+and indexes the client type with `M[K & keyof M]`. It declares the signatures
+of the methods it returns with `ExtendedOperationResult<Client, Model,
+Operation, Args>`, the result type of one operation on that client with its
+`defaultOmit` applied and its `rows` read (a to-one relation to a model with
+an entry is `| null`), and calls the delegate's method through one cast. The
+[soft-delete source](https://github.com/beynar/viborm/blob/main/src/soft-delete/index.ts)
+is that pattern in full.
+
+A definition is typed against the client it was written for. Written against
+one client and applied to another, it still compiles, but its method types
+follow the first client (for example, a field the second client's
+`defaultOmit` hides still appears in the type). Build each definition from the
+client it is applied to, as above. Replacing another extension's model method
+is refused when the extension is applied; TypeScript does not flag it in your
+editor.
+
 ## Compose extensions
 
 Apply extensions in the order they should wrap one another:
@@ -317,9 +665,14 @@ and sibling-client operations.
 - Register write-outcome work before `proceed()`.
 - Treat statement transforms as trusted SQL code.
 - Use the supplied scope in client and model factories.
+- Build a definition from the client it is applied to. Apply `rows` and
+  `defaultOmit()` before extensions that add model-mapped query handlers or
+  client/model methods.
+- Keep `rows` for visibility, never for authorization: take a tenant or an
+  owner from your server, not from the caller.
 - Test direct, callback-transaction, and array-transaction execution when the
   extension participates in those modes.
 
 See the [extension overview](/docs/extensions) for the complete lifecycle and
 the [official extensions](/docs/extensions#official-extensions) for production
-cache, instrumentation, and default omission.
+cache, instrumentation, default omission, and soft delete.

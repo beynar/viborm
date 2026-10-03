@@ -264,12 +264,19 @@ We need to intercept: (1) model name, (2) operation name, (3) the actual call. E
 ## Extension ownership
 
 `$extends()` creates an immutable derived client carrying a frozen compiled
-chain. The public extension language has exactly six capabilities: `request`,
-`query`, `statement`, `observe`, `client`, and `model`. Do not add another hook
-registry, priority system, public operation token, or deferred-operation type.
+chain. The public extension language has exactly ten capabilities: `request`,
+`query`, `statement`, `observe`, `client`, `model`, `controls`, `rows`,
+`deletion`, and `data`. Do not add another hook registry, priority system,
+public operation token, or deferred-operation type.
 
 `src/extensions/` owns the one normalized definition boundary, immutable chain,
-method binding, and one runner per execution capability. A resolved chain keeps
+method binding, and one runner per execution capability. A definition's
+`controls`, `rows`, `deletion` and `data` are trusted (owner decision,
+2026-09-30): TypeScript is their only check, and nothing refuses a wrong declaration at
+runtime; do not add a declaration check or a hostile-read guard for them.
+Call-time admission of a control value stays, as user input, with the two
+guards plan v4 names: a `required` control the call left out, and a caller
+writing a field an extension's `data` writes. A resolved chain keeps
 only compiled execution handlers plus the client/model factories that must run
 for each concrete view; it never retains a second full extension definition.
 `array-admission.ts` owns only the extension query-admission latch. This client
@@ -278,9 +285,12 @@ provider dispatch, parsing, result order, and commit publication.
 
 | Generic owner | Responsibility |
 |---|---|
-| `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization |
-| `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup |
-| `src/extensions/methods.ts` | Client/model factory types, collisions, state merging, and concrete-view binding |
+| `src/extensions/definition.ts` | Public envelope, `defineExtension()`, exact top-level guard, hostile-definition normalization of the six handler members; `controls`, `rows`, `deletion` and `data` bound as written (trusted, owner decision 2026-09-30) |
+| `src/extensions/chain.ts` | The single frozen resolved chain, composition, official capability attachment, compiled handler lookup; every extension's `data` merged per model, kind and field, a later extension owning a field it names |
+| `src/extensions/controls.ts` | Declared-control types, placement per (model, operation), and the one admission of a call's controls, which refuses a `required` control the call left out; the `rows` and `data` slots of the extension state (`RowsModels`, `DefinitionData`) |
+| `src/extensions/rows.ts` | Row domains, tombstones, stamps and row identity bound once per application; a call's facts looked up from its admitted controls, the one walker that puts a control's value where a filter or a stamp names it, and the per-value memo (256 entries, oldest evicted) of bound domains |
+| `src/query-engine/raptor3/commands/commands.ts` (`Commands.stamp`) | The engine side of `data`: one owner admits a model's stamp per occurrence and attempt and puts it under the occurrence: a field the caller writes, by name or through the relation holding it, stays the caller's; every create and update site calls it (see `src/query-engine/raptor3/AGENTS.md`) |
+| `src/extensions/methods.ts` | Client/model factory types, collisions, state merging, and concrete-view binding; on a chain that declares `data`, the model delegate's five narrowed writes (`ExtensionModelDelegate`) |
 | `src/extensions/request.ts` | Synchronous request-transform contract and runner |
 | `src/extensions/query.ts` | Query interception, authoritative continuation, and write-outcome rail |
 | `src/extensions/statement.ts` | Trusted `Sql` transformation contract and runner |
@@ -288,9 +298,51 @@ provider dispatch, parsing, result order, and commit publication.
 | `src/extensions/array-admission.ts` | Extension-only native/fallback admission latch; never core array dispatch |
 | `src/extensions/index.ts` | Intentional public/internal extension exports |
 
+The result context a delegate reads (`ClientDefaults`) has one owner per
+fact: the config's relation omission (`ClientRelationOmitContext`) and, on a
+chain with `rows`, the shallow surfaces of the models those `rows` name
+(`ClientRowsContext`, `types.ts`, from the extension state's `rows` slot,
+filled by `RowsModels` in `controls.ts`). `result-types.ts` alone turns that
+into `| null` on a singular slot whose target a relation read can find hidden
+(`HiddenTargetNull`): the model delegates, `$withCache()`, the transaction
+client, `ExtendedOperationResult` and model-mapped query handlers
+(`QueryHandlerMap<C, X["rows"]>`, `src/extensions/query.ts`) read the same
+context through `ContextualOperationResult`. `OperationResult`,
+`InferDatabase` and `renderOperationResultType` are schema-only and say so.
+
+The payloads have one owner for what an extension's `data` writes on
+create: the extension state's `data` slot (`StampedFields` per model, filled
+by `DefinitionData` in `controls.ts` from each entry's `create` fields; an
+update's fields are optional already, so `update` adds nothing). On a chain
+whose slot is not empty, `ExtensionModelDelegate` (`src/extensions/methods.ts`)
+swaps a model's five write operations for `StampedOperations` (`types.ts`),
+whose payload (`StampedPayload`) rebuilds the call's create rows:
+`StampedRow` makes each field written there optional with its own type, so a
+field the schema requires may be left out (owner ruling, plan v4 §7.5; the
+runtime counts such a field as given, T1) and a value passed is the caller's,
+which the runtime keeps over the stamp (owner ruling 2026-10-02, plan v4
+§7.1). The relation that holds such a field keeps its own input. The same
+row type follows the model's relations, through update rows too, into nested
+creates (`StampedRelation`, `StampedVerb`, `StampedArms`), finding a target's
+fields by its shallow surface; a relation with variants is not rebuilt.
+Mapped types resolve a member only when it is read, so a call pays for the
+depth it spells. Keep the payload level a plain mapped type: a conditional
+there was measured at +14k instantiations on client-2, on programs that
+declare no `data`. A definition whose model names are lost
+(`{ [model: string]: ... }`, a recipe called with a plain `string[]`) adds
+nothing to the slot: the types cannot say which models it writes, so a
+required field stays required. The guide's recipes keep their names (`const`
+type parameter). A chain without create `data` the types can name keeps
+`Client` exactly; `Client` itself takes no `data` parameter (as one, it cost
+the instrumentation type program +14% types and +26% instantiations,
+measured at U3). `OperationPayload` stays the schema-only payload, so what
+reads it (a query handler's argument, for one) is not narrowed: a required
+stamped field is asked for there, and the runtime accepts it left out.
+
 Official implementations stay at `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, and
-`src/client/default-omit-extension.ts`. Do not recreate a generic extension
+`src/client/default-omit-extension.ts`; `src/soft-delete/index.ts` is an
+ordinary definition over public exports only. Do not recreate a generic extension
 representation or runner in `src/client/`, `src/query-engine/`, or
 `src/drivers/`.
 

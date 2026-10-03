@@ -66,32 +66,25 @@ const post = s.model({
 
 ## Soft Delete Pattern
 
-Instead of deleting, mark records as deleted:
+To keep deleted rows and hide them from queries, use the official
+[soft-delete extension](/docs/extensions/soft-delete): `delete` then writes a
+`deletedAt` time instead of removing the row, and every read, count and
+relation skips it.
 
 ```ts
-const user = s.model({
+import { softDelete } from "viborm/soft-delete";
+
+const post = s.model({
   id: s.string().id(),
-  deleted: s.boolean().default(false),
+  title: s.string(),
   deletedAt: s.dateTime().nullable(),
 });
 
-// Soft delete
-async function softDeleteUser(id: string) {
-  return client.user.update({
-    where: { id },
-    data: {
-      deleted: true,
-      deletedAt: new Date(),
-    },
-  });
-}
+const db = softDelete({ models: { post: { deletedAt: "deletedAt" } } })(client);
 
-// Query only active records
-async function getActiveUsers() {
-  return client.user.findMany({
-    where: { deleted: false },
-  });
-}
+await db.post.delete({ where: { id } });      // sets deletedAt
+await db.post.findMany();                      // live posts only
+await db.post.restore({ where: { id } });      // clears deletedAt
 ```
 
 ## Examples
