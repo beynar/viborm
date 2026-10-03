@@ -244,9 +244,10 @@ non-raw statements retain their shallow parameter-copy path because typed input
 was validated upstream and statement transforms are trusted.
 
 Generic extension ownership is exact: `src/extensions/definition.ts` owns the
-public envelope and hostile-definition boundary, including the one snapshot of
-`controls`, `rows` and `deletion` (plain data copied once, names checked against
-the receiving schema at application); `chain.ts` owns the one resolved chain,
+public envelope and hostile-definition boundary. `controls`, `rows`, `deletion`
+and `data` are trusted definitions: bound as written, neither copied nor
+checked against the receiving schema (only a call's values are admitted);
+`chain.ts` owns the one resolved chain,
 handler lookup, the chain's one control name space and placed controls, one
 `deletion` entry per model, and the order guard (`rows` after a result consumer
 is refused); `controls.ts` owns control placement, the call's one admission
