@@ -229,11 +229,11 @@ function droppedSkipMessage(
 }
 
 /**
- * Client lineages (by the driver the client was created with) and the models
- * already warned. Not by engine schema: clients over one schema object share
- * it, so a second client would never warn.
+ * Client lineages and the models already warned. A lineage is one
+ * `createClient`: its derived and transaction views share it. Neither the
+ * engine schema nor the driver is one — independent clients may share both.
  */
-const droppedSkipWarnings = new WeakMap<AnyDriver, Set<string>>();
+const droppedSkipWarnings = new WeakMap<object, Set<string>>();
 
 /**
  * Warn ONCE per client lineage and model — not per row, not per call. The
@@ -242,7 +242,7 @@ const droppedSkipWarnings = new WeakMap<AnyDriver, Set<string>>();
  * off.
  */
 function warnDroppedSkip(
-  lineage: AnyDriver,
+  lineage: object,
   model: string,
   operation: Operation,
   message: string,
@@ -444,8 +444,8 @@ export class OperationContext {
    * attribution (g4/unit03/note.md B-4).
    */
   readonly #callerAttribution: QueryExecutionContext | undefined;
-  /** The client lineage's own driver: a transaction binding never replaces it. */
-  readonly #factoryDriver: AnyDriver;
+  /** The client lineage this operation belongs to (see `warnDroppedSkip`). */
+  readonly #lineage: object;
   constructor(
     schema: EngineSchema,
     factoryDriver: AnyDriver,
@@ -453,13 +453,14 @@ export class OperationContext {
     operation: Operation,
     binding?: ExecutionBinding,
     prepareBatch = false,
-    callerAttribution?: QueryExecutionContext
+    callerAttribution?: QueryExecutionContext,
+    lineage: object = factoryDriver
   ) {
     this.schema = schema;
     this.modelName = modelName;
     this.operation = operation;
     this.#callerAttribution = callerAttribution;
-    this.#factoryDriver = factoryDriver;
+    this.#lineage = lineage;
     this.#ownership = prepareBatch
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
@@ -685,7 +686,7 @@ export class OperationContext {
     )
       return true;
     warnDroppedSkip(
-      this.#factoryDriver,
+      this.#lineage,
       this.modelName,
       this.operation,
       droppedSkipMessage(

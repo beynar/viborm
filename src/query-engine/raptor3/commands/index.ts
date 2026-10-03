@@ -250,7 +250,8 @@ class PreparedCommand implements PreparedOperation {
           this.#operation,
           binding,
           false,
-          attribution
+          attribution,
+          this.#config
         )
       );
     } catch (error) {
@@ -272,7 +273,8 @@ class PreparedCommand implements PreparedOperation {
       this.#operation,
       undefined,
       true,
-      attribution
+      attribution,
+      this.#config
     );
     const value = this.#read();
     if (value) {
@@ -310,7 +312,8 @@ class PreparedCommand implements PreparedOperation {
       this.#operation,
       undefined,
       true,
-      attribution
+      attribution,
+      this.#config
     );
     try {
       await this.#body(context);
