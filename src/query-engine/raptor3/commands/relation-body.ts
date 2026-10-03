@@ -300,9 +300,9 @@ export class RelationBody {
         for (const selector of lax ? [undefined] : entries(payload)) {
           const origin = entryOrigin();
           const unique = nestedTargetAddressesConstraint(edge, verb);
-          // A delete takes related rows; a managed target is tombstoned, from
-          // the default domain's too, and keeps every link it has. A
-          // disconnect is physical: it may detach a row no domain shows.
+          // Both take related rows: a row the call cannot see is not found,
+          // as for any nested lookup. A managed delete target is tombstoned,
+          // from the default domain's too, and keeps every link it has.
           const tombstone =
             verb === "delete"
               ? this.#commands.tombstone(edge.target)
@@ -313,7 +313,7 @@ export class RelationBody {
               kind: "query",
               where: selector,
               unique,
-              ...(verb === "delete"
+              ...(verb === "delete" || verb === "disconnect"
                 ? {
                     selector: this.#commands.candidates(
                       this.#commands.context.queries.prepareSelector(

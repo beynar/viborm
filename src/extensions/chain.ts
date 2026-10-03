@@ -580,10 +580,13 @@ export function appendResolvedExtension(
     effectiveDefinition.data === undefined
       ? chain?.data
       : appendData(chain?.data, effectiveDefinition.data);
+  // The binding reads `required` from the controls, already appended: a
+  // filter names only its own extension's controls, so a later definition
+  // that declares only controls changes nothing it binds.
   const callRows =
     rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
       ? chain?.callRows
-      : bindRows(rows, deletion, data);
+      : bindRows(rows, deletion, data, controls);
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),

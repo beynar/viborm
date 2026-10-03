@@ -92,8 +92,11 @@ await db.post.findMany(); // ValidationError: control "tenant" is required
   the caller may name it. The same goes for `scope: "all"`: any code that
   can pass arguments can ask for every tenant.
 - `tenant` is required and says no `on`, so every operation of the models
-  you name asks for it. A model you do not name still accepts `tenant`,
-  checks it and changes nothing, but does not ask for it.
+  you name asks for it. A model you do not name accepts `tenant` but does not
+  ask for it. Through that model's relations, a call that passes `tenant`
+  reaches only that tenant's rows of the models you name, and a call that
+  does not reaches none of them: a required control left out never means
+  "every tenant".
 - A row of another tenant is hidden, so updating or deleting it is a
   `NotFoundError`, and reaching it through a relation (`connect`, a nested
   `update`, `delete` or `set`) is a `NestedWriteError`, as for any row the

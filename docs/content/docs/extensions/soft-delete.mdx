@@ -216,9 +216,13 @@ locks the rows it is about to tombstone before it looks for live children. A
 `create` that connects one of them at the same moment either lands first, and
 the delete is refused, or waits and then finds its target deleted.
 
-`set` over a **required** foreign key keeps today's refusal ("rows removed from
-the set cannot be disconnected. Delete them instead."), and counts tombstoned
-children too. Purge the tombstoned child first.
+`disconnect` and `set` act on the rows the call sees, like every nested write:
+disconnecting a tombstoned row is a `NestedWriteError`, and `set` keeps a
+tombstoned member linked, so a restore brings it back with its links. Pass
+`deleted: "with"` to unlink a tombstone. `set` over a **required** foreign key
+keeps today's refusal ("rows removed from the set cannot be disconnected.
+Delete them instead."), and counts tombstoned children too. Purge the
+tombstoned child first.
 
 ## Restoring
 

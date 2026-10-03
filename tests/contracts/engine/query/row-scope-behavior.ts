@@ -1023,7 +1023,7 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
       ]);
     });
 
-    test("nested connect, set, update and upsert take related rows: a hidden target is not found; disconnect stays physical", async () => {
+    test("nested connect, set, disconnect, update and upsert take related rows: a hidden target is not found and keeps its links", async () => {
       const { base, db } = context;
       expect(
         await failure(
@@ -1081,17 +1081,39 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
         data: { posts: { connect: [{ id: 12 }] } },
         deleted: "with",
       });
-      // A disconnect detaches a row no domain shows.
+      const links = async () =>
+        (
+          await base.tag.findMany({
+            orderBy: { id: "asc" },
+            include: {
+              posts: { select: { id: true }, orderBy: { id: "asc" } },
+            },
+          })
+        ).map((row) => [row.id, ids(row.posts)]);
+      // A disconnect takes related rows too: the tombstone is not found, and
+      // keeps its link for a restore.
+      expect(
+        await failure(
+          db.tag.update({
+            where: { id: 1 },
+            data: { posts: { disconnect: [{ id: 11 }] } },
+          })
+        )
+      ).toBeInstanceOf(NestedWriteError);
+      // A set replaces the members the call sees: the tombstone stays linked.
+      await db.tag.update({ where: { id: 1 }, data: { posts: { set: [] } } });
+      expect(await links()).toEqual([
+        [1, [11]],
+        [2, [12, 13]],
+      ]);
+      // `with` sees every row: the disconnect detaches the tombstone.
       await db.tag.update({
         where: { id: 1 },
         data: { posts: { disconnect: [{ id: 11 }] } },
+        deleted: "with",
       });
-      const links = await base.tag.findMany({
-        orderBy: { id: "asc" },
-        include: { posts: { select: { id: true }, orderBy: { id: "asc" } } },
-      });
-      expect(links.map((row) => [row.id, ids(row.posts)])).toEqual([
-        [1, [10]],
+      expect(await links()).toEqual([
+        [1, []],
         [2, [12, 13]],
       ]);
     });

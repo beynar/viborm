@@ -3484,6 +3484,9 @@ export class OperationContext {
   ): Promise<void> {
     const a = this.driver.adapter;
     const q = this.queries;
+    // A removal takes related rows, as its lookups do: a member the call
+    // cannot see keeps its link.
+    const domain = q.domain?.selector(edge.target, "related");
     if (edge.kind === "junction") {
       const conditions: Sql[] = [];
       for (const [side, values] of [
@@ -3493,6 +3496,39 @@ export class OperationContext {
         if (!values) continue;
         conditions.push(...q.junctionSideConditions(side, undefined, values));
       }
+      if (domain) {
+        // The join row is the DELETE's own table: its columns are qualified
+        // by that table's name, never left to resolve inside the subquery.
+        const member = q.alias();
+        conditions.push(
+          a.operators.exists(
+            a.subqueries.existsCheck(
+              q.table(edge.target, member),
+              a.operators.and(
+                ...edge.targetSide.members.map((pair) =>
+                  a.operators.eq(
+                    a.identifiers.column(edge.table, pair.junctionField),
+                    q.column(edge.target, pair.referencedField, member)
+                  )
+                ),
+                q.lowerSelector(domain, member)!
+              )
+            )
+          )
+        );
+      }
+      if (keep.length)
+        conditions.push(
+          a.operators.not(
+            a.operators.or(
+              ...keep.map((row) =>
+                a.operators.and(
+                  ...q.junctionSideConditions(edge.targetSide, undefined, row)
+                )
+              )
+            )
+          )
+        );
       await this.#effect(
         a.mutations.delete(
           a.identifiers.table(edge.table),
@@ -3539,7 +3575,8 @@ export class OperationContext {
               )
             ),
           ]
-        : [])
+        : []),
+      ...(domain ? [q.lowerSelector(domain)!] : [])
     );
     const clearability = edge.clearability as Extract<
       Membership["clearability"],

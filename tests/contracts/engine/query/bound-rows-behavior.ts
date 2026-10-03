@@ -192,6 +192,60 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
       ]);
     });
 
+    test("a model the recipe does not name reaches a named one's rows only for a given tenant", async () => {
+      // `tenant` is required on `comment` only. A `post` call need not pass
+      // it, yet reaches comments through the relation: without a tenant those
+      // comments are no tenant's, so the call reads and writes none of them.
+      const scoped = context.base.$extends(tenancy(["comment"]));
+      const comments = async (args: Record<string, unknown>) =>
+        (
+          await scoped.post.findMany({
+            ...args,
+            where: { id: 1 },
+            include: { comments: { orderBy: { id: "asc" } } },
+          })
+        ).map((post) => ids(post.comments));
+      expect(await comments({})).toEqual([[]]);
+      expect(await comments({ tenant: "acme" })).toEqual([[10]]);
+
+      await scoped.post.update({
+        where: { id: 1 },
+        data: { comments: { updateMany: { where: {}, data: { body: "x" } } } },
+      });
+      expect(await context.base.comment.count({ where: { body: "x" } })).toBe(
+        0
+      );
+    });
+
+    test("set and disconnect change only the tenant's members: another tenant's rows keep their links", async () => {
+      const { base, db } = context;
+      // Post 1's replies are 2 (acme) and 5 (globex); its tags are 20 (acme)
+      // and 21 (globex). An acme call sees 2 and 20 only.
+      expect(
+        await failure(
+          db.post.update({
+            where: { id: 1 },
+            data: { replies: { disconnect: [{ id: 5 }] } },
+            tenant: "acme",
+          })
+        )
+      ).toBeInstanceOf(NestedWriteError);
+      await db.post.update({
+        where: { id: 1 },
+        data: { replies: { set: [] }, tags: { set: [] } },
+        tenant: "acme",
+      });
+      const post = await base.post.findUniqueOrThrow({
+        where: { id: 1 },
+        include: {
+          replies: { orderBy: { id: "asc" } },
+          tags: { orderBy: { id: "asc" } },
+        },
+      });
+      expect(ids(post.replies)).toEqual([5]);
+      expect(ids(post.tags)).toEqual([21]);
+    });
+
     test("relations read the tenant's related rows: includes, to-one, quantifiers, counts and _count order", async () => {
       const { base, db } = context;
       const withComments = {

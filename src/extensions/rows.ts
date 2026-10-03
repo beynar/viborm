@@ -7,7 +7,7 @@ import type {
 } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { isPlainRecord } from "@schema/relation/terminal";
-import type { ResolvedDeletion } from "./chain";
+import type { ResolvedControls, ResolvedDeletion } from "./chain";
 import {
   type AdmittedControls,
   type RowsContribution,
@@ -52,7 +52,13 @@ export interface RowsBinding {
   readonly bound: Map<string, CallRows>;
   /** A stamp names a control: each call puts its values in the stamps. */
   readonly bindsStamps: boolean;
+  /** Whether a call must pass a control to touch a model directly. */
+  readonly required: RequiredOn;
 }
+
+type RequiredOn = (control: string, model: string) => boolean;
+
+const NEVER_REQUIRED: RequiredOn = () => false;
 
 const NO_DELETION: Readonly<Record<string, ResolvedDeletion>> = Object.freeze(
   Object.create(null)
@@ -64,6 +70,14 @@ const BOUND_LIMIT = 256;
 
 /** A named control the call did not pass. */
 const ABSENT = Symbol("absent");
+
+/**
+ * The predicate of a model whose required control the call did not pass. Such
+ * a call can only reach that model through another one (a relation of a model
+ * the control is not required on), and a required control means "no value, no
+ * rows": it matches nothing, never everything. `{ OR: [] }` is false.
+ */
+const MATCH_NOTHING: Input = Object.freeze({ OR: Object.freeze([]) });
 
 /** The keys whose items are filters: a filter is never a reference. */
 const LOGICAL = new Set(["AND", "OR", "NOT"]);
@@ -115,34 +129,42 @@ function referencesOf(domains: readonly RowDomain[]): readonly string[] {
 function boundValue(
   value: unknown,
   controls: AdmittedControls | undefined,
-  filter: boolean
+  filter: boolean,
+  required?: (control: string) => boolean
 ): unknown {
   const name = filter ? undefined : referenceOf(value);
   if (name !== undefined) {
     const given = controls?.[name];
-    return given === undefined ? ABSENT : given;
+    if (given !== undefined) return given;
+    return required?.(name) ? MATCH_NOTHING : ABSENT;
   }
   if (Array.isArray(value)) {
-    const items = value.map((item) => boundValue(item, controls, filter));
+    const items = value.map((item) =>
+      boundValue(item, controls, filter, required)
+    );
+    if (items.includes(MATCH_NOTHING)) return MATCH_NOTHING;
     if (items.includes(ABSENT)) return ABSENT;
     return items.every((item, index) => item === value[index]) ? value : items;
   }
-  return isPlainRecord(value) ? boundWhere(value, controls) : value;
+  return isPlainRecord(value) ? boundWhere(value, controls, required) : value;
 }
 
 /**
- * One predicate with the call's values put in, or {@link ABSENT} when it names
- * a control the call did not pass: then it filters nothing, as a mode without
- * that predicate would.
+ * One predicate with the call's values put in. When it names a control the
+ * call did not pass: {@link ABSENT} for an optional control (it filters
+ * nothing, as a mode without that predicate would), {@link MATCH_NOTHING} for
+ * one required on the predicate's model.
  */
 function boundWhere(
   where: Input,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  required?: (control: string) => boolean
 ): Input | typeof ABSENT {
   let copy: Input | undefined;
   for (const [key, item] of Object.entries(where)) {
-    const value = boundValue(item, controls, LOGICAL.has(key));
+    const value = boundValue(item, controls, LOGICAL.has(key), required);
     if (value === ABSENT) return ABSENT;
+    if (value === MATCH_NOTHING) return MATCH_NOTHING;
     if (value !== item) (copy ??= { ...where })[key] = value;
   }
   return copy ?? where;
@@ -151,14 +173,16 @@ function boundWhere(
 /** Each model's predicates bound; the same map when none names a control. */
 function boundModels(
   models: ModelDomain,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  required: RequiredOn
 ): ModelDomain {
   const bound = new Map<string, readonly Input[]>();
   let changed = false;
   for (const [model, list] of models) {
     const kept: Input[] = [];
+    const requiredHere = (control: string) => required(control, model);
     for (const where of list) {
-      const value = boundWhere(where, controls);
+      const value = boundWhere(where, controls, requiredHere);
       changed ||= value !== where;
       if (value !== ABSENT) kept.push(value);
     }
@@ -170,10 +194,11 @@ function boundModels(
 /** A domain bound; the same object when no predicate names a control. */
 function boundDomain(
   domain: RowDomain,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  required: RequiredOn
 ): RowDomain {
-  const root = boundModels(domain.root, controls);
-  const related = boundModels(domain.related, controls);
+  const root = boundModels(domain.root, controls, required);
+  const related = boundModels(domain.related, controls, required);
   return root === domain.root && related === domain.related
     ? domain
     : Object.freeze({ root, related });
@@ -219,17 +244,32 @@ function boundStamps(
 
 function boundFacts(
   facts: CallRows,
-  controls: AdmittedControls | undefined
+  controls: AdmittedControls | undefined,
+  required: RequiredOn
 ): CallRows {
-  const domain = boundDomain(facts.domain, controls);
+  const domain = boundDomain(facts.domain, controls, required);
   return Object.freeze({
     ...facts,
     domain,
     defaults:
       facts.defaults === facts.domain
         ? domain
-        : boundDomain(facts.defaults, controls),
+        : boundDomain(facts.defaults, controls, required),
   });
+}
+
+/** The chain's `required` declarations as one test, by control and model. */
+function requiredOn(controls: ResolvedControls | undefined): RequiredOn {
+  const required = new Map<string, true | ReadonlySet<string>>();
+  for (const control of controls?.all ?? []) {
+    if (control.required !== undefined)
+      required.set(control.name, control.required);
+  }
+  if (required.size === 0) return NEVER_REQUIRED;
+  return (control, model) => {
+    const on = required.get(control);
+    return on === true || on?.has(model) === true;
+  };
 }
 
 /** One purpose's predicates per model, for one mode of every member. */
@@ -254,7 +294,8 @@ function modelDomain(
 export function bindRows(
   rows: readonly RowsContribution[] | undefined,
   deletion: Readonly<Record<string, ResolvedDeletion>> | undefined,
-  data?: Readonly<Record<string, ModelStamps>>
+  data?: Readonly<Record<string, ModelStamps>>,
+  controls?: ResolvedControls
 ): RowsBinding {
   const declared = rows ?? [];
   let stride = 1;
@@ -316,6 +357,7 @@ export function bindRows(
     references: domains.map((domain) => referencesOf([domain, defaults])),
     bound: new Map(),
     bindsStamps: stampReferences.size > 0,
+    required: requiredOn(controls),
   });
 }
 
@@ -371,7 +413,8 @@ function domainFacts(
   }
   // A value no key spells by its content (a Map keys as `{}`) is bound for
   // this call alone: it never takes another value's facts.
-  if (!isCanonicalKeyData(values)) return boundFacts(facts, controls);
+  if (!isCanonicalKeyData(values))
+    return boundFacts(facts, controls, binding.required);
   const key = `${physical}${combination}${stableStringify(values)}`;
   let known = binding.bound.get(key);
   if (known === undefined) {
@@ -381,7 +424,7 @@ function domainFacts(
     // The facts outlive the call under a key spelling the values' content, so
     // they are bound from a copy: a caller who later mutates its Date or array
     // never changes what another call with equal values reads.
-    known = boundFacts(facts, structuredClone(values));
+    known = boundFacts(facts, structuredClone(values), binding.required);
     binding.bound.set(key, known);
   }
   return known;

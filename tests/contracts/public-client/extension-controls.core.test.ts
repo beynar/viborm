@@ -1168,6 +1168,21 @@ describe("controls: rows bound to the call", () => {
     expect(none.domain.related.has("post")).toBe(false);
   });
 
+  test("a required control the call did not pass matches nothing on the model it is required on, at any depth", () => {
+    // Required on `post`: a call that did not pass it reached `post` through a
+    // model it is not required on, and must read none of its rows.
+    const controls = {
+      all: [{ name: "author", required: new Set(["post"]) }],
+    } as unknown as Parameters<typeof bindRows>[3];
+    const binding = bindRows([tenancy, soft], undefined, undefined, controls);
+    const facts = callRows(binding, "post", { tenant: "acme", by: "u2" });
+    const nothing = { OR: [] };
+    // `author` sits in an `in` list inside the root predicate's `AND`.
+    expect(facts.domain.root.get("post")).toEqual([nothing, live]);
+    // The related predicate names only `tenant`, which the call passed.
+    expect(facts.domain.related.get("post")).toEqual([{ tenantId: "acme" }]);
+  });
+
   test("the same values give the same facts; the 257th distinct value evicts the oldest", () => {
     const binding = bindRows([tenancy], undefined);
     const call = (tenant: string, scope = "tenant") =>

@@ -340,7 +340,8 @@ await db.project.findMany({ archived: "only" }); // archived projects
 - Core applies them everywhere a query selects rows: root reads and writes,
   aggregates, cursors, `include`/`select` of every relation,
   `some`/`none`/`every` and `is`/`isNot`, relation counts and ordering,
-  recursive reads, and the targets of nested writes. A to-one relation whose
+  recursive reads, and the targets of nested writes, `disconnect` and `set`
+  included: a member the call cannot see keeps its link. A to-one relation whose
   target is filtered out reads `null`, so on a client with `rows` TypeScript
   types a to-one relation to a model with an entry as `| null`, required or
   not, in every mode. Models are compared by their field and relation names:
@@ -413,7 +414,10 @@ version: every model you name, and `tenantId` written on every create.
   other tenant's rows.
 - A call that does not pass the control drops every filter that names it:
   that filter hides nothing. Mark the control `required` when a missing value
-  must be refused instead, as tenancy does.
+  must be refused instead, as tenancy does. A model the control is required
+  on is then never read without it: a call that reaches that model's rows
+  through a relation of another model, where the control is not required,
+  and does not pass it, matches none of them.
 - Each mode and value is prepared once and then reused. A client keeps up to
   256 of them; past that, the oldest is prepared again when it comes back. A
   mode takes no room when neither its filters nor the default mode's name a
