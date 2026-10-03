@@ -1,6 +1,8 @@
 import type { AnyModel } from "@schema/model";
 import type { DecimalListScalarKeys, StringKeyOf } from "@schema/model/helper";
 import type { ScalarState } from "@schema/scalars";
+import { entriesFromObject } from "../../primitives/from-object";
+import { entriesFromKeys } from "../../primitives/record";
 import v, { type V } from "../../primitives/v";
 import type { VibSchema } from "../../types";
 import type { ScalarSchemas } from "../index";
@@ -177,38 +179,38 @@ export const getOrderBySchema = <
     nonVectorScalarKeys.push(fieldName as NonVectorScalarKeys<M>);
   }
 
-  const scalarEntries = v.fromKeys<
+  const scalarEntries = entriesFromKeys<
     NonVectorScalarKeys<M>[],
     typeof sortOrderSchema
   >(nonVectorScalarKeys, sortOrderSchema);
-  const vectorEntries = v.fromKeys<
+  const vectorEntries = entriesFromKeys<
     VectorScalarKeys<M>[],
     typeof vectorSortOrderSchema
   >(vectorScalarKeys, vectorSortOrderSchema);
-  const pointEntries = v.fromKeys<
+  const pointEntries = entriesFromKeys<
     PointScalarKeys<M>[],
     PointDistanceOrderSchema
   >(pointScalarKeys, pointDistanceOrderSchema);
-  const decimalListEntries = v.fromKeys<
+  const decimalListEntries = entriesFromKeys<
     ModelDecimalListScalarKeys<M>[],
     DecimalListOrderByRefusalSchema
   >(decimalListScalarKeys, decimalListOrderByRefusalSchema);
 
-  const relationEntries = v.fromObject<F["relations"], "orderBy">(
+  const relationEntries = entriesFromObject<F["relations"], "orderBy">(
     fieldSchemas.relations,
     "orderBy"
   );
-  const polymorphicEntries = v.fromObject<F["polymorphic"], "orderBy">(
+  const polymorphicEntries = entriesFromObject<F["polymorphic"], "orderBy">(
     fieldSchemas.polymorphic,
     "orderBy"
   );
 
   return v.object({
-    ...scalarEntries.entries,
-    ...vectorEntries.entries,
-    ...pointEntries.entries,
-    ...decimalListEntries.entries,
-    ...relationEntries.entries,
-    ...polymorphicEntries.entries,
+    ...scalarEntries,
+    ...vectorEntries,
+    ...pointEntries,
+    ...decimalListEntries,
+    ...relationEntries,
+    ...polymorphicEntries,
   });
 };

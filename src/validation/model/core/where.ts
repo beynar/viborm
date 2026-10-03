@@ -1,5 +1,6 @@
 import type { AnyModel } from "@schema/model";
 import type { DecimalListScalarKeys } from "@schema/model/helper";
+import { entriesFromObject } from "@validation/primitives/from-object";
 import { scopeOperands } from "@validation/primitives/operand";
 import v, { type V } from "../../primitives/v";
 import type { ScalarSchemas } from "../index";
@@ -48,30 +49,29 @@ export const getWhereSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
 ): WhereSchema<M, F> => {
   // Build scalar and relation filter entries
 
-  const scalarFilter = v.fromObject<F["scalars"], "filter">(
+  const scalarFilter = entriesFromObject<F["scalars"], "filter">(
     fieldSchemas.scalars,
     "filter"
   );
-  const relationFilter = v.fromObject<F["relations"], "filter">(
+  const relationFilter = entriesFromObject<F["relations"], "filter">(
     fieldSchemas.relations,
     "filter"
   );
-  const polymorphicFilter = v.fromObject<F["polymorphic"], "filter">(
+  const polymorphicFilter = entriesFromObject<F["polymorphic"], "filter">(
     fieldSchemas.polymorphic,
     "filter"
   );
 
   // Create the recursive where schema with AND/OR/NOT using thunks
-  const whereSchema = v
-    .object({
-      // Recursive AND/OR/NOT using thunks
-      AND: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
-      OR: () => v.optional(v.array(whereSchema)),
-      NOT: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
-    })
-    .extend(scalarFilter.entries)
-    .extend(relationFilter.entries)
-    .extend(polymorphicFilter.entries);
+  const whereSchema: WhereSchema<M, F> = v.object({
+    // Recursive AND/OR/NOT using thunks
+    AND: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
+    OR: () => v.optional(v.array(whereSchema)),
+    NOT: () => v.optional(v.union([whereSchema, v.array(whereSchema)])),
+    ...scalarFilter,
+    ...relationFilter,
+    ...polymorphicFilter,
+  });
 
   // A `where` is the operand-callback scope boundary: `ctx.fields` inside it
   // names THIS model's columns. A nested relation filter embeds the TARGET

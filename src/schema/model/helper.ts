@@ -1,4 +1,4 @@
-import { emptyRecord, put } from "@schema/record";
+import { emptyRecord } from "@schema/record";
 import type { AnyRelation } from "@schema/relation";
 import { refuseRelationInput } from "@schema/relation/terminal";
 // Deep import: the references-stage predicate is the `s.model(...)` boundary's
@@ -227,10 +227,10 @@ function isScalar(value: unknown): value is Scalar {
  * extractor recognizes appears in the map that claims it, under the key the
  * shape gave it. A shape key comes from the caller — a hand-written literal, a
  * generated schema, a JSON document's field name — so it can be any string, and
- * `map[key] = value` would lose a `__proto__` member to `Object.prototype`'s
- * setter, leaving `state.shape` and `state.scalars` disagreeing with no
- * diagnostic anywhere. `emptyRecord`/`put` make that unrepresentable: a data key
- * can only ever be an own entry.
+ * assigning into an ordinary object would lose a `__proto__` member to
+ * `Object.prototype`'s setter. These maps come from `emptyRecord` and stay
+ * private until complete: their null prototype makes every assignment an own
+ * data entry, including `__proto__`, without defining a descriptor per member.
  *
  * Whether such a key is a LEGAL identifier is a separate question with a
  * separate owner (`isValidSchemaIdentifier`, enforced at hydration and by the
@@ -240,7 +240,7 @@ export const extractScalarMap = <T extends ModelShape>(fields: T) => {
   const scalars = emptyRecord<Scalar>();
   for (const [key, value] of Object.entries(fields)) {
     if (isScalar(value)) {
-      put(scalars, key, value);
+      scalars[key] = value;
     }
   }
   return scalars as ScalarMap<T>;
@@ -259,7 +259,7 @@ export const extractRelationMap = <T extends ModelShape>(fields: T) => {
   const relations = emptyRecord<AnyRelation>();
   for (const [key, value] of Object.entries(fields)) {
     if (isRelation(value)) {
-      put(relations, key, value);
+      relations[key] = value;
     } else if (isReferencesStage(value)) {
       refuseRelationInput(
         "s.model",
@@ -278,7 +278,7 @@ export const extractUniqueScalarMap = <T extends ModelShape>(fields: T) => {
       isScalar(value) &&
       (value["~"].state.isUnique || value["~"].state.isId)
     ) {
-      put(uniques, key, value);
+      uniques[key] = value;
     }
   }
   return uniques as UniqueScalarMap<T>;

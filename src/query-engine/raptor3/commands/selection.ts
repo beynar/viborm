@@ -112,6 +112,26 @@ export function membershipFields(edge: Membership): string[] {
       ]
     : edge.sourceSide.members.map((pair) => pair.referencedField);
 }
+/**
+ * One junction row's columns: each present side's referenced fields, read
+ * through `read` — the planned assignment, or the attempt's executed value.
+ */
+export function junctionPairs<T>(
+  edge: Extract<Membership, { kind: "junction" }>,
+  read: (owner: Assignments, field: string) => T,
+  source?: Assignments,
+  target?: Assignments
+): Record<string, T> {
+  const pairs: [string, T][] = [];
+  for (const [side, owner] of [
+    [edge.sourceSide, source],
+    [edge.targetSide, target],
+  ] as const)
+    if (owner)
+      for (const pair of side.members)
+        pairs.push([pair.junctionField, read(owner, pair.referencedField)]);
+  return Object.fromEntries(pairs);
+}
 
 /** A prepared row selection; observations and transport values belong to execution. */
 export class Selection {
@@ -119,8 +139,8 @@ export class Selection {
   readonly fields: Assignments;
   readonly facts: SelectorFacts;
   readonly selector: PreparedSelector;
-  private readonly rowProjection: PreparedProjection;
-  private readonly identityProjection: PreparedProjection;
+  readonly #rowProjection: PreparedProjection;
+  readonly #identityProjection: PreparedProjection;
   origin?: Origin;
   retained?: DeferredFailure;
   membershipOnly?: boolean;
@@ -182,7 +202,7 @@ export class Selection {
         ? selector
         : queries.candidates(selector, source.purpose);
     this.facts = facts ?? queries.selectorFacts(this.selector);
-    this.rowProjection = queries.prepareProjection(model, {
+    this.#rowProjection = queries.prepareProjection(model, {
       select: Object.fromEntries(
         storedFields(execution.context.schema, model).map((field) => [
           field,
@@ -190,7 +210,7 @@ export class Selection {
         ])
       ),
     });
-    this.identityProjection = queries.prepareProjection(model, {
+    this.#identityProjection = queries.prepareProjection(model, {
       select: Object.fromEntries(
         execution.context.schema.keys(model).map((field) => [field, true])
       ),
@@ -209,7 +229,7 @@ export class Selection {
       this.facts.keys.size === selected.fields.length
     );
   }
-  private bindMembership(membership: BoundMembership | undefined) {
+  #bindMembership(membership: BoundMembership | undefined) {
     return (
       membership && {
         edge: membership.edge,
@@ -220,7 +240,7 @@ export class Selection {
       }
     );
   }
-  private rowQuery(
+  #rowQuery(
     selector: PreparedSelector,
     membership: BoundMembership | undefined,
     identity?: Input,
@@ -232,11 +252,11 @@ export class Selection {
       {
         take: 1,
       },
-      this.bindMembership(membership),
+      this.#bindMembership(membership),
       {
         forUpdate: !(ctx.usesBatch || unlocked),
         identity,
-        projection: this.rowProjection,
+        projection: this.#rowProjection,
         selector,
       }
     );
@@ -264,7 +284,7 @@ export class Selection {
     membership: BoundMembership | undefined,
     condition: PreparedSelector = this.selector
   ) {
-    return this.rowQuery(
+    return this.#rowQuery(
       condition,
       membership,
       this.execution.identity(this.fields)
@@ -291,7 +311,7 @@ export class Selection {
         ctx.queries.column(this.model, field)
       ),
       identity: this.execution.identity(this.fields),
-      projection: this.identityProjection,
+      projection: this.#identityProjection,
     });
   }
   /**
@@ -300,12 +320,12 @@ export class Selection {
    * there or a member, which is what a found requirement asks.
    */
   outsideMembership(membership: BoundMembership) {
-    const bound = this.bindMembership(membership);
+    const bound = this.#bindMembership(membership);
     return this.execution.context.queries.select(
       this.model,
       { take: 1 },
       bound && { ...bound, outside: true },
-      { projection: this.identityProjection, selector: this.selector }
+      { projection: this.#identityProjection, selector: this.selector }
     );
   }
   query() {
@@ -313,7 +333,7 @@ export class Selection {
       this.source.kind === "producer"
         ? this.execution.identity(this.source.producer)
         : undefined;
-    return this.rowQuery(
+    return this.#rowQuery(
       this.selector,
       this.membership(),
       identity,
@@ -345,11 +365,11 @@ export class Selection {
       {
         take,
       },
-      this.bindMembership(membership),
+      this.#bindMembership(membership),
       {
         forUpdate: held,
         identity: this.execution.identity(this.fields),
-        projection: this.identityProjection,
+        projection: this.#identityProjection,
         selector: condition.selector,
       }
     );

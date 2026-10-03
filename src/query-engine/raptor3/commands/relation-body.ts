@@ -27,6 +27,7 @@ import type {
 import { MEMBERSHIP_MOVE, membershipRaceFailure } from "./commands";
 import {
   type BoundMembership,
+  junctionPairs,
   membershipFields,
   nestedTargetAddressesConstraint,
   type Selection,
@@ -75,6 +76,20 @@ type RelationVerb =
   | (typeof mutationOrder)[number]
   | (typeof collectionMutationOrder)[number];
 
+/**
+ * The one sentence for a nested target the plan looked for and did not find;
+ * `parentScoped` names the search as one through this parent's membership.
+ */
+function missingTarget(
+  verb: string,
+  relation: string,
+  parentScoped = true
+): NestedWriteError {
+  return new NestedWriteError(
+    `Cannot ${verb} relation '${relation}': target record was not found${parentScoped ? " for this parent" : ""}.`,
+    relation
+  );
+}
 /** Two admitted unique selectors address the same row. */
 function sameTarget(
   left: ReadonlyMap<string, unknown>,
@@ -90,14 +105,14 @@ function sameTarget(
 
 /** One admitted relation body owns its order, parent, slot and supplied continuation. */
 export class RelationBody {
-  private supplier?: Supplier;
-  private readonly direct: boolean;
-  private readonly hasSupply: boolean;
-  private readonly commands: Commands;
-  private readonly parent: RecordCommand;
-  private readonly slot: ResolvedSlot;
-  private readonly admitted: Input;
-  private readonly raw: Input;
+  #supplier: Supplier | undefined;
+  readonly #direct: boolean;
+  readonly #hasSupply: boolean;
+  readonly #commands: Commands;
+  readonly #parent: RecordCommand;
+  readonly #slot: ResolvedSlot;
+  readonly #admitted: Input;
+  readonly #raw: Input;
   constructor(
     commands: Commands,
     parent: RecordCommand,
@@ -105,34 +120,48 @@ export class RelationBody {
     admitted: Input,
     raw: Input
   ) {
-    this.commands = commands;
-    this.parent = parent;
-    this.slot = slot;
-    this.admitted = admitted;
-    this.raw = raw;
-    this.direct =
+    this.#commands = commands;
+    this.#parent = parent;
+    this.#slot = slot;
+    this.#admitted = admitted;
+    this.#raw = raw;
+    this.#direct =
       !slot.member &&
       (slot.edge.kind === "variantRowCarrier" ||
         slot.edge.kind === "variantJunctionCarrier");
-    this.hasSupply = ["create", "connect", "connectOrCreate", "upsert"].some(
+    this.#hasSupply = ["create", "connect", "connectOrCreate", "upsert"].some(
       (verb) => admitted[verb] !== undefined
     );
   }
-  private supply(target: RecordCommand | Choose): void {
-    if (this.direct) return;
-    this.supplier =
+  #supply(target: RecordCommand | Choose): void {
+    if (this.#direct) return;
+    this.#supplier =
       target.kind === "choose" && !target.missing
         ? { kind: "query", selector: target.lookup.selector }
         : { kind: "producer", producer: target.fields };
   }
+  /** One nested create of `edge`'s target, under this body's parent. */
+  #child(edge: Membership, data: Input, raw: Input): RecordCommand {
+    const parent = this.#parent;
+    return this.#commands.create(
+      edge.target,
+      data,
+      raw,
+      edge.kind === "reference" && edge.owner === "target"
+        ? { edge, source: parent.fields }
+        : undefined,
+      parent.operation ?? parent.fields.operation,
+      parent.fields.deferred
+    );
+  }
   expand(): void {
-    const parent = this.parent;
-    const resolved = this.slot;
+    const parent = this.#parent;
+    const resolved = this.#slot;
     const name = resolved.slot.field;
-    const mutation = this.admitted;
-    const rawMutation = this.raw;
-    const direct = this.direct;
-    const schema = this.commands.context.schema;
+    const mutation = this.#admitted;
+    const rawMutation = this.#raw;
+    const direct = this.#direct;
+    const schema = this.#commands.context.schema;
     const order: readonly string[] =
       parent.model["~"].state.relations[name]!["~"].state.cardinality === "many"
         ? collectionMutationOrder
@@ -166,10 +195,10 @@ export class RelationBody {
       // order, a later entry's read observes an earlier entry's write, and a
       // mutation's own effects — placed behind its read — are told apart from
       // a sibling entry's by that origin.
-      const origin = this.commands.createOrigin(name, verb);
-      const entryOrigin = () => this.commands.createOrigin(name, verb);
+      const origin = this.#commands.createOrigin(name, verb);
+      const entryOrigin = () => this.#commands.createOrigin(name, verb);
       if (!direct) {
-        this.relation(membership(), verb, payload, rawMutation[verb], origin);
+        this.#relation(membership(), verb, payload, rawMutation[verb], origin);
         continue;
       }
       if (
@@ -178,8 +207,8 @@ export class RelationBody {
         typeof payload === "boolean"
       ) {
         const clearability = schema.clearability(resolved);
-        if (payload && !this.hasSupply && clearability.kind === "columns") {
-          const owner = this.commands.place(
+        if (payload && !this.#hasSupply && clearability.kind === "columns") {
+          const owner = this.#commands.place(
             parent,
             { kind: "membership" },
             "before"
@@ -195,7 +224,7 @@ export class RelationBody {
               { kind: "literal", value: null },
               `Cannot disconnect relation '${name}'.`
             );
-          this.commands.publishMembership(owner, parent.fields, contribution);
+          this.#commands.publishMembership(owner, parent.fields, contribution);
         }
         continue;
       }
@@ -208,11 +237,11 @@ export class RelationBody {
           const edge = membership(tagged.type as string);
           return {
             edge,
-            target: this.setTargets(edge, [record(tagged.where)], origin)[0]!,
+            target: this.#setTargets(edge, [record(tagged.where)], origin)[0]!,
           };
         });
         for (const member of carrier.members)
-          this.clearMembership(membership(member.variant), [], origin);
+          this.#clearMembership(membership(member.variant), [], origin);
         for (const { edge, target } of targets) this.association(edge, target);
         continue;
       }
@@ -226,26 +255,26 @@ export class RelationBody {
             : verb === "connect" || verb === "delete" || verb === "disconnect"
               ? value.where
               : value;
-        this.relation(edge, verb, untag(tagged), untag(rawTagged), {
+        this.#relation(edge, verb, untag(tagged), untag(rawTagged), {
           ...origin,
           relation: edge.name,
         });
       }
     }
   }
-  private relation(
+  #relation(
     edge: Membership,
     verb: RelationVerb,
     payload: unknown,
     rawPayload: unknown,
     origin: Origin
   ): void {
-    const parent = this.parent;
-    const hasSupply = this.hasSupply;
+    const parent = this.#parent;
+    const hasSupply = this.#hasSupply;
     // Each payload entry is its own mutation (N1): its own origin, in
     // declaration order behind the verb's.
     const entryOrigin = () =>
-      this.commands.createOrigin(
+      this.#commands.createOrigin(
         origin.relation,
         origin.operation,
         origin.slot
@@ -276,9 +305,9 @@ export class RelationBody {
           // disconnect is physical: it may detach a row no domain shows.
           const tombstone =
             verb === "delete"
-              ? this.commands.tombstone(edge.target)
+              ? this.#commands.tombstone(edge.target)
               : undefined;
-          const outgoing = this.commands.lookup(
+          const outgoing = this.#commands.lookup(
             edge.target,
             {
               kind: "query",
@@ -286,8 +315,8 @@ export class RelationBody {
               unique,
               ...(verb === "delete"
                 ? {
-                    selector: this.commands.candidates(
-                      this.commands.context.queries.prepareSelector(
+                    selector: this.#commands.candidates(
+                      this.#commands.context.queries.prepareSelector(
                         edge.target,
                         selector,
                         unique
@@ -299,16 +328,10 @@ export class RelationBody {
                 : {}),
               membership: { edge, parent: parent.located!.fields },
             },
-            lax
-              ? undefined
-              : () =>
-                  new NestedWriteError(
-                    `Cannot ${verb} relation '${edge.name}': target record was not found for this parent.`,
-                    edge.name
-                  )
+            lax ? undefined : () => missingTarget(verb, edge.name)
           );
           outgoing.origin = origin;
-          this.membershipSource(edge, parent.located!.fields);
+          this.#membershipSource(edge, parent.located!.fields);
           // Initial absence and loss after observation are distinct facts
           // (ELEGANCE §6, D-32): `required` says what an empty slot means
           // (lax or strict), `retained` what the captured member's loss
@@ -323,7 +346,7 @@ export class RelationBody {
           if (lax)
             outgoing.retained = () =>
               membershipRaceFailure(verb, edge.name, "removed");
-          const outgoingOccurrence = this.requireLookup(outgoing);
+          const outgoingOccurrence = this.#requireLookup(outgoing);
           const deletion: Deletion = {
             kind: "delete",
             located: outgoing,
@@ -331,7 +354,7 @@ export class RelationBody {
             ...(tombstone && { values: tombstone.admitted }),
           };
           if (tombstone)
-            this.requireUnreferenced(
+            this.#requireUnreferenced(
               edge,
               parent.located!.fields,
               outgoing.selector,
@@ -353,14 +376,14 @@ export class RelationBody {
                   { kind: "literal", value: null },
                   `Cannot disconnect relation '${edge.name}'.`
                 );
-              this.commands.publishMembership(
+              this.#commands.publishMembership(
                 outgoingOccurrence,
                 parent.fields,
                 contribution
               );
             }
             if (verb === "delete")
-              this.commands.place(parent, deletion, "after", origin);
+              this.#commands.place(parent, deletion, "after", origin);
           } else {
             // A lax removal names no target: it clears whatever member the
             // slot holds at execution (at most one on a to-one edge), which is
@@ -383,8 +406,8 @@ export class RelationBody {
             // places the removal alone, and a reference-held target carries its
             // own foreign key, so it places the deletion alone.
             if (verb === "delete" && edge.kind === "junction" && !tombstone)
-              this.commands.place(parent, removal, "after", origin);
-            this.commands.place(
+              this.#commands.place(parent, removal, "after", origin);
+            this.#commands.place(
               parent,
               verb === "delete" ? deletion : removal,
               "after",
@@ -397,19 +420,10 @@ export class RelationBody {
       case "create":
         for (const [index, child] of entries(payload).entries()) {
           const origin = entryOrigin();
-          const target = this.commands.create(
-            edge.target,
-            child,
-            entries(rawPayload)[index]!,
-            edge.kind === "reference" && edge.owner === "target"
-              ? { edge, source: parent.fields }
-              : undefined,
-            parent.operation ?? parent.fields.operation,
-            parent.fields.deferred
-          );
+          const target = this.#child(edge, child, entries(rawPayload)[index]!);
           target.origin = origin;
           this.association(edge, target);
-          this.supply(target);
+          this.#supply(target);
         }
         break;
       case "createMany": {
@@ -417,22 +431,13 @@ export class RelationBody {
         const rawBody = record(rawPayload);
         const rawRows = entries(rawBody.data);
         const records = entries(body.data).map((child, index) => {
-          const target = this.commands.create(
-            edge.target,
-            child,
-            rawRows[index]!,
-            edge.kind === "reference" && edge.owner === "target"
-              ? { edge, source: parent.fields }
-              : undefined,
-            parent.operation ?? parent.fields.operation,
-            parent.fields.deferred
-          );
+          const target = this.#child(edge, child, rawRows[index]!);
           target.origin = origin;
           if (body.skipDuplicates)
             target.suppression = { kind: "skipDuplicate" };
           return this.association(edge, target, false, target);
         });
-        this.commands.place(
+        this.#commands.place(
           parent,
           { kind: "series", records },
           "after",
@@ -481,33 +486,29 @@ export class RelationBody {
           // guide already states for every `Choose` arm.
           const childUpdate =
             verb === "upsert" ? conditional.update : conditional.data;
-          const keyRefusal = this.commands.context.schema.keyPortabilityRefusal(
-            edge.target,
-            childUpdate
-          );
+          const keyRefusal =
+            this.#commands.context.schema.keyPortabilityRefusal(
+              edge.target,
+              childUpdate
+            );
           if (keyRefusal && verb !== "upsert") throw keyRefusal;
           const missing =
             conditional.create === undefined
               ? undefined
-              : this.commands.create(
-                  edge.target,
+              : this.#child(
+                  edge,
                   record(conditional.create),
-                  record(source.create),
-                  edge.kind === "reference" && edge.owner === "target"
-                    ? { edge, source: parent.fields }
-                    : undefined,
-                  parent.operation ?? parent.fields.operation,
-                  parent.fields.deferred
+                  record(source.create)
                 );
           if (missing) missing.origin = origin;
           const correlated =
             (verb === "update" || verb === "upsert") &&
             parent.fields.operation === "update";
           const continuation =
-            verb === "update" && !edge.many ? this.supplier : undefined;
+            verb === "update" && !edge.many ? this.#supplier : undefined;
           const suppliedSelector =
             continuation?.kind === "query" ? continuation : undefined;
-          const queries = this.commands.context.queries;
+          const queries = this.#commands.context.queries;
           const ownSelector = queries.prepareSelector(
             edge.target,
             conditional.where as Input | undefined,
@@ -570,7 +571,7 @@ export class RelationBody {
               purpose: selectionSource.purpose,
             };
             continuation.producer.select(
-              storedFields(this.commands.context.schema, edge.target)
+              storedFields(this.#commands.context.schema, edge.target)
             );
           }
           let foundMembership: BoundMembership | undefined;
@@ -601,7 +602,7 @@ export class RelationBody {
             );
             const membership = {
               edge,
-              parent: this.correlationParent(
+              parent: this.#correlationParent(
                 edge,
                 verb,
                 Object.fromEntries(
@@ -609,7 +610,7 @@ export class RelationBody {
                 )
               ),
             };
-            this.membershipSource(edge, membership.parent);
+            this.#membershipSource(edge, membership.parent);
             if (verb === "upsert" && conditional.where !== undefined)
               foundMembership = membership;
             else
@@ -621,15 +622,11 @@ export class RelationBody {
                 purpose: selectionSource.purpose,
               };
           }
-          const lookup = this.commands.lookup(
+          const lookup = this.#commands.lookup(
             edge.target,
             selectionSource,
             verb === "connect" || verb === "update"
-              ? () =>
-                  new NestedWriteError(
-                    `Cannot ${verb} relation '${edge.name}': target record was not found${verb === "update" ? " for this parent" : ""}.`,
-                    edge.name
-                  )
+              ? () => missingTarget(verb, edge.name, verb === "update")
               : undefined,
             facts
           );
@@ -661,23 +658,19 @@ export class RelationBody {
           // `required` already spells.
           if (verb === "connect" && !lookup.membershipOnly)
             lookup.retained = lookup.required;
-          if (this.direct && verb === "connect") this.requireLookup(lookup);
+          if (this.#direct && verb === "connect") this.#requireLookup(lookup);
           if (
             correlated &&
             !continuation &&
             verb === "update" &&
             edge.kind === "junction"
           )
-            this.requireLookup(lookup);
+            this.#requireLookup(lookup);
           const foundRequirement: MembershipRequirement | undefined =
             foundMembership && {
               selection: lookup,
               membership: foundMembership,
-              failure: () =>
-                new NestedWriteError(
-                  `Cannot upsert relation '${edge.name}': target record was not found for this parent.`,
-                  edge.name
-                ),
+              failure: () => missingTarget("upsert", edge.name),
             };
           const chosen = new Assignments(
             edge.target,
@@ -695,13 +688,13 @@ export class RelationBody {
             lookup,
             foundRequirement,
             missing: missing
-              ? this.commands.occurrence(missing, "after")
+              ? this.#commands.occurrence(missing, "after")
               : undefined,
             fields: chosen,
             found:
               verb === "upsert" || verb === "update"
-                ? this.commands.occurrence(
-                    this.commands.update(
+                ? this.#commands.occurrence(
+                    this.#commands.update(
                       lookup,
                       record(childUpdate),
                       record(
@@ -725,28 +718,29 @@ export class RelationBody {
             if (keyRefusal) target.found.command.fields.reject(keyRefusal);
           }
           this.association(edge, target, correlated);
-          this.supply(target);
+          this.#supply(target);
         }
         break;
       }
       case "set": {
-        this.replaceMembership(edge, entries(payload), origin);
+        this.#replaceMembership(edge, entries(payload), origin);
         break;
       }
       case "updateMany":
       case "deleteMany": {
         const rawMembers = entries(rawPayload);
-        parent.fields.select(this.commands.context.schema.keys(parent.model));
-        this.membershipSource(edge, parent.fields);
+        parent.fields.select(this.#commands.context.schema.keys(parent.model));
+        this.#membershipSource(edge, parent.fields);
         for (const [index, member] of entries(payload).entries()) {
           const origin = entryOrigin();
           const input = record(member);
           // The same owner, at the third nested position that admits an update
           // payload. A `deleteMany` member has no `data`, so it asks nothing.
-          const keyRefusal = this.commands.context.schema.keyPortabilityRefusal(
-            edge.target,
-            input.data
-          );
+          const keyRefusal =
+            this.#commands.context.schema.keyPortabilityRefusal(
+              edge.target,
+              input.data
+            );
           if (keyRefusal) throw keyRefusal;
           const where =
             verb === "updateMany"
@@ -762,14 +756,14 @@ export class RelationBody {
           // (`RelationWritePart.ts:484-504`, `:674-693`). A junction member set
           // must still be materialised through the join table, and a
           // relation-bearing `updateMany` still owns a record per member.
-          const context = this.commands.context;
+          const context = this.#commands.context;
           // A managed target's members are tombstoned: their candidates are the
           // call's and the default domain's, and they keep every link.
           const tombstone =
             verb === "deleteMany"
-              ? this.commands.tombstone(edge.target)
+              ? this.#commands.tombstone(edge.target)
               : undefined;
-          const selector = this.commands.candidates(
+          const selector = this.#commands.candidates(
             context.queries.prepareSelector(edge.target, where),
             "related",
             tombstone !== undefined
@@ -790,7 +784,7 @@ export class RelationBody {
                 ? {
                     values: tombstone
                       ? data
-                      : this.commands.stamp(
+                      : this.#commands.stamp(
                           edge.target,
                           "update",
                           data,
@@ -802,17 +796,17 @@ export class RelationBody {
               origin,
             };
             if (tombstone)
-              this.requireUnreferenced(
+              this.#requireUnreferenced(
                 edge,
                 parent.fields,
                 selector,
                 origin,
                 true
               );
-            this.commands.place(parent, mutation, "after", origin);
+            this.#commands.place(parent, mutation, "after", origin);
             continue;
           }
-          const selection = this.commands.lookup(
+          const selection = this.#commands.lookup(
             edge.target,
             {
               kind: "query",
@@ -821,8 +815,8 @@ export class RelationBody {
               membership: { edge, parent: parent.fields },
             },
             () =>
-              new NestedWriteError(
-                `Cannot ${verb === "updateMany" ? "update" : "delete"} relation '${edge.name}': target record was not found for this parent.`,
+              missingTarget(
+                verb === "updateMany" ? "update" : "delete",
                 edge.name
               )
           );
@@ -840,7 +834,7 @@ export class RelationBody {
                 };
           const analysis: RecordCommand | Deletion =
             mutation.kind === "update"
-              ? this.commands.update(selection, data, mutation.raw, true)
+              ? this.#commands.update(selection, data, mutation.raw, true)
               : {
                   kind: "delete",
                   located: selection,
@@ -854,14 +848,14 @@ export class RelationBody {
             mutation,
           };
           if (tombstone)
-            this.requireUnreferenced(edge, parent.fields, selector, origin);
-          const target = this.commands.place(
+            this.#requireUnreferenced(edge, parent.fields, selector, origin);
+          const target = this.#commands.place(
             parent,
-            this.commands.selectedSeries(series),
+            this.#commands.selectedSeries(series),
             "after",
             origin
           );
-          this.requireSeriesCapture(target);
+          this.#requireSeriesCapture(target);
         }
         break;
       }
@@ -875,14 +869,14 @@ export class RelationBody {
    * a restricting slot. The parent's own link is excepted: the tombstone keeps
    * it, where a hard delete removes it before the row.
    */
-  private requireUnreferenced(
+  #requireUnreferenced(
     edge: Membership,
     parent: Assignments,
     candidates: PreparedSelector,
     origin: Origin,
     lock?: true
   ): void {
-    const commands = this.commands;
+    const commands = this.#commands;
     const schema = commands.context.schema;
     const slots = schema.restrictingSlots(edge.target);
     if (slots.length === 0) return;
@@ -899,40 +893,34 @@ export class RelationBody {
       failure: commands.restrictFailure(edge.target),
       restrict: { candidates, except, lock },
     };
-    commands.place(this.parent, requirement, "after", origin);
+    commands.place(this.#parent, requirement, "after", origin);
   }
-  private requireLookup(
+  #requireLookup(
     lookup: Selection | JunctionCapture | AbsenceRequirement
   ): CommandOccurrence<Selection | JunctionCapture | AbsenceRequirement> {
-    const parent = this.parent;
+    const parent = this.#parent;
     if (lookup.kind === "lookup") lookup.retained ??= lookup.required;
-    return this.commands.place(parent, lookup, "before");
+    return this.#commands.place(parent, lookup, "before");
   }
-  private requireSeriesCapture(
-    target: CommandOccurrence<SeriesOccurrence>
-  ): void {
+  #requireSeriesCapture(target: CommandOccurrence<SeriesOccurrence>): void {
     const command: SeriesCapture = {
       kind: "captureSeries",
       target,
     };
-    this.commands.place(this.parent, command, "capture");
+    this.#commands.place(this.#parent, command, "capture");
   }
-  private replaceMembership(
+  #replaceMembership(
     edge: Membership,
     selectors: Input[],
     origin: Origin
   ): void {
-    const targets = this.setTargets(edge, selectors, origin);
-    this.clearMembership(edge, targets, origin);
+    const targets = this.#setTargets(edge, selectors, origin);
+    this.#clearMembership(edge, targets, origin);
     for (const target of targets) this.association(edge, target);
   }
-  private setTargets(
-    edge: Membership,
-    selectors: Input[],
-    origin: Origin
-  ): Choose[] {
+  #setTargets(edge: Membership, selectors: Input[], origin: Origin): Choose[] {
     return selectors.map((where): Choose => {
-      const lookup = this.commands.lookup(
+      const lookup = this.#commands.lookup(
         edge.target,
         {
           kind: "query",
@@ -940,17 +928,13 @@ export class RelationBody {
           unique: nestedTargetAddressesConstraint(edge, "set"),
           purpose: "related",
         },
-        () =>
-          new NestedWriteError(
-            `Cannot set relation '${edge.name}': target record was not found.`,
-            edge.name
-          )
+        () => missingTarget("set", edge.name, false)
       );
       // One origin for the whole set: its lookups, its clear and its
       // associations are one mutation, and a dependent lookup lands ahead of
       // the clear that keeps its row (N1).
       lookup.origin = origin;
-      this.requireLookup(lookup);
+      this.#requireLookup(lookup);
       const target: Choose = {
         kind: "choose",
         model: edge.target,
@@ -958,17 +942,13 @@ export class RelationBody {
         fields: new Assignments(edge.target, "select"),
       };
       target.lookup.fields.select(
-        this.commands.context.schema.keys(edge.target)
+        this.#commands.context.schema.keys(edge.target)
       );
       return target;
     });
   }
-  private clearMembership(
-    edge: Membership,
-    targets: Choose[],
-    origin: Origin
-  ): void {
-    const parent = this.parent;
+  #clearMembership(edge: Membership, targets: Choose[], origin: Origin): void {
+    const parent = this.#parent;
     if (edge.kind === "reference") {
       if (edge.clearability.kind === "none") {
         const required = [
@@ -977,7 +957,7 @@ export class RelationBody {
             : []),
           ...edge.pairs.map((pair) => pair.target),
         ];
-        this.membershipSource(edge, parent.located!.fields);
+        this.#membershipSource(edge, parent.located!.fields);
         const requirement: AbsenceRequirement = {
           kind: "absent",
           model: edge.target,
@@ -989,14 +969,14 @@ export class RelationBody {
               edge.name
             ),
         };
-        this.commands.place(
+        this.#commands.place(
           parent,
           requirement,
           "before",
           targets.at(-1)?.lookup.origin ?? origin
         );
       } else
-        this.commands.place(
+        this.#commands.place(
           parent,
           {
             kind: "remove",
@@ -1009,7 +989,7 @@ export class RelationBody {
           origin
         );
     } else
-      this.commands.place(
+      this.#commands.place(
         parent,
         { kind: "remove", edge, source: parent.fields, keep: [], origin },
         "after",
@@ -1034,7 +1014,7 @@ export class RelationBody {
     premise = false,
     seriesMember?: RecordCommand
   ): CommandOccurrence<RecordCommand | Choose> {
-    const source = this.parent;
+    const source = this.#parent;
     const conditionalParentBinding =
       edge.kind === "reference" &&
       edge.owner !== "source" &&
@@ -1044,8 +1024,8 @@ export class RelationBody {
         : undefined;
     if (conditionalParentBinding && !conditionalParentBinding.target.found) {
       const { lookup } = conditionalParentBinding.target;
-      conditionalParentBinding.target.found = this.commands.occurrence(
-        this.commands.update(lookup, MEMBERSHIP_MOVE, {}, true),
+      conditionalParentBinding.target.found = this.#commands.occurrence(
+        this.#commands.update(lookup, MEMBERSHIP_MOVE, {}, true),
         "after"
       );
     }
@@ -1076,7 +1056,7 @@ export class RelationBody {
       target.foundRequirement === undefined
     )
       target.found.command.fields.select(
-        this.commands.context.schema.keys(target.model)
+        this.#commands.context.schema.keys(target.model)
       );
     if (target.kind === "choose" && target.found)
       target.fields.forward(target.found.command.fields);
@@ -1098,8 +1078,8 @@ export class RelationBody {
     const placement =
       edge.kind === "reference" && edge.owner === "source" ? "before" : "after";
     const occurrence = seriesMember
-      ? this.commands.occurrence(target, "root")
-      : this.commands.place(source, target, placement, origin);
+      ? this.#commands.occurrence(target, "root")
+      : this.#commands.place(source, target, placement, origin);
     if (edge.kind === "reference" && edge.owner === "source") {
       const contribution = origin
         ? {
@@ -1108,7 +1088,7 @@ export class RelationBody {
             identity: source.located?.facts,
           }
         : undefined;
-      this.commands.assignMembership(edge, source.fields, target.fields, {
+      this.#commands.assignMembership(edge, source.fields, target.fields, {
         carried:
           premise && target.kind === "choose"
             ? target.found?.command.fields
@@ -1118,7 +1098,7 @@ export class RelationBody {
           (target.kind === "choose" && target.missing !== undefined),
       });
       if (contribution)
-        this.commands.publishMembership(
+        this.#commands.publishMembership(
           occurrence,
           source.fields,
           contribution
@@ -1134,13 +1114,13 @@ export class RelationBody {
             identity: conditionalFound.command.located?.facts,
           }
         : undefined;
-      this.commands.assignMembership(
+      this.#commands.assignMembership(
         reference,
         conditionalFound.command.fields,
         source.fields
       );
       if (contribution)
-        this.commands.publishMembership(
+        this.#commands.publishMembership(
           occurrence,
           conditionalFound.command.fields,
           contribution
@@ -1170,8 +1150,8 @@ export class RelationBody {
             ])
           ),
         };
-        if (address !== source.located) this.requireLookup(address);
-        this.requireLookup(captured);
+        if (address !== source.located) this.#requireLookup(address);
+        this.#requireLookup(captured);
       } else if (
         seriesMember &&
         edge.uniqueSide === "target" &&
@@ -1198,7 +1178,7 @@ export class RelationBody {
             ])
           ),
         };
-        this.commands.place(seriesMember, captured, "before");
+        this.#commands.place(seriesMember, captured, "before");
       }
       const removals = source.body
         .map((candidate) => candidate.command)
@@ -1209,16 +1189,16 @@ export class RelationBody {
             command.edge.table === edge.table
         );
       for (const removal of removals) {
-        this.linkFields(removal.edge, removal.source, removal.target);
+        this.#linkFields(removal.edge, removal.source, removal.target);
         for (const retained of removal.keep)
-          this.linkFields(removal.edge, undefined, retained);
+          this.#linkFields(removal.edge, undefined, retained);
       }
-      this.commands.place(
+      this.#commands.place(
         seriesMember ?? source,
         {
           kind: "link",
           edge,
-          values: this.linkFields(edge, source.fields, target.fields),
+          values: this.#linkFields(edge, source.fields, target.fields),
           captured,
           removals,
           origin,
@@ -1231,12 +1211,12 @@ export class RelationBody {
       target.kind === "choose" &&
       target.missing
     )
-      this.commands.place(
+      this.#commands.place(
         target.missing.command,
         {
           kind: "link",
           edge,
-          values: this.linkFields(
+          values: this.#linkFields(
             edge,
             source.fields,
             target.missing.command.fields
@@ -1270,12 +1250,12 @@ export class RelationBody {
    * projects what the view will read. A JUNCTION's membership is the captured
    * PAIR, which no SET of the parent's own columns moves.
    */
-  private correlationParent(
+  #correlationParent(
     edge: Membership,
     verb: RelationVerb,
     final: Record<string, FieldValue>
   ): Assignments {
-    const parent = this.parent;
+    const parent = this.#parent;
     const located = parent.located!.fields;
     if (edge.kind === "junction") return located;
     if (edge.owner !== "source" || verb === "update") return parent.fields;
@@ -1286,30 +1266,22 @@ export class RelationBody {
       view.restate(field, value);
     return view;
   }
-  private membershipSource(
+  #membershipSource(
     edge: Membership,
     source: Assignments
   ): Record<string, FieldValue> {
     return source.select(membershipFields(edge));
   }
-  private linkFields(
+  #linkFields(
     edge: Junction,
     source?: Assignments,
     target?: Assignments
   ): Record<string, FieldValue> {
-    return Object.fromEntries([
-      ...(source
-        ? edge.sourceSide.members.map((pair) => [
-            pair.junctionField,
-            source.field(pair.referencedField),
-          ])
-        : []),
-      ...(target
-        ? edge.targetSide.members.map((pair) => [
-            pair.junctionField,
-            target.field(pair.referencedField),
-          ])
-        : []),
-    ]);
+    return junctionPairs(
+      edge,
+      (owner, field) => owner.field(field),
+      source,
+      target
+    );
   }
 }

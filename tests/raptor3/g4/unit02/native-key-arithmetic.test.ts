@@ -18,8 +18,8 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 
 const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
@@ -64,7 +64,7 @@ describe.runIf(provider === "mysql" && port > 0)(
           });
           await driver._executeRaw(`DELETE FROM ${table}`);
           await driver._executeRaw(seed);
-          const candidate = await createCommandEngine({
+          const candidate = await createTestCommandEngine({
             schema,
             driver,
           }).execute("row", "update", { where: { id: 7 }, data: { id: data } });

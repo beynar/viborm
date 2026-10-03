@@ -88,6 +88,15 @@ const PARAMETER_KEYS = new Set([
   "values",
 ]);
 const CAUSE_KEYS = new Set(["cause", "originalcause"]);
+/** How one metadata key's value is admitted. */
+enum MetaValue {
+  String = 0,
+  StringArray = 1,
+  /** A finite, non-negative number no larger than `Number.MAX_SAFE_INTEGER`. */
+  Count = 2,
+  /** The key has its own rule in {@link filterAllowedDiagnosticValue}. */
+  OwnRule = 3,
+}
 // Seven of these keys name a MIGRATION ESTATE: `namespace` (the configured
 // schema/database), `target`, `journalTarget` and `clientTarget` (formatted
 // estate descriptions a refusal compares), `command` (the migration verb that
@@ -97,111 +106,75 @@ const CAUSE_KEYS = new Set(["cause", "originalcause"]);
 // data, query text, or credentials — and plan §3.3 requires the normalized
 // namespace to reach safe metadata, so a refusal can be read programmatically
 // instead of only as prose.
-const ERROR_META_KEYS = new Set([
-  "actualChecksum",
-  "actualResultCount",
-  "actualRowCount",
-  "autoIncrement",
-  "candidates",
-  "clientTarget",
-  "column",
-  "columns",
-  "command",
-  "commitCertainty",
-  "conflictsWith",
-  "constraint",
-  "context",
-  "correlationId",
-  "dialect",
-  "driver",
-  "expectedChecksum",
-  "expectedResultCount",
-  "expectedRowCount",
-  "expectedStatementCount",
-  "feature",
-  "field",
-  "hint",
-  "indexName",
-  "indexType",
-  "journalTarget",
-  "method",
-  "migrationIndex",
-  "migrationName",
-  "migrationsDir",
-  "model",
-  "namespace",
-  "operation",
-  "parameterIndex",
-  "params",
-  "providerCode",
-  "providerErrno",
-  "providerSqlState",
-  "providerStatus",
-  "query",
-  "recordSeriesProgress",
-  "referencedTable",
-  "relation",
-  "relations",
-  "representation",
-  "resultIndex",
-  "scalarType",
-  "statementIndex",
-  "step",
-  "strategy",
-  "table",
-  "target",
-  "timeout",
-  "type",
-]);
-const STRING_META_KEYS = new Set([
-  "actualChecksum",
-  "clientTarget",
-  "column",
-  "command",
-  "conflictsWith",
-  "constraint",
-  "context",
-  "correlationId",
-  "deprecation",
-  "dialect",
-  "driver",
-  "expectedChecksum",
-  "feature",
-  "field",
-  "hint",
-  "indexName",
-  "indexType",
-  "journalTarget",
-  "method",
-  "migrationName",
-  "migrationsDir",
-  "model",
-  "namespace",
-  "notice",
-  "operation",
-  "referencedTable",
-  "relation",
-  "representation",
-  "scalarType",
-  "step",
-  "strategy",
-  "table",
-  "target",
-  "type",
-]);
-const STRING_ARRAY_META_KEYS = new Set(["candidates", "columns", "relations"]);
-const NUMBER_META_KEYS = new Set([
-  "actualResultCount",
-  "actualRowCount",
-  "expectedResultCount",
-  "expectedRowCount",
-  "expectedStatementCount",
-  "migrationIndex",
-  "parameterIndex",
-  "resultIndex",
-  "statementIndex",
-  "timeout",
-]);
+/**
+ * Every metadata key a sanitizer may keep, and how its value is admitted — in
+ * key order, which is also the order sanitized metadata lists them.
+ */
+const META_KEY_VALUES: Readonly<Record<string, MetaValue>> = {
+  actualChecksum: MetaValue.String,
+  actualResultCount: MetaValue.Count,
+  actualRowCount: MetaValue.Count,
+  autoIncrement: MetaValue.OwnRule,
+  candidates: MetaValue.StringArray,
+  clientTarget: MetaValue.String,
+  column: MetaValue.String,
+  columns: MetaValue.StringArray,
+  command: MetaValue.String,
+  commitCertainty: MetaValue.OwnRule,
+  conflictsWith: MetaValue.String,
+  constraint: MetaValue.String,
+  context: MetaValue.String,
+  correlationId: MetaValue.String,
+  deprecation: MetaValue.String,
+  dialect: MetaValue.String,
+  driver: MetaValue.String,
+  expectedChecksum: MetaValue.String,
+  expectedResultCount: MetaValue.Count,
+  expectedRowCount: MetaValue.Count,
+  expectedStatementCount: MetaValue.Count,
+  feature: MetaValue.String,
+  field: MetaValue.String,
+  hint: MetaValue.String,
+  indexName: MetaValue.String,
+  indexType: MetaValue.String,
+  journalTarget: MetaValue.String,
+  method: MetaValue.String,
+  migrationIndex: MetaValue.Count,
+  migrationName: MetaValue.String,
+  migrationsDir: MetaValue.String,
+  model: MetaValue.String,
+  namespace: MetaValue.String,
+  notice: MetaValue.String,
+  operation: MetaValue.String,
+  parameterIndex: MetaValue.Count,
+  params: MetaValue.OwnRule,
+  providerCode: MetaValue.OwnRule,
+  providerErrno: MetaValue.OwnRule,
+  providerSqlState: MetaValue.OwnRule,
+  providerStatus: MetaValue.OwnRule,
+  query: MetaValue.OwnRule,
+  recordSeriesProgress: MetaValue.OwnRule,
+  referencedTable: MetaValue.String,
+  relation: MetaValue.String,
+  relations: MetaValue.StringArray,
+  representation: MetaValue.String,
+  resultIndex: MetaValue.Count,
+  scalarType: MetaValue.String,
+  statementIndex: MetaValue.Count,
+  step: MetaValue.String,
+  strategy: MetaValue.String,
+  table: MetaValue.String,
+  target: MetaValue.String,
+  timeout: MetaValue.Count,
+  type: MetaValue.String,
+};
+// `deprecation` and `notice` are logger metadata (instrumentation/logger.ts);
+// an error's metadata keeps every other key.
+const ERROR_META_KEYS: ReadonlySet<string> = new Set(
+  Object.keys(META_KEY_VALUES).filter(
+    (key) => key !== "deprecation" && key !== "notice"
+  )
+);
 const REDACTED_CAUSE_MESSAGE = "Underlying error details redacted";
 const REDACTED_ERROR_MESSAGE = "Error details redacted";
 const CIRCULAR_VALUE = "[Circular]";
@@ -695,11 +668,12 @@ function filterAllowedDiagnosticValue(
   if (key === "providerErrno") return sanitizeProviderErrno(value);
   if (key === "providerSqlState") return sanitizeSqlState(value);
   if (key === "providerStatus") return sanitizeProviderStatus(value);
-  if (STRING_META_KEYS.has(key)) {
+  const admission = META_KEY_VALUES[key];
+  if (admission === MetaValue.String) {
     return typeof value === "string" ? value : undefined;
   }
-  if (STRING_ARRAY_META_KEYS.has(key)) return sanitizeStringArray(value);
-  if (NUMBER_META_KEYS.has(key)) {
+  if (admission === MetaValue.StringArray) return sanitizeStringArray(value);
+  if (admission === MetaValue.Count) {
     return typeof value === "number" &&
       Number.isFinite(value) &&
       value >= 0 &&
@@ -712,8 +686,8 @@ function filterAllowedDiagnosticValue(
   }
   if (key === "query") return typeof value === "string" ? value : undefined;
   if (key === "params") return isArrayValue(value) ? value : undefined;
-  // The two owner key sets contain no other member. A future unclassified key
-  // reaches JavaScript's fail-closed `undefined` until it receives a rule.
+  // No other key carries MetaValue.OwnRule. A future unclassified key reaches
+  // JavaScript's fail-closed `undefined` until it receives a rule.
 }
 
 function safeProgressInteger(value: unknown): number | undefined {

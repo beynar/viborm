@@ -1,0 +1,33 @@
+{
+  "sourceCommit": "f3174cc97",
+  "baseCommit": "30ff17e69fcb936b40ec3866029117fa5b4cb5dd",
+  "sourceSha256": "2c74d1b8ef1a043da2e7ad2bed6c20b2e754d11f4e5bd935675f5339bdc227b8",
+  "sourceHashMethod": "Sorted path relative to src, then file bytes, for every *.ts",
+  "checks": {
+    "types": {
+      "log": "types.log",
+      "sha256": "87a684c3c904664afe8255b44556a6ae6e33f7d5c46566da0cc8bbed394e2d90"
+    },
+    "core": {
+      "log": "core.log",
+      "sha256": "8ff5e90e0b34fbd420fa6cb52ced4e2a876557b08c048ff6f99da8e1c9acd0bd"
+    },
+    "engine": {
+      "log": "engine.log",
+      "sha256": "9b160e60f6ad01be1a78e036f7eb792b3de3d5be41ead306740c1aff9aceef41"
+    },
+    "build": {
+      "log": "build.log",
+      "sha256": "4a5576663931e91eb706ee214b7472f5f7989b7e4fcf628841034715404cc1bc"
+    }
+  },
+  "stopped": "User stopped further performance work before package-consumer tests, new baseline build, fresh-client A/B or new disposal check. Remote CI is pending.",
+  "coverageRepair": {
+    "behavior": "An independently supplied index derives identifier domains once and reuses its own result; an already published topology reads no scalars again.",
+    "test": "tests/unit/schema-validation/id-domain-derivation.core.test.ts",
+    "initial": "Schema statements 99.97%, branches 99.96%, lines 99.97%; uncached fallback unexecuted.",
+    "final": "Schema statements, branches, functions and lines all 100%.",
+    "logs": ["schema-coverage.log.gz", "schema-coverage-final.log.gz"],
+    "productionChanged": false
+  }
+}

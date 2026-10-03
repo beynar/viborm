@@ -28,6 +28,7 @@ export {
   type SQLiteStatementResultKind,
 } from "./sqlite-statement-classifier";
 export {
+  convertValueForSQLite,
   convertValuesForSQLite,
   isSQLiteBinaryValue,
   type SQLiteBinaryValue,

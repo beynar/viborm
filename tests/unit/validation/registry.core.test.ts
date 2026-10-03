@@ -1,7 +1,7 @@
 import { ValidationError } from "@errors";
 import { s } from "@schema";
-import { createSchemaRegistry } from "@validation";
-import { describe, expect, test } from "vitest";
+import { createSchemaRegistry, parse, v } from "@validation";
+import { describe, expect, test, vi } from "vitest";
 
 /**
  * The schema registry's OWN refusals.
@@ -57,6 +57,33 @@ describe("schema registry proxy", () => {
     const lookup = registry();
     expect(lookup.proxy.user).toBe(lookup.proxy.user);
     expect(lookup.proxy.user.args).toBeDefined();
+  });
+
+  test("find args defer distinct construction and preserve its normalization", () => {
+    const schemas = registry().proxy.user;
+    const enumSpy = vi.spyOn(v, "enum");
+    try {
+      const many = schemas.args.findMany;
+      const first = schemas.args.findFirst;
+      expect(parse(many, { take: 1 })).toEqual({ value: { take: 1 } });
+      expect(parse(first, { distinct: undefined })).toEqual({ value: {} });
+      expect(enumSpy).not.toHaveBeenCalled();
+
+      expect(parse(many, { distinct: "name" })).toEqual({
+        value: { distinct: ["name"] },
+      });
+      expect(parse(many, { distinct: ["id", "age"] })).toEqual({
+        value: { distinct: ["id", "age"] },
+      });
+      expect(enumSpy).toHaveBeenCalledOnce();
+      expect(parse(first, { distinct: "age" })).toEqual({
+        value: { distinct: ["age"] },
+      });
+      expect(enumSpy).toHaveBeenCalledTimes(2);
+      expect(parse(many, { distinct: "unknown" }).issues).toBeDefined();
+    } finally {
+      enumSpy.mockRestore();
+    }
   });
 });
 

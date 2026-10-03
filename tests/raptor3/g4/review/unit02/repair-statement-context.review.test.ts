@@ -15,9 +15,9 @@ import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { createExecutionContext } from "@drivers/execution-context";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
 
@@ -173,7 +173,7 @@ describe("G4-02 review (repair) — per-statement model attribution parity", () 
       const shippedTally = tally(shippedWorld.driver);
 
       const candidateWorld = await world();
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema,
         driver: candidateWorld.driver,
       });

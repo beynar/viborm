@@ -12,10 +12,10 @@ import { createClient } from "@client/client";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { NotFoundError, QueryEngineError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
@@ -31,7 +31,10 @@ afterEach(async () => {
 const SAVEPOINT_STATEMENT = /^SAVEPOINT\b/i;
 
 function engineOf(current: World) {
-  return createCommandEngine({ schema: worldSchema, driver: current.driver });
+  return createTestCommandEngine({
+    schema: worldSchema,
+    driver: current.driver,
+  });
 }
 
 /** Regions opened INSIDE a caller's transaction are savepoints, not BEGINs. */
@@ -167,7 +170,7 @@ async function arithmeticWorld() {
   const client = createClient({ schema: arithmeticSchema, driver });
   if (!(await syncLiveSchema(client)).applied)
     throw new Error("the arithmetic world did not apply its schema");
-  const engine = createCommandEngine({ schema: arithmeticSchema, driver });
+  const engine = createTestCommandEngine({ schema: arithmeticSchema, driver });
   await engine.execute("ledger", "create", {
     data: {
       id: 1,
@@ -318,7 +321,7 @@ describe("G4-02 a statement-atomic operation has no record series", () => {
     try {
       if (!(await syncLiveSchema(client)).applied)
         throw new Error("the arithmetic world did not apply its schema");
-      const engine = createCommandEngine({ schema: worldSchema, driver });
+      const engine = createTestCommandEngine({ schema: worldSchema, driver });
       await engine.execute("author", "create", {
         data: { id: 1, name: "A", age: 1 },
       });

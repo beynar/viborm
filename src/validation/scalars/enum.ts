@@ -118,13 +118,19 @@ const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
   schema: S,
   values: Values
 ): EnumListFilterSchema<S, Values> =>
-  listFilterFamily(enumBase(values), enumList(values))(schema);
+  listFilterFamily(
+    () => enumBase(values),
+    () => enumList(values)
+  )(schema);
 
 const buildEnumListUpdateSchema = <S extends V.Schema, Values extends string[]>(
   schema: S,
   values: Values
 ): EnumListUpdateSchema<S, Values> =>
-  listUpdateFamily(enumBase(values), enumList(values))(schema);
+  listUpdateFamily(
+    () => enumBase(values),
+    () => enumList(values)
+  )(schema);
 
 // =============================================================================
 // ENUM SCHEMA BUILDER

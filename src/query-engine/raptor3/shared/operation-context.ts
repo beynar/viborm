@@ -10,6 +10,10 @@ import {
   deriveStatementExecutionContext,
   getExecutionExtensionChain,
 } from "@drivers/execution-context";
+import {
+  borrowPositionalResult,
+  resolvePositionalResultDriver,
+} from "@drivers/positional-result";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import type {
   BatchQuery,
@@ -229,8 +233,12 @@ function droppedSkipMessage(
   return `createMany skipDuplicates cannot skip ${rows} on driver "${driver}" (no savepoint in this scope to undo a duplicate) in ${model}.${operation}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
 }
 
-/** Client lineages (by their engine schema) and the models already warned. */
-const droppedSkipWarnings = new WeakMap<EngineSchema, Set<string>>();
+/**
+ * Client lineages and the models already warned. A lineage is one
+ * `createClient`: its derived and transaction views share it. Neither the
+ * engine schema nor the driver is one — independent clients may share both.
+ */
+const droppedSkipWarnings = new WeakMap<object, Set<string>>();
 
 /**
  * Warn ONCE per client lineage and model — not per row, not per call. The
@@ -239,14 +247,14 @@ const droppedSkipWarnings = new WeakMap<EngineSchema, Set<string>>();
  * off.
  */
 function warnDroppedSkip(
-  schema: EngineSchema,
+  lineage: object,
   model: string,
   operation: Operation,
   message: string,
   attribution: QueryExecutionContext | undefined
 ): void {
-  let warned = droppedSkipWarnings.get(schema);
-  if (!warned) droppedSkipWarnings.set(schema, (warned = new Set()));
+  let warned = droppedSkipWarnings.get(lineage);
+  if (!warned) droppedSkipWarnings.set(lineage, (warned = new Set()));
   if (warned.has(model)) return;
   warned.add(model);
   const presented = getOfficialInstrumentationChainCapability(
@@ -264,7 +272,7 @@ export class OperationContext {
   readonly queries: Queries;
   readonly driver: AnyDriver;
   readonly usesBatch: boolean;
-  private readonly ownership: ExecutionOwnership;
+  readonly #ownership: ExecutionOwnership;
   /**
    * Whether this context PREPARES a package for the array owner instead of
    * executing: the one route that can issue no planning read of its own,
@@ -272,16 +280,16 @@ export class OperationContext {
    * plan to choose a form that needs no such read (D-46).
    */
   get preparesBatch(): boolean {
-    return this.ownership === "batch-preparation";
+    return this.#ownership === "batch-preparation";
   }
-  private readonly memberRollback?: MemberRollback;
-  private readonly operationRegion?: MemberRollback;
+  readonly #memberRollback: MemberRollback | undefined;
+  readonly #operationRegion: MemberRollback | undefined;
   /** Where this operation states its own durable write phase ({@link WriteOutcomeSeam}). */
-  private readonly writeOutcome?: WriteOutcomeSeam;
+  readonly #writeOutcome: WriteOutcomeSeam | undefined;
   /** True only while the operation's OWN region is the current transport. */
-  private ownRegionOpen = false;
-  private transport: AnyDriver;
-  private attemptStore?: TransportAttempt;
+  #ownRegionOpen = false;
+  #transport: AnyDriver;
+  #attemptStore: TransportAttempt | undefined;
   /**
    * The operation's disposable transport attempt, built on its FIRST use.
    *
@@ -292,25 +300,25 @@ export class OperationContext {
    * has queued anything reads {@link queued}, which answers an empty list
    * without creating an attempt, so no reader can tell absent from empty.
    */
-  private get attempt(): TransportAttempt {
-    return (this.attemptStore ??= new TransportAttempt());
+  get #attempt(): TransportAttempt {
+    return (this.#attemptStore ??= new TransportAttempt());
   }
   /** The statements queued on this operation's attempt; empty until one is. */
   private get queued(): readonly BatchQuery[] {
-    return this.attemptStore?.pending ?? NO_QUEUED_STATEMENTS;
+    return this.#attemptStore?.pending ?? NO_QUEUED_STATEMENTS;
   }
-  private committedMemberSet?: Set<Member>;
-  private memberAttributionMap?: WeakMap<Member, MemberAttribution>;
-  private continuationList?: Continuation[];
+  #committedMemberSet: Set<Member> | undefined;
+  #memberAttributionMap: WeakMap<Member, MemberAttribution> | undefined;
+  #continuationList: Continuation[] | undefined;
   /** The captured junction slots this attempt has already vacated ({@link link}). */
-  private vacatedMemberships?: SpentSlots;
+  #vacatedMemberships: SpentSlots | undefined;
   /** Generated-output continuations declared so far; none until one is. */
-  private get continuationCount(): number {
-    return this.continuationList?.length ?? 0;
+  get #continuationCount(): number {
+    return this.#continuationList?.length ?? 0;
   }
-  private committedSegments = 0;
-  private mayHaveCommittedSegment: true | undefined;
-  private completedMembers = 0;
+  #committedSegments = 0;
+  #mayHaveCommittedSegment: true | undefined;
+  #completedMembers = 0;
   /**
    * The shipped `hasCommittedRecordSeriesProgress` (`write-engine/routing.ts:197`),
    * and the ONE fact the recovery allowance is refused on (Arnaud's D-25).
@@ -322,8 +330,10 @@ export class OperationContext {
    * nothing was acknowledged by admitting a member, and requiring it here is
    * what made a raceable assertion over a captured member set unrecoverable.
    */
-  private get committedProgress(): boolean {
-    return this.committedSegments > 0 || this.mayHaveCommittedSegment === true;
+  get #committedProgress(): boolean {
+    return (
+      this.#committedSegments > 0 || this.#mayHaveCommittedSegment === true
+    );
   }
   /**
    * Has this operation admitted a DYNAMIC member — one whose defaults and
@@ -336,7 +346,7 @@ export class OperationContext {
    * RE-PLANS is not bounded by it — a fresh occurrence tree derives its
    * members from the committed state it re-reads.
    */
-  private memberAdmissionStarted = false;
+  #memberAdmissionStarted = false;
   /**
    * The transport window of the operation's OWN set-oriented statement, while
    * one is submitting ({@link setMutations}).
@@ -347,7 +357,7 @@ export class OperationContext {
    * one fact {@link failure} asks to decide whether an uncertain outcome is
    * PUBLIC progress or stays internal.
    */
-  private setWindow?: Member;
+  #setWindow: Member | undefined;
   /**
    * A write-outcome listener that failed while {@link submit} acknowledged its
    * committed segment, HELD until the operation's own answer to that batch is
@@ -360,8 +370,8 @@ export class OperationContext {
    * it) and composes only once `operation.parse` has answered (`:1332-1343`).
    */
   private heldOutcomeFailure?: { readonly failure: unknown };
-  private atomicAssertionRejection?: unknown;
-  private incompletePreparationSentinel?: Error;
+  #atomicAssertionRejection: unknown | undefined;
+  #incompletePreparationSentinel: Error | undefined;
   /**
    * The preparation sentinel, built on its FIRST use and never before.
    *
@@ -378,12 +388,12 @@ export class OperationContext {
    * it (a batch-preparation prefix flush, `commands/execution.ts:382`).
    */
   private get incompletePreparation(): Error {
-    return (this.incompletePreparationSentinel ??= new Error(
+    return (this.#incompletePreparationSentinel ??= new Error(
       "Raptor 3 operation requires dynamic execution"
     ));
   }
-  private preparedParser?: (results: QueryResult<unknown>[]) => unknown;
-  private preparedGuardList?: PreparedBatchGuard[];
+  #preparedParser: ((results: QueryResult<unknown>[]) => unknown) | undefined;
+  #preparedGuardList: PreparedBatchGuard[] | undefined;
   /**
    * Failures this operation has ALREADY ANSWERED with, which {@link failure}
    * returns unchanged: the premise it raised about the world (see `published`),
@@ -394,8 +404,8 @@ export class OperationContext {
    * progress-bearing aggregate of its PROGRESSIVE path is a different failure
    * that is attributed (`:1037-1046`) and is not marked here.
    */
-  private answeredFailureSet?: WeakSet<object>;
-  private correlationIdValue?: string;
+  #answeredFailureSet: WeakSet<object> | undefined;
+  #correlationIdValue: string | undefined;
   /**
    * This operation's correlation id, minted on its FIRST read and then stable
    * for the operation's life. The client route always hands its own trusted
@@ -404,8 +414,8 @@ export class OperationContext {
    * paying `crypto.randomUUID()` in the field block spent it on every operation
    * for the ones that never ask (rule 7).
    */
-  private get correlationId(): string {
-    return (this.correlationIdValue ??= crypto.randomUUID());
+  get #correlationId(): string {
+    return (this.#correlationIdValue ??= crypto.randomUUID());
   }
   /**
    * The operation's physical envelope. `deferred` is the only state in which the
@@ -413,9 +423,9 @@ export class OperationContext {
    * reaches its terminal statement without having issued any other, and `open`
    * when it does not (§ {@link run}).
    */
-  private envelope: "open" | "deferred" | "statement" = "open";
-  private performed = 0;
-  private requiresEnvelopeSentinel?: Error;
+  #envelope: "open" | "deferred" | "statement" = "open";
+  #performed = 0;
+  #requiresEnvelopeSentinel: Error | undefined;
   /**
    * The envelope sentinel, built on its FIRST use and never before — the same
    * control-flow value as {@link incompletePreparation} and for the same
@@ -424,7 +434,7 @@ export class OperationContext {
    * materialises it, and an operation that does pays for exactly one.
    */
   private get requiresEnvelope(): Error {
-    return (this.requiresEnvelopeSentinel ??= new Error(
+    return (this.#requiresEnvelopeSentinel ??= new Error(
       "Raptor 3 operation requires its physical envelope"
     ));
   }
@@ -440,7 +450,9 @@ export class OperationContext {
    * object, so the candidate passes it through rather than minting a second
    * attribution (g4/unit03/note.md B-4).
    */
-  private readonly callerAttribution: QueryExecutionContext | undefined;
+  readonly #callerAttribution: QueryExecutionContext | undefined;
+  /** The client lineage this operation belongs to (see `warnDroppedSkip`). */
+  readonly #lineage: object;
   constructor(
     schema: EngineSchema,
     factoryDriver: AnyDriver,
@@ -449,31 +461,33 @@ export class OperationContext {
     binding?: ExecutionBinding,
     prepareBatch = false,
     callerAttribution?: QueryExecutionContext,
-    scope?: CallScope
+    scope?: CallScope,
+    lineage: object = factoryDriver
   ) {
     this.scope = scope;
     this.schema = schema;
     this.modelName = modelName;
     this.operation = operation;
-    this.callerAttribution = callerAttribution;
-    this.ownership = prepareBatch
+    this.#callerAttribution = callerAttribution;
+    this.#lineage = lineage;
+    this.#ownership = prepareBatch
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
     this.driver =
       binding?.kind === "borrowed-transaction" ? binding.driver : factoryDriver;
-    this.writeOutcome = binding?.writeOutcome;
-    this.memberRollback =
+    this.#writeOutcome = binding?.writeOutcome;
+    this.#memberRollback =
       binding?.kind === "borrowed-transaction"
         ? binding.memberRollback
         : undefined;
-    this.operationRegion =
+    this.#operationRegion =
       binding?.kind === "borrowed-transaction"
         ? binding.operationRegion
         : undefined;
-    this.transport = this.driver;
+    this.#transport = this.driver;
     this.usesBatch =
-      this.ownership === "batch-preparation" ||
-      (this.ownership === "standalone" && !this.driver.supportsTransactions);
+      this.#ownership === "batch-preparation" ||
+      (this.#ownership === "standalone" && !this.driver.supportsTransactions);
     this.queries = new Queries(
       schema,
       this.driver.adapter,
@@ -483,10 +497,10 @@ export class OperationContext {
   }
   get attribution(): QueryExecutionContext {
     return (
-      this.callerAttribution ?? {
+      this.#callerAttribution ?? {
         model: this.modelName,
         operation: this.operation,
-        correlationId: this.correlationId,
+        correlationId: this.#correlationId,
       }
     );
   }
@@ -495,11 +509,11 @@ export class OperationContext {
    * context (and may be the caller's trusted object); an error's meta is the
    * candidate's own record and keeps the exact fields it has always carried.
    */
-  private get errorMeta(): Record<string, unknown> {
+  get #errorMeta(): Record<string, unknown> {
     return {
       model: this.modelName,
       operation: this.operation,
-      correlationId: this.correlationId,
+      correlationId: this.#correlationId,
     };
   }
   /**
@@ -519,19 +533,19 @@ export class OperationContext {
     operation: string
   ): QueryExecutionContext {
     const name = model["~"].names.ts!;
-    const caller = this.callerAttribution;
+    const caller = this.#callerAttribution;
     if (!caller)
-      return { model: name, operation, correlationId: this.correlationId };
+      return { model: name, operation, correlationId: this.#correlationId };
     return caller.model === name
       ? caller
       : deriveStatementExecutionContext(caller, name);
   }
-  private queue(
+  #queue(
     statement: Sql,
     context: QueryExecutionContext = this.attribution,
     member?: Member
   ): BatchQuery {
-    const prepared = this.transport._prepare(statement, context);
+    const prepared = this.#transport._prepare(statement, context);
     // The DRIVER owns this query's identity. When observers are installed it
     // DEFERS the statement transform and registers the typed `Sql` against the
     // object it returned (`drivers/driver-transaction-base.ts:246-264`), which
@@ -541,18 +555,18 @@ export class OperationContext {
       ...prepared,
       context,
     });
-    this.attempt.pending.push(query);
-    if (member) this.attempt.recordMember(member);
+    this.#attempt.pending.push(query);
+    if (member) this.#attempt.recordMember(member);
     return query;
   }
   prepareMembers<T extends Member>(prepare: () => T[], parent?: Member): T[] {
-    this.memberAdmissionStarted = true;
+    this.#memberAdmissionStarted = true;
     try {
       const members = prepare();
       const path = parent
-        ? (this.memberAttributionMap?.get(parent)?.path ?? [])
+        ? (this.#memberAttributionMap?.get(parent)?.path ?? [])
         : [];
-      const attribution = (this.memberAttributionMap ??= new WeakMap());
+      const attribution = (this.#memberAttributionMap ??= new WeakMap());
       for (const [index, member] of members.entries())
         attribution.set(member, {
           path: [...path, index],
@@ -601,25 +615,25 @@ export class OperationContext {
    * stated inside (`g4/parity/ordered-observation.test.ts` "nothing of the unit
    * commits", `lax-to-one.test.ts`, 8 cells).
    */
-  private executingMember?: Member;
+  #executingMember: Member | undefined;
   async executeMember<T>(
     execute: () => Promise<T>,
     member?: Member
   ): Promise<T> {
-    const enclosingWrite = this.attemptStore?.holdsWrite === true;
-    const observing = this.executingMember;
-    if (member) this.executingMember = member;
+    const enclosingWrite = this.#attemptStore?.holdsWrite === true;
+    const observing = this.#executingMember;
+    if (member) this.#executingMember = member;
     try {
       const output = await execute();
-      if (this.ownership !== "batch-preparation") {
+      if (this.#ownership !== "batch-preparation") {
         if (!enclosingWrite) await this.flush(undefined, member);
-        this.completedMembers++;
+        this.#completedMembers++;
       }
       return output;
     } catch (error) {
       throw this.failure(error, "member", member);
     } finally {
-      this.executingMember = observing;
+      this.#executingMember = observing;
     }
   }
   async executeSkippableMember(
@@ -633,7 +647,7 @@ export class OperationContext {
     }
     return this.executeMember(async () => {
       try {
-        await this.withMemberRollback(async () => execute());
+        await this.#withMemberRollback(async () => execute());
         return true;
       } catch (error) {
         if (
@@ -645,16 +659,16 @@ export class OperationContext {
       }
     }, member);
   }
-  private async withMemberRollback<T>(
+  async #withMemberRollback<T>(
     execute: (driver: AnyDriver) => Promise<T>
   ): Promise<T> {
-    const outer = this.transport;
+    const outer = this.#transport;
     const withinRollback = async (transaction: AnyDriver) => {
-      this.transport = transaction;
+      this.#transport = transaction;
       try {
         return await execute(transaction);
       } finally {
-        this.transport = outer;
+        this.#transport = outer;
       }
     };
     // One rule: a member rollback opens inside whatever scope the operation is
@@ -662,8 +676,8 @@ export class OperationContext {
     // caller's grant names the caller's scope, and re-entering it while this
     // nested one is active is the exact `TransactionError: … cannot be used
     // while its nested transaction is active` that note §8.4 measured.
-    return this.memberRollback && !this.ownRegionOpen
-      ? this.memberRollback(withinRollback, this.attribution)
+    return this.#memberRollback && !this.#ownRegionOpen
+      ? this.#memberRollback(withinRollback, this.attribution)
       : outer.withTransaction(withinRollback, undefined, this.attribution);
   }
   /**
@@ -680,13 +694,13 @@ export class OperationContext {
   admitsSuppression(rows: string): boolean {
     if (
       !(
-        (this.ownership === "borrowed-transaction" && !this.memberRollback) ||
+        (this.#ownership === "borrowed-transaction" && !this.#memberRollback) ||
         this.usesBatch
       )
     )
       return true;
     warnDroppedSkip(
-      this.schema,
+      this.#lineage,
       this.modelName,
       this.operation,
       droppedSkipMessage(
@@ -695,7 +709,7 @@ export class OperationContext {
         this.operation,
         rows
       ),
-      this.callerAttribution
+      this.#callerAttribution
     );
     return false;
   }
@@ -707,7 +721,7 @@ export class OperationContext {
     if (
       typeof error === "object" &&
       error !== null &&
-      this.answeredFailureSet?.has(error)
+      this.#answeredFailureSet?.has(error)
     )
       return error;
     let failure = error;
@@ -721,7 +735,7 @@ export class OperationContext {
       );
     }
     const attribution = member
-      ? this.memberAttributionMap?.get(member)
+      ? this.#memberAttributionMap?.get(member)
       : undefined;
     // A failure carries record-series progress only when it BELONGS to a record
     // series. A committed segment and a prefix phase are the series the
@@ -738,21 +752,21 @@ export class OperationContext {
     // a committed segment like any other and keeps publishing its progress,
     // pinned by `tests/raptor3/g4/unit02/malformed-result-cuts.test.ts` cell 1b
     // and `lone-statement-transport.test.ts` row 6.
-    const setStatement = member !== undefined && member === this.setWindow;
+    const setStatement = member !== undefined && member === this.#setWindow;
     return this.usesBatch &&
       (phase === "prefix" ||
-        this.committedSegments > 0 ||
-        (this.mayHaveCommittedSegment && !setStatement))
+        this.#committedSegments > 0 ||
+        (this.#mayHaveCommittedSegment && !setStatement))
       ? attachRecordSeriesProgress(failure, {
           atomicity: "segment",
           phase,
-          committedSegments: this.committedSegments,
-          committedWriteMembers: this.committedMemberSet?.size ?? 0,
-          completedMembers: this.completedMembers,
+          committedSegments: this.#committedSegments,
+          committedWriteMembers: this.#committedMemberSet?.size ?? 0,
+          completedMembers: this.#completedMembers,
           ...(attribution?.path.length ? { memberPath: attribution.path } : {}),
           ...(attribution ? { totalMembers: attribution.totalMembers } : {}),
-          ...(this.mayHaveCommittedSegment
-            ? { mayHaveCommittedSegment: this.mayHaveCommittedSegment }
+          ...(this.#mayHaveCommittedSegment
+            ? { mayHaveCommittedSegment: this.#mayHaveCommittedSegment }
             : {}),
         })
       : failure;
@@ -775,29 +789,29 @@ export class OperationContext {
    * the array fallback's (note §8.4, measured).
    * An atomic batch and a batch preparation are already their own unit.
    */
-  private region():
+  #region():
     | ((execute: (driver: AnyDriver) => Promise<unknown>) => Promise<unknown>)
     | undefined {
     if (this.usesBatch) return undefined;
-    if (this.ownership === "borrowed-transaction") {
-      const granted = this.operationRegion;
+    if (this.#ownership === "borrowed-transaction") {
+      const granted = this.#operationRegion;
       return granted
         ? (execute) => granted(execute, this.attribution)
         : undefined;
     }
-    if (this.ownership !== "standalone") return undefined;
+    if (this.#ownership !== "standalone") return undefined;
     // This transaction is the ONLY place this operation can learn whether its
     // writes became durable, so the client's cache rail is bound to its phases
     // here — the five steps of the shipped `runTransactionScope`
     // (`write-engine/OperationExecutor.ts:1130-1187`), owned by the context
     // because only the context opens the region.
-    const attribution = this.writeOutcome
+    const attribution = this.#writeOutcome
       ? bindExecutionTransactionPhases(this.attribution, {
           readyToCommit: () => {
-            this.regionPhase = "ready";
+            this.#regionPhase = "ready";
           },
           committed: () => {
-            this.regionPhase = "committed";
+            this.#regionPhase = "committed";
           },
         })
       : this.attribution;
@@ -805,28 +819,28 @@ export class OperationContext {
       this.driver.withTransaction(execute, undefined, attribution);
   }
   /** How far the region this operation opened got, as its driver reported it. */
-  private regionPhase: "pending" | "ready" | "committed" = "pending";
-  private openRegionPhase(): void {
-    this.regionPhase = "pending";
+  #regionPhase: "pending" | "ready" | "committed" = "pending";
+  #openRegionPhase(): void {
+    this.#regionPhase = "pending";
   }
   /** Run the operation inside the one region it owns. */
-  private async withinRegion<T>(
+  async #withinRegion<T>(
     region: (
       execute: (driver: AnyDriver) => Promise<unknown>
     ) => Promise<unknown>,
     body: () => Promise<T>
   ): Promise<T> {
-    this.openRegionPhase();
+    this.#openRegionPhase();
     let value: T;
     try {
       value = (await region(async (transaction) => {
-        this.transport = transaction;
-        this.ownRegionOpen = true;
+        this.#transport = transaction;
+        this.#ownRegionOpen = true;
         try {
           return await body();
         } finally {
-          this.transport = this.driver;
-          this.ownRegionOpen = false;
+          this.#transport = this.driver;
+          this.#ownRegionOpen = false;
         }
       })) as T;
     } catch (error) {
@@ -834,24 +848,24 @@ export class OperationContext {
       // separated commit from success reports none, and this operation then
       // says nothing rather than guessing.
       const certainty =
-        this.regionPhase === "committed"
+        this.#regionPhase === "committed"
           ? "committed"
-          : this.regionPhase === "ready"
+          : this.#regionPhase === "ready"
             ? "may-have-committed"
             : undefined;
       if (!certainty) throw error;
       const primary = isVibORMError(error)
         ? attachCommitCertainty(error, certainty)
         : error;
-      await this.stateWriteOutcome(
-        this.regionPhase === "committed"
-          ? this.writeOutcome?.committedSegment
-          : this.writeOutcome?.mayBeVisible,
+      await this.#stateWriteOutcome(
+        this.#regionPhase === "committed"
+          ? this.#writeOutcome?.committedSegment
+          : this.#writeOutcome?.mayBeVisible,
         primary
       );
       throw primary;
     }
-    await this.stateWriteOutcome(this.writeOutcome?.committedSegment);
+    await this.#stateWriteOutcome(this.#writeOutcome?.committedSegment);
     return value;
   }
   /**
@@ -880,44 +894,61 @@ export class OperationContext {
    * while a batch whose placeholders exceed the provider's limit is constructed
    * twice and raises the sentinel exactly once
    * (`g4/unit02/physical-envelope.test.ts`: 2 statements, 1 transaction,
-   * `restarts === 1`, every row written once).
+   * every row written once).
    */
   async run<T>(body: () => Promise<T>, single = false): Promise<T> {
+    if (
+      !(
+        this.#ownership === "batch-preparation" ||
+        isReadOperation(this.operation)
+      )
+    )
+      return await this.#runWrite(body, single);
     try {
-      if (this.ownership === "batch-preparation") return await body();
-      if (isReadOperation(this.operation)) return await body();
-      if (!single) this.requireAtomicUnit();
-      const region = this.region();
-      if (!region) return await this.batchAttempt(body);
-      if (!single) return await this.regionAttempt(region, body);
-      this.envelope = "deferred";
+      return await body();
+    } catch (error) {
+      throw this.#runFailure(error);
+    }
+  }
+  /** A write's envelope, out of line from reads, which need none. */
+  async #runWrite<T>(body: () => Promise<T>, single: boolean): Promise<T> {
+    try {
+      if (!single) this.#requireAtomicUnit();
+      const region = this.#region();
+      if (!region) return await this.#batchAttempt(body);
+      if (!single) return await this.#regionAttempt(region, body);
+      this.#envelope = "deferred";
       try {
         return await body();
       } catch (error) {
         if (error !== this.requiresEnvelope) throw error;
       }
-      this.restart();
-      return await this.regionAttempt(region, body);
+      this.#restart();
+      return await this.#regionAttempt(region, body);
     } catch (error) {
-      // A record series is a COMMITTED SEGMENT of this operation's own writes,
-      // and nothing else asked here: a generated-output continuation is
-      // declared behind the segment that published the identity it re-pins
-      // ({@link insert}), so that segment is already counted, while a premise —
-      // the parent a membership correlates on — is declared ahead of every
-      // segment and is not a member of any series. Asking about continuations
-      // instead published a series' progress for an ordinary UPDATE that had
-      // committed nothing (`tests/raptor3/g2-transport.test.ts`, "An ordinary
-      // UPDATE must retain only acknowledged progress").
-      if (
-        error instanceof InvalidScalarResult ||
-        (this.usesBatch && this.committedSegments > 0)
-      )
-        throw this.failure(
-          error,
-          error instanceof InvalidScalarResult ? "result" : "member"
-        );
-      throw error;
+      throw this.#runFailure(error);
     }
+  }
+  /** What {@link run} raises for a failure of its body. */
+  #runFailure(error: unknown): unknown {
+    // A record series is a COMMITTED SEGMENT of this operation's own writes,
+    // and nothing else asked here: a generated-output continuation is
+    // declared behind the segment that published the identity it re-pins
+    // ({@link insert}), so that segment is already counted, while a premise —
+    // the parent a membership correlates on — is declared ahead of every
+    // segment and is not a member of any series. Asking about continuations
+    // instead published a series' progress for an ordinary UPDATE that had
+    // committed nothing (`tests/raptor3/g2-transport.test.ts`, "An ordinary
+    // UPDATE must retain only acknowledged progress").
+    if (
+      error instanceof InvalidScalarResult ||
+      (this.usesBatch && this.#committedSegments > 0)
+    )
+      return this.failure(
+        error,
+        error instanceof InvalidScalarResult ? "result" : "member"
+      );
+    return error;
   }
   /**
    * The pre-dispatch capability gate, on the construction path and before the
@@ -933,8 +964,8 @@ export class OperationContext {
    * decision read of an `upsert` used to dispatch first and surface the
    * provider's own error instead of this refusal.
    */
-  private requireAtomicUnit(): void {
-    if (this.ownership !== "standalone") return;
+  #requireAtomicUnit(): void {
+    if (this.#ownership !== "standalone") return;
     const driver = this.driver;
     const meta = { driver: driver.driverName, operation: this.operation };
     if (!(driver.supportsTransactions || driver.supportsBatch))
@@ -960,26 +991,30 @@ export class OperationContext {
    * site. `terminal` marks the operation's result-publishing transport, which is
    * followed by nothing.
    */
-  private async dispatch<T>(
+  private dispatch<T>(
     statements: number,
     terminal: boolean,
     execute: () => Promise<T>
   ): Promise<T> {
-    if (this.envelope === "deferred") {
-      if (!(terminal && statements === 1 && this.performed === 0))
-        throw this.requiresEnvelope;
-      this.envelope = "statement";
+    try {
+      if (this.#envelope === "deferred") {
+        if (!(terminal && statements === 1 && this.#performed === 0))
+          throw this.requiresEnvelope;
+        this.#envelope = "statement";
+      }
+      this.#performed += statements;
+      return execute();
+    } catch (error) {
+      return Promise.reject(error);
     }
-    this.performed += statements;
-    return execute();
   }
   /** Discard the un-executed plan so the body can be constructed again. */
-  private restart(attempt = new TransportAttempt()): void {
-    this.attemptStore = attempt;
-    this.continuationList = undefined;
-    this.vacatedMemberships = undefined;
-    this.memberAdmissionStarted = false;
-    this.envelope = "open";
+  #restart(attempt = new TransportAttempt()): void {
+    this.#attemptStore = attempt;
+    this.#continuationList = undefined;
+    this.#vacatedMemberships = undefined;
+    this.#memberAdmissionStarted = false;
+    this.#envelope = "open";
   }
   /**
    * The command interpreter's ONE replacement of both attempt regions, held by
@@ -988,10 +1023,10 @@ export class OperationContext {
    * transport region once, and `undefined` ever after.
    */
   attachRecovery(replace: () => TransportAttempt | undefined): void {
-    this.replaceAttempt = replace;
+    this.#replaceAttempt = replace;
   }
-  private replaceAttempt?: () => TransportAttempt | undefined;
-  private recoverySpent = false;
+  #replaceAttempt: (() => TransportAttempt | undefined) | undefined;
+  #recoverySpent = false;
   /**
    * The ONE recovery allowance, spent here and nowhere else.
    *
@@ -1002,10 +1037,10 @@ export class OperationContext {
    * bring a fresh allowance with it.
    */
   spendRecovery(): TransportAttempt | undefined {
-    if (this.recoverySpent) return undefined;
-    const replacement = this.replaceAttempt?.();
+    if (this.#recoverySpent) return undefined;
+    const replacement = this.#replaceAttempt?.();
     if (!replacement) return undefined;
-    this.recoverySpent = true;
+    this.#recoverySpent = true;
     return replacement;
   }
   /**
@@ -1016,7 +1051,7 @@ export class OperationContext {
    * {@link run}'s — a FRESH region — and never a replay inside the failed one.
    */
   get replaysInPlace(): boolean {
-    return !this.ownRegionOpen;
+    return !this.#ownRegionOpen;
   }
   /**
    * The operation's region, and the ONE recovery allowance that belongs to the
@@ -1031,20 +1066,20 @@ export class OperationContext {
    * {@link recoveryRejection} has already answered that nothing was
    * acknowledged, and the interpreter answers the allowance exactly once.
    */
-  private async regionAttempt<T>(
+  async #regionAttempt<T>(
     region: (
       execute: (driver: AnyDriver) => Promise<unknown>
     ) => Promise<unknown>,
     body: () => Promise<T>
   ): Promise<T> {
     try {
-      return await this.withinRegion(region, body);
+      return await this.#withinRegion(region, body);
     } catch (error) {
       if (this.recoveryRejection(error)?.kind !== "insert") throw error;
       const replacement = this.spendRecovery();
       if (!replacement) throw error;
-      this.restart(replacement);
-      return await this.withinRegion(region, body);
+      this.#restart(replacement);
+      return await this.#withinRegion(region, body);
     }
   }
   /**
@@ -1063,14 +1098,14 @@ export class OperationContext {
    * adopts the winner's row in place ({@link replaysInPlace}), which keeps "a
    * missing winner never authorises a new INSERT" where it is decided.
    */
-  private async batchAttempt<T>(body: () => Promise<T>): Promise<T> {
+  async #batchAttempt<T>(body: () => Promise<T>): Promise<T> {
     try {
       return await body();
     } catch (error) {
       if (this.recoveryRejection(error)?.kind !== "assertion") throw error;
       const replacement = this.spendRecovery();
       if (!replacement) throw error;
-      this.restart(replacement);
+      this.#restart(replacement);
       return await body();
     }
   }
@@ -1098,7 +1133,7 @@ export class OperationContext {
     terminal = false,
     model?: AnyModel
   ): Promise<Input[]> {
-    if (this.ownership === "batch-preparation") {
+    if (this.#ownership === "batch-preparation") {
       throw this.incompletePreparation;
     }
     const response = await this.answer(query, terminal, model);
@@ -1125,14 +1160,14 @@ export class OperationContext {
     terminal: boolean,
     model?: AnyModel
   ): Promise<QueryResult<Input>> {
-    const observer = this.executingMember;
-    if (observer && this.attemptStore?.holdsOtherMemberWrite(observer))
+    const observer = this.#executingMember;
+    if (observer && this.#attemptStore?.holdsOtherMemberWrite(observer))
       await this.flush();
     const context = model
       ? this.statementContext(model, this.operation)
       : this.attribution;
     return this.dispatch(1, terminal, () =>
-      this.transport._execute<Input>(query.sql, context)
+      this.#transport._execute<Input>(query.sql, context)
     );
   }
   /**
@@ -1187,13 +1222,53 @@ export class OperationContext {
    * projection or decoder exists (g4/unit03/note.md D-2).
    */
   async publish(read: Read, missing?: () => Error): Promise<unknown> {
-    if (this.ownership === "batch-preparation")
+    if (this.#ownership === "batch-preparation")
       return this.publishPrepared(read, missing);
+    const positional =
+      this.#ownership === "standalone" && read.value.kind === "collection"
+        ? resolvePositionalResultDriver(this.#transport)
+        : undefined;
+    if (positional) return this.#publishPositional(read, missing, positional);
     const response = await this.answer(read.query, true);
-    return this.decideRead(
+    return this.#decideRead(
       read,
       missing,
       this.publishedTerminal([read.query], [response.rows])
+    );
+  }
+  /** A collection read over the positional transport, out of line. */
+  async #publishPositional(
+    read: Read,
+    missing: (() => Error) | undefined,
+    positional: NonNullable<ReturnType<typeof resolvePositionalResultDriver>>
+  ): Promise<unknown> {
+    const response = await this.dispatch(1, true, () =>
+      positional(read.query.sql, this.attribution)
+    );
+    if (
+      response.kind === "positional" &&
+      resolvePositionalResultDriver(this.#transport) === positional
+    ) {
+      this.queries.assertExpectedRows(read.query, response.rows.length);
+      return this.#decideRead(
+        read,
+        missing,
+        this.queries.decodeProjection(
+          read.query.shape,
+          response.rows,
+          false,
+          response.columns
+        )
+      );
+    }
+    const borrowed =
+      response.kind === "borrowed"
+        ? response.result
+        : borrowPositionalResult(response);
+    return this.#decideRead(
+      read,
+      missing,
+      this.publishedTerminal([read.query], [borrowed.rows.map(record)])
     );
   }
   /**
@@ -1205,15 +1280,15 @@ export class OperationContext {
    */
   publishPrepared(read: Read, missing?: () => Error): undefined {
     const resultIndex = this.queued.length;
-    this.queue(read.query.sql);
-    this.preparedParser = (results) => {
+    this.#queue(read.query.sql);
+    this.#preparedParser = (results) => {
       const response = results[resultIndex];
       if (!response)
         throw new TransactionError(
           `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
-          { meta: this.errorMeta }
+          { meta: this.#errorMeta }
         );
-      return this.decideRead(
+      return this.#decideRead(
         read,
         missing,
         this.publishedTerminal([read.query], [response.rows.map(record)])
@@ -1221,7 +1296,7 @@ export class OperationContext {
     };
     return undefined;
   }
-  private decideRead(
+  #decideRead(
     read: Read,
     missing: (() => Error) | undefined,
     rows: Input[]
@@ -1267,7 +1342,7 @@ export class OperationContext {
     // caller's shape: the `choose` arm carried its own reference read-back
     // until D-58 moved that to the boundary, and the rule must not change with
     // it. Measured inert on the packaging pins either way.
-    this.attemptStore?.withholdPremises();
+    this.#attemptStore?.withholdPremises();
     try {
       if (!this.usesBatch || this.queued.length === 0) {
         // Nothing queued to ride with: an ABSENCE premise (no row outside the
@@ -1286,12 +1361,12 @@ export class OperationContext {
           rows.push(await this.read(projection, true));
         return Array.isArray(query) ? rows : (rows[0] ?? []);
       }
-      return await this.flushQueued(projections, query, member, premise);
+      return await this.#flushQueued(projections, query, member, premise);
     } finally {
-      this.attemptStore?.restorePremises();
+      this.#attemptStore?.restorePremises();
     }
   }
-  private async flushQueued(
+  async #flushQueued(
     projections: Query[],
     query: Query | Query[] | undefined,
     member?: Member,
@@ -1301,7 +1376,7 @@ export class OperationContext {
     else if (premise)
       await this.requireAbsent(premise.query, premise.failure());
     const resultIndex = this.queued.length;
-    for (const projection of projections) this.queue(projection.sql);
+    for (const projection of projections) this.#queue(projection.sql);
     const responses = await this.submit(false, member);
     return this.settleSubmitted(() => {
       try {
@@ -1342,34 +1417,34 @@ export class OperationContext {
    * still DERIVED here rather than asserted to read nothing, which is what
    * keeps the two halves of the fact in one place.
    */
-  private readsBatchReference(query: Query): boolean {
-    const reference = this.attemptStore?.scratchId;
+  #readsBatchReference(query: Query): boolean {
+    const reference = this.#attemptStore?.scratchId;
     return reference !== undefined && query.sql.values.includes(reference);
   }
   /** Queue one premise's assertion and record what it requires of the batch. */
   private statePremise(query: Query, present: boolean, failure: Error): void {
     const assertions = this.driver.adapter.assertions;
-    this.attempt.assertPremise(
-      this.queue(
+    this.#attempt.assertPremise(
+      this.#queue(
         present ? assertions.exists(query.sql) : assertions.notExists(query.sql)
       ),
       {
         query,
         present,
         failure,
-        readsBatchReference: this.readsBatchReference(query),
+        readsBatchReference: this.#readsBatchReference(query),
       }
     );
   }
   private async submit(publishingGeneratedOutput = false, member?: Member) {
-    if (this.ownership === "batch-preparation") {
+    if (this.#ownership === "batch-preparation") {
       throw this.incompletePreparation;
     }
-    const attempt = this.attempt;
-    this.atomicAssertionRejection = undefined;
+    const attempt = this.#attempt;
+    this.#atomicAssertionRejection = undefined;
     attempt.rejectedInsert = undefined;
-    const precedingSegments = this.committedSegments;
-    const declared = this.continuationList;
+    const precedingSegments = this.#committedSegments;
+    const declared = this.#continuationList;
     const continuations = declared
       ? declared.filter((continuation) => !continuation.declaring)
       : NO_CONTINUATIONS;
@@ -1385,7 +1460,7 @@ export class OperationContext {
       const context = this.statementContext(continuation.model, this.operation);
       return {
         statement: {
-          ...this.transport._prepare(
+          ...this.#transport._prepare(
             this.driver.adapter.assertions.exists(query.sql),
             context
           ),
@@ -1395,7 +1470,7 @@ export class OperationContext {
           query,
           present: true,
           failure: continuation.failure(),
-          readsBatchReference: this.readsBatchReference(query),
+          readsBatchReference: this.#readsBatchReference(query),
         },
       };
     });
@@ -1404,7 +1479,7 @@ export class OperationContext {
     // with the unit that made it — so the next unit binds LITERALS and creates
     // its own scratch for whatever it produces itself.
     const carryIndex = guards.length + attempt.pending.length;
-    const carried = this.carryScratch();
+    const carried = this.#carryScratch();
     this.closeScratch();
     const statements = [
       ...guards.map((guard) => guard.statement),
@@ -1417,15 +1492,15 @@ export class OperationContext {
     const members = attempt.drainMembers();
     const acknowledged = async () => {
       if (members.length === 0) return;
-      this.committedSegments++;
-      const committed = (this.committedMemberSet ??= new Set());
+      this.#committedSegments++;
+      const committed = (this.#committedMemberSet ??= new Set());
       for (const member of members) committed.add(member);
       // This transport acknowledges before it has decoded anything, so the
       // listener's failure is HELD rather than thrown: the operation's own
       // answer is still to come, and it stays primary if it fails too
       // ({@link heldOutcomeFailure}, released by {@link settleSubmitted}).
       try {
-        await this.writeOutcome?.committedSegment?.();
+        await this.#writeOutcome?.committedSegment?.();
       } catch (failure) {
         this.heldOutcomeFailure = { failure };
       }
@@ -1433,7 +1508,7 @@ export class OperationContext {
     let responses: QueryResult<Input>[];
     try {
       responses = await this.dispatch(statements.length, false, () =>
-        this.transport._executeBatch<Input>(
+        this.#transport._executeBatch<Input>(
           statements,
           undefined,
           this.attribution,
@@ -1452,7 +1527,7 @@ export class OperationContext {
       const acknowledgedOutcomeFailure = this.heldOutcomeFailure;
       this.heldOutcomeFailure = undefined;
       if (acknowledgedOutcomeFailure)
-        throw this.answered(
+        throw this.#answered(
           retainWriteOutcomeFailure(error, acknowledgedOutcomeFailure.failure)
         );
       // Atomic rejection is retryable only with exact effect attribution and a
@@ -1469,8 +1544,8 @@ export class OperationContext {
       // recovery IT feeds re-enters a fresh region with a fresh plan (D-25).
       if (
         this.driver.supportsBatch &&
-        !this.committedProgress &&
-        !this.memberAdmissionStarted &&
+        !this.#committedProgress &&
+        !this.#memberAdmissionStarted &&
         error instanceof UniqueConstraintError &&
         error.meta.commitCertainty === undefined &&
         error.originalCause &&
@@ -1589,7 +1664,7 @@ export class OperationContext {
       const rejectedBeforeAnyWrite =
         typeof rejectedIndex === "number" &&
         typeof positionBound === "number" &&
-        this.committedSegments === 0 &&
+        this.#committedSegments === 0 &&
         statements.every(
           (statement, index) =>
             index > positionBound || assertionFailures.has(statement)
@@ -1598,24 +1673,24 @@ export class OperationContext {
         members.length > 0 &&
         !rejectedBeforeAnyWrite &&
         !this.driver.supportsOrderedCommittedSegments &&
-        this.committedSegments === precedingSegments &&
+        this.#committedSegments === precedingSegments &&
         !(error instanceof UniqueConstraintError)
       ) {
-        this.mayHaveCommittedSegment = true;
+        this.#mayHaveCommittedSegment = true;
         // Said where it is learned and BEFORE the failure is attributed or
         // published, which is the shipped order (`OperationExecutor.ts:1050-1058`
         // sets the same internal flag, notifies, and only then rethrows).
         // Whether the meta reports it is a separate question, answered once in
         // `failure()`; whether the listener's own failure may replace this
         // operation's is answered once in {@link stateWriteOutcome}.
-        await this.stateWriteOutcome(this.writeOutcome?.mayBeVisible, error);
+        await this.#stateWriteOutcome(this.#writeOutcome?.mayBeVisible, error);
       }
       let attributedError = error;
       if (failure && error instanceof NestedWriteAssertionError) {
         attributedError = failure;
         if (
           this.driver.supportsBatch &&
-          !this.committedProgress &&
+          !this.#committedProgress &&
           error.meta.commitCertainty === undefined &&
           // Only a premise its own owner declared RACEABLE may be answered by
           // another attempt. The mark is the estate's existing rule for
@@ -1633,7 +1708,7 @@ export class OperationContext {
           isVibORMError(failure) &&
           failure.meta.raceable === true
         )
-          this.atomicAssertionRejection = failure;
+          this.#atomicAssertionRejection = failure;
       } else if (error instanceof NestedWriteAssertionError) {
         // The un-attributable floor (N3a, the shipped `batch-error-attribution`
         // floor): a batch assertion the ladder cannot attribute surfaces as
@@ -1656,7 +1731,7 @@ export class OperationContext {
       throw publishingGeneratedOutput || continuations.length > 0
         ? this.failure(
             attributedError,
-            this.committedSegments > precedingSegments ? "result" : "member",
+            this.#committedSegments > precedingSegments ? "result" : "member",
             member
           )
         : attributedError;
@@ -1675,12 +1750,12 @@ export class OperationContext {
     // stays primary, with the listener's retained beside it.
     try {
       for (const [offset, carry] of carried.entries())
-        this.settleCarry(carry, responses[carryIndex + offset]!, member);
+        this.#settleCarry(carry, responses[carryIndex + offset]!, member);
     } catch (error) {
       const held = this.heldOutcomeFailure;
       this.heldOutcomeFailure = undefined;
       throw held
-        ? this.answered(retainWriteOutcomeFailure(error, held.failure))
+        ? this.#answered(retainWriteOutcomeFailure(error, held.failure))
         : error;
     }
     return responses.slice(guards.length);
@@ -1709,14 +1784,14 @@ export class OperationContext {
       value = await answer();
     } catch (failure) {
       throw held
-        ? this.answered(retainWriteOutcomeFailure(failure, held.failure))
+        ? this.#answered(retainWriteOutcomeFailure(failure, held.failure))
         : failure;
     }
-    if (held) throw this.answered(held.failure);
+    if (held) throw this.#answered(held.failure);
     return value;
   }
   rejectedProducer(error: unknown): object | undefined {
-    const rejected = this.attemptStore?.rejectedInsert;
+    const rejected = this.#attemptStore?.rejectedInsert;
     return rejected && rejected.error === error ? rejected.producer : undefined;
   }
   recoveryRejection(
@@ -1733,21 +1808,21 @@ export class OperationContext {
     // the producer is RECORDED — bounded by member admission on the route whose
     // recovery REPLAYS in place ({@link submit}), unbounded on the route that
     // RE-PLANS ({@link insert}), which is what D-25 allows.
-    if (this.ownership !== "standalone") return undefined;
-    if (this.committedProgress) return undefined;
+    if (this.#ownership !== "standalone") return undefined;
+    if (this.#committedProgress) return undefined;
     // An ATOMIC ASSERTION is answered by a fresh PLAN over the same admitted
     // arguments, which re-reads committed state (D-25), so dynamic member
     // admission does not bound it: the new tree admits its own members.
-    if (this.atomicAssertionRejection === error) return { kind: "assertion" };
+    if (this.#atomicAssertionRejection === error) return { kind: "assertion" };
     const producer = this.rejectedProducer(error);
     return producer ? { kind: "insert", producer } : undefined;
   }
   get transportAttempt(): TransportAttempt {
-    return this.attempt;
+    return this.#attempt;
   }
   restartRejectedInsert(attempt: TransportAttempt): void {
-    this.attemptStore = attempt;
-    this.atomicAssertionRejection = undefined;
+    this.#attemptStore = attempt;
+    this.#atomicAssertionRejection = undefined;
   }
   /**
    * The operation's own cardinality over the rows a set-oriented mutation
@@ -1767,7 +1842,7 @@ export class OperationContext {
       // the same place (an INSERT that answered no row) throws from inside
       // `single()` instead of returning, is never marked, and keeps the
       // progress record its transport owes it.
-      throw this.answered(single());
+      throw this.#answered(single());
     }
     return row;
   }
@@ -1786,12 +1861,12 @@ export class OperationContext {
    * (`DeleteOperation` `foldGuard`/`buildRootPresenceGuard`, `UpdateOperation`'s
    * equivalent): `[presence guard, mutation … RETURNING]`, one round trip.
    */
-  private packagedPresence(
+  #packagedPresence(
     model: AnyModel,
     selector: PreparedSelector,
     single?: () => Error
   ): void {
-    if (!single || this.ownership !== "batch-preparation") return;
+    if (!single || this.#ownership !== "batch-preparation") return;
     const probe = this.queries.select(
       model,
       {
@@ -1827,7 +1902,7 @@ export class OperationContext {
     premise: PreparedBatchGuard["premise"],
     failure: PreparedGuardFailure
   ): void {
-    (this.preparedGuardList ??= []).push({
+    (this.#preparedGuardList ??= []).push({
       queryIndex: this.queued.length,
       premise,
       probe,
@@ -1836,7 +1911,7 @@ export class OperationContext {
       operation: this.operation,
     });
     const assertions = this.driver.adapter.assertions;
-    this.queue(
+    this.#queue(
       premise === "exists"
         ? assertions.exists(probe)
         : assertions.notExists(probe),
@@ -1845,8 +1920,8 @@ export class OperationContext {
   }
   emptyBulkResult(projection?: PreparedProjection): unknown {
     const result = () => (projection ? [] : { count: 0 });
-    if (this.ownership === "batch-preparation") {
-      this.preparedParser = result;
+    if (this.#ownership === "batch-preparation") {
+      this.#preparedParser = result;
       return undefined;
     }
     return result();
@@ -1888,7 +1963,7 @@ export class OperationContext {
   finishMany(queries: readonly Query[]): Promise<Input[]> {
     return this.finishTerminals(queries, (rows) => rows);
   }
-  private decodeTerminalResults(
+  #decodeTerminalResults(
     queries: readonly Query[],
     results: readonly QueryResult<unknown>[],
     resultIndex: number
@@ -1898,8 +1973,8 @@ export class OperationContext {
       const response = results[resultIndex + offset];
       if (!response)
         throw new TransactionError(
-          `Driver '${this.driver.driverName}' omitted the ${this.ownership === "batch-preparation" ? "prepared" : "terminal"} result for operation '${this.operation}'.`,
-          { meta: this.errorMeta }
+          `Driver '${this.driver.driverName}' omitted the ${this.#ownership === "batch-preparation" ? "prepared" : "terminal"} result for operation '${this.operation}'.`,
+          { meta: this.#errorMeta }
         );
       windows.push(response.rows.map(record));
     }
@@ -1918,14 +1993,14 @@ export class OperationContext {
       return result(this.publishedTerminal(queries, windows));
     }
     const resultIndex = this.queued.length;
-    for (const terminal of queries) this.queue(terminal.sql);
+    for (const terminal of queries) this.#queue(terminal.sql);
     // The operation's last unit — and the ONE unit a prepared package is —
     // ends here, so its scratch is dropped here and nothing is read back out
     // of it: no statement follows that could bind the value (D-58).
     this.closeScratch();
-    if (this.ownership === "batch-preparation") {
-      this.preparedParser = (results) =>
-        result(this.decodeTerminalResults(queries, results, resultIndex));
+    if (this.#ownership === "batch-preparation") {
+      this.#preparedParser = (results) =>
+        result(this.#decodeTerminalResults(queries, results, resultIndex));
       return result([]);
     }
     if (this.queued.length === 0) return result([]);
@@ -1933,7 +2008,7 @@ export class OperationContext {
     return this.settleSubmitted(() => {
       try {
         return result(
-          this.decodeTerminalResults(queries, responses, resultIndex)
+          this.#decodeTerminalResults(queries, responses, resultIndex)
         );
       } catch (error) {
         throw queries.length ? this.failure(error, "result") : error;
@@ -1944,8 +2019,8 @@ export class OperationContext {
     return error === this.incompletePreparation;
   }
   preparedBatch(): PreparedBatchOperation<unknown> | undefined {
-    if (this.preparedParser === undefined) return undefined;
-    if (this.attemptStore?.hasAssertedPremises) return undefined;
+    if (this.#preparedParser === undefined) return undefined;
+    if (this.#attemptStore?.hasAssertedPremises) return undefined;
     return {
       queries: this.queued.map((query) =>
         transferPreparedStatement(query, {
@@ -1954,13 +2029,13 @@ export class OperationContext {
           context: query.context ?? this.attribution,
         })
       ),
-      ...(this.preparedGuardList?.length
-        ? { guards: this.preparedGuardList }
+      ...(this.#preparedGuardList?.length
+        ? { guards: this.#preparedGuardList }
         : {}),
-      parseResult: this.preparedParser,
+      parseResult: this.#preparedParser,
     };
   }
-  private async setMutation(
+  async #setMutation(
     statement: Sql,
     context: QueryExecutionContext,
     parse: (result: QueryResult<unknown>) => unknown
@@ -1970,7 +2045,7 @@ export class OperationContext {
       if (!result)
         throw new TransactionError(
           `Driver '${this.driver.driverName}' omitted the result for operation '${this.operation}'.`,
-          { meta: this.errorMeta }
+          { meta: this.#errorMeta }
         );
       return parse(result);
     });
@@ -1982,11 +2057,11 @@ export class OperationContext {
     }[],
     parse: (results: readonly QueryResult<unknown>[]) => unknown
   ): Promise<unknown> {
-    if (this.ownership === "batch-preparation") {
+    if (this.#ownership === "batch-preparation") {
       const firstResult = this.queued.length;
       for (const statement of statements)
-        this.queue(statement.sql, statement.context);
-      this.preparedParser = (results) => {
+        this.#queue(statement.sql, statement.context);
+      this.#preparedParser = (results) => {
         const window = results.slice(
           firstResult,
           firstResult + statements.length
@@ -1997,7 +2072,7 @@ export class OperationContext {
           // reaches this owner through the fold.
           throw new TransactionError(
             `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
-            { meta: this.errorMeta }
+            { meta: this.#errorMeta }
           );
         }
         return parse(window);
@@ -2025,15 +2100,15 @@ export class OperationContext {
     const lone =
       statements.length === 1 &&
       this.queued.length === 0 &&
-      this.continuationCount === 0;
+      this.#continuationCount === 0;
     if (this.usesBatch && !lone) {
       const windowMember: Member = {};
-      this.setWindow = windowMember;
+      this.#setWindow = windowMember;
       // A premise queued ahead rides the same batch and answers first: the
       // window is these statements' own positions.
       const first = this.queued.length;
       for (const statement of statements)
-        this.queue(statement.sql, statement.context, windowMember);
+        this.#queue(statement.sql, statement.context, windowMember);
       const results = await this.submit(true, windowMember);
       return this.settleSubmitted(() => {
         try {
@@ -2068,19 +2143,22 @@ export class OperationContext {
     parse: (results: readonly QueryResult<unknown>[]) => unknown
   ): Promise<unknown> {
     return this.dispatch(statements.length, true, async () => {
-      const owned = this.ownership === "standalone" && !this.ownRegionOpen;
+      const owned = this.#ownership === "standalone" && !this.#ownRegionOpen;
       const results: QueryResult<unknown>[] = [];
       try {
         for (const statement of statements)
           results.push(
-            await this.transport._execute(statement.sql, statement.context)
+            await this.#transport._execute(statement.sql, statement.context)
           );
       } catch (error) {
         // The same sentence {@link submit}'s catch states about its batch: a
         // dispatched write whose rollback the transport cannot prove may be
         // visible, and a unique rejection is the one class that proves it.
         if (owned && !(error instanceof UniqueConstraintError))
-          await this.stateWriteOutcome(this.writeOutcome?.mayBeVisible, error);
+          await this.#stateWriteOutcome(
+            this.#writeOutcome?.mayBeVisible,
+            error
+          );
         throw error;
       }
       let decoded: { readonly failure: unknown } | { readonly value: unknown };
@@ -2097,8 +2175,8 @@ export class OperationContext {
         decoded = { failure: this.failure(error, "result") };
       }
       if (owned)
-        await this.stateWriteOutcome(
-          this.writeOutcome?.committedSegment,
+        await this.#stateWriteOutcome(
+          this.#writeOutcome?.committedSegment,
           "failure" in decoded ? decoded.failure : undefined
         );
       if ("failure" in decoded) throw decoded.failure;
@@ -2125,7 +2203,7 @@ export class OperationContext {
    * `primary` absent means the operation has not failed, which was the shipped
    * `throw outcomeFailure` arm.
    */
-  private async stateWriteOutcome(
+  async #stateWriteOutcome(
     say: (() => Promise<void>) | undefined,
     primary?: unknown
   ): Promise<void> {
@@ -2134,17 +2212,17 @@ export class OperationContext {
       await say();
     } catch (outcomeFailure) {
       if (primary === undefined) throw outcomeFailure;
-      throw this.answered(retainWriteOutcomeFailure(primary, outcomeFailure));
+      throw this.#answered(retainWriteOutcomeFailure(primary, outcomeFailure));
     }
   }
   /** Mark a failure as this operation's own answer ({@link answeredFailures}). */
-  private answered<T>(failure: T): T {
+  #answered<T>(failure: T): T {
     if (typeof failure === "object" && failure !== null)
-      (this.answeredFailureSet ??= new WeakSet()).add(failure);
+      (this.#answeredFailureSet ??= new WeakSet()).add(failure);
     return failure;
   }
   /** Lower one INSERT shape; callers own grouping, chunking, and output. */
-  private insertStatement(
+  #insertStatement(
     model: AnyModel,
     columns: readonly string[],
     rows: readonly Input[],
@@ -2169,7 +2247,7 @@ export class OperationContext {
       : statement;
   }
   /** Complete one set mutation through its single count/projection tail. */
-  private completeSetMutation(
+  #completeSetMutation(
     model: AnyModel,
     statement: Sql,
     projection?: PreparedProjection,
@@ -2181,7 +2259,7 @@ export class OperationContext {
           sql.join(q.lowerProjection(projection), ", ")
         )}`
       : statement;
-    return this.setMutation(
+    return this.#setMutation(
       output,
       this.statementContext(model, this.operation),
       (result) =>
@@ -2211,7 +2289,7 @@ export class OperationContext {
     // fact, and this is the owner that holds it — admission cannot, because the
     // same payload is admitted on both routes.
     if (rows.length === 0) {
-      if (this.ownership === "batch-preparation")
+      if (this.#ownership === "batch-preparation")
         throw new QueryEngineError("No data to insert for createMany.");
       return this.emptyBulkResult(projection);
     }
@@ -2224,7 +2302,7 @@ export class OperationContext {
       recoverableSkip ||
       (projection && !adapter.capabilities.supportsReturning)
     ) {
-      if (this.ownership === "batch-preparation")
+      if (this.#ownership === "batch-preparation")
         throw this.incompletePreparation;
       const suppress =
         recoverableSkip && this.admitsSuppression("duplicate rows");
@@ -2233,11 +2311,11 @@ export class OperationContext {
             const missing = this.schema
               .keys(model)
               .filter((field) => row[field] === undefined);
-            const generated = this.insertIdField(model, missing);
+            const generated = this.#insertIdField(model, missing);
             if (missing.length > 0 && generated === undefined)
               throw new TransactionError(
                 `Driver '${this.driver.driverName}' cannot locate one selected createMany row after insertion.`,
-                { meta: this.errorMeta }
+                { meta: this.#errorMeta }
               );
             return generated;
           })
@@ -2247,14 +2325,14 @@ export class OperationContext {
       let count = 0;
       for (const [index, row] of members.entries()) {
         const columns = Object.keys(row);
-        const statement = this.insertStatement(model, columns, [row]);
+        const statement = this.#insertStatement(model, columns, [row]);
         const context = this.statementContext(model, this.operation);
         let response: QueryResult<unknown> | undefined;
         if (suppress) {
           response = await this.executeMember(async () => {
             try {
               return await this.dispatch(1, false, () =>
-                this.withMemberRollback((driver) =>
+                this.#withMemberRollback((driver) =>
                   driver._execute(statement, context)
                 )
               );
@@ -2267,7 +2345,7 @@ export class OperationContext {
           response = await this.executeMember(
             () =>
               this.dispatch(1, false, () =>
-                this.transport._execute(statement, context)
+                this.#transport._execute(statement, context)
               ),
             row
           );
@@ -2318,7 +2396,7 @@ export class OperationContext {
     for (const group of groups) {
       if (group.columns.length === 0) {
         for (const _row of group.rows) {
-          let statement = this.insertStatement(model, [], [_row]);
+          let statement = this.#insertStatement(model, [], [_row]);
           if (returning) statement = sql`${statement} ${returning}`;
           statements.push({
             sql: statement,
@@ -2331,7 +2409,7 @@ export class OperationContext {
         group.rows.length,
         limit,
         (start, end) => {
-          const mutation = this.insertStatement(
+          const mutation = this.#insertStatement(
             model,
             group.columns,
             group.rows.slice(start, end),
@@ -2364,7 +2442,7 @@ export class OperationContext {
       if (!skipDuplicates && written < rows.length)
         throw new TransactionError(
           `Driver '${this.driver.driverName}' reported ${written} of ${rows.length} inserted rows for operation '${this.operation}'.`,
-          { meta: this.errorMeta }
+          { meta: this.#errorMeta }
         );
       if (!projection) return { count: written };
       const raw: Input[] = [];
@@ -2400,7 +2478,7 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const columns = Object.keys(row);
-    const insert = this.insertStatement(model, columns, [row]);
+    const insert = this.#insertStatement(model, columns, [row]);
     const conflict = adapter.mutations.onConflict(
       sql.join(
         target.map((field) =>
@@ -2409,10 +2487,10 @@ export class OperationContext {
         ", "
       ),
       adapter.mutations.onConflictUpdate(
-        sql.join(this.updateAssignments(model, updates), ", ")
+        sql.join(this.#updateAssignments(model, updates), ", ")
       )
     );
-    return this.completeSetMutation(
+    return this.#completeSetMutation(
       model,
       sql`${insert} ${conflict}`,
       projection,
@@ -2429,7 +2507,7 @@ export class OperationContext {
   ): Promise<unknown> {
     const q = this.queries;
     const adapter = this.driver.adapter;
-    const assignments = this.updateAssignments(model, values);
+    const assignments = this.#updateAssignments(model, values);
     // A relation carrier reads other rows, which no RETURNING can carry: the
     // post-image is re-read by identity, as without RETURNING.
     if (
@@ -2445,7 +2523,7 @@ export class OperationContext {
         limit
       );
       if (identities.length === 0) return this.published([], single);
-      await this.capturedMutation(
+      await this.#capturedMutation(
         model,
         selector,
         identities,
@@ -2465,14 +2543,14 @@ export class OperationContext {
         this.seriesQueries(
           projection,
           identities.map((identity) =>
-            this.updatedIdentity(model, identity, values)
+            this.#updatedIdentity(model, identity, values)
           ),
           "updateMany"
         ),
         (published) => this.published(published, single)
       );
     }
-    this.packagedPresence(model, selector, single);
+    this.#packagedPresence(model, selector, single);
     const limited = q.lowerMutationLimit(model, selector, limit);
     const mutation = adapter.mutations.update(
       q.table(model),
@@ -2482,7 +2560,7 @@ export class OperationContext {
     const statement = limited.suffix
       ? sql`${mutation} ${limited.suffix}`
       : mutation;
-    return this.completeSetMutation(model, statement, projection, single);
+    return this.#completeSetMutation(model, statement, projection, single);
   }
   async deleteMany(
     model: AnyModel,
@@ -2512,7 +2590,7 @@ export class OperationContext {
       const rows: Input[] = [];
       for (const query of this.seriesQueries(projection, identities))
         rows.push(...(await this.read(query, false, false, model)));
-      await this.capturedMutation(
+      await this.#capturedMutation(
         model,
         selector,
         identities,
@@ -2522,20 +2600,20 @@ export class OperationContext {
       );
       return this.published(rows, single);
     }
-    this.packagedPresence(model, selector, single);
+    this.#packagedPresence(model, selector, single);
     const limited = q.lowerMutationLimit(model, selector, limit);
     const mutation = adapter.mutations.delete(q.table(model), limited.where);
     const statement = limited.suffix
       ? sql`${mutation} ${limited.suffix}`
       : mutation;
-    return this.completeSetMutation(model, statement, projection, single);
+    return this.#completeSetMutation(model, statement, projection, single);
   }
   private async captureMutationIdentities(
     model: AnyModel,
     selector: PreparedSelector,
     limit: number | undefined
   ): Promise<Input[]> {
-    if (this.ownership === "batch-preparation")
+    if (this.#ownership === "batch-preparation")
       throw this.incompletePreparation;
     const keys = this.schema.keys(model);
     const query = this.queries.select(
@@ -2650,7 +2728,7 @@ export class OperationContext {
    * (repair prompt §3). The premises {@link requireCapturedSet} states owe the
    * same sentence.
    */
-  private async capturedMutation(
+  async #capturedMutation(
     model: AnyModel,
     selector: PreparedSelector,
     identities: readonly Input[],
@@ -2661,7 +2739,7 @@ export class OperationContext {
     const changed = () =>
       new TransactionError(
         `${verb} selected-row cardinality changed during its locked mutation.`,
-        { meta: this.errorMeta }
+        { meta: this.#errorMeta }
       );
     await this.requireCapturedSet(model, selector, identities, limit, changed);
     const statement = mutation(
@@ -2675,7 +2753,7 @@ export class OperationContext {
     if (!this.usesBatch) {
       answered(
         await this.dispatch(1, false, () =>
-          this.transport._execute(statement, context)
+          this.#transport._execute(statement, context)
         )
       );
       return;
@@ -2688,15 +2766,15 @@ export class OperationContext {
     // A set-oriented statement's window: a merely uncertain outcome is no
     // record series of its own ({@link failure}), as `setMutations` states it.
     const member: Member = {};
-    this.setWindow = member;
-    this.queue(statement, context, member);
+    this.#setWindow = member;
+    this.#queue(statement, context, member);
     const responses = await this.submit(true, member);
     await this.settleSubmitted(() => {
       const response = responses[index];
       if (!response)
         throw new TransactionError(
           `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
-          { meta: this.errorMeta }
+          { meta: this.#errorMeta }
         );
       answered(response);
     });
@@ -2730,11 +2808,7 @@ export class OperationContext {
       undefined
     ).where;
   }
-  private updatedIdentity(
-    model: AnyModel,
-    identity: Input,
-    values: Input
-  ): Input {
+  #updatedIdentity(model: AnyModel, identity: Input, values: Input): Input {
     const q = this.queries;
     return Object.fromEntries(
       this.schema
@@ -2765,12 +2839,12 @@ export class OperationContext {
    * {@link closeScratch} deletes that id's rows where the unit ends.
    */
   private ensureScratch(): string {
-    const attempt = this.attempt;
+    const attempt = this.#attempt;
     if (attempt.scratchId) return attempt.scratchId;
     const references = getAdapterInternals(this.driver.adapter).batchRefs;
     attempt.scratchId = crypto.randomUUID();
-    for (const setup of references.setup(attempt.scratchId)) this.queue(setup);
-    this.queue(references.clear(attempt.scratchId));
+    for (const setup of references.setup(attempt.scratchId)) this.#queue(setup);
+    this.#queue(references.clear(attempt.scratchId));
     return attempt.scratchId;
   }
   /**
@@ -2786,8 +2860,8 @@ export class OperationContext {
    * — has closed its scratch already ({@link finishTerminals}) and reads
    * nothing back: there is no later statement to bind it.
    */
-  private carryScratch(): readonly ScratchCarry[] {
-    const attempt = this.attemptStore;
+  #carryScratch(): readonly ScratchCarry[] {
+    const attempt = this.#attemptStore;
     if (attempt?.scratchId === undefined) return NO_SCRATCH_CARRY;
     const carried: ScratchCarry[] = [];
     for (const publication of attempt.drainScratchPublications()) {
@@ -2796,7 +2870,7 @@ export class OperationContext {
         publication.field,
         publication.expression
       );
-      this.queue(query.sql);
+      this.#queue(query.sql);
       carried.push({ query, publication });
     }
     return carried;
@@ -2812,7 +2886,7 @@ export class OperationContext {
    * way this unit exists to prevent: an uncarried value leaves the NEXT unit
    * binding a scratch its own segment never created.
    */
-  private settleCarry(
+  #settleCarry(
     carry: ScratchCarry,
     response: QueryResult<Input>,
     member?: Member
@@ -2823,7 +2897,7 @@ export class OperationContext {
     } catch (error) {
       throw this.failure(error, "result", member);
     }
-    this.attempt.carryScratchValue(
+    this.#attempt.carryScratchValue(
       carry.publication.expression,
       row[carry.publication.field]
     );
@@ -2834,16 +2908,16 @@ export class OperationContext {
    * produced value creates its own ({@link ensureScratch}).
    */
   private closeScratch(): void {
-    const attempt = this.attemptStore;
+    const attempt = this.#attemptStore;
     if (attempt?.scratchId === undefined) return;
-    this.queue(
+    this.#queue(
       getAdapterInternals(this.driver.adapter).batchRefs.cleanup(
         attempt.scratchId
       )
     );
     attempt.scratchId = undefined;
   }
-  private insertIdField(
+  #insertIdField(
     model: AnyModel,
     produced: readonly string[]
   ): string | undefined {
@@ -2866,7 +2940,7 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const fields = Object.keys(values);
-    let statement = this.insertStatement(model, fields, [values]);
+    let statement = this.#insertStatement(model, fields, [values]);
     const produced = [...demanded].filter(
       (field) => values[field] === undefined
     );
@@ -2879,7 +2953,7 @@ export class OperationContext {
         : undefined;
       const insertIdField = adapter.capabilities.supportsReturning
         ? undefined
-        : this.insertIdField(model, produced);
+        : this.#insertIdField(model, produced);
       if (
         produced.length &&
         !adapter.capabilities.supportsReturning &&
@@ -2892,15 +2966,15 @@ export class OperationContext {
         statement = sql`${statement} ${adapter.mutations.returning(
           sql.join(q.lowerProjection(producedProjection), ", ")
         )}`;
-      this.attempt.rejectedInsert = undefined;
+      this.#attempt.rejectedInsert = undefined;
       let response: QueryResult<Input>;
       try {
         response = await this.dispatch(1, false, () =>
-          this.transport._execute<Input>(statement, context)
+          this.#transport._execute<Input>(statement, context)
         );
       } catch (error) {
         if (producer && error instanceof UniqueConstraintError)
-          this.attempt.rejectedInsert = { error, producer };
+          this.#attempt.rejectedInsert = { error, producer };
         throw error;
       }
       const producedRows =
@@ -2930,7 +3004,7 @@ export class OperationContext {
     // `CommandExecution.captureSeries` states for the same fact on a captured
     // series — one owner, restated here for the row a continuation follows.
     if (membership)
-      (this.continuationList ??= []).push({
+      (this.#continuationList ??= []).push({
         declaring: true,
         model: membership.model,
         state: () =>
@@ -2949,7 +3023,7 @@ export class OperationContext {
     const published: Input = { ...values };
     if (produced.length) {
       const references = getAdapterInternals(adapter).batchRefs;
-      const insertIdField = this.insertIdField(model, produced);
+      const insertIdField = this.#insertIdField(model, produced);
       // The exact identity scratch carries ONE generated increment key through
       // the batch: the dialect stores it from the statement that produced it —
       // its own RETURNING inside a data-modifying CTE where the provider can
@@ -2977,14 +3051,14 @@ export class OperationContext {
         );
         const projection = q.prepareProjection(model, { select });
         const resultIndex = this.queued.length;
-        const inserted = this.queue(
+        const inserted = this.#queue(
           sql`${statement} ${adapter.mutations.returning(
             sql.join(q.lowerProjection(projection), ", ")
           )}`,
           context,
           member
         );
-        if (producer) this.attempt.recordInsertProducer(inserted, producer);
+        if (producer) this.#attempt.recordInsertProducer(inserted, producer);
         const responses = await this.submit(true, member);
         const stored = await this.settleSubmitted(() => {
           try {
@@ -3002,7 +3076,7 @@ export class OperationContext {
             throw this.failure(error, "result", member);
           }
         });
-        (this.continuationList ??= []).push({
+        (this.#continuationList ??= []).push({
           model,
           state: () =>
             q.select(model, {}, undefined, {
@@ -3018,16 +3092,16 @@ export class OperationContext {
         return { ...values, ...stored };
       }
       const scratchId = this.ensureScratch();
-      const key = String(this.attempt.nextField++);
+      const key = String(this.#attempt.nextField++);
       const [producing, ...storing] = storeInsertedKey(
         scratchId,
         key,
         statement,
         adapter.identifiers.escape(q.columnName(model, insertIdField))
       );
-      const inserted = this.queue(producing!, context, member);
-      if (producer) this.attempt.recordInsertProducer(inserted, producer);
-      for (const store of storing) this.queue(store);
+      const inserted = this.#queue(producing!, context, member);
+      if (producer) this.#attempt.recordInsertProducer(inserted, producer);
+      for (const store of storing) this.#queue(store);
       const expression = adapter.expressions.cast(
         references.read(scratchId, key),
         physicalField(this.schema, model, insertIdField).scalar["~"].state
@@ -3035,15 +3109,15 @@ export class OperationContext {
           ? "bigint"
           : "integer"
       );
-      this.attempt.publishScratchValue({
+      this.#attempt.publishScratchValue({
         model,
         field: insertIdField,
         expression,
       });
       published[insertIdField] = expression;
     } else {
-      const inserted = this.queue(statement, context, member);
-      if (producer) this.attempt.recordInsertProducer(inserted, producer);
+      const inserted = this.#queue(statement, context, member);
+      if (producer) this.#attempt.recordInsertProducer(inserted, producer);
     }
     return published;
   }
@@ -3120,9 +3194,9 @@ export class OperationContext {
         }
         const references = getAdapterInternals(adapter).batchRefs;
         const scratchId = this.ensureScratch();
-        const key = String(this.attempt.nextField++);
+        const key = String(this.#attempt.nextField++);
         // The UPDATE and every consumer use this one evaluated value in the same batch.
-        this.queue(
+        this.#queue(
           references.store(
             scratchId,
             key,
@@ -3138,7 +3212,7 @@ export class OperationContext {
           references.read(scratchId, key),
           "integer"
         );
-        this.attempt.publishScratchValue({ model, field, expression });
+        this.#attempt.publishScratchValue({ model, field, expression });
         written[field] = published[field] = expression;
       }
     }
@@ -3157,7 +3231,7 @@ export class OperationContext {
       const projection = q.prepareProjection(model, { select });
       if (!adapter.capabilities.supportsReturning) {
         await this.dispatch(1, false, () =>
-          this.transport._execute(statement, context)
+          this.#transport._execute(statement, context)
         );
         // This read answers "which row did the UPDATE just write?", and only a
         // CURRENT read can: under REPEATABLE READ a consistent read answers
@@ -3173,7 +3247,7 @@ export class OperationContext {
           q.select(model, {}, undefined, {
             forUpdate: true,
             projection,
-            identity: this.updatedIdentity(model, identity, values),
+            identity: this.#updatedIdentity(model, identity, values),
           }),
           true
         );
@@ -3185,7 +3259,7 @@ export class OperationContext {
         return { ...published, ...rows[0] };
       }
       const response = await this.dispatch(1, false, () =>
-        this.transport._execute<Input>(
+        this.#transport._execute<Input>(
           sql`${statement} ${adapter.mutations.returning(
             sql.join(q.lowerProjection(projection), ", ")
           )}`,
@@ -3200,7 +3274,7 @@ export class OperationContext {
         );
       return { ...published, ...rows[0] };
     }
-    await this.effect(statement, context, member);
+    await this.#effect(statement, context, member);
     if (observed.length === 0) return published;
     // The ordered observation: the write is queued, and the read that answers
     // the dependent rides the same native batch BEHIND it, so what it reads is
@@ -3214,52 +3288,13 @@ export class OperationContext {
     const rows = await this.flush(
       q.select(model, {}, undefined, {
         projection,
-        identity: this.updatedIdentity(model, identity, values),
+        identity: this.#updatedIdentity(model, identity, values),
       }),
       member
     );
     if (!rows[0])
       throw new TypeError("UPDATE did not produce the required record");
     return { ...published, ...rows[0] };
-  }
-  async associate(
-    edge: Membership,
-    source: Input,
-    target: Input,
-    member: Member
-  ): Promise<void> {
-    if (edge.kind === "reference") {
-      const model = edge.owner === "source" ? edge.source : edge.target;
-      const row = edge.owner === "source" ? source : target;
-      const values = Object.fromEntries(
-        edge.pairs.map((pair) =>
-          edge.owner === "source"
-            ? [pair.source, target[pair.target]]
-            : [pair.target, source[pair.source]]
-        )
-      );
-      await this.update(
-        model,
-        this.schema.identity(model, row),
-        values,
-        member
-      );
-      return;
-    }
-    await this.link(
-      edge,
-      Object.fromEntries([
-        ...edge.sourceSide.members.map((pair) => [
-          pair.junctionField,
-          source[pair.referencedField],
-        ]),
-        ...edge.targetSide.members.map((pair) => [
-          pair.junctionField,
-          target[pair.referencedField],
-        ]),
-      ]),
-      member
-    );
   }
   /**
    * Has this captured slot already been spent — and, if it had not, spend it.
@@ -3268,8 +3303,8 @@ export class OperationContext {
    * no caller can spend a slot without asking, and none can ask without
    * spending. The leaf's presence IS the answer.
    */
-  private spendSlot(table: string, values: readonly unknown[]): boolean {
-    let level = (this.vacatedMemberships ??= new Map());
+  #spendSlot(table: string, values: readonly unknown[]): boolean {
+    let level = (this.#vacatedMemberships ??= new Map());
     const path: unknown[] = [table, ...values];
     let spent = true;
     for (const [index, key] of path.entries()) {
@@ -3323,16 +3358,16 @@ export class OperationContext {
       // errs the safe way: a pair the plan did not capture twice is vacated,
       // and the postcondition still guards that vacate.
       const slot = columns.map((field) => captured[field]);
-      if (!this.spendSlot(edge.table, slot)) {
+      if (!this.#spendSlot(edge.table, slot)) {
         const remove = adapter.mutations.delete(
           adapter.identifiers.table(edge.table),
           q.junctionWhere(edge, captured)
         );
         const context = this.statementContext(edge.source, "update");
-        if (this.usesBatch) this.queue(remove, context, member);
+        if (this.usesBatch) this.#queue(remove, context, member);
         else {
           const response = await this.dispatch(1, false, () =>
-            this.transport._execute(remove, context)
+            this.#transport._execute(remove, context)
           );
           if (response.rowCount !== 1) {
             const failure = new TransactionError(
@@ -3382,7 +3417,7 @@ export class OperationContext {
           )
         ),
       });
-      await this.effect(
+      await this.#effect(
         adapter.mutations.insert(
           adapter.identifiers.table(edge.table),
           columns,
@@ -3398,7 +3433,7 @@ export class OperationContext {
       columns,
       [operands]
     );
-    await this.effect(
+    await this.#effect(
       sql`${insert} ${adapter.mutations.onConflict(
         sql.join(
           columns.map((column) => adapter.identifiers.escape(column)),
@@ -3458,19 +3493,7 @@ export class OperationContext {
         if (!values) continue;
         conditions.push(...q.junctionSideConditions(side, undefined, values));
       }
-      if (keep.length)
-        conditions.push(
-          a.operators.not(
-            a.operators.or(
-              ...keep.map((row) =>
-                a.operators.and(
-                  ...q.junctionSideConditions(edge.targetSide, undefined, row)
-                )
-              )
-            )
-          )
-        );
-      await this.effect(
+      await this.#effect(
         a.mutations.delete(
           a.identifiers.table(edge.table),
           a.operators.and(...conditions)
@@ -3525,14 +3548,14 @@ export class OperationContext {
     const values = clearability.fields.map((field) =>
       a.set.assign(q.column(edge.target, field), a.literals.null())
     );
-    await this.effect(
+    await this.#effect(
       a.mutations.update(q.table(edge.target), sql.join(values, ", "), where),
       this.statementContext(edge.target, "update"),
       member
     );
   }
   /** One admitted payload, one prepared update: `Queries` is the sole interpreter. */
-  private updateAssignments(model: AnyModel, values: Input): Sql[] {
+  #updateAssignments(model: AnyModel, values: Input): Sql[] {
     return Object.entries(values).map(([field, value]) =>
       this.queries.updateAssignment(model, field, value)
     );
@@ -3565,11 +3588,11 @@ export class OperationContext {
       q.memberWhere(edge, parent, model["~"].names.sql!),
       ...(filter ? [filter] : [])
     );
-    await this.effect(
+    await this.#effect(
       values
         ? a.mutations.update(
             q.table(model),
-            sql.join(this.updateAssignments(model, values), ", "),
+            sql.join(this.#updateAssignments(model, values), ", "),
             where
           )
         : a.mutations.delete(q.table(model), where),
@@ -3578,7 +3601,7 @@ export class OperationContext {
     );
   }
   async delete(model: AnyModel, row: Input, member: Member): Promise<void> {
-    await this.effect(
+    await this.#effect(
       this.driver.adapter.mutations.delete(
         this.queries.table(model),
         this.queries.lowerIdentity(model, this.schema.identity(model, row))
@@ -3587,15 +3610,15 @@ export class OperationContext {
       member
     );
   }
-  private async effect(
+  async #effect(
     statement: Sql,
     context: QueryExecutionContext,
     member: Member
   ): Promise<void> {
-    if (this.usesBatch) this.queue(statement, context, member);
+    if (this.usesBatch) this.#queue(statement, context, member);
     else
       await this.dispatch(1, false, () =>
-        this.transport._execute(statement, context)
+        this.#transport._execute(statement, context)
       );
   }
 }

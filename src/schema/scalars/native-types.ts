@@ -121,6 +121,33 @@ export type ExactNativeTypeMap<Given> = {
 } & ([keyof Given & NativeDialect] extends [never] ? never : unknown);
 
 // =============================================================================
+// CONSTANT BUILDERS
+// =============================================================================
+
+/** A fixed native type: its `db` and `type` keep their literal types. */
+const fixed =
+  <const Db extends NativeDialect>(db: Db) =>
+  <const Type extends string>(type: Type) =>
+    ({ db, type }) as const;
+
+const pg = fixed("pg");
+const mysql = fixed("mysql");
+const sqlite = fixed("sqlite");
+
+/** A type that takes one required size: `varchar(80)`. */
+const sized =
+  <Db extends NativeDialect>(db: Db, name: string) =>
+  (n: number): DialectNativeType<Db> => ({ db, type: `${name}(${n})` });
+
+/** A type whose precision is optional: `timestamp` or `timestamp(3)`. */
+const opt =
+  <Db extends NativeDialect>(db: Db, name: string) =>
+  (precision?: number): DialectNativeType<Db> => ({
+    db,
+    type: precision !== undefined ? `${name}(${precision})` : name,
+  });
+
+// =============================================================================
 // POSTGRESQL NATIVE TYPES
 // https://www.prisma.io/docs/orm/reference/prisma-schema-reference#postgresql
 // =============================================================================
@@ -128,89 +155,68 @@ export type ExactNativeTypeMap<Given> = {
 export const PG = {
   // String types
   STRING: {
-    TEXT: { db: "pg", type: "text" } as const,
-    VARCHAR: (n: number): DialectNativeType<"pg"> => ({
-      db: "pg",
-      type: `varchar(${n})`,
-    }),
-    CHAR: (n: number): DialectNativeType<"pg"> => ({
-      db: "pg",
-      type: `char(${n})`,
-    }),
-    CITEXT: { db: "pg", type: "citext" } as const,
-    UUID: { db: "pg", type: "uuid" } as const,
-    BIT: (n: number): DialectNativeType<"pg"> => ({
-      db: "pg",
-      type: `bit(${n})`,
-    }),
+    TEXT: pg("text"),
+    VARCHAR: sized("pg", "varchar"),
+    CHAR: sized("pg", "char"),
+    CITEXT: pg("citext"),
+    UUID: pg("uuid"),
+    BIT: sized("pg", "bit"),
+    // By hand: a zero size is the bare type here, not `varbit(0)`.
     VARBIT: (n?: number): DialectNativeType<"pg"> => ({
       db: "pg",
       type: n ? `varbit(${n})` : "varbit",
     }),
-    XML: { db: "pg", type: "xml" } as const,
-    INET: { db: "pg", type: "inet" } as const,
-    CIDR: { db: "pg", type: "cidr" } as const,
-    MACADDR: { db: "pg", type: "macaddr" } as const,
-    MACADDR8: { db: "pg", type: "macaddr8" } as const,
-    TSVECTOR: { db: "pg", type: "tsvector" } as const,
-    TSQUERY: { db: "pg", type: "tsquery" } as const,
+    XML: pg("xml"),
+    INET: pg("inet"),
+    CIDR: pg("cidr"),
+    MACADDR: pg("macaddr"),
+    MACADDR8: pg("macaddr8"),
+    TSVECTOR: pg("tsvector"),
+    TSQUERY: pg("tsquery"),
   },
 
   // Integer types
   INT: {
-    SMALLINT: { db: "pg", type: "smallint" } as const,
-    INTEGER: { db: "pg", type: "integer" } as const,
-    OID: { db: "pg", type: "oid" } as const,
+    SMALLINT: pg("smallint"),
+    INTEGER: pg("integer"),
+    OID: pg("oid"),
   },
 
   // BigInt types
   BIGINT: {
-    BIGINT: { db: "pg", type: "bigint" } as const,
+    BIGINT: pg("bigint"),
   },
 
   // Float types
   FLOAT: {
-    REAL: { db: "pg", type: "real" } as const,
-    DOUBLE_PRECISION: { db: "pg", type: "double precision" } as const,
+    REAL: pg("real"),
+    DOUBLE_PRECISION: pg("double precision"),
   },
 
   // Boolean types
   BOOLEAN: {
-    BOOLEAN: { db: "pg", type: "boolean" } as const,
+    BOOLEAN: pg("boolean"),
   },
 
   // DateTime types
   DATETIME: {
-    TIMESTAMP: (precision?: number): DialectNativeType<"pg"> => ({
-      db: "pg",
-      type: precision !== undefined ? `timestamp(${precision})` : "timestamp",
-    }),
-    TIMESTAMPTZ: (precision?: number): DialectNativeType<"pg"> => ({
-      db: "pg",
-      type:
-        precision !== undefined ? `timestamptz(${precision})` : "timestamptz",
-    }),
-    DATE: { db: "pg", type: "date" } as const,
-    TIME: (precision?: number): DialectNativeType<"pg"> => ({
-      db: "pg",
-      type: precision !== undefined ? `time(${precision})` : "time",
-    }),
-    TIMETZ: (precision?: number): DialectNativeType<"pg"> => ({
-      db: "pg",
-      type: precision !== undefined ? `timetz(${precision})` : "timetz",
-    }),
-    INTERVAL: { db: "pg", type: "interval" } as const,
+    TIMESTAMP: opt("pg", "timestamp"),
+    TIMESTAMPTZ: opt("pg", "timestamptz"),
+    DATE: pg("date"),
+    TIME: opt("pg", "time"),
+    TIMETZ: opt("pg", "timetz"),
+    INTERVAL: pg("interval"),
   },
 
   // JSON types
   JSON: {
-    JSON: { db: "pg", type: "json" } as const,
-    JSONB: { db: "pg", type: "jsonb" } as const,
+    JSON: pg("json"),
+    JSONB: pg("jsonb"),
   },
 
   // Binary types
   BLOB: {
-    BYTEA: { db: "pg", type: "bytea" } as const,
+    BYTEA: pg("bytea"),
   },
 } as const;
 
@@ -222,90 +228,66 @@ export const PG = {
 export const MYSQL = {
   // String types
   STRING: {
-    VARCHAR: (n: number): DialectNativeType<"mysql"> => ({
-      db: "mysql",
-      type: `VARCHAR(${n})`,
-    }),
-    CHAR: (n: number): DialectNativeType<"mysql"> => ({
-      db: "mysql",
-      type: `CHAR(${n})`,
-    }),
-    TEXT: { db: "mysql", type: "TEXT" } as const,
-    TINYTEXT: { db: "mysql", type: "TINYTEXT" } as const,
-    MEDIUMTEXT: { db: "mysql", type: "MEDIUMTEXT" } as const,
-    LONGTEXT: { db: "mysql", type: "LONGTEXT" } as const,
-    BIT: (n: number): DialectNativeType<"mysql"> => ({
-      db: "mysql",
-      type: `BIT(${n})`,
-    }),
+    VARCHAR: sized("mysql", "VARCHAR"),
+    CHAR: sized("mysql", "CHAR"),
+    TEXT: mysql("TEXT"),
+    TINYTEXT: mysql("TINYTEXT"),
+    MEDIUMTEXT: mysql("MEDIUMTEXT"),
+    LONGTEXT: mysql("LONGTEXT"),
+    BIT: sized("mysql", "BIT"),
   },
 
   // Integer types
   INT: {
-    TINYINT: { db: "mysql", type: "TINYINT" } as const,
-    TINYINT_UNSIGNED: { db: "mysql", type: "TINYINT UNSIGNED" } as const,
-    SMALLINT: { db: "mysql", type: "SMALLINT" } as const,
-    SMALLINT_UNSIGNED: { db: "mysql", type: "SMALLINT UNSIGNED" } as const,
-    MEDIUMINT: { db: "mysql", type: "MEDIUMINT" } as const,
-    MEDIUMINT_UNSIGNED: { db: "mysql", type: "MEDIUMINT UNSIGNED" } as const,
-    INT: { db: "mysql", type: "INT" } as const,
-    INT_UNSIGNED: { db: "mysql", type: "INT UNSIGNED" } as const,
-    YEAR: { db: "mysql", type: "YEAR" } as const,
+    TINYINT: mysql("TINYINT"),
+    TINYINT_UNSIGNED: mysql("TINYINT UNSIGNED"),
+    SMALLINT: mysql("SMALLINT"),
+    SMALLINT_UNSIGNED: mysql("SMALLINT UNSIGNED"),
+    MEDIUMINT: mysql("MEDIUMINT"),
+    MEDIUMINT_UNSIGNED: mysql("MEDIUMINT UNSIGNED"),
+    INT: mysql("INT"),
+    INT_UNSIGNED: mysql("INT UNSIGNED"),
+    YEAR: mysql("YEAR"),
   },
 
   // BigInt types
   BIGINT: {
-    BIGINT: { db: "mysql", type: "BIGINT" } as const,
-    BIGINT_UNSIGNED: { db: "mysql", type: "BIGINT UNSIGNED" } as const,
+    BIGINT: mysql("BIGINT"),
+    BIGINT_UNSIGNED: mysql("BIGINT UNSIGNED"),
   },
 
   // Float types
   FLOAT: {
-    FLOAT: { db: "mysql", type: "FLOAT" } as const,
-    DOUBLE: { db: "mysql", type: "DOUBLE" } as const,
+    FLOAT: mysql("FLOAT"),
+    DOUBLE: mysql("DOUBLE"),
   },
 
   // Boolean types (MySQL uses TINYINT(1))
   BOOLEAN: {
-    TINYINT: { db: "mysql", type: "TINYINT(1)" } as const,
+    TINYINT: mysql("TINYINT(1)"),
   },
 
   // DateTime types
   DATETIME: {
-    DATETIME: (precision?: number): DialectNativeType<"mysql"> => ({
-      db: "mysql",
-      type: precision !== undefined ? `DATETIME(${precision})` : "DATETIME",
-    }),
-    TIMESTAMP: (precision?: number): DialectNativeType<"mysql"> => ({
-      db: "mysql",
-      type: precision !== undefined ? `TIMESTAMP(${precision})` : "TIMESTAMP",
-    }),
-    DATE: { db: "mysql", type: "DATE" } as const,
-    TIME: (precision?: number): DialectNativeType<"mysql"> => ({
-      db: "mysql",
-      type: precision !== undefined ? `TIME(${precision})` : "TIME",
-    }),
+    DATETIME: opt("mysql", "DATETIME"),
+    TIMESTAMP: opt("mysql", "TIMESTAMP"),
+    DATE: mysql("DATE"),
+    TIME: opt("mysql", "TIME"),
   },
 
   // JSON types
   JSON: {
-    JSON: { db: "mysql", type: "JSON" } as const,
+    JSON: mysql("JSON"),
   },
 
   // Binary types
   BLOB: {
-    BLOB: { db: "mysql", type: "BLOB" } as const,
-    TINYBLOB: { db: "mysql", type: "TINYBLOB" } as const,
-    MEDIUMBLOB: { db: "mysql", type: "MEDIUMBLOB" } as const,
-    LONGBLOB: { db: "mysql", type: "LONGBLOB" } as const,
-    BINARY: (n: number): DialectNativeType<"mysql"> => ({
-      db: "mysql",
-      type: `BINARY(${n})`,
-    }),
-    VARBINARY: (n: number): DialectNativeType<"mysql"> => ({
-      db: "mysql",
-      type: `VARBINARY(${n})`,
-    }),
+    BLOB: mysql("BLOB"),
+    TINYBLOB: mysql("TINYBLOB"),
+    MEDIUMBLOB: mysql("MEDIUMBLOB"),
+    LONGBLOB: mysql("LONGBLOB"),
+    BINARY: sized("mysql", "BINARY"),
+    VARBINARY: sized("mysql", "VARBINARY"),
   },
 } as const;
 
@@ -318,43 +300,43 @@ export const MYSQL = {
 export const SQLITE = {
   // String types (all map to TEXT)
   STRING: {
-    TEXT: { db: "sqlite", type: "TEXT" } as const,
+    TEXT: sqlite("TEXT"),
   },
 
   // Integer types
   INT: {
-    INTEGER: { db: "sqlite", type: "INTEGER" } as const,
+    INTEGER: sqlite("INTEGER"),
   },
 
   // BigInt types (same as INTEGER in SQLite)
   BIGINT: {
-    INTEGER: { db: "sqlite", type: "INTEGER" } as const,
+    INTEGER: sqlite("INTEGER"),
   },
 
   // Float types
   FLOAT: {
-    REAL: { db: "sqlite", type: "REAL" } as const,
+    REAL: sqlite("REAL"),
   },
 
   // Boolean types (stored as INTEGER 0/1)
   BOOLEAN: {
-    INTEGER: { db: "sqlite", type: "INTEGER" } as const,
+    INTEGER: sqlite("INTEGER"),
   },
 
   // DateTime types (stored as TEXT, REAL, or INTEGER)
   DATETIME: {
-    TEXT: { db: "sqlite", type: "TEXT" } as const,
-    REAL: { db: "sqlite", type: "REAL" } as const,
-    INTEGER: { db: "sqlite", type: "INTEGER" } as const,
+    TEXT: sqlite("TEXT"),
+    REAL: sqlite("REAL"),
+    INTEGER: sqlite("INTEGER"),
   },
 
   // JSON types (stored as TEXT)
   JSON: {
-    TEXT: { db: "sqlite", type: "TEXT" } as const,
+    TEXT: sqlite("TEXT"),
   },
 
   // Binary types
   BLOB: {
-    BLOB: { db: "sqlite", type: "BLOB" } as const,
+    BLOB: sqlite("BLOB"),
   },
 } as const;

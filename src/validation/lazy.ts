@@ -95,22 +95,22 @@ class LazyScalarSchemas<T extends ScalarVariantSchemas>
       create: {
         enumerable: true,
         configurable: true,
-        get: LazyScalarSchemas.readCreate,
+        get: LazyScalarSchemas.#readCreate,
       },
       update: {
         enumerable: true,
         configurable: true,
-        get: LazyScalarSchemas.readUpdate,
+        get: LazyScalarSchemas.#readUpdate,
       },
       filter: {
         enumerable: true,
         configurable: true,
-        get: LazyScalarSchemas.readFilter,
+        get: LazyScalarSchemas.#readFilter,
       },
     });
   }
 
-  private static readCreate<T extends ScalarVariantSchemas>(
+  static #readCreate<T extends ScalarVariantSchemas>(
     this: LazyScalarSchemas<T>
   ): T["create"] {
     if ("value" in this.#create) return this.#create.value;
@@ -119,7 +119,7 @@ class LazyScalarSchemas<T extends ScalarVariantSchemas>
     return value;
   }
 
-  private static readUpdate<T extends ScalarVariantSchemas>(
+  static #readUpdate<T extends ScalarVariantSchemas>(
     this: LazyScalarSchemas<T>
   ): T["update"] {
     if ("value" in this.#update) return this.#update.value;
@@ -128,7 +128,7 @@ class LazyScalarSchemas<T extends ScalarVariantSchemas>
     return value;
   }
 
-  private static readFilter<T extends ScalarVariantSchemas>(
+  static #readFilter<T extends ScalarVariantSchemas>(
     this: LazyScalarSchemas<T>
   ): T["filter"] {
     if ("value" in this.#filter) return this.#filter.value;

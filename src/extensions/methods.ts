@@ -11,7 +11,7 @@ import type {
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
-import type { OfficialCacheControls } from "../cache/extension";
+import type { OfficialCacheControls } from "../cache/capability";
 import type { ResolvedExtensionChain } from "./chain";
 import type {
   DefinitionControls,

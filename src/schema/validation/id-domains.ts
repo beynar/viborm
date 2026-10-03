@@ -128,9 +128,38 @@ export function deriveIdDomains(
   index: ResolvedRelationIndex,
   ctx?: ValidationContext
 ): IdDomainDerivation {
-  const graph = buildReferenceGraph(index);
   const domains = new Map<Model<any>, Map<string, IdDomain>>();
   const issues: SchemaValidationIssue[] = [];
+  let hasDeclaredDomain = false;
+  for (const model of index.keys()) {
+    for (const field of Object.keys(model["~"].state.scalars)) {
+      if (declaredDomainOf(model, field) !== undefined) {
+        hasDeclaredDomain = true;
+        break;
+      }
+    }
+    if (hasDeclaredDomain) break;
+  }
+  // Every inherited domain originates at a declaration. Without one, neither
+  // propagation nor a domain/native-storage disagreement is possible.
+  if (!hasDeclaredDomain) {
+    MEMO.set(index, domains);
+    return { domains, issues };
+  }
+  return deriveDeclaredIdDomains(index, ctx, domains, issues);
+}
+
+/**
+ * The propagation itself, apart from {@link deriveIdDomains} so that a schema
+ * declaring no identifier domain never compiles it.
+ */
+function deriveDeclaredIdDomains(
+  index: ResolvedRelationIndex,
+  ctx: ValidationContext | undefined,
+  domains: Map<Model<any>, Map<string, IdDomain>>,
+  issues: SchemaValidationIssue[]
+): IdDomainDerivation {
+  const graph = buildReferenceGraph(index);
   const settled = new Map<Model<any>, Map<string, IdDomain | undefined>>();
   // Tarjan's discovery index per field. Keyed by model IDENTITY, not by name:
   // a name is for the message, and two models that happen to render the same
@@ -344,6 +373,9 @@ export function deriveIdDomains(
     }
   }
 
+  // The topology gate already pays for this derivation. Publish its successful
+  // answer on the same index so the first operation consumes it directly.
+  if (issues.length === 0) MEMO.set(index, domains);
   return { domains, issues };
 }
 
@@ -438,9 +470,7 @@ function describeIdDomain2(domain: IdDomain | undefined): string {
 export function idDomainsOf(index: ResolvedRelationIndex): IdDomainIndex {
   const existing = MEMO.get(index);
   if (existing) return existing;
-  const derived = deriveIdDomains(index).domains;
-  MEMO.set(index, derived);
-  return derived;
+  return deriveIdDomains(index).domains;
 }
 
 /**

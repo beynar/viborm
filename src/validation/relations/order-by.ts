@@ -17,6 +17,7 @@ import {
   type VectorSortOrderSchema,
   vectorSortOrderSchema,
 } from "@validation/model/core/orderby";
+import { entriesFromKeys } from "../primitives/record";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import type { SchemaGetter, TargetModel } from "./helpers";
@@ -187,23 +188,23 @@ const getModelScalarOrderByEntries = <M extends AnyModel>(
     nonVectorScalarKeys.push(fieldName as NonVectorScalarKey<M>);
   }
 
-  const scalarEntries = v.fromKeys<NonVectorScalarKey<M>[], SortOrderSchema>(
-    nonVectorScalarKeys,
-    sortOrderSchema
-  );
-  const vectorEntries = v.fromKeys<VectorScalarKey<M>[], VectorSortOrderSchema>(
-    vectorScalarKeys,
-    vectorSortOrderSchema
-  );
-  const decimalListEntries = v.fromKeys<
+  const scalarEntries = entriesFromKeys<
+    NonVectorScalarKey<M>[],
+    SortOrderSchema
+  >(nonVectorScalarKeys, sortOrderSchema);
+  const vectorEntries = entriesFromKeys<
+    VectorScalarKey<M>[],
+    VectorSortOrderSchema
+  >(vectorScalarKeys, vectorSortOrderSchema);
+  const decimalListEntries = entriesFromKeys<
     ModelDecimalListScalarKey<M>[],
     DecimalListOrderByRefusalSchema
   >(decimalListScalarKeys, decimalListOrderByRefusalSchema);
 
   return {
-    ...scalarEntries.entries,
-    ...vectorEntries.entries,
-    ...decimalListEntries.entries,
+    ...scalarEntries,
+    ...vectorEntries,
+    ...decimalListEntries,
   };
 };
 
@@ -224,9 +225,11 @@ const getToOneRelationOrderByEntries = <
     const relationState = relation["~"].state;
     if (isOrderableToOneRelation(relationState)) {
       relationEntries[relationName] = () =>
-        buildToOneOrderBySchema(
-          relation["~"].settleTarget() as AnyModel,
-          depth - 1
+        v.lazyRef(() =>
+          buildToOneOrderBySchema(
+            relation["~"].settleTarget() as AnyModel,
+            depth - 1
+          )
         );
       continue;
     }
@@ -271,10 +274,14 @@ export const toOneOrderByFactory = <
   relation: AnyRelation,
   _targetSchemas: T
 ): ToOneOrderBySchema<S> => {
+  // OrderBy entries have no default. Reading their validator must not build a
+  // target branch until the input actually orders through that relation.
   return () =>
-    buildToOneOrderBySchema(
-      relation["~"].settleTarget() as TargetModel<S>,
-      MAX_RELATION_ORDER_DEPTH - 1
+    v.lazyRef(() =>
+      buildToOneOrderBySchema(
+        relation["~"].settleTarget() as TargetModel<S>,
+        MAX_RELATION_ORDER_DEPTH - 1
+      )
     );
 };
 

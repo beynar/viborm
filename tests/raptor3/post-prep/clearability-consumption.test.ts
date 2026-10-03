@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -60,7 +60,7 @@ async function createWorld() {
     data: { id: "p3", title: "unrelated", tenantId: "t2", authorId: "a1" },
   });
   return {
-    candidate: createCommandEngine({ schema, driver }),
+    candidate: createTestCommandEngine({ schema, driver }),
     client,
     database,
   };

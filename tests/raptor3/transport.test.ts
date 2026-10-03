@@ -10,7 +10,7 @@ import {
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
 import {
   captureRaptor3Identity,
@@ -227,7 +227,7 @@ if (!evidenceDirectoryContract)
           profile,
           {
             candidateFactory(config) {
-              const engine = createCommandEngine(config);
+              const engine = createTestCommandEngine(config);
               return {
                 async execute(model, operation, rawArgs) {
                   const first = await engine.execute(model, operation, rawArgs);

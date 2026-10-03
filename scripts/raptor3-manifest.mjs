@@ -201,7 +201,7 @@ export const POST_G3_PROJECTION_PREPARATION_TESTS = Object.freeze(
   Object.keys(POST_G3_PROJECTION_PREPARATION_COUNTS)
 );
 export const POST_G3_SELECTOR_PREPARATION_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/selector-preparation.test.ts": 5,
+  "tests/raptor3/post-prep/selector-preparation.test.ts": 7,
 });
 export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
   Object.keys(POST_G3_SELECTOR_PREPARATION_COUNTS)
@@ -483,7 +483,7 @@ export const G4_READ_OPERATIONS_TESTS = Object.freeze(
   Object.keys(G4_READ_OPERATIONS_COUNTS)
 );
 export const G4_READ_FILTERS_COUNTS = Object.freeze({
-  "tests/raptor3/g4/read-filters.test.ts": 13,
+  "tests/raptor3/g4/read-filters.test.ts": 14,
 });
 export const G4_READ_FILTERS_TESTS = Object.freeze(
   Object.keys(G4_READ_FILTERS_COUNTS)
@@ -557,7 +557,7 @@ export const RQ06_CARRIER_BOUNDARY_TESTS = Object.freeze(
  * SQLite and scripted transports.
  */
 export const RESULT_DECODER_COUNTS = Object.freeze({
-  "tests/raptor3/result-decoder.test.ts": 26,
+  "tests/raptor3/result-decoder.test.ts": 31,
   "tests/raptor3/result-decoder-placements.test.ts": 11,
   "tests/raptor3/result-decoder-lists.test.ts": 14,
 });
@@ -697,7 +697,7 @@ export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit02/packaged-array.test.ts": 3,
   "tests/raptor3/g4/unit02/phase2-envelope-and-arithmetic.test.ts": 7,
   "tests/raptor3/g4/unit02/physical-envelope.test.ts": 10,
-  "tests/raptor3/g4/unit02/prepared-operation.test.ts": 6,
+  "tests/raptor3/g4/unit02/prepared-operation.test.ts": 9,
   "tests/raptor3/g4/unit02/prepared-projection-reuse.test.ts": 5,
   "tests/raptor3/g4/unit02/prepared-statement-stability.test.ts": 3,
   "tests/raptor3/g4/unit02/recursive-codec-fit.test.ts": 3,

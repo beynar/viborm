@@ -1,5 +1,6 @@
 import { s } from "@schema";
 import { SchemaValidationError, validateSchema } from "@schema/validation";
+import { allRules } from "@schema/validation/rules";
 import { validateResolvedSchemaOrThrow } from "@schema/validation/validator";
 import { describe, expect, it } from "vitest";
 
@@ -75,7 +76,7 @@ describe("fixed-decimal foreign-key domains", () => {
     let refusal: unknown;
 
     try {
-      publication = validateResolvedSchemaOrThrow(schema);
+      publication = validateResolvedSchemaOrThrow(schema, allRules);
     } catch (error) {
       refusal = error;
     }

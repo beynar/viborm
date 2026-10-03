@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import { captureRaptor3Identity } from "../../scripts/raptor3-manifest.mjs";
 import { assertEquivalentRunObservations } from "../../benchmarks/operation-pipeline-semantics.mjs";
@@ -59,7 +59,7 @@ describe.each(G0_PROFILES)("G1 C10 real rollback cleanup: %s", (profile) => {
     const baseline = await runSQLiteWorld(scenario, profile, 0, { fault });
     const candidate = await runSQLiteWorld(scenario, profile, 0, {
       fault,
-      candidateFactory: createCommandEngine,
+      candidateFactory: createTestCommandEngine,
       candidateName: "commands",
     });
     const directory = process.env.VIBORM_RAPTOR3_EVIDENCE_DIRECTORY;

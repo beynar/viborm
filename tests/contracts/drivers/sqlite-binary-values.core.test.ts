@@ -183,12 +183,20 @@ describe("local SQLite binary values", () => {
     };
     const database = {
       prepare: () => statement,
+      exec: vi.fn(),
       close: vi.fn(),
     };
     const driver = new SQLite3Driver({
       client: database as unknown as SQLite3Client,
     });
     const backing = new Uint8Array([91, 0, 255, 128, 92]);
+    const buffer = NodeBuffer.from([0, 255, 128]);
+    const view = new DataView(backing.buffer, 1, 3);
+    const parameters: unknown[] = [true, false, undefined, null, buffer, view];
+    const statementSql = "INSERT INTO blobs VALUES (?, ?, ?, ?, ?, ?)";
+    const batchQueries = [{ sql: statementSql, params: parameters }];
+    Object.freeze(parameters);
+    Object.freeze(batchQueries);
     vi.stubGlobal("Buffer", undefined);
 
     try {
@@ -198,15 +206,23 @@ describe("local SQLite binary values", () => {
       await driver._executeRaw("INSERT INTO blobs VALUES (?)", [
         backing.subarray(1, 4),
       ]);
+      await driver._executeRaw(statementSql, parameters);
+      await driver._executeBatch(batchQueries);
 
-      expect(bindings.map(([value]) => NodeBuffer.isBuffer(value))).toEqual([
-        true,
-        true,
-      ]);
-      expect(bindings.map(([value]) => binaryBytes(value))).toEqual([
-        [],
-        [0, 255, 128],
-      ]);
+      expect(
+        bindings.slice(0, 2).map(([value]) => NodeBuffer.isBuffer(value))
+      ).toEqual([true, true]);
+      expect(bindings.slice(0, 2).map(([value]) => binaryBytes(value))).toEqual(
+        [[], [0, 255, 128]]
+      );
+      expect(bindings).toHaveLength(4);
+      for (const values of bindings.slice(2)) {
+        expect(values.slice(0, 4)).toEqual([1, 0, null, null]);
+        expect(values[4]).toBe(buffer);
+        expect(NodeBuffer.isBuffer(values[5])).toBe(true);
+        expect(binaryBytes(values[5])).toEqual([0, 255, 128]);
+      }
+      expect(parameters).toEqual([true, false, undefined, null, buffer, view]);
     } finally {
       await driver.disconnect();
     }
@@ -215,6 +231,13 @@ describe("local SQLite binary values", () => {
   test("Bun SQLite receives Uint8Array for ArrayBuffer and exact subviews", async () => {
     const fixture = createBunBinaryFixture();
     const backing = new Uint8Array([88, 0, 255, 128, 87]);
+    const bytes = backing.subarray(1, 4);
+    const view = new DataView(backing.buffer, 1, 3);
+    const parameters: unknown[] = [true, false, undefined, null, bytes, view];
+    const statementSql = "INSERT INTO blobs VALUES (?, ?, ?, ?, ?, ?)";
+    const batchQueries = [{ sql: statementSql, params: parameters }];
+    Object.freeze(parameters);
+    Object.freeze(batchQueries);
     vi.stubGlobal("Buffer", undefined);
 
     try {
@@ -224,14 +247,25 @@ describe("local SQLite binary values", () => {
       await fixture.driver._executeRaw("INSERT INTO blobs VALUES (?)", [
         new DataView(backing.buffer, 1, 3),
       ]);
+      await fixture.driver._executeRaw(statementSql, parameters);
+      await fixture.driver._executeBatch(batchQueries);
 
-      expect(fixture.bindings.map(([value]) => binaryBytes(value))).toEqual([
-        [],
-        [0, 255, 128],
-      ]);
       expect(
-        fixture.bindings.every(([value]) => value instanceof Uint8Array)
+        fixture.bindings.slice(0, 2).map(([value]) => binaryBytes(value))
+      ).toEqual([[], [0, 255, 128]]);
+      expect(
+        fixture.bindings
+          .slice(0, 2)
+          .every(([value]) => value instanceof Uint8Array)
       ).toBe(true);
+      expect(fixture.bindings).toHaveLength(4);
+      for (const values of fixture.bindings.slice(2)) {
+        expect(values.slice(0, 4)).toEqual([1, 0, null, null]);
+        expect(values[4]).toBe(bytes);
+        expect(values[5]).toBeInstanceOf(Uint8Array);
+        expect(binaryBytes(values[5])).toEqual([0, 255, 128]);
+      }
+      expect(parameters).toEqual([true, false, undefined, null, bytes, view]);
     } finally {
       await fixture.driver.disconnect();
     }

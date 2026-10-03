@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { captureRaptor3Identity } from "../../../scripts/raptor3-manifest.mjs";
 import type { ProfileId } from "../profiles";
 import type { G0ReplayRecord } from "../harness/protocol";
@@ -44,7 +44,7 @@ export async function verifyGeneratedCell(
     phase = "commands";
     const compared = await runSQLiteWorld(scenario, profile, recipe.seed, {
       fault,
-      candidateFactory: createCommandEngine,
+      candidateFactory: createTestCommandEngine,
       candidateName: "commands",
     });
     records.push(compared.record);

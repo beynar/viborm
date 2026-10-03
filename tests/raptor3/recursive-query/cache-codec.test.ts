@@ -33,6 +33,8 @@
  * itself recursive and would measure the assertion, not the codec.
  */
 
+// The route's cache codec belongs to the cache runtime `viborm/cache` loads.
+import "@cache/runtime";
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";

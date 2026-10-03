@@ -12,8 +12,11 @@ import {
   type Config,
   Client as PlanetScaleClient,
 } from "@planetscale/database";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test, vi } from "vitest";
 
@@ -255,10 +258,14 @@ describe("provider row-count normalization", () => {
     });
     const models = { place };
     const registry = createModelRegistry(models, createSchemaRegistry(models));
-    const query = new QueryEngine(driver, registry).build(place, "findMany", {
-      where: { location: { equals: location } },
-      select: { location: true },
-    });
+    const query = new TestQueryEngine(driver, registry).build(
+      place,
+      "findMany",
+      {
+        where: { location: { equals: location } },
+        select: { location: true },
+      }
+    );
 
     try {
       await expect(driver._execute(query)).resolves.toMatchObject({

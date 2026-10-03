@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import { captureRaptor3Identity } from "../../scripts/raptor3-manifest.mjs";
 import type { G0ReplayRecord } from "./harness/protocol";
@@ -40,7 +40,7 @@ describe("Raptor 3 G1-01: commands", () => {
       it(scenario.id, async () => {
         const baseline = await runSQLiteWorld(scenario, profile, 0);
         const compared = await runSQLiteWorld(scenario, profile, 0, {
-          candidateFactory: createCommandEngine,
+          candidateFactory: createTestCommandEngine,
           candidateName: "commands",
         });
         if (
@@ -52,7 +52,7 @@ describe("Raptor 3 G1-01: commands", () => {
 
         for (let replay = 0; replay < 3; replay += 1) {
           const replayed = await runSQLiteWorld(scenario, profile, 0, {
-            candidateFactory: createCommandEngine,
+            candidateFactory: createTestCommandEngine,
             candidateName: "commands",
             replay: compared.record.tape,
           });

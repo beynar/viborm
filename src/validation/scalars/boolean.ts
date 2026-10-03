@@ -8,6 +8,7 @@ import {
   type ListUpdateSchema,
   listFilterFamily,
   listUpdateFamily,
+  once,
   type SetUpdateSchema,
 } from "./family";
 import { scalarInternKey } from "./intern";
@@ -16,8 +17,8 @@ import {
   type NegatableFilterSchema,
 } from "./negatable-filter";
 
-const booleanBase = v.boolean();
-const booleanList = v.boolean({ array: true });
+const booleanBase = once(() => v.boolean());
+const booleanList = once(() => v.boolean({ array: true }));
 
 /**
  * Equality operand: a literal, a field reference to another boolean column, an

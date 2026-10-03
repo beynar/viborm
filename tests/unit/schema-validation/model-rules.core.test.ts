@@ -431,6 +431,22 @@ describe("model member extraction", () => {
     expect(Object.keys(state.scalars)).toEqual(["id", prototypeKey]);
     expect(Object.keys(state.uniques)).toEqual(["id", prototypeKey]);
     expect(Object.keys(state.relations)).toEqual(["toString"]);
+
+    const classified: readonly (readonly [Record<string, unknown>, string])[] =
+      [
+        [state.scalars, prototypeKey],
+        [state.uniques, prototypeKey],
+        [state.relations, "toString"],
+      ];
+    for (const [members, key] of classified) {
+      expect(Object.getPrototypeOf(members)).toBeNull();
+      expect(Object.getOwnPropertyDescriptor(members, key)).toEqual({
+        value: Reflect.get(state.shape, key),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
   });
 
   it("classifies such a member added by .extends()", () => {

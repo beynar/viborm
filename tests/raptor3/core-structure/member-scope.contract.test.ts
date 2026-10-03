@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { v } from "@validation";
 import { isRecord } from "@validation/value-guards";
 import { describe, it } from "vitest";
@@ -741,7 +741,7 @@ for (const profile of [
     for (const scenario of scenarios) {
       it(scenario.id, async () => {
         const world = await runSQLiteWorld(scenario, profile, 0, {
-          candidateFactory: createCommandEngine,
+          candidateFactory: createTestCommandEngine,
           candidateName: "commands",
         });
         world.fixture.assert(world.observation);

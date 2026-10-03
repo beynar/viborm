@@ -35,22 +35,22 @@ import { isString } from "./value-guards";
 class SchemaRegistry<S extends Record<string, AnyModel>>
   implements SchemaRegistryLookup<S>
 {
-  private readonly cache = new Map<AnyModel, ModelSchemas<AnyModel>>();
-  private readonly schema: S;
+  readonly #cache = new Map<AnyModel, ModelSchemas<AnyModel>>();
+  readonly #schema: S;
   /**
    * The one trusted topology, by identity. The operation schemas this registry
    * builds decide which mutation verbs a caller may spell and which keys a
    * nested payload owns — both are topology answers, so the registry consumes
    * the resolved index rather than re-deriving anything from declarations.
    */
-  private readonly index: ResolvedRelationIndex;
+  readonly #index: ResolvedRelationIndex;
   readonly proxy: {
     [K in keyof S]: ModelSchemas<S[K]>;
   };
 
   constructor(schema: S, index: ResolvedRelationIndex) {
-    this.schema = schema;
-    this.index = index;
+    this.#schema = schema;
+    this.#index = index;
 
     this.proxy = new Proxy(
       {},
@@ -72,7 +72,7 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
     };
   }
 
-  private readonly createSchemasGetter = <S extends RelationState>(
+  readonly #createSchemasGetter = <S extends RelationState>(
     relation: AnyRelation
   ) => {
     return () => {
@@ -84,7 +84,7 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
     };
   };
 
-  private readonly buildModelSchemas = (
+  readonly #buildModelSchemas = (
     model: AnyModel
   ): ModelSchemas<AnyModel> => {
     // The identifier domains a foreign-key member DERIVES, from the same
@@ -92,15 +92,15 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
     // own reads it from the declaration; this is only the inheritance.
     const scalars = getScalarsSchemas(
       model,
-      idDomainsOf(this.index).get(model)
+      idDomainsOf(this.#index).get(model)
     );
     // `createResolvedSchemaRegistry` accepts the index resolved for this exact
     // schema. Every registered model therefore has one slot map, including an
     // empty map for a model with no relations.
-    const slots: ReadonlyMap<string, ResolvedSlot> = this.index.get(model)!;
+    const slots: ReadonlyMap<string, ResolvedSlot> = this.#index.get(model)!;
     const relations = getRelationsSchemas(
       model,
-      this.createSchemasGetter,
+      this.#createSchemasGetter,
       slots
     );
     const polymorphic = getPolymorphicRelationsSchemas(
@@ -122,10 +122,10 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
   };
 
   getModelSchemas = (model: AnyModel): ModelSchemas<AnyModel> => {
-    let schemas = this.cache.get(model);
+    let schemas = this.#cache.get(model);
     if (!schemas) {
-      schemas = this.buildModelSchemas(model);
-      this.cache.set(model, schemas);
+      schemas = this.#buildModelSchemas(model);
+      this.#cache.set(model, schemas);
     }
     return schemas as ModelSchemas<AnyModel>;
   };
@@ -135,8 +135,8 @@ class SchemaRegistry<S extends Record<string, AnyModel>>
     operation: SchemaRegistryOperation,
     payload: unknown
   ): Record<string, unknown> => {
-    const model = Object.hasOwn(this.schema, modelName)
-      ? this.schema[modelName]
+    const model = Object.hasOwn(this.#schema, modelName)
+      ? this.#schema[modelName]
       : undefined;
     if (!model) {
       const modelLabel = String(modelName);

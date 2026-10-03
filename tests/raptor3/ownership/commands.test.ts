@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { UniqueConstraintError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { ExecutionBinding } from "@query-engine/raptor3/shared/operation-context";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -87,7 +87,7 @@ describe("G2.7 private execution ownership", () => {
     const factory = world("factory-decoy");
     const borrowed = world("borrowed");
     try {
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema: { record },
         driver: factory.driver,
       });
@@ -119,7 +119,7 @@ describe("G2.7 private execution ownership", () => {
     const borrowed = world("initial");
     const rollback = new Error("caller rollback");
     try {
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema: { record },
         driver: factory.driver,
       });
@@ -175,7 +175,7 @@ describe("G2.7 private execution ownership", () => {
       release = resolve;
     });
     try {
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema: { record },
         driver: factory.driver,
       });
@@ -211,7 +211,7 @@ describe("G2.7 private execution ownership", () => {
     const factory = world("factory-decoy");
     const borrowed = world("initial");
     try {
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema: { record },
         driver: factory.driver,
       });
@@ -266,7 +266,7 @@ describe("G2.7 private execution ownership", () => {
     let insertAttempts = 0;
     const attemptedStatements: string[] = [];
     try {
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema: { record },
         driver: factory.driver,
       });

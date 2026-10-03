@@ -324,8 +324,13 @@ export function sanitizeProviderStatus(
     : undefined;
 }
 
+/** The one shape rule for a VibORM code: `V` + four or five digits. */
+export function isTrustedCode(value: unknown): value is string {
+  return typeof value === "string" && TRUSTED_CODE_PATTERN.test(value);
+}
+
 export function sanitizeTrustedCode(value: string): string {
-  return TRUSTED_CODE_PATTERN.test(value) ? value : "V9001";
+  return isTrustedCode(value) ? value : "V9001";
 }
 
 /**

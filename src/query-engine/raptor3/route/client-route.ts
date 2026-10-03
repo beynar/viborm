@@ -15,35 +15,17 @@
  * ONE operation owner rather than a selectable alternative.
  */
 
+import { officialCacheRuntime } from "@cache/capability";
 import type { Operations } from "@client/types";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
-import { CacheConfigurationError, UnsupportedOperationError } from "@errors";
+import { UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { CacheResultCodec } from "../../cache-flow";
-import {
-  arrayCodec,
-  booleanCodec,
-  compileScalarCodec,
-  compileWidenedSumCodec,
-  countCodec,
-  nullableCodec,
-  numberCodec,
-  recordCodec,
-  recursiveRelationCodec,
-  taggedRelationCodec,
-  type ValueCodec,
-} from "../../result/cache-value-codecs";
 import type { PreparedBatchOperation } from "../../types";
-import {
-  createCommandEngine,
-  type PreparedOperation,
-  type PreparedRead,
-} from "../commands";
-import { EngineInvariantError } from "../shared/invariant";
+import { createCommandEngine, type PreparedOperation } from "../commands";
 import type { WriteOutcomeSeam } from "../shared/operation-context";
-import type { Leaf, ProjectionShape } from "../shared/query";
 import type { CallRows } from "../shared/row-scope";
 import type { ResolvedSchemaViews } from "../shared/schema";
 
@@ -136,15 +118,109 @@ function routeWriteOutcome(
     seam: {
       committedSegment: async () => {
         outcome.published = true;
-        await committedWriteSegment?.();
+        if (committedWriteSegment) await committedWriteSegment();
       },
       mayBeVisible: async () => {
         outcome.published = true;
-        await writeMayBeVisible?.();
+        if (writeMayBeVisible) await writeMayBeVisible();
       },
     },
   };
   return outcome;
+}
+
+class RoutedOperation implements RoutedCandidateOperation {
+  readonly #factoryDriver: AnyDriver;
+  readonly #modelName: string;
+  readonly #requestedOperation: string;
+  readonly #prepared: PreparedOperation;
+  #codec: CacheResultCodec | undefined;
+
+  constructor(
+    factoryDriver: AnyDriver,
+    modelName: string,
+    requestedOperation: string,
+    prepared: PreparedOperation
+  ) {
+    this.#factoryDriver = factoryDriver;
+    this.#modelName = modelName;
+    this.#requestedOperation = requestedOperation;
+    this.#prepared = prepared;
+  }
+
+  get preparedArgs(): Record<string, unknown> {
+    return this.#prepared.args;
+  }
+
+  buildStatement(): Sql | undefined {
+    return this.#prepared.read?.statement;
+  }
+
+  cacheResultCodec(): CacheResultCodec {
+    // KEPT as a capability boundary (N4, plan §4). It alone owns "the
+    // cache layer asked this engine to encode a verb this engine
+    // publishes no prepared read for" — a boundary between two
+    // independently-maintained vocabularies in two layers:
+    // `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`, nine names,
+    // including both `…OrThrow` variants) and the engine's own
+    // `READ_OPERATIONS` (`shared/schema.ts`, seven), reconciled today
+    // only by `admittedOperation`'s `…OrThrow` normalization. No type
+    // ties them and no single upstream owner establishes the fact, so an
+    // assertion here would establish a missing fact rather than state an
+    // established one (ELEGANCE §5). The class stays public
+    // (`UnsupportedOperationError`) because this seam
+    // (`RoutedCandidateOperation`) is consumed outside raptor3.
+    const read = this.#prepared.read;
+    if (!read)
+      throw new UnsupportedOperationError(
+        `The Raptor 3 route cannot encode a cached result for '${this.#requestedOperation}' on model '${this.#modelName}': the verb publishes no prepared read.`,
+        {
+          meta: {
+            model: this.#modelName,
+            operation: this.#requestedOperation,
+          },
+        }
+      );
+    return (this.#codec ??= officialCacheRuntime().cacheCodec(
+      read,
+      this.#requestedOperation
+    ));
+  }
+
+  prepareSingle(
+    context: QueryExecutionContext
+  ): PreparedBatchOperation<unknown> | undefined {
+    return this.#prepared.prepareSingle(context);
+  }
+
+  prepareBatch(
+    context: QueryExecutionContext
+  ): Promise<PreparedBatchOperation<unknown> | undefined> {
+    return this.#prepared.prepareBatch(context);
+  }
+
+  execute<T>(execution: RoutedOperationExecution): Promise<T> {
+    try {
+      const outcome = execution.isWrite
+        ? routeWriteOutcome(execution)
+        : undefined;
+      if (outcome)
+        return runWriteCandidate<T>(
+          this.#prepared,
+          execution,
+          this.#factoryDriver,
+          outcome
+        );
+      return runCandidate(
+        this.#prepared,
+        execution,
+        this.#factoryDriver,
+        undefined
+      ) as Promise<T>;
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
 }
 
 /**
@@ -167,85 +243,6 @@ export function createCandidateRoute(
     driver: factoryDriver,
     resolved,
   });
-  class RoutedOperation implements RoutedCandidateOperation {
-    readonly #modelName: string;
-    readonly #requestedOperation: string;
-    readonly #prepared: PreparedOperation;
-    #codec: CacheResultCodec | undefined;
-
-    constructor(
-      modelName: string,
-      requestedOperation: string,
-      prepared: PreparedOperation
-    ) {
-      this.#modelName = modelName;
-      this.#requestedOperation = requestedOperation;
-      this.#prepared = prepared;
-    }
-
-    get preparedArgs(): Record<string, unknown> {
-      return this.#prepared.args;
-    }
-
-    buildStatement(): Sql | undefined {
-      return this.#prepared.read?.statement;
-    }
-
-    cacheResultCodec(): CacheResultCodec {
-      // KEPT as a capability boundary (N4, plan §4). It alone owns "the
-      // cache layer asked this engine to encode a verb this engine
-      // publishes no prepared read for" — a boundary between two
-      // independently-maintained vocabularies in two layers:
-      // `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`, nine names,
-      // including both `…OrThrow` variants) and the engine's own
-      // `READ_OPERATIONS` (`shared/schema.ts`, seven), reconciled today
-      // only by `admittedOperation`'s `…OrThrow` normalization. No type
-      // ties them and no single upstream owner establishes the fact, so an
-      // assertion here would establish a missing fact rather than state an
-      // established one (ELEGANCE §5). The class stays public
-      // (`UnsupportedOperationError`) because this seam
-      // (`RoutedCandidateOperation`) is consumed outside raptor3.
-      const read = this.#prepared.read;
-      if (!read)
-        throw new UnsupportedOperationError(
-          `The Raptor 3 route cannot encode a cached result for '${this.#requestedOperation}' on model '${this.#modelName}': the verb publishes no prepared read.`,
-          {
-            meta: {
-              model: this.#modelName,
-              operation: this.#requestedOperation,
-            },
-          }
-        );
-      return (this.#codec ??= cacheCodec(read, this.#requestedOperation));
-    }
-
-    prepareSingle(
-      context: QueryExecutionContext
-    ): PreparedBatchOperation<unknown> | undefined {
-      return this.#prepared.prepareSingle(context);
-    }
-
-    prepareBatch(
-      context: QueryExecutionContext
-    ): Promise<PreparedBatchOperation<unknown> | undefined> {
-      return this.#prepared.prepareBatch(context);
-    }
-
-    execute<T>(execution: RoutedOperationExecution): Promise<T> {
-      try {
-        if (execution.isWrite)
-          return runWriteCandidate<T>(this.#prepared, execution, factoryDriver);
-        return runCandidate(
-          this.#prepared,
-          execution,
-          factoryDriver,
-          undefined
-        ) as Promise<T>;
-      } catch (error) {
-        return Promise.reject(error);
-      }
-    }
-  }
   return {
     operation(
       model: AnyModel,
@@ -259,6 +256,7 @@ export function createCandidateRoute(
       // read stay lazy inside it (LX-01); every consumer below reads the same
       // construction, so nothing is admitted or projected twice.
       return new RoutedOperation(
+        factoryDriver,
         modelName,
         requestedOperation,
         engine.prepare(modelName, operation, args, rows)
@@ -270,153 +268,23 @@ export function createCandidateRoute(
 async function runWriteCandidate<T>(
   prepared: PreparedOperation,
   execution: RoutedOperationExecution,
-  factoryDriver: AnyDriver
+  factoryDriver: AnyDriver,
+  outcome: RouteWriteOutcome
 ): Promise<T> {
-  const outcome = routeWriteOutcome(execution);
   const value = await runCandidate(
     prepared,
     execution,
     factoryDriver,
-    outcome?.seam
+    outcome.seam
   );
   // A transport that never separated commit from success — every direct
   // statement and every borrowed scope — leaves the operation's own success as
   // the only durable fact there is. That is the arm the shipped write-outcome
   // rail keeps for itself, on the same condition (`extensions/query.ts:286-293`,
   // `publishedDirectUnits === 0`).
-  if (!outcome?.published) await execution.committedWriteSegment?.();
+  if (!outcome.published && execution.committedWriteSegment)
+    await execution.committedWriteSegment();
   return value as T;
-}
-
-/**
- * The detached cache representation of one prepared read.
- *
- * Every value codec here comes from the OFFICIAL owner
- * (`src/query-engine/result/cache-value-codecs.ts`), addressed the way that
- * owner is addressed — by the declaring `Scalar` object, never by a leaf's type
- * name — so the candidate adds no scalar-meaning authority and a cached value
- * materializes exactly as a freshly parsed one does. The STRUCTURE comes from
- * the prepared read's own published facts (`shape`, `value`, `single`,
- * `empty`), which the read owner states beside the statement it decodes, so the
- * codec and the decoder cannot disagree about cardinality.
- */
-function cacheCodec(
-  read: PreparedRead,
-  requestedOperation: string
-): CacheResultCodec {
-  // The read owner's own publication for zero rows says whether the public
-  // value may be absent: `null` for a located row, `[]`/`{}`/`0`/`false` for
-  // the shapes that always publish a value.
-  const value = shapeCodec(read.value, requestedOperation);
-  const compiled = read.empty === null ? nullableCodec(value) : value;
-  return Object.freeze({
-    snapshot(input: unknown): unknown {
-      try {
-        return compiled.snapshot(input, new WeakSet<object>());
-      } catch (cause) {
-        throw new CacheConfigurationError(
-          "The operation result cannot be represented by the cache result codec.",
-          {
-            cause: cause instanceof Error ? cause : undefined,
-            meta: { method: "snapshot", operation: requestedOperation },
-          }
-        );
-      }
-    },
-    materialize(snapshot: unknown): unknown {
-      try {
-        return compiled.materialize(snapshot, new WeakSet<object>());
-      } catch (cause) {
-        throw new CacheConfigurationError(
-          "The cached result snapshot is malformed.",
-          {
-            cause: cause instanceof Error ? cause : undefined,
-            meta: { method: "materialize", operation: requestedOperation },
-          }
-        );
-      }
-    },
-  });
-}
-
-/** One published shape, composed from the official structural codecs. */
-function shapeCodec(
-  shape: ProjectionShape | Leaf,
-  requestedOperation: string
-): ValueCodec {
-  // biome-ignore lint/style/useDefaultSwitchClause: the published shape union is exhaustive; a default would be dead code.
-  switch (shape.kind) {
-    case "scalar":
-      return leafCodec(shape, requestedOperation);
-    case "object": {
-      const fields = new Map<string, ValueCodec>();
-      for (const [name, field] of Object.entries(shape.fields))
-        fields.set(name, shapeCodec(field, requestedOperation));
-      return recordCodec(fields);
-    }
-    case "collection":
-      return arrayCodec(shapeCodec(shape.row, requestedOperation));
-    case "variants": {
-      const arms = new Map<string, ValueCodec>();
-      for (const [type, arm] of Object.entries(shape.arms))
-        arms.set(type, shapeCodec(arm, requestedOperation));
-      const tagged = taggedRelationCodec(arms);
-      return shape.many ? arrayCodec(tagged) : nullableCodec(tagged);
-    }
-    case "recursive":
-      // The decoder published every occurrence; the entry keeps them as they
-      // were published. The node is the ordinary row codec, and the structural
-      // owner reads only the slot's own prepared facts — never an identity,
-      // never the cycle policy the decoder already applied.
-      return recursiveRelationCodec(
-        {
-          relation: shape.relation,
-          many: shape.many,
-          optional: shape.optional,
-          depth: shape.recurrence.depth,
-        },
-        shapeCodec(shape.row, requestedOperation)
-      );
-  }
-}
-
-/**
- * One leaf's value codec.
- *
- * A leaf that a column declares carries that `Scalar`, and the official owner
- * compiles it: `compileWidenedSumCodec` for a decimal `_sum` (which keeps the
- * field's scale and drops its precision), `compileScalarCodec` otherwise, with
- * the DECLARED nullability switched off because the projection's own
- * `nullable` is the fact — an aggregate over a non-null column still publishes
- * `null` for an empty window.
- *
- * The leaves with no declaring scalar are the read owner's OWN values, not a
- * column's meaning: `_count` (including a relation count), `exist`, and the
- * number a non-decimal `_avg` or a `_distance` publishes. Naming those three is
- * not a second scalar authority.
- *
- * Those three exhaust the scalar-less leaves `Queries` constructs, so the last
- * arm names a state this engine cannot be in when it is right: an INVARIANT,
- * not a refusal a caller can reach (N4, plan §4). `Leaf.type` is a `string`
- * because it also carries every declared scalar's type name, so the compiler
- * cannot close the set here; the assertion states the fact the leaf builder
- * upstream established.
- */
-function leafCodec(leaf: Leaf, requestedOperation: string): ValueCodec {
-  const declared = leaf.scalar;
-  let value: ValueCodec;
-  if (declared) {
-    value = leaf.widened
-      ? compileWidenedSumCodec(declared)
-      : compileScalarCodec(declared, false);
-  } else if (leaf.type === "boolean") value = booleanCodec();
-  else if (leaf.type === "int") value = countCodec();
-  else if (leaf.type === "number") value = numberCodec();
-  else
-    throw new EngineInvariantError(
-      `The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishes no declaring scalar.`
-    );
-  return leaf.nullable ? nullableCodec(value) : value;
 }
 
 /**

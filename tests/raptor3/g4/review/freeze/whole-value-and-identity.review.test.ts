@@ -19,11 +19,11 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { Operations } from "@client/types";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { wholeValue } from "@query-engine/raptor3/shared/query";
 import { s } from "@schema";
 import { Sql, sql } from "@sql";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { toDecimal } from "@validation/primitives/decimal-codec";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -120,7 +120,7 @@ async function answer(
   // biome-ignore lint/suspicious/noMisplacedAssertion: helper called only from cells.
   assert.equal((await syncLiveSchema(client)).applied, true);
   database.exec(`INSERT INTO ${MODEL} (id,name,payload) VALUES (1,'a',NULL);`);
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   let text: string;
   try {
     const value =

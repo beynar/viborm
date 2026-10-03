@@ -23,6 +23,7 @@ import {
 import {
   decomposeQueryCoordinationFailure,
   TransactionWriteOutcomes,
+  type WriteOutcome,
 } from "@extensions/query";
 import type { QueryEngine } from "@query-engine/query-engine";
 import {
@@ -302,7 +303,66 @@ function closeArrayOperationObservers(
   for (const slot of slots) slot.observation?.reject(failure);
 }
 
-async function executeInterceptedFallback(
+/**
+ * Run one transaction whose write outcomes this scope collects. A root scope
+ * tracks the commit phases, so a failure after COMMIT was sent still reports
+ * its certainty and publishes what may have committed; a savepoint promotes
+ * its outcomes into the parent collector, which owns that decision.
+ */
+export async function runOutcomeTransaction<T>(
+  driver: AnyDriver,
+  outcomes: TransactionWriteOutcomes,
+  parentOutcomes: TransactionWriteOutcomes | undefined,
+  options: TransactionOptions | undefined,
+  context: QueryExecutionContext,
+  body: (driver: AnyDriver) => Promise<T>,
+  report?: (certainty: WriteOutcome["certainty"]) => void,
+  mapFailure: (error: unknown) => unknown = (error) => error
+): Promise<T> {
+  let phase: "ready" | "committed" | undefined;
+  let result: T;
+  try {
+    result = await driver.withTransaction(
+      body,
+      options,
+      parentOutcomes
+        ? context
+        : bindExecutionTransactionPhases(context, {
+            readyToCommit: () => {
+              phase = "ready";
+            },
+            committed: () => {
+              phase = "committed";
+            },
+          })
+    );
+  } catch (error) {
+    const failure = mapFailure(error);
+    if (phase === undefined) {
+      outcomes.discardAll();
+      throw failure;
+    }
+    const certainty = phase === "ready" ? "may-have-committed" : phase;
+    report?.(certainty);
+    const primary = isVibORMError(failure)
+      ? attachCommitCertainty(failure, certainty)
+      : failure;
+    try {
+      await outcomes.publish(certainty);
+    } catch (outcomeFailure) {
+      throw retainWriteOutcomeFailure(primary, outcomeFailure);
+    }
+    throw primary;
+  }
+  if (parentOutcomes) outcomes.promoteTo(parentOutcomes);
+  else {
+    report?.("committed");
+    await outcomes.publishCommitted();
+  }
+  return result;
+}
+
+function executeInterceptedFallback(
   slots: readonly ArraySlot[],
   outcomes: TransactionWriteOutcomes,
   engine: QueryEngine,
@@ -310,100 +370,62 @@ async function executeInterceptedFallback(
   context: QueryExecutionContext,
   observation: ArrayObservationState | undefined
 ): Promise<unknown[]> {
-  const parentOutcomes = engine.transactionWriteOutcomes;
-  const transactionState: {
-    phase: "pending" | "ready" | "committed";
-  } = { phase: "pending" };
-  const transactionContext = parentOutcomes
-    ? context
-    : bindExecutionTransactionPhases(context ?? {}, {
-        readyToCommit: () => {
-          transactionState.phase = "ready";
-        },
-        committed: () => {
-          transactionState.phase = "committed";
-        },
-      });
   const suppressedPostWork: unknown[] = [];
-  let results: unknown[];
-  try {
-    results = await engine.driver.withTransaction(
-      async (transactionDriver) => {
-        const values: unknown[] = [];
-        for (let index = 0; index < slots.length; index += 1) {
-          const slot = slots[index]!;
-          startFallbackCore(slot, transactionDriver);
-          try {
-            values.push(await readArrayQuery(slot));
-          } catch (error) {
-            const firstFailure = decomposeQueryCoordinationFailure(error);
-            const childFailure =
-              firstFailure === undefined ? error : firstFailure.child;
-            if (firstFailure) {
-              for (const postWork of firstFailure.postWork) {
+  return runOutcomeTransaction(
+    engine.driver,
+    outcomes,
+    engine.transactionWriteOutcomes,
+    options as TransactionOptions | undefined,
+    context,
+    async (transactionDriver) => {
+      const values: unknown[] = [];
+      for (let index = 0; index < slots.length; index += 1) {
+        const slot = slots[index]!;
+        startFallbackCore(slot, transactionDriver);
+        try {
+          values.push(await readArrayQuery(slot));
+        } catch (error) {
+          const firstFailure = decomposeQueryCoordinationFailure(error);
+          const childFailure =
+            firstFailure === undefined ? error : firstFailure.child;
+          if (firstFailure) {
+            for (const postWork of firstFailure.postWork) {
+              suppressedPostWork.push(postWork);
+            }
+          }
+          for (let later = index + 1; later < slots.length; later += 1) {
+            slots[later]!.child.reject(childFailure);
+          }
+          const laterOutcomes = await Promise.allSettled(
+            slots.slice(index + 1).map(readArrayQuery)
+          );
+          for (const outcome of laterOutcomes) {
+            if (outcome.status !== "rejected") continue;
+            const laterFailure = decomposeQueryCoordinationFailure(
+              outcome.reason
+            );
+            if (laterFailure) {
+              if (laterFailure.child !== childFailure) {
+                suppressedPostWork.push(laterFailure.child);
+              }
+              for (const postWork of laterFailure.postWork) {
                 suppressedPostWork.push(postWork);
               }
+            } else if (outcome.reason !== childFailure) {
+              suppressedPostWork.push(outcome.reason);
             }
-            for (let later = index + 1; later < slots.length; later += 1) {
-              slots[later]!.child.reject(childFailure);
-            }
-            const laterOutcomes = await Promise.allSettled(
-              slots.slice(index + 1).map(readArrayQuery)
-            );
-            for (const outcome of laterOutcomes) {
-              if (outcome.status !== "rejected") continue;
-              const laterFailure = decomposeQueryCoordinationFailure(
-                outcome.reason
-              );
-              if (laterFailure) {
-                if (laterFailure.child !== childFailure) {
-                  suppressedPostWork.push(laterFailure.child);
-                }
-                for (const postWork of laterFailure.postWork) {
-                  suppressedPostWork.push(postWork);
-                }
-              } else if (outcome.reason !== childFailure) {
-                suppressedPostWork.push(outcome.reason);
-              }
-            }
-            throw childFailure;
           }
+          throw childFailure;
         }
-        return values;
-      },
-      options as TransactionOptions | undefined,
-      transactionContext
-    );
-  } catch (error) {
-    const coordinatedFailure = combineArrayFailures(error, suppressedPostWork);
-    const certainty =
-      parentOutcomes === undefined && transactionState.phase === "committed"
-        ? "committed"
-        : parentOutcomes === undefined && transactionState.phase === "ready"
-          ? "may-have-committed"
-          : undefined;
-    if (certainty) {
-      if (observation) observation.certainty = certainty;
-      const primary = isVibORMError(coordinatedFailure)
-        ? attachCommitCertainty(coordinatedFailure, certainty)
-        : coordinatedFailure;
-      try {
-        await outcomes.publish(certainty);
-      } catch (outcomeFailure) {
-        throw retainWriteOutcomeFailure(primary, outcomeFailure);
       }
-      throw primary;
-    }
-    outcomes.discardAll();
-    throw coordinatedFailure;
-  }
-
-  if (parentOutcomes) outcomes.promoteTo(parentOutcomes);
-  else {
-    if (observation) observation.certainty = "committed";
-    await outcomes.publishCommitted();
-  }
-  return results;
+      return values;
+    },
+    observation &&
+      ((certainty) => {
+        observation.certainty = certainty;
+      }),
+    (error) => combineArrayFailures(error, suppressedPostWork)
+  );
 }
 
 function startFallbackCore(slot: ArraySlot, driver: AnyDriver): void {

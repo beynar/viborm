@@ -16,7 +16,7 @@
  *    belongs to a session. A unit that touched it in a LATER dispatched
  *    segment — to store a second member's generated key, to read one back, or
  *    merely to clean the rows up — assumed the session outlived the segment
- *    that made it, and on a driver that pins none (`_canPinSession()` false:
+ *    that made it, and on a driver that pins none (`canPinSession()` false:
  *    Neon HTTP, D1) the provider's own failure escaped after a committed
  *    segment. That was the UNQUALIFIED state D-53 recorded. **D-58** answers
  *    it by EXECUTING rather than refusing: every dispatched unit makes its own
@@ -49,6 +49,7 @@ import { NeonHTTPDriver } from "@drivers/neon-http";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { UniqueConstraintError } from "@errors";
 import { s } from "@schema";
+import { canPinSession } from "@src/migrations/pinned-session";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, it } from "vitest";
 import {
@@ -344,7 +345,7 @@ describe("D-53: the transport witnesses", () => {
     // "the capability is false, beside the two that are true"). The SESSION is
     // the one D-53 adds, and the bind capacity is the fourth fact of the table.
     const neon = new NeonHTTPDriver();
-    assert.equal(neon._canPinSession(), false);
+    assert.equal(canPinSession(neon), false);
     assert.equal(neon.maxBindParametersPerStatement, 65_535);
   });
 });

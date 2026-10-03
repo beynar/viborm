@@ -55,24 +55,24 @@ export class TransportAttempt {
    */
   scratchId?: string;
   nextField = 0;
-  private publications?: ScratchPublication[];
-  private carriedValues?: Map<Sql, unknown>;
-  private producers?: Map<BatchQuery, object>;
-  private premises?: Map<BatchQuery, AssertedPremise>;
-  private members?: Set<Member>;
+  #publications: (ScratchPublication[]) | undefined;
+  #carriedValues: (Map<Sql, unknown>) | undefined;
+  #producers: (Map<BatchQuery, object>) | undefined;
+  #premises: (Map<BatchQuery, AssertedPremise>) | undefined;
+  #members: (Set<Member>) | undefined;
   /** Record one produced value this unit stored in its scratch (D-58). */
   publishScratchValue(publication: ScratchPublication): void {
-    (this.publications ??= []).push(publication);
+    (this.#publications ??= []).push(publication);
   }
   /** The values this unit stored; the attempt keeps none of them. */
   drainScratchPublications(): readonly ScratchPublication[] {
-    const published = this.publications ?? NO_PUBLICATIONS;
-    this.publications = undefined;
+    const published = this.#publications ?? NO_PUBLICATIONS;
+    this.#publications = undefined;
     return published;
   }
   /** The literal one published expression was read back as at the boundary. */
   carryScratchValue(expression: Sql, value: unknown): void {
-    (this.carriedValues ??= new Map()).set(expression, value);
+    (this.#carriedValues ??= new Map()).set(expression, value);
   }
   /**
    * One field's value as it stands NOW: the literal a segment boundary read
@@ -85,24 +85,24 @@ export class TransportAttempt {
    */
   carried(value: unknown): unknown {
     if (!(value instanceof Sql)) return value;
-    const carried = this.carriedValues;
+    const carried = this.#carriedValues;
     return carried?.has(value) ? carried.get(value) : value;
   }
   /** Attribute one queued INSERT to the producer whose row it writes. */
   recordInsertProducer(insert: BatchQuery, producer: object): void {
-    (this.producers ??= new Map()).set(insert, producer);
+    (this.#producers ??= new Map()).set(insert, producer);
   }
   /** Record the failure one queued assertion raises when it disagrees. */
   assertPremise(assertion: BatchQuery, premise: AssertedPremise): void {
-    (this.premises ??= new Map()).set(assertion, premise);
+    (this.#premises ??= new Map()).set(assertion, premise);
   }
   /** Declare one queued statement as belonging to a record-series member. */
   recordMember(member: Member): void {
-    (this.members ??= new Set()).add(member);
+    (this.#members ??= new Set()).add(member);
   }
   /** Whether any assertion has been recorded, without creating the map. */
   get hasAssertedPremises(): boolean {
-    return this.premises !== undefined && this.premises.size > 0;
+    return this.#premises !== undefined && this.#premises.size > 0;
   }
   /**
    * Is a WRITE waiting, or only premises?
@@ -113,7 +113,7 @@ export class TransportAttempt {
    * durable asks this, and nothing finer.
    */
   get holdsWrite(): boolean {
-    return this.pending.some((statement) => !this.premises?.has(statement));
+    return this.pending.some((statement) => !this.#premises?.has(statement));
   }
   /**
    * Is a write of a record OTHER than this one's waiting?
@@ -126,14 +126,14 @@ export class TransportAttempt {
    * ({@link OperationContext.executeMember})?
    */
   holdsOtherMemberWrite(member: Member): boolean {
-    if (!this.members) return false;
-    for (const queued of this.members) if (queued !== member) return true;
+    if (!this.#members) return false;
+    for (const queued of this.#members) if (queued !== member) return true;
     return false;
   }
   /** The producers recorded so far; this attempt keeps none of them. */
   drainInsertProducers(): Map<BatchQuery, object> {
-    const producers = this.producers ?? new Map<BatchQuery, object>();
-    this.producers = undefined;
+    const producers = this.#producers ?? new Map<BatchQuery, object>();
+    this.#producers = undefined;
     return producers;
   }
   /**
@@ -147,39 +147,39 @@ export class TransportAttempt {
    * next one, in the order they were stated.
    */
   withholdPremises(): void {
-    const premises = this.premises;
+    const premises = this.#premises;
     if (!premises) return;
     let first = this.pending.length;
     while (first > 0 && premises.has(this.pending[first - 1]!)) first--;
-    this.withheld.push(...this.pending.splice(first));
+    this.#withheld.push(...this.pending.splice(first));
   }
   /** The withheld premises, back at the head of the queue that stated them. */
   restorePremises(): void {
-    if (this.withheld.length > 0)
-      this.pending.unshift(...this.withheld.splice(0));
+    if (this.#withheld.length > 0)
+      this.pending.unshift(...this.#withheld.splice(0));
   }
-  private readonly withheld: BatchQuery[] = [];
+  readonly #withheld: BatchQuery[] = [];
   /**
    * The assertions recorded so far; this attempt keeps none of them, except a
    * withheld premise's own, which travels with it to the dispatch that proves
    * it.
    */
   drainAssertedPremises(): Map<BatchQuery, AssertedPremise> {
-    const premises = this.premises ?? new Map<BatchQuery, AssertedPremise>();
+    const premises = this.#premises ?? new Map<BatchQuery, AssertedPremise>();
     const kept = new Map<BatchQuery, AssertedPremise>();
-    for (const statement of this.withheld) {
+    for (const statement of this.#withheld) {
       const premise = premises.get(statement);
       if (!premise) continue;
       kept.set(statement, premise);
       premises.delete(statement);
     }
-    this.premises = kept.size > 0 ? kept : undefined;
+    this.#premises = kept.size > 0 ? kept : undefined;
     return premises;
   }
   /** The members declared so far; this attempt keeps none of them. */
   drainMembers(): Member[] {
-    const members = this.members ? [...this.members] : [];
-    this.members = undefined;
+    const members = this.#members ? [...this.#members] : [];
+    this.#members = undefined;
     return members;
   }
 }

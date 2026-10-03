@@ -7,7 +7,7 @@ import {
   UniqueConstraintError,
   VibORMErrorCode,
 } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -343,7 +343,7 @@ async function runMatrixCase(
     const rawArgs = matrixArgs();
     const run = () =>
       engine === "commands"
-        ? createCommandEngine({ schema, driver }).execute(
+        ? createTestCommandEngine({ schema, driver }).execute(
             "shelf",
             "update",
             rawArgs
@@ -539,7 +539,7 @@ async function runSelfRoleSuccess(profile: Profile): Promise<void> {
         ('wanted','wanted',NULL,'root');
     `);
     driver.resetObservations();
-    const value = await createCommandEngine({ schema, driver }).execute(
+    const value = await createTestCommandEngine({ schema, driver }).execute(
       "node",
       "update",
       {
@@ -694,7 +694,7 @@ async function runNestedSeriesRefusal(profile: Profile): Promise<void> {
     driver.resetObservations();
     let failure: unknown;
     try {
-      await createCommandEngine({ schema, driver }).execute("shelf", "update", {
+      await createTestCommandEngine({ schema, driver }).execute("shelf", "update", {
         where: { id: "s1" },
         data: {
           label: "prefix",
@@ -905,7 +905,7 @@ async function runPublishedParentSuccess(profile: Profile): Promise<void> {
       INSERT INTO g29_published_tickets VALUES('t1','initial','b1');
     `);
     driver.resetObservations();
-    const value = await createCommandEngine({ schema, driver }).execute(
+    const value = await createTestCommandEngine({ schema, driver }).execute(
       "shelf",
       "update",
       {

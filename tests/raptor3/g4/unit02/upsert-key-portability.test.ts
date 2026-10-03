@@ -24,9 +24,9 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -135,7 +135,7 @@ async function upsert(
   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
   assert.equal((await syncLiveSchema(client)).applied, true);
   database.exec(SEED);
-  const candidate = createCommandEngine({ schema: upsertSchema, driver });
+  const candidate = createTestCommandEngine({ schema: upsertSchema, driver });
   let answer: string;
   try {
     const value =

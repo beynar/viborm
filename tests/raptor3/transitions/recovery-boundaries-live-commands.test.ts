@@ -1,4 +1,4 @@
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import {
@@ -16,13 +16,13 @@ afterAll(saveRecoveryBoundaryEvidence);
 afterAll(saveUniqueRaceEvidence);
 describe("G2 PostgreSQL atomic recovery admission boundary: commands", () => {
   it(dynamicRecoveryId, async () => {
-    await runDynamicRecoveryBoundary(createCommandEngine);
+    await runDynamicRecoveryBoundary(createTestCommandEngine);
   }, 30_000);
   it(cleanupRecoveryId, async () => {
     const baseline = await runUniqueRaceScenario(cleanupRecoveryId);
     const candidate = await runUniqueRaceScenario(
       cleanupRecoveryId,
-      createCommandEngine
+      createTestCommandEngine
     );
     assertEquivalentRunObservations(
       cleanupRecoveryId,

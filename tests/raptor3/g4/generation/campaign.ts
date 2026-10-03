@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Operations } from "@client/types";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { captureRaptor3Identity } from "../../../../scripts/raptor3-manifest.mjs";
 import { cursorKeyFor, evaluateRecipe } from "./oracle";
 import { buildRequest, generateG4Recipe, type G4ReadRecipe } from "./recipe";
@@ -91,7 +91,7 @@ export async function verifyG4Cell(
         assert.ok(operation, `unknown operation ${request.operation}`);
         return operation(request.args);
       }
-      const engine = createCommandEngine({
+      const engine = createTestCommandEngine({
         schema: generationSchema(),
         driver: world.driver,
       });

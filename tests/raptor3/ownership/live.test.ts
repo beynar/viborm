@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import type { LiveFixture } from "../transitions/live-world";
 import { liveProvider, runLiveWorld } from "../transitions/live-world";
@@ -72,7 +72,7 @@ describe(`G2.7 native ${liveProvider} borrowed execution`, () => {
       () => ({
         g27_native_records: "id INTEGER PRIMARY KEY, label TEXT NOT NULL",
       }),
-      createCommandEngine
+      createTestCommandEngine
     );
 
     fixture.assert(run.observation);

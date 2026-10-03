@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { NestedWriteError, VibORMErrorCode } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { describe, it } from "vitest";
 import type { CandidateEngineFactory } from "../harness/protocol";
@@ -180,12 +180,12 @@ async function runMemberDependencyWorld(
 describe(`G2.9 native ${liveProvider} captured-member dependencies`, () => {
   it(
     "refuses a dynamic member dependency and preserves a disjoint control interactively",
-    () => runMemberDependencyWorld(createCommandEngine, "interactive"),
+    () => runMemberDependencyWorld(createTestCommandEngine, "interactive"),
     30_000
   );
   it(
     "refuses a dynamic member dependency and preserves a disjoint control in a batch",
-    () => runMemberDependencyWorld(createCommandEngine, "atomic-batch"),
+    () => runMemberDependencyWorld(createTestCommandEngine, "atomic-batch"),
     30_000
   );
 });

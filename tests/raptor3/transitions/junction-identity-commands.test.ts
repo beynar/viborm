@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import { captureRaptor3Identity } from "../../../scripts/raptor3-manifest.mjs";
 import type { G0ReplayRecord } from "../harness/protocol";
@@ -38,7 +38,7 @@ describe("G2 unique junction COC identity: commands atomic SQLite", () => {
         "sqlite-atomic-batch",
         0,
         {
-          candidateFactory: createCommandEngine,
+          candidateFactory: createTestCommandEngine,
           candidateName: "commands",
         }
       );

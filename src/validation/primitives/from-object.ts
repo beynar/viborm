@@ -141,20 +141,27 @@ function declaresPath(value: unknown, path: string): boolean {
 }
 
 /**
- * Extract entries from an object using a dot path.
+ * Project entries without constructing an object validator that a composer
+ * would immediately discard. The public builder uses this same path boundary.
  */
-function extractEntries<TObject extends Record<string, any>>(
-  object: TObject,
-  path: string
-): Record<string, VibSchema<any, any>> {
+export function entriesFromObject<
+  TObject extends Record<string, any>,
+  TPath extends string,
+>(sourceObject: TObject, path: TPath): ComputeEntries<TObject, TPath> {
   const result: Record<string, VibSchema<any, any>> = {};
-  for (const key of Object.keys(object)) {
-    const value = getNestedValue(object[key], path);
+  for (const key of Object.keys(sourceObject)) {
+    const value = getNestedValue(sourceObject[key], path);
     if (value !== undefined) {
       result[key] = value;
     }
   }
-  return result;
+  if (
+    Object.keys(sourceObject).length > 0 &&
+    Object.keys(result).length === 0
+  )
+    refuseUnmatchedPath(sourceObject, path);
+  // The runtime path projection is the boundary that establishes this mapping.
+  return result as ComputeEntries<TObject, TPath>;
 }
 
 /**
@@ -199,29 +206,25 @@ export function fromObject<
   path: TPath,
   options?: TOpts
 ): ObjectSchema<ComputeEntries<TObject, TPath>, TOpts> {
-  // Extract entries from the source object at the given path
-  const entries = extractEntries(sourceObject, path);
-  if (
-    Object.keys(sourceObject).length > 0 &&
-    Object.keys(entries).length === 0 &&
-    !Object.values(sourceObject).some((value) => declaresPath(value, path))
-  ) {
-    throw new ValidationError(
-      { kind: "schema-builder", builder: "fromObject", path },
-      [
-        {
-          path,
-          message: `fromObject path "${path}" did not match any entries in the source object`,
-        },
-      ]
-    );
-  }
-
-  // Delegate to the existing object schema builder
-  return object(entries, options) as ObjectSchema<
-    ComputeEntries<TObject, TPath>,
-    TOpts
-  >;
+  return object(entriesFromObject(sourceObject, path), options);
 }
 
 export type { ComputeEntries as ComputeEntriesFromObject };
+
+/** An empty projection, refused unless some source declares the path empty. */
+function refuseUnmatchedPath(
+  sourceObject: Record<string, unknown>,
+  path: string
+): void {
+  if (Object.values(sourceObject).some((value) => declaresPath(value, path)))
+    return;
+  throw new ValidationError(
+    { kind: "schema-builder", builder: "fromObject", path },
+    [
+      {
+        path,
+        message: `fromObject path "${path}" did not match any entries in the source object`,
+      },
+    ]
+  );
+}

@@ -5,10 +5,11 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import { ForeignKeyError, QueryError, UniqueConstraintError } from "@errors";
 import { instrumentation } from "@instrumentation/extension";
 import type { LogEvent } from "@instrumentation/types";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
+import { defineExtension } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
@@ -163,7 +164,11 @@ async function migratedWorld<
   const migration = await syncLiveSchema(client);
   if (!migration.applied) throw new Error("the replay schema did not apply");
   driver.resetObservations();
-  return { client, driver, candidate: createCommandEngine({ schema, driver }) };
+  return {
+    client,
+    driver,
+    candidate: createTestCommandEngine({ schema, driver }),
+  };
 }
 
 async function closeWorld(world: {
@@ -593,6 +598,42 @@ describe("G3P-04 exact suppression and replay scopes", () => {
     } finally {
       await closeWorld(batch);
       batchDatabase.close();
+      warn.mockRestore();
+    }
+  });
+
+  it("warns once per client lineage: a derived view shares it, an independent client on the same driver does not", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const schema = rootSeriesSchema();
+    const database = new Database(":memory:");
+    const driver = new BatchOnlySQLiteDriver({ client: database });
+    const world = await migratedWorld(schema, driver);
+    const member = (id: number) => ({
+      data: [
+        { id, title: `post-${id}`, author: { create: { name: `a-${id}` } } },
+      ],
+      skipDuplicates: true,
+    });
+    const dropped = () =>
+      warn.mock.calls.filter(
+        ([message]) =>
+          typeof message === "string" &&
+          message.startsWith("[viborm] createMany skipDuplicates")
+      ).length;
+    try {
+      await world.client.post.createMany(member(1));
+      expect(dropped()).toBe(1);
+      const derived = world.client.$extends(
+        defineExtension<typeof schema>()({ name: "derived-view" })
+      );
+      await derived.post.createMany(member(2));
+      expect(dropped()).toBe(1);
+      const independent = createClient({ schema, driver });
+      await independent.post.createMany(member(3));
+      expect(dropped()).toBe(2);
+    } finally {
+      await closeWorld(world);
+      database.close();
       warn.mockRestore();
     }
   });

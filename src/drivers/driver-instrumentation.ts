@@ -658,25 +658,6 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     }
   }
 
-  protected normalizeExecutionError(
-    error: unknown,
-    sql: string,
-    params: unknown[],
-    context: QueryExecutionContext
-  ): Error {
-    return normalizeDriverError(error, {
-      driverName: this.driverName,
-      dialect: this.dialect,
-      model: context.model,
-      operation: context.operation,
-      correlationId: context.correlationId,
-      query: sql,
-      params,
-      diagnostics: this.getErrorDisclosure(context),
-      forceContext: true,
-    });
-  }
-
   protected getBatchDiagnosticParameters(query: BatchQuery): unknown[] {
     try {
       const snapshot = Reflect.get(query, BATCH_DIAGNOSTIC_PARAMS);
@@ -705,13 +686,43 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   }
 
   /**
+   * The open, usable client, when there is one: no wait for {@link getClient}.
+   *
+   * Only while acquisition is this class's own: a subclass that overrides
+   * {@link getClient} decides which connection each statement uses, so it is
+   * asked every time (the transaction-bound driver answers with its `tx`).
+   */
+  protected connectedClient(): TClient | TTransaction | undefined {
+    if (
+      this.getClient !== DriverInstrumentationBase.prototype.getClient ||
+      this.transactionPoisonError ||
+      this.isDisconnecting ||
+      this.closeRetryClient !== null
+    )
+      return undefined;
+    return this.client ?? undefined;
+  }
+
+  /**
    * Get or initialize the client.
    */
   protected async getClient(
     context: QueryExecutionContext = {}
   ): Promise<TClient | TTransaction> {
+    if (
+      this.transactionPoisonError ||
+      this.isDisconnecting ||
+      this.closeRetryClient !== null
+    )
+      throw this.unavailableClientError(context);
+    if (this.client) return this.client;
+    return await this.initializeClient(context);
+  }
+
+  /** Why the client cannot be used now, out of line from the usable path. */
+  private unavailableClientError(context: QueryExecutionContext): Error {
     if (this.transactionPoisonError) {
-      throw new TransactionError(
+      return new TransactionError(
         `Driver "${this.driverName}" is unavailable after transaction cleanup failed.`,
         {
           cause: this.transactionPoisonError,
@@ -724,33 +735,35 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         }
       );
     }
-    if (this.isDisconnecting) {
-      throw new ConnectionError("Database connection is closing", {
-        code: VibORMErrorCode.CONNECTION_CLOSED,
-        diagnostics: this.getErrorDisclosure(context),
-        meta: {
-          driver: this.driverName,
-          model: context.model,
-          operation: context.operation,
-          correlationId: context.correlationId,
-        },
-      });
-    }
-    if (this.closeRetryClient !== null) {
-      throw new ConnectionError("Database connection cleanup is incomplete", {
-        code: VibORMErrorCode.CONNECTION_CLOSED,
-        diagnostics: this.getErrorDisclosure(context),
-        meta: {
-          driver: this.driverName,
-          model: context.model,
-          operation: context.operation,
-          correlationId: context.correlationId,
-        },
-      });
-    }
+    return this.connectionClosedError(
+      this.isDisconnecting
+        ? "Database connection is closing"
+        : "Database connection cleanup is incomplete",
+      context
+    );
+  }
 
-    if (this.client) return this.client;
+  /** The one `CONNECTION_CLOSED` refusal shape, for each closed-transport reason. */
+  protected connectionClosedError(
+    message: string,
+    context: QueryExecutionContext
+  ): ConnectionError {
+    return new ConnectionError(message, {
+      code: VibORMErrorCode.CONNECTION_CLOSED,
+      diagnostics: this.getErrorDisclosure(context),
+      meta: {
+        driver: this.driverName,
+        model: context.model,
+        operation: context.operation,
+        correlationId: context.correlationId,
+      },
+    });
+  }
 
+  /** The first connection, out of line from the connected path. */
+  private async initializeClient(
+    context: QueryExecutionContext
+  ): Promise<TClient | TTransaction> {
     if (!this.initPromise) {
       this.initPromise = Promise.resolve()
         .then(() => this.initClient())
@@ -778,7 +791,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   // ============================================================
 
   /** Normalize one provider statement failure at its existing trust boundary. */
-  private normalizeStatementFailure(
+  protected normalizeStatementFailure(
     error: unknown,
     sql: string,
     params: unknown[],

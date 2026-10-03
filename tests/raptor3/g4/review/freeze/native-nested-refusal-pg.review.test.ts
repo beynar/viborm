@@ -28,7 +28,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { Operations } from "@client/types";
 import { PgDriver } from "@drivers/pg";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { describe, it } from "vitest";
 
@@ -161,7 +161,7 @@ describe.runIf(provider === "pg" && port > 0)(
                       Record<string, (input: unknown) => Promise<unknown>>
                     >
                   ).owner!.update!(args)
-                : await createCommandEngine({ schema, driver }).execute(
+                : await createTestCommandEngine({ schema, driver }).execute(
                     "owner",
                     "update" as Operations,
                     args

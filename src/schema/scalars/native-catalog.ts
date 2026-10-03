@@ -80,14 +80,18 @@ const CONSTANT_NAMES: Record<Dialect, string> = {
   sqlite: "SQLITE",
 };
 
-const CATALOGS: Record<Dialect, DialectCatalog> = buildCatalogs();
+// Built on the first native-type check rather than at import: walking every
+// dialect's constants runs dozens of probe calls, and a schema that declares
+// no native type never asks.
+let catalogs: Record<Dialect, DialectCatalog> | undefined;
 
 /**
  * Whether `type` is a native type the declared dialect's catalog admits. The
  * gate's single statement, used by the reader and the serializer alike.
  */
 export function isNativeTypeInCatalog(db: Dialect, type: string): boolean {
-  const catalog = CATALOGS[db];
+  catalogs ??= buildCatalogs();
+  const catalog = catalogs[db];
   if (catalog.exact.has(type)) {
     return true;
   }
@@ -142,7 +146,16 @@ export function admitNativeType(
   builder: string,
   declaration: NativeTypeDeclaration | undefined
 ): NativeTypeDeclaration | undefined {
-  if (declaration === undefined) return undefined;
+  return declaration === undefined
+    ? undefined
+    : admitDeclaredNativeType(builder, declaration);
+}
+
+/** A declared native type, out of line: most scalars declare none. */
+function admitDeclaredNativeType(
+  builder: string,
+  declaration: NativeTypeDeclaration
+): NativeTypeDeclaration {
   if (!isRecord(declaration)) {
     refuse(
       builder,

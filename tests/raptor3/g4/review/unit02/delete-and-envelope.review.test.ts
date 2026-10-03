@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -64,7 +64,7 @@ interface World {
   driver: Recorder;
   // biome-ignore lint/suspicious/noExplicitAny: the shipped client type is not load-bearing here.
   client: any;
-  engine: ReturnType<typeof createCommandEngine>;
+  engine: ReturnType<typeof createTestCommandEngine>;
 }
 
 const worlds: World[] = [];
@@ -89,7 +89,7 @@ async function createWorld(): Promise<World> {
     ],
   });
   driver.reset();
-  const engine = createCommandEngine({ schema, driver });
+  const engine = createTestCommandEngine({ schema, driver });
   const world = { database, driver, client, engine } as World;
   worlds.push(world);
   return world;

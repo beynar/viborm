@@ -38,10 +38,10 @@ import assert from "node:assert/strict";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError, VibORMError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { createClient } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -197,7 +197,7 @@ async function rejectedLoneStatement(
   try {
     await (engine === "shipped"
       ? publicClient.owner![verb]!(requests[verb])
-      : createCommandEngine({ schema, driver }).execute(
+      : createTestCommandEngine({ schema, driver }).execute(
           "owner",
           verb,
           requests[verb]
@@ -238,7 +238,11 @@ async function rejectedRootFold(
   try {
     await (engine === "shipped"
       ? publicClient.owner![verb]!(args)
-      : createCommandEngine({ schema, driver }).execute("owner", verb, args));
+      : createTestCommandEngine({ schema, driver }).execute(
+          "owner",
+          verb,
+          args
+        ));
   } catch (error) {
     failure = error;
   }
@@ -310,7 +314,7 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
                 { id: 2, label: "b" },
               ],
             })
-          : createCommandEngine({ schema, driver }).execute(
+          : createTestCommandEngine({ schema, driver }).execute(
               "owner",
               "createMany",
               {
@@ -406,7 +410,7 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
     let value: unknown;
     let failure: unknown;
     try {
-      value = await createCommandEngine({ schema, driver }).execute(
+      value = await createTestCommandEngine({ schema, driver }).execute(
         "owner",
         "createMany",
         {

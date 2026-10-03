@@ -1,29 +1,19 @@
 import type { CacheExecutionOptions, WithCacheOptions } from "@cache";
-import type {
-  OfficialCacheExtension,
-  OfficialCacheQueryContribution,
-} from "@cache/extension";
 import {
   bindOfficialCacheChain,
   getOfficialCacheChainCapability,
-  readMutationCacheOptions,
-} from "@cache/extension";
-import { isCanonicalKeyData } from "@cache/key";
+  type OfficialCacheExtension,
+  type OfficialCacheQueryContribution,
+  officialCacheRuntime,
+} from "@cache/capability";
 import type { AnyDriver } from "@drivers";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
-import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { readDriverIdentity } from "@drivers/driver-identity";
-import { bindExecutionTransactionPhases } from "@drivers/execution-context";
 import type {
   BatchTransactionOptions,
   TransactionOptions,
 } from "@drivers/shared/transaction-options";
-import {
-  ClientInitializationError,
-  isVibORMError,
-  retainWriteOutcomeFailure,
-  TransactionError,
-} from "@errors";
+import { ClientInitializationError, isVibORMError } from "@errors";
 import {
   appendResolvedExtension,
   lookupPlacedControls,
@@ -51,13 +41,6 @@ import {
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
-import {
-  createCacheExecutionOptions,
-  executeCachedResultOperation,
-  invalidateManualCache,
-  prepareMutationCacheWriteOutcome,
-  validateCacheableOperation,
-} from "@query-engine/cache-flow";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import {
   attachPendingCacheExecution,
@@ -66,15 +49,21 @@ import {
   type PrepareWriteOutcomeRegistration,
   readPendingCacheResult,
 } from "@query-engine/pending-operation";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
+import { QueryEngine } from "@query-engine/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
 import { isWriteOperation } from "@query-engine/routed-operations";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
-import { validateClientSchemaOrThrow } from "@schema/validation/validator";
+import {
+  resolveCheckedSchemaOrThrow,
+  resolveSchemaOrThrow,
+} from "@schema/validation/validator";
 import { createResolvedSchemaRegistry } from "@validation/builder";
-import { executeArrayTransaction } from "./array-transaction";
+import {
+  executeArrayTransaction,
+  runOutcomeTransaction,
+} from "./array-transaction";
 import { assertDecimalDomainsFitProvider } from "./decimal-provider-limits";
 import {
   getOfficialDefaultOmitChainCapability,
@@ -164,6 +153,13 @@ type BatchTransactionOperation<T = unknown> =
   | PendingOperation<T>
   | RawOperation<T>;
 
+/** What any view's `$transaction` accepts: a callback or an operation array. */
+type TransactionInput<C extends VibORMConfig> =
+  | ((
+      tx: TransactionClient<C, ExtensionStateConstraint>
+    ) => PromiseLike<unknown>)
+  | TransactionOperation<unknown>[];
+
 /** The four raw methods the client and its transaction clients answer. */
 function isRawMethodName(prop: string | symbol): prop is keyof RawSurface {
   return typeof prop === "string" && Object.hasOwn(RAW_METHOD_NAMES, prop);
@@ -175,6 +171,13 @@ function isRawMethodName(prop: string | symbol): prop is keyof RawSurface {
 export interface VibORMConfig<S extends Schema = Schema> {
   schema: S;
   driver: AnyDriver;
+  /**
+   * Skip the schema checks every client otherwise runs when it is created, for
+   * a schema `viborm check` validates (in a build or CI step). The client still
+   * resolves relations, which it needs to run queries; it trusts identifiers,
+   * table and selector names, and the absence of required-relation cycles.
+   */
+  skipSchemaValidation?: boolean;
 }
 
 export interface DriverConfig<S extends Schema = Schema>
@@ -482,78 +485,34 @@ export type ExtendedOperationResult<
   : never;
 
 /**
- * What one cached read is keyed on. A read that admitted no control keeps
- * today's key, the prepared arguments byte for byte; otherwise the key is the
- * pair of those arguments and the admitted controls, which no base key can
- * spell (its arguments are always an object), and, on a chain with `rows`,
- * those declarations themselves, since the same control value selects
- * different rows under different declarations. A control value that is not
- * plain data has no canonical form: `undefined` bypasses the cache.
- */
-function cacheKeyOf(
-  args: Record<string, unknown>,
-  controls: AdmittedControls | undefined,
-  rows: ResolvedExtensionChain["rows"]
-): unknown {
-  if (controls === undefined) return args;
-  if (!isCanonicalKeyData(controls)) return undefined;
-  return rows === undefined ? [args, controls] : [args, controls, rows];
-}
-
-/**
  * VibORM Client
  */
 export class VibORM<C extends VibORMConfig> {
-  private readonly schema: C["schema"];
-  private readonly engine: QueryEngine;
-  private readonly relations: ResolvedRelationIndex;
+  readonly #schema: C["schema"];
+  readonly #engine: QueryEngine;
+  readonly #relations: ResolvedRelationIndex;
   /** One resolved declarative omit per authenticated capability on this client. */
-  private extensionOmitResolvers:
+  #extensionOmitResolvers:
     | WeakMap<object, Readonly<{ resolver: ClientOmitResolver | undefined }>>
     | undefined;
 
-  /** Stable identity shared by every transaction-bound view of this client. */
-  get clientId(): symbol {
-    return this.engine.clientId;
-  }
-
   /**
-   * The raw SQL surface bound to one engine scope — the root scope, or a
-   * transaction-bound scope inside an interactive transaction.
+   * @param prepared - the ONE resolved topology index the static factory's
+   *   gate produced, and the registries over it, passed in by identity. The
+   *   registry, an official default-omit resolver, and every query scope share
+   *   this exact object; nothing here resolves a second time and nothing
+   *   copies it (§10E.10, §11.4.10).
    */
-  private rawSurface(engine: QueryEngine): RawSurface {
-    return createRawSurface({ engine });
-  }
+  constructor(config: C, { relations, schemaRegistry }: PreparedSchema) {
+    this.#schema = config.schema as C["schema"];
+    this.#relations = relations;
 
-  /**
-   * @param relations - the ONE resolved topology index the static factory's
-   *   gate produced, passed in by identity. The registry, an official
-   *   default-omit resolver, and every query scope share this exact object;
-   *   nothing here resolves a second time and nothing copies it (§10E.10,
-   *   §11.4.10).
-   */
-  constructor(config: C, relations: ResolvedRelationIndex) {
-    this.schema = config.schema as C["schema"];
-    this.relations = relations;
-
-    // Create registry and engine once, reuse for all operations
-    const schemaRegistry = createResolvedSchemaRegistry(this.schema, relations);
-    const registry = createModelRegistry(
-      this.schema,
-      schemaRegistry,
-      relations
-    );
     // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
     // views above travel to it by identity, so the route's engine hydrates,
     // validates and registers nothing a second time (B-3).
-    this.engine = new QueryEngine(
+    this.#engine = new QueryEngine(
       config.driver,
-      registry,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      createCandidateRoute(this.schema, config.driver, {
+      createCandidateRoute(this.#schema, config.driver, {
         index: relations,
         registry: schemaRegistry,
       })
@@ -564,15 +523,15 @@ export class VibORM<C extends VibORMConfig> {
    * Create the client with model proxies and utility methods
    * Model operations return PendingOperation for deferred execution
    */
-  private createClient(
+  #createClient(
     engine: QueryEngine,
     modelMethods: BoundExtensionMethods["models"] | undefined,
     clientOmit: ClientOmitResolver | undefined
   ): Client<C> {
     return createModelProxy(
-      this.schema,
+      this.#schema,
       ({ modelName, operation, args }) =>
-        this.prepareModelOperation(
+        this.#prepareModelOperation(
           engine,
           modelName,
           operation,
@@ -584,7 +543,7 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Build one model operation through the common lazy client preparation path. */
-  private prepareModelOperation(
+  #prepareModelOperation(
     engine: QueryEngine,
     modelName: keyof C["schema"],
     operation: Operations,
@@ -596,7 +555,7 @@ export class VibORM<C extends VibORMConfig> {
       engine.extensionChain
     );
     const modelNameStr = String(modelName);
-    const model = this.schema[modelName];
+    const model = this.#schema[modelName];
     if (!model) {
       throw new ClientInitializationError(
         `Model "${modelNameStr}" not found in schema`,
@@ -663,11 +622,11 @@ export class VibORM<C extends VibORMConfig> {
       officialCache === undefined || !isWrite
         ? undefined
         : (context, controls) =>
-            prepareMutationCacheWriteOutcome(
+            officialCacheRuntime().prepareMutationCacheWriteOutcome(
               officialCache.driver,
               modelNameStr,
               operation,
-              readMutationCacheOptions(controls),
+              officialCacheRuntime().readMutationCacheOptions(controls),
               context,
               officialCache.scope
             );
@@ -675,7 +634,7 @@ export class VibORM<C extends VibORMConfig> {
     // Engine handles OrThrow suffix internally. Routing to the V2 operation is
     // decided lazily — before any I/O — for the whole payload.
     const pendingOperation = officialReadCache
-      ? engine.prepareCacheManaged(
+      ? engine.prepare(
           model,
           operation,
           operationArgs,
@@ -691,7 +650,7 @@ export class VibORM<C extends VibORMConfig> {
           prepareWriteOutcomeRegistration
         );
     if (officialReadCache === undefined) return pendingOperation;
-    return this.wrapOfficialCachedRead(
+    return this.#wrapOfficialCachedRead(
       engine,
       modelNameStr,
       operation,
@@ -701,22 +660,23 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Bind cached reads to the same root or derived engine as their client. */
-  private withCache(
+  #withCache(
     engine: QueryEngine,
     capability: NonNullable<ReturnType<typeof getOfficialCacheChainCapability>>,
     clientOmit: ClientOmitResolver | undefined,
     config?: WithCacheOptions
   ): CachedClient<C> {
-    const options = createCacheExecutionOptions(
+    const runtime = officialCacheRuntime();
+    const options = runtime.createCacheExecutionOptions(
       config,
       capability.waitUntil,
       readDriverIdentity(engine.driver)
     );
     const officialReadCache = Object.freeze({ capability, options });
-    return this.createCachedProxy(({ modelName, operation, args }) => {
+    return createModelProxy(this.#schema, ({ modelName, operation, args }) => {
       try {
-        validateCacheableOperation(operation);
-        return this.prepareModelOperation(
+        runtime.validateCacheableOperation(operation);
+        return this.#prepareModelOperation(
           engine,
           modelName,
           operation,
@@ -727,42 +687,31 @@ export class VibORM<C extends VibORMConfig> {
       } catch (error) {
         return Promise.reject(error);
       }
-    });
-  }
-
-  /** Apply the cached-read proxy boundary for the official cache extension. */
-  private createCachedProxy(
-    createOperation: (options: {
-      readonly modelName: keyof C["schema"];
-      readonly operation: Operations;
-      readonly args: unknown;
-    }) => Promise<unknown> | PendingOperation<unknown>
-  ): CachedClient<C> {
-    return createModelProxy(this.schema, createOperation) as CachedClient<C>;
+    }) as CachedClient<C>;
   }
 
   /** Resolve one authenticated declarative omit once for this client schema. */
-  private resolveClientOmit(
+  #resolveClientOmit(
     chain: ResolvedExtensionChain
   ): ClientOmitResolver | undefined {
     const capability = getOfficialDefaultOmitChainCapability(chain);
     if (capability === undefined) return undefined;
     const resolvers =
-      this.extensionOmitResolvers ??
-      (this.extensionOmitResolvers = new WeakMap());
+      this.#extensionOmitResolvers ??
+      (this.#extensionOmitResolvers = new WeakMap());
     const existing = resolvers.get(capability);
     if (existing !== undefined) return existing.resolver;
     const resolver = createClientOmitResolver(
-      this.schema,
+      this.#schema,
       capability.config,
-      this.relations
+      this.#relations
     );
     resolvers.set(capability, Object.freeze({ resolver }));
     return resolver;
   }
 
   /** Keep every arbitrary query handler outside the official cache child. */
-  private wrapOfficialCachedRead(
+  #wrapOfficialCachedRead(
     engine: QueryEngine,
     modelName: string,
     operation: Operations,
@@ -780,13 +729,14 @@ export class VibORM<C extends VibORMConfig> {
           return execute();
         }
         const cacheResult = readPendingCacheResult(pendingOperation);
-        const key = cacheKeyOf(
+        const runtime = officialCacheRuntime();
+        const key = runtime.cacheKeyOf(
           cacheResult.args,
           cacheResult.controls,
           engine.extensionChain?.rows
         );
         if (key === undefined) return execute();
-        return executeCachedResultOperation(
+        return runtime.executeCachedResultOperation(
           cacheRead.capability.driver,
           modelName,
           operation,
@@ -803,464 +753,202 @@ export class VibORM<C extends VibORMConfig> {
     );
   }
 
-  /** Bind one extension chain to one concrete root or transaction view. */
-  private bindConcreteMethods(
+  /**
+   * The one get-trap ladder of every concrete view: the root client, an
+   * interactive transaction's `tx`, and the scope each extension factory sees.
+   * Every utility member is `$`-named or a symbol and a model name never is, so
+   * model access is answered first. `extra` adds the root-only utilities.
+   */
+  #createViewProxy<V>(
     engine: QueryEngine,
-    chain: ResolvedExtensionChain,
+    clientOmit: ClientOmitResolver | undefined,
     transaction: CallableFunction,
-    clientOmit: ClientOmitResolver | undefined
-  ): BoundExtensionMethods {
-    return bindExtensionMethods(chain, (clientMethods, modelMethods) => {
-      const delegates = this.createClient(engine, modelMethods, clientOmit);
-      let rawSurface: RawSurface | undefined;
-      return new Proxy(delegates, {
-        get: (target, prop) => {
-          if (typeof prop === "string" && Object.hasOwn(clientMethods, prop)) {
+    clientMethods: BoundExtensionMethods["client"] | undefined,
+    modelMethods: BoundExtensionMethods["models"] | undefined,
+    extra?: (prop: string | symbol) => unknown
+  ): V {
+    // Raw SQL rides this view's engine: inside an interactive transaction it
+    // shares the transaction's connection and rolls back with it. The surface
+    // is built on first `$queryRaw`-family access.
+    let rawSurface: RawSurface | undefined;
+    return new Proxy(this.#createClient(engine, modelMethods, clientOmit), {
+      get: (target, prop) => {
+        if (typeof prop === "string") {
+          if (!prop.startsWith("$")) return Reflect.get(target, prop);
+          if (clientMethods && Object.hasOwn(clientMethods, prop)) {
             return clientMethods[prop];
           }
-          if (prop === "$schema") return this.schema;
-          if (prop === "$transaction") return transaction;
-          if (isRawMethodName(prop)) {
-            rawSurface ??= this.rawSurface(engine);
-            return rawSurface[prop];
-          }
-          if (typeof prop === "string" && Object.hasOwn(this.schema, prop)) {
-            return Reflect.get(target, prop);
-          }
-          if (typeof prop === "string" && prop.startsWith("$")) {
-            return undefined;
-          }
-          return Reflect.get(target, prop);
-        },
-      });
-    });
+        }
+        if (prop === "$schema") return this.#schema;
+        if (prop === "$transaction") return transaction;
+        if (isRawMethodName(prop)) {
+          rawSurface ??= createRawSurface({ engine });
+          return rawSurface[prop];
+        }
+        const member = extra?.(prop);
+        // A `$`-named model is still reachable; anything else is absent.
+        return member === undefined &&
+          typeof prop === "string" &&
+          Object.hasOwn(this.#schema, prop)
+          ? Reflect.get(target, prop)
+          : member;
+      },
+    }) as V;
   }
 
-  /** Create the transaction function only when a view exposes it. */
-  private createTransaction<X extends ExtensionStateConstraint>(
+  /** Build one concrete view over one engine scope and its extension chain. */
+  #createView<V>(
     engine: QueryEngine,
-    chain: ResolvedExtensionChain | undefined,
-    clientOmit: ClientOmitResolver | undefined
-  ): <T>(
-    input:
-      | ((tx: TransactionClient<C, X>) => PromiseLike<T>)
-      | TransactionOperation<unknown>[],
-    options?: TransactionOptions | BatchTransactionOptions
-  ) => Promise<T | unknown[]> {
-    return async <T>(
-      input:
-        | ((tx: TransactionClient<C, X>) => PromiseLike<T>)
-        | TransactionOperation<unknown>[],
+    clientOmit: ClientOmitResolver | undefined,
+    extra?: (prop: string | symbol) => unknown
+  ): V {
+    const transaction = (
+      input: TransactionInput<C>,
       options?: TransactionOptions | BatchTransactionOptions
-    ): Promise<T | unknown[]> => {
-      // Refuse before dispatching, so that paths which never reach a
-      // driver entry point (an empty array, a driver without callback
-      // transactions) still reject an option that could not be honored.
+    ) => this.#transact(engine, clientOmit, input, options);
+    const chain = engine.extensionChain;
+    const methods =
+      chain &&
+      bindExtensionMethods(chain, (clientMethods, modelMethods) =>
+        this.#createViewProxy<object>(
+          engine,
+          clientOmit,
+          transaction,
+          clientMethods,
+          modelMethods
+        )
+      );
+    return this.#createViewProxy<V>(
+      engine,
+      clientOmit,
+      transaction,
+      methods?.client,
+      methods?.models,
+      extra
+    );
+  }
+
+  /**
+   * The one `$transaction` of every view. Inside an interactive transaction
+   * the engine is transaction-bound, so a nested call is a SAVEPOINT.
+   */
+  #transact(
+    engine: QueryEngine,
+    clientOmit: ClientOmitResolver | undefined,
+    input: TransactionInput<C>,
+    options: TransactionOptions | BatchTransactionOptions | undefined
+  ): Promise<unknown> {
+    try {
+      const isArray = Array.isArray(input);
+      // Refuse before dispatching, so that a path which never reaches a driver
+      // entry point (an empty array) still rejects an option it could not
+      // honor. A savepoint's option contract differs from the outermost one,
+      // and the transaction-bound driver declares that difference.
       engine.driver.assertTransactionOptionsSupported(
         options,
-        Array.isArray(input) ? "batch" : "callback"
+        isArray ? "batch" : "callback"
       );
-      const hasCoordinatedHandlers =
-        chain?.hasQueryHandlers === true ||
-        (chain?.observe.length ?? 0) > 0 ||
-        chain?.hasCache === true;
-      const baseTransactionContext = createOperationExecutionContext(
+      const chain = engine.extensionChain;
+      const context = createOperationExecutionContext(
         "$transaction",
-        Array.isArray(input) ? "$transaction([...])" : "$transaction(callback)",
-        engine.extensionChain
+        isArray ? "$transaction([...])" : "$transaction(callback)",
+        chain
       );
-      let transactionContext = baseTransactionContext;
-      let transactionState:
-        | { phase: "pending" | "ready" | "committed" }
-        | undefined;
-      if (hasCoordinatedHandlers && !Array.isArray(input)) {
-        const state: { phase: "pending" | "ready" | "committed" } = {
-          phase: "pending",
-        };
-        transactionState = state;
-        transactionContext = bindExecutionTransactionPhases(
-          baseTransactionContext,
-          {
-            readyToCommit: () => {
-              state.phase = "ready";
-            },
-            committed: () => {
-              state.phase = "committed";
-            },
-          }
-        );
+      if (isArray) {
+        return executeArrayTransaction(input, engine, options, context);
       }
-      // Array of transaction operations = batch mode
-      if (Array.isArray(input)) {
-        return executeArrayTransaction(
-          input,
-          engine,
-          options,
-          baseTransactionContext
+      // A coordinated chain collects write outcomes per scope: the root
+      // publishes them, a savepoint promotes them into its parent's collector.
+      const outcomes =
+        chain?.hasQueryHandlers ||
+        chain?.hasCache ||
+        (chain?.observe.length ?? 0) > 0
+          ? new TransactionWriteOutcomes()
+          : undefined;
+      const body = async (txDriver: AnyDriver) =>
+        input(
+          this.#createView(engine.bind(txDriver, chain, outcomes), clientOmit)
         );
-      }
-
-      // Callback = dynamic transaction mode
-      const fn = input as (tx: TransactionClient<C, X>) => PromiseLike<T>;
-      if (!engine.driver.supportsTransactions) {
-        throw new TransactionError(
-          `Driver "${engine.driver.driverName}" does not support callback transactions.`,
-          {
-            meta: {
-              driver: engine.driver.driverName,
-              method: "$transaction(callback)",
-            },
-          }
-        );
-      }
-
-      // Helper to create a transaction client with $transaction support
-      const createTxClient = (
-        parentEngine: QueryEngine,
-        txDriver: AnyDriver,
-        transactionWriteOutcomes = parentEngine.transactionWriteOutcomes
-      ): TransactionClient<C, X> => {
-        const txEngine = parentEngine.bind(
-          txDriver,
-          parentEngine.extensionChain,
-          transactionWriteOutcomes
-        );
-        // Raw SQL inside the callback rides the transaction-bound driver,
-        // so it shares the single connection with the model operations
-        // and rolls back with them. Built on first access.
-        let txRawSurface: RawSurface | undefined;
-
-        const createTxProxy = (
-          baseClient: Client<C>,
-          clientMethods?: BoundExtensionMethods["client"]
-        ) =>
-          new Proxy(baseClient, {
-            get: (target, prop) => {
-              if (
-                typeof prop === "string" &&
-                clientMethods &&
-                Object.hasOwn(clientMethods, prop)
-              ) {
-                return clientMethods[prop];
-              }
-              if (isRawMethodName(prop)) {
-                txRawSurface ??= this.rawSurface(txEngine);
-                return txRawSurface[prop];
-              }
-              if (prop === "$transaction") {
-                return <NT>(
-                  nestedInput:
-                    | ((nestedTx: TransactionClient<C, X>) => PromiseLike<NT>)
-                    | TransactionOperation<unknown>[],
-                  nestedOptions?: TransactionOptions | BatchTransactionOptions
-                ): Promise<NT | unknown[]> => {
-                  try {
-                    // A nested $transaction is a SAVEPOINT: its option
-                    // contract differs from the outermost one, and the
-                    // transaction-bound driver declares that difference.
-                    txDriver.assertTransactionOptionsSupported(
-                      nestedOptions,
-                      Array.isArray(nestedInput) ? "batch" : "callback"
-                    );
-                    const nestedTransactionContext =
-                      createOperationExecutionContext(
-                        "$transaction",
-                        Array.isArray(nestedInput)
-                          ? "$transaction([...])"
-                          : "$transaction(callback)",
-                        txEngine.extensionChain
-                      );
-                    if (Array.isArray(nestedInput)) {
-                      return executeArrayTransaction(
-                        nestedInput,
-                        txEngine,
-                        nestedOptions,
-                        nestedTransactionContext
-                      );
-                    }
-                    // Callback mode - create nested client recursively
-                    const parentWriteOutcomes =
-                      txEngine.transactionWriteOutcomes;
-                    if (parentWriteOutcomes === undefined) {
-                      return txDriver.withTransaction(
-                        async (nestedTxDriver) => {
-                          const nestedClient = createTxClient(
-                            txEngine,
-                            nestedTxDriver as AnyDriver
-                          );
-                          return (
-                            nestedInput as (
-                              tx: TransactionClient<C, X>
-                            ) => PromiseLike<NT>
-                          )(nestedClient);
-                        },
-                        nestedOptions as TransactionOptions | undefined,
-                        nestedTransactionContext
-                      );
-                    }
-                    const nestedWriteOutcomes = new TransactionWriteOutcomes();
-                    return txDriver
-                      .withTransaction(
-                        async (nestedTxDriver) => {
-                          const nestedClient = createTxClient(
-                            txEngine,
-                            nestedTxDriver as AnyDriver,
-                            nestedWriteOutcomes
-                          );
-                          return (
-                            nestedInput as (
-                              tx: TransactionClient<C, X>
-                            ) => PromiseLike<NT>
-                          )(nestedClient);
-                        },
-                        nestedOptions as TransactionOptions | undefined,
-                        nestedTransactionContext
-                      )
-                      .then(
-                        (value) => {
-                          nestedWriteOutcomes.promoteTo(parentWriteOutcomes);
-                          return value;
-                        },
-                        (error: unknown) => {
-                          nestedWriteOutcomes.discardAll();
-                          throw error;
-                        }
-                      );
-                  } catch (error) {
-                    return Promise.reject(error);
-                  }
-                };
-              }
-              if (prop === "$schema") return this.schema;
-              if (
-                typeof prop === "string" &&
-                prop.startsWith("$") &&
-                !Object.hasOwn(this.schema, prop)
-              ) {
-                return undefined;
-              }
-              // Forward all other property access to the base client.
-              return Reflect.get(target, prop);
-            },
-          });
-
-        const preliminary = createTxProxy(
-          this.createClient(txEngine, undefined, clientOmit)
-        );
-        if (!chain) {
-          return preliminary as TransactionClient<C, X>;
-        }
-        const transactionMethod: unknown = Reflect.get(
-          preliminary,
-          "$transaction"
-        );
-        if (typeof transactionMethod !== "function") {
-          throw new ClientInitializationError(
-            "Transaction view did not expose $transaction."
+      return outcomes
+        ? runOutcomeTransaction(
+            engine.driver,
+            outcomes,
+            engine.transactionWriteOutcomes,
+            options as TransactionOptions | undefined,
+            context,
+            body
+          )
+        : engine.driver.withTransaction(
+            body,
+            options as TransactionOptions | undefined,
+            context
           );
-        }
-        const methods = this.bindConcreteMethods(
-          txEngine,
-          chain,
-          transactionMethod,
-          clientOmit
-        );
-        return createTxProxy(
-          this.createClient(txEngine, methods.models, clientOmit),
-          methods.client
-        ) as TransactionClient<C, X>;
-      };
-
-      if (!hasCoordinatedHandlers) {
-        return engine.driver.withTransaction(
-          async (txDriver) => {
-            const txClient = createTxClient(engine, txDriver as AnyDriver);
-            return fn(txClient);
-          },
-          options as TransactionOptions | undefined,
-          transactionContext
-        );
-      }
-      const transactionWriteOutcomes = new TransactionWriteOutcomes();
-      let transactionResult: T;
-      try {
-        transactionResult = await engine.driver.withTransaction(
-          async (txDriver) => {
-            const txClient = createTxClient(
-              engine,
-              txDriver as AnyDriver,
-              transactionWriteOutcomes
-            );
-            return fn(txClient);
-          },
-          options as TransactionOptions | undefined,
-          transactionContext
-        );
-      } catch (error) {
-        const certainty =
-          transactionState?.phase === "committed"
-            ? "committed"
-            : transactionState?.phase === "ready"
-              ? "may-have-committed"
-              : undefined;
-        if (certainty) {
-          const primary = isVibORMError(error)
-            ? attachCommitCertainty(error, certainty)
-            : error;
-          try {
-            await transactionWriteOutcomes.publish(certainty);
-          } catch (outcomeFailure) {
-            throw retainWriteOutcomeFailure(primary, outcomeFailure);
-          }
-          throw primary;
-        }
-        transactionWriteOutcomes.discardAll();
-        throw error;
-      }
-      await transactionWriteOutcomes.publishCommitted();
-      return transactionResult;
-    };
+    } catch (error) {
+      return Promise.reject(error);
+    }
   }
 
-  /** Create one root view without allocating an empty extension chain. */
-  private createRootView<X extends ExtensionStateConstraint>(
-    engine: QueryEngine,
-    chain: ResolvedExtensionChain | undefined
+  /** Create one root view: the shared ladder plus the root-only utilities. */
+  #createRootView<X extends ExtensionStateConstraint>(
+    engine: QueryEngine
   ): VibORMClient<C, X> {
+    const chain = engine.extensionChain;
     const clientOmit =
-      chain === undefined ? undefined : this.resolveClientOmit(chain);
-    // The raw surface is built on first `$queryRaw`-family access.
-    let rawSurface: RawSurface | undefined;
-
+      chain === undefined ? undefined : this.#resolveClientOmit(chain);
     // One close path behind two doors: `$disconnect()` and, where the platform
     // has the protocol, `await using`. They are the same function object.
     const disconnect = () =>
       engine.driver._disconnect(
-        createOperationExecutionContext(
-          "$connection",
-          "$disconnect",
-          engine.extensionChain
-        )
+        createOperationExecutionContext("$connection", "$disconnect", chain)
       );
 
-    let transaction: CallableFunction | undefined;
-    let methods: BoundExtensionMethods | undefined;
-    if (chain) {
-      transaction = this.createTransaction<X>(engine, chain, clientOmit);
-      methods = this.bindConcreteMethods(
-        engine,
-        chain,
-        transaction,
-        clientOmit
-      );
-    }
-    const client = this.createClient(engine, methods?.models, clientOmit);
-
-    // Create proxy that combines model operations with utility methods.
-    return new Proxy(client, {
-      get: (target, prop) => {
-        if (
-          typeof prop === "string" &&
-          methods &&
-          Object.hasOwn(methods.client, prop)
-        ) {
-          return methods.client[prop];
-        }
-        if (prop === "$driver") return engine.driver;
-        if (prop === "$schema") return this.schema;
-        if (isRawMethodName(prop)) {
-          rawSurface ??= this.rawSurface(engine);
-          return rawSurface[prop];
-        }
-        if (prop === "$transaction") {
-          return (
-            transaction ?? this.createTransaction<X>(engine, chain, clientOmit)
+    return this.#createView(engine, clientOmit, (prop) => {
+      if (prop === "$driver") return engine.driver;
+      if (prop === "$extends") {
+        return (extension: ClientExtension) => {
+          const extensionChain = appendResolvedExtension(
+            chain,
+            extension,
+            this.#schema
           );
-        }
-        if (prop === "$extends") {
-          return (extension: ClientExtension) => {
-            const extensionChain = appendResolvedExtension(
-              chain,
-              extension,
-              this.schema
-            );
-            // The one point that holds both the resolved chain and the concrete
-            // driver, so the one point that can partition the official cache by
-            // this client's dialect and SQL namespace. A chain without the
-            // official cache makes no call at all.
-            if (extensionChain.hasCache) {
-              bindOfficialCacheChain(extensionChain, engine.driver);
-            }
-            return this.createRootView(
-              engine.bind(engine.driver, extensionChain),
-              extensionChain
-            );
-          };
-        }
-
-        if (prop === "$connect") {
-          return () =>
-            engine.driver._connect(
-              createOperationExecutionContext(
-                "$connection",
-                "$connect",
-                engine.extensionChain
-              )
-            );
-        }
-
-        if (prop === "$disconnect") {
-          return disconnect;
-        }
-
-        // `await using client = createClient({ ... })`. Guarded on the resolved
-        // runtime key so that on an engine without the protocol nothing here
-        // ever matches — and the property falls through to `undefined`, which
-        // is what the absence of disposal support should look like.
-        if (ASYNC_DISPOSE !== undefined && prop === ASYNC_DISPOSE) {
-          return disconnect;
-        }
-
-        if (prop === "$withCache") {
-          const officialCache = getOfficialCacheChainCapability(
-            engine.extensionChain
+          // The one point that holds both the resolved chain and the concrete
+          // driver, so the one point that can partition the official cache by
+          // this client's dialect and SQL namespace. A chain without the
+          // official cache makes no call at all.
+          if (extensionChain.hasCache) {
+            bindOfficialCacheChain(extensionChain, engine.driver);
+          }
+          return this.#createRootView(
+            engine.bind(engine.driver, extensionChain)
           );
-          if (officialCache === undefined) return undefined;
-          return (cacheConfig?: WithCacheOptions) =>
-            this.withCache(engine, officialCache, clientOmit, cacheConfig);
-        }
-
-        if (prop === "$invalidate") {
-          const officialCache = getOfficialCacheChainCapability(
-            engine.extensionChain
+        };
+      }
+      if (prop === "$connect") {
+        return () =>
+          engine.driver._connect(
+            createOperationExecutionContext("$connection", "$connect", chain)
           );
-          if (officialCache === undefined) return undefined;
-          return async (...keys: string[]) => {
-            await invalidateManualCache(
-              officialCache.driver,
-              keys,
-              createOperationExecutionContext(
-                "$cache",
-                "$invalidate",
-                engine.extensionChain
-              ),
-              officialCache.scope
-            );
-          };
-        }
-
-        if (
-          typeof prop === "string" &&
-          prop.startsWith("$") &&
-          !Object.hasOwn(this.schema, prop)
-        ) {
-          return undefined;
-        }
-
-        // Model operations
-        return Reflect.get(target, prop);
-      },
-    }) as VibORMClient<C, X>;
+      }
+      // `await using client = createClient({ ... })`. On an engine without the
+      // protocol `ASYNC_DISPOSE` is undefined, which no property key equals, so
+      // the property is absent — what missing disposal support looks like.
+      if (prop === "$disconnect" || prop === ASYNC_DISPOSE) return disconnect;
+      if (prop !== "$withCache" && prop !== "$invalidate") return undefined;
+      const officialCache = getOfficialCacheChainCapability(chain);
+      if (officialCache === undefined) return undefined;
+      if (prop === "$withCache") {
+        return (cacheConfig?: WithCacheOptions) =>
+          this.#withCache(engine, officialCache, clientOmit, cacheConfig);
+      }
+      return async (...keys: string[]) => {
+        await officialCacheRuntime().invalidateManualCache(
+          officialCache.driver,
+          keys,
+          createOperationExecutionContext("$cache", "$invalidate", chain),
+          officialCache.scope
+        );
+      };
+    });
   }
 
   /**
@@ -1291,21 +979,77 @@ export class VibORM<C extends VibORMConfig> {
     // ClientInitializationError instead of a bare Error; already-typed failures pass through
     // unchanged so their own code survives.
     const orm = assertConstructed(() => {
-      hydrateSchemaNames(config.schema);
+      const checked = config.skipSchemaValidation === true;
+      const reused = reusablePreparation(config.schema, checked);
+      if (!reused) hydrateSchemaNames(config.schema, checked);
       // The selected adapter's physical capability, asked once here and before
       // any provider I/O (plan §3.1). A decimal domain no dialect could store is
       // a definition error, and the caller learns it at the line that bound the
       // schema rather than at the first UPDATE that could not compute inside it.
-      assertDecimalDomainsFitProvider(config.schema, config.driver.dialect);
+      if (!reused?.fittingDialects.has(config.driver.dialect))
+        assertDecimalDomainsFitProvider(config.schema, config.driver.dialect);
       assertGeoPointFieldsFitAdapter(config.schema, config.driver.adapter);
       // ONE resolution for the whole client lifecycle: the gate's index goes
       // straight into the constructor, so the registry and query scopes are
       // composed over the same object (§11.4.10).
-      return new VibORM<C>(config, validateClientSchemaOrThrow(config.schema));
+      const prepared = reused ?? prepareSchema(config.schema, checked);
+      prepared.fittingDialects.add(config.driver.dialect);
+      return new VibORM<C>(config, prepared);
     });
 
-    return orm.createRootView<EmptyClientExtensionState>(orm.engine, undefined);
+    return orm.#createRootView<EmptyClientExtensionState>(orm.#engine);
   }
+}
+
+/** The driver-independent construction a client derives from its schema. */
+interface PreparedSchema {
+  readonly entries: readonly (readonly [string, unknown])[];
+  readonly relations: ResolvedRelationIndex;
+  readonly schemaRegistry: ReturnType<typeof createResolvedSchemaRegistry>;
+  /** Dialects whose decimal storage limits this schema already fits. */
+  readonly fittingDialects: Set<string>;
+  /** Whether the full client validation ran, not only relation resolution. */
+  readonly validated: boolean;
+}
+
+/**
+ * Clients over the same schema object share its validated, resolved views:
+ * they derive from the models alone, so a client created per request (one per
+ * Worker invocation) skips re-validating and rebuilding them. The entries are
+ * compared on reuse, so a schema object that gained or swapped a model since
+ * is prepared again.
+ */
+const preparedSchemas = new WeakMap<object, PreparedSchema>();
+
+function reusablePreparation(
+  schema: Schema,
+  checked: boolean
+): PreparedSchema | undefined {
+  const prepared = preparedSchemas.get(schema);
+  // A validating client never reuses a preparation that skipped validation.
+  if (!(prepared && (prepared.validated || checked))) return;
+  const keys = Object.keys(schema);
+  if (keys.length !== prepared.entries.length) return;
+  for (const [index, [key, model]] of prepared.entries.entries()) {
+    if (keys[index] !== key || schema[key] !== model) return;
+  }
+  return prepared;
+}
+
+function prepareSchema(schema: Schema, checked: boolean): PreparedSchema {
+  const relations = checked
+    ? resolveCheckedSchemaOrThrow(schema)
+    : resolveSchemaOrThrow(schema);
+  const schemaRegistry = createResolvedSchemaRegistry(schema, relations);
+  const prepared: PreparedSchema = {
+    entries: Object.entries(schema),
+    relations,
+    schemaRegistry,
+    fittingDialects: new Set(),
+    validated: !checked,
+  };
+  preparedSchemas.set(schema, prepared);
+  return prepared;
 }
 
 /**
@@ -1385,6 +1129,10 @@ export const createClientFromDriverConfig = <
   schema: C["schema"];
   driver: D;
 }> => {
-  const schema = config.schema;
-  return VibORM.create({ schema, driver });
+  const { schema, skipSchemaValidation } = config;
+  return VibORM.create({
+    schema,
+    driver,
+    ...(skipSchemaValidation === undefined ? {} : { skipSchemaValidation }),
+  });
 };

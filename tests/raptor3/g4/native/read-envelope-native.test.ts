@@ -45,7 +45,7 @@
 import assert from "node:assert/strict";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
@@ -563,20 +563,20 @@ async function runRecursiveFit(factory: CandidateEngineFactory) {
 }
 
 describe(`G4 native ${liveProvider} read envelope`, () => {
-  it("g4-native-scalar-codec-round-trip", () => runCodecRoundTrip(createCommandEngine), 30_000);
+  it("g4-native-scalar-codec-round-trip", () => runCodecRoundTrip(createTestCommandEngine), 30_000);
   it(
     "g4-native-string-mode-and-nulls-ordering",
-    () => runCollationAndNulls(createCommandEngine),
+    () => runCollationAndNulls(createTestCommandEngine),
     30_000
   );
   it(
     "g4-native-cursor-pagination-and-aggregate-shapes",
-    () => runCursorAndAggregates(createCommandEngine),
+    () => runCursorAndAggregates(createTestCommandEngine),
     30_000
   );
   it(
     "g4-native-recursive-read-fit",
-    () => runRecursiveFit(createCommandEngine),
+    () => runRecursiveFit(createTestCommandEngine),
     30_000
   );
   it("g4-native-datetime-literal-matches-the-adapter", () => {

@@ -30,7 +30,6 @@ import {
   type IdRepresentation,
   sameIdDomain,
 } from "@validation/primitives/id-codec";
-import { assertInvariant } from "./invariant";
 import type { PhysicalField } from "./storage";
 
 /** One identifier column: what it admits, and what it physically holds. */
@@ -98,18 +97,13 @@ export function isCompact(
  */
 export function encodeIdentifier(
   column: IdentifierColumn,
-  value: unknown,
-  field: string
+  value: unknown
 ): string | Uint8Array {
-  const physical =
-    typeof value === "string"
-      ? encodePhysicalId(value, column.domain, column.representation)
-      : undefined;
-  assertInvariant(
-    physical !== undefined,
-    `Identifier field '${field}' reached its binding with a value outside ${describeIdDomain(column.domain)}: admission canonicalizes every identifier operand into its domain.`
-  );
-  return physical;
+  return encodePhysicalId(
+    value as string,
+    column.domain,
+    column.representation
+  )!;
 }
 
 /** The public string one physical identifier value stands for, or `undefined`. */

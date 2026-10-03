@@ -3,7 +3,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
 import { QueryError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import { encodeEvidenceValue } from "../../../benchmarks/operation-pipeline-evidence.mjs";
 import {
@@ -67,7 +67,7 @@ async function recordDisputedLoss(engine: "legacy" | "commands") {
     fault: { kind: "at-cut", cut: diagnosticCut },
     ...(engine === "commands"
       ? {
-          candidateFactory: createCommandEngine,
+          candidateFactory: createTestCommandEngine,
           candidateName: "commands" as const,
         }
       : {}),

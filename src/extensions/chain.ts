@@ -4,7 +4,7 @@ import {
   OFFICIAL_CACHE_NAME,
   officialCacheControls,
   registerOfficialCacheChain,
-} from "@cache/extension";
+} from "@cache/capability";
 import {
   getOfficialDefaultOmitChainCapability,
   getOfficialDefaultOmitRequestCapability,

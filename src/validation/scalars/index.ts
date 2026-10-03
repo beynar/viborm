@@ -107,67 +107,36 @@ export type GetScalarSchemas<
 export const getScalarSchemas = <F extends ScalarState>(
   scalar: F,
   derived?: IdDomain
-): GetScalarSchemas<F> => {
-  // biome-ignore lint/style/useDefaultSwitchClause: ScalarState.type makes this switch exhaustive.
-  switch (scalar.type) {
-    case "bigint":
-      return buildBigIntSchema(
-        scalar as ScalarState<"bigint">
-      ) as GetScalarSchemas<F>;
-    case "blob":
-      return buildBlobSchema(
-        scalar as ScalarState<"blob">
-      ) as GetScalarSchemas<F>;
-    case "boolean":
-      return buildBooleanSchema(
-        scalar as ScalarState<"boolean">
-      ) as GetScalarSchemas<F>;
-    case "datetime":
-      return buildDateTimeSchema(
-        scalar as ScalarState<"datetime">
-      ) as GetScalarSchemas<F>;
-    case "decimal":
-      return buildDecimalSchema(
-        scalar as ScalarState<"decimal">
-      ) as GetScalarSchemas<F>;
-    case "enum":
-      return buildEnumSchema(
-        scalar as ScalarState<"enum">
-      ) as GetScalarSchemas<F>;
-    case "int":
-      return buildIntSchema(
-        scalar as ScalarState<"int">
-      ) as GetScalarSchemas<F>;
-    case "json":
-      return buildJsonSchema(
-        scalar as ScalarState<"json">
-      ) as GetScalarSchemas<F>;
-    case "number":
-      return buildNumberSchema(
-        scalar as ScalarState<"number">
-      ) as GetScalarSchemas<F>;
-    case "point":
-      return buildPointSchema(
-        scalar as ScalarState<"point">
-      ) as GetScalarSchemas<F>;
-    case "string":
-      return buildStringSchema(
-        scalar as ScalarState<"string">,
-        derived
-      ) as GetScalarSchemas<F>;
-    case "vector":
-      return buildVectorSchema(
-        scalar as ScalarState<"vector">
-      ) as GetScalarSchemas<F>;
-    case "date":
-      return buildDateSchema(
-        scalar as ScalarState<"date">
-      ) as GetScalarSchemas<F>;
-    case "time":
-      return buildTimeSchema(
-        scalar as ScalarState<"time">
-      ) as GetScalarSchemas<F>;
-  }
+): GetScalarSchemas<F> =>
+  (
+    SCALAR_SCHEMA_BUILDERS[scalar.type] as (
+      state: F,
+      derived?: IdDomain
+    ) => unknown
+  )(scalar, derived) as GetScalarSchemas<F>;
+
+// A table rather than a switch: a schema with three scalar types compiles three
+// builders' call sites, not all fourteen.
+const SCALAR_SCHEMA_BUILDERS: {
+  readonly [K in ScalarState["type"]]: (
+    state: ScalarState<K>,
+    derived?: IdDomain
+  ) => unknown;
+} = {
+  bigint: buildBigIntSchema,
+  blob: buildBlobSchema,
+  boolean: buildBooleanSchema,
+  datetime: buildDateTimeSchema,
+  decimal: buildDecimalSchema,
+  enum: buildEnumSchema,
+  int: buildIntSchema,
+  json: buildJsonSchema,
+  number: buildNumberSchema,
+  point: buildPointSchema,
+  string: buildStringSchema,
+  vector: buildVectorSchema,
+  date: buildDateSchema,
+  time: buildTimeSchema,
 };
 
 /**

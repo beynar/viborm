@@ -30,6 +30,9 @@ interface FieldContext {
   readonly fields: Record<string, unknown>;
 }
 
+const ANY_VALIDATION_MESSAGE = /./;
+const LIST_MEMBERSHIP_REFUSAL = /has/;
+
 describe("G4 C01 predicate vocabulary (Q-W01…Q-W10)", () => {
   let world: WitnessWorld;
 
@@ -133,7 +136,7 @@ describe("G4 C01 predicate vocabulary (Q-W01…Q-W10)", () => {
       "post",
       "findMany",
       { orderBy: { id: "asc" }, cursor: { views: 10 }, take: 1 },
-      { name: "ValidationError", message: /./ }
+      { name: "ValidationError", message: ANY_VALIDATION_MESSAGE }
     );
   });
 
@@ -347,6 +350,52 @@ describe("G4 C01 predicate vocabulary (Q-W01…Q-W10)", () => {
     );
   });
 
+  it("Q-W04 folds both text field-reference operands in their relation scope", async () => {
+    const equalsHandle = (ctx: FieldContext) => ctx.fields.handle;
+    await expectRead(
+      world,
+      "author",
+      "findMany",
+      {
+        where: { name: { equals: equalsHandle } },
+        orderBy: [{ tenant: "asc" }, { handle: "asc" }],
+        select: { tenant: true, handle: true },
+      },
+      []
+    );
+    await expectRead(
+      world,
+      "author",
+      "findMany",
+      {
+        where: { name: { equals: equalsHandle, mode: "insensitive" } },
+        orderBy: [{ tenant: "asc" }, { handle: "asc" }],
+        select: { tenant: true, handle: true },
+      },
+      [
+        { tenant: "acme", handle: "ada" },
+        { tenant: "acme", handle: "bob" },
+        { tenant: "acme", handle: "cy" },
+        { tenant: "beta", handle: "dee" },
+      ]
+    );
+    await expectRead(
+      world,
+      "post",
+      "findMany",
+      {
+        where: {
+          author: {
+            is: { name: { equals: equalsHandle, mode: "insensitive" } },
+          },
+        },
+        orderBy: { id: "asc" },
+        select: { id: true },
+      },
+      [{ id: 1 }, { id: 2 }, { id: 3 }]
+    );
+  });
+
   it("Q-W03 partitions a nullable column at the NULL itself", async () => {
     // `bio` carries two SQL NULLs beside three values. `null` selects exactly
     // the NULLs and `not: null` exactly the others: neither side may admit a
@@ -553,7 +602,11 @@ describe("G4 C01 container predicate vocabulary (Q-W05, Q-W06)", () => {
       world,
       "specimen",
       "findMany",
-      { where: { count: { in: [7, 11] } }, orderBy: { id: "asc" }, select: { id: true } },
+      {
+        where: { count: { in: [7, 11] } },
+        orderBy: { id: "asc" },
+        select: { id: true },
+      },
       [{ id: 1 }, { id: 2 }]
     );
     await expectRead(
@@ -593,7 +646,7 @@ describe("G4 C01 container predicate vocabulary (Q-W05, Q-W06)", () => {
       "specimen",
       "findMany",
       { where: { count: { has: 7 } } },
-      { name: "ValidationError", message: /has/ }
+      { name: "ValidationError", message: LIST_MEMBERSHIP_REFUSAL }
     );
   });
 

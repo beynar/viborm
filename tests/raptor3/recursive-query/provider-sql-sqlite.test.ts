@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import type { QueryResult } from "@drivers/types";
 import Database from "better-sqlite3";
@@ -76,7 +76,7 @@ function openWorld(schema: Schema, tables: readonly TableSpec[]) {
   const driver = new ObservedSQLiteDriver({ client: database });
   return {
     driver,
-    engine: createCommandEngine({ schema, driver }),
+    engine: createTestCommandEngine({ schema, driver }),
     async close() {
       await driver.disconnect();
       database.close();
@@ -124,7 +124,7 @@ describe("recursive relation provider SQL on SQLite", () => {
     insert.run("2024-01-02T00:00:00.000Z", "utc", root);
     insert.run("2024-01-01T19:00:00.000-05:00", "offset", root);
     const driver = new ObservedSQLiteDriver({ client: database });
-    const engine = createCommandEngine({ schema: { dateNode }, driver });
+    const engine = createTestCommandEngine({ schema: { dateNode }, driver });
     try {
       const rows = await engine.execute("dateNode", "findMany", {
         where: { label: "root" },

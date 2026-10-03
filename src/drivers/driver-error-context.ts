@@ -36,6 +36,7 @@ import {
   isArrayValue,
   isError,
   isRecord,
+  isTrustedCode,
   safeArrayLength,
   safeOwnPropertyDescriptor,
 } from "../errors/diagnostic-safety";
@@ -152,12 +153,19 @@ function cloneVibORMError(
   snapshot: Record<string, unknown>,
   diagnostics: DiagnosticDisclosure | undefined
 ): VibORMError {
+  // The clone runs only the base constructor under the chosen class.
+  // ValidationError owns state that constructor cannot rebuild, so it is
+  // rebuilt from its snapshot here; every other class keeps its identity only
+  // when it is one VibORM defines without such state.
+  let cloneConstructor: unknown = VibORMError;
   if (error instanceof ValidationError) {
     const validationClone = cloneValidationError(error, meta, diagnostics);
     if (validationClone) {
       transferLoggedErrorEvidence(error, validationClone);
       return transferSuppressedFailureEvidence(error, validationClone);
     }
+  } else {
+    cloneConstructor = getCloneConstructor(error);
   }
   const message =
     typeof snapshot.message === "string"
@@ -172,7 +180,6 @@ function cloneVibORMError(
     diagnostics,
     meta,
   };
-  const cloneConstructor = getCloneConstructor(error);
   const newTarget =
     typeof cloneConstructor === "function" ? cloneConstructor : VibORMError;
   let candidate: unknown;
@@ -308,8 +315,12 @@ function isOperation(value: unknown): value is Operation {
   );
 }
 
-// Every concrete VibORMError subclass whose identity must survive cloning.
-// ValidationError is absent on purpose: cloneValidationError handles it.
+// Every VibORM error class whose state the base constructor rebuilds, so its
+// identity survives cloning. A class outside it — a caller's subclass, which
+// may own state no clone can reconstruct, or SchemaValidationError with its
+// issues — degrades to the base class rather than a hollow instance that
+// passes \`instanceof\` but breaks on its own members. ValidationError is
+// absent on purpose: it is rebuilt from its snapshot.
 const CLONE_CONSTRUCTORS = [
   CacheConfigurationError,
   CacheInvalidKeyError,
@@ -347,8 +358,11 @@ function getCloneConstructor(error: VibORMError): unknown {
   }
 }
 
+// The code shape rule, not membership in the enum object: reading the enum's
+// values would keep the whole object in every bundle, while member accesses
+// are inlined. The snapshot already passed the same rule when it was taken.
 function isVibORMErrorCode(value: unknown): value is VibORMErrorCode {
-  return Object.values(VibORMErrorCode).some((code) => code === value);
+  return isTrustedCode(value);
 }
 
 export function buildMeta(

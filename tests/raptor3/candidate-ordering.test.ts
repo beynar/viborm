@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import type { ScenarioDefinition } from "./harness/protocol";
 import { verifyG0Pair } from "./harness/replay";
@@ -47,7 +47,7 @@ describe("Raptor 3 relation key order: commands", () => {
     verifyG0Pair(original, reordered);
 
     const candidate = await runSQLiteWorld(reorderedDependency, profile, 0, {
-      candidateFactory: createCommandEngine,
+      candidateFactory: createTestCommandEngine,
       candidateName: "commands",
     });
     verifyG0Pair(reordered, candidate);

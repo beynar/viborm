@@ -3,10 +3,13 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import type { QueryResult } from "@drivers/types";
 import { SPAN_EXECUTE, SPAN_OPERATION } from "@instrumentation/spans";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { appendResolvedExtension } from "@src/extensions/chain";
 import { instrumentation } from "@src/instrumentation/exports";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { withOtelRecorder } from "@tests/unit/instrumentation/_capture";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, it } from "vitest";
@@ -67,7 +70,7 @@ describe("read result and lifecycle contracts", () => {
     // eight this cell also pinned. The three arms below touch no carrier: they
     // are the base's assertions, unchanged, and they still hold.
     const driver = new ReadContractDriver(new SQLiteAdapter(), "sqlite");
-    const engine = new QueryEngine(driver, registry);
+    const engine = new TestQueryEngine(driver, registry);
     driver.rows = [
       { id: "user-1", name: "Arnaud" },
       { id: "user-2", name: "Albert" },
@@ -96,7 +99,7 @@ describe("read result and lifecycle contracts", () => {
       instrumentation({ tracing: true }),
       schema
     );
-    const engine = new QueryEngine(
+    const engine = new TestQueryEngine(
       driver,
       registry,
       undefined,

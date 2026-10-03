@@ -498,6 +498,33 @@ describe("diff", () => {
       expect((await diff(desired, current)).operations).toEqual([]);
     });
 
+    // The same twin for `unique`: introspection reads `false` back where the
+    // serializer leaves a plain `.index()`'s `unique` undefined.
+    it("treats an undeclared index uniqueness as not unique", async () => {
+      const current = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          indexes: [
+            { name: "idx_users_email", columns: ["email"], unique: false },
+          ],
+        }),
+      ]);
+      const desired = makeSnapshot([
+        makeTable("users", [makeColumn("email", "text")], {
+          // A serialized snapshot: JSON carries the key as absent.
+          indexes: [
+            {
+              name: "idx_users_email",
+              columns: ["email"],
+              unique: undefined as unknown as boolean,
+            },
+          ],
+        }),
+      ]);
+
+      expect((await diff(current, desired)).operations).toEqual([]);
+      expect((await diff(desired, current)).operations).toEqual([]);
+    });
+
     it("still detects a real index type change", async () => {
       const current = makeSnapshot([
         makeTable("users", [makeColumn("email", "text")], {

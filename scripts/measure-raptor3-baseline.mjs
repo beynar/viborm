@@ -274,7 +274,7 @@ const externalByFixture = {
 
 const bundleFixtures = {
   engine: [
-    'export { QueryEngine, createModelRegistry } from "./src/query-engine/query-engine.ts";',
+    'export { QueryEngine } from "./src/query-engine/query-engine.ts";',
     'export { PendingOperation } from "./src/query-engine/pending-operation.ts";',
   ].join("\n"),
   "pg-simple": [

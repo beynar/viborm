@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { isRecord } from "@validation/value-guards";
@@ -72,7 +72,7 @@ async function withWorld<T>(
       database: Database.Database;
       driver: SQLite3Driver;
       client: Record<string, Record<string, (args?: unknown) => Promise<unknown>>>;
-      candidate: ReturnType<typeof createCommandEngine>;
+      candidate: ReturnType<typeof createTestCommandEngine>;
     }
   ) => Promise<T>
 ): Promise<T> {
@@ -88,7 +88,7 @@ async function withWorld<T>(
         string,
         Record<string, (args?: unknown) => Promise<unknown>>
       >,
-      candidate: createCommandEngine({ schema, driver }),
+      candidate: createTestCommandEngine({ schema, driver }),
     });
   } finally {
     await client.$disconnect();

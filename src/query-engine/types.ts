@@ -18,7 +18,6 @@ import type {
   ResolvedVariantRowEdge,
   ResolvedVariantRowMember,
 } from "@schema/validation/relation-resolution";
-import type { SchemaRegistryLookup } from "@validation";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 
 // Re-export errors from unified error hierarchy
@@ -141,22 +140,6 @@ export type BatchOperation = (typeof BATCH_OPERATIONS)[number];
 /** Check if operation is a batch operation */
 export function isBatchOperation(op: Operation): op is BatchOperation {
   return (BATCH_OPERATIONS as readonly string[]).includes(op);
-}
-
-/**
- * Model registry for accessing related models
- */
-export type OperationSchemaRegistry = Pick<
-  SchemaRegistryLookup,
-  "getModelSchemas" | "validate"
->;
-
-export interface ModelRegistry {
-  get(name: string): Model<any> | undefined;
-  getByTableName(tableName: string): Model<any> | undefined;
-  readonly schemas: OperationSchemaRegistry;
-  /** The one resolved topology index this client was composed over. */
-  readonly relations: ResolvedRelationIndex;
 }
 
 /** Requested fields inside one aggregate JSON carrier. */

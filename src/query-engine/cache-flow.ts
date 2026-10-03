@@ -3,7 +3,12 @@ import type {
   CacheInvalidationOptions,
   WithCacheOptions,
 } from "@cache";
-import { type CacheExecutionOptions, withCacheSchema } from "@cache";
+import {
+  type CacheExecutionOptions,
+  cacheInvalidationSchema,
+  withCacheSchema,
+} from "@cache";
+import { isCanonicalKeyData } from "@cache/key";
 import {
   type DetachedCacheResultCodec,
   executeCachedWithResultCodec,
@@ -16,12 +21,14 @@ import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,
 } from "@errors";
+import type { ResolvedExtensionChain } from "@extensions/chain";
+import type { AdmittedControls } from "@extensions/controls";
 import type { WriteOutcomeRegistration } from "@extensions/query";
 import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
+import { isRecord } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
 import { isWriteOperation } from "./routed-operations";
-import type { PrepareOptions } from "./types";
 
 const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "findFirst",
@@ -35,11 +42,64 @@ const CACHEABLE_OPERATIONS: Set<string> = new Set([
   "exist",
 ]);
 
-export function isCacheManagedExecution(
-  options: PrepareOptions | undefined
-): boolean {
-  return options?.skipSpan === true;
+/** Every option object the cache's control admitted, for its typed read. */
+const admittedMutationOptions = new WeakMap<object, CacheInvalidationOptions>();
+
+/**
+ * The cache's own parser, run by core's control admission (the declaration is
+ * `officialCacheControls` in `@cache/capability`). `parse` returns a thrown
+ * validator as issues, so every refusal here is one `CacheConfigurationError`.
+ */
+export function admitMutationCacheOptions(
+  cache: unknown
+): CacheInvalidationOptions {
+  const parsed = parse(cacheInvalidationSchema, cache);
+  if (parsed.issues) {
+    throw new CacheConfigurationError(
+      `Invalid mutation cache options: ${parsed.issues.map((issue) => issue.message).join(", ")}`,
+      { cause: readValidationFailureCause(parsed) }
+    );
+  }
+  const invalidate =
+    parsed.value.invalidate === undefined
+      ? undefined
+      : [...parsed.value.invalidate];
+  const options: CacheInvalidationOptions = Object.freeze({
+    autoInvalidate: parsed.value.autoInvalidate,
+    ...(invalidate === undefined ? {} : { invalidate }),
+  });
+  admittedMutationOptions.set(options, options);
+  return options;
 }
+
+/** The mutation options a call's `cache` control admitted, if it gave one. */
+export function readMutationCacheOptions(
+  controls: AdmittedControls | undefined
+): CacheInvalidationOptions | undefined {
+  const admitted = controls?.cache;
+  return isRecord(admitted) ? admittedMutationOptions.get(admitted) : undefined;
+}
+
+/**
+ * What one cached read is keyed on. A read that admitted no control keeps
+ * today's key, the prepared arguments byte for byte; otherwise the key is the
+ * pair of those arguments and the admitted controls, which no base key can
+ * spell (its arguments are always an object), and, on a chain with `rows`,
+ * those declarations themselves, since the same control value selects
+ * different rows under different declarations. A control value that is not
+ * plain data has no canonical form: `undefined` bypasses the cache.
+ */
+export function cacheKeyOf(
+  args: Record<string, unknown>,
+  controls: AdmittedControls | undefined,
+  rows: ResolvedExtensionChain["rows"]
+): unknown {
+  if (controls === undefined) return args;
+  if (!isCanonicalKeyData(controls)) return undefined;
+  return rows === undefined ? [args, controls] : [args, controls, rows];
+}
+
+export { isCacheManagedExecution } from "@cache/capability";
 
 /** Prepare the cache listener consumed by the shared write-outcome rail. */
 export function prepareMutationCacheWriteOutcome(

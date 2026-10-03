@@ -22,7 +22,7 @@ import type {
   QueryResult,
 } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -125,7 +125,7 @@ async function trace(
   args: unknown
 ): Promise<{ answer: string; writes: string[]; all: number }> {
   const w = await world();
-  const candidate = createCommandEngine({ schema, driver: w.driver });
+  const candidate = createTestCommandEngine({ schema, driver: w.driver });
   w.driver.reset();
   let answer: string;
   try {

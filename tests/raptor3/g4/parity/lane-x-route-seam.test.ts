@@ -15,9 +15,9 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 
 const row = s
@@ -95,7 +95,7 @@ describe("lane X — route seam and affected-row counts", () => {
       supportsTransactions: false,
       supportsBatch: true,
     });
-    const engine = createCommandEngine({ schema, driver });
+    const engine = createTestCommandEngine({ schema, driver });
     const prepared = await engine.prepareBatch("row", "createMany", {
       data: [
         { code: "a", label: "first" },

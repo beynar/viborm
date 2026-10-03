@@ -1,8 +1,11 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -34,7 +37,7 @@ const node = s.model({
 
 const schema = { node };
 hydrateSchemaNames(schema);
-const engine = new QueryEngine(
+const engine = new TestQueryEngine(
   new PlanningDriver("postgresql"),
   createModelRegistry(schema, createSchemaRegistry(schema))
 );

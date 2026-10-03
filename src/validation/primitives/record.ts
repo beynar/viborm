@@ -118,6 +118,19 @@ export type ComputeEntriesFromKeys<
  */
 export type FromKeysOptions<T = unknown> = ObjectOptions<T>;
 
+/** Project entries for composition without constructing a temporary schema. */
+export function entriesFromKeys<
+  const TKeys extends readonly string[],
+  TSchema extends SchemaEntry,
+>(keys: TKeys, schema: TSchema): ComputeEntriesFromKeys<TKeys, TSchema> {
+  const entries: Record<string, SchemaEntry> = {};
+  for (const key of keys) {
+    entries[key] = schema;
+  }
+  // Preserve the builder's existing thunk-normalized inference boundary.
+  return entries as unknown as ComputeEntriesFromKeys<TKeys, TSchema>;
+}
+
 /**
  * Creates an object schema from an array of keys, all mapping to the same schema.
  * This is a convenient wrapper around `object()` for creating uniform schemas.
@@ -158,15 +171,5 @@ export function fromKeys<
   schema: TSchema,
   options?: TOpts
 ): ObjectSchema<ComputeEntriesFromKeys<TKeys, TSchema>, TOpts> {
-  // Build entries object from keys
-  const entries: Record<string, SchemaEntry> = {};
-  for (const key of keys) {
-    entries[key] = schema;
-  }
-
-  // Delegate to the existing object schema builder
-  return object(entries, options) as unknown as ObjectSchema<
-    ComputeEntriesFromKeys<TKeys, TSchema>,
-    TOpts
-  >;
+  return object(entriesFromKeys(keys, schema), options);
 }

@@ -329,12 +329,15 @@ test("driver coverage isolates provider resources and admits only audited local 
   );
   const providerHeavyCore = new Set([
     "tests/contracts/drivers/bind-parameter-capacity.core.test.ts",
-    "tests/contracts/drivers/consumable-result-proof.core.test.ts",
+    "tests/contracts/drivers/client-acquisition-override.core.test.ts",
     "tests/contracts/drivers/driver-export-surface.core.test.ts",
     "tests/contracts/drivers/namespace-options.core.test.ts",
     "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
     "tests/contracts/drivers/provider-result-contracts.core.test.ts",
     "tests/contracts/drivers/sqlite-binary-values.core.test.ts",
+    "tests/contracts/drivers/sqlite-positional-effects.core.test.ts",
+    "tests/contracts/drivers/sqlite-positional-transport.core.test.ts",
+    "tests/contracts/drivers/sqlite-statement-cache.core.test.ts",
     "tests/contracts/drivers/sqlite-temporary-objects.core.test.ts",
     "tests/contracts/drivers/supplied-pool-ownership.core.test.ts",
     "tests/contracts/drivers/transaction-lifecycle.core.test.ts",

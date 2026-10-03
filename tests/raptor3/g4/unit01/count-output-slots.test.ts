@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -25,7 +25,7 @@ describe("G4-01 count output slots", () => {
       VALUES (1, 10), (2, NULL);
     `);
     const driver = new SQLite3Driver({ client: database });
-    const engine = createCommandEngine({ schema: { counter }, driver });
+    const engine = createTestCommandEngine({ schema: { counter }, driver });
 
     try {
       assert.deepEqual(

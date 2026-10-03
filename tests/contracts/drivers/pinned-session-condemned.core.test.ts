@@ -30,6 +30,7 @@ import {
   releaseReservedPostgresSession,
 } from "@drivers/shared/pinned-session";
 import { ConnectionError } from "@errors";
+import { withPinnedSession } from "@src/migrations/pinned-session";
 import { describe, expect, it } from "vitest";
 
 const RESET = "pg_advisory_unlock_all";
@@ -118,7 +119,7 @@ describe("postgres.js condemns a session it cannot prove clean", () => {
     const { events, transport } = reservingTransport(true);
     const driver = new PostgresDriver({ client: transport as never });
 
-    const thrown = await rejection(driver._withPinnedSession(discardingBody()));
+    const thrown = await rejection(withPinnedSession(driver, discardingBody()));
 
     // The reset was attempted and failed, and the connection was NOT released:
     // postgres.js exposes no destroy, so abandoning it is the only way it stops
@@ -138,7 +139,7 @@ describe("postgres.js condemns a session it cannot prove clean", () => {
       value: () => Promise.resolve(transport),
     });
 
-    await rejection(driver._withPinnedSession(discardingBody()));
+    await rejection(withPinnedSession(driver, discardingBody()));
 
     // A pool this driver created is its own to end, and ending it is what
     // terminates the abandoned backend — which is what actually frees the
@@ -151,7 +152,7 @@ describe("postgres.js condemns a session it cannot prove clean", () => {
     const { events, transport } = reservingTransport(false);
     const driver = new PostgresDriver({ client: transport as never });
 
-    await driver._withPinnedSession(discardingBody());
+    await withPinnedSession(driver, discardingBody());
 
     expect(events).toEqual([
       "reserve",
@@ -166,7 +167,7 @@ describe("postgres.js condemns a session it cannot prove clean", () => {
     const bodyFailure = new Error("the estate half-dropped");
 
     const thrown = await rejection(
-      driver._withPinnedSession(() => Promise.reject(bodyFailure))
+      withPinnedSession(driver, () => Promise.reject(bodyFailure))
     );
 
     expect(thrown).toBe(bodyFailure);
@@ -180,7 +181,7 @@ describe("Bun SQL condemns a session it cannot prove clean", () => {
     const { events, transport } = reservingTransport(true);
     const driver = new BunSQLDriver({ client: transport as never });
 
-    const thrown = await rejection(driver._withPinnedSession(discardingBody()));
+    const thrown = await rejection(withPinnedSession(driver, discardingBody()));
 
     expect(events).toEqual(["reserve", `reserved:SELECT ${RESET}()`]);
     expect(thrown instanceof Error ? thrown.message : "").toContain(
@@ -196,7 +197,7 @@ describe("Bun SQL condemns a session it cannot prove clean", () => {
       value: () => Promise.resolve(transport),
     });
 
-    await rejection(driver._withPinnedSession(discardingBody()));
+    await rejection(withPinnedSession(driver, discardingBody()));
 
     expect(events).toEqual(["reserve", `reserved:SELECT ${RESET}()`, "end"]);
     expect(Reflect.get(driver, "client")).toBe(null);
@@ -206,7 +207,7 @@ describe("Bun SQL condemns a session it cannot prove clean", () => {
     const { events, transport } = reservingTransport(false);
     const driver = new BunSQLDriver({ client: transport as never });
 
-    await driver._withPinnedSession(discardingBody());
+    await withPinnedSession(driver, discardingBody());
 
     expect(events).toEqual([
       "reserve",
@@ -241,7 +242,7 @@ describe("a hostile reset rejection cannot replace the condemnation", () => {
     });
     const driver = new PostgresDriver({ client: transport as never });
 
-    const thrown = await rejection(driver._withPinnedSession(discardingBody()));
+    const thrown = await rejection(withPinnedSession(driver, discardingBody()));
 
     // The family is the promise: a caller catching ConnectionError to contain a
     // condemned session catches nothing when the normalizer throws instead.
@@ -333,7 +334,7 @@ describe("a transport whose owned closure FAILED", () => {
     const made: ReturnType<typeof reservingTransport>[] = [];
     const driver = transportMakingDriver(new PostgresDriver({}), made);
 
-    const thrown = await rejection(driver._withPinnedSession(discardingBody()));
+    const thrown = await rejection(withPinnedSession(driver, discardingBody()));
     await driver._executeRaw("SELECT 1");
 
     // The condemned transport was withdrawn before the close was even
@@ -364,7 +365,7 @@ describe("a transport whose owned closure FAILED", () => {
     const made: ReturnType<typeof reservingTransport>[] = [];
     const driver = transportMakingDriver(new BunSQLDriver({}), made);
 
-    const thrown = await rejection(driver._withPinnedSession(discardingBody()));
+    const thrown = await rejection(withPinnedSession(driver, discardingBody()));
     await driver._executeRaw("SELECT 1");
 
     expect(made).toHaveLength(2);
@@ -388,7 +389,7 @@ describe("a transport whose owned closure FAILED", () => {
     });
     const driver = new PostgresDriver({ client: transport as never });
 
-    const thrown = await rejection(driver._withPinnedSession(discardingBody()));
+    const thrown = await rejection(withPinnedSession(driver, discardingBody()));
 
     expect(thrown).toBeInstanceOf(ConnectionError);
     expect(thrown instanceof Error ? thrown.message : "").toContain(

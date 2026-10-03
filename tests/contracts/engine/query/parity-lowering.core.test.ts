@@ -4,9 +4,12 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import { beforeAll, describe, expect, test } from "vitest";
@@ -92,8 +95,8 @@ const paris = { longitude: 2.3522, latitude: 48.8566 };
 /** The derived-table wrap MySQL needs and no other dialect may have. */
 const DERIVED_TABLE_WRAP = /EXISTS\s*\(\s*SELECT \* FROM \(/;
 
-function engineOf(adapter: DatabaseAdapter, dialect: Dialect): QueryEngine {
-  return new QueryEngine(
+function engineOf(adapter: DatabaseAdapter, dialect: Dialect): TestQueryEngine {
+  return new TestQueryEngine(
     new LoweringDriver(adapter, dialect),
     createModelRegistry(schema, createSchemaRegistry(schema))
   );

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import { encodeEvidenceValue } from "../../../../benchmarks/operation-pipeline-evidence.mjs";
 import { G0_PROFILES } from "../../profiles";
@@ -259,7 +259,7 @@ describe.each(G0_PROFILES)("G3 generated C08 smoke: %s", (profile) => {
       generatedBulkScenario(bulkSmoke),
       profile,
       bulkSmoke.seed,
-      { candidateFactory: createCommandEngine, candidateName: "commands" }
+      { candidateFactory: createTestCommandEngine, candidateName: "commands" }
     );
     world.fixture.assert(world.observation);
     for (let replay = 0; replay < 3; replay++) await replayG0Run(world.record);
@@ -300,7 +300,7 @@ it("fails closed for an unknown G3 recipe or lane", async () => {
     generatedBulkScenario(bulkSmoke),
     "sqlite-interactive",
     bulkSmoke.seed,
-    { candidateFactory: createCommandEngine, candidateName: "commands" }
+    { candidateFactory: createTestCommandEngine, candidateName: "commands" }
   );
   const corruptRecipe = structuredClone(world.record);
   corruptRecipe.publicInput = {

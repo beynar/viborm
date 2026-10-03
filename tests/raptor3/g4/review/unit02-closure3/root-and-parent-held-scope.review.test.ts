@@ -28,7 +28,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { describe, it } from "vitest";
 
@@ -124,7 +124,7 @@ describe.runIf(provider === "mysql" && port > 0)(
         let answer: string;
         try {
           const client = createClient({ schema, driver });
-          const candidate = createCommandEngine({ schema, driver });
+          const candidate = createTestCommandEngine({ schema, driver });
           const call: Call = (model, operation, args) =>
             engine === "shipped"
               ? (

@@ -10,9 +10,10 @@
  */
 
 import { MemoryCache } from "@cache/drivers/memory";
-import { cache, readMutationCacheOptions } from "@cache/extension";
+import { cache } from "@cache/extension";
 import { isCanonicalKeyData } from "@cache/key";
 import { CacheConfigurationError } from "@errors";
+import { readMutationCacheOptions } from "@query-engine/cache-flow";
 import { describe, expect, test } from "vitest";
 
 const control = cache({ driver: new MemoryCache() }).controls.cache;
