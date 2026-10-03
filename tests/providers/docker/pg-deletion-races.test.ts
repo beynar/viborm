@@ -40,6 +40,8 @@ const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 describeIf("pg Driver", () => {
   beforeEach(dropEveryLiveTable);
+  // The provider files share one database: leave it as empty as it was found.
+  afterAll(dropEveryLiveTable);
 
   runDeletionRaceBehavior({
     name: "pg",

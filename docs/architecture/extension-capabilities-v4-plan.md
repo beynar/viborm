@@ -194,7 +194,7 @@ Stop and revise if: the `data` Omit breaches the type budget (fallback in §2.2 
 
 ## 5. Milestones
 
-### 5.1 P1 spike (measure, no commit): 
+### 5.1 P1 spike (measure, no commit):
 1. Walker plus per-value memo on a scratch copy; tenancy §1.1 end to end on SQLite3 and PGlite; the per-call cost with and without the memo; the engine memo hit rate.
 2. `data`: count the occurrence sites by running each verb under a stamp probe; confirm the list in §2.2.
 3. The `OperationPayload` Omit on client-2 and the floor: types, instantiations, RSS.

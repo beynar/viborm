@@ -118,11 +118,17 @@ export function withPackedConsumer(name, files, use) {
       }
     };
     const run = (file, label) => {
-      const output = execFileSync(process.execPath, [file], {
-        cwd: consumerRoot,
-        encoding: "utf8",
-        stdio: "pipe",
-      });
+      // The flag is what Node 22.12, the package's floor, needs to run a
+      // `.ts` file; later versions strip types without it and accept it.
+      const output = execFileSync(
+        process.execPath,
+        ["--experimental-strip-types", file],
+        {
+          cwd: consumerRoot,
+          encoding: "utf8",
+          stdio: "pipe",
+        }
+      );
       if (!output.includes(`${label}: pass`)) {
         throw new Error(`The ${label} did not finish:\n${output}`);
       }
