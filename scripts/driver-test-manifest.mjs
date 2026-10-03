@@ -45,6 +45,7 @@ const DRIVER_CORE_COVERAGE_CHUNK_SIZE = 8;
 
 const providerHeavyCoreContracts = new Set([
   "tests/contracts/drivers/bind-parameter-capacity.core.test.ts",
+  "tests/contracts/drivers/client-acquisition-override.core.test.ts",
   "tests/contracts/drivers/driver-export-surface.core.test.ts",
   "tests/contracts/drivers/namespace-options.core.test.ts",
   "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",

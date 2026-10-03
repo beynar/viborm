@@ -38,6 +38,7 @@ import {
   sqliteResultParser,
   type TransactionOptionSupport,
 } from "../shared";
+import { parseSQLiteField } from "../shared/sqlite-utils";
 import type { QueryResult } from "../types";
 
 type SQLite3Database = Database.Database;
@@ -121,12 +122,6 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   private static readonly canonicalPositionalExecute =
     SQLite3Driver.prototype.executePositional;
   private static readonly canonicalNativePrepare = Database.prototype.prepare;
-  private static readonly canonicalDriverParseField =
-    sqliteResultParser.parseField;
-  private static readonly canonicalDriverParseRelation =
-    sqliteResultParser.parseRelation;
-  private static readonly canonicalDriverParseResult =
-    sqliteResultParser.parseResult;
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
@@ -292,10 +287,9 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
       SQLite3Driver.hasCanonicalProducerSurface(driver) &&
       driver.executeTypedStatement === SQLite3Driver.canonicalTypedStatement &&
       driver.executePositional === SQLite3Driver.canonicalPositionalExecute &&
-      driver.result.parseField === SQLite3Driver.canonicalDriverParseField &&
-      driver.result.parseRelation ===
-        SQLite3Driver.canonicalDriverParseRelation &&
-      driver.result.parseResult === SQLite3Driver.canonicalDriverParseResult &&
+      driver.result.parseField === parseSQLiteField &&
+      driver.result.parseRelation === undefined &&
+      driver.result.parseResult === undefined &&
       driver.adapter === driver.canonicalAdapter &&
       driver.adapter.result === driver.canonicalAdapterResult &&
       driver.adapter.result.parseField === driver.canonicalAdapterParseField &&

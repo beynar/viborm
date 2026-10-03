@@ -16,6 +16,7 @@
  */
 
 import {
+  attachCommitCertainty,
   attachExecutionContext,
   buildMeta,
 } from "@drivers/driver-error-context";
@@ -412,5 +413,50 @@ describe("execution metadata composition", () => {
         "Duplicate entry 'x' for key 'users.unique_email'"
       )
     ).toMatchObject({ constraint: "unique_email", table: "users" });
+  });
+});
+
+describe("a caller's error subclass is never cloned hollow", () => {
+  // The clone runs only the base constructor under the chosen class, so a
+  // subclass whose constructor owns state cannot keep its class: declaring a
+  // diagnostic name does not make that state rebuildable.
+  class ScopedQueryError extends QueryError {
+    readonly #scope: string;
+    constructor(message: string, scope: string) {
+      super(message);
+      this.#scope = scope;
+    }
+    get scope(): string {
+      return this.#scope;
+    }
+  }
+  // Its own diagnostic name, as a caller's subclass may declare one.
+  Object.defineProperty(ScopedQueryError, "diagnosticName", {
+    value: "ScopedQueryError",
+  });
+
+  test.each([
+    [
+      "execution context",
+      (error: VibORMError) =>
+        attachExecutionContext(error, { driverName: "provider" }),
+    ],
+    [
+      "commit certainty",
+      (error: VibORMError) =>
+        attachCommitCertainty(error, "may-have-committed"),
+    ],
+  ])("flattens it when attaching %s", (_label, attach) => {
+    const failure = attach(new ScopedQueryError("scoped", "tenant-a"));
+    expect(failure).toBeInstanceOf(VibORMError);
+    expect(failure).not.toBeInstanceOf(ScopedQueryError);
+    expect(failure.message).toBe("scoped");
+  });
+
+  test("keeps a VibORM taxonomy class", () => {
+    const failure = attachExecutionContext(new QueryError("plain"), {
+      driverName: "provider",
+    });
+    expect(failure).toBeInstanceOf(QueryError);
   });
 });

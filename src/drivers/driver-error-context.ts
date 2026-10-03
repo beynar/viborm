@@ -1,16 +1,37 @@
 import {
+  CacheConfigurationError,
+  CacheInvalidKeyError,
+  CacheInvalidTTLError,
+  CacheOperationNotCacheableError,
+  CheckConstraintError,
+  ClientInitializationError,
+  ConnectionError,
   type DiagnosticDisclosure,
+  FeatureNotSupportedError,
+  ForeignKeyError,
   getTrustedErrorCause,
+  InvalidTransactionInputError,
+  MigrationError,
+  NestedWriteAssertionError,
+  NestedWriteError,
+  NotFoundError,
+  NotNullConstraintError,
+  PendingOperationError,
+  QueryEngineError,
+  QueryError,
   resolveDiagnosticDisclosure,
   sanitizeErrorMetadata,
+  TransactionError,
+  UniqueConstraintError,
+  UnsupportedOperationError,
   ValidationError,
   type ValidationErrorSource,
+  ValueTooLongError,
   VibORMError,
   VibORMErrorCode,
   type VibORMErrorMeta,
 } from "@errors";
 import type { Operation } from "@query-engine/types";
-import { SchemaValidationError } from "@schema/validation/error";
 import {
   isArrayValue,
   isError,
@@ -132,10 +153,10 @@ function cloneVibORMError(
   snapshot: Record<string, unknown>,
   diagnostics: DiagnosticDisclosure | undefined
 ): VibORMError {
-  // The clone runs only the base constructor under the source's own class.
-  // The two classes whose constructors own state cannot be rebuilt that way:
-  // ValidationError is rebuilt from its snapshot here, and both otherwise
-  // degrade to the base class rather than a hollow subtype.
+  // The clone runs only the base constructor under the chosen class.
+  // ValidationError owns state that constructor cannot rebuild, so it is
+  // rebuilt from its snapshot here; every other class keeps its identity only
+  // when it is one VibORM defines without such state.
   let cloneConstructor: unknown = VibORMError;
   if (error instanceof ValidationError) {
     const validationClone = cloneValidationError(error, meta, diagnostics);
@@ -143,8 +164,8 @@ function cloneVibORMError(
       transferLoggedErrorEvidence(error, validationClone);
       return transferSuppressedFailureEvidence(error, validationClone);
     }
-  } else if (!(error instanceof SchemaValidationError)) {
-    cloneConstructor = readOwnConstructor(error);
+  } else {
+    cloneConstructor = getCloneConstructor(error);
   }
   const message =
     typeof snapshot.message === "string"
@@ -294,25 +315,44 @@ function isOperation(value: unknown): value is Operation {
   );
 }
 
-/**
- * The class to clone a trusted error under: the own data `constructor` of its
- * prototype — never read through a getter — when that class declares its own
- * `diagnosticName`, which every taxonomy class does. A caller's subclass that
- * does not may own state the base constructor cannot rebuild, so it flattens
- * to the base class instead of a hollow instance. Anything unusable is refused
- * by the construction that follows.
- */
-function readOwnConstructor(error: VibORMError): unknown {
+// Every VibORM error class whose state the base constructor rebuilds, so its
+// identity survives cloning. A class outside it — a caller's subclass, which
+// may own state no clone can reconstruct, or SchemaValidationError with its
+// issues — degrades to the base class rather than a hollow instance that
+// passes \`instanceof\` but breaks on its own members. ValidationError is
+// absent on purpose: it is rebuilt from its snapshot.
+const CLONE_CONSTRUCTORS = [
+  CacheConfigurationError,
+  CacheInvalidKeyError,
+  CacheInvalidTTLError,
+  CacheOperationNotCacheableError,
+  CheckConstraintError,
+  ClientInitializationError,
+  ConnectionError,
+  FeatureNotSupportedError,
+  ForeignKeyError,
+  InvalidTransactionInputError,
+  MigrationError,
+  NestedWriteAssertionError,
+  NestedWriteError,
+  NotFoundError,
+  NotNullConstraintError,
+  PendingOperationError,
+  QueryEngineError,
+  QueryError,
+  TransactionError,
+  UniqueConstraintError,
+  UnsupportedOperationError,
+  ValueTooLongError,
+] as const;
+
+function getCloneConstructor(error: VibORMError): unknown {
   try {
-    const descriptor = safeOwnPropertyDescriptor(
-      Object.getPrototypeOf(error),
-      "constructor"
+    const prototype = Object.getPrototypeOf(error);
+    return (
+      CLONE_CONSTRUCTORS.find((ctor) => ctor.prototype === prototype) ??
+      VibORMError
     );
-    const value =
-      descriptor && "value" in descriptor ? descriptor.value : undefined;
-    return safeOwnPropertyDescriptor(value, "diagnosticName")
-      ? value
-      : VibORMError;
   } catch {
     return VibORMError;
   }

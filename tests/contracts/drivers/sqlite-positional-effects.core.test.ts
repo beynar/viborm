@@ -12,7 +12,7 @@ import { s } from "@schema";
 import { raw, sql } from "@sql";
 import { defineExtension } from "@src/index";
 import Database from "better-sqlite3";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 const EXACT = 9_007_199_254_740_993n;
 
@@ -142,6 +142,42 @@ describe("sqlite3 positional reads past 2^53", () => {
       ]);
     } finally {
       await driver.disconnect();
+    }
+  });
+
+  test("a hook on the shared parser before the driver module loads is still a hook", async () => {
+    vi.resetModules();
+    const { sqliteResultParser } = await import("@drivers/shared");
+    sqliteResultParser.parseResult = (rawResult, operation, next) => {
+      const parsed = next(rawResult, operation);
+      return Array.isArray(parsed)
+        ? parsed.map((row) => ({ ...row, n: 101 }))
+        : parsed;
+    };
+    try {
+      const { SQLite3Driver: FreshDriver } = await import("@drivers/sqlite3");
+      const { createClient: freshCreateClient } = await import(
+        "@client/client"
+      );
+      const { s: fresh } = await import("@schema");
+      const freshItem = fresh
+        .model({ id: fresh.int().id(), big: fresh.bigInt(), n: fresh.int() })
+        .map("item");
+      const driver = new FreshDriver();
+      const client = freshCreateClient({ schema: { item: freshItem }, driver });
+      try {
+        await driver._executeRaw(
+          'CREATE TABLE "item" ("id" INTEGER PRIMARY KEY, "big" INTEGER NOT NULL, "n" INTEGER NOT NULL)'
+        );
+        await driver._executeRaw('INSERT INTO "item" VALUES (1, 1, 0)');
+        await expect(client.item.findMany()).resolves.toEqual([
+          { id: 1, big: 1n, n: 101 },
+        ]);
+      } finally {
+        await driver.disconnect();
+      }
+    } finally {
+      sqliteResultParser.parseResult = undefined;
     }
   });
 });

@@ -142,6 +142,37 @@ describe("D1 positional transport", () => {
     }
   });
 
+  test("a hook on the shared parser before the driver module loads is still a hook", async () => {
+    // The stock parser is one module object every SQLite-family driver shares
+    // (LibSQL's included): a hook installed there before D1 is first imported
+    // must not be mistaken for the shipped parser.
+    vi.resetModules();
+    const { sqliteResultParser } = await import("@drivers/shared");
+    sqliteResultParser.parseResult = renumberFirst;
+    try {
+      const { D1Driver: FreshD1Driver } = await import("@drivers/d1");
+      const { createClient: freshCreateClient } = await import(
+        "@client/client"
+      );
+      const { s: fresh } = await import("@schema");
+      const freshEntry = fresh
+        .model({ id: fresh.int().id(), title: fresh.string() })
+        .map("entries");
+      const { database, raw } = fakeDatabase();
+      const client = freshCreateClient({
+        schema: { entry: freshEntry },
+        driver: new FreshD1Driver({ database }),
+      });
+      await expect(client.entry.findMany()).resolves.toEqual([
+        { id: 101, title: "first" },
+        { id: 2, title: "second" },
+      ]);
+      expect(raw).not.toHaveBeenCalled();
+    } finally {
+      sqliteResultParser.parseResult = undefined;
+    }
+  });
+
   test("an execute wrapper installed while the statement is processed still runs", async () => {
     const { database, raw } = fakeDatabase();
     const driver = new D1Driver({ database });
