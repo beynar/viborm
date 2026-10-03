@@ -128,6 +128,9 @@ export default defineWorkspace([
         // namespace grammar; its owner suite lives in the schema-validation
         // layer, so the 100% report must read it here.
         "tests/unit/schema-validation/namespace-identifier.core.test.ts",
+        // The `checked` hydration branch and `resolveCheckedSchemaOrThrow`
+        // (createClient({ skipSchemaValidation })) are owned by this contract.
+        "tests/contracts/public-client/skip-schema-validation.core.test.ts",
       ],
     },
   },

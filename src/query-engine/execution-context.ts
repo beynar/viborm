@@ -1,4 +1,4 @@
-import { readCacheExecutionOutcomes } from "@cache/driver";
+import { officialCacheRuntime } from "@cache/capability";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { readDriverIdentity } from "@drivers/driver-identity";
 import { normalizeDriverError } from "@drivers/error-mapping";
@@ -112,7 +112,7 @@ function createOperationInstrumentationFacts(
       collection,
       complete(outcome) {
         const readCacheOutcomes = cacheManaged
-          ? readCacheExecutionOutcomes(context)
+          ? officialCacheRuntime().readCacheExecutionOutcomes(context)
           : undefined;
         // Core selects the failure: one error, one error log.
         const { failure } = outcome;

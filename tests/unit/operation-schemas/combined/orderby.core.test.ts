@@ -5,13 +5,64 @@
  * and nested ordering on relations.
  */
 
+import { s } from "@schema";
 import {
   authorSchemas,
   postSchemas,
   simpleSchemas,
 } from "@tests/unit/operation-schemas/fixtures";
-import { type InferInput, parse } from "@validation";
-import { describe, expect, expectTypeOf, test } from "vitest";
+import {
+  createSchemaRegistry,
+  type InferInput,
+  parse,
+  toJsonSchema,
+} from "@validation";
+import { describe, expect, expectTypeOf, test, vi } from "vitest";
+
+test("unused to-one ordering stays lazy while each registry owns its resolution", () => {
+  const author = s.model({
+    id: s.string().id(),
+    posts: s.toMany(() => post),
+  });
+  const post = s.model({
+    id: s.string().id(),
+    authorId: s.string(),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
+  });
+  const first = createSchemaRegistry({ author, post }).proxy.post.core.orderBy;
+  const second = createSchemaRegistry({ author, post }).proxy.post.core.orderBy;
+  const targetReads = vi.spyOn(author, "~", "get");
+  try {
+    expect(parse(first, { id: "asc", author: undefined })).toEqual({
+      value: { id: "asc" },
+    });
+    expect(targetReads).not.toHaveBeenCalled();
+
+    expect(parse(first, { author: { id: "desc" } })).toEqual({
+      value: { author: { id: "desc" } },
+    });
+    expect(targetReads).toHaveBeenCalled();
+    targetReads.mockClear();
+    expect(parse(first, { author: { id: "asc" } })).toEqual({
+      value: { author: { id: "asc" } },
+    });
+    expect(targetReads).not.toHaveBeenCalled();
+
+    expect(toJsonSchema(second)).toMatchObject({
+      type: "object",
+      properties: { author: { type: "object" } },
+    });
+    expect(targetReads).toHaveBeenCalled();
+    expect(parse(second, { author: { id: "desc" } })).toEqual({
+      value: { author: { id: "desc" } },
+    });
+  } finally {
+    targetReads.mockRestore();
+  }
+});
 
 // =============================================================================
 // TYPE TESTS - Simple Model

@@ -11,9 +11,9 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -34,7 +34,7 @@ async function update(
   const driver = new SQLite3Driver({ client: database });
   const client = createClient({ schema, driver });
   assert.equal((await syncLiveSchema(client)).applied, true);
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   await (
     client as unknown as Record<
       string,

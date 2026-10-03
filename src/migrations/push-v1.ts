@@ -10,6 +10,7 @@ import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
+import { allRules } from "../schema/validation/rules";
 import {
   resolveSchemaOrThrow,
   validateResolvedSchemaOrThrow,
@@ -511,7 +512,7 @@ function prepareSchema(
   hydrateSchemaNames(client.$schema);
   const relations = skipValidation
     ? resolveSchemaOrThrow(client.$schema)
-    : validateResolvedSchemaOrThrow(client.$schema);
+    : validateResolvedSchemaOrThrow(client.$schema, allRules);
   const driver = getPushMigrationDriver(client);
   assertMigrationDecimalDomainsFitProvider(client.$schema, driver.dialect);
   return { relations, driver };

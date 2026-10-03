@@ -1,10 +1,43 @@
 // biome-ignore-all lint/style/useFilenamingConvention: the name mirrors the fromObject entry point it covers, and several manifests restate this file name by hand.
 import { ValidationError, VibORMErrorCode } from "@errors";
-import v, { parse } from "@validation";
+import v, { parse, toJsonSchema } from "@validation";
+import { entriesFromObject } from "@validation/primitives/from-object";
+import { entriesFromKeys } from "@validation/primitives/record";
 import type { InferOutput, VibSchema } from "@validation/types";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
 describe("fromObject", () => {
+  test("composed entries preserve order, lazy defaults, and JSON schema", () => {
+    let builds = 0;
+    const source = { count: { value: v.integer() } };
+    const entries = {
+      ...entriesFromObject(source, "value"),
+      ...entriesFromKeys(["label"], () => {
+        builds++;
+        return v.string({ default: "guest" });
+      }),
+    };
+    expect(builds).toBe(0);
+    expect(Object.keys(entries)).toEqual(["count", "label"]);
+    expect(entries.count).toBe(source.count.value);
+
+    const schema = v.object(entries);
+    expect(parse(schema, { count: 1 })).toEqual({
+      value: { count: 1, label: "guest" },
+    });
+    expect(parse(schema, { count: 2, label: undefined })).toEqual({
+      value: { count: 2, label: "guest" },
+    });
+    expect(builds).toBe(1);
+    expect(toJsonSchema(schema)).toMatchObject({
+      type: "object",
+      properties: { count: { type: "integer" }, label: { type: "string" } },
+    });
+    expect(() => entriesFromObject(source, "missing")).toThrowError(
+      ValidationError
+    );
+  });
+
   test("extracts schemas at a simple path and validates", () => {
     const object = {
       key1: { create: v.string() },
@@ -68,6 +101,9 @@ describe("fromObject", () => {
     // An insert-only scalar's record declares `update: undefined` (#47): a
     // model whose every scalar is one has no update entry, and that is an
     // empty schema, not a misspelled path.
+    expect(entriesFromObject({ at: { update: undefined } }, "update")).toEqual(
+      {}
+    );
     const declared = v.fromObject(
       { at: { create: v.string(), update: undefined } },
       "update"

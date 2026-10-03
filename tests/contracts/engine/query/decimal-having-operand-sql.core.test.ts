@@ -36,10 +36,13 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import type { Dialect } from "@drivers";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames, s } from "@schema";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -115,7 +118,10 @@ const build = (
   args: Record<string, unknown>
 ): Built => {
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-  const engine = new QueryEngine(new SqlOnlyDriver(adapter, dialect), registry);
+  const engine = new TestQueryEngine(
+    new SqlOnlyDriver(adapter, dialect),
+    registry
+  );
   const query = engine.build(ledger, operation, args);
   return { statement: query.toStatement("$n"), values: query.values };
 };

@@ -1,20 +1,23 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: benchmark witnesses reject unequal public results before timing.
 /**
  * viborm vs drizzle vs raw benchmarks.
  *
  * Identical schema, data, and queries on three separate in-memory SQLite
  * databases. Raw better-sqlite3 is the floor. Note drizzle's better-sqlite3
  * driver is synchronous while viborm's is fully async — a structural handicap
- * viborm pays here that disappears on network drivers.
+ * viborm pays here. Network latency can obscure that overhead.
+ * Raw returns physical values; it is a SQL execution floor, not a decoded ORM result.
  *
  * Run: pnpm bench
  */
+import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { pushV1 as push } from "@migrations/push-v1";
 import { readTransactionOperation } from "@query-engine/transaction-operation";
 import { s } from "@schema";
 import Database from "better-sqlite3";
-import { desc, eq, relations } from "drizzle-orm";
+import { asc, desc, eq, relations } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { afterAll, bench, describe } from "vitest";
@@ -87,7 +90,7 @@ const dPosts = sqliteTable("posts", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   content: text("content"),
-  published: integer("published").notNull(),
+  published: integer("published", { mode: "boolean" }).notNull(),
   views: integer("views").notNull(),
   authorId: text("authorId").notNull(),
 });
@@ -127,12 +130,6 @@ function prepareOperation(operation: unknown, name: string) {
   return preparedOrThrow(prepareTransactionOperation(operation), name);
 }
 
-function firstOrThrow<T>(rows: readonly T[], name: string): T {
-  const first = rows[0];
-  if (!first) throw new Error(`${name} returned no rows`);
-  return first;
-}
-
 const findUniquePrepared = prepareOperation(
   viborm.user.findUnique({ where: { id: "u42" } }),
   "findUnique"
@@ -152,6 +149,7 @@ const relationArgs = {
     title: true,
     author: { select: { id: true, name: true } },
   },
+  orderBy: { id: "asc" },
   take: 20,
 } satisfies Parameters<typeof viborm.post.findMany>[0];
 const relationPrepared = prepareOperation(
@@ -159,7 +157,7 @@ const relationPrepared = prepareOperation(
   "relation findMany"
 );
 const findMany1000Prepared = prepareOperation(
-  viborm.post.findMany({ take: 1000 }),
+  viborm.post.findMany({ orderBy: { id: "asc" }, take: 1000 }),
   "findMany 1000"
 );
 const rawCreateTemplateId = "__raw_drizzle_id__";
@@ -189,157 +187,138 @@ if (rawCreateIdIndex < 0) {
 }
 const rawCreateParams = [...createPreparedParams];
 
-let sink = 0;
-function checksumRawRelation(rows: Record<string, unknown>[]): number {
-  const first = rows[0];
-  if (!first) return 0;
-  for (const value of Object.values(first)) {
-    if (typeof value === "string" && value.includes("User ")) {
-      const nestedScalarOffset = value.indexOf("User ");
-      return rows.length + value.charCodeAt(nestedScalarOffset + 5);
-    }
-  }
-  throw new Error(
-    "The exact relation SQL did not return a nested scalar carrier"
-  );
+// Validate complete public results before timing. Raw executes the exact VibORM
+// SQL but keeps physical booleans and relation carriers; it is only a floor.
+const expectedPosts = Array.from({ length: 1000 }, (_, i) => ({
+  id: `p${i}`,
+  title: `Post ${i}`,
+  content: `content ${i}`,
+  published: Boolean(i % 2),
+  views: i,
+  authorId: `u${i % 100}`,
+}));
+const orderedPosts = [...expectedPosts].sort((left, right) => {
+  if (left.id < right.id) return -1;
+  if (left.id > right.id) return 1;
+  return 0;
+});
+const expectedUser = {
+  id: "u42",
+  name: "User 42",
+  email: "u42@x.com",
+  age: 62,
+};
+const expectedFiltered = expectedPosts
+  .filter((row) => row.published)
+  .reverse()
+  .slice(0, 20)
+  .map(({ id, title, views }) => ({ id, title, views }));
+const expectedRelation = orderedPosts
+  .slice(0, 20)
+  .map(({ id, title, authorId }) => ({
+    id,
+    title,
+    author: { id: authorId, name: `User ${authorId.slice(1)}` },
+  }));
+let rawId = 0;
+let drizzleId = 0;
+let vibormId = 0;
+const inserted = (id: string) => ({ id, name: "B", email: "b@x.com", age: 30 });
+const rawFilteredParams = findManyPrepared.params.map((value) =>
+  typeof value === "boolean" ? Number(value) : value
+);
+const queries = {
+  unique: {
+    raw: () =>
+      rawDb.prepare(findUniquePrepared.sql).get(...findUniquePrepared.params),
+    drizzle: () =>
+      ddb.select().from(dUsers).where(eq(dUsers.id, "u42")).limit(1).get(),
+    viborm: () => viborm.user.findUnique({ where: { id: "u42" } }),
+  },
+  filtered: {
+    raw: () => rawDb.prepare(findManyPrepared.sql).all(...rawFilteredParams),
+    drizzle: () =>
+      ddb
+        .select({ id: dPosts.id, title: dPosts.title, views: dPosts.views })
+        .from(dPosts)
+        .where(eq(dPosts.published, true))
+        .orderBy(desc(dPosts.views))
+        .limit(20)
+        .all(),
+    viborm: () =>
+      viborm.post.findMany({
+        where: { published: true },
+        select: { id: true, title: true, views: true },
+        orderBy: { views: "desc" },
+        take: 20,
+      }),
+  },
+  relation: {
+    raw: () =>
+      rawDb.prepare(relationPrepared.sql).all(...relationPrepared.params),
+    drizzle: () =>
+      ddb.query.posts.findMany({
+        columns: { id: true, title: true },
+        with: { author: { columns: { id: true, name: true } } },
+        orderBy: [asc(dPosts.id)],
+        limit: 20,
+      }),
+    viborm: () => viborm.post.findMany(relationArgs),
+  },
+  insert: {
+    raw: () => {
+      rawCreateParams[rawCreateIdIndex] = `r${rawId++}`;
+      return rawDb.prepare(createPrepared.sql).get(...rawCreateParams);
+    },
+    drizzle: () =>
+      ddb
+        .insert(dUsers)
+        .values(inserted(`d${drizzleId++}`))
+        .returning()
+        .get(),
+    viborm: () => viborm.user.create({ data: inserted(`v${vibormId++}`) }),
+  },
+  rows1000: {
+    raw: () =>
+      rawDb
+        .prepare(findMany1000Prepared.sql)
+        .all(...findMany1000Prepared.params),
+    drizzle: () =>
+      ddb.select().from(dPosts).orderBy(asc(dPosts.id)).limit(1000).all(),
+    viborm: () => viborm.post.findMany({ orderBy: { id: "asc" }, take: 1000 }),
+  },
+};
+for (const library of ["drizzle", "viborm"] as const) {
+  assert.deepStrictEqual(await queries.unique[library](), expectedUser);
+  assert.deepStrictEqual(await queries.filtered[library](), expectedFiltered);
+  assert.deepStrictEqual(await queries.relation[library](), expectedRelation);
+  assert.deepStrictEqual(await queries.rows1000[library](), orderedPosts);
 }
+assert.deepStrictEqual(await queries.insert.drizzle(), inserted("d0"));
+assert.deepStrictEqual(await queries.insert.viborm(), inserted("v0"));
+assert.deepStrictEqual(queries.insert.raw(), inserted("r0"));
+assert.deepStrictEqual(queries.unique.raw(), expectedUser);
+assert.deepStrictEqual(queries.filtered.raw(), expectedFiltered);
+assert.equal(queries.relation.raw().length, expectedRelation.length);
+assert.deepStrictEqual(
+  queries.rows1000.raw(),
+  orderedPosts.map((row) => ({
+    ...row,
+    published: Number(row.published),
+  }))
+);
 
-// ---------- benches ----------
-
-describe("vs drizzle: findUnique by id", () => {
-  bench("raw better-sqlite3", () => {
-    const row = rawDb
-      .prepare(findUniquePrepared.sql)
-      .get(...findUniquePrepared.params) as { age: number };
-    sink += row.age;
+let sink = 0;
+for (const [name, workload] of Object.entries(queries)) {
+  describe(`vs drizzle: ${name}`, () => {
+    for (const [library, query] of Object.entries(workload)) {
+      bench(library, async () => {
+        const rows = await query();
+        sink += Array.isArray(rows) ? rows.length : Number(rows !== undefined);
+      });
+    }
   });
-
-  bench("drizzle", () => {
-    const rows = ddb
-      .select()
-      .from(dUsers)
-      .where(eq(dUsers.id, "u42"))
-      .limit(1)
-      .all();
-    sink += rows[0]?.age ?? 0;
-  });
-
-  bench("viborm", async () => {
-    const row = await viborm.user.findUnique({ where: { id: "u42" } });
-    if (!row) throw new Error("VibORM findUnique returned no row");
-    sink += row.age ?? 0;
-  });
-});
-
-describe("vs drizzle: findMany 20 rows, filter + order", () => {
-  bench("raw better-sqlite3", () => {
-    const rows = rawDb
-      .prepare(findManyPrepared.sql)
-      .all(...findManyPrepared.params) as Array<{ views: number }>;
-    sink += rows.length + firstOrThrow(rows, "raw findMany 20").views;
-  });
-
-  bench("drizzle", () => {
-    const rows = ddb
-      .select({ id: dPosts.id, title: dPosts.title, views: dPosts.views })
-      .from(dPosts)
-      .where(eq(dPosts.published, 1))
-      .orderBy(desc(dPosts.views))
-      .limit(20)
-      .all();
-    sink += rows.length + firstOrThrow(rows, "Drizzle findMany 20").views;
-  });
-
-  bench("viborm", async () => {
-    const rows = await viborm.post.findMany({
-      where: { published: true },
-      select: { id: true, title: true, views: true },
-      orderBy: { views: "desc" },
-      take: 20,
-    });
-    sink += rows.length + firstOrThrow(rows, "VibORM findMany 20").views;
-  });
-});
-
-describe("vs drizzle: findMany 20 rows with nested relation", () => {
-  bench("raw better-sqlite3 (exact nested-result SQL)", () => {
-    const rows = rawDb
-      .prepare(relationPrepared.sql)
-      .all(...relationPrepared.params) as Record<string, unknown>[];
-    sink += checksumRawRelation(rows);
-  });
-
-  bench("drizzle relational query", async () => {
-    const rows = await ddb.query.posts.findMany({
-      columns: { id: true, title: true },
-      with: { author: { columns: { id: true, name: true } } },
-      limit: 20,
-    });
-    sink +=
-      rows.length +
-      (firstOrThrow(rows, "Drizzle relation read").author?.name?.charCodeAt(
-        5
-      ) ?? 0);
-  });
-
-  bench("viborm include", async () => {
-    const rows = await viborm.post.findMany(relationArgs);
-    sink +=
-      rows.length +
-      (firstOrThrow(rows, "VibORM relation read").author?.name?.charCodeAt(5) ??
-        0);
-  });
-});
-
-describe("vs drizzle: insert 1 row", () => {
-  let rawId = 0;
-  let drizzleId = 0;
-  let vibormId = 0;
-
-  bench("raw better-sqlite3", () => {
-    rawCreateParams[rawCreateIdIndex] = `r${rawId++}`;
-    const row = rawDb.prepare(createPrepared.sql).get(...rawCreateParams) as {
-      age: number;
-    };
-    sink += row.age;
-  });
-
-  bench("drizzle", () => {
-    const rows = ddb
-      .insert(dUsers)
-      .values({ id: `d${drizzleId++}`, name: "B", email: "b@x.com", age: 30 })
-      .returning()
-      .all();
-    sink += rows.length + (rows[0]?.age ?? 0);
-  });
-
-  bench("viborm", async () => {
-    const row = await viborm.user.create({
-      data: { id: `v${vibormId++}`, name: "B", email: "b@x.com", age: 30 },
-    });
-    sink += row.age ?? 0;
-  });
-});
-
-describe("vs drizzle: findMany 1000 rows", () => {
-  bench("raw better-sqlite3", () => {
-    const rows = rawDb
-      .prepare(findMany1000Prepared.sql)
-      .all(...findMany1000Prepared.params) as Array<{ views: number }>;
-    sink += rows.length + firstOrThrow(rows, "raw findMany 1000").views;
-  });
-
-  bench("drizzle", () => {
-    const rows = ddb.select().from(dPosts).limit(1000).all();
-    sink += rows.length + firstOrThrow(rows, "Drizzle findMany 1000").views;
-  });
-
-  bench("viborm", async () => {
-    const rows = await viborm.post.findMany({ take: 1000 });
-    sink += rows.length + firstOrThrow(rows, "VibORM findMany 1000").views;
-  });
-});
-
+}
 afterAll(async () => {
   if (sink < 0) throw new Error("Unreachable benchmark sink");
   rawDb.close();

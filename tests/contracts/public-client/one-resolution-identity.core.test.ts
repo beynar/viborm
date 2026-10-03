@@ -26,12 +26,10 @@ import { createClient } from "@client/client";
 import { defaultOmit } from "@client/default-omit-extension";
 import { createClientOmitResolver } from "@client/omit";
 import { createQueryScope } from "@query-engine/context";
-import { createModelRegistry } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
-import { validateClientSchemaOrThrow } from "@schema/validation/validator";
+import { resolveSchemaOrThrow } from "@schema/validation/validator";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
-import { createResolvedSchemaRegistry } from "@validation/builder";
 import { describe, expect, test } from "vitest";
 
 const author = s.model({
@@ -54,31 +52,22 @@ const post = s.model({
 const schema = { author, post };
 
 describe("one resolution, one index", () => {
-  test("registry, omit rewriting and the model registry share it by identity", () => {
+  test("omit rewriting and every query scope share it by identity", () => {
     hydrateSchemaNames(schema);
-    const relations = validateClientSchemaOrThrow(schema);
+    const relations = resolveSchemaOrThrow(schema);
 
-    const schemaRegistry = createResolvedSchemaRegistry(schema, relations);
     const omit = createClientOmitResolver(
       schema,
       { author: { secret: true } },
       relations
     );
-    const modelRegistry = createModelRegistry(
-      schema,
-      schemaRegistry,
-      relations
-    );
 
     expect(omit?.relations).toBe(relations);
-    expect(modelRegistry.relations).toBe(relations);
-    // And a scope opened from that registry's index is the SAME object again,
-    // not a copy made per model.
+    // And a scope opened from that index is the SAME object again, not a copy
+    // made per model.
     expect(
-      createQueryScope(
-        { adapter: new PostgresAdapter(), relations: modelRegistry.relations },
-        post
-      ).relations
+      createQueryScope({ adapter: new PostgresAdapter(), relations }, post)
+        .relations
     ).toBe(relations);
   });
 
@@ -95,7 +84,7 @@ describe("one resolution, one index", () => {
     expect("setPolymorphicStorage" in internals).toBe(false);
 
     hydrateSchemaNames(schema);
-    const relations = validateClientSchemaOrThrow(schema);
+    const relations = resolveSchemaOrThrow(schema);
     const scope = createQueryScope(
       { adapter: new PostgresAdapter(), relations },
       post
@@ -128,5 +117,30 @@ describe("one resolution, one index", () => {
 
     await plain.$disconnect();
     await hidden.$disconnect();
+  });
+
+  test("clients over one schema object reuse its resolution until the object changes", () => {
+    const tag = s.model({ id: s.string().id() });
+    const record: Record<string, unknown> = { tag };
+    const build = () =>
+      createClient({
+        schema: record as { tag: typeof tag },
+        driver: new PlanningDriver("postgresql"),
+      });
+    build();
+    build();
+    // A relation whose target is not registered fails resolution: the changed
+    // object is resolved again rather than answered from the first client.
+    record.dangling = s.model({
+      id: s.string().id(),
+      tagId: s.string(),
+      tag: s
+        .toOne(() => s.model({ id: s.string().id() }))
+        .fields("tagId")
+        .references("id"),
+    });
+    expect(build).toThrow();
+    delete record.dangling;
+    expect(build).not.toThrow();
   });
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { DbNull, JsonNull } from "@schema/json-null";
 import { s } from "@schema";
 import Database from "better-sqlite3";
@@ -45,7 +45,7 @@ async function bothOutcomes(
     const client = createClient({ schema, driver: left.driver }) as unknown as {
       doc: { findMany: (input: unknown) => unknown };
     };
-    const engine = createCommandEngine({ schema, driver: right.driver });
+    const engine = createTestCommandEngine({ schema, driver: right.driver });
     return {
       shipped: await capture(() => client.doc.findMany(args)),
       candidate: await capture(() => engine.execute("doc", "findMany", args)),

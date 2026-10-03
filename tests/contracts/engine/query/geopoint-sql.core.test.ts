@@ -7,9 +7,12 @@ import { type CacheEntry, cache } from "@cache/exports";
 import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
 import { FeatureNotSupportedError, TransactionError } from "@errors";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { type Sql, sql } from "@sql";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { prepareSchema } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import {
@@ -107,9 +110,12 @@ const models = (() => {
 const { place, region, venue } = models;
 prepareSchema(models);
 
-function createEngine(adapter: DatabaseAdapter, dialect: Dialect): QueryEngine {
+function createEngine(
+  adapter: DatabaseAdapter,
+  dialect: Dialect
+): TestQueryEngine {
   const registry = createModelRegistry(models, createSchemaRegistry(models));
-  return new QueryEngine(new MockDriver(adapter, dialect), registry);
+  return new TestQueryEngine(new MockDriver(adapter, dialect), registry);
 }
 
 function geoPointOf(adapter: DatabaseAdapter): GeoPointSql {
@@ -1045,7 +1051,7 @@ describe("GeoPoint query lowering", () => {
         ])
       ),
     });
-  const withinPolygon = (engine: QueryEngine, polygon: Polygon) =>
+  const withinPolygon = (engine: TestQueryEngine, polygon: Polygon) =>
     engine.build(place, "findMany", {
       where: { location: { within: { polygon } } },
       select: { id: true },

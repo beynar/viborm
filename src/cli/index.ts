@@ -7,6 +7,7 @@
 
 import { Command } from "commander";
 import { VIBORM_VERSION } from "../version";
+import { checkCommand } from "./commands/check";
 import { migrateCommand } from "./commands/migrate";
 import { pushCommand } from "./commands/push";
 
@@ -18,6 +19,7 @@ program
   .version(VIBORM_VERSION);
 
 // Register commands
+program.addCommand(checkCommand);
 program.addCommand(pushCommand);
 program.addCommand(migrateCommand);
 

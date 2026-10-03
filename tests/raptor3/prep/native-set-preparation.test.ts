@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { UniqueConstraintError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { describe, it } from "vitest";
@@ -652,27 +652,27 @@ async function runZeroLimits(factory: CandidateEngineFactory) {
 describe(`G3P-03 native ${liveProvider} set preparation`, () => {
   it(
     "g3p03-scalar-array-commit",
-    () => runScalarCommit(createCommandEngine),
+    () => runScalarCommit(createTestCommandEngine),
     30_000
   );
   it(
     "g3p03-scalar-array-failure-rolls-back",
-    () => runScalarRollback(createCommandEngine),
+    () => runScalarRollback(createTestCommandEngine),
     30_000
   );
   it(
     "g3p03-relation-update-many-array-order",
-    () => runRelationSeries(createCommandEngine),
+    () => runRelationSeries(createTestCommandEngine),
     30_000
   );
   it(
     "g3p03-compound-scalar-mutation-limits",
-    () => runCompoundLimits(createCommandEngine),
+    () => runCompoundLimits(createTestCommandEngine),
     30_000
   );
   it(
     "g3p03-zero-mutation-limits-run-no-statements",
-    () => runZeroLimits(createCommandEngine),
+    () => runZeroLimits(createTestCommandEngine),
     30_000
   );
 });

@@ -287,7 +287,10 @@ type VariantMapEntry = VariantOneEntry | VariantManyEntry;
 
 export function resolveSchemaRelations(
   schema: Schema,
-  context: ValidationContext
+  context: ValidationContext,
+  // A schema `viborm check` validated skips the passes that only report
+  // (required cycles, junction claims); everything the topology needs runs.
+  checked = false
 ): RelationResolution {
   const issues: SchemaValidationIssue[] = [];
   const registration = registerModels(schema);
@@ -353,8 +356,10 @@ export function resolveSchemaRelations(
       { slot: partner.node.slot, edge }
     );
   }
-  reportJunctionTableClaims(publication);
-  reportRequiredCycles(publication, registration.byIdentity);
+  if (!checked) {
+    reportJunctionTableClaims(publication);
+    reportRequiredCycles(publication, registration.byIdentity);
+  }
 
   resolveVariantCarriers(
     { schema, context, nodes, endpoints, verdicts },
@@ -472,44 +477,65 @@ function settleTargets(
       }
       const registered = byIdentity.get(settled);
       if (!registered) {
-        issues.push({
-          code: "R006",
-          message: `'${node.field}' in '${node.modelName}' targets a model that is not registered in the schema`,
-          severity: "error",
-          model: node.modelName,
-          relation: node.field,
-          repair:
-            "Register the target model in the schema passed to the client",
-        });
+        issues.push(unregisteredTargetIssue(node));
         continue;
       }
       endpoints.push(makeEndpoint(node, undefined, registered, order++));
       continue;
     }
-    for (const variant of Object.keys(target.entries)) {
-      let settled: unknown;
-      try {
-        settled = node.relation["~"].settleTarget(variant);
-      } catch (thrown) {
-        issues.push(thrownTargetIssue("P001", node, variant, thrown));
-        return { endpoints, cause: thrownAsError(thrown) };
-      }
-      const registered = byIdentity.get(settled);
-      if (!registered) {
-        issues.push({
-          code: "P001",
-          message: `Variant '${variant}' in '${node.modelName}.${node.field}' is not registered in the schema`,
-          severity: "error",
-          model: node.modelName,
-          relation: node.field,
-          repair: `Register the '${variant}' target model in the schema`,
-        });
-        continue;
-      }
-      endpoints.push(makeEndpoint(node, variant, registered, order++));
-    }
+    const cause = settleVariantTargets(node, byIdentity, issues, endpoints);
+    if (cause) return { endpoints, cause };
+    order = endpoints.length;
   }
   return { endpoints, cause: undefined };
+}
+
+/** A polymorphic slot's variants, apart so ordinary schemas never compile it. */
+function settleVariantTargets(
+  node: SlotNode,
+  byIdentity: ReadonlyMap<unknown, RegisteredModel>,
+  issues: SchemaValidationIssue[],
+  endpoints: Endpoint[]
+): Error | undefined {
+  // The caller settles `kind: "model"` targets itself.
+  const target = node.state.target as Exclude<
+    SlotNode["state"]["target"],
+    { kind: "model" }
+  >;
+  let order = endpoints.length;
+  for (const variant of Object.keys(target.entries)) {
+    let settled: unknown;
+    try {
+      settled = node.relation["~"].settleTarget(variant);
+    } catch (thrown) {
+      issues.push(thrownTargetIssue("P001", node, variant, thrown));
+      return thrownAsError(thrown);
+    }
+    const registered = byIdentity.get(settled);
+    if (!registered) {
+      issues.push({
+        code: "P001",
+        message: `Variant '${variant}' in '${node.modelName}.${node.field}' is not registered in the schema`,
+        severity: "error",
+        model: node.modelName,
+        relation: node.field,
+        repair: `Register the '${variant}' target model in the schema`,
+      });
+      continue;
+    }
+    endpoints.push(makeEndpoint(node, variant, registered, order++));
+  }
+}
+
+function unregisteredTargetIssue(node: SlotNode): SchemaValidationIssue {
+  return {
+    code: "R006",
+    message: `'${node.field}' in '${node.modelName}' targets a model that is not registered in the schema`,
+    severity: "error",
+    model: node.modelName,
+    relation: node.field,
+    repair: "Register the target model in the schema passed to the client",
+  };
 }
 
 function makeEndpoint(
@@ -587,28 +613,12 @@ function reportPairingIssues(
     if (verdict?.kind === "missing") {
       // A variant member with no candidate is a valid direct-only member.
       if (endpoint.variant !== undefined) continue;
-      issues.push({
-        code: "R002",
-        message: `'${endpoint.node.modelName}.${endpoint.node.field}' has no inverse relation in '${endpoint.targetName}'`,
-        severity: "error",
-        model: endpoint.node.modelName,
-        relation: endpoint.node.field,
-        repair: `Declare a slot on '${endpoint.targetName}' whose target is '${endpoint.node.modelName}'`,
-      });
+      issues.push(missingInverseIssue(endpoint));
       continue;
     }
     if (verdict?.kind === "ambiguous") {
       const competing = matching(endpoint, candidates);
-      issues.push({
-        code: "R009",
-        message: `${describe(endpoint)} has ${competing.length} competing inverse candidates in '${endpoint.targetName}'`,
-        severity: "error",
-        model: endpoint.node.modelName,
-        relation: endpoint.node.field,
-        candidates: competing.map(path),
-        repair:
-          "Give each intended pair the same distinct .name(...) on both endpoints",
-      });
+      issues.push(competingInverseIssue(endpoint, competing));
       continue;
     }
     if (verdict?.kind !== "nameMismatch") continue;
@@ -618,15 +628,7 @@ function reportPairingIssues(
       (candidate) => verdicts.get(candidate)?.kind === "nameMismatch"
     );
     if (disagreeing.some((partner) => partner.order < endpoint.order)) continue;
-    issues.push({
-      code: "R010",
-      message: `${describe(endpoint)} claims relation name ${label(endpoint.name)}, but no candidate in '${endpoint.targetName}' claims the same name`,
-      severity: "error",
-      model: endpoint.node.modelName,
-      relation: endpoint.node.field,
-      candidates: candidates.map(path),
-      repair: "Spell the same .name(...) on both endpoints, or omit it on both",
-    });
+    issues.push(nameMismatchIssue(endpoint, candidates));
   }
 }
 
@@ -676,15 +678,7 @@ function resolveOrdinaryPair(
     (endpoint) => endpoint.node.state.foreignKey !== undefined
   );
   if (owners.length === 2) {
-    issues.push({
-      code: "CM003",
-      message: `'${first.node.modelName}.${first.node.field}' and '${second.node.modelName}.${second.node.field}' both complete a foreign key; exactly one endpoint owns it`,
-      severity: "error",
-      model: first.node.modelName,
-      relation: first.node.field,
-      candidates: [path(first), path(second)],
-      repair: "Drop .fields(...).references(...) from one endpoint",
-    });
+    issues.push(doubleOwnerIssue(first, second));
     return undefined;
   }
   const owner = owners[0];
@@ -696,14 +690,7 @@ function resolveOrdinaryPair(
       (endpoint) => endpoint.cardinality === "one"
     );
     const required = onlySingular && !alsoSingular ? onlySingular : first;
-    issues.push({
-      code: "FK004",
-      message: `'${required.node.modelName}.${required.node.field}' stores no foreign key; one endpoint of this edge must complete .fields(...).references(...)`,
-      severity: "error",
-      model: required.node.modelName,
-      relation: required.node.field,
-      repair: `Complete .fields(...).references(...) on '${required.node.modelName}.${required.node.field}'`,
-    });
+    issues.push(missingForeignKeyIssue(required));
     return undefined;
   }
 
@@ -723,14 +710,7 @@ function resolveOrdinaryPair(
 
   const unique = first.cardinality === "one" && second.cardinality === "one";
   if (!unique && declaresUniqueKey(owner.node.slot.source, foreignKey.fields)) {
-    issues.push({
-      code: "FK009",
-      message: `'${owner.node.modelName}.${owner.node.field}' stores a unique foreign key, which contradicts the collection '${partner.node.modelName}.${partner.node.field}' declares`,
-      severity: "error",
-      model: owner.node.modelName,
-      relation: owner.node.field,
-      repair: `Drop the unique key on [${foreignKey.fields.join(", ")}], or declare '${partner.node.modelName}.${partner.node.field}' with s.toOne`,
-    });
+    issues.push(uniqueCollectionKeyIssue(owner, partner, foreignKey));
     return undefined;
   }
   if (!check.reference) return undefined;
@@ -902,12 +882,7 @@ function reportRequiredCycles(
       const key = [...cycle].sort().join("->");
       if (reported.has(key)) return;
       reported.add(key);
-      publication.issues.push({
-        code: "CM002",
-        message: `Circular required relations: ${cycle.join(" → ")}`,
-        severity: "error",
-        repair: "Make one foreign key in the cycle nullable",
-      });
+      publication.issues.push(requiredCycleIssue(cycle));
       return;
     }
     if (visited.has(node)) return;
@@ -1015,7 +990,16 @@ function resolveVariantCarriers(
     entriesByCarrier.set(node, target.entries);
   }
   if (carriers.length === 0) return;
+  resolveCarriers(graph, publication, carriers, entriesByCarrier);
+}
 
+/** The carriers found above, resolved; schemas without one never compile it. */
+function resolveCarriers(
+  graph: GraphView,
+  publication: Publication,
+  carriers: SlotNode[],
+  entriesByCarrier: Map<SlotNode, Readonly<Record<string, VariantMapEntry>>>
+): void {
   // Every carrier gets an entry, empty or not: a carrier whose targets were all
   // refused above contributed no member, and the two passes below then read one
   // settled list in carrier order instead of each re-deciding what an absent
@@ -1325,4 +1309,99 @@ function buildIndex(
     index.set(model, ordered);
   }
   return index;
+}
+
+// Issue builders, apart from the resolution so a valid schema never compiles
+// them.
+
+function missingInverseIssue(endpoint: Endpoint): SchemaValidationIssue {
+  return {
+    code: "R002",
+    message: `'${endpoint.node.modelName}.${endpoint.node.field}' has no inverse relation in '${endpoint.targetName}'`,
+    severity: "error",
+    model: endpoint.node.modelName,
+    relation: endpoint.node.field,
+    repair: `Declare a slot on '${endpoint.targetName}' whose target is '${endpoint.node.modelName}'`,
+  };
+}
+
+function competingInverseIssue(
+  endpoint: Endpoint,
+  competing: readonly Endpoint[]
+): SchemaValidationIssue {
+  return {
+    code: "R009",
+    message: `${describe(endpoint)} has ${competing.length} competing inverse candidates in '${endpoint.targetName}'`,
+    severity: "error",
+    model: endpoint.node.modelName,
+    relation: endpoint.node.field,
+    candidates: competing.map(path),
+    repair:
+      "Give each intended pair the same distinct .name(...) on both endpoints",
+  };
+}
+
+function nameMismatchIssue(
+  endpoint: Endpoint,
+  candidates: readonly Endpoint[]
+): SchemaValidationIssue {
+  return {
+    code: "R010",
+    message: `${describe(endpoint)} claims relation name ${label(endpoint.name)}, but no candidate in '${endpoint.targetName}' claims the same name`,
+    severity: "error",
+    model: endpoint.node.modelName,
+    relation: endpoint.node.field,
+    candidates: candidates.map(path),
+    repair: "Spell the same .name(...) on both endpoints, or omit it on both",
+  };
+}
+
+function doubleOwnerIssue(
+  first: Endpoint,
+  second: Endpoint
+): SchemaValidationIssue {
+  return {
+    code: "CM003",
+    message: `'${first.node.modelName}.${first.node.field}' and '${second.node.modelName}.${second.node.field}' both complete a foreign key; exactly one endpoint owns it`,
+    severity: "error",
+    model: first.node.modelName,
+    relation: first.node.field,
+    candidates: [path(first), path(second)],
+    repair: "Drop .fields(...).references(...) from one endpoint",
+  };
+}
+
+function missingForeignKeyIssue(required: Endpoint): SchemaValidationIssue {
+  return {
+    code: "FK004",
+    message: `'${required.node.modelName}.${required.node.field}' stores no foreign key; one endpoint of this edge must complete .fields(...).references(...)`,
+    severity: "error",
+    model: required.node.modelName,
+    relation: required.node.field,
+    repair: `Complete .fields(...).references(...) on '${required.node.modelName}.${required.node.field}'`,
+  };
+}
+
+function uniqueCollectionKeyIssue(
+  owner: Endpoint,
+  partner: Endpoint,
+  foreignKey: NonNullable<Endpoint["node"]["state"]["foreignKey"]>
+): SchemaValidationIssue {
+  return {
+    code: "FK009",
+    message: `'${owner.node.modelName}.${owner.node.field}' stores a unique foreign key, which contradicts the collection '${partner.node.modelName}.${partner.node.field}' declares`,
+    severity: "error",
+    model: owner.node.modelName,
+    relation: owner.node.field,
+    repair: `Drop the unique key on [${foreignKey.fields.join(", ")}], or declare '${partner.node.modelName}.${partner.node.field}' with s.toOne`,
+  };
+}
+
+function requiredCycleIssue(cycle: readonly string[]): SchemaValidationIssue {
+  return {
+    code: "CM002",
+    message: `Circular required relations: ${cycle.join(" → ")}`,
+    severity: "error",
+    repair: "Make one foreign key in the cycle nullable",
+  };
 }

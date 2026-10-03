@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import { captureRaptor3Identity } from "../../../scripts/raptor3-manifest.mjs";
 import type { G0ReplayRecord } from "../harness/protocol";
@@ -35,7 +35,7 @@ describe.each(
       const baseline = await runSQLiteWorld(scenario, profile, 0);
       baseline.fixture.assert(baseline.observation);
       const candidate = await runSQLiteWorld(scenario, profile, 0, {
-        candidateFactory: createCommandEngine,
+        candidateFactory: createTestCommandEngine,
         candidateName: "commands",
       });
       if (scenario.id === "g1-upsert-nested-admission-publication") {

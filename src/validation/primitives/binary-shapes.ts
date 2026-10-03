@@ -20,11 +20,6 @@ const HEX_BYTES = /^(?:[0-9a-fA-F]{2})*$/;
 const BASE64 =
   /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const BASE64_PROVIDER = /^base64:type\d+:(.*)$/;
-const BASE64_ALPHABET =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-const BASE64_QUANTUM = 4;
-const BASE64_GROUP_BYTES = 3;
 
 /**
  * The bytes a driver value names, or the REPRESENTATION that could not be read.
@@ -48,31 +43,12 @@ function hexBytes(hex: string): BinaryShape {
 
 function base64Bytes(base64: string): BinaryShape {
   if (!BASE64.test(base64)) return { unsupported: "base64 string" };
-  if (base64.length === 0) return { bytes: new Uint8Array() };
-
-  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
-  const out = new Uint8Array(
-    (base64.length / BASE64_QUANTUM) * BASE64_GROUP_BYTES - padding
-  );
-  let offset = 0;
-  for (let index = 0; index < base64.length; index += BASE64_QUANTUM) {
-    const first = BASE64_ALPHABET.indexOf(base64.charAt(index));
-    const second = BASE64_ALPHABET.indexOf(base64.charAt(index + 1));
-    const thirdChar = base64.charAt(index + 2);
-    const fourthChar = base64.charAt(index + 3);
-    const third = thirdChar === "=" ? 0 : BASE64_ALPHABET.indexOf(thirdChar);
-    const fourth = fourthChar === "=" ? 0 : BASE64_ALPHABET.indexOf(fourthChar);
-
-    out[offset] = first * 4 + Math.floor(second / 16);
-    offset += 1;
-    if (thirdChar !== "=") {
-      out[offset] = (second % 16) * 16 + Math.floor(third / 4);
-      offset += 1;
-    }
-    if (fourthChar !== "=") {
-      out[offset] = (third % 4) * 64 + fourth;
-      offset += 1;
-    }
+  // The pattern admitted canonical, padded base64 only, so `atob` decodes it
+  // and cannot throw.
+  const binary = atob(base64);
+  const out = new Uint8Array(binary.length);
+  for (let index = 0; index < out.length; index++) {
+    out[index] = binary.charCodeAt(index);
   }
   return { bytes: out };
 }

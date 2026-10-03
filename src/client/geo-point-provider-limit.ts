@@ -9,7 +9,11 @@ export function assertGeoPointFieldsFitAdapter(
   schema: Record<string, AnyModel>,
   adapter: DatabaseAdapter
 ): void {
-  if (adapter.geoPoint !== undefined) return;
+  if (adapter.geoPoint === undefined) refuseGeoPointFields(schema);
+}
+
+/** The scan for an adapter with no point protocol; most adapters have one. */
+function refuseGeoPointFields(schema: Record<string, AnyModel>): void {
   for (const [modelName, model] of Object.entries(schema)) {
     const scalars: Record<string, Scalar> = model["~"].state.scalars;
     for (const [fieldName, scalar] of Object.entries(scalars)) {

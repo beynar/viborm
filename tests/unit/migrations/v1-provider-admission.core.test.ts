@@ -21,6 +21,7 @@ import {
 import { pushV1 as applyPush, previewPush } from "@migrations/push-v1";
 import { resetV1 as reset } from "@migrations/reset-v1";
 import { s } from "@schema";
+import { canPinSession } from "@src/migrations/pinned-session";
 import type { MigrationClient } from "@src/migrations/push/planner";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryStorage, mysqlEstateDriver } from "./_estate";
@@ -40,8 +41,8 @@ describe("a transport with no interactive session is refused", () => {
     });
 
   it("declares no pinned-session capability", () => {
-    expect(neonDriver()._canPinSession()).toBe(false);
-    expect(new PGliteDriver()._canPinSession()).toBe(true);
+    expect(canPinSession(neonDriver())).toBe(false);
+    expect(canPinSession(new PGliteDriver())).toBe(true);
   });
 
   it.each([
@@ -169,7 +170,7 @@ describe("PlanetScale refuses every effectful verb", () => {
     expect(planetscaleDriver().migrationNamespaceAttestation).toBeUndefined();
 
     const capable = mysqlEstateDriver({ namespace: "alpha" });
-    expect(capable._canPinSession()).toBe(true);
+    expect(canPinSession(capable)).toBe(true);
     const storage = new MemoryStorage();
     const client = { $driver: capable, $schema: schema };
     const migrations = createMigrationClient(client, { storage });

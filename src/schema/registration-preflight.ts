@@ -15,15 +15,21 @@ export function preflightModelRegistrationIdentity(
   const claimedInThisPass = new Map<Model<any>, string>();
   for (const [modelKey, model] of registrations) {
     const claimed = model["~"].names.ts ?? claimedInThisPass.get(model);
-    if (claimed !== undefined && claimed !== modelKey) {
-      return {
-        code: "M003",
-        message: `Model registered as '${claimed}' cannot also be registered as '${modelKey}'; one model object binds one schema key`,
-        severity: "error",
-        model: modelKey,
-      };
-    }
+    if (claimed !== undefined && claimed !== modelKey)
+      return doubleRegistrationIssue(claimed, modelKey);
     claimedInThisPass.set(model, modelKey);
   }
   return undefined;
+}
+
+function doubleRegistrationIssue(
+  claimed: string,
+  modelKey: string
+): SchemaValidationIssue {
+  return {
+    code: "M003",
+    message: `Model registered as '${claimed}' cannot also be registered as '${modelKey}'; one model object binds one schema key`,
+    severity: "error",
+    model: modelKey,
+  };
 }

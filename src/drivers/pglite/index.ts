@@ -20,12 +20,7 @@ import {
   type Transaction,
 } from "@electric-sql/pglite";
 import { unsupportedVector } from "@errors";
-import {
-  activateConsumableResultProducer,
-  deactivateConsumableResultProducer,
-  registerConsumableResultCandidate,
-} from "../consumable-result-candidate";
-import { type AnyDriver, Driver, type QueryExecutionContext } from "../driver";
+import { Driver, type QueryExecutionContext } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
@@ -65,10 +60,6 @@ export type PGliteConfig<C extends DriverConfig> = PGliteDriverOptions & C;
 // ============================================================
 
 export class PGliteDriver extends Driver<PGlite, Transaction> {
-  private static readonly canonicalExecuteEntry =
-    PGliteDriver.prototype._execute;
-  private static readonly canonicalExecute = PGliteDriver.prototype.execute;
-
   declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
   protected override readonly serializeTransactions = true;
@@ -82,7 +73,6 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
    * holding the caller's database while believing it had made its own.
    */
   private readonly suppliedClient: PGlite | undefined;
-  private readonly canonicalAdapterParseResult: DatabaseAdapter["result"]["parseResult"];
 
   constructor(options: PGliteDriverOptions = {}) {
     super("postgresql", "pglite");
@@ -98,15 +88,6 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     defineImmutableDriverFact(this, "adapter", adapter);
-    this.canonicalAdapterParseResult = adapter.result.parseResult;
-    if (PGliteDriver.isConsumableCandidate(this)) {
-      registerConsumableResultCandidate(
-        this,
-        PGliteDriver.canonicalExecuteEntry,
-        PGliteDriver.isConsumableCandidate,
-        PGliteDriver.isConsumableProducer
-      );
-    }
   }
 
   /**
@@ -121,7 +102,6 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     if (this.suppliedClient !== undefined) {
       return this.suppliedClient;
     }
-    deactivateConsumableResultProducer(this);
     const dataDir = this.driverOptions.dataDir;
     const userOptions = this.driverOptions.options ?? {};
     const options: PGliteOptions = {
@@ -134,16 +114,11 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
         ...userOptions.parsers,
       },
     };
-    const isConsumableClient = PGliteDriver.isConsumableCandidate(this);
 
     // PGlite.create accepts dataDir as first argument or in options
-    const client = dataDir
+    return dataDir
       ? await PGlite.create(dataDir, options)
       : await PGlite.create(options);
-    if (isConsumableClient && PGliteDriver.isConsumableCandidate(this)) {
-      activateConsumableResultProducer(this, client);
-    }
-    return client;
   }
 
   /**
@@ -160,11 +135,7 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     if (client === this.suppliedClient) {
       return;
     }
-    try {
-      await client.close();
-    } finally {
-      deactivateConsumableResultProducer(this, client);
-    }
+    await client.close();
   }
 
   protected async execute<T>(
@@ -201,57 +172,6 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
       rows: result.rows,
       rowCount: result.rows.length > 0 ? result.rows.length : affectedRows,
     };
-  }
-
-  private static isConsumableProducer(
-    driver: AnyDriver,
-    client: object
-  ): boolean {
-    if (!(driver instanceof PGliteDriver)) return false;
-    return (
-      PGliteDriver.isConsumableCandidate(driver) &&
-      Object.getPrototypeOf(client) === PGlite.prototype &&
-      driver.client === client
-    );
-  }
-
-  private static isConsumableCandidate(driver: AnyDriver): boolean {
-    if (!(driver instanceof PGliteDriver)) return false;
-    return (
-      driver.suppliedClient === undefined &&
-      hasStockPGliteSubstrate(driver.driverOptions.options ?? {}) &&
-      PGliteDriver.hasCanonicalProducerSurface(driver)
-    );
-  }
-
-  /**
-   * Whether the surface a caller can reach on this instance is still the
-   * SHIPPED one.
-   *
-   * The result leg asks for the parser OBJECT, not for one of its hooks: a
-   * consumable result hands out the provider's own row objects, so a driver is
-   * stock only while `result` is what this class ships there — and this class
-   * ships nothing, so the stock surface is the ABSENCE of a parser. Any object
-   * a caller put there, whatever hook it spells, is a middleware that will see
-   * those rows and keeps the transport borrowed (root `AGENTS.md` rule 5: a
-   * stock driver with "unchanged typed execution/parser surfaces", where "a
-   * parser middleware … stays borrowed"). Asking only about `parseResult`
-   * asked a narrower question and admitted every object that merely lacks one
-   * (Arnaud's D-39; `SQLite3Driver.hasCanonicalProducerSurface` states the same
-   * rule over the parser object that family ships).
-   *
-   * The adapter leg is unchanged, and is a different question: the adapter is
-   * this driver's own object, captured once at construction, so what is asked
-   * there is whether anything re-entered it afterwards.
-   */
-  private static hasCanonicalProducerSurface(driver: PGliteDriver): boolean {
-    return (
-      Object.getPrototypeOf(driver) === PGliteDriver.prototype &&
-      driver._execute === PGliteDriver.canonicalExecuteEntry &&
-      driver.execute === PGliteDriver.canonicalExecute &&
-      driver.result === undefined &&
-      driver.adapter.result.parseResult === driver.canonicalAdapterParseResult
-    );
   }
 
   /**
@@ -350,25 +270,6 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
       },
     };
   }
-}
-
-function hasStockPGliteSubstrate(options: PGliteOptions): boolean {
-  for (const key of Object.keys(options)) {
-    switch (key) {
-      case "dataDir":
-      case "username":
-      case "database":
-      case "debug":
-      case "relaxedDurability":
-      case "initialMemory":
-      case "parsers":
-      case "serializers":
-        break;
-      default:
-        return false;
-    }
-  }
-  return true;
 }
 
 // ============================================================

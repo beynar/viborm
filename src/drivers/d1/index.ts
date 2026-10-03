@@ -16,12 +16,22 @@ import {
 import type { Schema } from "@client/types";
 import type { D1Database } from "@cloudflare/workers-types";
 import { QueryError } from "@errors";
+import type { Sql } from "@sql";
 import {
+  type AnyDriver,
   Driver,
   type DriverResultParser,
   type QueryExecutionContext,
 } from "../driver";
-import { isNormalizedResultRow } from "../normalized-result";
+import {
+  assertNormalizedQueryResult,
+  isNormalizedResultRow,
+} from "../normalized-result";
+import {
+  assertPositionalRows,
+  type ProjectionExecutionResult,
+  registerPositionalResultDriver,
+} from "../positional-result";
 import {
   classifySQLiteStatementResult,
   convertValuesForSQLite,
@@ -30,6 +40,7 @@ import {
   type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
+import { parseSQLiteField } from "../shared/sqlite-utils";
 import type {
   BatchQuery,
   CommittedBatchNotification,
@@ -150,6 +161,13 @@ function normalizeD1Result<T>(
 // ============================================================
 
 export class D1Driver extends Driver<D1Database, D1Database> {
+  private static readonly canonicalExecuteEntry = D1Driver.prototype._execute;
+  private static readonly canonicalExecute = D1Driver.prototype.execute;
+  private static readonly canonicalTypedStatement =
+    D1Driver.prototype.executeTypedStatement;
+  private static readonly canonicalPositionalExecute =
+    D1Driver.prototype.executePositional;
+
   // D1's authorizer refuses temporary objects (`SQLITE_AUTH`, the whole batch
   // rejected), witnessed by `tests/providers/workers/d1.test.ts`.
   readonly adapter: DatabaseAdapter = new SQLiteAdapter({
@@ -162,12 +180,112 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   readonly supportsOrderedCommittedSegments = true;
 
   private readonly driverOptions: D1DriverOptions;
+  private readonly canonicalAdapter = this.adapter;
+  private readonly canonicalAdapterResult = this.adapter.result;
+  private readonly canonicalAdapterParseField = this.adapter.result.parseField;
+  private readonly canonicalAdapterParseRelation =
+    this.adapter.result.parseRelation;
+  private readonly canonicalAdapterParseResult =
+    this.adapter.result.parseResult;
 
   constructor(options: D1DriverOptions) {
     super("sqlite", "d1");
     this.driverOptions = options;
     // D1 database is passed directly from Worker environment
     this.client = options.database;
+    registerPositionalResultDriver(
+      this,
+      (query, context) => this.executePositional(query, context),
+      D1Driver.isPositionalCandidate
+    );
+  }
+
+  /**
+   * A collection read as positional rows: D1's `raw({ columnNames: true })`
+   * names the columns once instead of materializing every column name on
+   * every row, which is the larger share of a read's CPU in a Worker.
+   */
+  private executePositional(
+    query: Sql,
+    context: QueryExecutionContext
+  ): Promise<ProjectionExecutionResult> {
+    return this.executeTypedStatement(
+      query,
+      context,
+      async (
+        client,
+        sql,
+        params,
+        executionContext
+      ): Promise<ProjectionExecutionResult> => {
+        // Transforms and observers ran after admission and may have replaced
+        // an execution surface: decide again at dispatch, and let a replaced
+        // surface run as ordinary execution.
+        if (!D1Driver.isPositionalCandidate(this)) {
+          const result = await this.execute<unknown>(
+            client,
+            sql,
+            params,
+            executionContext
+          );
+          assertNormalizedQueryResult(result, {
+            provider: this.driverName,
+            operation: executionContext.operation ?? "execute",
+          });
+          return { kind: "borrowed", result };
+        }
+        const values = convertValuesForSQLite(params);
+        const raw: unknown = await client
+          .prepare(sql)
+          .bind(...values)
+          .raw({ columnNames: true });
+        const [header, ...rows] = Array.isArray(raw) ? raw : [];
+        const columns = header ?? [];
+        if (
+          !(
+            Array.isArray(raw) &&
+            Array.isArray(columns) &&
+            columns.every((column: unknown) => typeof column === "string")
+          )
+        )
+          throw malformedD1Result(
+            executionContext,
+            "the positional rows are malformed"
+          );
+        assertPositionalRows(rows, columns, {
+          provider: this.driverName,
+          operation: executionContext.operation ?? "execute",
+        });
+        return { kind: "positional", rows, columns };
+      }
+    );
+  }
+
+  /**
+   * Positional rows skip the keyed result surface and dispatch to the binding
+   * directly, so they are used only while both are the shipped ones: the stock
+   * parsers, and this driver's own execution entry, provider execute and typed
+   * statement lifecycle. Anything a caller replaced keeps keyed rows.
+   */
+  private static isPositionalCandidate(driver: AnyDriver): boolean {
+    if (!(driver instanceof D1Driver)) return false;
+    return (
+      Object.getPrototypeOf(driver) === D1Driver.prototype &&
+      driver._execute === D1Driver.canonicalExecuteEntry &&
+      driver.execute === D1Driver.canonicalExecute &&
+      driver.executeTypedStatement === D1Driver.canonicalTypedStatement &&
+      driver.executePositional === D1Driver.canonicalPositionalExecute &&
+      driver.result === sqliteResultParser &&
+      driver.result.parseField === parseSQLiteField &&
+      driver.result.parseRelation === undefined &&
+      driver.result.parseResult === undefined &&
+      driver.adapter === driver.canonicalAdapter &&
+      driver.adapter.result === driver.canonicalAdapterResult &&
+      driver.adapter.result.parseField === driver.canonicalAdapterParseField &&
+      driver.adapter.result.parseRelation ===
+        driver.canonicalAdapterParseRelation &&
+      driver.adapter.result.parseResult === driver.canonicalAdapterParseResult
+    );
   }
 
   protected async initClient(): Promise<D1Database> {
@@ -263,11 +381,12 @@ export class D1Driver extends Driver<D1Database, D1Database> {
         const values = query.params ? convertValuesForSQLite(query.params) : [];
         statements.push(client.prepare(query.sql).bind(...values));
       } catch (error) {
-        throw this.normalizeExecutionError(
+        throw this.normalizeStatementFailure(
           error,
           query.sql,
           this.getBatchDiagnosticParameters(query),
-          statementContext
+          statementContext,
+          true
         );
       }
     }

@@ -22,7 +22,6 @@ import {
   PendingOperation,
   type PrepareWriteOutcomeRegistration,
 } from "@query-engine/pending-operation";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   readTransactionOperation,
   type TransactionOperationCapability,
@@ -31,6 +30,10 @@ import {
 import { hydrateSchemaNames, s } from "@schema";
 import { PendingOperation as RootPendingOperation } from "@src/index";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import {
   readTestTransactionOperation,
   type TestTransactionOperationView,
@@ -77,7 +80,7 @@ function createOperation<T>(
   const user = s.model({ id: s.string().id(), name: s.string() });
   const schema = { user };
   hydrateSchemaNames(schema);
-  const engine = new QueryEngine(
+  const engine = new TestQueryEngine(
     new PlanningDriver("postgresql"),
     createModelRegistry(schema, createSchemaRegistry(schema))
   );
@@ -197,21 +200,24 @@ describe("PendingOperation frozen public contract", () => {
     const schema = { user };
     hydrateSchemaNames(schema);
     const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-    const engine = new QueryEngine(new PlanningDriver("postgresql"), registry);
+    const engine = new TestQueryEngine(
+      new PlanningDriver("postgresql"),
+      registry
+    );
     const transactionDriver = new PlanningDriver("postgresql");
     const transactionEngine = engine.bind(transactionDriver);
 
     expect(transactionEngine.clientId).toBe(engine.clientId);
     expect(transactionEngine.scopeId).not.toBe(engine.scopeId);
     expect(transactionEngine.driver).toBe(transactionDriver);
-    expect(transactionEngine.registry).toBe(registry);
+    expect(transactionEngine.route).toBe(engine.route);
   });
 
   it("defers validation and execution until an execution or preparation method is used", async () => {
     const user = s.model({ id: s.string().id(), name: s.string() });
     const schema = { user };
     hydrateSchemaNames(schema);
-    const engine = new QueryEngine(
+    const engine = new TestQueryEngine(
       new PlanningDriver("postgresql"),
       createModelRegistry(schema, createSchemaRegistry(schema))
     );
@@ -286,7 +292,7 @@ describe("PendingOperation frozen public contract", () => {
     const schema = { user };
     hydrateSchemaNames(schema);
     const driver = new PlanningDriver("postgresql");
-    const engine = new QueryEngine(
+    const engine = new TestQueryEngine(
       driver,
       createModelRegistry(schema, createSchemaRegistry(schema))
     );
@@ -566,7 +572,7 @@ describe("pending operation transaction coordination", () => {
     const user = s.model({ id: s.string().id(), name: s.string() });
     const schema = { user };
     hydrateSchemaNames(schema);
-    const engine = new QueryEngine(
+    const engine = new TestQueryEngine(
       new PlanningDriver("postgresql"),
       createModelRegistry(schema, createSchemaRegistry(schema))
     );
@@ -648,7 +654,7 @@ describe("pending operation transaction coordination", () => {
       { name: "observer-owner", observe: observer },
       schema
     );
-    const engine = new QueryEngine(
+    const engine = new TestQueryEngine(
       new PlanningDriver("postgresql"),
       createModelRegistry(schema, createSchemaRegistry(schema)),
       undefined,
@@ -694,7 +700,7 @@ describe("pending operation transaction coordination", () => {
       { name: "observer-owner", observe: () => undefined },
       schema
     );
-    const engine = new QueryEngine(
+    const engine = new TestQueryEngine(
       new PlanningDriver("postgresql"),
       createModelRegistry(schema, createSchemaRegistry(schema)),
       undefined,
@@ -722,7 +728,7 @@ describe("pending operation transaction coordination", () => {
     const user = s.model({ id: s.string().id(), name: s.string() });
     const schema = { user };
     hydrateSchemaNames(schema);
-    const engine = new QueryEngine(
+    const engine = new TestQueryEngine(
       new PlanningDriver("postgresql"),
       createModelRegistry(schema, createSchemaRegistry(schema))
     );

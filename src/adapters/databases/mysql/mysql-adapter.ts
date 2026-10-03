@@ -1089,6 +1089,3 @@ export class MySQLAdapter implements DatabaseAdapter {
     },
   };
 }
-
-// Export singleton instance
-export const mysqlAdapter = new MySQLAdapter();

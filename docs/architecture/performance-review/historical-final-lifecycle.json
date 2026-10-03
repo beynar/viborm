@@ -1,0 +1,133 @@
+{
+  "metadata": {
+    "node": "v24.21.0",
+    "v8": "13.6.233.17-node.53",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M4 Pro",
+    "buildDir": "/Users/arnaud/.codex/worktrees/drizzle-gap/performance/cold-construction-final/dist",
+    "distSha256": "8000e0ff0d5d569b1252d00259d8eaf452badafca1013f791b9d99b04c5a7beb",
+    "harnessSha256": "a828b367fc26c76b94f26b13e303b9259e200ea2514d0b742fb25f1c759b4f53",
+    "startedAt": "2026-09-30T14:09:27.602Z",
+    "finishedAt": "2026-09-30T14:09:29.181Z"
+  },
+  "protocol": {
+    "warmupClients": 50,
+    "blocks": 10,
+    "clientsPerBlock": 100,
+    "operationsPerClient": 6
+  },
+  "steady": [],
+  "lifecycle": [
+    {
+      "operations": 0,
+      "rss": 99778560,
+      "heapTotal": 45875200,
+      "heapUsed": 10330176,
+      "external": 2643446,
+      "arrayBuffers": 144473,
+      "sampledReferences": 0,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 100,
+      "rss": 144687104,
+      "heapTotal": 79691776,
+      "heapUsed": 10707472,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 200,
+      "rss": 164659200,
+      "heapTotal": 146538496,
+      "heapUsed": 10812208,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 300,
+      "rss": 195117056,
+      "heapTotal": 146538496,
+      "heapUsed": 10916248,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 400,
+      "rss": 224313344,
+      "heapTotal": 147062784,
+      "heapUsed": 10967224,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 500,
+      "rss": 229163008,
+      "heapTotal": 147587072,
+      "heapUsed": 11231056,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 600,
+      "rss": 229277696,
+      "heapTotal": 147062784,
+      "heapUsed": 11234832,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 700,
+      "rss": 229359616,
+      "heapTotal": 147324928,
+      "heapUsed": 11196376,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 800,
+      "rss": 229425152,
+      "heapTotal": 147324928,
+      "heapUsed": 11261296,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 900,
+      "rss": 229474304,
+      "heapTotal": 147062784,
+      "heapUsed": 11266064,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    },
+    {
+      "operations": 1000,
+      "rss": 229490688,
+      "heapTotal": 147324928,
+      "heapUsed": 11267160,
+      "external": 2643486,
+      "arrayBuffers": 144473,
+      "sampledReferences": 500,
+      "uncollectedReferences": 0
+    }
+  ]
+}

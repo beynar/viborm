@@ -25,7 +25,6 @@ import { MySQL2Driver } from "@drivers/mysql2";
 import { instrumentation } from "@instrumentation/extension";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
 import { introspect } from "@migrations/push/planner";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   DISTANCE_RESULT_KEY,
   EMPTY_ROW_RESULT_KEY,
@@ -43,6 +42,10 @@ import { polymorphicCollectionWriteContract } from "@tests/contracts/drivers/beh
 import { polymorphicMemberJunctionContract } from "@tests/contracts/drivers/behaviors/polymorphic-member-junction-behavior";
 import { polymorphicRelationContract } from "@tests/contracts/drivers/behaviors/polymorphic-relation-behavior";
 import { MySQL2BatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-mysql2";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { validateGeoPolygon } from "@validation/primitives/geo-area-codec";
@@ -219,7 +222,7 @@ describeIf("MySQL2 Driver", () => {
         geoPointPlanSchema,
         createSchemaRegistry(geoPointPlanSchema)
       );
-      const engine = new QueryEngine(driver, registry);
+      const engine = new TestQueryEngine(driver, registry);
       const paris = { longitude: 2.3522, latitude: 48.8566 };
       const polygon = {
         outer: [

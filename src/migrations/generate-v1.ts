@@ -5,6 +5,7 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { hydrateSchemaNames } from "../schema/hydration";
+import { allRules } from "../schema/validation/rules";
 import {
   resolveSchemaOrThrow,
   validateResolvedSchemaOrThrow,
@@ -89,7 +90,7 @@ export async function generateV1(
   hydrateSchemaNames(client.$schema);
   const relations = request.skipValidation
     ? resolveSchemaOrThrow(client.$schema)
-    : validateResolvedSchemaOrThrow(client.$schema);
+    : validateResolvedSchemaOrThrow(client.$schema, allRules);
   const driver = getPushMigrationDriver(client);
   assertMigrationDecimalDomainsFitProvider(client.$schema, driver.dialect);
   let estateBytes = await storage.readEstate();

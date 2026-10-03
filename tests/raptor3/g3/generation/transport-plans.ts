@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { Schema } from "@client/types";
 import type { AnyDriver, QueryResult } from "@drivers";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
 import type {
@@ -24,7 +24,7 @@ import { recurrenceVariantWorld } from "./recurrence-variant-world";
 // The generated transport plans drive the two candidate entries a public recipe
 // reaches; the prepared-operation handle is exercised by its own unit checks.
 type Candidate = Pick<
-  ReturnType<typeof createCommandEngine>,
+  ReturnType<typeof createTestCommandEngine>,
   "execute" | "prepareBatch"
 >;
 
@@ -102,7 +102,7 @@ function trackedCandidate(
   driver: AnyDriver,
   admitted: () => void
 ): Candidate {
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   return {
     execute(...args) {
       admitted();

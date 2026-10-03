@@ -1,5 +1,5 @@
 import type { InferInput, InferOutput, VibSchema } from "../types";
-import { createSchema, validateArrayItems } from "./helpers";
+import { createSchema, validateArray } from "./helpers";
 
 // =============================================================================
 // Array Schema
@@ -29,7 +29,7 @@ export function array<TItem extends VibSchema<any, any>>(
 
   const schema = createSchema<InferInput<TItem>[], InferOutput<TItem>[]>(
     "array",
-    (value) => validateArrayItems(value, validate)
+    (value) => validateArray(value, validate)
   ) as ArraySchema<TItem>;
 
   (schema as any).item = item;

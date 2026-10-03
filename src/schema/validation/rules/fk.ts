@@ -49,58 +49,26 @@ export function checkStoredReference(
     const local = localScalars[foreignField];
     if (!local) {
       legal = false;
-      issues.push({
-        code: "FK001",
-        message: `FK '${foreignField}' in '${relationName}' not in '${modelName}'`,
-        severity: "error",
-        model: modelName,
-        relation: relationName,
-        field: foreignField,
-        repair: `Declare a scalar '${foreignField}' on '${modelName}' or name an existing one in .fields(...)`,
-      });
+      issues.push(fk001(modelName, relationName, foreignField));
       continue;
     }
     if (isDecimalList(local)) {
       legal = false;
-      issues.push({
-        code: "FK010",
-        message: `FK '${foreignField}' in '${relationName}' is a fixed-decimal list, which cannot be a foreign-key member`,
-        severity: "error",
-        model: modelName,
-        relation: relationName,
-        field: foreignField,
-        repair: `Store the reference in a scalar decimal (or another scalar type) on '${modelName}'`,
-      });
+      issues.push(fk010(modelName, relationName, foreignField));
       continue;
     }
     if (local["~"].state.type === "point") {
       // Only the local member belongs here. A referenced GeoPoint cannot be an
       // addressable key, which is already owned by I005 and FK005.
       legal = false;
-      issues.push({
-        code: "FK011",
-        message: `FK '${foreignField}' in '${relationName}' is a GeoPoint, which cannot be a foreign-key member`,
-        severity: "error",
-        model: modelName,
-        relation: relationName,
-        field: foreignField,
-        repair: `Store relation identity in a portable scalar key on '${modelName}'`,
-      });
+      issues.push(fk011(modelName, relationName, foreignField));
     }
     if (local["~"].state.nullable) nullableForeignFields.push(foreignField);
     const referencedField = references[position]!;
     const remote = targetScalars[referencedField];
     if (!remote) {
       legal = false;
-      issues.push({
-        code: "FK002",
-        message: `Reference '${referencedField}' not in '${targetName}'`,
-        severity: "error",
-        model: modelName,
-        relation: relationName,
-        field: referencedField,
-        repair: `Reference a scalar declared on '${targetName}'`,
-      });
+      issues.push(fk002(modelName, relationName, targetName, referencedField));
       continue;
     }
     const localState = local["~"].state;
@@ -136,48 +104,29 @@ export function checkStoredReference(
       dateTimeDomainMismatch
     ) {
       legal = false;
-      const localDescription = localIsArray
-        ? `${localType}[]`
-        : localType === "decimal" && localDecimal
-          ? `decimal(${localDecimal.precision},${localDecimal.scale})`
-          : localDateTimeForm
-            ? `datetime(${localDateTimeForm})`
-            : localType;
-      const remoteDescription = remoteIsArray
-        ? `${remoteType}[]`
-        : remoteType === "decimal" && remoteDecimal
-          ? `decimal(${remoteDecimal.precision},${remoteDecimal.scale})`
-          : remoteDateTimeForm
-            ? `datetime(${remoteDateTimeForm})`
-            : remoteType;
-      issues.push({
-        code: "FK003",
-        message: `Type mismatch: '${foreignField}' (${localDescription}) → '${referencedField}' (${remoteDescription}) in ${targetName}`,
-        severity: "error",
-        model: modelName,
-        relation: relationName,
-        repair: decimalDomainMismatch
-          ? `Give '${foreignField}' the same decimal precision and scale as '${targetName}.${referencedField}'`
-          : arrayShapeMismatch
-            ? `Give '${foreignField}' the same scalar/list shape as '${targetName}.${referencedField}'`
-            : dateTimeDomainMismatch
-              ? `Give '${foreignField}' the same SQLite DateTime physical form as '${targetName}.${referencedField}'`
-              : `Give '${foreignField}' the same scalar type as '${targetName}.${referencedField}'`,
-      });
+      issues.push(
+        fk003({
+          modelName,
+          relationName,
+          targetName,
+          foreignField,
+          referencedField,
+          localState,
+          remoteState,
+          localDateTimeForm,
+          remoteDateTimeForm,
+          arrayShapeMismatch,
+          decimalDomainMismatch,
+          dateTimeDomainMismatch,
+        })
+      );
     }
   }
 
   const targetKey = findReferenceableKey(target, references);
   if (!targetKey) {
     legal = false;
-    issues.push({
-      code: "FK005",
-      message: `[${references.join(", ")}] in '${targetName}' should be unique/ID`,
-      severity: "error",
-      model: modelName,
-      relation: relationName,
-      repair: `Declare the referenced tuple on '${targetName}' with .id(), .unique(), or a compound key`,
-    });
+    issues.push(fk005(modelName, relationName, targetName, references));
   }
 
   if (onDelete === "setNull" || onUpdate === "setNull") {
@@ -185,26 +134,13 @@ export function checkStoredReference(
       const local = localScalars[foreignField];
       if (local && !local["~"].state.nullable) {
         legal = false;
-        issues.push({
-          code: "RA004",
-          message: `SET NULL on '${relationName}' but '${foreignField}' not nullable`,
-          severity: "error",
-          model: modelName,
-          relation: relationName,
-          repair: `Make '${foreignField}' .nullable() or choose another referential action`,
-        });
+        issues.push(ra004(modelName, relationName, foreignField));
       }
     }
   }
 
   if (onDelete === "cascade" && nullableForeignFields.length === 0) {
-    issues.push({
-      code: "RA003",
-      message: `CASCADE on required '${relationName}' may cause data loss`,
-      severity: "warning",
-      model: modelName,
-      relation: relationName,
-    });
+    issues.push(ra003(modelName, relationName));
   }
 
   // Published in the MATCHED KEY's order, not the declaration's. Each pair
@@ -253,4 +189,147 @@ function isDecimalList(
 ): boolean {
   const state = scalar["~"].state;
   return state.type === "decimal" && state.array === true;
+}
+
+// The issues below are built only for an invalid declaration; keeping them out
+// of `checkStoredReference` means a valid schema never compiles them.
+
+type Issue = SchemaValidationIssue;
+type ScalarState = Model<any>["~"]["state"]["scalars"][string]["~"]["state"];
+
+function fk001(model: string, relation: string, field: string): Issue {
+  return {
+    code: "FK001",
+    message: `FK '${field}' in '${relation}' not in '${model}'`,
+    severity: "error",
+    model,
+    relation,
+    field,
+    repair: `Declare a scalar '${field}' on '${model}' or name an existing one in .fields(...)`,
+  };
+}
+
+function fk010(model: string, relation: string, field: string): Issue {
+  return {
+    code: "FK010",
+    message: `FK '${field}' in '${relation}' is a fixed-decimal list, which cannot be a foreign-key member`,
+    severity: "error",
+    model,
+    relation,
+    field,
+    repair: `Store the reference in a scalar decimal (or another scalar type) on '${model}'`,
+  };
+}
+
+function fk011(model: string, relation: string, field: string): Issue {
+  return {
+    code: "FK011",
+    message: `FK '${field}' in '${relation}' is a GeoPoint, which cannot be a foreign-key member`,
+    severity: "error",
+    model,
+    relation,
+    field,
+    repair: `Store relation identity in a portable scalar key on '${model}'`,
+  };
+}
+
+function fk002(
+  model: string,
+  relation: string,
+  targetName: string,
+  field: string
+): Issue {
+  return {
+    code: "FK002",
+    message: `Reference '${field}' not in '${targetName}'`,
+    severity: "error",
+    model,
+    relation,
+    field,
+    repair: `Reference a scalar declared on '${targetName}'`,
+  };
+}
+
+function describeMember(
+  state: ScalarState,
+  dateTimeForm: string | undefined
+): string {
+  if (state.array === true) return `${state.type}[]`;
+  if (state.type === "decimal" && state.decimal)
+    return `decimal(${state.decimal.precision},${state.decimal.scale})`;
+  return dateTimeForm ? `datetime(${dateTimeForm})` : state.type;
+}
+
+function fk003(mismatch: {
+  modelName: string;
+  relationName: string;
+  targetName: string;
+  foreignField: string;
+  referencedField: string;
+  localState: ScalarState;
+  remoteState: ScalarState;
+  localDateTimeForm: string | undefined;
+  remoteDateTimeForm: string | undefined;
+  arrayShapeMismatch: boolean;
+  decimalDomainMismatch: boolean;
+  dateTimeDomainMismatch: boolean;
+}): Issue {
+  const { foreignField, referencedField, targetName } = mismatch;
+  const local = describeMember(mismatch.localState, mismatch.localDateTimeForm);
+  const remote = describeMember(
+    mismatch.remoteState,
+    mismatch.remoteDateTimeForm
+  );
+  const same = mismatch.decimalDomainMismatch
+    ? "decimal precision and scale"
+    : mismatch.arrayShapeMismatch
+      ? "scalar/list shape"
+      : mismatch.dateTimeDomainMismatch
+        ? "SQLite DateTime physical form"
+        : "scalar type";
+  return {
+    code: "FK003",
+    message: `Type mismatch: '${foreignField}' (${local}) → '${referencedField}' (${remote}) in ${targetName}`,
+    severity: "error",
+    model: mismatch.modelName,
+    relation: mismatch.relationName,
+    repair: `Give '${foreignField}' the same ${same} as '${targetName}.${referencedField}'`,
+  };
+}
+
+function fk005(
+  model: string,
+  relation: string,
+  targetName: string,
+  references: readonly string[]
+): Issue {
+  return {
+    code: "FK005",
+    message: `[${references.join(", ")}] in '${targetName}' should be unique/ID`,
+    severity: "error",
+    model,
+    relation,
+    repair: `Declare the referenced tuple on '${targetName}' with .id(), .unique(), or a compound key`,
+  };
+}
+
+function ra004(model: string, relation: string, field: string): Issue {
+  return {
+    code: "RA004",
+    message: `SET NULL on '${relation}' but '${field}' not nullable`,
+    severity: "error",
+    model,
+    relation,
+    repair: `Make '${field}' .nullable() or choose another referential action`,
+  };
+}
+
+function ra003(model: string, relation: string): Issue {
+  return {
+    code: "RA003",
+    message: `CASCADE on required '${relation}' may cause data loss`,
+    severity: "warning",
+    model,
+    relation,
+  };
 }

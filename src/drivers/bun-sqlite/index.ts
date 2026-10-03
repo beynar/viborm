@@ -21,7 +21,7 @@ import {
 } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
 import {
-  convertValuesForSQLite,
+  convertValueForSQLite,
   isSQLiteBinaryValue,
   runTransactionLifecycle,
   sqliteBinaryToUint8Array,
@@ -81,7 +81,8 @@ function requireSafeIntegers<T>(
 }
 
 function convertValuesForBunSQLite(values: unknown[]): unknown[] {
-  return convertValuesForSQLite(values).map((value) => {
+  return values.map((parameter) => {
+    const value = convertValueForSQLite(parameter);
     if (value instanceof Uint8Array || !isSQLiteBinaryValue(value)) {
       return value;
     }

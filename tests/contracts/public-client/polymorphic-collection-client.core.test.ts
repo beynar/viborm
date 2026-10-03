@@ -187,7 +187,7 @@ describe("collection topology cells are declarable end to end", () => {
 
   test.each(cells)("%s survives the client gate", (_label, build) => {
     const { schema } = build();
-    // `validateClientSchemaOrThrow` runs the FULL graph validation for any
+    // `resolveSchemaOrThrow` runs the FULL graph validation for any
     // schema carrying a polymorphic relation, so this is the exact call P014
     // used to fail. Constructing at all is the assertion.
     expect(() =>
@@ -202,7 +202,7 @@ describe("collection topology cells are declarable end to end", () => {
     // reads; without it the descriptor is absent and no member table emits.
     // `generate()` itself never validates — it serializes `client.$schema`
     // directly — but the CLIENT validated at construction
-    // (`validateClientSchemaOrThrow`, pinned by the gate test above), so by the
+    // (`resolveSchemaOrThrow`, pinned by the gate test above), so by the
     // time any migration path serializes, the descriptors exist. Running
     // validation here reproduces that ordering rather than inventing one.
     expect(validateSchema(schema).errors).toEqual([]);

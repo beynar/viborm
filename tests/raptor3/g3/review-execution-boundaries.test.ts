@@ -7,7 +7,7 @@ import type {
 } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { UniqueConstraintError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -108,7 +108,7 @@ describe("G3-02 execution boundary review", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     driver.statements.length = 0;
     try {
       await assert.rejects(
@@ -140,7 +140,7 @@ describe("G3-02 execution boundary review", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     database.exec(`
       INSERT INTO g3_review_records(id,code,label) VALUES
         (8,'first','value'),
@@ -187,7 +187,7 @@ describe("G3-02 execution boundary review", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     database.exec(`
       INSERT INTO g3_review_compound_records(tenant,slot,label) VALUES
         ('old',8,'first'),
@@ -237,7 +237,7 @@ describe("G3-02 execution boundary review", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     database.exec(
       "INSERT INTO g3_review_decimal_records(id,label) VALUES(800,'value')"
     );
@@ -270,7 +270,7 @@ describe("G3-02 execution boundary review", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     driver.statements.length = 0;
     const rows = Array.from({ length: 5 }, (_, index) => ({
       id: index + 1,
@@ -302,7 +302,7 @@ describe("G3-02 execution boundary review", () => {
     const client = createClient({ schema, driver });
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     driver.statements.length = 0;
     const rows = Array.from({ length: 5 }, (_, index) => ({
       id: index + 1,

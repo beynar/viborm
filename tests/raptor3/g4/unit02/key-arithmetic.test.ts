@@ -42,11 +42,11 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -106,7 +106,7 @@ async function update(
   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
   assert.equal((await syncLiveSchema(client)).applied, true);
   database.exec(SEED);
-  const candidate = createCommandEngine({ schema: keySchema, driver });
+  const candidate = createTestCommandEngine({ schema: keySchema, driver });
   let answer: string;
   try {
     const value =
@@ -506,7 +506,7 @@ describe("G4-02 — R-D3: the batch publication gap is closed by an ordered obse
     // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
     assert.equal((await syncLiveSchema(client)).applied, true);
     database.exec(SEED);
-    const candidate = createCommandEngine({ schema: keySchema, driver });
+    const candidate = createTestCommandEngine({ schema: keySchema, driver });
     const args = { where: { id: 6 }, create: { id: 6, label: "a" }, update };
     let answer: string;
     let raised: unknown;
@@ -570,7 +570,7 @@ describe("G4-02 — R-D3: the batch publication gap is closed by an ordered obse
     const client = createClient({ schema: keySchema, driver });
     assert.equal((await syncLiveSchema(client)).applied, true);
     database.exec(SEED);
-    const candidate = createCommandEngine({ schema: keySchema, driver });
+    const candidate = createTestCommandEngine({ schema: keySchema, driver });
     const args = {
       where: { id: 7 },
       create: { id: 7, label: "a" },

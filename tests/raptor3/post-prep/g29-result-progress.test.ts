@@ -3,9 +3,9 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError, VibORMErrorCode } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -199,7 +199,7 @@ async function runMalformedResult(profile: Profile): Promise<void> {
     let value: unknown;
     let failure: unknown;
     try {
-      value = await createCommandEngine({ schema, driver }).execute(
+      value = await createTestCommandEngine({ schema, driver }).execute(
         "entity",
         "create",
         { data: { id: 1, label: "written" } }

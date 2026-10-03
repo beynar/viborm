@@ -26,12 +26,14 @@ export function sqliteBinaryToUint8Array(value: SQLiteBinaryValue): Uint8Array {
  * Convert provider-neutral scalar values to SQLite values. Binary values stay
  * in their standard Web API form; each provider owns any narrower conversion.
  */
+export function convertValueForSQLite(value: unknown): unknown {
+  if (typeof value === "boolean") return value ? 1 : 0;
+  if (value === undefined) return null;
+  return value;
+}
+
 export function convertValuesForSQLite(values: unknown[]): unknown[] {
-  return values.map((v) => {
-    if (typeof v === "boolean") return v ? 1 : 0;
-    if (v === undefined) return null;
-    return v;
-  });
+  return values.map(convertValueForSQLite);
 }
 
 /**
@@ -48,16 +50,29 @@ export function convertValuesForSQLite(values: unknown[]): unknown[] {
  * once at the adapter seam by the provider that needs it (MySQL).
  */
 export const sqliteResultParser: DriverResultParser = {
-  parseField: (value, scalarType, next) => {
-    if (scalarType === "boolean") {
-      const parsed = parseIntegerBoolean(value);
-      if (parsed !== undefined) return next(parsed, scalarType);
-    }
-    // SQLite stores json as TEXT — decode here where we know the string is
-    // serialized JSON (the default parser never sniffs json strings)
-    if (scalarType === "json" && typeof value === "string") {
-      return next(JSON.parse(value), scalarType);
-    }
-    return next(value, scalarType);
-  },
+  parseField: parseSQLiteField,
 };
+
+/**
+ * The shipped parser's own field hook. `sqliteResultParser` is one mutable
+ * object every SQLite-family driver shares, so a driver that must recognise
+ * the shipped parser compares against this definition, never against what the
+ * shared object holds when its module loads. The shipped parser defines no
+ * `parseRelation` or `parseResult`.
+ */
+export function parseSQLiteField(
+  value: unknown,
+  scalarType: string,
+  next: (value: unknown, scalarType: string) => unknown
+): unknown {
+  if (scalarType === "boolean") {
+    const parsed = parseIntegerBoolean(value);
+    if (parsed !== undefined) return next(parsed, scalarType);
+  }
+  // SQLite stores json as TEXT — decode here where we know the string is
+  // serialized JSON (the default parser never sniffs json strings)
+  if (scalarType === "json" && typeof value === "string") {
+    return next(JSON.parse(value), scalarType);
+  }
+  return next(value, scalarType);
+}

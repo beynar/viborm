@@ -403,68 +403,68 @@ function readJunctionOverride(
  * the whole cross-module surface.
  */
 class VariantToOne {
-  private readonly state: VariantToOneState;
-  private readonly internal: RelationInternal<VariantToOneState>;
+  readonly #state: VariantToOneState;
+  readonly #internal: RelationInternal<VariantToOneState>;
 
   constructor(state: VariantToOneState) {
-    this.state = Object.freeze(state);
-    this.internal = Object.freeze({
-      state: this.state,
+    this.#state = Object.freeze(state);
+    this.#internal = Object.freeze({
+      state: this.#state,
       settleTarget: createTargetSettlement((variantKey) =>
-        readVariantGetter(this.state, variantKey)
+        readVariantGetter(this.#state, variantKey)
       ),
     });
   }
 
   name(name: string): VariantToOne {
     return new VariantToOne({
-      ...this.state,
+      ...this.#state,
       name: normalizeRelationName("s.toOne", name),
     });
   }
 
   optional(): VariantToOne {
-    return new VariantToOne({ ...this.state, optional: true });
+    return new VariantToOne({ ...this.#state, optional: true });
   }
 
   get "~"(): RelationInternal<VariantToOneState> {
-    return this.internal;
+    return this.#internal;
   }
 }
 
 class VariantToMany {
-  private readonly state: VariantToManyState;
-  private readonly internal: RelationInternal<VariantToManyState>;
+  readonly #state: VariantToManyState;
+  readonly #internal: RelationInternal<VariantToManyState>;
 
   constructor(state: VariantToManyState) {
-    this.state = Object.freeze(state);
-    this.internal = Object.freeze({
-      state: this.state,
+    this.#state = Object.freeze(state);
+    this.#internal = Object.freeze({
+      state: this.#state,
       settleTarget: createTargetSettlement((variantKey) =>
-        readVariantGetter(this.state, variantKey)
+        readVariantGetter(this.#state, variantKey)
       ),
     });
   }
 
   name(name: string): VariantToMany {
     return new VariantToMany({
-      ...this.state,
+      ...this.#state,
       name: normalizeRelationName("s.toMany", name),
     });
   }
 
   through(map: unknown): VariantToMany {
     return new VariantToMany({
-      ...this.state,
+      ...this.#state,
       target: {
         kind: "variants",
-        entries: foldMemberJunctions(this.state.target.entries, map),
+        entries: foldMemberJunctions(this.#state.target.entries, map),
       },
     });
   }
 
   get "~"(): RelationInternal<VariantToManyState> {
-    return this.internal;
+    return this.#internal;
   }
 }
 

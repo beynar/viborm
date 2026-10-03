@@ -11,6 +11,7 @@ import {
   NotNullConstraintError,
   QueryError,
   TransactionError,
+  type TransactionErrorCode,
   UniqueConstraintError,
   ValueTooLongError,
   type VibORMError,
@@ -25,31 +26,6 @@ import {
 } from "./driver-error-context";
 import type { Dialect } from "./types";
 
-const POSTGRES_UNIQUE = "23505";
-const POSTGRES_FOREIGN_KEY = "23503";
-// restrict_violation — a RESTRICT referential action refused the write. Stock
-// PostgreSQL folds it into 23503; pg-wire servers (CockroachDB) raise it as its
-// own SQLSTATE with the same foreign-key metadata.
-const POSTGRES_RESTRICT_VIOLATION = "23001";
-const POSTGRES_NOT_NULL = "23502";
-const POSTGRES_CHECK = "23514";
-// string_data_right_truncation — Prisma maps this SQLSTATE to LengthMismatch/P2000
-// (quaint/src/connector/postgres/error.rs)
-const POSTGRES_VALUE_TOO_LONG = "22001";
-const POSTGRES_SERIALIZATION = "40001";
-const POSTGRES_DEADLOCK = "40P01";
-
-const MYSQL_UNIQUE = 1062;
-const MYSQL_FOREIGN_KEY = 1452;
-const MYSQL_FOREIGN_KEY_ROW_IS_REFERENCED = 1451;
-const MYSQL_NOT_NULL = 1048;
-const MYSQL_CHECK = 3819;
-// ER_DATA_TOO_LONG — Prisma maps errno 1406 to LengthMismatch/P2000
-// (quaint/src/connector/mysql/error.rs). SQLite has no counterpart: it does not enforce
-// declared column lengths, and quaint's SQLite connector leaves SQLITE_TOOBIG unmapped.
-const MYSQL_DATA_TOO_LONG = 1406;
-const MYSQL_DEADLOCK = 1213;
-const MYSQL_LOCK_WAIT_TIMEOUT = 1205;
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
 const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
 // Symbolic BUSY/LOCKED codes are the exact base name or an underscore-delimited
@@ -160,6 +136,136 @@ function isSQLiteContention(
 }
 
 /**
+ * A recognized failure's class, called with one options shape. `QueryError`
+ * is not one: it is the unrecognized fallback, and its `code` family differs.
+ */
+type FailureClass = new (
+  message: string,
+  options: {
+    cause: Error;
+    code: TransactionErrorCode | undefined;
+    diagnostics: DiagnosticDisclosure | undefined;
+    meta: VibORMErrorMeta;
+  }
+) => DriverFailure;
+
+/** What one recognized provider failure becomes: class, message, and code when the class has a family. */
+type FailureConstruction = readonly [
+  failure: FailureClass,
+  message: string,
+  code?: TransactionErrorCode | undefined,
+  ...rest: unknown[],
+];
+
+type ProviderFailure = readonly [
+  failure: FailureClass,
+  message: string,
+  code: TransactionErrorCode | undefined,
+  /** PostgreSQL SQLSTATEs and SQLite extended symbolic codes, matched against `code`. */
+  providerCodes: readonly unknown[],
+  /** MySQL errnos, matched against `errno`. */
+  mysqlErrnos: readonly unknown[],
+  /** MySQL symbolic names, matched against `code`. */
+  mysqlNames: readonly unknown[],
+  /** A fragment of the SQLite message that names this failure. */
+  sqliteMessage?: string,
+  /** Whether that SQLite message lists the failing columns. */
+  sqliteColumns?: true,
+];
+
+const ASSERTION_FAILURE: FailureConstruction = [
+  NestedWriteAssertionError,
+  NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
+];
+// DEADLOCK code so the write-race retry logic treats it as retryable
+const SQLITE_CONTENTION_FAILURE: FailureConstruction = [
+  TransactionError,
+  "Database is locked",
+  VibORMErrorCode.DEADLOCK,
+];
+
+/**
+ * The recognized provider failures. Precedence is the table read three times:
+ * every row's provider code first, then every row's MySQL errno or name, then
+ * (after SQLite lock contention) every row's SQLite message fragment. Within a
+ * pass, the earlier row wins, so a MySQL errno outranks a later row's name.
+ */
+const PROVIDER_FAILURES: readonly ProviderFailure[] = [
+  [
+    UniqueConstraintError,
+    "Unique constraint violation",
+    undefined,
+    ["23505", "SQLITE_CONSTRAINT_UNIQUE"],
+    [1062],
+    ["ER_DUP_ENTRY"],
+    "UNIQUE constraint failed",
+    true,
+  ],
+  [
+    ForeignKeyError,
+    "Foreign key constraint violation",
+    undefined,
+    // 23001 is restrict_violation — a RESTRICT referential action refused the
+    // write. Stock PostgreSQL folds it into 23503; pg-wire servers (CockroachDB)
+    // raise it as its own SQLSTATE with the same foreign-key metadata.
+    ["23503", "23001", "SQLITE_CONSTRAINT_FOREIGNKEY"],
+    // 1451 is ER_ROW_IS_REFERENCED_2: the parent row is still referenced.
+    [1452, 1451],
+    ["ER_NO_REFERENCED_ROW_2", "ER_ROW_IS_REFERENCED_2"],
+    "FOREIGN KEY constraint failed",
+  ],
+  [
+    NotNullConstraintError,
+    "Not-null constraint violation",
+    undefined,
+    ["23502", "SQLITE_CONSTRAINT_NOTNULL"],
+    [1048],
+    ["ER_BAD_NULL_ERROR"],
+    "NOT NULL constraint failed",
+    true,
+  ],
+  [
+    CheckConstraintError,
+    "Check constraint violation",
+    undefined,
+    ["23514", "SQLITE_CONSTRAINT_CHECK"],
+    [3819],
+    ["ER_CHECK_CONSTRAINT_VIOLATED"],
+    "CHECK constraint failed",
+  ],
+  [
+    ValueTooLongError,
+    "Value too long for column type",
+    undefined,
+    // 22001 is string_data_right_truncation and MySQL errno 1406 is
+    // ER_DATA_TOO_LONG; Prisma maps both to LengthMismatch/P2000
+    // (quaint/src/connector/{postgres,mysql}/error.rs). SQLite has no
+    // counterpart: it does not enforce declared column lengths, and quaint's
+    // SQLite connector leaves SQLITE_TOOBIG unmapped.
+    ["22001"],
+    [1406],
+    ["ER_DATA_TOO_LONG"],
+  ],
+  [
+    TransactionError,
+    "Transaction serialization failure",
+    VibORMErrorCode.SERIALIZATION_FAILURE,
+    ["40001"],
+    [],
+    [],
+  ],
+  [
+    TransactionError,
+    "Transaction deadlock detected",
+    VibORMErrorCode.DEADLOCK,
+    // 1205 is ER_LOCK_WAIT_TIMEOUT, classified with the deadlock.
+    ["40P01"],
+    [1213, 1205],
+    ["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"],
+  ],
+];
+
+/**
  * Every error class {@link mapProviderError} constructs — the driver layer's failure
  * vocabulary, named so it is visible at the call sites instead of erased to `Error`.
  *
@@ -185,12 +291,11 @@ export type DriverFailure =
  *
  * Two arms, and the type is the union of both. A raw provider error is mapped to a
  * {@link DriverFailure}. An error that is ALREADY a VibORM error is passed through with
- * execution context attached — and that arm is honestly `VibORMError`, not `DriverFailure`,
- * for two independent reasons: the incoming error can be any VibORM error the layers above
- * threw (a `ValidationError`, an engine refusal), and `attachExecutionContext` clones through
- * `getCloneConstructor`, whose prototype table does not list every class — a re-normalized
- * `ValueTooLongError` comes back as a bare `VibORMError` (measured, `driver-error-context.ts`).
- * Typing the whole function `DriverFailure` would be a claim neither arm can keep.
+ * execution context attached — and that arm is honestly `VibORMError`, not `DriverFailure`:
+ * the incoming error can be any VibORM error the layers above threw (a `ValidationError`, an
+ * engine refusal), `attachExecutionContext` clones it under its own class, and a stateful
+ * class it cannot rebuild degrades to the base `VibORMError` (`driver-error-context.ts`).
+ * Typing the whole function `DriverFailure` would be a claim this arm cannot keep.
  */
 export type NormalizedDriverError = DriverFailure | VibORMError;
 
@@ -212,7 +317,8 @@ export function normalizeDriverError(
  * Map a raw provider error onto the {@link DriverFailure} vocabulary. Split out of
  * {@link normalizeDriverError} so the constructed union has a return type to be checked
  * against — the passthrough arm above cannot carry that annotation, and a function has one
- * return type. The body is the mapping exactly as it was; only its type is new.
+ * return type. {@link recognizeProviderFailure} decides which failure it is; this is the
+ * one place it is constructed.
  */
 function mapProviderError(
   error: unknown,
@@ -224,168 +330,63 @@ function mapProviderError(
   const meta = buildMeta(dbError, context, rawMessage);
   const code = dbError.code;
   const errno = dbError.errno ?? parseMessageErrno(rawMessage);
-  const diagnostics = context.diagnostics;
   if (errno !== undefined && meta.providerErrno === undefined) {
     meta.providerErrno = errno;
   }
 
-  if (
-    context.query?.includes(ASSERTION_MARKER) &&
-    isAssertionFailure(code, errno, rawMessage)
-  ) {
-    return new NestedWriteAssertionError(NESTED_WRITE_ASSERTION_FLOOR_MESSAGE, {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (code === POSTGRES_UNIQUE || code === "SQLITE_CONSTRAINT_UNIQUE") {
-    return new UniqueConstraintError("Unique constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (
-    code === POSTGRES_FOREIGN_KEY ||
-    code === POSTGRES_RESTRICT_VIOLATION ||
-    code === "SQLITE_CONSTRAINT_FOREIGNKEY"
-  ) {
-    return new ForeignKeyError("Foreign key constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (code === POSTGRES_NOT_NULL || code === "SQLITE_CONSTRAINT_NOTNULL") {
-    return new NotNullConstraintError("Not-null constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (code === POSTGRES_CHECK || code === "SQLITE_CONSTRAINT_CHECK") {
-    return new CheckConstraintError("Check constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (code === POSTGRES_VALUE_TOO_LONG) {
-    return new ValueTooLongError("Value too long for column type", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (code === POSTGRES_SERIALIZATION) {
-    return new TransactionError("Transaction serialization failure", {
-      cause,
-      diagnostics,
-      meta,
-      code: VibORMErrorCode.SERIALIZATION_FAILURE,
-    });
-  }
-
-  if (code === POSTGRES_DEADLOCK) {
-    return new TransactionError("Transaction deadlock detected", {
-      cause,
-      diagnostics,
-      meta,
-      code: VibORMErrorCode.DEADLOCK,
-    });
-  }
-
-  if (errno === MYSQL_UNIQUE || code === "ER_DUP_ENTRY") {
-    return new UniqueConstraintError("Unique constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (
-    errno === MYSQL_FOREIGN_KEY ||
-    errno === MYSQL_FOREIGN_KEY_ROW_IS_REFERENCED ||
-    code === "ER_NO_REFERENCED_ROW_2" ||
-    code === "ER_ROW_IS_REFERENCED_2"
-  ) {
-    return new ForeignKeyError("Foreign key constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (errno === MYSQL_NOT_NULL || code === "ER_BAD_NULL_ERROR") {
-    return new NotNullConstraintError("Not-null constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (errno === MYSQL_CHECK || code === "ER_CHECK_CONSTRAINT_VIOLATED") {
-    return new CheckConstraintError("Check constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (errno === MYSQL_DATA_TOO_LONG || code === "ER_DATA_TOO_LONG") {
-    return new ValueTooLongError("Value too long for column type", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (
-    errno === MYSQL_DEADLOCK ||
-    errno === MYSQL_LOCK_WAIT_TIMEOUT ||
-    code === "ER_LOCK_DEADLOCK" ||
-    code === "ER_LOCK_WAIT_TIMEOUT"
-  ) {
-    return new TransactionError("Transaction deadlock detected", {
-      cause,
-      diagnostics,
-      meta,
-      code: VibORMErrorCode.DEADLOCK,
-    });
-  }
-
-  if (isSQLiteContention(code, errno, rawMessage, context.dialect)) {
-    // DEADLOCK code so the write-race retry logic treats it as retryable
-    return new TransactionError("Database is locked", {
-      cause,
-      diagnostics,
-      meta,
-      code: VibORMErrorCode.DEADLOCK,
-    });
-  }
-
-  const sqliteConstraint = mapSQLiteConstraint(
+  const diagnostics = context.diagnostics;
+  const recognized = recognizeProviderFailure(
+    code,
+    errno,
     rawMessage,
     meta,
-    cause,
-    diagnostics
+    context
   );
-  if (sqliteConstraint) {
-    return sqliteConstraint;
+  if (!recognized) {
+    return new QueryError("Query execution failed", {
+      cause,
+      diagnostics,
+      meta,
+    });
   }
-
-  return new QueryError("Query execution failed", {
+  const [Failure, message, failureCode] = recognized;
+  return new Failure(message, {
     cause,
+    code: failureCode,
     diagnostics,
     meta,
   });
+}
+
+/**
+ * Which failure a raw provider error is. An assertion statement's own failure
+ * comes first; then {@link PROVIDER_FAILURES} in its three passes, with SQLite
+ * lock contention before the SQLite message pass. Anything else is not
+ * recognized.
+ */
+function recognizeProviderFailure(
+  code: string | number | undefined,
+  errno: number | undefined,
+  message: string,
+  meta: VibORMErrorMeta,
+  context: DriverErrorContext
+): FailureConstruction | undefined {
+  if (
+    context.query?.includes(ASSERTION_MARKER) &&
+    isAssertionFailure(code, errno, message)
+  ) {
+    return ASSERTION_FAILURE;
+  }
+  const recognized =
+    PROVIDER_FAILURES.find((row) => row[3].includes(code)) ??
+    PROVIDER_FAILURES.find(
+      (row) => row[4].includes(errno) || row[5].includes(code)
+    );
+  if (recognized) return recognized;
+  if (isSQLiteContention(code, errno, message, context.dialect)) {
+    return SQLITE_CONTENTION_FAILURE;
+  }
+  return findSQLiteMessageFailure(message, meta);
 }
 
 /**
@@ -503,61 +504,19 @@ function parseMessageErrno(message: string): number | undefined {
   return match?.[1] ? Number(match[1]) : undefined;
 }
 
-function mapSQLiteConstraint(
+/**
+ * The first row whose SQLite message fragment the provider message carries, in
+ * table order. UNIQUE and NOT NULL messages also name their columns.
+ */
+function findSQLiteMessageFailure(
   message: string,
-  meta: VibORMErrorMeta,
-  cause: Error,
-  diagnostics: DiagnosticDisclosure | undefined
-):
-  | CheckConstraintError
-  | ForeignKeyError
-  | NotNullConstraintError
-  | UniqueConstraintError
-  | undefined {
-  const isSQLiteConstraint =
-    message.includes("SQLITE_CONSTRAINT") ||
-    message.includes("UNIQUE constraint failed") ||
-    message.includes("FOREIGN KEY constraint failed") ||
-    message.includes("NOT NULL constraint failed") ||
-    message.includes("CHECK constraint failed");
-
-  if (!isSQLiteConstraint) {
-    return undefined;
-  }
-
-  if (message.includes("UNIQUE constraint failed")) {
-    return new UniqueConstraintError("Unique constraint violation", {
-      cause,
-      diagnostics,
-      meta: { ...meta, columns: parseSQLiteColumns(message) },
-    });
-  }
-
-  if (message.includes("FOREIGN KEY constraint failed")) {
-    return new ForeignKeyError("Foreign key constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  if (message.includes("NOT NULL constraint failed")) {
-    return new NotNullConstraintError("Not-null constraint violation", {
-      cause,
-      diagnostics,
-      meta: { ...meta, columns: parseSQLiteColumns(message) },
-    });
-  }
-
-  if (message.includes("CHECK constraint failed")) {
-    return new CheckConstraintError("Check constraint violation", {
-      cause,
-      diagnostics,
-      meta,
-    });
-  }
-
-  return undefined;
+  meta: VibORMErrorMeta
+): ProviderFailure | undefined {
+  const row = PROVIDER_FAILURES.find(
+    (candidate) => candidate[6] && message.includes(candidate[6])
+  );
+  if (row?.[7]) meta.columns = parseSQLiteColumns(message);
+  return row;
 }
 
 function parseSQLiteColumns(message: string): string[] | undefined {

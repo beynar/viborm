@@ -175,11 +175,10 @@ Sequential transaction fallback preserves statement semantics: model and safe
 verbatim raw statements use raw execution. Do not infer rawness from a public
 shape or add a public batch discriminant.
 
-Provider transport is borrowed by default. Only the exact stock SQLite3 and
-PGlite drivers with their internally created active client and unchanged typed
-execution/parser surfaces can become a consumable-result candidate. A supplied
-client, subclass, execution override, parser middleware, cache-managed read,
-transaction, array batch, raw call, or manual parser entry stays borrowed.
+Provider transport is borrowed by default. Only the exact stock SQLite3 driver
+with unchanged typed execution/parser surfaces hands out its provider's own
+positional rows (`src/drivers/positional-result.ts`). A subclass, execution
+override, parser middleware, or foreign client stays borrowed.
 
 The executor keeps execute → proof → parse lexical: execute the exact typed
 entry, recheck the same active producer, then synchronously parse that exact
@@ -442,6 +441,24 @@ succeeds, because a provider may have made its handle unusable before rejecting.
 No replacement transport is created while cleanup is unresolved.
 Provider-specific listeners and retained failure state follow the same
 proven-success boundary.
+
+### Why some classes use `#private` and others TypeScript `private`
+TypeScript `private` names survive minification as full property names; ES
+`#private` names are mangled, which is what keeps the shipped bundle small. New
+private members are `#private` by default. The exceptions are members whose
+methods run with a receiver other than an instance the class constructed, which
+`#private` refuses with a TypeError:
+
+- `src/drivers/` and `src/migrations/`: a driver is delegated through
+  `Object.create(driver)` (migration command views, pinned sessions).
+- `src/sql/`: `Sql` copies cross the safe-raw inspection surfaces.
+- `src/schema/scalars/`: builder methods are deliberately borrowable across
+  kinds; schema validation, not a TypeError, refuses the result.
+
+TypeScript also refuses `a?.#x`, so a member read through an optional chain
+stays `private`. Tests observe behaviour, never a private member: a test that
+patches a prototype method to count calls pins an implementation, not a
+contract.
 
 ### Why OTel is dynamically imported
 OpenTelemetry is an optional peer dependency. Most users don't need tracing. Dynamic `import()` with catch allows graceful degradation when `@opentelemetry/api` isn't installed.

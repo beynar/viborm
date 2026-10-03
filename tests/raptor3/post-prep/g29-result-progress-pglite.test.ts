@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { QueryEngineError, VibORMErrorCode } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -109,7 +109,7 @@ describe("G2.9 generated-result progress [commands]", () => {
       let value: unknown;
       let failure: unknown;
       try {
-        value = await createCommandEngine({ schema, driver }).execute(
+        value = await createTestCommandEngine({ schema, driver }).execute(
           "entity",
           "create",
           { data: { label: "written" } }

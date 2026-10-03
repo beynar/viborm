@@ -3,10 +3,10 @@ import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { TransactionError, ValidationError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import { s } from "@schema";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
@@ -71,7 +71,7 @@ class BatchOnlySQLiteDriver extends RecordingSQLiteDriver {
   }
 }
 
-type Candidate = ReturnType<typeof createCommandEngine>;
+type Candidate = ReturnType<typeof createTestCommandEngine>;
 
 function prepareCandidateBatch(
   candidate: Candidate,
@@ -126,7 +126,10 @@ describe("G3P-03 scalar set mutation", () => {
       );
     `);
     const driver = new RecordingSQLiteDriver({ client: database });
-    const candidate = createCommandEngine({ schema: { setRecord }, driver });
+    const candidate = createTestCommandEngine({
+      schema: { setRecord },
+      driver,
+    });
     try {
       await expect(
         candidate.execute("setRecord", "createMany", {
@@ -212,7 +215,10 @@ describe("G3P-03 existing array-owner composition", () => {
     `);
     const driver = new BatchOnlySQLiteDriver({ client: database });
     const client = createClient({ schema: { setRecord }, driver });
-    const candidate = createCommandEngine({ schema: { setRecord }, driver });
+    const candidate = createTestCommandEngine({
+      schema: { setRecord },
+      driver,
+    });
     const operation = (args: unknown) =>
       overrideTransactionOperation(client.setRecord.findMany(), {
         prepare: () => undefined,
@@ -273,7 +279,10 @@ describe("G3P-03 existing array-owner composition", () => {
     const database = createPackageDatabase();
     const driver = new BatchOnlySQLiteDriver({ client: database });
     const client = createClient({ schema: packageSchema, driver });
-    const candidate = createCommandEngine({ schema: packageSchema, driver });
+    const candidate = createTestCommandEngine({
+      schema: packageSchema,
+      driver,
+    });
     const packages: PreparedBatchOperation<unknown>[] = [];
     const operation = (label: string) => {
       const source = client.packageParent.findMany();
@@ -358,7 +367,10 @@ describe("G3P-03 existing array-owner composition", () => {
     `);
     const driver = new BatchOnlySQLiteDriver({ client: database });
     const client = createClient({ schema: packageSchema, driver });
-    const candidate = createCommandEngine({ schema: packageSchema, driver });
+    const candidate = createTestCommandEngine({
+      schema: packageSchema,
+      driver,
+    });
     const complete = overrideTransactionOperation(
       client.packageParent.findMany(),
       {
@@ -425,7 +437,10 @@ describe("G3P-03 existing array-owner composition", () => {
     `);
     const driver = new BatchOnlySQLiteDriver({ client: database });
     const client = createClient({ schema: packageSchema, driver });
-    const candidate = createCommandEngine({ schema: packageSchema, driver });
+    const candidate = createTestCommandEngine({
+      schema: packageSchema,
+      driver,
+    });
     const operation = (parent: string, child: string) =>
       overrideTransactionOperation(client.packageParent.findMany(), {
         prepare: () => undefined,
@@ -474,7 +489,10 @@ describe("G3 scalar updateMany package result", () => {
     `);
     const driver = new BatchOnlySQLiteDriver({ client: database });
     const client = createClient({ schema: packageSchema, driver });
-    const candidate = createCommandEngine({ schema: packageSchema, driver });
+    const candidate = createTestCommandEngine({
+      schema: packageSchema,
+      driver,
+    });
     const input = {
       where: { id: 10 },
       data: { label: { set: "selected" } },

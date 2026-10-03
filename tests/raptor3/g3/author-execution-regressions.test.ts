@@ -12,7 +12,7 @@ import {
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import { s } from "@schema";
 import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
@@ -200,7 +200,7 @@ describe("G3-02 author execution regressions", () => {
     });
     const loneClient = createClient({ schema: loneSchema, driver: loneDriver });
     assert.equal((await syncLiveSchema(loneClient)).applied, true);
-    const loneCandidate = createCommandEngine({
+    const loneCandidate = createTestCommandEngine({
       schema: loneSchema,
       driver: loneDriver,
     });
@@ -299,7 +299,7 @@ describe("G3-02 author execution regressions", () => {
       driver: batchDriver,
     });
     assert.equal((await syncLiveSchema(batchClient)).applied, true);
-    const batchCandidate = createCommandEngine({
+    const batchCandidate = createTestCommandEngine({
       schema: batchSchema,
       driver: batchDriver,
     });
@@ -405,7 +405,7 @@ describe("G3-02 author execution regressions", () => {
     const migration = await syncLiveSchema(client);
     assert.equal(migration.applied, true);
     driver.maxBindParametersPerStatement = 8;
-    const candidate = createCommandEngine({ schema, driver });
+    const candidate = createTestCommandEngine({ schema, driver });
     let prepared: PreparedBatchOperation<unknown> | undefined;
     const preparedSeries: PreparedBatchOperation<unknown>[] = [];
     const create = overrideTransactionOperation(client.record.findMany(), {
@@ -599,7 +599,7 @@ describe("G3-02 author execution regressions", () => {
     const interactiveMigration = await syncLiveSchema(interactiveClient);
     assert.equal(interactiveMigration.applied, true);
     interactiveDriver.maxBindParametersPerStatement = 1;
-    const interactiveCandidate = createCommandEngine({
+    const interactiveCandidate = createTestCommandEngine({
       schema,
       driver: interactiveDriver,
     });
@@ -636,7 +636,7 @@ describe("G3-02 author execution regressions", () => {
     const batchMigration = await syncLiveSchema(batchClient);
     assert.equal(batchMigration.applied, true);
     batchDriver.maxBindParametersPerStatement = 1;
-    const batchCandidate = createCommandEngine({ schema, driver: batchDriver });
+    const batchCandidate = createTestCommandEngine({ schema, driver: batchDriver });
     batchDriver.statements.length = 0;
     batchDriver.batchCalls = 0;
     try {

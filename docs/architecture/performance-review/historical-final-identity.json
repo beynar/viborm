@@ -1,0 +1,15 @@
+{
+  "cold-construction-base": {
+    "source": "8f2f51dab33d49fec0aa546a809f7f8c01ca27e8d6f6f6eda1be848619ab09c0",
+    "dist": "f40854389b003e162d8302e9cf032803c481442ce41d7081df4185d28caa6418"
+  },
+  "cold-construction-v2": {
+    "source": "c8c5813fd98575de359074d08cc82458d90a97731ae25b61cb185808a8d4216a",
+    "dist": "8000e0ff0d5d569b1252d00259d8eaf452badafca1013f791b9d99b04c5a7beb"
+  },
+  "cold-construction-final": {
+    "source": "0aa39025ce457303a084cf4cafd7f973ce1754fdd9ac9f178cbb6f848262123c",
+    "dist": "8000e0ff0d5d569b1252d00259d8eaf452badafca1013f791b9d99b04c5a7beb"
+  },
+  "finalModulesIdenticalToV2": true
+}

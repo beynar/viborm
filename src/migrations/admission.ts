@@ -8,6 +8,7 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { BoundMigrationDriver } from "./drivers";
+import { canPinSession } from "./pinned-session";
 import { formatMigrationTarget, readNamespaceAttestation } from "./target";
 
 /**
@@ -107,7 +108,7 @@ export function admitLiveMigrationCapability(
  * work. Its qualified runtime, read-only introspection, status/log, push
  * dry-run, and every offline path stay available.
  *
- * The answer is the driver's own `_canPinSession()` — the presence of its
+ * The answer is `canPinSession(driver)` — the presence of the driver's own
  * pinned-session hook — so nothing declares a capability it does not implement,
  * and a custom PostgreSQL driver is judged by the same fact as a stock one.
  */
@@ -158,7 +159,7 @@ function admitPinnedSessionCapability(
   if (requirement !== "effectful") {
     return;
   }
-  if (migrationDriver.executionDriver._canPinSession()) {
+  if (canPinSession(migrationDriver.executionDriver)) {
     return;
   }
   throw new MigrationError(

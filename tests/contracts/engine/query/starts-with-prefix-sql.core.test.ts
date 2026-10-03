@@ -7,10 +7,13 @@ import {
   escapeLikeLiteral,
 } from "@adapters/shared/standard-sql";
 import type { Dialect } from "@drivers";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -109,7 +112,7 @@ function buildDocQuery(
   args: Record<string, unknown>
 ) {
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-  const engine = new QueryEngine(
+  const engine = new TestQueryEngine(
     new SqlOnlyDriver(dialectCase.createAdapter(), dialectCase.dialect),
     registry
   );

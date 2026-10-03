@@ -1,4 +1,4 @@
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import { verifyG0Pair } from "../harness/replay";
 import { runSQLiteWorld } from "../harness/sqlite-world";
@@ -13,7 +13,7 @@ describe.each(
       const baseline = await runSQLiteWorld(scenario, profile, 0);
       baseline.fixture.assert(baseline.observation);
       const candidate = await runSQLiteWorld(scenario, profile, 0, {
-        candidateFactory: createCommandEngine,
+        candidateFactory: createTestCommandEngine,
         candidateName: "commands",
       });
       verifyG0Pair(baseline, candidate);

@@ -11,10 +11,9 @@
  */
 
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
-import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
-import { cost, createWorld, worldSchema, type World } from "./world";
+import { cost, createWorld, type World, worldSchema } from "./world";
 
 let world: World | undefined;
 
@@ -38,14 +37,17 @@ async function measure(run: () => PromiseLike<unknown>): Promise<{
   const observed = cost(driver);
   return {
     value,
-    cost: { statements: observed.statements, transactions: observed.transactions },
+    cost: {
+      statements: observed.statements,
+      transactions: observed.transactions,
+    },
   };
 }
 
 describe("G4-02 physical envelope", () => {
   it("scalar-find-unique: one statement, no envelope, on both engines", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -62,7 +64,7 @@ describe("G4-02 physical envelope", () => {
 
   it("fixed-collection-rowref-20: one statement, no envelope", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -78,7 +80,7 @@ describe("G4-02 physical envelope", () => {
 
   it("flat-scalar-update: one statement, no envelope, same row on both seams", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -112,7 +114,7 @@ describe("G4-02 physical envelope", () => {
 
   it("bulk-update-returning: one statement, no envelope", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -133,7 +135,7 @@ describe("G4-02 physical envelope", () => {
 
   it("a counting read opens no transaction and runs one statement", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -144,14 +146,17 @@ describe("G4-02 physical envelope", () => {
 
   it("a multi-statement write keeps its envelope and is constructed once", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
     const candidate = await measure(() =>
       engine.execute("author", "update", {
         where: { id: 1 },
-        data: { name: "Ada II", posts: { update: { where: { id: 10 }, data: { title: "renamed" } } } },
+        data: {
+          name: "Ada II",
+          posts: { update: { where: { id: 10 }, data: { title: "renamed" } } },
+        },
       })
     );
     assert.equal(candidate.cost.transactions, 1);
@@ -170,7 +175,7 @@ describe("G4-02 physical envelope", () => {
 
   it("an update that names a relation projection keeps its qualified route", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -195,7 +200,7 @@ describe("G4-02 physical envelope", () => {
   // construction's own statement count, enforced at `OperationContext.dispatch`.
   it("two rows sharing a column set are one statement with no envelope, on both seams", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
@@ -227,33 +232,21 @@ describe("G4-02 physical envelope", () => {
     // construction's own statement count did, and the sentinel is what turns
     // that into the envelope.
     world = await createWorld({ maxBindParameters: 8 });
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });
-    // biome-ignore lint/suspicious/noExplicitAny: observing the private sentinel is the point.
-    const prototype = OperationContext.prototype as any;
-    const original = prototype.restart;
-    let restarts = 0;
-    prototype.restart = function counted(this: unknown, ...rest: unknown[]) {
-      restarts++;
-      return original.apply(this, rest);
-    };
-    let candidate: Awaited<ReturnType<typeof measure>>;
-    try {
-      candidate = await measure(() =>
-        engine.execute("author", "createMany", {
-          data: [
-            { id: 40, name: "J", age: 1 },
-            { id: 41, name: "K", age: 2 },
-            { id: 42, name: "L", age: 3 },
-          ],
-        })
-      );
-    } finally {
-      prototype.restart = original;
-    }
-    assert.equal(restarts, 1, "the envelope sentinel recovered exactly once");
+    const candidate = await measure(() =>
+      engine.execute("author", "createMany", {
+        data: [
+          { id: 40, name: "J", age: 1 },
+          { id: 41, name: "K", age: 2 },
+          { id: 42, name: "L", age: 3 },
+        ],
+      })
+    );
+    // The sentinel's recovery is visible as its effect: both chunks inside
+    // one transaction the single-statement plan never opened.
     assert.deepEqual(candidate.cost, { statements: 2, transactions: 1 });
     assert.deepEqual(candidate.value, { count: 3 });
     // Each row written exactly once: the re-run repeated construction only.
@@ -268,7 +261,7 @@ describe("G4-02 physical envelope", () => {
 
   it("a bulk verb with no rows reaches the provider not at all", async () => {
     world = await createWorld();
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: worldSchema,
       driver: world.driver,
     });

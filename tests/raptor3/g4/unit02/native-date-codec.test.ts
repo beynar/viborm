@@ -21,7 +21,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { PgDriver } from "@drivers/pg";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { randomUUID } from "node:crypto";
 import { describe, it } from "vitest";
@@ -57,7 +57,7 @@ describe.runIf(provider === "pg" && port > 0)(
           `INSERT INTO ${table} (id, at) VALUES (1, DATE '2026-03-05')`
         );
         const shipped = await client.day.findMany({ orderBy: { id: "asc" } });
-        const candidate = await createCommandEngine({ schema, driver }).execute(
+        const candidate = await createTestCommandEngine({ schema, driver }).execute(
           "day",
           "findMany",
           { orderBy: { id: "asc" } }

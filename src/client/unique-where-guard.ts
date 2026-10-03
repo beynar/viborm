@@ -3,19 +3,22 @@ import type { Operation as ValidationOperation } from "@query-engine/types";
 import { isRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
 
-const UNIQUE_SELECTOR_OPERATIONS: Set<Operations> = new Set([
-  "findUnique",
-  "findUniqueOrThrow",
-  "update",
-  "delete",
-  "upsert",
-]);
+/** Each unique-selector operation, mapped to the operation its error names. */
+const UNIQUE_SELECTOR_OPERATIONS: ReadonlyMap<Operations, ValidationOperation> =
+  new Map([
+    ["findUnique", "findUnique"],
+    ["findUniqueOrThrow", "findUnique"],
+    ["update", "update"],
+    ["delete", "delete"],
+    ["upsert", "upsert"],
+  ]);
 
 export function assertNonEmptyUniqueWhere(
   operation: Operations,
   args: unknown
 ): void {
-  if (!UNIQUE_SELECTOR_OPERATIONS.has(operation)) return;
+  const validationOperation = UNIQUE_SELECTOR_OPERATIONS.get(operation);
+  if (validationOperation === undefined) return;
   if (!isRecord(args)) return;
   const where = args.where;
   if (!isRecord(where)) return;
@@ -25,26 +28,10 @@ export function assertNonEmptyUniqueWhere(
   );
   if (hasDiscriminator) return;
 
-  throw new ValidationError(toUniqueValidationOperation(operation), [
+  throw new ValidationError(validationOperation, [
     {
       path: "where",
       message: "whereUnique requires at least one unique discriminator.",
     },
   ]);
-}
-
-function toUniqueValidationOperation(
-  operation: Operations
-): ValidationOperation {
-  switch (operation) {
-    case "findUnique":
-    case "update":
-    case "delete":
-    case "upsert":
-      return operation;
-    case "findUniqueOrThrow":
-      return "findUnique";
-    default:
-      throw new Error(`Unexpected unique selector operation: ${operation}`);
-  }
 }

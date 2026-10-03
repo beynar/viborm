@@ -2,28 +2,13 @@ import type { ScalarState } from "@schema/scalars/common";
 import v, { type V } from "../primitives/v";
 import {
   type ArithmeticUpdateSchema,
-  arithmeticUpdateFamily,
   type ComparisonFilterSchema,
-  comparisonFilterFamily,
-  createScalarInterners,
-  internedScalarSchemas,
+  comparableScalar,
   type ListFilterSchema,
   type ListUpdateSchema,
-  listFilterFamily,
-  listUpdateFamily,
 } from "./family";
-import { scalarInternKey } from "./intern";
-
-/** This kind's member and list schemas; `family.ts` explains what they are for. */
-const intBase = v.integer();
-const intList = v.integer({ array: true });
 
 type IntegerList = V.Integer<{ array: true }>;
-
-const buildIntFilterSchema = comparisonFilterFamily("int", intBase, intList);
-const buildIntListFilterSchema = listFilterFamily(intBase, intList);
-const buildIntUpdateSchema = arithmeticUpdateFamily(intBase);
-const buildIntListUpdateSchema = listUpdateFamily(intBase, intList);
 
 export interface IntSchemas<
   F extends ScalarState<"int">,
@@ -39,23 +24,9 @@ export interface IntSchemas<
     : ComparisonFilterSchema<"int", F["base"], V.Integer, IntegerList, C>;
 }
 
-const interners = createScalarInterners();
-
-export const buildIntSchema = <
+export const buildIntSchema: <
   F extends ScalarState<"int">,
   C extends V.Operand<any> = V.Operand<any>,
 >(
   state: F
-): IntSchemas<F, C> =>
-  internedScalarSchemas<IntSchemas<F, C>>(interners, scalarInternKey(state), {
-    base: state.base,
-    create: () => v.integer(state),
-    update: () =>
-      state.array
-        ? buildIntListUpdateSchema(state.base)
-        : buildIntUpdateSchema(state.base),
-    filter: () =>
-      state.array
-        ? buildIntListFilterSchema(state.base)
-        : buildIntFilterSchema(state.base),
-  });
+) => IntSchemas<F, C> = comparableScalar("int", v.integer, true);

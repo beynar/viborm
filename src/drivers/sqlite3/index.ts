@@ -14,12 +14,8 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
+import type { Sql } from "@sql";
 import Database from "better-sqlite3";
-import {
-  activateConsumableResultProducer,
-  deactivateConsumableResultProducer,
-  registerConsumableResultCandidate,
-} from "../consumable-result-candidate";
 import {
   type AnyDriver,
   Driver,
@@ -27,20 +23,67 @@ import {
   type QueryExecutionContext,
 } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
+import { assertNormalizedQueryResult } from "../normalized-result";
 import {
-  convertValuesForSQLite,
+  assertPositionalRows,
+  borrowPositionalResult,
+  type ProjectionExecutionResult,
+  registerPositionalResultDriver,
+} from "../positional-result";
+import {
+  convertValueForSQLite,
   isSQLiteBinaryValue,
   runTransactionLifecycle,
   sqliteBinaryToUint8Array,
   sqliteResultParser,
   type TransactionOptionSupport,
 } from "../shared";
+import { parseSQLiteField } from "../shared/sqlite-utils";
 import type { QueryResult } from "../types";
 
 type SQLite3Database = Database.Database;
+type SQLite3Statement = Database.Statement;
+
+/**
+ * Compiling SQL costs about as much as running a small read (~4 µs), and the
+ * engine emits the same text for the same query shape, so each database keeps
+ * its recent statements: one map for positional reads (raw, safe integers) and
+ * one for keyed reads and writes, since a statement's modes are its own state.
+ * Only a stock `prepare` is bypassed; a database whose `prepare` was replaced
+ * sees every call. Oldest-first eviction bounds the native memory held.
+ */
+const STATEMENT_CACHE_LIMIT = 100;
+const statementCaches = new WeakMap<
+  SQLite3Database,
+  readonly [Map<string, SQLite3Statement>, Map<string, SQLite3Statement>]
+>();
+const stockPrepare = Database.prototype.prepare;
+
+function cachedStatement(
+  db: SQLite3Database,
+  sql: string,
+  positional: boolean
+): SQLite3Statement {
+  if (db.prepare !== stockPrepare) return db.prepare(sql);
+  let caches = statementCaches.get(db);
+  if (!caches) {
+    caches = [new Map(), new Map()];
+    statementCaches.set(db, caches);
+  }
+  const cache = caches[positional ? 0 : 1];
+  let statement = cache.get(sql);
+  if (statement === undefined) {
+    statement = db.prepare(sql);
+    if (cache.size === STATEMENT_CACHE_LIMIT)
+      cache.delete(cache.keys().next().value as string);
+    cache.set(sql, statement);
+  }
+  return statement;
+}
 
 function convertValuesForSQLite3(values: unknown[]): unknown[] {
-  return convertValuesForSQLite(values).map((value) => {
+  return values.map((parameter) => {
+    const value = convertValueForSQLite(parameter);
     if (Buffer.isBuffer(value) || !isSQLiteBinaryValue(value)) {
       return value;
     }
@@ -74,6 +117,11 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   private static readonly canonicalExecute = SQLite3Driver.prototype.execute;
   private static readonly canonicalRunStatement =
     SQLite3Driver.prototype.runStatement;
+  private static readonly canonicalTypedStatement =
+    SQLite3Driver.prototype.executeTypedStatement;
+  private static readonly canonicalPositionalExecute =
+    SQLite3Driver.prototype.executePositional;
+  private static readonly canonicalNativePrepare = Database.prototype.prepare;
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 999;
   readonly result: DriverResultParser = sqliteResultParser;
@@ -90,6 +138,11 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   private readonly suppliedClient: SQLite3Database | undefined;
   private readonly canonicalAdapterParseResult =
     this.adapter.result.parseResult;
+  private readonly canonicalAdapter = this.adapter;
+  private readonly canonicalAdapterResult = this.adapter.result;
+  private readonly canonicalAdapterParseField = this.adapter.result.parseField;
+  private readonly canonicalAdapterParseRelation =
+    this.adapter.result.parseRelation;
 
   constructor(options: SQLite3DriverOptions = {}) {
     super("sqlite", "sqlite3");
@@ -99,12 +152,11 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     if (this.suppliedClient) {
       this.client = this.suppliedClient;
     }
-    if (SQLite3Driver.isConsumableCandidate(this)) {
-      registerConsumableResultCandidate(
+    if (SQLite3Driver.isPositionalCandidate(this)) {
+      registerPositionalResultDriver(
         this,
-        SQLite3Driver.canonicalExecuteEntry,
-        SQLite3Driver.isConsumableCandidate,
-        SQLite3Driver.isConsumableProducer
+        (query, context) => this.executePositional(query, context),
+        SQLite3Driver.isPositionalCandidate
       );
     }
   }
@@ -117,18 +169,13 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     if (this.suppliedClient !== undefined) {
       return this.suppliedClient;
     }
-    deactivateConsumableResultProducer(this);
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
     const options = this.driverOptions.options ?? {};
-    const isConsumableClient = SQLite3Driver.isConsumableCandidate(this);
 
     const db = new Database(dataDir, options);
     // better-sqlite3 happens to enable this already; stated explicitly so FK
     // enforcement is a viborm guarantee, not an inherited library default.
     db.pragma("foreign_keys = ON");
-    if (isConsumableClient && SQLite3Driver.isConsumableCandidate(this)) {
-      activateConsumableResultProducer(this, db);
-    }
     return db;
   }
 
@@ -139,17 +186,14 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     if (db === this.suppliedClient) {
       return;
     }
-    try {
-      db.close();
-    } finally {
-      deactivateConsumableResultProducer(this, db);
-    }
+    db.close();
   }
 
   protected async execute<T>(
     client: SQLite3Database,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const values = convertValuesForSQLite3(params);
     return this.runStatement<T>(client, sql, values, true);
@@ -166,13 +210,117 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     return this.runStatement<T>(client, sql, values, false);
   }
 
+  private async executePositional(
+    query: Sql,
+    context: QueryExecutionContext
+  ): Promise<ProjectionExecutionResult> {
+    let producer: SQLite3Database | undefined;
+    const response = await this.executeTypedStatement(
+      query,
+      context,
+      async (
+        client,
+        statement,
+        params,
+        executionContext
+      ): Promise<ProjectionExecutionResult> => {
+        const resultContext = {
+          provider: this.driverName,
+          operation: executionContext.operation ?? "execute",
+        };
+        // Client initialization and observers can await or run caller work.
+        if (!SQLite3Driver.isPositionalProducer(this, client)) {
+          const result = await this.execute<unknown>(
+            client,
+            statement,
+            params,
+            executionContext
+          );
+          assertNormalizedQueryResult(result, resultContext);
+          return { kind: "borrowed", result };
+        }
+        const values = convertValuesForSQLite3(params);
+        const prepared = cachedStatement(client, statement, true);
+        if (!prepared.reader) {
+          const result = prepared.run(...values);
+          const borrowed = { rows: [], rowCount: result.changes };
+          assertNormalizedQueryResult(borrowed, resultContext);
+          return { kind: "borrowed", result: borrowed };
+        }
+        producer = client;
+        // A statement runs once, so integers are read exactly on that one run.
+        // A re-read could not be proven harmless: a transform can make this an
+        // `UPDATE … RETURNING`, and even a statement SQLite reports read-only
+        // may call an application function with an observable effect.
+        prepared.safeIntegers(true);
+        const rows = prepared.raw().all(...values) as unknown[][];
+        // Read after the run: SQLite reprepares a cached statement whose
+        // schema changed (`SELECT *` after ADD COLUMN), so metadata read
+        // before it would describe the previous columns.
+        const columns = prepared.columns().map((column) => column.name);
+        assertPositionalRows(rows, columns, resultContext);
+        return { kind: "positional", rows, columns };
+      }
+    );
+    if (
+      response.kind === "positional" &&
+      !(producer && SQLite3Driver.isPositionalProducer(this, producer))
+    ) {
+      return { kind: "borrowed", result: borrowPositionalResult(response) };
+    }
+    return response;
+  }
+
+  private static isPositionalProducer(
+    driver: SQLite3Driver,
+    client: SQLite3Database
+  ): boolean {
+    return (
+      SQLite3Driver.isPositionalCandidate(driver) && driver.client === client
+    );
+  }
+
+  private static isPositionalCandidate(driver: AnyDriver): boolean {
+    if (!(driver instanceof SQLite3Driver)) return false;
+    return (
+      driver.driverOptions.options?.nativeBinding === undefined &&
+      SQLite3Driver.hasCanonicalProducerSurface(driver) &&
+      driver.executeTypedStatement === SQLite3Driver.canonicalTypedStatement &&
+      driver.executePositional === SQLite3Driver.canonicalPositionalExecute &&
+      driver.result.parseField === parseSQLiteField &&
+      driver.result.parseRelation === undefined &&
+      driver.result.parseResult === undefined &&
+      driver.adapter === driver.canonicalAdapter &&
+      driver.adapter.result === driver.canonicalAdapterResult &&
+      driver.adapter.result.parseField === driver.canonicalAdapterParseField &&
+      driver.adapter.result.parseRelation ===
+        driver.canonicalAdapterParseRelation &&
+      (driver.client === undefined ||
+        driver.client === null ||
+        SQLite3Driver.isPositionalClient(driver.client))
+    );
+  }
+
+  private static isPositionalClient(client: SQLite3Database): boolean {
+    return (
+      Object.getPrototypeOf(client) === Database.prototype &&
+      !Object.hasOwn(client, "prepare") &&
+      Object.getOwnPropertyDescriptor(Database.prototype, "prepare")?.value ===
+        SQLite3Driver.canonicalNativePrepare
+    );
+  }
+
   private runStatement<T>(
     db: SQLite3Database,
     sql: string,
     values: unknown[] | undefined,
     safeIntegers: boolean
   ): QueryResult<T> {
-    const stmt = db.prepare(sql);
+    // Raw SQL keeps a fresh statement: its integer mode is the database's own
+    // default, which a cached statement would not follow.
+    const stmt = safeIntegers
+      ? cachedStatement(db, sql, false)
+      : db.prepare(sql);
 
     if (stmt.reader) {
       if (safeIntegers) {
@@ -188,33 +336,12 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     return { rows: [] as T[], rowCount: result.changes };
   }
 
-  private static isConsumableProducer(
-    driver: AnyDriver,
-    client: object
-  ): boolean {
-    if (!(driver instanceof SQLite3Driver)) return false;
-    return (
-      SQLite3Driver.isConsumableCandidate(driver) &&
-      Object.getPrototypeOf(client) === Database.prototype &&
-      driver.client === client
-    );
-  }
-
-  private static isConsumableCandidate(driver: AnyDriver): boolean {
-    if (!(driver instanceof SQLite3Driver)) return false;
-    return (
-      driver.suppliedClient === undefined &&
-      driver.driverOptions.options?.nativeBinding === undefined &&
-      SQLite3Driver.hasCanonicalProducerSurface(driver)
-    );
-  }
-
   /**
    * Whether the surface a caller can reach on this instance is still the
    * SHIPPED one.
    *
    * The result leg asks for the parser OBJECT, not for one of its hooks: a
-   * consumable result hands out the provider's own row objects, so a driver is
+   * positional result hands out the provider's own row arrays, so a driver is
    * stock only while `result` IS `sqliteResultParser` — the object
    * `shared/sqlite-utils.ts` owns — and anything a caller put there instead,
    * whatever hook it spells, is a middleware that will see those rows and
@@ -222,9 +349,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
    * "unchanged typed execution/parser surfaces", where "a parser middleware …
    * stays borrowed"). Asking only about `parseResult` asked a narrower
    * question, and since D-35 left the shipped parser with no result hook of its
-   * own it admitted every object that merely lacks one (Arnaud's D-39;
-   * `PGliteDriver.hasCanonicalProducerSurface` states the same rule over the
-   * surface PGlite ships).
+   * own it admitted every object that merely lacks one (Arnaud's D-39).
    *
    * The adapter leg is unchanged, and is a different question: the adapter is
    * this driver's own object, captured once at construction, so what is asked

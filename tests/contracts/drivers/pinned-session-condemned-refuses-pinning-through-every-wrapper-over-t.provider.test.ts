@@ -1,5 +1,6 @@
 import { PGliteDriver } from "@drivers/pglite";
 import { PGlite } from "@electric-sql/pglite";
+import { withPinnedSession } from "@src/migrations/pinned-session";
 import { describe, expect, it } from "vitest";
 import {
   discardingBody,
@@ -15,14 +16,14 @@ describe("PGlite condemns the one client it cannot hand back", () => {
       const alpha = new PGliteDriver({ client: shared, namespace: "public" });
       const beta = new PGliteDriver({ client: shared, namespace: "public" });
       const condemning = await rejection(
-        alpha._withPinnedSession(discardingBody())
+        withPinnedSession(alpha, discardingBody())
       );
       expect(condemning instanceof Error ? condemning.message : "").toContain(
         "advisory-lock state"
       );
       let entered = false;
       const refused = await rejection(
-        beta._withPinnedSession(() => {
+        withPinnedSession(beta, () => {
           entered = true;
           return Promise.resolve("body ran");
         })

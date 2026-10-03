@@ -25,7 +25,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -74,7 +74,7 @@ async function update(
      INSERT INTO r2p_dec_keys (id,label) VALUES ('600','a');
      INSERT INTO r2p_num_keys (id,label) VALUES (6.0,'a');`
   );
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   let answer: string;
   try {
     const value =

@@ -1,4 +1,4 @@
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import {
@@ -12,7 +12,7 @@ afterAll(saveOccupancyEvidence);
 describe(`G2 live ${occupancyProvider} singular occupancy: commands`, () => {
   it(occupancyRaceId, async () => {
     const baseline = await runOccupancyScenario();
-    const candidate = await runOccupancyScenario(createCommandEngine);
+    const candidate = await runOccupancyScenario(createTestCommandEngine);
     assertEquivalentRunObservations(
       occupancyRaceId,
       baseline.semanticObservation,

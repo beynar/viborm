@@ -91,7 +91,7 @@ export interface PreparedRead {
   /**
    * The ONE statement this read compiles to, as the prepared `Read` built it.
    * It is the `Sql` the execution runs, read from the same construction, so
-   * `QueryEngine.build` and the run cannot describe different queries.
+   * `buildStatement()` and the run cannot describe different queries.
    */
   readonly statement: Sql;
 }
@@ -144,208 +144,248 @@ export interface PreparedOperation {
   ): PreparedBatchOperation<unknown> | undefined;
 }
 
-export function createCommandEngine(config: EngineConfig) {
-  const schema = new EngineSchema(config.schema, config.resolved);
-  // One engine-lifetime query owner for the prepared read. The adapter is pinned
-  // by identity across transaction scoping (`TransactionBoundDriver` copies
-  // `baseDriver.adapter`), so the statement and shape prepared here are valid for
-  // every binding of this driver's lineage.
-  const queries = new Queries(
-    schema,
-    config.driver.adapter,
-    config.driver.result
-  );
-  class PreparedCommand implements PreparedOperation {
-    readonly #operation: Operation;
-    readonly #model: EngineConfig["schema"][string];
-    readonly #modelName: string;
-    readonly #rawArgs: unknown;
-    readonly #missing: (() => NotFoundError) | undefined;
-    #admitted: Arguments | undefined;
-    #prepared: Read | undefined;
-    #facts: PreparedRead | undefined;
+class PreparedCommand implements PreparedOperation {
+  readonly #config: EngineConfig;
+  readonly #schema: EngineSchema;
+  readonly #queries: Queries;
+  readonly #operation: Operation;
+  readonly #model: EngineConfig["schema"][string];
+  readonly #modelName: string;
+  readonly #rawArgs: unknown;
+  readonly #missing: (() => NotFoundError) | undefined;
+  #admitted: Arguments | undefined;
+  #prepared: Read | undefined;
+  #facts: PreparedRead | undefined;
 
-    constructor(modelName: string, requested: Operations, rawArgs: unknown) {
-      this.#operation = admittedOperation(requested);
-      this.#model = config.schema[modelName]!;
-      this.#modelName = modelName;
-      this.#rawArgs = rawArgs;
-      this.#missing =
-        requested === this.#operation
-          ? undefined
-          : () =>
-              new NotFoundError(
-                this.#model["~"].names.ts ?? "unknown",
-                requested
-              );
-    }
+  constructor(
+    config: EngineConfig,
+    schema: EngineSchema,
+    queries: Queries,
+    modelName: string,
+    requested: Operations,
+    rawArgs: unknown
+  ) {
+    this.#config = config;
+    this.#schema = schema;
+    this.#queries = queries;
+    this.#operation = admittedOperation(requested);
+    this.#model = config.schema[modelName]!;
+    this.#modelName = modelName;
+    this.#rawArgs = rawArgs;
+    this.#missing =
+      requested === this.#operation
+        ? undefined
+        : () =>
+            new NotFoundError(
+              this.#model["~"].names.ts ?? "unknown",
+              requested
+            );
+  }
 
-    get args(): Arguments {
-      return (this.#admitted ??= schema.admit(
-        this.#model,
-        this.#operation,
-        this.#rawArgs
-      ));
-    }
+  get args(): Arguments {
+    return (this.#admitted ??= this.#schema.admit(
+      this.#model,
+      this.#operation,
+      this.#rawArgs
+    ));
+  }
 
-    #read(): Read | undefined {
-      if (!isReadOperation(this.#operation)) return undefined;
-      return (this.#prepared ??= queries.read(
-        this.#model,
-        this.#operation,
-        this.args
-      ));
-    }
+  #read(): Read | undefined {
+    if (!isReadOperation(this.#operation)) return undefined;
+    return (this.#prepared ??= this.#queries.read(
+      this.#model,
+      this.#operation,
+      this.args
+    ));
+  }
 
-    get read(): PreparedRead | undefined {
-      const value = this.#read();
-      if (!value) return undefined;
-      return (this.#facts ??= publishedFacts(value));
-    }
+  get read(): PreparedRead | undefined {
+    const value = this.#read();
+    if (!value) return undefined;
+    return (this.#facts ??= publishedFacts(value));
+  }
 
-    #body(context: OperationContext) {
-      const value = this.#read();
-      if (value)
-        return context.run(() => context.publish(value, this.#missing));
-      // The physical form is constructed BEFORE the envelope decision and runs
-      // once, whichever envelope the rule chooses.
-      let planned: PhysicalPlan | undefined = new Commands(context).plan(
-        this.#model,
-        this.args,
-        this.#rawArgs as Arguments
-      );
-      const single = planned.single;
-      // Each ATTEMPT runs its own occurrence tree. The envelope restart and the
-      // recovery both re-enter this body, and a recovery re-plans from the same
-      // ADMITTED arguments — never re-validated, never re-transformed (rule 10,
-      // Arnaud's D-25) — because the tree that ran carries the members it
-      // captured and a series occurrence is expanded exactly once. The first
-      // attempt consumes the plan built above, which is also the plan that
-      // answered the envelope question, so nothing is constructed twice to
-      // START an operation.
-      return context.run(() => {
-        const plan =
-          planned ??
-          new Commands(context).plan(
-            this.#model,
-            this.args,
-            this.#rawArgs as Arguments
-          );
-        planned = undefined;
-        return plan.run();
-      }, single);
-    }
-
-    execute(
-      binding?: ExecutionBinding,
-      attribution?: QueryExecutionContext
-    ): Promise<unknown> {
-      try {
-        return this.#body(
-          new OperationContext(
-            schema,
-            config.driver,
-            this.#modelName,
-            this.#operation,
-            binding,
-            false,
-            attribution
-          )
+  #body(context: OperationContext) {
+    const value = this.#read();
+    if (value) return context.run(() => context.publish(value, this.#missing));
+    // The physical form is constructed BEFORE the envelope decision and runs
+    // once, whichever envelope the rule chooses.
+    let planned: PhysicalPlan | undefined = new Commands(context).plan(
+      this.#model,
+      this.args,
+      this.#rawArgs as Arguments
+    );
+    const single = planned.single;
+    // Each ATTEMPT runs its own occurrence tree. The envelope restart and the
+    // recovery both re-enter this body, and a recovery re-plans from the same
+    // ADMITTED arguments — never re-validated, never re-transformed (rule 10,
+    // Arnaud's D-25) — because the tree that ran carries the members it
+    // captured and a series occurrence is expanded exactly once. The first
+    // attempt consumes the plan built above, which is also the plan that
+    // answered the envelope question, so nothing is constructed twice to
+    // START an operation.
+    return context.run(() => {
+      const plan =
+        planned ??
+        new Commands(context).plan(
+          this.#model,
+          this.args,
+          this.#rawArgs as Arguments
         );
-      } catch (error) {
-        return Promise.reject(error);
-      }
-    }
+      planned = undefined;
+      return plan.run();
+    }, single);
+  }
 
-    prepareSingle(
-      attribution?: QueryExecutionContext
-    ): PreparedBatchOperation<unknown> | undefined {
-      // Preparing admits the input whatever the verb compiles to: an
-      // operation that publishes no single query still answers for the
-      // payload it was handed, exactly as `prepareBatch` does.
-      const args = this.args;
-      const context = new OperationContext(
-        schema,
-        config.driver,
-        this.#modelName,
-        this.#operation,
-        undefined,
-        true,
-        attribution
+  execute(
+    binding?: ExecutionBinding,
+    attribution?: QueryExecutionContext
+  ): Promise<unknown> {
+    try {
+      return this.#body(
+        new OperationContext(
+          this.#schema,
+          this.#config.driver,
+          this.#modelName,
+          this.#operation,
+          binding,
+          false,
+          attribution,
+          this.#config
+        )
       );
-      const value = this.#read();
-      if (value) {
-        context.publishPrepared(value, this.#missing);
-        return context.preparedBatch();
-      }
-      // D-20: a WRITE whose plan is one statement publishes the same package
-      // (`prepareBatch` would publish it too), so the array owner parses it
-      // through its own `parseResult` seam and interceptor onion instead of
-      // through the batch. It is not a second preparation: this is the
-      // preparation, and `Commands.plan` states the ONE-statement
-      // admissibility itself. Preparation reaches no driver and queues
-      // synchronously, so the package is in hand when this returns; anything
-      // it would refuse — a capability gate, the dynamic-planning sentinel —
-      // is refused again, and reported, by the arm that actually runs the
-      // operation, which is the only arm a caller takes once no single
-      // package is published.
-      const plan = new Commands(context).plan(
-        this.#model,
-        args,
-        this.#rawArgs as Arguments
-      );
-      if (!plan.single) return undefined;
-      plan.run().catch(() => undefined);
-      return context.preparedBatch();
-    }
-
-    async prepareBatch(
-      attribution?: QueryExecutionContext
-    ): Promise<PreparedBatchOperation<unknown> | undefined> {
-      const context = new OperationContext(
-        schema,
-        config.driver,
-        this.#modelName,
-        this.#operation,
-        undefined,
-        true,
-        attribution
-      );
-      try {
-        await this.#body(context);
-      } catch (error) {
-        if (context.isIncompletePreparation(error)) return undefined;
-        throw error;
-      }
-      return context.preparedBatch();
+    } catch (error) {
+      return Promise.reject(error);
     }
   }
+
+  prepareSingle(
+    attribution?: QueryExecutionContext
+  ): PreparedBatchOperation<unknown> | undefined {
+    // Preparing admits the input whatever the verb compiles to: an
+    // operation that publishes no single query still answers for the
+    // payload it was handed, exactly as `prepareBatch` does.
+    const args = this.args;
+    const context = new OperationContext(
+      this.#schema,
+      this.#config.driver,
+      this.#modelName,
+      this.#operation,
+      undefined,
+      true,
+      attribution,
+      this.#config
+    );
+    const value = this.#read();
+    if (value) {
+      context.publishPrepared(value, this.#missing);
+      return context.preparedBatch();
+    }
+    // D-20: a WRITE whose plan is one statement publishes the same package
+    // (`prepareBatch` would publish it too), so the array owner parses it
+    // through its own `parseResult` seam and interceptor onion instead of
+    // through the batch. It is not a second preparation: this is the
+    // preparation, and `Commands.plan` states the ONE-statement
+    // admissibility itself. Preparation reaches no driver and queues
+    // synchronously, so the package is in hand when this returns; anything
+    // it would refuse — a capability gate, the dynamic-planning sentinel —
+    // is refused again, and reported, by the arm that actually runs the
+    // operation, which is the only arm a caller takes once no single
+    // package is published.
+    const plan = new Commands(context).plan(
+      this.#model,
+      args,
+      this.#rawArgs as Arguments
+    );
+    if (!plan.single) return undefined;
+    plan.run().catch(() => undefined);
+    return context.preparedBatch();
+  }
+
+  async prepareBatch(
+    attribution?: QueryExecutionContext
+  ): Promise<PreparedBatchOperation<unknown> | undefined> {
+    const context = new OperationContext(
+      this.#schema,
+      this.#config.driver,
+      this.#modelName,
+      this.#operation,
+      undefined,
+      true,
+      attribution,
+      this.#config
+    );
+    try {
+      await this.#body(context);
+    } catch (error) {
+      if (context.isIncompletePreparation(error)) return undefined;
+      throw error;
+    }
+    return context.preparedBatch();
+  }
+}
+
+/**
+ * Prepared queries per driver result parser. Weak: a schema and adapter can
+ * outlive every client, and a transient driver's parser (with whatever it
+ * captures) must be released with it. A driver without a parser has one slot.
+ */
+interface QueriesByResult {
+  readonly parsers: WeakMap<object, Queries>;
+  none?: Queries;
+}
+
+/**
+ * Engines over the same resolved registry share one schema view and, per
+ * adapter and result parser, one query owner: both derive only from those
+ * inputs, so a client created per request reuses the warm per-model views
+ * instead of rebuilding them.
+ */
+const sharedEngines = new WeakMap<
+  object,
+  {
+    schema: EngineSchema;
+    queries: WeakMap<object, QueriesByResult>;
+  }
+>();
+
+function sharedQueries(config: EngineConfig): Queries {
+  const { adapter, result } = config.driver;
+  const key = config.resolved?.registry;
+  let shared = key && sharedEngines.get(key);
+  if (!shared) {
+    shared = {
+      schema: new EngineSchema(config.schema, config.resolved),
+      queries: new WeakMap(),
+    };
+    if (key) sharedEngines.set(key, shared);
+  }
+  let byResult = shared.queries.get(adapter);
+  if (!byResult)
+    shared.queries.set(adapter, (byResult = { parsers: new WeakMap() }));
+  if (!result) {
+    return (byResult.none ??= new Queries(shared.schema, adapter, result));
+  }
+  let queries = byResult.parsers.get(result);
+  if (!queries) {
+    queries = new Queries(shared.schema, adapter, result);
+    byResult.parsers.set(result, queries);
+  }
+  return queries;
+}
+
+export function createCommandEngine(config: EngineConfig) {
+  // One query owner for the prepared read. The adapter is pinned by identity
+  // across transaction scoping (`TransactionBoundDriver` copies
+  // `baseDriver.adapter`), so the statement and shape prepared here are valid for
+  // every binding of this driver's lineage.
+  const queries = sharedQueries(config);
+  const { schema } = queries;
   const prepare = (
     modelName: string,
     requested: Operations,
     rawArgs: unknown
-  ): PreparedOperation => new PreparedCommand(modelName, requested, rawArgs);
-  return {
-    prepare,
-    async execute(
-      modelName: string,
-      operation: Operations,
-      rawArgs: unknown,
-      binding?: ExecutionBinding,
-      attribution?: QueryExecutionContext
-    ): Promise<unknown> {
-      return prepare(modelName, operation, rawArgs).execute(
-        binding,
-        attribution
-      );
-    },
-    async prepareBatch(
-      modelName: string,
-      operation: Operations,
-      rawArgs: unknown,
-      attribution?: QueryExecutionContext
-    ): Promise<PreparedBatchOperation<unknown> | undefined> {
-      return prepare(modelName, operation, rawArgs).prepareBatch(attribution);
-    },
-  };
+  ): PreparedOperation =>
+    new PreparedCommand(config, schema, queries, modelName, requested, rawArgs);
+  return { prepare };
 }

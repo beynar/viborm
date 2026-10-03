@@ -1,4 +1,4 @@
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, describe, it } from "vitest";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import {
@@ -12,7 +12,10 @@ describe("G2 PostgreSQL native staleness: commands", () => {
   for (const id of pgStalenessIds) {
     it(id, async () => {
       const baseline = await runPgStalenessScenario(id);
-      const candidate = await runPgStalenessScenario(id, createCommandEngine);
+      const candidate = await runPgStalenessScenario(
+        id,
+        createTestCommandEngine
+      );
       assertEquivalentRunObservations(
         id,
         baseline.observation,

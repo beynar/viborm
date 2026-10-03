@@ -21,10 +21,10 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError } from "@errors";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -90,7 +90,7 @@ async function descend(
   depth: number,
   select: Input = { code: true }
 ): Promise<Input[]> {
-  const rows = await createCommandEngine({ schema, driver }).execute(
+  const rows = await createTestCommandEngine({ schema, driver }).execute(
     "node",
     "findMany",
     {

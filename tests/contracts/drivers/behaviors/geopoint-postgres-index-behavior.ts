@@ -5,10 +5,13 @@ import {
 } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import { introspect } from "@migrations/push/planner";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createSchemaRegistry } from "@validation";
 import { GEO_POINT_EARTH_RADIUS_METERS } from "@validation/primitives/geo-area-codec";
@@ -62,7 +65,7 @@ export function runPostgresGeoPointIndexBehavior({
         schema,
         createSchemaRegistry(schema)
       );
-      const engine = new QueryEngine(driver, registry);
+      const engine = new TestQueryEngine(driver, registry);
       const paris = { longitude: 2.3522, latitude: 48.8566 };
       const polygon = {
         outer: [

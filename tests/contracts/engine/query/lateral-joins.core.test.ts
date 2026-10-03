@@ -11,10 +11,13 @@
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { sql } from "@sql";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -147,10 +150,10 @@ describe("Lateral Joins", () => {
     });
 
     describe("SQLite (correlated subquery fallback)", () => {
-      let engine: QueryEngine;
+      let engine: TestQueryEngine;
 
       beforeAll(() => {
-        engine = new QueryEngine(sqliteMockDriver, registry);
+        engine = new TestQueryEngine(sqliteMockDriver, registry);
       });
 
       test("to-many include uses correlated subquery (no lateral)", () => {

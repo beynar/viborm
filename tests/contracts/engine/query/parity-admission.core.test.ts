@@ -4,11 +4,14 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import type { Dialect } from "@drivers";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import { hydrateSchemaNames, s } from "@schema";
 import { DbNull } from "@schema/json-null";
 import type { Model } from "@schema/model";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -128,7 +131,7 @@ function build(
   args: Record<string, unknown>
 ): string {
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-  const engine = new QueryEngine(
+  const engine = new TestQueryEngine(
     new SqlOnlyDriver(dialectCase.createAdapter(), dialectCase.dialect),
     registry
   );

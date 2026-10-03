@@ -67,11 +67,11 @@ export const OK_UNDEFINED = Object.freeze({ value: undefined });
 
 /**
  * Validate array items with the provided validator.
- * Shared by both array() wrapper and options.array.
+ * Shared by the array() wrapper, options.array and every other list walk.
  */
 export function validateArray<T>(
   value: unknown,
-  validate: (v: unknown) => ValidationResult<T>
+  validate: (v: unknown) => StandardSchemaV1.Result<T>
 ): ValidationResult<T[]> {
   try {
     if (!Array.isArray(value)) {
@@ -210,20 +210,7 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
   // Build the core validator (base + schema + transform chain)
   let validate: ValidatorFn<any> = baseValidate;
 
-  if (disallowZero) {
-    const prev = validate;
-    validate = (value): ValidationResult<any> => {
-      const result = prev(value);
-      if (result.issues) return result;
-      const validated = (result as { value: unknown }).value;
-      if (validated === 0 || validated === 0n) {
-        return fail(
-          "Explicit zero is not portable for an auto-increment field"
-        );
-      }
-      return result;
-    };
-  }
+  if (disallowZero) validate = refusingZero(validate);
 
   // The identifier domain is the first AND the last word on the value.
   // First, before the custom schema and the transform: a `.schema()` a caller
@@ -243,36 +230,11 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 
   // Chain custom schema validation (if any)
 
-  if (schema !== undefined) {
-    const schemaValidate = schema["~standard"].validate;
-    const prev = validate;
-    validate = (v): ValidationResult<any> => {
-      const r = prev(v);
-      if (r.issues) return r;
-      const sr = schemaValidate(r.value);
-      if ("then" in sr) return fail("Async schemas are not supported");
-      if (sr.issues) return standardSchemaFailure(sr.issues);
-      return ok(sr.value);
-    };
-    if (admitIdDomain) validate = thenValidate(validate, admitIdDomain);
-  }
+  if (schema !== undefined)
+    validate = withCustomSchema(validate, schema, admitIdDomain);
 
   // Chain transform (if any)
-  if (hasTransform) {
-    const fn = transform!;
-    const prev = validate;
-    validate = (v) => {
-      const r = prev(v);
-      if (r.issues) return r;
-      try {
-        return ok(fn((r as { value: any }).value));
-      } catch (error) {
-        return fail(
-          `Transform failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    };
-  }
+  if (hasTransform) validate = withTransform(validate, transform!);
 
   // Compose the complete field validator before the default trigger. A
   // resolved literal or factory value is an ordinary untrusted field value:
@@ -309,6 +271,55 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
   return validate as ValidatorFn<TOut>;
 }
 
+// The rarely declared field options, each composed by its own function so a
+// field without them never compiles their setup.
+
+function refusingZero(prev: ValidatorFn<any>): ValidatorFn<any> {
+  return (value): ValidationResult<any> => {
+    const result = prev(value);
+    if (result.issues) return result;
+    const validated = (result as { value: unknown }).value;
+    if (validated === 0 || validated === 0n) {
+      return fail("Explicit zero is not portable for an auto-increment field");
+    }
+    return result;
+  };
+}
+
+function withCustomSchema(
+  prev: ValidatorFn<any>,
+  schema: NonNullable<ScalarOptions<any, any>["schema"]>,
+  admitIdDomain: ValidatorFn<any> | undefined
+): ValidatorFn<any> {
+  const schemaValidate = schema["~standard"].validate;
+  const validate: ValidatorFn<any> = (v): ValidationResult<any> => {
+    const r = prev(v);
+    if (r.issues) return r;
+    const sr = schemaValidate(r.value);
+    if ("then" in sr) return fail("Async schemas are not supported");
+    if (sr.issues) return standardSchemaFailure(sr.issues);
+    return ok(sr.value);
+  };
+  return admitIdDomain ? thenValidate(validate, admitIdDomain) : validate;
+}
+
+function withTransform(
+  prev: ValidatorFn<any>,
+  fn: (value: any) => any
+): ValidatorFn<any> {
+  return (v) => {
+    const r = prev(v);
+    if (r.issues) return r;
+    try {
+      return ok(fn((r as { value: any }).value));
+    } catch (error) {
+      return fail(
+        `Transform failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
+}
+
 // =============================================================================
 // Schema Builder (Returns complete schema object)
 // =============================================================================
@@ -333,82 +344,21 @@ export function buildSchema<
   extras?: TExtras
 ): VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
   TExtras & { type: string; options: Opts; acceptsUndefined: boolean } {
-  const validate = buildValidator(baseValidate, options, type);
-
   // Pre-compute whether this schema accepts undefined
   // True if: optional, or has a default value
   const acceptsUndefined =
     options?.optional === true || options?.default !== undefined;
 
-  const schema = {
-    type,
-    options,
-    acceptsUndefined,
-    ...extras,
-    "~standard": {
-      version: 1 as const,
-      vendor: "viborm" as const,
-      validate,
-      // Lazy jsonSchema - converter is created when first accessed
-      get jsonSchema() {
-        const converter = createJsonSchemaConverter(
-          schema as unknown as VibSchema<unknown, unknown>
-        );
-        // Replace getter with static value for subsequent access
-        Object.defineProperty(this, "jsonSchema", {
-          value: converter,
-          writable: false,
-          enumerable: true,
-        });
-        return converter;
-      },
-    },
-  };
-
-  // Add the inferred property for type branding
-  Object.defineProperty(schema, " vibInferred", {
-    value: undefined,
-    enumerable: false,
-  });
-
-  return schema as VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
+  // `createSchema` owns the Standard Schema carrier and its lazy JSON Schema
+  // converter; a scalar adds only its options and wrapper metadata.
+  return Object.assign(
+    createSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>>(
+      type,
+      buildValidator(baseValidate, options, type)
+    ),
+    { options, acceptsUndefined, ...extras }
+  ) as VibSchema<ComputeInput<T, Opts>, ComputeOutput<T, Opts>> &
     TExtras & { options: Opts; type: string; acceptsUndefined: boolean };
-}
-
-// =============================================================================
-// Reusable Validation Logic (Exported for wrapper schemas)
-// =============================================================================
-
-/**
- * Validate an array of items using the provided validate function.
- * Exported for use by array() wrapper schema.
- */
-export function validateArrayItems<T, TOut = T>(
-  value: unknown,
-  validate: (item: unknown) => any
-): ValidationResult<TOut[]> {
-  if (!Array.isArray(value)) {
-    return ARRAY_TYPE_ERROR as ValidationResult<TOut[]>;
-  }
-
-  const len = value.length;
-  if (len === 0) return ok([]);
-
-  const results = new Array<TOut>(len);
-  for (let i = 0; i < len; i++) {
-    const itemResult = validate(value[i]);
-    if (itemResult.issues) {
-      const issue = itemResult.issues[0]!;
-      return fail(
-        issue.message as string,
-        issue.path
-          ? ([i] as PropertyKey[]).concat(issue.path as PropertyKey[])
-          : [i]
-      );
-    }
-    results[i] = itemResult.value as TOut;
-  }
-  return ok(results);
 }
 
 /**

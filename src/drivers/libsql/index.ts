@@ -23,7 +23,7 @@ import { getExecutionTransactionPhases } from "../execution-context";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
   acquireWithMaxWait,
-  convertValuesForSQLite,
+  convertValueForSQLite,
   type DriverTransactionOptions,
   isSQLiteBinaryValue,
   nestedTransactionDispatchError,
@@ -52,7 +52,8 @@ export type LibSQLClientConfig<C extends DriverConfig> = LibSQLDriverOptions &
   C;
 
 function convertValuesForLibSQL(values: unknown[]): InValue[] {
-  return convertValuesForSQLite(values).map((value) => {
+  return values.map((parameter) => {
+    const value = convertValueForSQLite(parameter);
     if (isSQLiteBinaryValue(value)) {
       return value instanceof ArrayBuffer
         ? value

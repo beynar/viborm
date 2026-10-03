@@ -54,18 +54,12 @@ export interface ModelInternal<T extends ModelState> {
   names: SchemaNames;
   nameRegistry: {
     fields: Map<string, SchemaNames>;
-    relations: Map<string, SchemaNames>;
   };
   getFieldName: (key: string) => HydratedSchemaNames;
-  getRelationName: (key: string) => HydratedSchemaNames;
   /** Cached scalar field names (computed once on first access) */
   scalarFieldNames: string[];
-  /** Cached scalar field Set for O(1) lookup (computed once on first access) */
-  scalarFieldSet: Set<string>;
   /** Cached relation names (computed once on first access) */
   relationNames: string[];
-  /** Cached relation Set for O(1) lookup (computed once on first access) */
-  relationSet: Set<string>;
 }
 
 /**
@@ -326,36 +320,31 @@ function refuseCompoundKeyStateOverwrite(
 export interface NameRegistry {
   /** Scalar names: key -> {ts, sql} */
   fields: Map<string, SchemaNames>;
-  /** Relation names: key -> {ts, sql} — one lane for both target domains */
-  relations: Map<string, SchemaNames>;
 }
 
 export class Model<State extends ModelState> {
   // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _names: SchemaNames = {};
+  #names: SchemaNames = {};
   // biome-ignore lint/style/useReadonlyClassProperties: <it is reassigned when hydrating schemas>
-  private _nameRegistry: NameRegistry = {
+  #nameRegistry: NameRegistry = {
     fields: new Map(),
-    relations: new Map(),
   };
-  private readonly state: State;
+  readonly #state: State;
 
   // Cached field metadata (lazily computed on first access)
-  private _scalarFieldNames: string[] | undefined;
-  private _scalarFieldSet: Set<string> | undefined;
-  private _relationNames: string[] | undefined;
-  private _relationSet: Set<string> | undefined;
-  private _internal: ModelInternal<State> | undefined;
+  #scalarFieldNames: string[] | undefined;
+  #relationNames: string[] | undefined;
+  #internal: ModelInternal<State> | undefined;
 
   constructor(state: State) {
-    this.state = state;
+    this.#state = state;
   }
 
   /**
    * Maps the model to a specific database table name
    */
   map<Name extends string>(tableName: Name) {
-    return new Model({ ...this.state, tableName }) as unknown as Model<
+    return new Model({ ...this.#state, tableName }) as unknown as Model<
       UpdateState<State, { tableName: Name }>
     >;
   }
@@ -391,7 +380,7 @@ export class Model<State extends ModelState> {
       ModelOmitInput<State>
   ) {
     return new Model({
-      ...this.state,
+      ...this.#state,
       omit: items,
     }) as unknown as Model<UpdateState<State, { omit: Record<Hidden, true> }>>;
   }
@@ -425,8 +414,8 @@ export class Model<State extends ModelState> {
     refuseDuplicateModelKeyMembers(storedFields, "Index");
     const storedOptions = snapshotIndexOptions(options);
     return new Model({
-      ...this.state,
-      indexes: mergeIndexDefinitions(this.state, {
+      ...this.#state,
+      indexes: mergeIndexDefinitions(this.#state, {
         fields: storedFields,
         options: storedOptions,
       }),
@@ -439,18 +428,22 @@ export class Model<State extends ModelState> {
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
     const storedFields = snapshotModelKeyMembers(fields, "Compound ID");
     const name = getNameFromKeys(options?.name, storedFields);
-    refuseCompoundKeyStateOverwrite(this.state.compoundId, name, "Compound ID");
+    refuseCompoundKeyStateOverwrite(
+      this.#state.compoundId,
+      name,
+      "Compound ID"
+    );
     const fieldsRecord = compoundMembers(
-      this.state,
+      this.#state,
       storedFields,
       "Compound ID"
     );
 
     const compoundId = {
-      ...this.state.compoundId,
+      ...this.#state.compoundId,
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.state, compoundId }) as unknown as Model<
+    return new Model({ ...this.#state, compoundId }) as unknown as Model<
       UpdateState<
         State,
         {
@@ -474,21 +467,21 @@ export class Model<State extends ModelState> {
     const storedFields = snapshotModelKeyMembers(fields, "Compound unique");
     const name = getNameFromKeys(options?.name, storedFields);
     refuseCompoundKeyStateOverwrite(
-      this.state.compoundUniques,
+      this.#state.compoundUniques,
       name,
       "Compound unique"
     );
     const fieldsRecord = compoundMembers(
-      this.state,
+      this.#state,
       storedFields,
       "Compound unique"
     );
 
     const compoundUniques = {
-      ...this.state.compoundUniques,
+      ...this.#state.compoundUniques,
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.state, compoundUniques }) as unknown as Model<
+    return new Model({ ...this.#state, compoundUniques }) as unknown as Model<
       UpdateState<
         State,
         {
@@ -506,10 +499,10 @@ export class Model<State extends ModelState> {
   }
 
   extends<ETShape extends DeclaredModelShape>(shape: ETShape) {
-    const newShape = { ...this.state.shape, ...shape } as State["shape"] &
+    const newShape = { ...this.#state.shape, ...shape } as State["shape"] &
       ETShape;
     return new Model({
-      ...this.state,
+      ...this.#state,
       shape: newShape,
       scalars: extractScalarMap(newShape),
       relations: extractRelationMap(newShape),
@@ -528,61 +521,42 @@ export class Model<State extends ModelState> {
   }
 
   get "~"(): ModelInternal<State> {
-    if (this._internal) {
-      return this._internal;
+    if (this.#internal) {
+      return this.#internal;
     }
     // Capture model instance for use in getters
     const model = this;
 
-    this._internal = {
-      state: this.state,
+    this.#internal = {
+      state: this.#state,
       // getters so hydration after first access is still observed
       get names() {
-        return model._names;
+        return model.#names;
       },
       get nameRegistry() {
-        return model._nameRegistry;
+        return model.#nameRegistry;
       },
       /**
        * Get the resolved names for a field.
        * Throws if the schema has not been hydrated.
        */
       getFieldName: (key: string): HydratedSchemaNames => {
-        const registered = model._nameRegistry.fields.get(key);
+        const registered = model.#nameRegistry.fields.get(key);
         if (registered) {
           return registered as HydratedSchemaNames;
         }
         throw new Error(`Scalar "${key}" not found in nameRegistry`);
       },
-      /**
-       * Get the resolved names for a relation.
-       * Throws if the schema has not been hydrated.
-       */
-      getRelationName: (key: string): HydratedSchemaNames => {
-        const registered = model._nameRegistry.relations.get(key);
-        if (registered) {
-          return registered as HydratedSchemaNames;
-        }
-        throw new Error(`Relation "${key}" not found in nameRegistry`);
-      },
       /** Cached scalar field names (computed once on first access) */
       get scalarFieldNames(): string[] {
-        return (model._scalarFieldNames ??= Object.keys(model.state.scalars));
-      },
-      /** Cached scalar field Set for O(1) lookup (computed once on first access) */
-      get scalarFieldSet(): Set<string> {
-        return (model._scalarFieldSet ??= new Set(this.scalarFieldNames));
+        return (model.#scalarFieldNames ??= Object.keys(model.#state.scalars));
       },
       /** Cached relation names (computed once on first access) */
       get relationNames(): string[] {
-        return (model._relationNames ??= Object.keys(model.state.relations));
-      },
-      /** Cached relation Set for O(1) lookup (computed once on first access) */
-      get relationSet(): Set<string> {
-        return (model._relationSet ??= new Set(this.relationNames));
+        return (model.#relationNames ??= Object.keys(model.#state.relations));
       },
     };
-    return this._internal;
+    return this.#internal;
   }
 }
 

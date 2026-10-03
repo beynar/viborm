@@ -2,7 +2,7 @@
  * R4 — D-64's read-only build contract, registered in the normal inventory.
  *
  * Ruling D-64 keeps the accepted capability restriction:
- * `PendingOperation.buildStatement()` and the `QueryEngine.build()` that backs
+ * `PendingOperation.buildStatement()` and the `TestQueryEngine.build()` that backs
  * it answer the ONE statement a READ compiles to, and every WRITE answers the
  * `does not compile to one SQL statement` refusal — the folded single-statement
  * write the previous engine could build is not restored. FC-04 measured that
@@ -42,12 +42,15 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import type { QueryResult } from "@drivers/types";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   isReadOperation,
   ROUTED_OPERATIONS,
 } from "@query-engine/routed-operations";
 import { hydrateSchemaNames, s } from "@schema";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
 import { describe, it } from "vitest";
 
@@ -106,9 +109,12 @@ class NoProviderDriver extends Driver<null, null> {
   }
 }
 
-function engineOn(adapter?: DatabaseAdapter, dialect?: Dialect): QueryEngine {
+function engineOn(
+  adapter?: DatabaseAdapter,
+  dialect?: Dialect
+): TestQueryEngine {
   const registry = createModelRegistry(schema, createSchemaRegistry(schema));
-  return new QueryEngine(
+  return new TestQueryEngine(
     new NoProviderDriver(adapter, dialect) as never,
     registry
   );

@@ -80,6 +80,13 @@ topology, edges, and members; freeze only the newly owned wrappers and arrays.
 These caches contain no aliases, operation demands, origins, refusals,
 assignments, scratch references, or attempt values.
 
+SQL-only selectors omit write dependency summaries and unique-key lookup
+records through `prepareSelector(..., false)`'s narrower structural view.
+Command selectors keep their complete facts by default; a unique discriminator's
+comparison semantics remain independent of whether facts are collected. The
+same predicate visitor prepares both paths, and SQL-only selectors cannot enter
+command selection/composition contracts without their required facts.
+
 `Queries` owns one read language. One prepared predicate vocabulary addresses a
 target — a physical column, a JSON value inside one, or an aggregate over one —
 so `where` and `having` can never admit different operators or bind an operand
@@ -128,13 +135,14 @@ the same decoder rather than by a second reversal site.
 
 Prepared command and routed-operation handles keep admission, prepared reads,
 and cache codecs local to each operation. Their methods and getters are shared
-on factory-scoped prototypes; internal consumers call them with their handle
-receiver. Read execution forwards the existing promise, while synchronous
-preparation failures still become rejections. Write completion alone owns the
-awaited post-execution outcome notification.
+on module-scoped prototypes; each handle holds its own engine and driver
+binding, and internal consumers call methods with their handle receiver.
+Dispatch and operations without outcome notifications forward the
+existing promise; synchronous failures still become rejections. Write completion
+awaits configured outcome notifications and preserves their publication order.
 
 `Queries.fieldValue` is the single destination-aware operand owner for filters,
-cursors, identities and assignments, and `decodeScalar` — reached only through
+cursors, identities and assignments, and `compileScalar` — reached only through
 the readers `compileReader` builds for `decodeQuery`/`decodeProjection` — is
 the single leaf decoder. Both reuse the existing validation codecs; neither may be duplicated
 per verb or per storage.
@@ -164,7 +172,7 @@ junction probe and `recursiveIdentity` carry a byte column as lowercase hex
 (`transportedIdentifier`, null-guarded because SQLite's `hex(NULL)` is `''`);
 `aggregateExpression` runs `MIN`/`MAX` over that transported text
 (`aggregatedIdentifier` — PostgreSQL has no `min(uuid)`/`max(bytea)`); and
-`decodeScalar` turns every domain field's physical value into the canonical
+`compileScalar` turns every domain field's physical value into the canonical
 public string, keeping a text-stored value's own spelling on an INTERNAL read
 exactly as the datetime arm does (FC-02B). A text-stored domain takes the
 ordinary string arms everywhere and builds the SQL a plain string column
@@ -1104,11 +1112,11 @@ PostgreSQL), because its codec reads an exact value only from that spelling.
 Stating the scalar spelling for both is a `numeric[]` arriving as the array
 literal `{1.00,2.00}`, which the list codec refuses. **The transport is asked about a value exactly once, at the row
 boundary** (Arnaud's D-17): `Queries` holds the driver's `DriverResultParser`
-and `decodeScalar` runs driver → adapter → codec for a value the provider
+and `compileScalar` runs driver → adapter → codec for a value the provider
 handed over directly, and never for one a JSON window already decoded. The
 driver → adapter leg has ONE owner, `Queries.fieldReader`, which binds it once
 per PHYSICAL scalar slot of a compiled batch (see the decoder lifetime below);
-a carried member gets no continuation at all, which is how `decodeScalar`
+a carried member gets no continuation at all, which is how `compileScalar`
 knows it is carried.
 **And about a RESULT exactly once, at the operation's own boundary** (Arnaud's
 D-28, the other half of the same contract): `Queries.decodeResult` runs the same
@@ -1164,7 +1172,7 @@ carried/physical placement, a variant slot's arms, a collection's and a
 recursive carrier's row reader and identity readers, and, for a physical scalar
 slot only, THIS execution's `fieldReader` continuation. Each reader then does
 only what depends on the provider's value, through the one scalar decoder
-(`decodeScalar`), the one document rule (`providerDocument` + `own`, which
+(`compileScalar`), the one document rule (`providerDocument` + `own`, which
 reads a variant slot and its integrity entry too, so a NULL or non-object slot,
 or a PRESENT integrity entry that is no object, is the malformed-result error at
 the slot — Arnaud, 2026-09-25; only an ABSENT entry means no membership) and the one
@@ -1175,20 +1183,29 @@ the prepared shape, which `EngineSchema` shares across executions and across
 driver bindings (a borrowed transaction may bind another driver to the same
 shape), and it is never cached on `Queries` either. There is no second
 decoder: no flat fast path beside the visitor, no per-verb or per-placement
-reader, no scalar switch outside `decodeScalar`. A cost in the decoder is
+reader, no scalar switch outside `compileScalarValue`. A cost in the decoder is
 answered inside that visitor. What the lifetime costs is a fixed per-batch
 compilation: a one-row read pays it and gains nothing back (CD-04 measured a
 nested one-row read at +4.7 % CPU, +2.3 % wall on SQLite).
+The scalar visitor binds type, identifier and list decisions before visiting
+cells. `compileScalarValue` owns the single declared-codec switch; stateless
+primitive codecs are shared functions, while descriptor-dependent codecs stay
+batch-local. `compileScalar` owns raw NULL/absence and the provider crossing.
+Only the root physical row arm can read positional native cells; actual native
+column aliases locate cells once, including explicit absence for a missing
+alias. Every nested carried document keeps the own-key object reader. Both
+representations allocate fresh public rows and a fresh outer result array.
+
 **A list leaf's element descriptor has the same lifetime**
 (`docs/architecture/raptor3-compiled-list-decoder-report.md`). `compileReader`
 compiles a list leaf's container reader, `Queries.compileList`, beside the
 physical slot's provider continuation: the decimal whole-list codec or the one
 container, chosen once, and the member's non-null leaf (`list: undefined`,
 `nullable: false`), derived once per list placement of a decoded batch. It
-used to be spread and frozen per returned LIST. `decodeScalar` still answers
+used to be spread and frozen per returned LIST. `compileScalar` still answers
 NULL and absence on the raw value, then runs the provider continuation once for
 the whole container, then the compiled container reader; every member is a
-CARRIED value decoded by `decodeScalar` itself, so no member re-enters the
+CARRIED value decoded by `compileScalar` itself, so no member re-enters the
 provider chain and no scalar switch is copied into the list reader. The reader
 is the batch's, like every other: never on the prepared shape, never on
 `Queries`, never per row. Like the rest of the lifetime, it is a fixed
@@ -1210,7 +1227,7 @@ replaced ran it on every read (`result/ResultParser.ts:721` into
 field per row read. The fact travels on the projection's own leaf —
 `Leaf.jsonSchema`, filled once per (adapter, model, field) by `Queries.leaf`
 beside `decimal`, `dateTime`, `enumValues` and `dimension` — so nothing walks a
-projection looking for JSON columns, and `decodeScalar`'s `json` arm asks it
+projection looking for JSON columns, and `compileScalar`'s `json` arm asks it
 once per VALUE: the JSON value domain, then the schema, then the value domain
 again over the schema's OUTPUT, which is what keeps a transforming schema's
 answer inside the domain and prototype-safe. The engine is only the CALLER:
@@ -1399,7 +1416,7 @@ inherited sentence. Pins:
 PostgreSQL SQL behaviour and no driver's TRANSPORT. Three facts are the
 transport's, each read from the driver's OWN declaration: SESSION LIFETIME —
 does a scratch reference survive from one dispatched unit to the next
-(`pinnedSession` / `_canPinSession`, `drivers/driver.ts:201`), which D-50's
+(`pinnedSession` / `canPinSession`, `migrations/pinned-session.ts`), which D-50's
 batch reference table needs, a TEMP table belonging to a session; FAILURE
 ATTRIBUTION — does the transport name the statement of a batch that failed
 (`statementIndex`, produced by the shared per-statement loop at

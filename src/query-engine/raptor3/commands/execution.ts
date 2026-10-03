@@ -6,7 +6,6 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import { type AnyModel, getModelKeyCatalog } from "@schema/model";
-import { assertInvariant } from "../shared/invariant";
 import type {
   Member,
   MembershipParent,
@@ -44,6 +43,7 @@ import {
 import {
   type BoundMembership,
   type DeferredFailure,
+  junctionPairs,
   membershipFields,
   type Selection,
 } from "./selection";
@@ -55,13 +55,13 @@ type PreparedSeries = NonNullable<ReturnType<CommandAttempt["series"]["get"]>>;
 export class CommandExecution {
   readonly commands: Commands;
   readonly context;
-  private currentAttempt: CommandAttempt;
-  private readonly entered = new Set<CommandOccurrence>();
+  #currentAttempt: CommandAttempt;
+  readonly #entered = new Set<CommandOccurrence>();
   constructor(commands: Commands) {
     this.commands = commands;
     this.context = commands.context;
-    this.currentAttempt = new CommandAttempt(this.context.transportAttempt);
-    this.context.attachRecovery(() => this.replaceRegions());
+    this.#currentAttempt = new CommandAttempt(this.context.transportAttempt);
+    this.context.attachRecovery(() => this.#replaceRegions());
   }
   /**
    * The ONE recovery method: both attempt regions replaced synchronously, with
@@ -71,47 +71,39 @@ export class CommandExecution {
    * this method's only caller, so a re-planned operation's new interpreter
    * brings no second allowance with it (Arnaud's D-25).
    */
-  private replaceRegions(): TransportAttempt {
+  #replaceRegions(): TransportAttempt {
     const replacement = new CommandAttempt();
-    this.currentAttempt = replacement;
+    this.#currentAttempt = replacement;
     return replacement.transport;
   }
   get attempt(): CommandAttempt {
-    return this.currentAttempt;
+    return this.#currentAttempt;
   }
   identity(fields: Assignments): Input {
     return this.attempt.select(fields, this.context.schema.keys(fields.model));
   }
-  private membershipValues(edge: Membership, parent: Assignments): Input {
+  #membershipValues(edge: Membership, parent: Assignments): Input {
     return this.attempt.select(parent, membershipFields(edge));
   }
-  private linkValues(
+  #linkValues(
     edge: Extract<Membership, { kind: "junction" }>,
     source?: Assignments,
     target?: Assignments
   ): Input {
-    return Object.fromEntries([
-      ...(source
-        ? edge.sourceSide.members.map((pair) => [
-            pair.junctionField,
-            this.attempt.read(source, pair.referencedField),
-          ])
-        : []),
-      ...(target
-        ? edge.targetSide.members.map((pair) => [
-            pair.junctionField,
-            this.attempt.read(target, pair.referencedField),
-          ])
-        : []),
-    ]);
+    return junctionPairs(
+      edge,
+      (owner, field) => this.attempt.read(owner, field),
+      source,
+      target
+    );
   }
-  private async requireTransitions(command: RecordCommand): Promise<void> {
+  async #requireTransitions(command: RecordCommand): Promise<void> {
     const ctx = this.context;
     const q = ctx.queries;
     const a = ctx.driver.adapter;
     for (const edge of command.transitions) {
-      const before = this.membershipValues(edge, command.located!.fields);
-      const after = this.membershipValues(edge, command.fields);
+      const before = this.#membershipValues(edge, command.located!.fields);
+      const after = this.#membershipValues(edge, command.fields);
       for (const pair of edge.pairs) {
         if (after[pair.source] === null)
           throw new NestedWriteError(
@@ -194,7 +186,7 @@ export class CommandExecution {
     value: unknown
   ): void {
     if (value !== null) return;
-    throw this.unrepresentable(relation, referenced);
+    throw this.#unrepresentable(relation, referenced);
   }
   /**
    * The same requirement's failure, BUILT rather than raised: the fold's own
@@ -202,7 +194,7 @@ export class CommandExecution {
    * sub-select will read, as a premise of the unit that spends it
    * ({@link folded}). One sentence, one builder, two askers.
    */
-  private unrepresentable(relation: string, referenced: string): Error {
+  #unrepresentable(relation: string, referenced: string): Error {
     return new NestedWriteError(
       `Cannot connect relation '${relation}': the located target's referenced field '${referenced}' is null.`,
       relation
@@ -314,13 +306,13 @@ export class CommandExecution {
     const ctx = this.context;
     const lookup = command.lookup;
     if (!(ctx.usesBatch && lookup.insertsWhenAbsent)) return undefined;
-    const spent = this.spentByHolder(command, enclosing);
+    const spent = this.#spentByHolder(command, enclosing);
     if (spent.length === 0) return undefined;
     for (const field of spent)
       if (physicalField(ctx.schema, lookup.model, field).nullable)
         await ctx.requireAbsent(
           lookup.unrepresentable(field),
-          this.unrepresentable(relation, field)
+          this.#unrepresentable(relation, field)
         );
     return ctx.queries.includeIdentities(lookup.model, [
       this.identity(lookup.fields),
@@ -338,7 +330,7 @@ export class CommandExecution {
    * placement — a junction's captured pair is not the holder's own field, and a
    * child-held arm's value is written by the arm, not by the row above it.
    */
-  private spentByHolder(
+  #spentByHolder(
     command: Choose,
     enclosing: Command | undefined
   ): string[] {
@@ -368,7 +360,7 @@ export class CommandExecution {
    * membership — `Commands.create` assigns them from the incoming edge — and
    * the placement's origin names the relation and the verb that spelled it.
    */
-  private membershipParent(
+  #membershipParent(
     command: RecordCommand,
     enclosing: Command | undefined
   ): MembershipParent | undefined {
@@ -402,12 +394,12 @@ export class CommandExecution {
    * commits a fresh target and moves no holder). The attempt already records
    * which arm ran.
    */
-  private carried(holder: Assignments): boolean {
+  #carried(holder: Assignments): boolean {
     for (const choice of this.attempt.missingChoices.values())
       if (choice.found?.command.fields === holder) return false;
     return true;
   }
-  private matchesSelectedConstraint(
+  #matchesSelectedConstraint(
     choice: Choose,
     error: UniqueConstraintError
   ): boolean {
@@ -449,7 +441,7 @@ export class CommandExecution {
       meta.columns.every((column, index) => column === expectedColumns[index])
     );
   }
-  private async recover(error: unknown): Promise<boolean> {
+  async #recover(error: unknown): Promise<boolean> {
     // In place, or not at all: where this operation opened a region, the
     // rejection aborted it and the recovery is the region owner's.
     if (!this.context.replaysInPlace) return false;
@@ -469,7 +461,7 @@ export class CommandExecution {
       !(
         choice &&
         error instanceof UniqueConstraintError &&
-        this.matchesSelectedConstraint(choice, error)
+        this.#matchesSelectedConstraint(choice, error)
       )
     )
       return false;
@@ -500,7 +492,7 @@ export class CommandExecution {
           )
         );
       } catch (error) {
-        if (!(await this.recover(error))) throw error;
+        if (!(await this.#recover(error))) throw error;
       }
     }
   }
@@ -624,7 +616,7 @@ export class CommandExecution {
    * value ({@link folded}'s batch arm), so there too the reference is the
    * intended row's own and never a captured key another row has acquired.
    */
-  private foundFailure(
+  #foundFailure(
     command: Choose,
     requirement: MembershipRequirement | undefined
   ): DeferredFailure {
@@ -647,7 +639,7 @@ export class CommandExecution {
    * provider the statement therefore proves the identity at the point it
    * consumes it; an empty result raises the confirmation's original failure.
    */
-  private mutationConfirmationFailure(
+  #mutationConfirmationFailure(
     command: Choose,
     requirement: MembershipRequirement | undefined,
     found: CommandOccurrence<RecordCommand> | undefined
@@ -676,7 +668,7 @@ export class CommandExecution {
       )
     )
       return undefined;
-    return this.foundFailure(command, requirement);
+    return this.#foundFailure(command, requirement);
   }
   private async confirmFound(
     command: Choose,
@@ -713,7 +705,7 @@ export class CommandExecution {
     // §2).
     const conditions = command.conditions?.probes ?? [];
     const first = conditions[0];
-    const failure = this.foundFailure(command, requirement);
+    const failure = this.#foundFailure(command, requirement);
     const selector = first
       ? conditions.length === 1
         ? first.lookup.selector
@@ -743,7 +735,7 @@ export class CommandExecution {
    * that is running them has.
    */
   started(occurrence: CommandOccurrence): boolean {
-    return this.entered.has(occurrence);
+    return this.#entered.has(occurrence);
   }
   async run(
     occurrence: CommandOccurrence,
@@ -753,7 +745,7 @@ export class CommandExecution {
     const ctx = this.context;
     const attempt = this.attempt;
     const command = occurrence.command;
-    this.entered.add(occurrence);
+    this.#entered.add(occurrence);
     // biome-ignore lint/style/useDefaultSwitchClause: the command-kind union is exhaustive; a default would be dead code.
     switch (command.kind) {
       case "record": {
@@ -780,7 +772,7 @@ export class CommandExecution {
               : new NotFoundError(command.model["~"].names.ts!, "update")
           );
         }
-        await this.requireTransitions(command);
+        await this.#requireTransitions(command);
         for (const child of occurrence.children)
           if (child.placement === "before") await this.run(child, member);
         // Every `before` child has run, and one of them may already have moved
@@ -794,7 +786,7 @@ export class CommandExecution {
         // its OTHER arm, and then nothing cascaded ({@link carried}).
         const moved =
           command.located &&
-          command.fields.moved((holder) => this.carried(holder));
+          command.fields.moved((holder) => this.#carried(holder));
         if (moved)
           attempt.materialize(command.located!.fields, attempt.resolve(moved));
         const values = this.stored(command.fields);
@@ -826,7 +818,7 @@ export class CommandExecution {
                 member,
                 command.operation,
                 command.fields,
-                this.membershipParent(command, occurrence.parent?.command)
+                this.#membershipParent(command, occurrence.parent?.command)
               )
         );
         // Every capture still runs before every effect, and the reason is
@@ -881,7 +873,7 @@ export class CommandExecution {
             },
             {
               edge: command.membership.edge,
-              parent: this.membershipValues(
+              parent: this.#membershipValues(
                 command.membership.edge,
                 command.membership.parent
               ),
@@ -973,7 +965,7 @@ export class CommandExecution {
               attempt.retained.add(command.lookup);
             }
           }
-          const confirmationFailure = this.mutationConfirmationFailure(
+          const confirmationFailure = this.#mutationConfirmationFailure(
             command,
             requirement,
             found
@@ -1042,10 +1034,10 @@ export class CommandExecution {
           command.removals?.some(
             (removal) =>
               matches(
-                this.linkValues(removal.edge, removal.source, removal.target)
+                this.#linkValues(removal.edge, removal.source, removal.target)
               ) &&
               !removal.keep.some((retained) =>
-                matches(this.linkValues(removal.edge, undefined, retained))
+                matches(this.#linkValues(removal.edge, undefined, retained))
               )
           );
         await ctx.link(
@@ -1060,7 +1052,7 @@ export class CommandExecution {
         await ctx.remove(
           command.edge,
           command.source
-            ? this.membershipValues(command.edge, command.source)
+            ? this.#membershipValues(command.edge, command.source)
             : undefined,
           command.target ? this.identity(command.target) : undefined,
           command.keep.map((target) => this.identity(target)),
@@ -1081,7 +1073,7 @@ export class CommandExecution {
       case "set": {
         await ctx.mutateMembers(
           command.edge,
-          this.membershipValues(command.edge, command.parent),
+          this.#membershipValues(command.edge, command.parent),
           command.selector,
           command.values,
           member
@@ -1096,7 +1088,7 @@ export class CommandExecution {
         return;
       }
       case "series": {
-        await this.executeRecords(
+        await this.#executeRecords(
           occurrence.children.filter(isRecordOccurrence),
           member
         );
@@ -1104,7 +1096,7 @@ export class CommandExecution {
       }
       case "selectedSeries": {
         if (isSeriesOccurrence(occurrence))
-          await this.executeSeries(occurrence);
+          await this.#executeSeries(occurrence);
         return;
       }
       case "membership":
@@ -1124,7 +1116,7 @@ export class CommandExecution {
     select: Input | undefined,
     member: Member
   ): Promise<unknown> {
-    const { count, identities } = await this.executeRecords(
+    const { count, identities } = await this.#executeRecords(
       records,
       member,
       select !== undefined
@@ -1140,7 +1132,7 @@ export class CommandExecution {
       )
     );
   }
-  private async executeRecords(
+  async #executeRecords(
     records: CommandOccurrence<RecordCommand>[],
     member: Member,
     identified = false
@@ -1160,7 +1152,7 @@ export class CommandExecution {
         );
       else await ctx.executeMember(() => this.run(record), command);
       if (!completed) {
-        await ctx.executeMember(() => this.adoptSuppressed(record), command);
+        await ctx.executeMember(() => this.#adoptSuppressed(record), command);
         continue;
       }
       count++;
@@ -1194,7 +1186,7 @@ export class CommandExecution {
    * skipped root must strand nothing" (`:2389`) is about an effect placed
    * BEFORE that root, and refuses the member outright.
    */
-  private async adoptSuppressed(
+  async #adoptSuppressed(
     record: CommandOccurrence<RecordCommand>
   ): Promise<void> {
     const command = record.command;
@@ -1205,7 +1197,7 @@ export class CommandExecution {
         child.command.kind !== "junction"
       )
         return;
-    const row = await this.locateSuppressed(command);
+    const row = await this.#locateSuppressed(command);
     if (!row) return;
     this.attempt.bind(command.fields, row);
     for (const child of record.children)
@@ -1218,7 +1210,7 @@ export class CommandExecution {
    * name none — the shipped disposition's `spelled.length !== 1` suppression
    * (`junction-create-many-routing.ts:121-124`).
    */
-  private async locateSuppressed(
+  async #locateSuppressed(
     command: RecordCommand
   ): Promise<Input | undefined> {
     const ctx = this.context;
@@ -1272,7 +1264,7 @@ export class CommandExecution {
     const identityFields = projection
       ? updatedMembers.map(({ command }) => command.fields)
       : [];
-    const count = await this.executeSeries(occurrence);
+    const count = await this.#executeSeries(occurrence);
     const identities = identityFields.map((fields) => this.identity(fields));
     if (!projection) {
       await this.context.finish();
@@ -1308,7 +1300,7 @@ export class CommandExecution {
    * a row lock and not phantom exclusion — a member connected afterwards is a
    * row no lock covered, and on both routes it is outside the worklist.
    */
-  private async requireNoAddedMember(
+  async #requireNoAddedMember(
     series: SeriesOccurrence["series"],
     membership: NonNullable<ReturnType<Selection["membership"]>>,
     rows: readonly Input[]
@@ -1333,7 +1325,7 @@ export class CommandExecution {
         { take: 1 },
         {
           edge: membership.edge,
-          parent: this.membershipValues(membership.edge, membership.parent),
+          parent: this.#membershipValues(membership.edge, membership.parent),
         },
         { selector: captured }
       ),
@@ -1360,7 +1352,7 @@ export class CommandExecution {
       );
       const parentWhere = () => ({
         ...this.identity(parent),
-        ...this.membershipValues(edge, parent),
+        ...this.#membershipValues(edge, parent),
       });
       const published = await ctx.flush(
         ctx.queries.select(parent.model, {
@@ -1393,7 +1385,7 @@ export class CommandExecution {
         },
         membership && {
           edge: membership.edge,
-          parent: this.membershipValues(membership.edge, membership.parent),
+          parent: this.#membershipValues(membership.edge, membership.parent),
         },
         { forUpdate: !ctx.usesBatch, selector: selection.selector }
       ),
@@ -1402,7 +1394,7 @@ export class CommandExecution {
       selection.model
     );
     if (series.mutation.kind === "update") {
-      const exclusive = this.exclusiveMemberMove(
+      const exclusive = this.#exclusiveMemberMove(
         selection.model,
         series.mutation.raw,
         rows.length
@@ -1426,7 +1418,7 @@ export class CommandExecution {
       // `g2-series-parent-reference-reused`) instead of the complement's
       // raceable one, which would retry against another parent's members.
       ctx.requirePresent(parentRequirement.query, parentRequirement.failure);
-      await this.requireNoAddedMember(series, membership, rows);
+      await this.#requireNoAddedMember(series, membership, rows);
     }
     const members: SelectedSeriesMember[] = ctx.prepareMembers(
       () =>
@@ -1517,7 +1509,7 @@ export class CommandExecution {
    * (`tests/raptor3/core-structure/member-scope.contract.test.ts`
    * `cs03-peer-scope-root` pins the sequence).
    */
-  private exclusiveMemberMove(
+  #exclusiveMemberMove(
     model: AnyModel,
     data: Input,
     count: number
@@ -1620,7 +1612,7 @@ export class CommandExecution {
     if (edge.kind !== "junction") return;
     const junction = ctx.queries.junction(
       edge,
-      this.linkValues(edge, membership.parent, located.fields),
+      this.#linkValues(edge, membership.parent, located.fields),
       true
     );
     if (ctx.usesBatch) {
@@ -1630,7 +1622,7 @@ export class CommandExecution {
     const rows = await ctx.read(junction, true);
     if (!rows[0]) throw failure();
   }
-  private async executeSeries(
+  async #executeSeries(
     occurrence: CommandOccurrence<SeriesOccurrence>
   ): Promise<number> {
     const ctx = this.context;
@@ -1638,16 +1630,14 @@ export class CommandExecution {
     // The `captureSeries` command `requireSeriesCapture` placed ahead of this
     // series ran in this same attempt (`run`'s `case "captureSeries"`), and a
     // recovery replaces the attempt AND the command tree together.
-    assertInvariant(prepared, "this series was captured in this attempt");
-    const { members, parentRequirement } = prepared;
+    const { members, parentRequirement } = prepared!;
     const membership = occurrence.command.series.selection.membership();
     for (const child of members) {
       const command = child.command;
-      const located = command.located;
       // Every member `captureSeries` built names the row it captured: a
       // `Deletion` carries its `located` by type, and an update member is
       // `Commands.update(located, …)` on that same captured selection.
-      assertInvariant(located, "a series member names its captured row");
+      const located = command.located!;
       if (ctx.usesBatch) {
         this.attempt.rows.delete(located);
         try {

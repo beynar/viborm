@@ -18,7 +18,6 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { type Dialect, Driver } from "@drivers";
 import { D1Driver } from "@drivers/d1";
 import { QueryEngineError, ValidationError } from "@errors";
-import { createModelRegistry, QueryEngine } from "@query-engine/query-engine";
 import {
   InvalidScalarResult,
   Queries,
@@ -28,6 +27,10 @@ import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
 import type { Sql } from "@sql";
+import {
+  createModelRegistry,
+  TestQueryEngine,
+} from "@tests/fixtures/query-engine";
 import { prepareSchema } from "@tests/fixtures/query-scope";
 import { createSchemaRegistry } from "@validation";
 import { describe, expect, test } from "vitest";
@@ -222,12 +225,12 @@ const DIALECT = new Map<DatabaseAdapter, Dialect>([
 ]);
 
 function engineFor(adapter: DatabaseAdapter): {
-  engine: QueryEngine;
+  engine: TestQueryEngine;
   driver: RecordingDriver;
 } {
   const registry = createModelRegistry(models, createSchemaRegistry(models));
   const driver = new RecordingDriver(adapter, DIALECT.get(adapter) ?? "sqlite");
-  return { engine: new QueryEngine(driver, registry), driver };
+  return { engine: new TestQueryEngine(driver, registry), driver };
 }
 
 type AnyModel = (typeof models)[keyof typeof models];
@@ -494,7 +497,7 @@ describe("projecting an identifier column", () => {
       select: { id: true, slug: true },
     }).toStatement("$n");
     expect(select).toBe(
-      `SELECT "q0"."id" AS "id", "q0"."slug" AS "slug" FROM "public"."user" AS "q0" WHERE TRUE`
+      `SELECT "q0"."id" AS "id", "q0"."slug" AS "slug" FROM "public"."user" AS "q0"`
     );
   });
 

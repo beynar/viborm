@@ -438,7 +438,6 @@ function createObjectValidator(
   let validates: readonly ((value: unknown) => any)[] = EMPTY_METADATA_ARRAY;
   let activeRequiresOneOf: ObjectOptions["requiresOneOf"];
   let activeRequiresOneOfKeySets: ObjectOptions["requiresOneOfKeySets"];
-  let isFullyPartial = true;
   let runOnMissingIdx: readonly number[] = EMPTY_METADATA_ARRAY;
   let acceptsUndefined: readonly boolean[] = EMPTY_METADATA_ARRAY;
   let requiredByAtLeast: readonly boolean[] | null = null;
@@ -478,7 +477,6 @@ function createObjectValidator(
     validates = resolvedValidates;
     activeRequiresOneOf = resolvedActiveRequiresOneOf;
     activeRequiresOneOfKeySets = resolvedActiveRequiresOneOfKeySets;
-    isFullyPartial = resolvedIsFullyPartial;
 
     if (resolvedIsFullyPartial) {
       mutableRunOnMissingIdx = [];
@@ -546,174 +544,175 @@ function createObjectValidator(
     }
   };
 
-  return (value: unknown): ValidationResult<Record<string, unknown>> => {
-    // Type check
-    if (!isRecord(value)) {
-      return OBJECT_TYPE_ERROR as ValidationResult<Record<string, unknown>>;
-    }
+  type Result = ValidationResult<Record<string, unknown>>;
 
+  // `nonEmpty` and the one-of requirements, apart: most objects declare none,
+  // and a validator whose shape has none never compiles them.
+  const checkRequirements =
+    nonEmpty === true || requiresOneOf || requiresOneOfKeySets
+      ? (
+          input: Record<string, unknown>,
+          inputValueScratch: unknown[] | undefined
+        ): Result | undefined => {
+          if (nonEmpty === true) {
+            // Check if object has any keys at all (including unknown keys when strict: false)
+            let hasAnyKey = false;
+            for (const _key in input) {
+              hasAnyKey = true;
+              break;
+            }
+            if (!hasAnyKey) {
+              return {
+                issues: [{ message: "Object cannot be empty" }],
+              };
+            }
+          }
+
+          if (activeRequiresOneOf) {
+            for (const group of activeRequiresOneOf) {
+              const hasOne = group.some(
+                (key) =>
+                  readObjectInputValue(
+                    input,
+                    key,
+                    inputValueScratch,
+                    inputValueScratchIndexByName
+                  ) !== undefined
+              );
+              if (!hasOne) {
+                return {
+                  issues: [
+                    {
+                      message: `Missing required field: one of ${group.join(", ")}`,
+                    },
+                  ],
+                };
+              }
+            }
+          }
+
+          if (activeRequiresOneOfKeySets) {
+            for (const group of activeRequiresOneOfKeySets) {
+              const hasAlternative = group.some((keySet) =>
+                keySet.every(
+                  (key) =>
+                    readObjectInputValue(
+                      input,
+                      key,
+                      inputValueScratch,
+                      inputValueScratchIndexByName
+                    ) !== undefined
+                )
+              );
+              if (!hasAlternative) {
+                const alternatives = group
+                  .map((keySet) => keySet.join(", "))
+                  .join(" or ");
+                return {
+                  issues: [
+                    {
+                      message: `Missing required fields: one of ${alternatives}`,
+                    },
+                  ],
+                };
+              }
+            }
+          }
+          return undefined;
+        }
+      : undefined;
+
+  // Fast path for fully-partial objects (where/select/orderBy args):
+  // iterate input keys instead of all schema keys, and don't materialize
+  // undefined entries for absent keys — output stays input-sized.
+  const parsePartial = (value: unknown): Result => {
+    if (!isRecord(value)) {
+      return OBJECT_TYPE_ERROR as Result;
+    }
     const input = value as Record<string, unknown>;
     if (resolve) resolve();
-    const output: Record<string, unknown> = {};
     const inputValueScratch = inputValueScratchTemplate?.slice();
-
     // Strict mode: check for extra keys first (fail-fast)
     if (strict) {
-      for (const key in input) {
-        if (!keyIndex.has(key)) {
-          return { issues: [{ message: `Unknown key: ${key}`, path: [key] }] };
-        }
+      const unknown = unknownKey(input, keyIndex);
+      if (unknown !== undefined) return unknownKeyIssue(unknown);
+    }
+    const unmet = checkRequirements?.(input, inputValueScratch);
+    if (unmet) return unmet;
+    const output: Record<string, unknown> = {};
+    for (const key in input) {
+      const i = keyIndex.get(key);
+      if (i === undefined) {
+        // unknown key with strict: false — dropped, as before
+        continue;
+      }
+
+      // Explicit undefined is treated as absent (Prisma parity): it is
+      // neither validated nor materialized. Downstream consumers use key
+      // presence ("where" in config, hasRecordKeys) as meaningful, so
+      // { f: undefined } must behave exactly like {}. Defaults for such
+      // keys still fire via the absent-keys loop below.
+      const inputValue = readObjectInputValue(
+        input,
+        key,
+        inputValueScratch,
+        inputValueScratchIndexByName
+      );
+      if (inputValue === undefined) {
+        continue;
+      }
+
+      const result = validates[i]!(inputValue);
+      if (result.issues) return fieldIssue(key, result.issues[0]!);
+      if (result.value !== undefined) {
+        output[key] = result.value;
       }
     }
 
-    // Check for nonEmpty constraint
-    if (nonEmpty === true) {
-      // Check if object has any keys at all (including unknown keys when strict: false)
-      let hasAnyKey = false;
-      for (const _key in input) {
-        hasAnyKey = true;
-        break;
-      }
-      if (!hasAnyKey) {
-        return {
-          issues: [{ message: "Object cannot be empty" }],
-        };
-      }
-    }
-
-    if (activeRequiresOneOf) {
-      for (const group of activeRequiresOneOf) {
-        const hasOne = group.some(
-          (key) =>
-            readObjectInputValue(
-              input,
-              key,
-              inputValueScratch,
-              inputValueScratchIndexByName
-            ) !== undefined
-        );
-        if (!hasOne) {
-          return {
-            issues: [
-              {
-                message: `Missing required field: one of ${group.join(", ")}`,
-              },
-            ],
-          };
-        }
-      }
-    }
-
-    if (activeRequiresOneOfKeySets) {
-      for (const group of activeRequiresOneOfKeySets) {
-        const hasAlternative = group.some((keySet) =>
-          keySet.every(
-            (key) =>
-              readObjectInputValue(
-                input,
-                key,
-                inputValueScratch,
-                inputValueScratchIndexByName
-              ) !== undefined
-          )
-        );
-        if (!hasAlternative) {
-          const alternatives = group
-            .map((keySet) => keySet.join(", "))
-            .join(" or ");
-          return {
-            issues: [
-              {
-                message: `Missing required fields: one of ${alternatives}`,
-              },
-            ],
-          };
-        }
-      }
-    }
-
-    // Fast path for fully-partial objects (where/select/orderBy args):
-    // iterate input keys instead of all schema keys, and don't materialize
-    // undefined entries for absent keys — output stays input-sized.
-    if (isFullyPartial) {
-      for (const key in input) {
-        const i = keyIndex.get(key);
-        if (i === undefined) {
-          // unknown key with strict: false — dropped, as before
-          continue;
-        }
-
-        // Explicit undefined is treated as absent (Prisma parity): it is
-        // neither validated nor materialized. Downstream consumers use key
-        // presence ("where" in config, hasRecordKeys) as meaningful, so
-        // { f: undefined } must behave exactly like {}. Defaults for such
-        // keys still fire via the absent-keys loop below.
-        const inputValue = readObjectInputValue(
+    // Keys that are absent (or explicitly undefined) only matter when their
+    // schema can apply a default
+    for (const i of runOnMissingIdx) {
+      const key = keys[i]!;
+      if (
+        readObjectInputValue(
           input,
           key,
           inputValueScratch,
           inputValueScratchIndexByName
-        );
-        if (inputValue === undefined) {
-          continue;
-        }
-
-        const result = validates[i]!(inputValue);
-        if (result.issues) {
-          const issue = result.issues[0]!;
-          return {
-            issues: [
-              {
-                message: issue.message,
-                path: issue.path ? [key].concat(issue.path) : [key],
-              },
-            ],
-          };
-        }
-        if (result.value !== undefined) {
-          output[key] = result.value;
-        }
+        ) !== undefined
+      ) {
+        continue;
       }
-
-      // Keys that are absent (or explicitly undefined) only matter when their
-      // schema can apply a default
-      for (const i of runOnMissingIdx) {
-        const key = keys[i]!;
-        if (
-          readObjectInputValue(
-            input,
-            key,
-            inputValueScratch,
-            inputValueScratchIndexByName
-          ) !== undefined
-        ) {
-          continue;
-        }
-        const result = validates[i]!(undefined);
-        if (result.issues) {
-          const issue = result.issues[0]!;
-          return {
-            issues: [
-              {
-                message: issue.message,
-                path: issue.path ? [key].concat(issue.path) : [key],
-              },
-            ],
-          };
-        }
-        if (result.value !== undefined) {
-          output[key] = result.value;
-        }
+      const result = validates[i]!(undefined);
+      if (result.issues) return fieldIssue(key, result.issues[0]!);
+      if (result.value !== undefined) {
+        output[key] = result.value;
       }
-
-      const refusal = refuse?.(output);
-      return refusal ? { issues: [{ message: refusal }] } : { value: output };
     }
 
-    // Slow path (partial: false or atLeast): output is intentionally DENSE —
-    // every schema key is materialized, including undefined. Create/update
-    // data schemas rely on this to surface defaults; required keys are always
-    // present in valid input anyway, so sparse vs dense doesn't diverge there.
+    const refusal = refuse?.(output);
+    return refusal ? { issues: [{ message: refusal }] } : { value: output };
+  };
+
+  // Slow path (partial: false or atLeast): output is intentionally DENSE —
+  // every schema key is materialized, including undefined. Create/update
+  // data schemas rely on this to surface defaults; required keys are always
+  // present in valid input anyway, so sparse vs dense doesn't diverge there.
+  const parseDense = (value: unknown): Result => {
+    if (!isRecord(value)) {
+      return OBJECT_TYPE_ERROR as Result;
+    }
+    const input = value as Record<string, unknown>;
+    if (resolve) resolve();
+    const inputValueScratch = inputValueScratchTemplate?.slice();
+    // Strict mode: check for extra keys first (fail-fast)
+    if (strict) {
+      const unknown = unknownKey(input, keyIndex);
+      if (unknown !== undefined) return unknownKeyIssue(unknown);
+    }
+    const unmet = checkRequirements?.(input, inputValueScratch);
+    if (unmet) return unmet;
+    const output: Record<string, unknown> = {};
     // Validate each field - direct array access, no object property lookup
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i]!;
@@ -752,17 +751,7 @@ function createObjectValidator(
         // If schema accepts undefined, run validator to apply defaults
         if (acceptsUndefined[i]) {
           const result = validates[i]!(undefined);
-          if (result.issues) {
-            const issue = result.issues[0]!;
-            return {
-              issues: [
-                {
-                  message: issue.message,
-                  path: issue.path ? [key].concat(issue.path) : [key],
-                },
-              ],
-            };
-          }
+          if (result.issues) return fieldIssue(key, result.issues[0]!);
           output[key] = result.value;
         } else {
           // Scalar is optional (partial: true, not in atLeast) but schema doesn't have defaults
@@ -776,17 +765,7 @@ function createObjectValidator(
       const result = validates[i]!(inputValue);
 
       // Handle validation error (most common unhappy path)
-      if (result.issues) {
-        const issue = result.issues[0]!;
-        return {
-          issues: [
-            {
-              message: issue.message,
-              path: issue.path ? [key].concat(issue.path) : [key],
-            },
-          ],
-        };
-      }
+      if (result.issues) return fieldIssue(key, result.issues[0]!);
 
       output[key] = result.value;
     }
@@ -794,6 +773,37 @@ function createObjectValidator(
     const refusal = refuse?.(output);
     return refusal ? { issues: [{ message: refusal }] } : { value: output };
   };
+
+  return partial && !atLeast ? parsePartial : parseDense;
+}
+
+function unknownKey(
+  input: Record<string, unknown>,
+  keyIndex: ReadonlyMap<string, number>
+): string | undefined {
+  for (const key in input) if (!keyIndex.has(key)) return key;
+  return undefined;
+}
+
+function unknownKeyIssue(
+  key: string
+): ValidationResult<Record<string, unknown>> {
+  return { issues: [{ message: `Unknown key: ${key}`, path: [key] }] };
+}
+
+/** A member's first issue, re-rooted at the member's key. */
+function fieldIssue(
+  key: string,
+  issue: { message: string; path?: readonly PropertyKey[] }
+): ValidationResult<Record<string, unknown>> {
+  return {
+    issues: [
+      {
+        message: issue.message,
+        path: issue.path ? ([key] as PropertyKey[]).concat(issue.path) : [key],
+      },
+    ],
+  } as ValidationResult<Record<string, unknown>>;
 }
 
 /**

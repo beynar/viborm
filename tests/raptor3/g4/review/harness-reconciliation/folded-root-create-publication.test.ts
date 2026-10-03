@@ -13,7 +13,7 @@
  * provider row the input cannot supply, and with a provider row missing.
  */
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import { recurrenceOrdinaryWorld } from "../../../g3/generation/recurrence-ordinary-world";
 import type { G3GeneratedRecipe } from "../../../g3/generation/recipe";
@@ -60,7 +60,7 @@ async function runFoldedCreate(responseRows: unknown[]) {
     driver.installScripts([
       { name: "probe", firstParameter, replies: [reply] },
     ]);
-    const candidate = createCommandEngine({ schema: world.schema, driver });
+    const candidate = createTestCommandEngine({ schema: world.schema, driver });
     try {
       const work = candidate.execute("node", "create", operation.args);
       const outcome = await driver

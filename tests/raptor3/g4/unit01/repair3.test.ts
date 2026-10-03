@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { AnyNull, DbNull, JsonNull } from "@schema/json-null";
 import { s } from "@schema";
@@ -224,7 +224,7 @@ async function ledgerOutcomes(
       schema: ledgerSchema,
       driver: left.driver,
     }) as unknown as { ledger: { findMany: (input: unknown) => unknown } };
-    const engine = createCommandEngine({
+    const engine = createTestCommandEngine({
       schema: ledgerSchema,
       driver: right.driver,
     });

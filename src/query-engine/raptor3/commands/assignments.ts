@@ -39,13 +39,13 @@ function literal(value: unknown): FieldValue {
 /** One row's requested final fields and exact symbolic consumers. */
 export class Assignments {
   readonly demands = new Set<string>();
-  private readonly writes = new Map<string, FieldValue>();
-  private readonly requested = new Set<string>();
-  private readonly held = new Map<
+  readonly #writes = new Map<string, FieldValue>();
+  readonly #requested = new Set<string>();
+  readonly #held = new Map<
     string,
     { readonly value: FieldValue; readonly holder: Assignments }
   >();
-  private refusal?: Error;
+  #refusal: (Error) | undefined;
   constructor(
     readonly model: AnyModel,
     readonly operation: "create" | "update" | "select",
@@ -56,8 +56,8 @@ export class Assignments {
     readonly deferred = false
   ) {
     for (const [field, value] of Object.entries(values)) {
-      this.writes.set(field, literal(value));
-      if (explicit[field] !== undefined) this.requested.add(field);
+      this.#writes.set(field, literal(value));
+      if (explicit[field] !== undefined) this.#requested.add(field);
     }
   }
   /**
@@ -77,7 +77,7 @@ export class Assignments {
    * already the value, so a created document spelled `{ set: … }` is that
    * document and nothing is unwrapped.
    */
-  private named(assignment: FieldValue): FieldValue | undefined {
+  #named(assignment: FieldValue): FieldValue | undefined {
     if (assignment.kind !== "literal" || this.operation !== "update")
       return assignment;
     const whole = wholeValue(assignment.value);
@@ -90,9 +90,9 @@ export class Assignments {
    * that consumes this one keeps the shipped behaviour for that shape.
    */
   stated(field: string): FieldValue | undefined {
-    const assignment = this.writes.get(field);
+    const assignment = this.#writes.get(field);
     if (assignment === undefined) return undefined;
-    return this.named(assignment) ?? assignment;
+    return this.#named(assignment) ?? assignment;
   }
   field(field: string): FieldValue {
     this.demands.add(field);
@@ -112,20 +112,20 @@ export class Assignments {
    * the contract a `connect` writes.
    */
   restate(field: string, value: FieldValue): void {
-    this.writes.set(field, value);
+    this.#writes.set(field, value);
   }
   forward(producer: Assignments): void {
     this.forwarded.push(producer);
     for (const field of this.demands) producer.field(field);
   }
   known(field: string): FieldValue | undefined {
-    const assignment = this.writes.get(field);
+    const assignment = this.#writes.get(field);
     if (assignment?.kind === "field")
       return assignment.producer.known(assignment.field);
-    return assignment && this.named(assignment);
+    return assignment && this.#named(assignment);
   }
   writesField(field: string): boolean {
-    return this.writes.has(field);
+    return this.#writes.has(field);
   }
   /**
    * A value an effect of this operation has ALREADY left this row holding.
@@ -142,7 +142,7 @@ export class Assignments {
    * row's own write can point it at.
    */
   hold(field: string, value: FieldValue, holder: Assignments): void {
-    this.held.set(field, { value, holder });
+    this.#held.set(field, { value, holder });
   }
   /**
    * What an effect of this operation already moved on this row — nothing, or
@@ -159,33 +159,33 @@ export class Assignments {
     ran: (holder: Assignments) => boolean
   ): Record<string, FieldValue> | undefined {
     const moved: Record<string, FieldValue> = {};
-    for (const [field, { value, holder }] of this.held)
+    for (const [field, { value, holder }] of this.#held)
       if (ran(holder)) moved[field] = value;
     return Object.keys(moved).length === 0 ? undefined : moved;
   }
   movesField(field: string): boolean {
-    return this.held.has(field);
+    return this.#held.has(field);
   }
   /** Whether a stated value of this write is read from `producer` (N1: the cycle test). */
   consumes(producer: Assignments): boolean {
-    for (const value of this.writes.values())
+    for (const value of this.#writes.values())
       if (value.kind === "field" && value.producer === producer) return true;
     return false;
   }
   contribute(field: string, value: FieldValue, failure: string): void {
-    const previous = this.writes.get(field);
-    if (previous && this.requested.has(field) && !this.equal(previous, value))
+    const previous = this.#writes.get(field);
+    if (previous && this.#requested.has(field) && !this.#equal(previous, value))
       this.reject(new UnsupportedOperationError(failure));
-    this.writes.set(field, value);
-    this.requested.add(field);
+    this.#writes.set(field, value);
+    this.#requested.add(field);
   }
   requireLiteral(field: string, relation: string): void {
-    const assignment = this.writes.get(field);
+    const assignment = this.#writes.get(field);
     if (!assignment || assignment.kind === "field") return;
     // The relation key must be given a VALUE. `{ set: 'x' }` names one and is
     // legal (the sentence says so); `{ increment: 1 }` names an operation the
     // relation write cannot reconcile, and a whole object is not a key.
-    const value = this.named(assignment);
+    const value = this.#named(assignment);
     if (
       value?.kind === "literal" &&
       (value.value === null || typeof value.value !== "object")
@@ -201,10 +201,10 @@ export class Assignments {
   }
   reject(failure: Error): void {
     if (!this.deferred) throw failure;
-    this.refusal ??= failure;
+    this.#refusal ??= failure;
   }
   activate(): void {
-    if (this.refusal) throw this.refusal;
+    if (this.#refusal) throw this.#refusal;
   }
   absorb(
     field: string,
@@ -212,26 +212,26 @@ export class Assignments {
     referenced: string,
     failure: string
   ): void {
-    const previous = this.writes.get(field);
+    const previous = this.#writes.get(field);
     if (!previous) return;
     const known = source.known(referenced);
     if (
       !known ||
       known.kind !== "literal" ||
       known.value === null ||
-      !this.equal(known, previous)
+      !this.#equal(known, previous)
     )
       this.reject(new UnsupportedOperationError(failure));
-    this.writes.delete(field);
-    this.requested.delete(field);
+    this.#writes.delete(field);
+    this.#requested.delete(field);
   }
   writtenFields(): readonly string[] {
-    return [...this.writes.keys()];
+    return [...this.#writes.keys()];
   }
   contributions(): ReadonlyMap<string, FieldValue> {
-    return this.writes;
+    return this.#writes;
   }
-  private equal(left: FieldValue, right: FieldValue): boolean {
+  #equal(left: FieldValue, right: FieldValue): boolean {
     if (
       left.kind === "field" &&
       right.kind === "field" &&
@@ -241,11 +241,11 @@ export class Assignments {
       return true;
     const a =
       left.kind === "literal"
-        ? this.named(left)
+        ? this.#named(left)
         : left.producer.known(left.field);
     const b =
       right.kind === "literal"
-        ? this.named(right)
+        ? this.#named(right)
         : right.producer.known(right.field);
     return (
       a?.kind === "literal" &&

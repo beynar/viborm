@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { z } from "zod";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import {
   decodeEvidenceValue,
   encodeEvidenceValue,
@@ -303,7 +303,7 @@ export async function replayG0Run(record: ReplayRecord) {
           {
             candidateName: record.candidate,
             candidateFactory:
-              record.candidate === "commands" ? createCommandEngine : undefined,
+              record.candidate === "commands" ? createTestCommandEngine : undefined,
             replay: record.tape,
             fault: record.fault,
           }

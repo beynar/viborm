@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import Database from "better-sqlite3";
@@ -58,7 +58,7 @@ describe("G4-01 recursive reads keep the fuller codec vocabulary (RF-16)", () =>
   it("decodes decimal, DateTime and list leaves at every occurrence", async () => {
     const world = createWorld();
     try {
-      const rows = (await createCommandEngine({
+      const rows = (await createTestCommandEngine({
         schema,
         driver: world.driver,
       }).execute("node", "findMany", {

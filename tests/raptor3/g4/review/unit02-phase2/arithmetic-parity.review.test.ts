@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -36,7 +36,7 @@ async function world() {
   const driver = new SQLite3Driver({ client: database });
   const client = createClient({ schema, driver });
   assert.equal((await syncLiveSchema(client)).applied, true);
-  const candidate = createCommandEngine({ schema, driver });
+  const candidate = createTestCommandEngine({ schema, driver });
   return {
     database,
     client: client as unknown as Record<

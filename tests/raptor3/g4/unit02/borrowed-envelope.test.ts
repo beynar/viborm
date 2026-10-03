@@ -17,7 +17,7 @@ import {
   getExecutionExtensionChain,
 } from "@drivers/execution-context";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
 import { createWorld, type World, worldSchema } from "./world";
 
@@ -31,7 +31,10 @@ afterEach(async () => {
 });
 
 function engineOf(current: World) {
-  return createCommandEngine({ schema: worldSchema, driver: current.driver });
+  return createTestCommandEngine({
+    schema: worldSchema,
+    driver: current.driver,
+  });
 }
 
 /** Exactly what the corrected route hands the candidate for a borrowed scope. */

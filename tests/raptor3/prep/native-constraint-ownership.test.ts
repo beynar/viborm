@@ -4,7 +4,7 @@ import { UniqueConstraintError, VibORMErrorCode } from "@errors";
 import { MySQLMigrationDriver } from "@migrations/drivers/mysql";
 import { PostgresMigrationDriver } from "@migrations/drivers/postgres";
 import { serializeModels } from "@migrations/serializer";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { getModelKeyCatalog, type AnyModel } from "@schema/model";
 import { SchemaValidationError } from "@schema/validation";
@@ -904,27 +904,27 @@ async function runWrongTableProducerRefusal(factory: CandidateEngineFactory) {
 describe(`G3P-02 native ${liveProvider} constraint ownership`, () => {
   it(
     "g3p02-mapped-scalar-root-recovery",
-    () => runMappedScalarRootRecovery(createCommandEngine),
+    () => runMappedScalarRootRecovery(createTestCommandEngine),
     30_000
   );
   it(
     "g3p02-mapped-compound-nested-recovery",
-    () => runMappedCompoundNestedRecovery(createCommandEngine),
+    () => runMappedCompoundNestedRecovery(createTestCommandEngine),
     30_000
   );
   it(
     "g3p02-duplicate-selector-definition-refusal-and-distinct-control",
-    () => runDuplicateSelectorRefusalAndDistinctControl(createCommandEngine),
+    () => runDuplicateSelectorRefusalAndDistinctControl(createTestCommandEngine),
     30_000
   );
   it(
     "g3p02-unrelated-constraint-refusal",
-    () => runUnrelatedConstraintRefusal(createCommandEngine),
+    () => runUnrelatedConstraintRefusal(createTestCommandEngine),
     30_000
   );
   it(
     "g3p02-wrong-table-producer-refusal",
-    () => runWrongTableProducerRefusal(createCommandEngine),
+    () => runWrongTableProducerRefusal(createTestCommandEngine),
     30_000
   );
 });

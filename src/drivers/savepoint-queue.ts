@@ -70,6 +70,24 @@ export class SavepointQueue {
   }
 
   /**
+   * Run one statement now when nothing holds the queue, else enqueue it.
+   *
+   * An idle queue has no job to order this one after, so the microtask hop,
+   * the job wrapper and the flush loop only cost time. The queue is held while
+   * `fn` runs, so anything enqueued meanwhile still waits for it, in order.
+   */
+  run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.processing) return this.enqueue(fn);
+    this.processing = true;
+    const result = fn();
+    const release = () => {
+      void this.flush();
+    };
+    result.then(release, release);
+    return result;
+  }
+
+  /**
    * Schedule queue processing at the end of the current microtask.
    * Only schedules if not already processing.
    */

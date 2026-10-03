@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { describe, it } from "vitest";
 import type { CandidateEngineFactory } from "../harness/protocol";
@@ -208,12 +208,12 @@ async function runClearabilityWorld(
 describe(`post-G3-prep native ${liveProvider} clearability ownership`, () => {
   it(
     "mixed compound removals use the schema-owned nullable subset interactively",
-    () => runClearabilityWorld(createCommandEngine, "interactive"),
+    () => runClearabilityWorld(createTestCommandEngine, "interactive"),
     30_000
   );
   it(
     "mixed compound removals use the schema-owned nullable subset in a batch",
-    () => runClearabilityWorld(createCommandEngine, "atomic-batch"),
+    () => runClearabilityWorld(createTestCommandEngine, "atomic-batch"),
     30_000
   );
 });

@@ -4,6 +4,7 @@
  * method is called. Every operation is served by the single (V2) engine.
  */
 
+import { isCacheManagedExecution } from "@cache/capability";
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import {
   InvalidTransactionInputError,
@@ -17,7 +18,7 @@ import {
 } from "@extensions/query";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
-import { type CacheResultCodec, isCacheManagedExecution } from "./cache-flow";
+import type { CacheResultCodec } from "./cache-flow";
 import {
   createPendingOperationContext,
   createPendingOperationInstrumentationFacts,
@@ -577,6 +578,27 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         combineWriteNotifications(writeMayBeVisible, observerMayHaveCommitted)
       );
     }
+    return this.#runExtendedExecution(
+      handlers,
+      requestedOperation,
+      observerCommitted,
+      observerMayHaveCommitted,
+      driverOverride,
+      committedWriteSegment,
+      writeMayBeVisible
+    );
+  }
+
+  /** Query extensions and write-outcome registration, out of line. */
+  #runExtendedExecution(
+    handlers: ReturnType<typeof lookupResolvedExtensionHandlers>,
+    requestedOperation: string,
+    observerCommitted: (() => Promise<void>) | undefined,
+    observerMayHaveCommitted: (() => Promise<void>) | undefined,
+    driverOverride?: AnyDriver,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
+  ): Promise<T> {
     let preparedInput: Record<string, unknown>;
     try {
       preparedInput = this.#preparedInput();

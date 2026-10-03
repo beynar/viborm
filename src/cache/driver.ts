@@ -255,7 +255,7 @@ export abstract class CacheDriver {
       context,
       scope
     ) =>
-      cache.invalidateScoped(
+      cache.#invalidateScoped(
         modelName,
         options,
         context,
@@ -325,13 +325,13 @@ export abstract class CacheDriver {
       // Bypass cache read if requested
       if (options.bypass) {
         const result = await executor();
-        this.setResultInBackground(cacheKey, result, options, codec, namespace);
+        this.#setResultInBackground(cacheKey, result, options, codec, namespace);
         recordCacheOutcome(options.executionContext, "bypass");
         return result;
       }
 
       // Try to get from cache
-      const cached = await this.getCachedResult<T>(
+      const cached = await this.#getCachedResult<T>(
         cacheKey,
         options.executionContext,
         namespace,
@@ -352,7 +352,7 @@ export abstract class CacheDriver {
         if (swrTtl !== false) {
           // Stale but SWR enabled - return stale and revalidate in background
           scheduleBackground(
-            this.revalidateInBackground(
+            this.#revalidateInBackground(
               modelName,
               operation,
               cacheKey,
@@ -373,7 +373,7 @@ export abstract class CacheDriver {
 
       // Cache miss or stale without SWR - execute query
       const result = await executor();
-      this.setResultInBackground(cacheKey, result, options, codec, namespace);
+      this.#setResultInBackground(cacheKey, result, options, codec, namespace);
       recordCacheOutcome(options.executionContext, "miss");
       return result;
     };
@@ -381,13 +381,13 @@ export abstract class CacheDriver {
     return executeCore();
   }
 
-  private async getCachedResult<T>(
+  async #getCachedResult<T>(
     key: string,
     context: QueryExecutionContext | undefined,
     namespace: string,
     codec: DetachedCacheResultCodec<T>
   ): Promise<CacheEntry<T> | null> {
-    const cached = await this.getScoped<unknown>(key, context, namespace);
+    const cached = await this.#getScoped<unknown>(key, context, namespace);
     return cached === null
       ? null
       : {
@@ -397,7 +397,7 @@ export abstract class CacheDriver {
         };
   }
 
-  private setResultInBackground<T>(
+  #setResultInBackground<T>(
     key: string,
     value: T,
     options: CacheExecutionOptions,
@@ -416,13 +416,13 @@ export abstract class CacheDriver {
       );
       return;
     }
-    this.setInBackground(key, stored, options, namespace);
+    this.#setInBackground(key, stored, options, namespace);
   }
 
   /**
    * Set cache value in background (non-blocking)
    */
-  private setInBackground<T>(
+  #setInBackground<T>(
     key: string,
     value: T,
     options: CacheExecutionOptions,
@@ -430,7 +430,7 @@ export abstract class CacheDriver {
   ): void {
     // The observed set unit presents a failure; without the catch it would
     // become an unhandled rejection.
-    const cachePromise = this.setScoped(
+    const cachePromise = this.#setScoped(
       key,
       value,
       {
@@ -449,7 +449,7 @@ export abstract class CacheDriver {
    * Revalidate cache entry in background (for SWR)
    * Uses the backing cache marker for best-effort duplicate suppression.
    */
-  private async revalidateInBackground<T>(
+  async #revalidateInBackground<T>(
     modelName: string,
     operation: string,
     cacheKey: string,
@@ -462,7 +462,7 @@ export abstract class CacheDriver {
     // Check whether another request has already published this marker.
     let shouldRevalidate: boolean;
     try {
-      shouldRevalidate = await this.markRevalidatingScoped(cacheKey, namespace);
+      shouldRevalidate = await this.#markRevalidatingScoped(cacheKey, namespace);
     } catch {
       // If marking fails, skip revalidation to avoid request failure
       return;
@@ -488,7 +488,7 @@ export abstract class CacheDriver {
       try {
         const result = await executor();
         const stored = codec.snapshot(result);
-        await this.setScoped(
+        await this.#setScoped(
           cacheKey,
           stored,
           {
@@ -508,12 +508,12 @@ export abstract class CacheDriver {
         terminal = createCacheOutcome("revalidate", "error", error);
       } finally {
         if (observedFailure === undefined) {
-          await this.clearRevalidatingScoped(cacheKey, namespace).catch(
+          await this.#clearRevalidatingScoped(cacheKey, namespace).catch(
             () => undefined
           );
         } else {
           try {
-            await this.clearRevalidatingScoped(cacheKey, namespace);
+            await this.#clearRevalidatingScoped(cacheKey, namespace);
           } catch (cleanupFailure) {
             if (observedFailure.failed) {
               const workerFailure = observedFailure.error;
@@ -570,7 +570,7 @@ export abstract class CacheDriver {
    * Run one cache step inside its exact chain's observers. A backend delete or
    * clear has no public unit and reaches only the trusted observer.
    */
-  private observe<T>(
+  #observe<T>(
     step: "clear" | "delete" | "get" | "invalidate" | "set",
     context: QueryExecutionContext | undefined,
     execute: () => Promise<T>,
@@ -622,18 +622,18 @@ export abstract class CacheDriver {
     externalScope?: unknown
   ): Promise<CacheEntry<T> | null> {
     refuseExternalScope(externalScope);
-    return this.getScoped<T>(key, context);
+    return this.#getScoped<T>(key, context);
   }
 
-  private async getScoped<T>(
+  async #getScoped<T>(
     key: string,
     context?: QueryExecutionContext,
     namespace?: string
   ): Promise<CacheEntry<T> | null> {
-    const prefixedKey = this.prefixKey(key, namespace);
+    const prefixedKey = this.#prefixKey(key, namespace);
     let cacheResult: "hit" | "miss" | "stale" | undefined;
 
-    return this.observe(
+    return this.#observe(
       "get",
       context,
       async () => {
@@ -673,10 +673,10 @@ export abstract class CacheDriver {
     externalScope?: unknown
   ): Promise<void> {
     refuseExternalScope(externalScope);
-    return this.setScoped(key, value, options, context);
+    return this.#setScoped(key, value, options, context);
   }
 
-  private async setScoped<T>(
+  async #setScoped<T>(
     key: string,
     value: T,
     options: CacheSetOptions,
@@ -685,7 +685,7 @@ export abstract class CacheDriver {
     /** The logical execution a background set belongs to, which a failure joins. */
     backgroundOf?: QueryExecutionContext
   ): Promise<void> {
-    const prefixedKey = this.prefixKey(key, namespace);
+    const prefixedKey = this.#prefixKey(key, namespace);
     const entry: CacheEntry<T> = {
       value,
       createdAt: this.clock.now(),
@@ -695,7 +695,7 @@ export abstract class CacheDriver {
     // Use SWR TTL if provided, otherwise just use regular TTL
     const storageTtl = options.swrTtl ?? options.ttl;
 
-    return this.observe(
+    return this.#observe(
       "set",
       context,
       () => this.set(prefixedKey, storageTtl, entry),
@@ -720,8 +720,8 @@ export abstract class CacheDriver {
     externalScope?: unknown
   ): Promise<void> {
     refuseExternalScope(externalScope);
-    const prefixedKey = this.prefixKey(key);
-    return this.deletePrefixed(prefixedKey, context);
+    const prefixedKey = this.#prefixKey(key);
+    return this.#deletePrefixed(prefixedKey, context);
   }
 
   /**
@@ -735,8 +735,8 @@ export abstract class CacheDriver {
     externalScope?: unknown
   ): Promise<void> {
     refuseExternalScope(externalScope);
-    const prefixedPrefix = this.prefixKey(prefix ?? "");
-    return this.clearPrefixed(prefixedPrefix, context);
+    const prefixedPrefix = this.#prefixKey(prefix ?? "");
+    return this.#clearPrefixed(prefixedPrefix, context);
   }
 
   /**
@@ -750,14 +750,14 @@ export abstract class CacheDriver {
     externalScope?: unknown
   ): Promise<boolean> {
     refuseExternalScope(externalScope);
-    return this.markRevalidatingScoped(key);
+    return this.#markRevalidatingScoped(key);
   }
 
-  private async markRevalidatingScoped(
+  async #markRevalidatingScoped(
     key: string,
     namespace?: string
   ): Promise<boolean> {
-    const revalidatingKey = `${this.prefixKey(key, namespace)}${REVALIDATING_SUFFIX}`;
+    const revalidatingKey = `${this.#prefixKey(key, namespace)}${REVALIDATING_SUFFIX}`;
 
     // Check if already revalidating
     const existing = await this.get(revalidatingKey);
@@ -784,14 +784,14 @@ export abstract class CacheDriver {
     externalScope?: unknown
   ): Promise<void> {
     refuseExternalScope(externalScope);
-    return this.clearRevalidatingScoped(key);
+    return this.#clearRevalidatingScoped(key);
   }
 
-  private async clearRevalidatingScoped(
+  async #clearRevalidatingScoped(
     key: string,
     namespace?: string
   ): Promise<void> {
-    const revalidatingKey = `${this.prefixKey(key, namespace)}${REVALIDATING_SUFFIX}`;
+    const revalidatingKey = `${this.#prefixKey(key, namespace)}${REVALIDATING_SUFFIX}`;
     await this.delete([revalidatingKey]);
   }
 
@@ -812,10 +812,10 @@ export abstract class CacheDriver {
     externalScope?: unknown
   ): Promise<void> {
     refuseExternalScope(externalScope);
-    return this.invalidateScoped(modelName, options, context);
+    return this.#invalidateScoped(modelName, options, context);
   }
 
-  private async invalidateScoped(
+  async #invalidateScoped(
     modelName: string,
     options?: CacheInvalidationOptions,
     context?: QueryExecutionContext,
@@ -826,7 +826,7 @@ export abstract class CacheDriver {
     if (options?.autoInvalidate) {
       targets.push({
         kind: "clear",
-        prefixedKey: this.prefixKey(`${modelName}:`, namespace),
+        prefixedKey: this.#prefixKey(`${modelName}:`, namespace),
       });
     }
     if (options?.invalidate) {
@@ -835,17 +835,17 @@ export abstract class CacheDriver {
         const key = isPrefix ? entry.slice(0, -1) : entry;
         targets.push({
           kind: isPrefix ? "clear" : "delete",
-          prefixedKey: this.prefixKey(key, namespace),
+          prefixedKey: this.#prefixKey(key, namespace),
         });
       }
     }
-    return this.observe("invalidate", context, async () => {
+    return this.#observe("invalidate", context, async () => {
       const promises: Promise<void>[] = [];
       for (const target of targets) {
         promises.push(
           target.kind === "clear"
-            ? this.clearPrefixed(target.prefixedKey, context)
-            : this.deletePrefixed(target.prefixedKey, context)
+            ? this.#clearPrefixed(target.prefixedKey, context)
+            : this.#deletePrefixed(target.prefixedKey, context)
         );
       }
       await Promise.all(promises);
@@ -866,19 +866,19 @@ export abstract class CacheDriver {
   // INTERNAL HELPERS
   // ============================================================
 
-  private deletePrefixed(
+  #deletePrefixed(
     prefixedKey: string,
     context?: QueryExecutionContext
   ): Promise<void> {
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
-    return this.observe("delete", context, () => this.delete(keys));
+    return this.#observe("delete", context, () => this.delete(keys));
   }
 
-  private clearPrefixed(
+  #clearPrefixed(
     prefixedKey: string,
     context?: QueryExecutionContext
   ): Promise<void> {
-    return this.observe("clear", context, () => this.clear(prefixedKey));
+    return this.#observe("clear", context, () => this.clear(prefixedKey));
   }
 
   /**
@@ -902,7 +902,7 @@ export abstract class CacheDriver {
    * public caller CAN store at exactly that key, there is only one such root,
    * and no sibling exists for a clear to cross into.
    */
-  private prefixKey(key: string, namespace?: string): string {
+  #prefixKey(key: string, namespace?: string): string {
     if (namespace !== undefined) {
       if (key.startsWith(`${CACHE_PREFIX}:`)) {
         throw new CacheInvalidKeyError(

@@ -744,31 +744,31 @@ type StagedWriteOutcome = {
 
 /** Transaction-local staging for extension write-outcome registrations. */
 export class TransactionWriteOutcomes {
-  private readonly staged: StagedWriteOutcome[] = [];
+  readonly #staged: StagedWriteOutcome[] = [];
 
   stage(registration: WriteOutcomeRegistration): void {
-    for (const staged of this.staged) {
+    for (const staged of this.#staged) {
       if (staged.registration === registration) return;
     }
-    this.staged.push({ registration, state: "pending" });
+    this.#staged.push({ registration, state: "pending" });
   }
 
   confirm(registrations: readonly WriteOutcomeRegistration[]): void {
-    this.setState(registrations, "confirmed");
+    this.#setState(registrations, "confirmed");
   }
 
   discard(registrations: readonly WriteOutcomeRegistration[]): void {
-    this.setState(registrations, "discarded");
+    this.#setState(registrations, "discarded");
   }
 
   discardAll(): void {
-    for (const staged of this.staged) staged.state = "discarded";
+    for (const staged of this.#staged) staged.state = "discarded";
   }
 
   promoteTo(parent: TransactionWriteOutcomes): void {
-    for (const staged of this.staged) {
+    for (const staged of this.#staged) {
       if (staged.state === "confirmed") {
-        parent.staged.push({ ...staged });
+        parent.#staged.push({ ...staged });
       }
       staged.state = "discarded";
     }
@@ -780,7 +780,7 @@ export class TransactionWriteOutcomes {
 
   async publish(certainty: WriteOutcome["certainty"]): Promise<void> {
     const registrations: WriteOutcomeRegistration[] = [];
-    for (const staged of this.staged) {
+    for (const staged of this.#staged) {
       if (staged.state === "confirmed") {
         registrations.push(staged.registration);
       }
@@ -789,11 +789,11 @@ export class TransactionWriteOutcomes {
     await publishWriteOutcomes(registrations, { certainty });
   }
 
-  private setState(
+  #setState(
     registrations: readonly WriteOutcomeRegistration[],
     state: "confirmed" | "discarded"
   ): void {
-    for (const staged of this.staged) {
+    for (const staged of this.#staged) {
       if (
         staged.state === "pending" &&
         registrations.includes(staged.registration)
