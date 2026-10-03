@@ -685,9 +685,16 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     return EMPTY_DIAGNOSTIC_PARAMS;
   }
 
-  /** The open, usable client, when there is one: no wait for {@link getClient}. */
+  /**
+   * The open, usable client, when there is one: no wait for {@link getClient}.
+   *
+   * Only while acquisition is this class's own: a subclass that overrides
+   * {@link getClient} decides which connection each statement uses, so it is
+   * asked every time (the transaction-bound driver answers with its `tx`).
+   */
   protected connectedClient(): TClient | TTransaction | undefined {
     if (
+      this.getClient !== DriverInstrumentationBase.prototype.getClient ||
       this.transactionPoisonError ||
       this.isDisconnecting ||
       this.closeRetryClient !== null
