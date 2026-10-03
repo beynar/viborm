@@ -168,6 +168,10 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     D1Driver.prototype.executePositional;
   private static readonly canonicalDriverParseField =
     sqliteResultParser.parseField;
+  private static readonly canonicalDriverParseRelation =
+    sqliteResultParser.parseRelation;
+  private static readonly canonicalDriverParseResult =
+    sqliteResultParser.parseResult;
 
   // D1's authorizer refuses temporary objects (`SQLITE_AUTH`, the whole batch
   // rejected), witnessed by `tests/providers/workers/d1.test.ts`.
@@ -278,6 +282,8 @@ export class D1Driver extends Driver<D1Database, D1Database> {
       driver.executePositional === D1Driver.canonicalPositionalExecute &&
       driver.result === sqliteResultParser &&
       driver.result.parseField === D1Driver.canonicalDriverParseField &&
+      driver.result.parseRelation === D1Driver.canonicalDriverParseRelation &&
+      driver.result.parseResult === D1Driver.canonicalDriverParseResult &&
       driver.adapter === driver.canonicalAdapter &&
       driver.adapter.result === driver.canonicalAdapterResult &&
       driver.adapter.result.parseField === driver.canonicalAdapterParseField &&

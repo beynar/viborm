@@ -8,6 +8,18 @@ type D1Database = ConstructorParameters<typeof D1Driver>[0]["database"];
 
 const entry = s.model({ id: s.int().id(), title: s.string() }).map("entries");
 
+type ParseResult = NonNullable<D1Driver["result"]["parseResult"]>;
+
+/** A result hook that renumbers the row with id 1 as 101, in any shape. */
+const renumberFirst: ParseResult = (rawResult, operation, next) => {
+  const renumber = (row: unknown) =>
+    row && typeof row === "object" && (row as { id?: unknown }).id === 1
+      ? { ...row, id: 101 }
+      : row;
+  const parsed = next(rawResult, operation);
+  return Array.isArray(parsed) ? parsed.map(renumber) : renumber(parsed);
+};
+
 /** A binding answering every statement with the same two rows. */
 function fakeDatabase() {
   const raw = vi.fn(async () => [
@@ -80,6 +92,54 @@ describe("D1 positional transport", () => {
       { id: 42, title: "second" },
     ]);
     expect(raw).not.toHaveBeenCalled();
+  });
+
+  test("a parseResult hook is honoured by collection and singular reads alike", async () => {
+    const { database, raw } = fakeDatabase();
+    const driver = new D1Driver({ database });
+    // The stock parser is a shared module object: restore what is installed.
+    driver.result.parseResult = renumberFirst;
+    try {
+      const client = createClient({ schema: { entry }, driver });
+      await expect(client.entry.findMany()).resolves.toEqual([
+        { id: 101, title: "first" },
+        { id: 2, title: "second" },
+      ]);
+      await expect(client.entry.findFirst()).resolves.toEqual({
+        id: 101,
+        title: "first",
+      });
+      await expect(client.entry.findMany()).resolves.toEqual([
+        { id: 101, title: "first" },
+        { id: 2, title: "second" },
+      ]);
+      expect(raw).not.toHaveBeenCalled();
+    } finally {
+      driver.result.parseResult = undefined;
+    }
+  });
+
+  test("a parseResult hook installed while the statement is processed is honoured", async () => {
+    const { database, raw } = fakeDatabase();
+    const driver = new D1Driver({ database });
+    try {
+      const client = createClient({ schema: { entry }, driver }).$extends(
+        defineExtension<{ entry: typeof entry }>()({
+          name: "late-parser",
+          statement: ({ statement }) => {
+            driver.result.parseResult = renumberFirst;
+            return statement;
+          },
+        })
+      );
+      await expect(client.entry.findMany()).resolves.toEqual([
+        { id: 101, title: "first" },
+        { id: 2, title: "second" },
+      ]);
+      expect(raw).not.toHaveBeenCalled();
+    } finally {
+      driver.result.parseResult = undefined;
+    }
   });
 
   test("an execute wrapper installed while the statement is processed still runs", async () => {

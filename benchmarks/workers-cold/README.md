@@ -15,7 +15,7 @@ Results from runs so far are in `docs/architecture/performance-review/workers-co
 - The `cf` CLI (v1 beta), logged in (`cf auth whoami`).
 - `export CLOUDFLARE_ACCOUNT_ID=<account id>` in every shell.
 - A zone on that account for the route host (it was `viborm.dev`, host `perf.viborm.dev`).
-- One VibORM `dist` per VibORM arm (`pnpm build`, then copy `dist` somewhere stable).
+- One VibORM `dist` per VibORM arm: run `pnpm package:build` (`pnpm build` only typechecks) on the revision to measure, then copy `dist` somewhere stable.
 - For the Drizzle arm, a directory with `npm i drizzle-orm@1.0.0-rc.5-5935859`.
 
 ## Set up

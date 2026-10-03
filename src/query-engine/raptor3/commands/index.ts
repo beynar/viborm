@@ -326,6 +326,16 @@ class PreparedCommand implements PreparedOperation {
 }
 
 /**
+ * Prepared queries per driver result parser. Weak: a schema and adapter can
+ * outlive every client, and a transient driver's parser (with whatever it
+ * captures) must be released with it. A driver without a parser has one slot.
+ */
+interface QueriesByResult {
+  readonly parsers: WeakMap<object, Queries>;
+  none?: Queries;
+}
+
+/**
  * Engines over the same resolved registry share one schema view and, per
  * adapter and result parser, one query owner: both derive only from those
  * inputs, so a client created per request reuses the warm per-model views
@@ -335,7 +345,7 @@ const sharedEngines = new WeakMap<
   object,
   {
     schema: EngineSchema;
-    queries: WeakMap<object, Map<object | undefined, Queries>>;
+    queries: WeakMap<object, QueriesByResult>;
   }
 >();
 
@@ -351,11 +361,15 @@ function sharedQueries(config: EngineConfig): Queries {
     if (key) sharedEngines.set(key, shared);
   }
   let byResult = shared.queries.get(adapter);
-  if (!byResult) shared.queries.set(adapter, (byResult = new Map()));
-  let queries = byResult.get(result);
+  if (!byResult)
+    shared.queries.set(adapter, (byResult = { parsers: new WeakMap() }));
+  if (!result) {
+    return (byResult.none ??= new Queries(shared.schema, adapter, result));
+  }
+  let queries = byResult.parsers.get(result);
   if (!queries) {
     queries = new Queries(shared.schema, adapter, result);
-    byResult.set(result, queries);
+    byResult.parsers.set(result, queries);
   }
   return queries;
 }
