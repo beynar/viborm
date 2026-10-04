@@ -14,7 +14,6 @@ import {
 import type { Schema } from "@client/types";
 import type { ModelStamps } from "@query-engine/raptor3/shared/row-scope";
 import type { Input } from "@query-engine/raptor3/shared/schema";
-import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import {
   type DataContribution,
@@ -84,18 +83,22 @@ interface OperationHandlerOwner {
   readonly controls?: readonly string[];
 }
 
-/** One precompiled control list for each (model, operation) that has one. */
+/** A chain's controls, and the list one (model, operation) accepts. */
 export interface ResolvedControls {
   /** Every control name on the chain: one name space. */
   readonly names: ReadonlySet<string>;
-  /** Every control on the chain, in application order: the index's one source. */
+  /** Every control on the chain, in application order: the lists' one source. */
   readonly all: readonly ResolvedControl[];
-  /** Controls placed on an operation of every model. */
-  readonly operations: Readonly<Record<string, readonly ResolvedControl[]>>;
-  /** Per model, its operations' lists, every-model controls included. */
-  readonly models: Readonly<
-    Record<string, Readonly<Record<string, readonly ResolvedControl[]>>>
-  >;
+  /**
+   * The controls placed on one model's operation, in application order. Each
+   * list is built the first time it is asked for and kept for the chain: a
+   * client created per request asks for the one its call needs, never for
+   * every operation of every model.
+   */
+  readonly placed: (
+    model: string,
+    operation: string
+  ) => readonly ResolvedControl[];
 }
 
 /** What a delete of one managed model writes, and who declared it. */
@@ -160,13 +163,7 @@ export function lookupPlacedControls(
   model: string,
   operation: string
 ): readonly ResolvedControl[] {
-  const controls = chain?.controls;
-  if (controls === undefined) return NO_CONTROLS;
-  return (
-    controls.models[model]?.[operation] ??
-    controls.operations[operation] ??
-    NO_CONTROLS
-  );
+  return chain?.controls?.placed(model, operation) ?? NO_CONTROLS;
 }
 
 const NO_CONTROLS: readonly ResolvedControl[] = Object.freeze([]);
@@ -325,30 +322,25 @@ function appendControls(
     ...(previous?.all ?? []),
     ...declarations.map((control) => Object.freeze(control)),
   ]);
-  const lists = (model?: string) => {
-    const byOperation: Record<string, readonly ResolvedControl[]> =
-      Object.create(null);
-    for (const operation of ROUTED_OPERATIONS) {
-      const placed = all.filter(
+  const lists = new Map<string, readonly ResolvedControl[]>();
+  const placed = (
+    model: string,
+    operation: string
+  ): readonly ResolvedControl[] => {
+    const key = `${model}\u0000${operation}`;
+    let list = lists.get(key);
+    if (list === undefined) {
+      const found = all.filter(
         (control) =>
           control.operations.has(operation) &&
-          (control.models === undefined ||
-            (model !== undefined && control.models.has(model)))
+          (control.models === undefined || control.models.has(model))
       );
-      if (placed.length > 0) byOperation[operation] = Object.freeze(placed);
+      list = found.length === 0 ? NO_CONTROLS : Object.freeze(found);
+      lists.set(key, list);
     }
-    return Object.freeze(byOperation);
+    return list;
   };
-  const models: Record<string, ReturnType<typeof lists>> = Object.create(null);
-  for (const control of all) {
-    for (const model of control.models ?? []) models[model] ??= lists(model);
-  }
-  return Object.freeze({
-    names,
-    all,
-    operations: lists(),
-    models: Object.freeze(models),
-  });
+  return Object.freeze({ names, all, placed });
 }
 
 const NO_ASSIGN: Readonly<Record<string, unknown>> = Object.freeze({});

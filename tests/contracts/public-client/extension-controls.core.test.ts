@@ -1634,8 +1634,10 @@ describe("controls: the official cache", () => {
   test("its control comes from the cache, whatever controls a definition carrying its query spells", async () => {
     const official = cache({ driver: new MemoryCache() });
     const placedOn = (definition: Readonly<Record<string, unknown>>) =>
-      appendResolvedExtension(undefined, definition, schema).controls
-        ?.operations.create;
+      appendResolvedExtension(undefined, definition, schema).controls?.placed(
+        "post",
+        "create"
+      );
     const forgedCalls: unknown[] = [];
     const forged = {
       name: official.name,
