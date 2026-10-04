@@ -15,6 +15,7 @@ import {
 } from "@schema/validation/relation-resolution";
 import { createResolvedSchemaRegistry } from "@validation/builder";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
+import type { VibSchema } from "@validation/types";
 import { isRecord } from "@validation/value-guards";
 import { parseValidated, upsertEnvelopeSchema } from "./parse-boundary";
 import type { Leaf, PreparedProjection } from "./query";
@@ -174,10 +175,7 @@ export class EngineSchema {
     AnyModel,
     Map<string, PhysicalField>
   >();
-  readonly #storedFieldLists = new WeakMap<
-    AnyModel,
-    readonly string[]
-  >();
+  readonly #storedFieldLists = new WeakMap<AnyModel, readonly string[]>();
   readonly #clearabilityViews = new WeakMap<
     ResolvedSlot,
     ClearableMembership
@@ -451,6 +449,27 @@ export class EngineSchema {
       update: admittedUpdate,
     }) as Arguments;
   }
+  /**
+   * Scalar values admitted as a create admits them, field by field through
+   * each field's own create schema: a partial source (the fields a stamp
+   * writes), so the model's required fields are not asked for, and a field a
+   * create takes but an update refuses (`s.dateTime().now()`) is admitted.
+   */
+  createValues(model: AnyModel, source: Input): Input {
+    const scalars = this.registry.getModelSchemas(model).scalars as Record<
+      string,
+      { readonly create: VibSchema }
+    >;
+    const admitted: Input = {};
+    for (const [field, value] of Object.entries(source))
+      admitted[field] = parseValidated(
+        scalars[field]!.create,
+        value,
+        "create",
+        field
+      );
+    return admitted;
+  }
   update(
     model: AnyModel,
     source: Input,
@@ -595,10 +614,7 @@ export class EngineSchema {
    * `scope(adapter, create)` would hand a second caller the first caller's
    * object under the second caller's type, and the cast would hide it.
    */
-  readonly #queryViewsByAdapter = new WeakMap<
-    DatabaseAdapter,
-    QueryViews
-  >();
+  readonly #queryViewsByAdapter = new WeakMap<DatabaseAdapter, QueryViews>();
   queryViews(adapter: DatabaseAdapter): QueryViews {
     let views = this.#queryViewsByAdapter.get(adapter);
     if (views === undefined) {

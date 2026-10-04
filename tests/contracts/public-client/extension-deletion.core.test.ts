@@ -373,3 +373,48 @@ describe("a deletion entry without rows", () => {
     expect(await db.item.deleteMany({})).toEqual({ count: 1 });
   });
 });
+
+/** Runs one statement right after the first read of `post` once armed. */
+class AfterLockSQLite3Driver extends SQLite3Driver {
+  afterRead: string | undefined;
+
+  protected override async execute<T>(
+    client: Database.Database,
+    sql: string,
+    params: unknown[]
+  ): Promise<QueryResult<T>> {
+    const result = await super.execute<T>(client, sql, params);
+    const pending = this.afterRead;
+    if (pending && /^\s*SELECT\b[\s\S]*\bFROM "post"/i.test(sql)) {
+      this.afterRead = undefined;
+      await this.executeRaw(client, pending);
+    }
+    return result;
+  }
+}
+
+describe("a limited soft delete takes exactly the rows it locked", () => {
+  test("a row that becomes a candidate below the window after the lock is not taken", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.create({
+      data: { id: 50, authorId: 1, title: "p50", deletedAt: new Date(0) },
+    });
+    await base.post.create({ data: { id: 51, authorId: 1, title: "p51" } });
+    // The locking read takes 51 (50 is a tombstone); another writer then
+    // restores 50, which sorts below 51.
+    driver.afterRead = 'UPDATE "post" SET "deletedAt" = NULL WHERE "id" = 50';
+    expect(
+      await db.post.deleteMany({ where: { id: { in: [50, 51] } }, limit: 1 })
+    ).toEqual({ count: 1 });
+    const rows = await base.post.findMany({
+      where: { id: { in: [50, 51] } },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    });
+    expect(rows.map((row) => [row.id, row.deletedAt === null])).toEqual([
+      [50, true],
+      [51, false],
+    ]);
+  });
+});

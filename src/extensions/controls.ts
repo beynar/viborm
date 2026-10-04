@@ -1,3 +1,4 @@
+import { isCanonicalKeyData } from "@cache/key";
 import type {
   CacheableOperations,
   MutationOperations,
@@ -402,6 +403,67 @@ export interface ControlAdmission {
   readonly controls: AdmittedControls | undefined;
 }
 
+/** The admitted values {@link snapshotControlValue} copied: the stable ones. */
+const snapshots = new WeakSet<object>();
+
+/**
+ * An admitted value as the call holds it from here on. Plain data is copied
+ * once and frozen, so every reader of the call's controls (the rows its
+ * filters bind, the key its cached read is stored under, its handlers) reads
+ * the same value whatever the caller later does to its own. A value with no
+ * canonical spelling, or one that cannot be copied (a Proxy), is kept as
+ * given: the call binds it for itself alone and its read is not cached.
+ */
+export function snapshotControlValue(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  if (!isCanonicalKeyData(value)) return value;
+  // Already immutable all the way down (an extension's own admitted value,
+  // such as the cache's options, which it later finds by identity): stable
+  // as it is.
+  if (isDeeplyFrozen(value)) {
+    snapshots.add(value);
+    return value;
+  }
+  let copy: unknown;
+  try {
+    copy = structuredClone(value);
+  } catch {
+    return value;
+  }
+  return deepFreeze(copy as object);
+}
+
+function isDeeplyFrozen(value: object): boolean {
+  if (ArrayBuffer.isView(value) || value instanceof Date) return false;
+  return (
+    Object.isFrozen(value) &&
+    Object.values(value).every(
+      (entry) =>
+        typeof entry !== "object" || entry === null || isDeeplyFrozen(entry)
+    )
+  );
+}
+
+function deepFreeze(value: object): object {
+  // A typed array cannot be frozen; the copy is private to the call anyway.
+  if (!ArrayBuffer.isView(value)) {
+    for (const entry of Object.values(value))
+      if (typeof entry === "object" && entry !== null) deepFreeze(entry);
+    Object.freeze(value);
+  }
+  snapshots.add(value);
+  return value;
+}
+
+/**
+ * Whether a control value is the one admission fixed: a primitive, or plain
+ * data {@link snapshotControlValue} copied. Only such a value may key anything that
+ * outlives the call (a bound-facts memo, a cache entry).
+ */
+export function isStableControlValue(value: unknown): boolean {
+  return typeof value !== "object" || value === null || snapshots.has(value);
+}
+
 /**
  * Remove every control placed on this operation from its arguments and admit
  * each once, before any request handler runs. A key naming a control placed
@@ -444,7 +506,8 @@ export function admitControls(
         ? control.fallback
         : admitControl(control, raw, model, operation);
     const { required } = control;
-    if (value !== undefined) admitted.push([control.name, value]);
+    if (value !== undefined)
+      admitted.push([control.name, snapshotControlValue(value)]);
     else if (required === true || required?.has(model)) {
       throw invalidControl(control, model, operation, ["is required"]);
     }

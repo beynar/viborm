@@ -10,6 +10,8 @@ import {
   ValidationError,
 } from "@errors";
 import { s } from "@schema";
+import { defineExtension } from "@src/index";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { tenancy } from "@tests/fixtures/extension-recipes";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -530,6 +532,72 @@ export function runBoundRowsBehavior(provider: BoundRowsProvider): void {
       ]);
       expect(recorder.keys).toHaveLength(2);
       expect(new Set(recorder.keys).size).toBe(2);
+    });
+
+    test("the cache keys a read on the values its rows were bound from, whatever the caller does to its own after", async () => {
+      const { base } = context;
+      // A Standard Schema may hand its input back unchanged: the admitted
+      // value is then the caller's own array.
+      const asGiven: StandardSchemaV1<string[]> = {
+        "~standard": {
+          version: 1,
+          vendor: "bound-rows-test",
+          validate: (value) => ({ value: value as string[] }),
+        },
+      };
+      let release: () => void = () => undefined;
+      const paused = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let pauses = 1;
+      let started: () => void = () => undefined;
+      const running = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const multiTenant = defineExtension<ReturnType<typeof boundRowsSchema>>()(
+        {
+          name: "multi-tenant",
+          controls: { tenants: { schema: asGiven } },
+          rows: {
+            control: "reach",
+            default: "listed",
+            models: {
+              post: {
+                listed: { root: { tenantId: { in: { control: "tenants" } } } },
+              },
+            },
+          },
+          query: {
+            post: {
+              async findMany(call) {
+                if (pauses-- > 0) {
+                  started();
+                  await paused;
+                }
+                return call.proceed();
+              },
+            },
+          },
+        }
+      );
+      const cached = base
+        .$extends(cache({ driver: new MemoryCache(), version: "v" }))
+        .$extends(multiTenant)
+        .$withCache({ ttl: 60_000 });
+      const read = { ...byId, select: { id: true } } as const;
+      const tenants = ["acme"];
+      const first = cached.post
+        .findMany({ ...read, tenants })
+        .then((rows) => rows);
+      // The read is paused past admission: the caller reuses its array.
+      await running;
+      tenants[0] = "globex";
+      release();
+      expect(await first).toEqual([{ id: 1 }, { id: 2 }, { id: 4 }]);
+      // A globex read is keyed and answered as globex, never acme's rows.
+      expect(
+        await cached.post.findMany({ ...read, tenants: ["globex"] })
+      ).toEqual([{ id: 3 }, { id: 5 }]);
     });
   });
 }

@@ -24,7 +24,11 @@ import {
   ValidationError,
 } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
-import { placeControls } from "@extensions/controls";
+import {
+  isStableControlValue,
+  placeControls,
+  snapshotControlValue,
+} from "@extensions/controls";
 import { defineExtension } from "@extensions/definition";
 import { bindRows, callRows } from "@extensions/rows";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
@@ -1185,7 +1189,7 @@ describe("controls: rows bound to the call", () => {
 
   test("one object passed as two controls binds both, memoized like two equal objects", () => {
     const binding = bindRows([tenancy], undefined);
-    const shared = { team: "red" };
+    const shared = snapshotControlValue({ team: "red" });
     const facts = callRows(binding, "post", {
       tenant: "acme",
       author: shared,
@@ -1196,8 +1200,8 @@ describe("controls: rows bound to the call", () => {
     expect(
       callRows(binding, "post", {
         tenant: "acme",
-        author: { team: "red" },
-        by: { team: "red" },
+        author: snapshotControlValue({ team: "red" }),
+        by: snapshotControlValue({ team: "red" }),
       })
     ).toBe(facts);
   });
@@ -1212,6 +1216,34 @@ describe("controls: rows bound to the call", () => {
     });
     expect(facts.domain.related.get("post")).toEqual([{ tenantId: proxied }]);
     expect(binding.bound.size).toBe(0);
+  });
+
+  test("admission fixes plain data once: a frozen copy, the immutable as given, anything else unstable", () => {
+    const given = { tags: ["a"], at: new Date(0), bytes: new Uint8Array([1]) };
+    const fixed = snapshotControlValue(given) as typeof given;
+    expect(fixed).toEqual(given);
+    expect(fixed).not.toBe(given);
+    expect(Object.isFrozen(fixed) && Object.isFrozen(fixed.tags)).toBe(true);
+    given.tags.push("b");
+    expect(fixed.tags).toEqual(["a"]);
+    expect(isStableControlValue(fixed)).toBe(true);
+    expect(isStableControlValue(given)).toBe(false);
+    // Already immutable all the way down: kept, by identity.
+    const frozen = Object.freeze({ list: Object.freeze(["x"]) });
+    expect(snapshotControlValue(frozen)).toBe(frozen);
+    expect(isStableControlValue(frozen)).toBe(true);
+    // A frozen record holding a Date or bytes is copied: those stay mutable.
+    const holder = Object.freeze({ at: new Date(0) });
+    expect(snapshotControlValue(holder)).not.toBe(holder);
+    // No canonical spelling, or no copy: kept as given, never stable.
+    const map = new Map([["k", 1]]);
+    expect(snapshotControlValue(map)).toBe(map);
+    expect(isStableControlValue(map)).toBe(false);
+    const proxied = new Proxy({ tenant: "acme" }, {});
+    expect(snapshotControlValue(proxied)).toBe(proxied);
+    expect(isStableControlValue(proxied)).toBe(false);
+    expect(snapshotControlValue("acme")).toBe("acme");
+    expect(isStableControlValue("acme")).toBe(true);
   });
 
   test("a model's own AND, OR or NOT field is a field at its filter, a combinator elsewhere", () => {
@@ -1498,7 +1530,7 @@ describe("controls: rows bound to the call", () => {
     expect(await relatedIds({ view: "all" })).toEqual(["d1", "d2", "t1", "t2"]);
   });
 
-  test("a memo hit still returns the one domain for equal values, bound from its own copy of them", () => {
+  test("a memo hit still returns the one domain for equal values, bound from admission's copy of them", () => {
     const dated = {
       control: "scope",
       default: "tenant",
@@ -1517,14 +1549,18 @@ describe("controls: rows bound to the call", () => {
     const binding = bindRows([dated], undefined);
     const day = new Date("2026-01-01T00:00:00.000Z");
     const authors = ["u1"];
-    const first = callRows(binding, "post", { day, authors });
+    // Admission copies plain data once: the facts never hold the caller's own.
+    const first = callRows(binding, "post", {
+      day: snapshotControlValue(day),
+      authors: snapshotControlValue(authors),
+    });
     const [where] = first.domain.root.get("post")!;
     expect(where).toEqual({ deletedAt: day, authorId: { in: authors } });
     expect(where!.deletedAt).not.toBe(day);
     expect((where!.authorId as { in: unknown }).in).not.toBe(authors);
     const again = callRows(binding, "post", {
-      day: new Date("2026-01-01T00:00:00.000Z"),
-      authors: ["u1"],
+      day: snapshotControlValue(new Date("2026-01-01T00:00:00.000Z")),
+      authors: snapshotControlValue(["u1"]),
     });
     expect(again).toBe(first);
     expect(again.domain).toBe(first.domain);

@@ -1,4 +1,4 @@
-import { isCanonicalKeyData, stableStringify } from "@cache/key";
+import { stableStringify } from "@cache/key";
 import type { Schema } from "@client/types";
 import type {
   CallRows,
@@ -11,6 +11,7 @@ import { isPlainRecord } from "@schema/relation/terminal";
 import type { ResolvedControls, ResolvedDeletion } from "./chain";
 import {
   type AdmittedControls,
+  isStableControlValue,
   type RowsContribution,
   rowsModes,
 } from "./controls";
@@ -471,27 +472,19 @@ function domainFacts(
   for (const name of references) {
     if (controls?.[name] !== undefined) values[name] = controls[name];
   }
-  // A value no key spells by its content (a Map keys as `{}`) is bound for
-  // this call alone: it never takes another value's facts.
-  if (!isCanonicalKeyData(values)) return boundFacts(facts, controls, binding);
+  // A value admission could not fix (no canonical spelling, or not
+  // copyable) is bound for this call alone: it never takes another value's
+  // facts. Every other value is admission's frozen snapshot, so the facts
+  // can outlive the call under a key spelling its content.
+  if (!Object.values(values).every(isStableControlValue))
+    return boundFacts(facts, controls, binding);
   const key = `${physical}${combination}${stableStringify(values)}`;
   let known = binding.bound.get(key);
   if (known === undefined) {
-    // The facts outlive the call under a key spelling the values' content, so
-    // they are bound from a copy: a caller who later mutates its Date or array
-    // never changes what another call with equal values reads. A value that
-    // cannot be copied (a Proxy a Standard Schema handed back) is bound for
-    // this call alone, like a value with no canonical spelling.
-    let copy: Record<string, unknown>;
-    try {
-      copy = structuredClone(values);
-    } catch {
-      return boundFacts(facts, controls, binding);
-    }
     if (binding.bound.size === BOUND_LIMIT) {
       binding.bound.delete(binding.bound.keys().next().value!);
     }
-    known = boundFacts(facts, copy, binding);
+    known = boundFacts(facts, values, binding);
     binding.bound.set(key, known);
   }
   return known;

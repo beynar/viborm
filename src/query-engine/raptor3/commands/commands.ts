@@ -470,8 +470,8 @@ export class Commands {
    * writes, by name or through the relation whose foreign key on `model` holds
    * it (owner ruling, 2026-10-02): the extension writes nothing there, and that
    * relation decides the key. Only the fields kept are admitted, once per
-   * occurrence per attempt through the model's update-data schema, as a
-   * tombstone is (a create takes each field's whole value): a value the
+   * occurrence per attempt, a create's through each field's create schema and
+   * an update's through the model's update-data schema, as a tombstone is: a value the
    * caller replaced is never seen by the field's schema. A tombstone has no
    * caller data, so all of it is written.
    */
@@ -497,12 +497,13 @@ export class Commands {
     for (const field of Object.keys(stamp))
       if (raw[field] === undefined && !written.has(field))
         kept[field] = stamp[field];
-    const values = this.context.schema.update(model, kept, true);
-    const stamped = { ...admitted };
-    for (const field of Object.keys(kept))
-      stamped[field] =
-        kind === "create" ? wholeValue(values[field])?.value : values[field];
-    return this.context.schema.scalars(model, stamped);
+    // A create's stamps are admitted as a create admits them: a field only a
+    // create takes (an insert-only timestamp) is no update field.
+    const values =
+      kind === "create"
+        ? this.context.schema.createValues(model, kept)
+        : this.context.schema.update(model, kept, true);
+    return this.context.schema.scalars(model, { ...admitted, ...values });
   }
   /**
    * A write's candidates: the caller's selector AND the call's domain for
@@ -1283,17 +1284,12 @@ export class Commands {
         parent.children.indexOf(first) < parent.children.indexOf(second))
     );
   }
-  #bindTree(
-    occurrence: CommandOccurrence,
-    parent?: CommandOccurrence
-  ): void {
+  #bindTree(occurrence: CommandOccurrence, parent?: CommandOccurrence): void {
     occurrence.parent = parent;
     occurrence.dependencyRead ??= this.#dependencyRead(occurrence);
     for (const child of occurrence.children) this.#bindTree(child, occurrence);
   }
-  #dependencyRead(
-    occurrence: CommandOccurrence
-  ): DependencyRead | undefined {
+  #dependencyRead(occurrence: CommandOccurrence): DependencyRead | undefined {
     const command = occurrence.command;
     const owner = isSeriesOccurrence(occurrence)
       ? this.#seriesOwner(occurrence)
@@ -1524,7 +1520,8 @@ export class Commands {
   }
   /** Recurse over a stable sibling snapshot while dependency moves may occur. */
   #analyzeChildren(occurrence: CommandOccurrence): void {
-    for (const child of [...occurrence.children]) this.#analyzeOccurrence(child);
+    for (const child of [...occurrence.children])
+      this.#analyzeOccurrence(child);
   }
   #branchOf(occurrence: CommandOccurrence): BranchPath | undefined {
     const parent = occurrence.parent;
@@ -1695,11 +1692,13 @@ export class Commands {
    * the delete and one inside it does: the refusal the database gives a hard
    * delete of those same rows, which every limited write takes in that order
    * too (`Queries.lowerMutationLimit`). An interactive session
-   * READS the window — the lock below, limited — and both statements take the
-   * candidates up to its last key ({@link Queries.through}), one bound value
-   * per key however long it is; a row that becomes a candidate below that key
-   * after the lock is taken with them, as the unlimited form takes every
-   * candidate its effect finds. A batch states the window in SQL in both
+   * READS the window — the lock below, limited — and both statements take
+   * exactly the rows it locked, by key. A window too long to bind as keys
+   * (past half the driver's bind budget: SQLite's 999 at the chunked-delete
+   * idiom's 1000) takes the candidates up to its last key
+   * ({@link Queries.through}, one bound value per key column) and the effect
+   * keeps the limit, so a row that becomes a candidate below that key after
+   * the lock still cannot make the count exceed it. A batch states the window in SQL in both
    * statements ({@link Queries.window}), whose total order gives the one atomic
    * unit one answer.
    *
@@ -1738,16 +1737,26 @@ export class Commands {
             { selector, forUpdate: !ctx.usesBatch }
           );
         // The window, where a limit names one: the locking read, limited, is
-        // in total key order as every windowed read is (`Queries.select`), so
-        // its rows are the candidates up to its last key.
+        // in total key order as every windowed read is (`Queries.select`). The
+        // premise and the effect take exactly the rows it locked, by key; a
+        // window too long to bind as keys takes the candidates up to its last
+        // key, and the effect keeps the limit, so a row that becomes a
+        // candidate below that key after the lock still cannot make it more.
         let window: PreparedSelector | undefined;
+        let effectLimit: number | undefined;
         if (!ctx.usesBatch) {
           const rows = await ctx.read(locked(candidates, limit), true);
-          const last = rows.at(-1);
-          if (limit !== undefined)
-            window = last
-              ? queries.through(model, ctx.schema.identity(model, last))
-              : queries.includeIdentities(model, []);
+          if (limit !== undefined) {
+            const keys = rows.map((row) => ctx.schema.identity(model, row));
+            const budget = ctx.driver.maxBindParametersPerStatement;
+            const bound = keys.length * ctx.schema.keys(model).length;
+            if (budget === undefined || bound <= budget / 2)
+              window = queries.includeIdentities(model, keys);
+            else {
+              window = queries.through(model, keys.at(-1)!);
+              effectLimit = limit;
+            }
+          }
         } else if (limit !== undefined)
           window = queries.window(candidates, limit);
         const within = (selector: PreparedSelector) =>
@@ -1757,7 +1766,7 @@ export class Commands {
         if (ctx.preparesBatch)
           ctx.packageGuard(model, query.sql, "notExists", failure);
         else await ctx.requireAbsent(query, this.restrictFailure(model)());
-        return effect(within(candidates));
+        return effect(within(candidates), effectLimit);
       },
     };
   }

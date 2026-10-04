@@ -8,7 +8,6 @@ import {
   cacheInvalidationSchema,
   withCacheSchema,
 } from "@cache";
-import { isCanonicalKeyData } from "@cache/key";
 import {
   type DetachedCacheResultCodec,
   executeCachedWithResultCodec,
@@ -22,7 +21,10 @@ import {
   CacheOperationNotCacheableError,
 } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import type { AdmittedControls } from "@extensions/controls";
+import {
+  type AdmittedControls,
+  isStableControlValue,
+} from "@extensions/controls";
 import type { WriteOutcomeRegistration } from "@extensions/query";
 import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
@@ -64,6 +66,9 @@ export function admitMutationCacheOptions(
     parsed.value.invalidate === undefined
       ? undefined
       : [...parsed.value.invalidate];
+  // Deeply frozen: admission keeps an immutable value as it is, so this
+  // object stays the one the WeakMap below finds.
+  if (invalidate) Object.freeze(invalidate);
   const options: CacheInvalidationOptions = Object.freeze({
     autoInvalidate: parsed.value.autoInvalidate,
     ...(invalidate === undefined ? {} : { invalidate }),
@@ -95,7 +100,9 @@ export function cacheKeyOf(
   rows: ResolvedExtensionChain["rows"]
 ): unknown {
   if (controls === undefined) return args;
-  if (!isCanonicalKeyData(controls)) return undefined;
+  // Only values admission fixed key a cache entry: the rows the read's SQL
+  // binds were bound from those same values (`snapshotControlValue` in controls.ts).
+  if (!Object.values(controls).every(isStableControlValue)) return undefined;
   return rows === undefined ? [args, controls] : [args, controls, rows];
 }
 

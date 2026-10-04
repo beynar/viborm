@@ -114,11 +114,14 @@ effect, never also in the effect's WHERE: `Commands.unreferenced` at the root
 (`RelationBody.requireUnreferenced`, the parent's own link excepted). Under a
 root `limit` the premise and the effect take ONE window, the first `limit`
 candidates in key order, so a reference outside it does not refuse the delete:
-an interactive session reads and locks the window and both take the candidates
-up to its last key (`Queries.through`, a row-value `<=`: one bound value per
-key however long the window); a batch states `Queries.window` (`keys IN
-(SELECT … ORDER BY keys LIMIT n)`) in both statements, whose total order gives
-the one atomic unit one answer. Every limited set write takes the same
+an interactive session reads and locks the window and both take exactly the
+rows it locked, by key (`Queries.includeIdentities`); a window too long to bind
+as keys (past half the driver's bind budget) takes the candidates up to its
+last key (`Queries.through`, a row-value `<=`) with the effect still limited,
+so a row that becomes a candidate after the lock never makes the count exceed
+`limit`; a batch states `Queries.window` (`keys IN (SELECT … ORDER BY keys
+LIMIT n)`, a derived table on MySQL) in both statements, whose total order
+gives the one atomic unit one answer. Every limited set write takes the same
 rows, the first `limit` in key order (owner ruling 2026-10-02: "like we do
 in findMany we order shallowly by id"): the hard delete, a tombstone without a
 restricting slot, `updateMany`, and the per-row capture of a relation-bearing
