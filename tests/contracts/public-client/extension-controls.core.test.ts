@@ -1183,6 +1183,77 @@ describe("controls: rows bound to the call", () => {
     expect(facts.domain.related.get("post")).toEqual([{ tenantId: "acme" }]);
   });
 
+  test("one object passed as two controls binds both, memoized like two equal objects", () => {
+    const binding = bindRows([tenancy], undefined);
+    const shared = { team: "red" };
+    const facts = callRows(binding, "post", {
+      tenant: "acme",
+      author: shared,
+      by: shared,
+    });
+    const [bound] = facts.domain.root.get("post")!;
+    expect(JSON.stringify(bound)).toContain('"authorId":{"in":[{"team":"red"}');
+    expect(
+      callRows(binding, "post", {
+        tenant: "acme",
+        author: { team: "red" },
+        by: { team: "red" },
+      })
+    ).toBe(facts);
+  });
+
+  test("a value that cannot be copied (a Proxy) is bound for its call alone", () => {
+    const binding = bindRows([tenancy], undefined);
+    const proxied = new Proxy({ tenant: "acme" }, {});
+    const facts = callRows(binding, "post", {
+      tenant: proxied,
+      author: "u1",
+      by: null,
+    });
+    expect(facts.domain.related.get("post")).toEqual([{ tenantId: proxied }]);
+    expect(binding.bound.size).toBe(0);
+  });
+
+  test("a model's own AND, OR or NOT field is a field at its filter, a combinator elsewhere", () => {
+    const logical = s.model({
+      id: s.int().id(),
+      AND: s.string(),
+      OR: s.string(),
+      NOT: s.string(),
+    });
+    const rows = {
+      control: "scope",
+      default: "picked",
+      models: {
+        logical: {
+          picked: {
+            root: {
+              AND: { control: "a" },
+              OR: { control: "o" },
+              NOT: { control: "n" },
+            },
+          },
+        },
+        post: {
+          picked: { root: { AND: [{ title: { control: "a" } }] } },
+        },
+      },
+    } as const;
+    const binding = bindRows([rows], undefined, undefined, undefined, {
+      ...schema,
+      logical,
+    });
+    expect(binding.references[0]).toEqual(["a", "o", "n"]);
+    const values = { a: "x", o: "y", n: "z" };
+    expect(
+      callRows(binding, "logical", values).domain.root.get("logical")
+    ).toEqual([{ AND: "x", OR: "y", NOT: "z" }]);
+    // `post` declares no such field: there `AND` combines filters.
+    expect(callRows(binding, "post", values).domain.root.get("post")).toEqual([
+      { AND: [{ title: "x" }] },
+    ]);
+  });
+
   test("the same values give the same facts; the 257th distinct value evicts the oldest", () => {
     const binding = bindRows([tenancy], undefined);
     const call = (tenant: string, scope = "tenant") =>

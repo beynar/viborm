@@ -191,3 +191,16 @@ describe("the reserved namespace", () => {
     expect(keyFor(date)).toBe(keyFor(new Date(date.getTime())));
   });
 });
+
+describe("a value reached twice is data, not a cycle", () => {
+  test("one array under two keys keys like two equal arrays", () => {
+    const ids = [1, 2];
+    const shared = generateCacheKey("user", "findMany", {
+      where: { id: { in: ids }, parentId: { in: ids } },
+    });
+    const separate = generateCacheKey("user", "findMany", {
+      where: { id: { in: [1, 2] }, parentId: { in: [1, 2] } },
+    });
+    expect(shared).toBe(separate);
+  });
+});

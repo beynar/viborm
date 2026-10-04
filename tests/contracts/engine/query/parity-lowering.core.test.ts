@@ -4,6 +4,8 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
+import { Queries } from "@query-engine/raptor3/shared/query";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { hydrateSchemaNames, s } from "@schema";
 import type { Model } from "@schema/model";
 import {
@@ -255,6 +257,23 @@ describe.each(dialectCases)("$name limited writes", (dialectCase) => {
     });
     await client.$disconnect();
     expect(driver.statements).toEqual(LIMITED_WRITES[dialectCase.name]);
+  });
+
+  // A batch-prepared limited soft delete states its window as a predicate,
+  // read by the premise's SELECT and by the UPDATE over the same table.
+  // MySQL refuses both a LIMIT inside IN (…) and a subquery reading the
+  // updated table: there the limited read is a derived table.
+  test("a window's limited read is a derived table where the provider needs one", () => {
+    const queries = new Queries(
+      new EngineSchema(schema),
+      dialectCase.adapter()
+    );
+    const selector = queries.prepareSelector(employee, {
+      views: { gt: 0 },
+    });
+    const window = queries.lowerSelector(queries.window(selector, 2))!;
+    const derived = window.toStatement("?").includes("SELECT * FROM (SELECT");
+    expect(derived).toBe(dialectCase.name === "MySQL");
   });
 });
 

@@ -83,6 +83,7 @@ import {
   isCompact,
   transportedIdentifier,
 } from "./identifier";
+import type { RowDomain, RowPurpose } from "./row-scope";
 import {
   type Arguments,
   type EngineSchema,
@@ -92,7 +93,6 @@ import {
   type ReadOperation,
   record,
 } from "./schema";
-import type { RowDomain, RowPurpose } from "./row-scope";
 import {
   bindMembership,
   type Membership,
@@ -1892,16 +1892,16 @@ export class Queries {
     });
   }
   /**
-   * `<keys> IN (SELECT <keys> FROM <model> WHERE <selector> ORDER BY <keys>
-   * LIMIT <limit>)`, the keys outside addressed through `alias`: the first
-   * `limit` rows in key order, a mutation's limit where the provider has no
-   * `UPDATE … LIMIT`, and a {@link window}.
+   * `<keys> IN (SELECT * FROM (SELECT <keys> FROM <model> WHERE <selector>
+   * ORDER BY <keys> LIMIT <limit>) AS <alias>)`, the keys outside addressed
+   * through `alias`: the first `limit` rows in key order, a mutation's limit
+   * where the provider has no `UPDATE … LIMIT`, and a {@link window}. Where
+   * the provider cannot read a mutation's own table in a subquery (MySQL), the
+   * limited read sits in a derived table, as {@link hideMutationTarget}'s
+   * does: MySQL also refuses a `LIMIT` directly inside `IN (…)`, and the
+   * derived table answers both, in the premise's SELECT and in the effect.
    */
-  #capped(
-    selector: PreparedSelector,
-    limit: number,
-    alias?: string
-  ): Sql {
+  #capped(selector: PreparedSelector, limit: number, alias?: string): Sql {
     const adapter = this.adapter;
     const model = selector.model;
     const inner = this.alias();
@@ -1918,7 +1918,11 @@ export class Queries {
     });
     return adapter.operators.in(
       rowValue(keys.map((field) => this.column(model, field, alias))),
-      adapter.subqueries.scalar(capped)
+      adapter.subqueries.scalar(
+        adapter.capabilities.supportsMutationTargetInSubquery
+          ? capped
+          : sql`SELECT * FROM ${adapter.subqueries.correlate(capped, this.alias())}`
+      )
     );
   }
   /** `<key> ASC, …` in {@link keyOrder}, the keys addressed through `alias`. */
@@ -2260,10 +2264,7 @@ export class Queries {
    * `id: { in: ids₁₀₀ }` against 0.25–0.28 µs for the same 100 boxes
    * (`g4/perf2/receipts/micro-in-list.json`).
    */
-  #prepareOperand(
-    owner: PreparedScalar,
-    value: unknown
-  ): PreparedOperand {
+  #prepareOperand(owner: PreparedScalar, value: unknown): PreparedOperand {
     if (!isFieldRef(value)) return { kind: "value", value };
     return this.#prepareFieldOperand(owner, value);
   }
@@ -2532,7 +2533,11 @@ export class Queries {
       case "and":
         if (predicate.predicates.length === 1)
           return a.operators.and(
-            this.#lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
+            this.#lowerPredicate(
+              predicate.predicates[0]!,
+              alias,
+              mutationTarget
+            )
           );
         return a.operators.and(
           ...predicate.predicates.map((member) =>
@@ -2542,7 +2547,11 @@ export class Queries {
       case "or":
         if (predicate.predicates.length === 1)
           return a.operators.or(
-            this.#lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
+            this.#lowerPredicate(
+              predicate.predicates[0]!,
+              alias,
+              mutationTarget
+            )
           );
         return a.operators.or(
           ...predicate.predicates.map((member) =>
@@ -3122,10 +3131,7 @@ export class Queries {
    * `undefined` where the claim is not the parent's to make: the membership is
    * then the child's or a junction's, and this owner says nothing about it.
    */
-  #parentClaimsArm(
-    edge: Membership,
-    parentAlias: string
-  ): Sql | undefined {
+  #parentClaimsArm(edge: Membership, parentAlias: string): Sql | undefined {
     if (
       edge.kind !== "reference" ||
       edge.owner !== "source" ||
@@ -4003,11 +4009,7 @@ export class Queries {
     };
   }
   /** One aggregate leaf classification, shared by projection and `having`. */
-  #aggregateLeaf(
-    model: AnyModel,
-    aggregate: Aggregate,
-    field: string
-  ): Leaf {
+  #aggregateLeaf(model: AnyModel, aggregate: Aggregate, field: string): Leaf {
     if (aggregate === "_count") return COUNT_LEAF;
     const leaf = this.scalarShape(model, field);
     const decimal = leaf.type === "decimal";
@@ -5021,7 +5023,10 @@ export class Queries {
       ])
     );
     const nodeCarrier = a.json.object([
-      [RECURSIVE_CARRIER.key, this.#recursiveIdentity(model, rawIdentity(node))],
+      [
+        RECURSIVE_CARRIER.key,
+        this.#recursiveIdentity(model, rawIdentity(node)),
+      ],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
     const nodes = a.subqueries.scalar(
@@ -5226,7 +5231,10 @@ export class Queries {
                 `Scalar '${key}' used in 'having' must be included in 'by'.`
               );
             return [
-              this.#prepareOperations(freeze({ kind: "column", scalar }), value),
+              this.#prepareOperations(
+                freeze({ kind: "column", scalar }),
+                value
+              ),
             ];
           }
           return aggregated.map((aggregate) =>

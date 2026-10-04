@@ -1,4 +1,5 @@
 import { isCanonicalKeyData, stableStringify } from "@cache/key";
+import type { Schema } from "@client/types";
 import type {
   CallRows,
   ModelDomain,
@@ -54,6 +55,8 @@ export interface RowsBinding {
   readonly bindsStamps: boolean;
   /** Whether a call must pass a control to touch a model directly. */
   readonly required: RequiredOn;
+  /** A model's declared field names, from the receiving schema. */
+  readonly fieldsOf: (model: string) => Fields | undefined;
 }
 
 type RequiredOn = (control: string, model: string) => boolean;
@@ -82,6 +85,18 @@ const MATCH_NOTHING: Input = Object.freeze({ OR: Object.freeze([]) });
 /** The keys whose items are filters: a filter is never a reference. */
 const LOGICAL = new Set(["AND", "OR", "NOT"]);
 
+/** A model's declared field names: its scalars and relations. */
+type Fields = ReadonlySet<string>;
+
+/**
+ * Whether `key` of a filter is a logical combinator. A model may declare a
+ * field named `AND`, `OR` or `NOT`: at that model's filter, the name is the
+ * field, as the engine reads it (`Queries.combinator`). Where the model is
+ * not known (inside a field's operand), the name is the combinator.
+ */
+const isLogical = (key: string, fields: Fields | undefined): boolean =>
+  LOGICAL.has(key) && fields?.has(key) !== true;
+
 /** `{ control: "<name>" }` where a predicate takes a value. */
 function referenceOf(value: unknown): string | undefined {
   if (!isPlainRecord(value)) return undefined;
@@ -96,30 +111,38 @@ function referenceOf(value: unknown): string | undefined {
 /**
  * Every control a predicate's values name, at any depth. `filter` marks a
  * filter's place (the predicate, an item of `AND`/`OR`/`NOT`), where
- * `{ control }` is a field.
+ * `{ control }` is a field; `fields` are that filter's model's, when known.
  */
 function collectReferences(
   value: unknown,
   names: Set<string>,
-  filter: boolean
+  filter: boolean,
+  fields?: Fields
 ): void {
   const name = filter ? undefined : referenceOf(value);
   if (name !== undefined) names.add(name);
   else if (Array.isArray(value)) {
-    for (const item of value) collectReferences(item, names, filter);
+    for (const item of value) collectReferences(item, names, filter, fields);
   } else if (isPlainRecord(value)) {
     for (const [key, item] of Object.entries(value)) {
-      collectReferences(item, names, LOGICAL.has(key));
+      const logical = isLogical(key, fields);
+      collectReferences(item, names, logical, logical ? fields : undefined);
     }
   }
 }
 
 /** The controls a list of domains' predicates name. */
-function referencesOf(domains: readonly RowDomain[]): readonly string[] {
+function referencesOf(
+  domains: readonly RowDomain[],
+  fieldsOf: (model: string) => Fields | undefined
+): readonly string[] {
   const names = new Set<string>();
   for (const { root, related } of domains) {
-    for (const list of [...root.values(), ...related.values()]) {
-      for (const where of list) collectReferences(where, names, true);
+    for (const models of [root, related]) {
+      for (const [model, list] of models) {
+        const fields = fieldsOf(model);
+        for (const where of list) collectReferences(where, names, true, fields);
+      }
     }
   }
   return [...names];
@@ -130,7 +153,8 @@ function boundValue(
   value: unknown,
   controls: AdmittedControls | undefined,
   filter: boolean,
-  required?: (control: string) => boolean
+  required?: (control: string) => boolean,
+  fields?: Fields
 ): unknown {
   const name = filter ? undefined : referenceOf(value);
   if (name !== undefined) {
@@ -140,13 +164,15 @@ function boundValue(
   }
   if (Array.isArray(value)) {
     const items = value.map((item) =>
-      boundValue(item, controls, filter, required)
+      boundValue(item, controls, filter, required, fields)
     );
     if (items.includes(MATCH_NOTHING)) return MATCH_NOTHING;
     if (items.includes(ABSENT)) return ABSENT;
     return items.every((item, index) => item === value[index]) ? value : items;
   }
-  return isPlainRecord(value) ? boundWhere(value, controls, required) : value;
+  return isPlainRecord(value)
+    ? boundWhere(value, controls, required, filter ? fields : undefined)
+    : value;
 }
 
 /**
@@ -158,11 +184,19 @@ function boundValue(
 function boundWhere(
   where: Input,
   controls: AdmittedControls | undefined,
-  required?: (control: string) => boolean
+  required?: (control: string) => boolean,
+  fields?: Fields
 ): Input | typeof ABSENT {
   let copy: Input | undefined;
   for (const [key, item] of Object.entries(where)) {
-    const value = boundValue(item, controls, LOGICAL.has(key), required);
+    const logical = isLogical(key, fields);
+    const value = boundValue(
+      item,
+      controls,
+      logical,
+      required,
+      logical ? fields : undefined
+    );
     if (value === ABSENT) return ABSENT;
     if (value === MATCH_NOTHING) return MATCH_NOTHING;
     if (value !== item) (copy ??= { ...where })[key] = value;
@@ -174,7 +208,8 @@ function boundWhere(
 function boundModels(
   models: ModelDomain,
   controls: AdmittedControls | undefined,
-  required: RequiredOn
+  required: RequiredOn,
+  fieldsOf: (model: string) => Fields | undefined
 ): ModelDomain {
   const bound = new Map<string, readonly Input[]>();
   let changed = false;
@@ -182,7 +217,7 @@ function boundModels(
     const kept: Input[] = [];
     const requiredHere = (control: string) => required(control, model);
     for (const where of list) {
-      const value = boundWhere(where, controls, requiredHere);
+      const value = boundWhere(where, controls, requiredHere, fieldsOf(model));
       changed ||= value !== where;
       if (value !== ABSENT) kept.push(value);
     }
@@ -195,10 +230,10 @@ function boundModels(
 function boundDomain(
   domain: RowDomain,
   controls: AdmittedControls | undefined,
-  required: RequiredOn
+  { required, fieldsOf }: Pick<RowsBinding, "required" | "fieldsOf">
 ): RowDomain {
-  const root = boundModels(domain.root, controls, required);
-  const related = boundModels(domain.related, controls, required);
+  const root = boundModels(domain.root, controls, required, fieldsOf);
+  const related = boundModels(domain.related, controls, required, fieldsOf);
   return root === domain.root && related === domain.related
     ? domain
     : Object.freeze({ root, related });
@@ -245,17 +280,37 @@ function boundStamps(
 function boundFacts(
   facts: CallRows,
   controls: AdmittedControls | undefined,
-  required: RequiredOn
+  binding: RowsBinding
 ): CallRows {
-  const domain = boundDomain(facts.domain, controls, required);
+  const domain = boundDomain(facts.domain, controls, binding);
   return Object.freeze({
     ...facts,
     domain,
     defaults:
       facts.defaults === facts.domain
         ? domain
-        : boundDomain(facts.defaults, controls, required),
+        : boundDomain(facts.defaults, controls, binding),
   });
+}
+
+/** Each model's declared field names, read once from the schema. */
+function modelFields(
+  schema: Schema | undefined
+): (model: string) => Fields | undefined {
+  const known = new Map<string, Fields>();
+  return (model) => {
+    const state = schema?.[model]?.["~"].state;
+    if (state === undefined) return undefined;
+    let fields = known.get(model);
+    if (fields === undefined) {
+      fields = new Set([
+        ...Object.keys(state.scalars),
+        ...Object.keys(state.relations),
+      ]);
+      known.set(model, fields);
+    }
+    return fields;
+  };
 }
 
 /** The chain's `required` declarations as one test, by control and model. */
@@ -295,9 +350,11 @@ export function bindRows(
   rows: readonly RowsContribution[] | undefined,
   deletion: Readonly<Record<string, ResolvedDeletion>> | undefined,
   data?: Readonly<Record<string, ModelStamps>>,
-  controls?: ResolvedControls
+  controls?: ResolvedControls,
+  schema?: Schema
 ): RowsBinding {
   const declared = rows ?? [];
+  const fieldsOf = modelFields(schema);
   let stride = 1;
   const members = declared.map((member): BoundRowsMember => {
     const modes = rowsModes(member);
@@ -354,10 +411,13 @@ export function bindRows(
       tombstones === undefined
         ? physical
         : physical.map((facts) => Object.freeze({ ...facts, tombstones })),
-    references: domains.map((domain) => referencesOf([domain, defaults])),
+    references: domains.map((domain) =>
+      referencesOf([domain, defaults], fieldsOf)
+    ),
     bound: new Map(),
     bindsStamps: stampReferences.size > 0,
     required: requiredOn(controls),
+    fieldsOf,
   });
 }
 
@@ -413,18 +473,25 @@ function domainFacts(
   }
   // A value no key spells by its content (a Map keys as `{}`) is bound for
   // this call alone: it never takes another value's facts.
-  if (!isCanonicalKeyData(values))
-    return boundFacts(facts, controls, binding.required);
+  if (!isCanonicalKeyData(values)) return boundFacts(facts, controls, binding);
   const key = `${physical}${combination}${stableStringify(values)}`;
   let known = binding.bound.get(key);
   if (known === undefined) {
+    // The facts outlive the call under a key spelling the values' content, so
+    // they are bound from a copy: a caller who later mutates its Date or array
+    // never changes what another call with equal values reads. A value that
+    // cannot be copied (a Proxy a Standard Schema handed back) is bound for
+    // this call alone, like a value with no canonical spelling.
+    let copy: Record<string, unknown>;
+    try {
+      copy = structuredClone(values);
+    } catch {
+      return boundFacts(facts, controls, binding);
+    }
     if (binding.bound.size === BOUND_LIMIT) {
       binding.bound.delete(binding.bound.keys().next().value!);
     }
-    // The facts outlive the call under a key spelling the values' content, so
-    // they are bound from a copy: a caller who later mutates its Date or array
-    // never changes what another call with equal values reads.
-    known = boundFacts(facts, structuredClone(values), binding.required);
+    known = boundFacts(facts, copy, binding);
     binding.bound.set(key, known);
   }
   return known;

@@ -323,23 +323,25 @@ export function stableStringify(
     return brandToken("bytes", base64);
   }
 
-  if (Array.isArray(value)) {
-    if (seen.has(value))
-      throw new CacheInvalidKeyError("Circular reference in cache key args");
-    seen.add(value);
-    return `[${value.map((v) => stableStringify(v, seen)).join(",")}]`;
-  }
-
+  // `seen` holds the objects on the current PATH only, as in
+  // {@link isCanonicalKeyData}: one object reached twice through different
+  // keys (`{ a: ids, b: ids }`) is data, not a cycle.
   if (seen.has(value as object))
     throw new CacheInvalidKeyError("Circular reference in cache key args");
   seen.add(value as object);
-
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  const pairs = keys
-    .filter((k) => obj[k] !== undefined)
-    .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k], seen)}`);
-  return `{${pairs.join(",")}}`;
+  let serialized: string;
+  if (Array.isArray(value)) {
+    serialized = `[${value.map((v) => stableStringify(v, seen)).join(",")}]`;
+  } else {
+    const obj = value as Record<string, unknown>;
+    const pairs = Object.keys(obj)
+      .sort()
+      .filter((k) => obj[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k], seen)}`);
+    serialized = `{${pairs.join(",")}}`;
+  }
+  seen.delete(value as object);
+  return serialized;
 }
 
 /**

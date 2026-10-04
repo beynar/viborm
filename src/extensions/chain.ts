@@ -578,7 +578,7 @@ export function appendResolvedExtension(
   const callRows =
     rows === chain?.rows && deletion === chain?.deletion && data === chain?.data
       ? chain?.callRows
-      : bindRows(rows, deletion, data, controls);
+      : bindRows(rows, deletion, data, controls, schema);
   const resolvedChain = Object.freeze({
     ...(controls === undefined ? {} : { controls }),
     ...(rows === undefined ? {} : { rows }),
