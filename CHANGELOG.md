@@ -5,6 +5,33 @@ Versioning.
 
 ## Unreleased
 
+## 1.0.0-rc.5 — Release candidate (not yet published)
+
+- **Performance: a client created per request.** Clients built over the same
+  schema object share the schema's validation, registries and prepared
+  queries, so a client created per request (a Worker, a serverless handler)
+  no longer rebuilds them; better-sqlite3 reuses its prepared statements per
+  SQL text; SQLite and D1 collection reads decode positional rows; first-use
+  code stays out of the cold path, and the result cache loads with
+  `viborm/cache`, not with the client. The shipped bundle is about 36 KiB
+  smaller.
+- **Added: `viborm check`**, a CLI command that runs the full schema
+  validation, and `createClient({ skipSchemaValidation: true })` for an
+  application that already ran it: the client then resolves relations only.
+- **Behaviour change: `v.array` reports a hostile array** (a revoked proxy, a
+  throwing read) as a validation issue instead of throwing.
+- **Behaviour change: malformed binary data from a driver is refused**
+  instead of decoded leniently. Every shipped driver returns well-formed
+  values.
+- **Behaviour change: `isRetryable()`** on an error carrying an unregistered
+  code answers "not retryable" instead of throwing.
+- **Fixed: cache keys accept a value reached twice.** A cached read whose
+  arguments reused one array or object (`{ id: { in: ids }, parentId: { in:
+  ids } }`) failed with "Circular reference in cache key args"; only a real
+  cycle is refused now.
+- **Fixed: `push` reads the database catalog one statement at a time.** It
+  read every catalog query at once on its one session, which node-postgres
+  queues and warns, on every `push`, that pg@9 will refuse.
 - **Added: `viborm/soft-delete`, the official soft-delete extension.**
   `softDelete({ models, actor })(client)` turns deletes of the named models
   into tombstones (the call's time in a nullable `DateTime` field, and
@@ -65,7 +92,10 @@ Versioning.
   `{ control: "<name>" }` where a filter takes a value, at any depth (inside
   `in`, `AND`, `OR` and `NOT` too), and each call sees the rows that match the
   value it passed: one client serves every tenant. A call that does not pass
-  the control drops the filters that name it. Each mode and value is
+  an optional control drops the filters that name it; one that does not pass
+  a control `required` on a model matches none of that model's rows, even
+  when it reaches them through a relation of a model the control is not
+  required on. Each mode and value is
   prepared once and reused; a client keeps 256 of them, and past that the
   oldest is prepared again when it comes back. Cached reads are keyed on the
   value, so two tenants never share an entry.
@@ -140,7 +170,7 @@ Versioning.
     "Invalid mutation cache options: …". (The third type parameter of the
     public `Client` type does change: see "Changed (types)" above.)
 
-## 1.0.0-rc.4 — Release candidate (not yet published)
+## 1.0.0-rc.4 — 2026-09-29
 
 - **Breaking: instrumentation presentation moves into the `instrumentation()`
   extension.** Core no longer builds span names, span attributes, log events
@@ -203,8 +233,9 @@ Versioning.
   pinned by `tests/types/operation-schemas/updated-at.core.types.ts`. No
   public type changes.
 
-This release candidate targets npm `next`, not `latest`. Publication requires
-the protected workflow in [RELEASING.md](RELEASING.md).
+Published to npm (`next`) only: the release workflow verified the published
+bytes before the registry served them and stopped, so rc.4 has no GitHub
+release or `v1.0.0-rc.4` tag.
 
 ## 1.0.0-rc.3 — 2026-09-29
 
