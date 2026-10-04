@@ -703,29 +703,34 @@ export async function introspectPostgresSchema(
 ): Promise<SchemaSnapshot> {
   const namespace = [scope.namespace];
 
-  // Execute all queries in parallel
-  const [
-    tablesResult,
-    columnsResult,
-    primaryKeysResult,
-    indexesResult,
-    foreignKeysResult,
-    crossSchemaForeignKeysResult,
-    uniqueConstraintsResult,
-    enumsResult,
-  ] = await Promise.all([
-    executeRaw<PgTable>(POSTGRES_MANAGED_TABLE_NAMES_QUERY, namespace),
-    executeRaw<PgColumn>(COLUMNS_QUERY, namespace),
-    executeRaw<PgPrimaryKey>(PRIMARY_KEYS_QUERY, namespace),
-    executeRaw<PgIndex>(INDEXES_QUERY, namespace),
-    executeRaw<PgForeignKey>(FOREIGN_KEYS_QUERY, namespace),
-    executeRaw<PgCrossSchemaForeignKey>(
+  // One after another: `push` runs these on its ONE pinned session, and a
+  // connection runs one statement at a time. Overlapping them only queued
+  // them inside the provider, which node-postgres warns it will refuse in
+  // pg@9. Each is a short catalog read.
+  const tablesResult = await executeRaw<PgTable>(
+    POSTGRES_MANAGED_TABLE_NAMES_QUERY,
+    namespace
+  );
+  const columnsResult = await executeRaw<PgColumn>(COLUMNS_QUERY, namespace);
+  const primaryKeysResult = await executeRaw<PgPrimaryKey>(
+    PRIMARY_KEYS_QUERY,
+    namespace
+  );
+  const indexesResult = await executeRaw<PgIndex>(INDEXES_QUERY, namespace);
+  const foreignKeysResult = await executeRaw<PgForeignKey>(
+    FOREIGN_KEYS_QUERY,
+    namespace
+  );
+  const crossSchemaForeignKeysResult =
+    await executeRaw<PgCrossSchemaForeignKey>(
       CROSS_SCHEMA_FOREIGN_KEYS_QUERY,
       namespace
-    ),
-    executeRaw<PgUniqueConstraint>(UNIQUE_CONSTRAINTS_QUERY, namespace),
-    executeRaw<PgEnum>(ENUMS_QUERY, namespace),
-  ]);
+    );
+  const uniqueConstraintsResult = await executeRaw<PgUniqueConstraint>(
+    UNIQUE_CONSTRAINTS_QUERY,
+    namespace
+  );
+  const enumsResult = await executeRaw<PgEnum>(ENUMS_QUERY, namespace);
 
   assertNoCrossSchemaForeignKeys(crossSchemaForeignKeysResult.rows, scope);
 

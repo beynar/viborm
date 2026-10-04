@@ -85,6 +85,32 @@ function foreignKey(
 }
 
 describe("provider-free PostgreSQL catalog reconstruction", () => {
+  // `push` reads the catalog on its ONE pinned session: node-postgres queues
+  // overlapping queries on a connection and warns it will refuse them in
+  // pg@9, so the reads go one at a time.
+  test("reads the catalog one statement at a time", async () => {
+    const execution = catalogDriver({
+      tables: [{ table_name: "account" }],
+      columns: [column("id", "integer", "int4")],
+    });
+    let inFlight = 0;
+    let peak = 0;
+    const reads: string[] = [];
+    await getMigrationDriver(execution).introspect(async (sql, params) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      reads.push(sql);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      try {
+        return await execution._executeRaw(sql, params);
+      } finally {
+        inFlight -= 1;
+      }
+    });
+    expect(reads.length).toBeGreaterThan(8);
+    expect(peak).toBe(1);
+  });
+
   test("reconstructs ordered keys, indexes, enums, types, and referential actions", async () => {
     const execution = catalogDriver({
       tables: [{ table_name: "account" }],

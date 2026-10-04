@@ -198,6 +198,24 @@ describe("the MySQL namespace proof is one bound SCHEMATA read", () => {
 });
 
 describe("MySQL introspection binds the resolved database", () => {
+  it("reads the catalog one statement at a time", async () => {
+    const server = emptyDatabase("billing");
+    let inFlight = 0;
+    let peak = 0;
+    await BILLING.introspect(async <T>(sql: string, params?: unknown[]) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      try {
+        return await server.read<T>(sql, params);
+      } finally {
+        inFlight -= 1;
+      }
+    });
+    expect(server.calls).toHaveLength(6);
+    expect(peak).toBe(1);
+  });
+
   it("binds it in every catalog read and emits no DATABASE()", async () => {
     const server = emptyDatabase("billing");
     await BILLING.introspect(server.read);
