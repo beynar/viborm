@@ -83,6 +83,7 @@ import {
   isCompact,
   transportedIdentifier,
 } from "./identifier";
+import type { RowDomain, RowPurpose } from "./row-scope";
 import {
   type Arguments,
   type EngineSchema,
@@ -344,6 +345,10 @@ export interface SelectorRead {
   readonly equals: Map<string, unknown>;
   readonly exact: boolean;
 }
+/** Expressions compared as one: a row value, or the expression itself alone. */
+function rowValue(items: Sql[]): Sql {
+  return items.length === 1 ? items[0]! : sql`(${sql.join(items, ", ")})`;
+}
 function newSelectorFacts(exact = true): SelectorFacts {
   return {
     fields: new Set(),
@@ -423,6 +428,24 @@ type PreparedPredicate =
       readonly edge: Membership;
       readonly quantifier: string;
       readonly predicate?: PreparedPredicate;
+      /**
+       * The relation is correlated by membership alone: the predicate states
+       * which members count itself, so the lowering `Queries`' domain never
+       * joins it (a premise that names its own visibility).
+       */
+      readonly unscoped?: true;
+    }
+  | {
+      /** The first `limit` rows of `selector` in key order ({@link Queries.window}). */
+      readonly kind: "window";
+      readonly selector: PreparedSelector;
+      readonly limit: number;
+    }
+  | {
+      /** The rows whose key is at most `last`'s ({@link Queries.through}). */
+      readonly kind: "through";
+      readonly model: AnyModel;
+      readonly last: Input;
     };
 /**
  * A conjunction of nothing states nothing; every other prepared predicate is a
@@ -537,6 +560,12 @@ export interface PreparedSelector {
   readonly uniqueKey?: OrderedModelKey;
   readonly uniqueValues?: ReadonlyMap<string, unknown>;
   readonly predicate?: PreparedPredicate;
+  /**
+   * A row domain narrowed this selector ({@link Queries.candidates}): it
+   * states more than its unique key, so a consumer that would trust the key
+   * alone to name the row must not.
+   */
+  readonly scoped?: true;
 }
 /** The decoder identifies the invalid value; its operation owns public errors. */
 export class InvalidScalarResult extends TypeError {
@@ -758,6 +787,53 @@ function reversedRows(rows: Input[]): Input[] {
   return rows.reverse();
 }
 
+/** A filter read's controls: it takes the root domain's rows. */
+const ROOT_CANDIDATES = Object.freeze({ purpose: "root" as const });
+
+/**
+ * One row domain as prepared meaning: per purpose and model, the conjunction
+ * of the model's inputs, prepared at most once for every `Queries` of one
+ * engine view (its reads and its write contexts share it). Prepared meaning
+ * holds no alias, adapter or driver, so the view's own `Queries` prepares it.
+ */
+export class PreparedDomain {
+  readonly rows: RowDomain;
+  readonly #queries: Queries;
+  readonly #prepared = {
+    root: new Map<string, PreparedSelector>(),
+    related: new Map<string, PreparedSelector>(),
+  };
+  #view: Queries | undefined;
+  constructor(rows: RowDomain, queries: Queries) {
+    this.rows = rows;
+    this.#queries = queries;
+  }
+  /** The one read view under this domain: its lifetime is the domain's. */
+  get reads(): Queries {
+    return (this.#view ??= this.#queries.under(this));
+  }
+  /** `model`'s predicate for `purpose`; `undefined` where it states none. */
+  selector(model: AnyModel, purpose: RowPurpose): PreparedSelector | undefined {
+    const name = model["~"].names.ts!;
+    const inputs = this.rows[purpose].get(name);
+    if (inputs === undefined) return undefined;
+    const prepared = this.#prepared[purpose];
+    let selector = prepared.get(name);
+    if (selector === undefined) {
+      const queries = this.#queries;
+      selector =
+        inputs.length === 1
+          ? queries.prepareSelector(model, inputs[0])
+          : queries.andSelectors(
+              model,
+              inputs.map((where) => queries.prepareSelector(model, where))
+            );
+      prepared.set(name, selector);
+    }
+    return selector;
+  }
+}
+
 export class Queries {
   readonly schema: EngineSchema;
   readonly adapter: DatabaseAdapter;
@@ -773,15 +849,27 @@ export class Queries {
    * boundary, and never for a value a JSON window already decoded.
    */
   readonly #result: DriverResultParser | undefined;
+  /**
+   * The row domain this `Queries` reads under: every to-many relation it
+   * correlates, and every root read or lookup that names a purpose. Absent on
+   * every path of a client without `rows`.
+   */
+  readonly domain: PreparedDomain | undefined;
   constructor(
     schema: EngineSchema,
     adapter: DatabaseAdapter,
-    result?: DriverResultParser
+    result?: DriverResultParser,
+    domain?: PreparedDomain
   ) {
     this.schema = schema;
     this.adapter = adapter;
     this.#views = schema.queryViews(adapter);
     this.#result = result;
+    this.domain = domain;
+  }
+  /** This view's `Queries` reading under `domain`. */
+  under(domain: PreparedDomain): Queries {
+    return new Queries(this.schema, this.adapter, this.#result, domain);
   }
   /**
    * The ONE provider continuation for a physical value of `type`, bound to
@@ -1560,6 +1648,50 @@ export class Queries {
       predicate: this.#capturedSet(model, identities, facts),
     });
   }
+  /**
+   * The rows of `model` that a visible member still references through one of
+   * `slots` — the rows a hard delete meets the database's restrict on. A
+   * member is visible when it satisfies its model's inputs in `visible`; one
+   * member may be excepted by identity: the parent a nested delete keeps its
+   * link to, whose own membership a hard delete removes first.
+   */
+  referenced(
+    model: AnyModel,
+    slots: readonly string[],
+    visible: PreparedDomain | undefined,
+    except?: { readonly slot: string; readonly identity: Input }
+  ): PreparedSelector {
+    const predicates = slots.map((slot): PreparedPredicate => {
+      const edge = bindMembership(this.schema, model, slot);
+      const arms: PreparedPredicate[] = [];
+      const domain = visible?.selector(edge.target, "related")?.predicate;
+      if (domain) arms.push(domain);
+      if (except?.slot === slot)
+        arms.push(
+          this.combine("NOT", [
+            // The member's own facts: a premise states them, nothing plans on them.
+            this.identityPredicate(
+              edge.target,
+              except.identity,
+              newSelectorFacts(false)
+            ),
+          ])
+        );
+      // Visibility is the given domain's, never the lowering call's own.
+      return Object.freeze({
+        kind: "relation",
+        edge,
+        quantifier: "some",
+        predicate: arms.length === 0 ? undefined : this.combine("AND", arms),
+        unscoped: true,
+      });
+    });
+    return Object.freeze({
+      model,
+      facts: newSelectorFacts(false),
+      predicate: this.combine("OR", predicates),
+    });
+  }
   /** One captured set's rows, as the disjunction of their own identities. */
   #capturedSet(
     model: AnyModel,
@@ -1602,6 +1734,50 @@ export class Queries {
             }),
     });
   }
+  /**
+   * The key-preserving conjunction: `selector` AND `domain`'s predicate for
+   * `purpose`, keeping the selector's unique key, so the consumers that read
+   * the key to recover (race convergence, a hidden conflict's rethrow) behave
+   * as without a domain; `scoped` tells the ones that trust the key alone to
+   * name the row (the RETURNING confirmation fast path, the targeted
+   * `ON CONFLICT` fold) that it no longer does. The selector itself where the
+   * domain states nothing for its model.
+   */
+  candidates(
+    selector: PreparedSelector,
+    purpose: RowPurpose,
+    domain: PreparedDomain | undefined = this.domain
+  ): PreparedSelector {
+    const scope = domain?.selector(selector.model, purpose);
+    if (scope === undefined) return selector;
+    return Object.freeze({
+      ...this.andSelectors(selector.model, [selector, scope]),
+      uniqueKey: selector.uniqueKey,
+      uniqueValues: selector.uniqueValues,
+      scoped: true,
+    });
+  }
+  /**
+   * A read's own candidates: `selector` (absent: every row) under `purpose`.
+   * Reads consume only the predicate, so the conjunction carries no facts:
+   * the key-preserving form, {@link candidates}, is the write lookups'.
+   */
+  #within(
+    model: AnyModel,
+    selector: Pick<PreparedSelector, "model" | "predicate"> | undefined,
+    purpose: RowPurpose
+  ): Pick<PreparedSelector, "model" | "predicate"> | undefined {
+    const scope = this.domain?.selector(model, purpose);
+    if (scope?.predicate === undefined) return selector;
+    if (selector?.predicate === undefined) return scope;
+    return freeze({
+      model,
+      predicate: freeze({
+        kind: "and",
+        predicates: freeze([selector.predicate, scope.predicate]),
+      }),
+    });
+  }
   lowerSelector(
     selector: Pick<PreparedSelector, "model" | "predicate">,
     alias?: string,
@@ -1611,15 +1787,20 @@ export class Queries {
       ? this.#lowerPredicate(selector.predicate, alias, mutationTarget)
       : undefined;
   }
+  /** An aggregate read's root filter: its `where` under the root domain. */
   lowerWhere(
     model: AnyModel,
     where: Input | undefined,
     alias?: string
   ): Sql | undefined {
-    return this.lowerSelector(
-      this.prepareSelector(model, where, false, false),
-      alias
+    const selector = this.#within(
+      model,
+      where === undefined
+        ? undefined
+        : this.prepareSelector(model, where, false, false),
+      "root"
     );
+    return selector && this.lowerSelector(selector, alias);
   }
   /**
    * The value a LOCATED row holds for one field, read where it is SPENT:
@@ -1672,30 +1853,86 @@ export class Queries {
     const mutated = model["~"].names.sql!;
     if (limit === undefined)
       return { where: this.lowerSelector(selector, mutated, mutated) };
-    if (adapter.capabilities.supportsMutationRowLimit)
-      return {
-        where: this.lowerSelector(selector, mutated, mutated),
-        suffix: adapter.clauses.limit(this.value(limit)),
-      };
-    const alias = this.alias();
-    const keys = this.schema.keys(model);
-    const targetColumns = keys.map((field) => this.column(model, field));
-    const selectedColumns = keys.map((field) =>
-      this.column(model, field, alias)
-    );
-    const target =
-      targetColumns.length === 1
-        ? targetColumns[0]!
-        : sql`(${sql.join(targetColumns, ", ")})`;
+    // A limited write takes the first `limit` rows in key order, the order a
+    // read's `take` completes with: every path picks the same rows. MySQL,
+    // which refuses a `LIMIT` inside `IN`, states it on the statement itself.
+    if (!adapter.capabilities.supportsMutationRowLimit)
+      return { where: this.#capped(selector, limit) };
+    return {
+      where: this.lowerSelector(selector, mutated, mutated),
+      suffix: sql`${adapter.clauses.orderBy(this.#ascendingKeys(model))} ${adapter.clauses.limit(this.value(limit))}`,
+    };
+  }
+  /**
+   * The first `limit` rows of `selector` in key order, as prepared meaning: a
+   * limited window two statements of one atomic unit both name — a premise
+   * about the window, then the effect over it — and agree on by construction,
+   * because a total order leaves the same data one answer. Its rows are rows
+   * of `selector`, so the selector's facts hold for them.
+   */
+  window(selector: PreparedSelector, limit: number): PreparedSelector {
+    return Object.freeze({
+      model: selector.model,
+      facts: selector.facts,
+      predicate: Object.freeze({ kind: "window", selector, limit }),
+    });
+  }
+  /**
+   * The rows whose key is at most `last`'s in key order: over a selector whose
+   * key-ordered read ended at `last`, that read's rows, at one bound value per
+   * key however many they are (keys are NOT NULL: a row-value `<=`).
+   */
+  through(model: AnyModel, last: Input): PreparedSelector {
+    const facts = newSelectorFacts(false);
+    for (const field of this.keyOrder(model)) facts.fields.add(field);
+    return Object.freeze({
+      model,
+      facts,
+      predicate: Object.freeze({ kind: "through", model, last }),
+    });
+  }
+  /**
+   * `<keys> IN (SELECT * FROM (SELECT <keys> FROM <model> WHERE <selector>
+   * ORDER BY <keys> LIMIT <limit>) AS <alias>)`, the keys outside addressed
+   * through `alias`: the first `limit` rows in key order, a mutation's limit
+   * where the provider has no `UPDATE … LIMIT`, and a {@link window}. Where
+   * the provider cannot read a mutation's own table in a subquery (MySQL), the
+   * limited read sits in a derived table, as {@link hideMutationTarget}'s
+   * does: MySQL also refuses a `LIMIT` directly inside `IN (…)`, and the
+   * derived table answers both, in the premise's SELECT and in the effect.
+   */
+  #capped(selector: PreparedSelector, limit: number, alias?: string): Sql {
+    const adapter = this.adapter;
+    const model = selector.model;
+    const inner = this.alias();
+    const keys = this.keyOrder(model);
     const capped = assembleAdapterSelect(adapter, {
-      columns: sql.join(selectedColumns, ", "),
-      from: this.table(model, alias),
-      where: this.lowerSelector(selector, alias),
+      columns: sql.join(
+        keys.map((field) => this.column(model, field, inner)),
+        ", "
+      ),
+      from: this.table(model, inner),
+      where: this.lowerSelector(selector, inner),
+      orderBy: this.#ascendingKeys(model, inner),
       limit: this.value(limit),
     });
-    return {
-      where: adapter.operators.in(target, adapter.subqueries.scalar(capped)),
-    };
+    return adapter.operators.in(
+      rowValue(keys.map((field) => this.column(model, field, alias))),
+      adapter.subqueries.scalar(
+        adapter.capabilities.supportsMutationTargetInSubquery
+          ? capped
+          : sql`SELECT * FROM ${adapter.subqueries.correlate(capped, this.alias())}`
+      )
+    );
+  }
+  /** `<key> ASC, …` in {@link keyOrder}, the keys addressed through `alias`. */
+  #ascendingKeys(model: AnyModel, alias?: string): Sql {
+    return sql.join(
+      this.keyOrder(model).map((field) =>
+        this.adapter.orderBy.asc(this.column(model, field, alias))
+      ),
+      ", "
+    );
   }
   lowerIdentity(model: AnyModel, identity: Input, alias?: string): Sql {
     return this.adapter.operators.and(
@@ -2027,10 +2264,7 @@ export class Queries {
    * `id: { in: ids₁₀₀ }` against 0.25–0.28 µs for the same 100 boxes
    * (`g4/perf2/receipts/micro-in-list.json`).
    */
-  #prepareOperand(
-    owner: PreparedScalar,
-    value: unknown
-  ): PreparedOperand {
+  #prepareOperand(owner: PreparedScalar, value: unknown): PreparedOperand {
     if (!isFieldRef(value)) return { kind: "value", value };
     return this.#prepareFieldOperand(owner, value);
   }
@@ -2273,6 +2507,11 @@ export class Queries {
           positive && !inexact
         )
       : undefined;
+    // The related domain's fields are read by this scope too, so a lookup
+    // that reads through it depends on a write to them (§2.2).
+    const domain = this.domain?.selector(edge.target, "related");
+    if (domain)
+      for (const field of domain.facts.fields) nestedFacts.fields.add(field);
     facts.reads.push({
       model: edge.target,
       path: scope,
@@ -2294,7 +2533,11 @@ export class Queries {
       case "and":
         if (predicate.predicates.length === 1)
           return a.operators.and(
-            this.#lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
+            this.#lowerPredicate(
+              predicate.predicates[0]!,
+              alias,
+              mutationTarget
+            )
           );
         return a.operators.and(
           ...predicate.predicates.map((member) =>
@@ -2304,7 +2547,11 @@ export class Queries {
       case "or":
         if (predicate.predicates.length === 1)
           return a.operators.or(
-            this.#lowerPredicate(predicate.predicates[0]!, alias, mutationTarget)
+            this.#lowerPredicate(
+              predicate.predicates[0]!,
+              alias,
+              mutationTarget
+            )
           );
         return a.operators.or(
           ...predicate.predicates.map((member) =>
@@ -2321,6 +2568,18 @@ export class Queries {
         return this.lowerOperation(predicate, alias);
       case "relation":
         return this.#lowerRelationPredicate(predicate, alias, mutationTarget);
+      case "window":
+        return this.#capped(predicate.selector, predicate.limit, alias);
+      case "through": {
+        const { model, last } = predicate;
+        const keys = this.keyOrder(model);
+        return a.operators.lte(
+          rowValue(keys.map((field) => this.column(model, field, alias))),
+          rowValue(
+            keys.map((field) => this.fieldValue(model, field, last[field]))
+          )
+        );
+      }
     }
   }
   #preparedColumn(scalar: PreparedScalar, alias?: string): Sql {
@@ -2797,7 +3056,12 @@ export class Queries {
       ? this.#lowerPredicate(predicate.predicate, childAlias, mutationTarget)
       : undefined;
     const condition = a.operators.and(
-      this.correlation(predicate.edge, parentAlias ?? "", childAlias),
+      this.correlation(
+        predicate.edge,
+        parentAlias ?? "",
+        childAlias,
+        predicate.unscoped === undefined
+      ),
       ...(nested
         ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
         : [])
@@ -2867,10 +3131,7 @@ export class Queries {
    * `undefined` where the claim is not the parent's to make: the membership is
    * then the child's or a junction's, and this owner says nothing about it.
    */
-  #parentClaimsArm(
-    edge: Membership,
-    parentAlias: string
-  ): Sql | undefined {
+  #parentClaimsArm(edge: Membership, parentAlias: string): Sql | undefined {
     if (
       edge.kind !== "reference" ||
       edge.owner !== "source" ||
@@ -2890,8 +3151,28 @@ export class Queries {
       )
     );
   }
-  correlation(edge: Membership, parent: string, target: string): Sql {
-    return this.#membershipWhere(edge, target, parent);
+  /**
+   * The one join of a relation to its parent, and the one place the related
+   * domain enters a relation read: outside any quantifier's negation, so
+   * `every`, `none` and a negated count read "every VISIBLE member", and on
+   * every edge, so a to-one projection, `is`/`isNot`, a to-one order term and
+   * an upward recursion read a hidden target as an absent one.
+   */
+  correlation(
+    edge: Membership,
+    parent: string,
+    target: string,
+    scoped = true
+  ): Sql {
+    const member = this.#membershipWhere(edge, target, parent);
+    const domain = scoped
+      ? this.domain?.selector(edge.target, "related")
+      : undefined;
+    if (domain === undefined) return member;
+    return this.adapter.operators.and(
+      member,
+      this.lowerSelector(domain, target)!
+    );
   }
   memberWhere(edge: Membership, parent: Input, alias: string): Sql {
     return this.#membershipWhere(edge, alias, parent);
@@ -3147,7 +3428,8 @@ export class Queries {
       Partial<Arguments>,
       "orderBy" | "take" | "skip" | "cursor" | "distinct"
     >,
-    alias: string
+    alias: string,
+    purpose?: RowPurpose
   ): {
     readonly orderBy?: Sql;
     readonly limit?: Sql;
@@ -3178,7 +3460,8 @@ export class Queries {
           : this.#cursorCondition(
               model,
               backward ? this.#reverseOrder(total!) : total!,
-              args.cursor
+              args.cursor,
+              purpose
             ),
       distinct: args.distinct?.length
         ? sql.join(
@@ -3234,7 +3517,7 @@ export class Queries {
     for (const term of terms) {
       if (term.field !== undefined) ordered.add(term.field);
     }
-    const identity = this.#identityOrder(model);
+    const identity = this.keyOrder(model);
     const completion =
       cursorFields.length === 0 ? identity : [...identity, ...cursorFields];
     for (const field of completion) {
@@ -3253,8 +3536,12 @@ export class Queries {
     }
     return terms;
   }
-  /** The cursor's tie-break identity: a bare scalar id, else the row key. */
-  #identityOrder(model: AnyModel): readonly string[] {
+  /**
+   * The model's key order: a bare scalar id, else the row key's fields in
+   * declaration order. A windowed read's tie-break, and the order a limited
+   * write takes its rows in ({@link capped}, {@link through}).
+   */
+  keyOrder(model: AnyModel): readonly string[] {
     const catalog = getModelKeyCatalog(model);
     const bare = catalog.addressableKeys.find(
       (key) => key.kind === "primary" && key.name === undefined
@@ -3289,12 +3576,16 @@ export class Queries {
   #cursorCondition(
     model: AnyModel,
     order: readonly OrderTerm[],
-    cursor: Input
+    cursor: Input,
+    purpose: RowPurpose | undefined
   ): Sql {
     const a = this.adapter;
     const identity = this.#identityEntries(model, cursor);
     const sourceAlias = this.alias();
+    // The anchor is a candidate like any other: a hidden one is a missing one.
+    const scope = purpose && this.domain?.selector(model, purpose);
     const where = a.operators.and(
+      ...(scope ? [this.lowerSelector(scope, sourceAlias)!] : []),
       ...Object.entries(identity).map(([field, value]) => {
         if (value === null)
           throw new QueryEngineError(
@@ -3320,16 +3611,11 @@ export class Queries {
     const keyColumns = order.map((term) =>
       this.column(model, term.field!, sourceAlias)
     );
-    if (sargable) {
-      const row = (expressions: Sql[]) =>
-        expressions.length === 1
-          ? expressions[0]!
-          : sql`(${sql.join(expressions, ", ")})`;
+    if (sargable)
       return (descending ? a.operators.lte : a.operators.gte)(
-        row(order.map((term) => term.expression)),
+        rowValue(order.map((term) => term.expression)),
         a.subqueries.scalar(cursorRow(keyColumns))
       );
-    }
     const cursorAlias = this.alias();
     const carrier = (index: number) => `${CURSOR_CARRIER_PREFIX}${index}`;
     const derived = cursorRow(
@@ -3397,6 +3683,8 @@ export class Queries {
       identity?: Input;
       projection?: PreparedProjection;
       selector?: Pick<PreparedSelector, "model" | "predicate">;
+      /** The rows the read takes: its selector and cursor anchor under it. */
+      purpose?: RowPurpose;
     } = {}
   ): Query {
     const alias = this.#rootAlias();
@@ -3407,14 +3695,18 @@ export class Queries {
     // cursor refusal outranks a projection refusal and both outrank a `where`
     // refusal. Nothing below reads the projection or the selector, so this is
     // an ORDER, not a dependency (`g4/unit01-review-followup-3.md` finding K).
-    const page = this.#page(model, args, alias);
+    const page = this.#page(model, args, alias, controls.purpose);
     const prepared = controls.projection ?? this.prepareProjection(model, args);
     const projection = this.lowerProjection(prepared, alias);
-    const selector =
+    const given =
       controls.selector ??
       (args.where === undefined
         ? undefined
         : this.prepareSelector(model, args.where, false, false));
+    const selector =
+      controls.purpose === undefined
+        ? given
+        : this.#within(model, given, controls.purpose);
     const filter = selector ? this.lowerSelector(selector, alias) : undefined;
     return {
       sql: assembleAdapterSelect(this.adapter, {
@@ -3481,6 +3773,7 @@ export class Queries {
             args.where === undefined
               ? undefined
               : this.prepareSelector(model, args.where, true, false),
+          purpose: "root",
         });
         return {
           query,
@@ -3493,7 +3786,12 @@ export class Queries {
         // A negative take selects from the end of the window: the signed unit
         // limit flips the total order and still returns one row.
         const take = args.take === undefined ? 1 : Math.sign(args.take);
-        const query = this.select(model, { ...args, take });
+        const query = this.select(
+          model,
+          { ...args, take },
+          undefined,
+          ROOT_CANDIDATES
+        );
         return {
           query,
           single: true,
@@ -3503,7 +3801,7 @@ export class Queries {
       }
       case "findMany": {
         const backward = args.take !== undefined && args.take < 0;
-        const query = this.select(model, args);
+        const query = this.select(model, args, undefined, ROOT_CANDIDATES);
         return {
           query,
           single: false,
@@ -3613,7 +3911,7 @@ export class Queries {
   ): Query {
     const a = this.adapter;
     const inner = this.#rootAlias();
-    const page = this.#page(model, args, inner);
+    const page = this.#page(model, args, inner, "root");
     const filter = this.lowerWhere(model, args.where, inner);
     const window = assembleAdapterSelect(a, {
       columns: fields.length
@@ -3711,11 +4009,7 @@ export class Queries {
     };
   }
   /** One aggregate leaf classification, shared by projection and `having`. */
-  #aggregateLeaf(
-    model: AnyModel,
-    aggregate: Aggregate,
-    field: string
-  ): Leaf {
+  #aggregateLeaf(model: AnyModel, aggregate: Aggregate, field: string): Leaf {
     if (aggregate === "_count") return COUNT_LEAF;
     const leaf = this.scalarShape(model, field);
     const decimal = leaf.type === "decimal";
@@ -4277,7 +4571,10 @@ export class Queries {
                     [
                       {
                         when: claim,
-                        then: a.expressions.coalesce(row, a.json.object([])),
+                        then: a.expressions.coalesce(
+                          row,
+                          this.#missingArm(arm.edge, alias ?? "")
+                        ),
                       },
                     ],
                     a.literals.null()
@@ -4318,6 +4615,34 @@ export class Queries {
       expression = this.#lowerSpecialProjectionField(projection, field, alias);
     }
     return expression;
+  }
+  /**
+   * What a claimed arm whose row did not come back carries: the empty
+   * document, "the row is gone", which the decoder refuses. Under a related
+   * domain the row may exist and be hidden, which reads as an empty slot, so
+   * the empty document then also needs the row to be physically absent: a
+   * membership test with no domain, evaluated only for a claim that read no
+   * row. Without a domain, the bytes are the ones a plain client emits.
+   */
+  #missingArm(edge: Membership, parentAlias: string): Sql {
+    const a = this.adapter;
+    if (this.domain?.selector(edge.target, "related") === undefined)
+      return a.json.object([]);
+    const target = this.alias();
+    return a.expressions.caseWhen(
+      [
+        {
+          when: a.operators.exists(
+            a.subqueries.existsCheck(
+              this.table(edge.target, target),
+              this.correlation(edge, parentAlias, target, false)
+            )
+          ),
+          then: a.literals.null(),
+        },
+      ],
+      a.json.object([])
+    );
   }
   /**
    * How many of this member's memberships name a row that is gone.
@@ -4492,7 +4817,7 @@ export class Queries {
     const childFields = Object.keys(projection.shape.fields);
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
-    const window = this.#page(edge.target, nested, childAlias);
+    const window = this.#page(edge.target, nested, childAlias, "related");
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child, ", "),
       from: this.table(edge.target, childAlias),
@@ -4698,7 +5023,10 @@ export class Queries {
       ])
     );
     const nodeCarrier = a.json.object([
-      [RECURSIVE_CARRIER.key, this.#recursiveIdentity(model, rawIdentity(node))],
+      [
+        RECURSIVE_CARRIER.key,
+        this.#recursiveIdentity(model, rawIdentity(node)),
+      ],
       [RECURSIVE_CARRIER.row, nodeDocument],
     ]);
     const nodes = a.subqueries.scalar(
@@ -4903,7 +5231,10 @@ export class Queries {
                 `Scalar '${key}' used in 'having' must be included in 'by'.`
               );
             return [
-              this.#prepareOperations(freeze({ kind: "column", scalar }), value),
+              this.#prepareOperations(
+                freeze({ kind: "column", scalar }),
+                value
+              ),
             ];
           }
           return aggregated.map((aggregate) =>

@@ -16,6 +16,7 @@ import type {
   PreparedSelector,
   Query,
 } from "../shared/query";
+import { parseStamped } from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
 import {
   type Membership,
@@ -859,11 +860,12 @@ export class CommandExecution {
         const exclude = command.excluding.map((fields) =>
           ctx.queries.lowerIdentity(command.model, this.identity(fields))
         );
-        await ctx.requireAbsent(
+        const restrict = command.restrict;
+        const locked = (selector?: PreparedSelector, take?: number) =>
           ctx.queries.select(
             command.model,
             {
-              take: 1,
+              take,
               select: Object.fromEntries(
                 storedFields(ctx.schema, command.model).map((field) => [
                   field,
@@ -885,7 +887,27 @@ export class CommandExecution {
                     ctx.driver.adapter.operators.or(...exclude)
                   )
                 : undefined,
+              selector,
             }
+          );
+        // DC14, as `Commands.unreferenced`: candidates no locate holds are
+        // locked before the requirement reads.
+        if (restrict?.lock && !ctx.usesBatch)
+          await ctx.read(locked(restrict.candidates), true);
+        await ctx.requireAbsent(
+          locked(
+            // The parent's identity is known here, where the requirement runs.
+            restrict &&
+              this.commands.blocked(
+                restrict.candidates,
+                restrict.except === undefined
+                  ? undefined
+                  : {
+                      slot: restrict.except,
+                      identity: this.identity(command.membership.parent),
+                    }
+              ),
+            1
           ),
           command.failure()
         );
@@ -1067,7 +1089,11 @@ export class CommandExecution {
         // required selection threw in `runSelection` before reaching here.
         const row = attempt.rows.get(command.located);
         if (!row) return;
-        await ctx.delete(command.located.model, row, member);
+        const model = command.located.model;
+        // A tombstone updates the row it located, by identity, and keeps it.
+        if (command.values)
+          await ctx.update(model, row, command.values, member, "delete");
+        else await ctx.delete(model, row, member);
         return;
       }
       case "set": {
@@ -1375,7 +1401,8 @@ export class CommandExecution {
         }),
       };
     }
-    const keys = ctx.schema.keys(selection.model);
+    // Key order, as every limited write takes its rows (`Queries.keyOrder`).
+    const keys = ctx.queries.keyOrder(selection.model);
     const rows = await ctx.read(
       ctx.queries.select(
         selection.model,
@@ -1441,23 +1468,25 @@ export class CommandExecution {
               );
               attempt.retained.add(located);
             }
+            // A tombstone is admitted again for every captured member, from
+            // the same generated data and so the same instant.
+            const raw = series.mutation.raw;
             return {
               kind: "delete",
               located,
               origin: series.mutation.origin,
+              ...(raw && {
+                values: this.commands.stamp(
+                  selection.model,
+                  "update",
+                  this.#memberData(selection, membership, raw)
+                ),
+              }),
             };
           }
           const child = this.commands.update(
             located,
-            membership &&
-              membership.edge.scope.edge.kind !== "variantRowCarrier" &&
-              membership.edge.scope.edge.kind !== "variantJunctionCarrier"
-              ? ctx.schema.member(
-                  membership.edge.source,
-                  membership.edge.name,
-                  series.mutation.raw
-                )
-              : ctx.schema.update(selection.model, series.mutation.raw, true),
+            this.#memberData(selection, membership, series.mutation.raw),
             series.mutation.raw
           );
           if (membership)
@@ -1478,6 +1507,35 @@ export class CommandExecution {
     };
     attempt.series.set(occurrence, prepared);
     return prepared;
+  }
+  /**
+   * One captured member's update data, admitted from the series' raw data as
+   * the call was: a nested create in it may leave out what the call's stamps
+   * write.
+   */
+  #memberData(
+    selection: Selection,
+    membership: BoundMembership | undefined,
+    raw: Input
+  ): Input {
+    const stamps = this.context.scope?.rows.stamps;
+    return stamps === undefined
+      ? this.#admitMember(selection, membership, raw)
+      : parseStamped(stamps, () =>
+          this.#admitMember(selection, membership, raw)
+        );
+  }
+  #admitMember(
+    selection: Selection,
+    membership: BoundMembership | undefined,
+    raw: Input
+  ): Input {
+    const schema = this.context.schema;
+    return membership &&
+      membership.edge.scope.edge.kind !== "variantRowCarrier" &&
+      membership.edge.scope.edge.kind !== "variantJunctionCarrier"
+      ? schema.member(membership.edge.source, membership.edge.name, raw)
+      : schema.update(selection.model, raw, true);
   }
   /**
    * One named EXCLUSIVE target membership, applied to many captured rows.

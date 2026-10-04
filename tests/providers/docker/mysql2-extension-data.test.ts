@@ -1,0 +1,32 @@
+/**
+ * MySQL2 Driver Tests - fields an extension writes (extension-capabilities
+ * plan v4 §2.2, §6 "Data") on MySQL: the same behaviour SQLite3, batch-only
+ * SQLite3, SQLite3 without RETURNING and PGlite run.
+ *
+ * NOTE: These tests require a running MySQL database.
+ */
+
+import { runExtensionDataBehavior } from "@tests/contracts/engine/write/extension-data-behavior";
+import { runStampedRequiredBehavior } from "@tests/contracts/engine/write/stamped-required-behavior";
+import {
+  createMySQL2Driver,
+  dropEveryLiveTable,
+  TEST_CONNECTION_STRING,
+} from "./mysql2-fixtures";
+
+const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
+
+describeIf("MySQL2 Driver", () => {
+  beforeEach(dropEveryLiveTable);
+  // The provider files share one database: leave it as empty as it was found.
+  afterAll(dropEveryLiveTable);
+
+  runExtensionDataBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+  runStampedRequiredBehavior({
+    name: "MySQL2",
+    createDriver: createMySQL2Driver,
+  });
+});

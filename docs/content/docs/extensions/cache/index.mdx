@@ -128,11 +128,15 @@ await client.user.update({
 });
 ```
 
-Mutation cache options are extension-owned. They are removed after request
-transforms and before core validation, then registered on the existing ordered
-write-outcome rail. A rollback or savepoint rollback publishes no invalidation.
-A committed or possibly committed write attempts cache invalidation before
-later public write-outcome listeners, while retaining all failures in order.
+A mutation's `cache` option is the cache extension's own declared control.
+VibORM takes it out of the arguments and checks it before any request handler
+runs, so request and query handlers never see it and a request handler cannot
+add or replace it (that is refused with a `QueryError`). A malformed value is
+a `CacheConfigurationError`; a `cache` getter that throws is a `QueryError`.
+The options are then registered on the existing ordered write-outcome rail. A
+rollback or savepoint rollback publishes no invalidation. A committed or
+possibly committed write attempts cache invalidation before later public
+write-outcome listeners, while retaining all failures in order.
 
 `autoInvalidate` clears the canonical `<model>:` prefix inside the extension's
 namespace. Manual invalidation validates every target before starting any

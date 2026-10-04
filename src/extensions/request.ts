@@ -2,7 +2,8 @@ import type { OperationPayload, Operations, Schema } from "@client/types";
 import { QueryError } from "@errors";
 import { isFunction, isRecord } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedExtensionHandler } from "./chain";
+import type { ResolvedOperationHandler } from "./chain";
+import { type AdmittedControls, controlsOwnedBy } from "./controls";
 
 /** Frozen runtime contribution after hostile definition normalization. */
 type RuntimeRequestFunction = (...args: never[]) => unknown;
@@ -76,6 +77,8 @@ export interface RequestTransformContext<
   readonly model: string;
   readonly operation: Operation;
   readonly input: Readonly<RequestTransformInput<Operation, Input>>;
+  /** The call's controls this handler's extension declares, and only those. */
+  readonly controls?: AdmittedControls;
 }
 
 export interface GenericRequestContext {
@@ -84,6 +87,8 @@ export interface GenericRequestContext {
   readonly input: Readonly<
     RequestTransformPatch<Operations, Record<string, unknown>>
   >;
+  /** The call's controls this handler's extension declares, and only those. */
+  readonly controls?: AdmittedControls;
 }
 
 type GenericRequestHandlerCall = (
@@ -122,6 +127,8 @@ export type RequestHandlerMap<S extends Schema> = {
           RequestOperationInput<S, ModelName, OperationName>
         >
       >;
+      /** The call's controls this handler's extension declares, and only those. */
+      readonly controls?: AdmittedControls;
     }) => RequestTransformPatch<
       OperationName,
       RequestOperationInput<S, ModelName, OperationName>
@@ -133,7 +140,7 @@ export type RequestHandlerMap<S extends Schema> = {
 export type RequestTransform<
   Operation extends Operations,
   Input extends object,
-> = ResolvedExtensionHandler<
+> = ResolvedOperationHandler<
   (
     context: RequestTransformContext<Operation, Input>
   ) => RequestTransformPatch<Operation, Input>
@@ -148,11 +155,19 @@ type DescriptorState = DescriptorEntry[];
 
 const EMPTY_REQUEST_INPUT: Readonly<Record<string, never>> = Object.freeze({});
 
+/** What request transforms are told about the chain's controls. */
+export interface RequestControls {
+  /** Every control name on the chain: no patch may name one. */
+  readonly names: ReadonlySet<string>;
+  /** This call's admitted controls; each owner sees its own. */
+  readonly admitted: AdmittedControls | undefined;
+}
+
 function hasRequestTransforms(
-  transforms: readonly ResolvedExtensionHandler[] | undefined
+  transforms: readonly ResolvedOperationHandler[] | undefined
 ): transforms is readonly [
-  ResolvedExtensionHandler,
-  ...ResolvedExtensionHandler[],
+  ResolvedOperationHandler,
+  ...ResolvedOperationHandler[],
 ] {
   return transforms !== undefined && transforms.length > 0;
 }
@@ -174,13 +189,15 @@ export function applyRequestTransforms<
   model: string,
   operation: Operation,
   input: Input | undefined,
-  transforms: readonly RequestTransform<Operation, Input>[] | undefined
+  transforms: readonly RequestTransform<Operation, Input>[] | undefined,
+  controls?: RequestControls
 ): Input | Record<string, unknown> | undefined;
 export function applyRequestTransforms(
   model: string,
   operation: Operations,
   input: object | undefined,
-  transforms: readonly ResolvedExtensionHandler[] | undefined
+  transforms: readonly ResolvedOperationHandler[] | undefined,
+  controls?: RequestControls
 ): Record<string, unknown> | undefined;
 export function applyRequestTransforms<
   Operation extends Operations,
@@ -191,8 +208,9 @@ export function applyRequestTransforms<
   input: Input | undefined,
   transforms:
     | readonly RequestTransform<Operation, Input>[]
-    | readonly ResolvedExtensionHandler[]
-    | undefined
+    | readonly ResolvedOperationHandler[]
+    | undefined,
+  controls?: RequestControls
 ): Input | Record<string, unknown> | undefined {
   if (!hasRequestTransforms(transforms)) return input;
   const firstTransform = transforms[0];
@@ -208,14 +226,26 @@ export function applyRequestTransforms<
     operation
   );
   for (const [index, transform] of transforms.entries()) {
-    const context: RequestTransformContext<Operation, Input> = Object.freeze({
-      model,
-      operation,
-      input: handlerInput,
-    });
+    const context: RequestTransformContext<Operation, Input> = Object.freeze(
+      transform.controls === undefined
+        ? { model, operation, input: handlerInput }
+        : {
+            model,
+            operation,
+            input: handlerInput,
+            controls: controlsOwnedBy(controls?.admitted, transform.controls),
+          }
+    );
     const patch = invokeTransform(transform, context, model, operation);
     if (
-      mergePatch(descriptors, patch, transform.extension, model, operation) &&
+      mergePatch(
+        descriptors,
+        patch,
+        transform.extension,
+        model,
+        operation,
+        controls?.names
+      ) &&
       index + 1 < transforms.length
     ) {
       handlerInput = materializeHandlerInput<Operation, Input>(
@@ -229,7 +259,7 @@ export function applyRequestTransforms<
 }
 
 function invokeTransform<Operation extends Operations, Input extends object>(
-  transform: ResolvedExtensionHandler,
+  transform: ResolvedOperationHandler,
   context: RequestTransformContext<Operation, Input>,
   model: string,
   operation: Operation
@@ -252,7 +282,8 @@ function mergePatch(
   patch: unknown,
   extension: string,
   model: string,
-  operation: Operations
+  operation: Operations,
+  controlNames: ReadonlySet<string> | undefined
 ): boolean {
   let isAsync: boolean;
   try {
@@ -286,9 +317,34 @@ function mergePatch(
     );
   }
 
+  let keys: PropertyKey[];
+  try {
+    keys = Reflect.ownKeys(patch);
+  } catch (cause) {
+    throw transformFailure(
+      extension,
+      model,
+      operation,
+      "returned an unreadable patch",
+      normalizeThrown(cause)
+    );
+  }
+  // Decided from the key alone, before any descriptor is read: a control left
+  // the arguments before any handler ran, and no patch puts one back.
+  for (const key of keys) {
+    if (typeof key === "string" && controlNames?.has(key)) {
+      throw transformFailure(
+        extension,
+        model,
+        operation,
+        `named control "${key}"`,
+        new TypeError("Request patches cannot set extension controls")
+      );
+    }
+  }
   try {
     let changed = false;
-    for (const key of Reflect.ownKeys(patch)) {
+    for (const key of keys) {
       // Decide from the key alone. A malicious getter behind a protected key is
       // never read or copied into the trusted operation input.
       if (isResultShapeKey(operation, key)) continue;
@@ -316,7 +372,7 @@ function mergePatch(
 
 function readOwnDescriptors<Operation extends Operations>(
   value: object,
-  transform: ResolvedExtensionHandler,
+  transform: ResolvedOperationHandler,
   model: string,
   operation: Operation
 ): DescriptorState {

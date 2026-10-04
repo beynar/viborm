@@ -40,7 +40,11 @@ import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
 } from "../../bind-budget";
-import type { PreparedBatchGuard, PreparedBatchOperation } from "../../types";
+import type {
+  PreparedBatchGuard,
+  PreparedBatchOperation,
+  PreparedGuardFailure,
+} from "../../types";
 import {
   InvalidScalarResult,
   type PreparedProjection,
@@ -52,6 +56,7 @@ import {
   returningSafeProjection,
   wholeValue,
 } from "./query";
+import type { CallScope } from "./row-scope";
 import {
   type EngineSchema,
   type Input,
@@ -434,6 +439,8 @@ export class OperationContext {
     ));
   }
   readonly schema: EngineSchema;
+  /** The call's row facts and instant; absent on a client without them. */
+  readonly scope: CallScope | undefined;
   readonly modelName: string;
   readonly operation: Operation;
   /**
@@ -454,8 +461,10 @@ export class OperationContext {
     binding?: ExecutionBinding,
     prepareBatch = false,
     callerAttribution?: QueryExecutionContext,
+    scope?: CallScope,
     lineage: object = factoryDriver
   ) {
+    this.scope = scope;
     this.schema = schema;
     this.modelName = modelName;
     this.operation = operation;
@@ -479,7 +488,12 @@ export class OperationContext {
     this.usesBatch =
       this.#ownership === "batch-preparation" ||
       (this.#ownership === "standalone" && !this.driver.supportsTransactions);
-    this.queries = new Queries(schema, this.driver.adapter, this.driver.result);
+    this.queries = new Queries(
+      schema,
+      this.driver.adapter,
+      this.driver.result,
+      scope?.domain
+    );
   }
   get attribution(): QueryExecutionContext {
     return (
@@ -1863,25 +1877,44 @@ export class OperationContext {
       undefined,
       { selector }
     );
+    this.packageGuard(model, probe.sql, "exists", {
+      kind: "notFound",
+      // Never user-facing: `createFailureError` ignores this message for
+      // `kind: "notFound"` and rebuilds the shipped sentence from the guard's
+      // model and verb. It is read only by `sameAttribution`
+      // (`batch-error-attribution.ts`), where being CONSTANT per model and
+      // verb is what makes two guards of the same shape agree.
+      message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+      raceable: false,
+    });
+  }
+  /**
+   * One premise a packaged operation states INSIDE the array's atomic unit:
+   * the assertion is queued ahead of the statements it protects and declared
+   * to the array owner, which aborts the whole batch and rebuilds `failure`
+   * from the guard (`batch-error-attribution.ts`). An asserted premise
+   * ({@link requireAbsent}) cannot ride a package, because only this
+   * operation's own transport reads its answer.
+   */
+  packageGuard(
+    model: AnyModel,
+    probe: Sql,
+    premise: PreparedBatchGuard["premise"],
+    failure: PreparedGuardFailure
+  ): void {
     (this.#preparedGuardList ??= []).push({
       queryIndex: this.queued.length,
-      premise: "exists",
-      probe: probe.sql,
-      failure: {
-        kind: "notFound",
-        // Never user-facing: `createFailureError` ignores this message for
-        // `kind: "notFound"` and rebuilds the shipped sentence from the model
-        // and verb below. It is read only by `sameAttribution`
-        // (`batch-error-attribution.ts`), where being CONSTANT per model and
-        // verb is what makes two guards of the same shape agree.
-        message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
-        raceable: false,
-      },
+      premise,
+      probe,
+      failure,
       model: model["~"].names.ts!,
       operation: this.operation,
     });
+    const assertions = this.driver.adapter.assertions;
     this.#queue(
-      this.driver.adapter.assertions.exists(probe.sql),
+      premise === "exists"
+        ? assertions.exists(probe)
+        : assertions.notExists(probe),
       this.statementContext(model, this.operation)
     );
   }
@@ -2071,12 +2104,15 @@ export class OperationContext {
     if (this.usesBatch && !lone) {
       const windowMember: Member = {};
       this.#setWindow = windowMember;
+      // A premise queued ahead rides the same batch and answers first: the
+      // window is these statements' own positions.
+      const first = this.queued.length;
       for (const statement of statements)
         this.#queue(statement.sql, statement.context, windowMember);
       const results = await this.submit(true, windowMember);
       return this.settleSubmitted(() => {
         try {
-          return parse(results);
+          return parse(results.slice(first, first + statements.length));
         } catch (error) {
           throw this.failure(error, "result", windowMember);
         }
@@ -2472,7 +2508,15 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const assignments = this.#updateAssignments(model, values);
-    if (projection && !adapter.capabilities.supportsReturning) {
+    // A relation carrier reads other rows, which no RETURNING can carry: the
+    // post-image is re-read by identity, as without RETURNING.
+    if (
+      projection &&
+      !(
+        adapter.capabilities.supportsReturning &&
+        returningSafeProjection(projection)
+      )
+    ) {
       const identities = await this.captureMutationIdentities(
         model,
         selector,
@@ -2490,7 +2534,10 @@ export class OperationContext {
             sql.join(assignments, ", "),
             target
           ),
-        "updateMany"
+        // A delete that writes a tombstone still answers as a delete.
+        this.operation === "delete" || this.operation === "deleteMany"
+          ? "deleteMany"
+          : "updateMany"
       );
       return this.finishTerminals(
         this.seriesQueries(
@@ -3437,6 +3484,9 @@ export class OperationContext {
   ): Promise<void> {
     const a = this.driver.adapter;
     const q = this.queries;
+    // A removal takes related rows, as its lookups do: a member the call
+    // cannot see keeps its link.
+    const domain = q.domain?.selector(edge.target, "related");
     if (edge.kind === "junction") {
       const conditions: Sql[] = [];
       for (const [side, values] of [
@@ -3445,6 +3495,27 @@ export class OperationContext {
       ] as const) {
         if (!values) continue;
         conditions.push(...q.junctionSideConditions(side, undefined, values));
+      }
+      if (domain) {
+        // The join row is the DELETE's own table: its columns are qualified
+        // by that table's name, never left to resolve inside the subquery.
+        const member = q.alias();
+        conditions.push(
+          a.operators.exists(
+            a.subqueries.existsCheck(
+              q.table(edge.target, member),
+              a.operators.and(
+                ...edge.targetSide.members.map((pair) =>
+                  a.operators.eq(
+                    a.identifiers.column(edge.table, pair.junctionField),
+                    q.column(edge.target, pair.referencedField, member)
+                  )
+                ),
+                q.lowerSelector(domain, member)!
+              )
+            )
+          )
+        );
       }
       if (keep.length)
         conditions.push(
@@ -3504,7 +3575,8 @@ export class OperationContext {
               )
             ),
           ]
-        : [])
+        : []),
+      ...(domain ? [q.lowerSelector(domain)!] : [])
     );
     const clearability = edge.clearability as Extract<
       Membership["clearability"],

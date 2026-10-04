@@ -366,7 +366,7 @@ describe("PendingOperation frozen public contract", () => {
         cache,
         "user",
         "update",
-        () => ({ autoInvalidate: true }),
+        { autoInvalidate: true },
         context,
         OFFICIAL_CACHE_SCOPE
       );
@@ -384,7 +384,7 @@ describe("PendingOperation frozen public contract", () => {
         cache,
         "user",
         "findMany",
-        () => ({ autoInvalidate: true }),
+        { autoInvalidate: true },
         capability(mutation).context,
         OFFICIAL_CACHE_SCOPE
       )
@@ -400,7 +400,7 @@ describe("PendingOperation frozen public contract", () => {
           cache,
           "user",
           "update",
-          () => ({ autoInvalidate: true }),
+          { autoInvalidate: true },
           context,
           OFFICIAL_CACHE_SCOPE
         )
@@ -420,7 +420,7 @@ describe("PendingOperation frozen public contract", () => {
       cache,
       "user",
       "update",
-      () => ({ autoInvalidate: true }),
+      { autoInvalidate: true },
       context,
       OFFICIAL_CACHE_SCOPE
     );
@@ -454,7 +454,7 @@ describe("PendingOperation frozen public contract", () => {
         cache,
         "user",
         "update",
-        () => ({ autoInvalidate: true }),
+        { autoInvalidate: true },
         context,
         OFFICIAL_CACHE_SCOPE
       )

@@ -200,7 +200,12 @@ compiler, lowerer, executor, query builder or result engine beside `raptor3/`.
 ## Extension execution boundary
 
 The query engine consumes the client chain; it does not own a second middleware
-registry. Request transforms run before core validation. Query interceptors run
+registry. Declared controls are admitted once by the pending operation, before
+request transforms (`src/extensions/controls.ts`); the call's row facts are
+looked up from them (`src/extensions/rows.ts`) and reach Raptor 3 as neutral
+domains, tombstones and one instant (`raptor3/shared/row-scope.ts`), never as
+a control, mode or extension name. Request transforms run before core
+validation. Query interceptors run
 around the prepared logical operation and must preserve the authoritative child
 once `proceed()` starts. Statement transforms run once at the common typed
 `Sql` boundary after statement observation and before rendering; verbatim unsafe

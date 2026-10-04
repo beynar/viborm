@@ -146,22 +146,15 @@ error.
 `limit` also caps the returning form — `select` gives you back exactly the rows
 that were updated, so at most `limit` of them.
 
-:::warning
-`limit` says **how many**, not **which**. There is no `orderBy` on a bulk
-  write, so the rows that get picked are whichever ones the database reaches
-  first, and different databases reach different ones: MySQL uses a native
-  `UPDATE … LIMIT n`, while PostgreSQL and SQLite restrict the update to a
-  primary-key subquery. Both honor the cap; neither promises the selection, and
-  you should not depend on the one your current database happens to produce.
-  Prisma's `limit` has exactly the same hole. When *which* rows matters, read the
-  ids you want with [`findMany`](/docs/client/find-many) (where `orderBy` and
-  `take` mean what you expect) and update by those ids.
-
-  One exception, and only because it falls out of how it works: when `data`
-  carries a relation, the rows are captured by primary key first, so `limit: n`
-  takes the `n` lowest primary keys. Do not build on it — it is a consequence of
-  the implementation, not a promise of the API.
-:::
+`limit` takes the first rows by id: the matching rows ordered by primary key,
+ascending, as [`findMany`](/docs/client/find-many) with `take` and no `orderBy`
+orders them. A compound primary key is ordered field by field, in the order the
+model declares the fields. With `limit: 2` over ids 5, 3, 1, 4 and 2, ids 1 and
+2 are updated, whatever order the rows were inserted in. This holds on every
+database and on every path: a scalar update, an update whose `data` carries a
+relation, and a delete with the same `where` and `limit` all pick the same
+rows. A bulk write takes no `orderBy`: to update other rows first, read their
+ids with [`findMany`](/docs/client/find-many) and update by those ids.
 
 ## What it costs
 

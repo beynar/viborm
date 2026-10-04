@@ -7,16 +7,16 @@ import {
 } from "./scripts/driver-test-manifest.mjs";
 import { MIGRATION_COVERAGE_TESTS } from "./scripts/migration-test-manifest.mjs";
 import {
-  RAPTOR3_LIVE_PROVIDER_TESTS,
-  RAPTOR3_PROVIDER_TESTS,
-  RAPTOR3_DETERMINISTIC_TESTS,
-  RAPTOR3_PROJECT_TESTS,
-} from "./scripts/raptor3-manifest.mjs";
-import {
   QUERY_ENGINE_CORE_TESTS,
   WRITE_ENGINE_CORE_TESTS,
   WRITE_ENGINE_COVERAGE_TESTS,
 } from "./scripts/query-engine-test-manifest.mjs";
+import {
+  RAPTOR3_DETERMINISTIC_TESTS,
+  RAPTOR3_LIVE_PROVIDER_TESTS,
+  RAPTOR3_PROJECT_TESTS,
+  RAPTOR3_PROVIDER_TESTS,
+} from "./scripts/raptor3-manifest.mjs";
 
 const layerProject = (
   name: string,
@@ -153,9 +153,12 @@ export default defineWorkspace([
       include: [
         "tests/contracts/architecture/extension-system-census.core.test.ts",
         "tests/contracts/public-client/default-omit-extension.core.test.ts",
+        "tests/contracts/public-client/extension-controls.core.test.ts",
+        "tests/contracts/public-client/extension-deletion.core.test.ts",
         "tests/contracts/public-client/extensions-foundation.core.test.ts",
         "tests/contracts/public-client/official-cache-extension.core.test.ts",
         "tests/contracts/public-client/official-instrumentation-extension.core.test.ts",
+        "tests/contracts/public-client/soft-delete.core.test.ts",
         "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
         "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
         "tests/contracts/public-client/extensions/array-admission.core.test.ts",

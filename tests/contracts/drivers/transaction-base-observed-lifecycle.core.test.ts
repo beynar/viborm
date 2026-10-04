@@ -111,7 +111,7 @@ function completionRecorder() {
 function observedContext(
   config: InstrumentationConfig,
   values: QueryExecutionContext,
-  companion?: object
+  companion?: Readonly<Record<string, unknown>>
 ): QueryExecutionContext {
   let chain = appendResolvedExtension(undefined, instrumentation(config), {});
   if (companion) chain = appendResolvedExtension(chain, companion, {});

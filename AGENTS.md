@@ -198,17 +198,20 @@ carrier parser created it with `JSON.parse`, completed structural validation of
 the fixed or variant carrier and its full row set before mutation, and decodes
 it through the existing nested parser.
 
-### Rule 6: One Immutable Six-Capability Extension Chain
+### Rule 6: One Immutable Ten-Capability Extension Chain
 
 `$extends()` compiles one ordered immutable chain. Its exact capabilities are
-`request`, `query`, `statement`, `observe`, `client`, and `model`; do not add a
-second middleware/plugin registry, priority system, public execution token, or
-operation-program surface.
+`request`, `query`, `statement`, `observe`, `client`, `model`, `controls`,
+`rows`, `deletion`, and `data`; do not add a second middleware/plugin registry,
+priority system, public execution token, or operation-program surface.
+`controls`, `rows`, `deletion` and `data` are plain data that core honours at
+every scope they concern; a capability that needs a branch naming one extension,
+model, marker field or mode in core is a design failure, not a feature.
 
-The lazy lifecycle is operation observation → request transforms → default omit
-→ core validation/preparation → query interception → physical statement
-observation → statement transform → render/provider → parse → query post-work →
-operation completion. A query child becomes authoritative once `proceed()`
+The lazy lifecycle is operation observation → control admission → request
+transforms → default omit → core validation/preparation → query interception →
+physical statement observation → statement transform → render/provider → parse
+→ query post-work → operation completion. A query child becomes authoritative once `proceed()`
 starts. Ordinary observer failures and returned promises never affect the
 application. Statement transforms exclude verbatim unsafe raw, while protected
 physical statement observation remains disclosure-limited and still covers it.
@@ -241,11 +244,28 @@ non-raw statements retain their shallow parameter-copy path because typed input
 was validated upstream and statement transforms are trusted.
 
 Generic extension ownership is exact: `src/extensions/definition.ts` owns the
-public envelope and hostile-definition boundary; `chain.ts` owns the one
-resolved chain and handler lookup; `methods.ts` owns client/model factories and
-collisions; `request.ts`, `query.ts`, `statement.ts`, and `observation.ts` each
-own their capability contract and single runner; `array-admission.ts` owns only
-the extension admission latch; and `index.ts` is the intentional surface. Core
+public envelope and hostile-definition boundary. `controls`, `rows`, `deletion`
+and `data` are trusted definitions: bound as written, neither copied nor
+checked against the receiving schema (only a call's values are admitted);
+`chain.ts` owns the one resolved chain,
+handler lookup, the chain's one control name space and placed controls, one
+`deletion` entry per model, and the order guard (`rows` after a result consumer
+is refused); `controls.ts` owns control placement, the call's one admission
+(taken out of the arguments before request transforms, validated once, handed
+only to the declaring extension's handlers) and the control types the model
+delegate reads from the extension state, beside the models a chain's `rows`
+name, from which `src/client/result-types.ts` types a to-one relation that
+can read hidden as `| null`; `rows.ts` binds, once per
+application, each mode combination's row domains, tombstones and the row
+identity a cached read is keyed on, so a call only looks its facts up;
+`methods.ts` owns client/model factories and collisions; `request.ts`,
+`query.ts`, `statement.ts`, and `observation.ts` each own their capability
+contract and single runner; `array-admission.ts` owns only the extension
+admission latch; and `index.ts` is the intentional surface. The pending
+operation owns the admission record; Raptor 3 receives only the resolved call
+facts (`shared/row-scope.ts`: domains by purpose, tombstones, one instant) and
+never a control, mode or extension name (see `src/query-engine/raptor3/AGENTS.md`,
+row domains and tombstones). Core
 array dispatch and the lifecycle facts known only by client, query-engine,
 executor, cache, and driver composition roots remain with those roots.
 
@@ -253,7 +273,14 @@ Official `cache()`, `instrumentation()`, and `defaultOmit()` capabilities are
 implemented only in `src/cache/extension.ts`,
 `src/instrumentation/extension.ts`, and
 `src/client/default-omit-extension.ts`. They are authenticated by identity and
-replace their old `createClient()` config keys.
+replace their old `createClient()` config keys. The official `softDelete()`
+(`src/soft-delete/index.ts`, entry `viborm/soft-delete`) is the other kind: an
+ordinary definition built only from public exports (its imports are the files
+behind `viborm` and `viborm/client`, type-only), with no identity, no private
+fact and no runtime import; `tests/package/soft-delete-consumer-smoke.mjs`
+rebuilds it from the packed package. Keep it that way: a need it cannot meet
+through the public capabilities is a capability to add, not a friend import.
+The cache's mutation `cache` argument is a declared control on writes.
 Cached values are detached/fresh and custom keys are canonical-key suffixes;
 cached reads bypass callback/array transactions, raw calls, and statement-
 transform chains. Omit is presentation, not authorization. The extension

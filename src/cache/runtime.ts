@@ -5,11 +5,13 @@
 
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import {
+  admitMutationCacheOptions,
+  cacheKeyOf,
   createCacheExecutionOptions,
   executeCachedResultOperation,
   invalidateManualCache,
-  prepareMutationCacheInput,
   prepareMutationCacheWriteOutcome,
+  readMutationCacheOptions,
   validateCacheableOperation,
 } from "@query-engine/cache-flow";
 import { cacheCodec } from "@query-engine/raptor3/route/cache-codec";
@@ -51,14 +53,16 @@ function bindChain(
 }
 
 export const OFFICIAL_CACHE_RUNTIME = Object.freeze({
+  admitMutationCacheOptions,
   bindChain,
   cacheCodec,
+  cacheKeyOf,
   createCacheExecutionOptions,
   executeCachedResultOperation,
   invalidateManualCache,
-  prepareMutationCacheInput,
   prepareMutationCacheWriteOutcome,
   readCacheExecutionOutcomes,
+  readMutationCacheOptions,
   validateCacheableOperation,
 });
 

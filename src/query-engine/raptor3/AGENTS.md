@@ -57,6 +57,131 @@ select that operand form. Positive observations live in `CommandAttempt`;
 absence is consumed lexically and is deliberately not cached across re-entry.
 Junction capture stores the exact membership pair, not a synthetic row lookup.
 
+*Row domains (extension `rows`, extension-capabilities plan v3.1 §2.2).* A call
+of a client with `rows` carries its facts (`CallScope`, `shared/row-scope.ts`):
+the domain its controls chose and the default one, each a `PreparedDomain`
+prepared at most once per engine view, model and purpose. A `Queries` is scoped
+to one domain: reads get the one `PreparedDomain.reads` owns (built on first
+use, living as long as the domain), write contexts one per call, sharing the
+prepared domain. The RELATED domain
+enters only in `correlation()`, outside every quantifier's negation, on every
+edge (milestone 2): to-many and to-one projections, polymorphic arms,
+`is`/`isNot`, relation order terms and recursion; the ROOT domain enters where a lookup names
+its purpose (`read()`, `lowerWhere` for the aggregates, a cursor's anchor, and
+the `SelectionSource.purpose` of root and nested write lookups). A lookup that
+names none is a premise or physical: identity re-reads, `capture()`,
+`locateSuppressed`, `disconnect`, `set` cleanup and the integrity probes take
+exactly the selector they are handed, and a relation predicate marked
+`unscoped` (the referential requirement) states its own visibility. Nested
+write lookups take the related purpose on every edge, to-one included, so a
+read and a write through one relation agree on what is hidden. A hidden
+reference reads as an absent one, and physical integrity stays physical: a
+variant ROW carrier's claimed arm (`parentClaimsArm`) that reads no row asks
+`missingArm` whether the row exists at all, with no domain, only when a
+related domain applies to that arm's target, so a hidden row is an empty slot
+and a missing one keeps the "references a missing record" refusal, and a plain
+client's bytes are unchanged; `duplicateMembershipGuard` and
+`orphanedMemberships` never call `correlation()`. A to-one relation scope
+records the domain's fields among its dependency facts, as a to-many one does.
+`Queries.candidates` is the one conjunction: it keeps the unique key, so race
+convergence and a hidden conflict's rethrow behave as without a domain, and
+marks the selector `scoped`, so the two consumers that trust the key alone —
+the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
+decline. The engine never sees a control, a mode or an extension's name.
+
+*Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
+`tombstones` (absent when its controls matched `removeWhen`) writes an update
+wherever core would delete a row of a managed model: root `delete` and
+`deleteMany`, nested `delete`/`deleteMany`/`delete: true`, and each member a
+captured series removes. `Commands.tombstone(model)` owns one occurrence's
+data: the declared `assign` plus the call's one `CallScope.instant()` in `at`,
+admitted once per occurrence per attempt through `EngineSchema.update(model,
+data, true)`, so `updatedAt` and field transforms behave as an update's and a
+re-plan re-admits captured members at the same instant. Root `delete` and
+`deleteMany` are ONE plan, the hard delete's own: a tombstone swaps only the
+effect, `OperationContext.updateMany` for `deleteMany`, with the same
+selector, limit (a guarded tombstone's window is key-ordered, below), projection and missing-row identity; `updateMany` re-reads a
+relation projection by identity, as `deleteMany` captures it, because no
+RETURNING carries one; a nested `Deletion`
+placement carries `values` and updates the located row by identity, keeping
+its foreign key, junction rows and the parent-held link. Candidates are
+`Commands.candidates(selector, purpose, true)`: the caller's selector, the
+call's domain and the model's DEFAULT domain (one conjunction when the call
+chose the default). The referential requirement is one premise before the
+effect, never also in the effect's WHERE: `Commands.unreferenced` at the root
+(a packaged `foreignKey` guard inside a batch-only array), and a nested
+`AbsenceRequirement` with `restrict` placed after earlier siblings
+(`RelationBody.requireUnreferenced`, the parent's own link excepted). Under a
+root `limit` the premise and the effect take ONE window, the first `limit`
+candidates in key order, so a reference outside it does not refuse the delete:
+an interactive session reads and locks the window and both take exactly the
+rows it locked, by key (`Queries.includeIdentities`); a window too long to bind
+as keys (past half the driver's bind budget) takes the candidates up to its
+last key (`Queries.through`, a row-value `<=`) with the effect still limited,
+so a row that becomes a candidate after the lock never makes the count exceed
+`limit`; a batch states `Queries.window` (`keys IN (SELECT … ORDER BY keys
+LIMIT n)`, a derived table on MySQL) in both statements, whose total order
+gives the one atomic unit one answer. Every limited set write takes the same
+rows, the first `limit` in key order (owner ruling 2026-10-02: "like we do
+in findMany we order shallowly by id"): the hard delete, a tombstone without a
+restricting slot, `updateMany`, and the per-row capture of a relation-bearing
+`updateMany`. `Queries.lowerMutationLimit` owns the spelling: the ordered
+keyed subquery (`Queries.capped`, which `Queries.window` lowers to as well),
+or `ORDER BY keys LIMIT n` on the statement itself where the provider has
+`UPDATE … LIMIT` (MySQL, which refuses a `LIMIT` inside `IN`). Key order is
+`Queries.keyOrder`, the tie-break a read's `take` completes with: a bare
+scalar id, else the row key's fields in DECLARATION order, which is not the
+constraint's order when `.id([...])` lists them otherwise; `Queries.through`
+compares in it too. Nested `deleteMany` takes no `limit`. The requirement's
+slots are `EngineSchema.restrictingSlots`, read from the migration
+serializer's own ON DELETE owners, and its relation predicates are `unscoped`:
+they read the child model's default related domain, whatever the call chose.
+An interactive session locks the candidates no earlier read holds before the
+requirement reads (DC14: `unreferenced`, and a nested set-oriented
+`deleteMany` through `restrict.lock`), so a concurrent `connect` cannot leave a
+live child under a tombstone; measured on PostgreSQL with
+`tests/providers/docker/pg-deletion-races.test.ts`.
+Statement attribution, observers, errors and `NotFoundError` verbs still say
+the caller's delete (`ctx.operation`).
+
+*Stamps (extension `data`, plan v4 §2.2).* A call whose facts carry `stamps`
+writes, per model, the declared fields on every create and every update of it.
+`Commands.stamp(model, kind, admitted, raw)` is the one owner. A field the
+caller's raw data writes, by name or through the relation whose foreign key
+on this model holds it, is the caller's, and the stamp writes nothing there
+(owner ruling, 2026-10-02, plan v4 §7.1; it replaced the refusal of both).
+The fields it keeps, and only those, are admitted once per occurrence per
+attempt through `EngineSchema.update(model, values, true)`, as a tombstone
+is (a create takes each field's whole value), and put under the
+occurrence's admitted data: a value the caller replaced never reaches its
+field's schema. Dropping the
+held field is what lets a relation write that leaves the key alone (a nested
+`update` of the tenant) keep it; a `connect` or `create` would set the key
+over an unrequested stamp anyway. A tombstone has no caller data and takes
+the whole stamp. It returns scalar values:
+a tombstone's are written as they are, with no second `schema.scalars`.
+Every site that turns one occurrence's admitted data into
+`schema.scalars` calls it: `Commands.create` (root create on the record route,
+the upsert create arm, relation-bearing `createMany`, nested `create`,
+`createMany`, `connectOrCreate` and the nested upsert's create arm),
+`Commands.update` (root update on the record route, the upsert update arm,
+relation-bearing `updateMany`, nested `update` and the nested upsert's update
+arm, every captured series member), the folds (`rootCreate`, `rootUpdate`,
+both `rootUpsert` arms), relation-free root `createMany` rows and `updateMany`,
+the nested relation-free `updateMany`, and `Commands.tombstone`, whose stamped
+data every tombstone site reads; a captured member a series tombstones is
+admitted again from the tombstone's raw data and stamped there. Stamps that
+name a control are put in per call outside the engine (`callRows`), never in
+the per-value domain memo, so a tenant's domain is one object whoever writes. A
+`connect`/`set` that only moves a foreign key (`MEMBERSHIP_MOVE`) is not
+stamped, as no `updatedAt` moves there. A physical delete writes nothing. A
+field the schema requires and a create stamp writes may be left out by the
+caller (owner ruling 2, plan v4 §7.5): the call's admission and a captured
+member's re-admission (`CommandExecution.memberData`) run inside
+`parseStamped` (`shared/row-scope.ts`), which tells validation, for that one
+synchronous parse, which fields of which model the call's create stamps
+write; a call without stamps parses outside it, as before.
+
 `RelationBody` binds membership lazily at the first admitted ordinary verb or
 tagged variant and caches it per variant. That binding owns literal requirements;
 executed relation construction still owns transition registration. Do not move
@@ -1859,7 +1984,8 @@ operation) and the ENVELOPE restart
 (`run`'s deferred arm, which runs
 the body once outside the region and again inside it). A re-plan is safe because
 admission is memoised one level above the body — `commands/index.ts`'s
-`admitted ??= schema.admit(…)` — so the second tree is built from the SAME
+`admitted ??= this.#admit()` (`schema.admit`, inside `parseStamped` when the
+call has stamps) — so the second tree is built from the SAME
 admitted arguments — the ROOT admission runs once; a captured member of a
 selected series is admitted again by the re-plan, so a member's own defaults
 and transforms run once per ATTEMPT (the shipped whole-operation re-run

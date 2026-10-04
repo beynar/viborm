@@ -48,6 +48,21 @@ type _handlerSurfaceIsExact = Expect<
     | "onWriteOutcome"
   >
 >;
+// A model operation's handler also reads its own extension's controls; a raw
+// statement has none.
+type _modelHandlerSurfaceIsExact = Expect<
+  Equal<
+    keyof Extract<HandlerContext, { readonly kind: "model" }>,
+    | "mode"
+    | "kind"
+    | "model"
+    | "operation"
+    | "input"
+    | "controls"
+    | "proceed"
+    | "onWriteOutcome"
+  >
+>;
 type _executionModeIsTruthful = Expect<
   Equal<HandlerContext["mode"], "direct" | "transaction" | "array">
 >;

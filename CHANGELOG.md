@@ -5,6 +5,141 @@ Versioning.
 
 ## Unreleased
 
+- **Added: `viborm/soft-delete`, the official soft-delete extension.**
+  `softDelete({ models, actor })(client)` turns deletes of the named models
+  into tombstones (the call's time in a nullable `DateTime` field, and
+  optionally the actor), hides tombstones from every query that selects rows,
+  and adds `restore`/`restoreMany`. `deleted: "without" | "with" | "only"`
+  chooses the rows of one call; `mode: "hard"` deletes physically (a purge
+  also says `deleted: "only"`, see the guide's warning). The extension is
+  one file of about 100 lines, built only from the public capabilities below,
+  in its own entry point: the root entry never imports it.
+- **Added: three extension capabilities, `controls`, `rows` and `deletion`.**
+  `controls` declares call arguments (a closed list or a Standard Schema,
+  placed on reads, writes or named
+  operations; a schema may be an object or a function carrying
+  `~standard`, such as an ArkType type), checked once before request
+  handlers and visible only to the declaring extension's handlers
+  (`context.controls`). `rows` declares row filters per model, one
+  set per mode, chosen per call by a control; core applies them at every
+  place a query selects rows (root reads and writes, aggregates, cursors,
+  every relation, quantifiers, counts, ordering, recursion, nested write
+  targets). A to-one relation whose target is filtered out reads `null` and,
+  on a client with `rows`, is typed `| null`
+  when its target model has an entry (or the same field and relation names as
+  one); a reference to a missing row is still an error. `deletion` turns a delete of the named
+  models into an update with the call's one time and constant data, refused
+  while a visible row still references it through a restricting foreign key
+  (on PostgreSQL and MySQL it locks its candidates before that check, so a
+  concurrent `connect` cannot leave a live row referencing a tombstone),
+  unless the call's controls match `removeWhen`. A cached read that receives
+  a control is keyed on its value and, on a client with `rows`, on the `rows`
+  declarations; a read that receives none keeps today's key. Definitions are
+  trusted: VibORM does not check a declaration at runtime.
+- **Added: `data`, an extension capability that writes fields.** For the
+  models it names, an extension writes fields on every create (`create`) and
+  every update (`update`) of them: root and nested, one row or many, both
+  arms of an `upsert`, and the update a soft delete makes. A value is a
+  constant, `{ control: "<name>" }` for the value the call passed, or, on an
+  update, one of the field's update operators such as `{ increment: 1 }`. A
+  `connect` or `set` that only moves a foreign key, and a delete that stays
+  physical, write nothing. When two extensions write the same field, the one
+  applied later wins. An extension now has ten capabilities. A field the
+  schema requires may be left out of a create when an extension writes it
+  on that call, a required foreign key such as `tenantId` included. When
+  TypeScript knows the models the `data` entry names (written inline, or
+  passed to a recipe as a written list), the client's types agree: those
+  fields are optional in its create data, nested creates included, and keep
+  their own types.
+- **Added: an extension fills a field only when the caller left it out.** A
+  call that writes a field an extension writes keeps its own value, at any
+  depth, on a create and on an update, and wins over every extension that
+  writes it. Writing it through the relation whose foreign key it is
+  (`tenant: { connect: ... }` for `tenantId`) counts as writing it: the
+  relation decides the key. A field written as `undefined` counts as left
+  out. A value the extension would have written there is not checked either,
+  so a field's own schema never sees or refuses it. Under tenancy, reads stay with the call's tenant but writes are not
+  enforced: a caller who writes `tenantId`, or connects a tenant, by hand
+  writes into that tenant.
+- **Added: a `rows` filter can use a value the call passes.** Write
+  `{ control: "<name>" }` where a filter takes a value, at any depth (inside
+  `in`, `AND`, `OR` and `NOT` too), and each call sees the rows that match the
+  value it passed: one client serves every tenant. A call that does not pass
+  the control drops the filters that name it. Each mode and value is
+  prepared once and reused; a client keeps 256 of them, and past that the
+  oldest is prepared again when it comes back. Cached reads are keyed on the
+  value, so two tenants never share an entry.
+- **Added: `required: true` on a control.** A call that leaves out a
+  required control is refused with a `ValidationError` at the control's path,
+  on every operation the control is placed on (without `on`, every operation
+  of every model).
+- **Docs: extension recipes.** A new guide page gives tenancy, audit stamping
+  and optimistic locking, each one declaration built from the capabilities
+  in this release, to copy into your code. They are recipes, not package
+  entries. Each keeps the model names you pass it, with no `as const`, so
+  your editor lets a required `tenantId` be left out of a create of those
+  models.
+- **Added: `ExtensionState` and `ExtendedOperationResult`** are exported from
+  `viborm`, for plugins generic over the client they receive.
+  `ExtendedOperationResult` and a model-mapped query handler's `proceed()`
+  read the client's `rows`; `OperationResult`, `InferDatabase` and
+  `renderOperationResultType` stay schema-only. `Client`'s
+  optional third type parameter is now the chain's controls (see "Changed
+  (types)" below), and `$withCache()` accepts the chain's controls.
+- **Behaviour change: a limited `deleteMany` or `updateMany` takes the first
+  rows by id.** `limit: n` now takes the first `n` matching rows ordered by
+  primary key, ascending (a compound key field by field, in the order the
+  model declares them), as `findMany` with `take` and no `orderBy` does. Before,
+  it took whichever rows the database reached first, which differed between
+  databases and could differ between the hard and the soft delete of the same
+  rows. Now every path picks the same rows: a hard delete, a soft delete with
+  or without a restricting child (skipping rows deleted already), a scalar
+  update, an update whose `data` carries a relation, inside
+  `$transaction([...])`, and with or without `RETURNING`. The SQL gains an
+  `ORDER BY` on the primary key: inside the key subquery on PostgreSQL and
+  SQLite, and on the statement itself on MySQL. On a compound key whose
+  `.id([...])` lists the fields in another order than the model declares
+  them, an update whose `data` carries a relation now runs its rows in that
+  declaration order too.
+- **Changed (types): extension typing for plugins generic over their client.**
+  Inside a function generic over `VibORMClient<C, X>`, index a model with
+  `M[K & keyof M]`: `VibORMClient<C, X>["post"]` is now a TypeScript error
+  there. A definition written against one client and applied to another now
+  compiles, with its method types following the first client; build each
+  definition from the client it is applied to. Replacing an earlier
+  extension's model method is refused when the extension is applied, and is
+  no longer flagged in your editor. `Client`'s third type parameter used to
+  say whether the cache extension was applied; it is now the controls the
+  client's extensions declare, and the cache's `cache` option is one of them.
+  `Client<C, D, true>` no longer compiles: take the type from the client you
+  built (`typeof client`) instead.
+- **Breaking: a mutation's `cache` option is the cache extension's declared
+  control.** VibORM now takes `cache` out of a mutation's arguments and checks
+  it once, before any request handler runs, the way it handles every argument
+  an extension declares. Five things change for code that touched it:
+  - A request handler can no longer add or replace `cache`: a patch that
+    names it is refused with a `QueryError` ("named control \"cache\""),
+    whichever order the two extensions were applied in.
+  - Request handlers no longer see `cache` in their input (query handlers
+    already did not).
+  - A `cache` value whose getter throws is a `QueryError`, no longer a
+    `CacheConfigurationError`. A malformed value is still a
+    `CacheConfigurationError`.
+  - `cache` is checked before request handlers run, so an invalid `cache`
+    fails before them, and a request handler that throws no longer stops
+    `cache` from being read.
+  - A mutation whose arguments are not an object (a string, a number) fails
+    with the `ValidationError` ("Expected object") a client without the cache
+    gives, no longer a `CacheConfigurationError`.
+  - Added: the value `cache()` returns has a `controls` member, which declares
+    `cache` on writes.
+  - Added: request and query handler contexts of a model operation have an
+    optional `controls`: the values of the controls the handler's own
+    extension declares, and only those.
+  - Unchanged: the message of a `cache` value the cache refuses still reads
+    "Invalid mutation cache options: …". (The third type parameter of the
+    public `Client` type does change: see "Changed (types)" above.)
+
 ## 1.0.0-rc.4 — Release candidate (not yet published)
 
 - **Breaking: instrumentation presentation moves into the `instrumentation()`

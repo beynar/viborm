@@ -1,6 +1,7 @@
 import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
+  ForeignKeyError,
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
   NestedWriteAssertionError,
   NestedWriteError,
@@ -12,16 +13,21 @@ import type { PreparedBatchGuard, PreparedGuardFailure } from "./types";
 
 /**
  * Materialize a guard's declared {@link PreparedGuardFailure} as its typed
- * error — the ONE failure-to-error construction. A `notFound` failure rebuilds
+ * error — the ONE failure-to-error construction, which the engine's own
+ * referential refusal reuses when it runs outside a package
+ * (`Commands.restrictFailure`). A `notFound` failure rebuilds
  * its sentence from the model and verb, so the declared message is never
  * user-facing for that kind; the `raceable` mark is what lets the routed retry
  * re-plan and converge, so it survives every arm.
  */
-function createFailureError(
+export function createFailureError(
   failure: PreparedGuardFailure,
   model: string,
   operation: string
 ): Error {
+  if (failure.kind === "foreignKey") {
+    return new ForeignKeyError(failure.message, { meta: { model, operation } });
+  }
   if (failure.kind === "nestedWrite") {
     const error = new NestedWriteError(failure.message, failure.relation ?? "");
     if (failure.raceable) {

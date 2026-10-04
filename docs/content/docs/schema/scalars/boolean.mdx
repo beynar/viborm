@@ -47,6 +47,10 @@ await client.user.findMany({
 });
 ```
 
+To have deletes keep the row and every query skip it, use the
+[soft-delete extension](/docs/extensions/soft-delete) with a nullable
+`deletedAt` marker instead of a boolean.
+
 ### Feature Flags
 
 ```ts

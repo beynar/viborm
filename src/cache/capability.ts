@@ -7,6 +7,7 @@
 // the core asks for it.
 
 import type { ResolvedExtensionChain } from "@extensions/chain";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   GenericQueryHandler,
   OfficialGenericQueryHandler,
@@ -14,6 +15,7 @@ import type {
 import { isFunction } from "@validation/value-guards";
 import type { CacheDriver, WaitUntilFn } from "./driver";
 import type { OfficialCacheRuntime } from "./runtime";
+import type { CacheInvalidationOptions } from "./schema";
 
 export const OFFICIAL_CACHE_NAME = "viborm.cache";
 
@@ -22,11 +24,47 @@ export type OfficialCacheQueryContribution = OfficialGenericQueryHandler & {
   bind(thisArg: unknown): GenericQueryHandler;
 };
 
+/**
+ * A mutation's `cache` argument is the cache's declared control (ruling 7):
+ * core removes and admits it before request handlers run, through the cache's
+ * own parser, so a malformed value is still a `CacheConfigurationError`.
+ */
+export type OfficialCacheControls = {
+  readonly cache: {
+    readonly schema: StandardSchemaV1<CacheInvalidationOptions>;
+    readonly on: "writes";
+  };
+};
+
 /** The official value accepted by the dedicated `$extends` overload. */
 export type OfficialCacheExtension = {
   readonly name: typeof OFFICIAL_CACHE_NAME;
   readonly query: OfficialCacheQueryContribution;
+  readonly controls: OfficialCacheControls;
 };
+
+/**
+ * The cache's one declaration. The chain places it for any definition carrying
+ * the cache's query, whatever `controls` that definition spells: the query is
+ * the cache's identity, so its control cannot be forged or left out. It lives
+ * here, in the part core always loads, and admits through the runtime: a chain
+ * carries the cache only after `cache()` installed that runtime.
+ */
+export const officialCacheControls: OfficialCacheControls = Object.freeze({
+  cache: Object.freeze({
+    schema: Object.freeze({
+      "~standard": Object.freeze({
+        version: 1,
+        vendor: "viborm",
+        validate: (value: unknown) =>
+          Object.freeze({
+            value: officialCacheRuntime().admitMutationCacheOptions(value),
+          }),
+      }),
+    }),
+    on: "writes",
+  }),
+});
 
 /**
  * What `cache()` knows before it meets a client: no scope, because the scope

@@ -11,6 +11,7 @@ import {
   OFFICIAL_CACHE_NAME,
   type OfficialCacheDefinitionCapability,
   type OfficialCacheExtension,
+  officialCacheControls,
   registerOfficialCacheQuery,
 } from "./capability";
 import { CacheDriver, type WaitUntilFn } from "./driver";
@@ -25,6 +26,7 @@ export {
   getOfficialCacheQueryCapability,
   OFFICIAL_CACHE_NAME,
   type OfficialCacheBindTarget,
+  type OfficialCacheControls,
   type OfficialCacheExtension,
   type OfficialCacheQueryContribution,
   registerOfficialCacheChain,
@@ -134,5 +136,9 @@ export function cache(config: CacheExtensionConfig): unknown {
   const capability = snapshotConfig(config);
   const query: GenericQueryHandler = ({ proceed }) => proceed();
   registerOfficialCacheQuery(query, capability, OFFICIAL_CACHE_RUNTIME);
-  return Object.freeze({ name: OFFICIAL_CACHE_NAME, query });
+  return Object.freeze({
+    name: OFFICIAL_CACHE_NAME,
+    query,
+    controls: officialCacheControls,
+  });
 }

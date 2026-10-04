@@ -206,6 +206,49 @@ export const POST_G3_SELECTOR_PREPARATION_COUNTS = Object.freeze({
 export const POST_G3_SELECTOR_PREPARATION_TESTS = Object.freeze(
   Object.keys(POST_G3_SELECTOR_PREPARATION_COUNTS)
 );
+// Extension capabilities U3: tombstones at every deletion site, the
+// referential requirement, one instant per call, and `mode: "hard"`, through
+// the public client on the interactive and the batch-only substrate.
+// Compression C1: a root delete whose projection reads to-many relations, and
+// a third substrate without RETURNING (15 cells on each of three drivers).
+// F2: a limited deleteMany's premise and effect take one window (16 cells).
+// v4 T1 (owner ruling 2): a required field the data capability writes is left
+// out at every create site (7 cells on each of three drivers). Ruling 2
+// repair: a caller who writes it through its foreign key's relation is
+// refused (1 cell on each of three drivers). S1 (owner ruling 2026-10-02):
+// the extension steps back where the caller writes the field or its
+// relation; the data capability's one refusal cell became one create-site
+// and one update-site cell (+1 on each of three drivers), and the two
+// refusal cells of the required field became the two step-back cells. S2
+// (owner ruling 2026-10-02): a limited deleteMany or updateMany takes the
+// first rows by key, hard or soft (+1 on each of three drivers). Step-back
+// repair: a stamp value the caller replaces is never admitted (+1 on each of
+// three drivers).
+export const POST_G3_DELETION_SITE_COUNTS = Object.freeze({
+  "tests/raptor3/post-prep/deletion-sites.test.ts": 108,
+});
+export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
+  Object.keys(POST_G3_DELETION_SITE_COUNTS)
+);
+// Extension capabilities U4: the rows capability at every set scope (root
+// reads, aggregates, pages, to-many relations, quantifiers, recursion, write
+// lookups) and the unique-key consumers under a domain, on the interactive and
+// the batch-only substrate, and one engine view preparing each domain once.
+// U6 (milestone 2): every reference scope (to-one projections, polymorphic
+// arms, is/isNot, to-one order, upward recursion) and physical integrity;
+// U6 repair: the recursive step at the second hop, both directions, and a
+// required polymorphic row carrier. Compression C1: the shared behaviour (24
+// cells) on a third substrate without RETURNING. Compression C6: the
+// RETURNING statement-count pin goes; its race twin owns the decline.
+// Extension capabilities v4 U1: rows bound to the call, the tenancy recipe's
+// behaviour (7 cells) on the three SQLite substrates, and its two unique-key
+// race witnesses under a bound domain (+23).
+export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
+  "tests/raptor3/post-prep/row-scopes.test.ts": 103,
+});
+export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
+  Object.keys(POST_G3_ROW_SCOPE_COUNTS)
+);
 export const POST_G3_HISTORY_ANALYSIS_COUNTS = Object.freeze({
   "tests/raptor3/post-prep/history-analysis.test.ts": 5,
 });
@@ -1567,6 +1610,8 @@ export const RAPTOR3_DETERMINISTIC_TESTS = Object.freeze([
   ...POST_G3_SCHEMA_VIEW_TESTS,
   ...POST_G3_PROJECTION_PREPARATION_TESTS,
   ...POST_G3_SELECTOR_PREPARATION_TESTS,
+  ...POST_G3_DELETION_SITE_TESTS,
+  ...POST_G3_ROW_SCOPE_TESTS,
   ...POST_G3_HISTORY_ANALYSIS_TESTS,
   ...G29_MEMBER_DEPENDENCY_TESTS,
   ...G29_DEPENDENCY_BOUNDARY_TESTS,

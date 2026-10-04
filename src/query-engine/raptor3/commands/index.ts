@@ -9,7 +9,13 @@ import {
   OperationContext,
 } from "../shared/operation-context";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
-import { Queries } from "../shared/query";
+import { PreparedDomain, Queries } from "../shared/query";
+import {
+  type CallRows,
+  type CallScope,
+  parseStamped,
+  type RowDomain,
+} from "../shared/row-scope";
 import {
   type Arguments,
   type EngineConfig,
@@ -153,6 +159,7 @@ class PreparedCommand implements PreparedOperation {
   readonly #modelName: string;
   readonly #rawArgs: unknown;
   readonly #missing: (() => NotFoundError) | undefined;
+  readonly #scope: CallScope | undefined;
   #admitted: Arguments | undefined;
   #prepared: Read | undefined;
   #facts: PreparedRead | undefined;
@@ -163,8 +170,18 @@ class PreparedCommand implements PreparedOperation {
     queries: Queries,
     modelName: string,
     requested: Operations,
-    rawArgs: unknown
+    rawArgs: unknown,
+    rows?: CallRows
   ) {
+    // The call's one instant lives with the prepared call, so a replan and
+    // every occurrence it re-admits share it.
+    let instant: Date | undefined;
+    this.#scope = rows && {
+      rows,
+      domain: preparedDomain(queries, rows.domain),
+      defaults: preparedDomain(queries, rows.defaults),
+      instant: () => (instant ??= new Date()),
+    };
     this.#config = config;
     this.#schema = schema;
     this.#queries = queries;
@@ -183,16 +200,20 @@ class PreparedCommand implements PreparedOperation {
   }
 
   get args(): Arguments {
-    return (this.#admitted ??= this.#schema.admit(
-      this.#model,
-      this.#operation,
-      this.#rawArgs
-    ));
+    return (this.#admitted ??= this.#admit());
+  }
+
+  /** Admitted where a required field the call's stamps write may be left out. */
+  #admit(): Arguments {
+    const stamps = this.#scope?.rows.stamps;
+    const admit = () =>
+      this.#schema.admit(this.#model, this.#operation, this.#rawArgs);
+    return stamps === undefined ? admit() : parseStamped(stamps, admit);
   }
 
   #read(): Read | undefined {
     if (!isReadOperation(this.#operation)) return undefined;
-    return (this.#prepared ??= this.#queries.read(
+    return (this.#prepared ??= (this.#scope?.domain.reads ?? this.#queries).read(
       this.#model,
       this.#operation,
       this.args
@@ -251,6 +272,7 @@ class PreparedCommand implements PreparedOperation {
           binding,
           false,
           attribution,
+          this.#scope,
           this.#config
         )
       );
@@ -274,6 +296,7 @@ class PreparedCommand implements PreparedOperation {
       undefined,
       true,
       attribution,
+      this.#scope,
       this.#config
     );
     const value = this.#read();
@@ -313,6 +336,7 @@ class PreparedCommand implements PreparedOperation {
       undefined,
       true,
       attribution,
+      this.#scope,
       this.#config
     );
     try {
@@ -349,6 +373,25 @@ const sharedEngines = new WeakMap<
   }
 >();
 
+/**
+ * Each row domain a call selects, prepared once per query owner. A prepared
+ * domain derives only from the domain and that owner (its adapter and result
+ * parser), so clients sharing the owner share it too; a client without `rows`
+ * never reaches the map.
+ */
+const preparedDomains = new WeakMap<
+  Queries,
+  WeakMap<RowDomain, PreparedDomain>
+>();
+
+function preparedDomain(queries: Queries, rows: RowDomain): PreparedDomain {
+  let byDomain = preparedDomains.get(queries);
+  if (!byDomain) preparedDomains.set(queries, (byDomain = new WeakMap()));
+  let domain = byDomain.get(rows);
+  if (!domain) byDomain.set(rows, (domain = new PreparedDomain(rows, queries)));
+  return domain;
+}
+
 function sharedQueries(config: EngineConfig): Queries {
   const { adapter, result } = config.driver;
   const key = config.resolved?.registry;
@@ -384,8 +427,17 @@ export function createCommandEngine(config: EngineConfig) {
   const prepare = (
     modelName: string,
     requested: Operations,
-    rawArgs: unknown
+    rawArgs: unknown,
+    rows?: CallRows
   ): PreparedOperation =>
-    new PreparedCommand(config, schema, queries, modelName, requested, rawArgs);
+    new PreparedCommand(
+      config,
+      schema,
+      queries,
+      modelName,
+      requested,
+      rawArgs,
+      rows
+    );
   return { prepare };
 }

@@ -26,6 +26,7 @@ import type { CacheResultCodec } from "../../cache-flow";
 import type { PreparedBatchOperation } from "../../types";
 import { createCommandEngine, type PreparedOperation } from "../commands";
 import type { WriteOutcomeSeam } from "../shared/operation-context";
+import type { CallRows } from "../shared/row-scope";
 import type { ResolvedSchemaViews } from "../shared/schema";
 
 /** What the existing pending-operation lifecycle knows when it executes. */
@@ -81,7 +82,8 @@ export interface ClientOperationRoute {
   operation(
     model: AnyModel,
     requestedOperation: string,
-    args: Record<string, unknown>
+    args: Record<string, unknown>,
+    rows?: CallRows
   ): RoutedCandidateOperation;
 }
 
@@ -245,7 +247,8 @@ export function createCandidateRoute(
     operation(
       model: AnyModel,
       requestedOperation: string,
-      args: Record<string, unknown>
+      args: Record<string, unknown>,
+      rows?: CallRows
     ): RoutedCandidateOperation {
       const modelName = model["~"].names.ts ?? "unknown";
       const operation = requestedOperation as Operations;
@@ -256,7 +259,7 @@ export function createCandidateRoute(
         factoryDriver,
         modelName,
         requestedOperation,
-        engine.prepare(modelName, operation, args)
+        engine.prepare(modelName, operation, args, rows)
       );
     },
   };

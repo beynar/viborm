@@ -135,12 +135,18 @@ export function executeArrayTransaction(
   );
 }
 
-/** Settle synchronous request work for every member before any provider effect. */
+/**
+ * Settle synchronous request work, control admission included, for every
+ * member before any provider effect.
+ */
 function prepareRequestAdmissions(
   operations: readonly TransactionOperationCapability[],
   engine: QueryEngine
 ): void {
-  if (engine.extensionChain?.hasRequestHandlers !== true) return;
+  const chain = engine.extensionChain;
+  if (chain?.hasRequestHandlers !== true && chain?.controls === undefined) {
+    return;
+  }
   for (const operation of operations) {
     transactionOperationOwner(operation).prepareAdmission(operation);
   }

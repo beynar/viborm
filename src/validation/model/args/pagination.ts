@@ -22,9 +22,10 @@ export type BulkWriteLimitSchema = V.Schema<number, number>;
 
 /**
  * `limit` on `updateMany` / `deleteMany` (Prisma 6.x): a cap on how MANY rows
- * the bulk write may affect. Non-negative — unlike `take`, a negative value has
- * no "from the other end" meaning here, because a bulk write has no `orderBy`
- * and therefore no ends. `0` is legal and means "affect nothing".
+ * the bulk write may affect, taken first by primary key. Non-negative — unlike
+ * `take`, a negative value has no "from the other end" meaning here, because a
+ * bulk write has no `orderBy` to reverse. `0` is legal and means "affect
+ * nothing".
  */
 export const bulkWriteLimit = (): BulkWriteLimitSchema =>
   nonNegativeInteger("limit must be greater than or equal to 0");

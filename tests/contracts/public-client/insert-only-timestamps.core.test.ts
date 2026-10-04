@@ -23,8 +23,10 @@
 
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import { ValidationError } from "@errors";
 import { s } from "@schema";
+import { defineExtension } from "@src/index";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { beforeEach, describe, expect, test } from "vitest";
@@ -269,5 +271,33 @@ describe("insert-only timestamps at the public client", () => {
       ),
       "createdAt"
     );
+  });
+});
+
+describe("insert-only timestamps written by an extension's data", () => {
+  test("a create stamp on a `.now()` field is admitted as a create admits it", async () => {
+    const item = s
+      .model({ id: s.string().id(), createdAt: s.dateTime().now() })
+      .map("stamped_items");
+    const schema = { item };
+    const driver = new SQLite3Driver();
+    const base = createClient({ schema, driver });
+    try {
+      await driver._executeRaw(
+        'CREATE TABLE "stamped_items" ("id" TEXT PRIMARY KEY, "createdAt" TEXT NOT NULL)'
+      );
+      const EPOCH = new Date(0);
+      const stamped = base.$extends(
+        defineExtension<typeof schema>()({
+          name: "epoch",
+          data: { models: { item: { create: { createdAt: EPOCH } } } },
+        })
+      );
+      await expect(
+        stamped.item.create({ data: { id: "stamped" } })
+      ).resolves.toEqual({ id: "stamped", createdAt: EPOCH });
+    } finally {
+      await driver.disconnect();
+    }
   });
 });

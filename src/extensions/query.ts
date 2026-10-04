@@ -2,7 +2,8 @@ import { QueryError } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
 import { isError } from "../errors/diagnostic-safety";
-import type { ResolvedExtensionHandler } from "./chain";
+import type { ResolvedOperationHandler } from "./chain";
+import { type AdmittedControls, controlsOwnedBy } from "./controls";
 
 /** Frozen runtime contribution after hostile definition normalization. */
 type RuntimeQueryFunction = (...args: never[]) => unknown;
@@ -34,6 +35,11 @@ export interface PreparedModelQueryContext<Input extends object>
   readonly kind: "model";
   readonly model: string;
   readonly operation: string;
+  /**
+   * The call's admitted controls. A handler sees only its own extension's,
+   * and only when that extension declares any.
+   */
+  readonly controls?: AdmittedControls;
 }
 
 export interface PreparedRawQueryContext<Input extends object>
@@ -74,6 +80,8 @@ type GenericModelQueryContext<Result> = GenericQueryContextBase<Result> & {
   readonly kind: "model";
   readonly model: string;
   readonly operation: Operations;
+  /** The call's controls this handler's extension declares, and only those. */
+  readonly controls?: AdmittedControls;
 };
 
 type GenericRawQueryContext<Result> = GenericQueryContextBase<Result> &
@@ -120,7 +128,18 @@ export type OfficialGenericQueryHandler = GenericQueryHandlerCall & {
   readonly [officialQueryHandlerIdentity]: true;
 };
 
-export type QueryHandlerMap<C extends VibORMConfig> = {
+/**
+ * Per-model query handlers. Their results read the result context of the
+ * chain they are applied to: `Hidden` names the models its `rows` can hide
+ * (`rows` cannot follow a model-mapped handler, so a later extension adds
+ * none). A `rows` entry in the handler's OWN definition is not seen, as no
+ * definition types against its own contributions: declare it one step
+ * earlier.
+ */
+export type QueryHandlerMap<
+  C extends VibORMConfig,
+  Hidden extends string = never,
+> = {
   readonly [ModelName in keyof C["schema"]]?: {
     readonly [OperationName in Operations]?: <
       Arg extends Exclude<
@@ -133,11 +152,27 @@ export type QueryHandlerMap<C extends VibORMConfig> = {
       readonly model: ModelName;
       readonly operation: OperationName;
       readonly input: Readonly<Arg>;
+      /** The call's controls this handler's extension declares, and only those. */
+      readonly controls?: AdmittedControls;
       readonly proceed: () => Promise<
-        ClientOperationResult<C, ModelName, OperationName, Arg>
+        ContextualOperationResult<
+          C,
+          ModelName,
+          OperationName,
+          Arg,
+          ClientRowsContext<C, Hidden>
+        >
       >;
       readonly onWriteOutcome: (listener: WriteOutcomeListener) => void;
-    }) => Promise<ClientOperationResult<C, ModelName, OperationName, Arg>>;
+    }) => Promise<
+      ContextualOperationResult<
+        C,
+        ModelName,
+        OperationName,
+        Arg,
+        ClientRowsContext<C, Hidden>
+      >
+    >;
   };
 };
 
@@ -172,7 +207,7 @@ export type QueryInterceptorContext<
 export type QueryInterceptor<
   Result,
   Input extends object = Record<string, unknown>,
-> = ResolvedExtensionHandler<
+> = ResolvedOperationHandler<
   (context: QueryInterceptorContext<Result, Input>) => Promise<Result>
 >;
 
@@ -195,7 +230,7 @@ export interface QueryInterceptorExecutionControl {
  */
 export function executePreparedQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
-  interceptors: readonly ResolvedExtensionHandler[] | undefined,
+  interceptors: readonly ResolvedOperationHandler[] | undefined,
   child: (notifications?: WriteOutcomeNotifications) => Promise<Result>,
   isWrite: boolean,
   transactionWriteOutcomes?: TransactionWriteOutcomes,
@@ -243,7 +278,7 @@ function discardReadWriteOutcomeRegistration(): void {
 
 async function executeInterceptedQuery<Result, Input extends object>(
   context: PreparedQueryContext<Input> | undefined,
-  interceptors: readonly ResolvedExtensionHandler[] | undefined,
+  interceptors: readonly ResolvedOperationHandler[] | undefined,
   child: (notifications?: WriteOutcomeNotifications) => Promise<Result>,
   isWrite: boolean,
   transactionWriteOutcomes: TransactionWriteOutcomes | undefined,
@@ -387,7 +422,7 @@ export function runQueryInterceptors<
 
 function runCompiledQueryInterceptors<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
-  interceptors: readonly ResolvedExtensionHandler[] | undefined,
+  interceptors: readonly ResolvedOperationHandler[] | undefined,
   child: () => Promise<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty?: ReadCommitCertainty,
@@ -407,7 +442,7 @@ function runCompiledQueryInterceptors<Result, Input extends object>(
 
 function runInterceptorAt<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
-  interceptors: readonly ResolvedExtensionHandler[],
+  interceptors: readonly ResolvedOperationHandler[],
   index: number,
   child: () => Promise<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
@@ -438,7 +473,7 @@ function runInterceptorAt<Result, Input extends object>(
 
 async function runOneInterceptor<Result, Input extends object>(
   prepared: PreparedQueryContext<Input>,
-  interceptor: ResolvedExtensionHandler,
+  interceptor: ResolvedOperationHandler,
   child: () => Promise<Result>,
   captureWriteOutcome: WriteOutcomeRegistrationCapture,
   readCommitCertainty: ReadCommitCertainty | undefined,
@@ -492,7 +527,8 @@ async function runOneInterceptor<Result, Input extends object>(
   const handlerContext = exposeHandlerContext(
     prepared,
     proceed,
-    onWriteOutcome
+    onWriteOutcome,
+    interceptor.controls
   );
   let handlerValue: Promise<Result>;
   try {
@@ -599,7 +635,8 @@ function selectExtensionFailures(
 function exposeHandlerContext<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
   proceed: () => Promise<Result>,
-  onWriteOutcome: (listener: WriteOutcomeListener) => void
+  onWriteOutcome: (listener: WriteOutcomeListener) => void,
+  ownControls: readonly string[] | undefined
 ): QueryInterceptorContext<Result, Input> {
   if (context.kind === "model") {
     return Object.freeze({
@@ -608,6 +645,9 @@ function exposeHandlerContext<Result, Input extends object>(
       model: context.model,
       operation: context.operation,
       input: context.input,
+      ...(ownControls === undefined
+        ? {}
+        : { controls: controlsOwnedBy(context.controls, ownControls) }),
       proceed,
       onWriteOutcome,
     });
@@ -857,7 +897,8 @@ export function decomposeWriteOutcomePublicationFailure(
 
 import type { VibORMConfig } from "@client/client";
 import type {
-  ClientOperationResult,
+  ClientRowsContext,
+  ContextualOperationResult,
   OperationPayload,
   Operations,
 } from "@client/types";

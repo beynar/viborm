@@ -128,15 +128,15 @@ export const getScalarCreate = <M extends AnyModel, F extends ScalarSchemas<M>>(
     }
     return true;
   }) as ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
+  // `provides` shapes no input type, so it stays out of the options type below.
+  const options = { atLeast: requiredScalars, provides: model["~"].names.ts };
   return v.fromObject<
     F["scalars"],
     "create",
     {
       atLeast: ModelRequiredScalarKeys<ModelStateOf<M>["shape"]>[];
     }
-  >(scalarSchemas.scalars, "create", {
-    atLeast: requiredScalars,
-  });
+  >(scalarSchemas.scalars, "create", options);
 };
 
 /**
@@ -218,6 +218,7 @@ export function getBulkCreate<M extends AnyModel, F extends ScalarSchemas<M>>(
     {
       atLeast: requiredScalars,
       requiresOneOfKeySets: fkRequirementKeySets,
+      provides: model["~"].names.ts,
     }
   ) as unknown as BulkCreateSchema<M, F>;
 }
@@ -460,6 +461,7 @@ export const getCreateSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
       atLeast: requiredScalars as NestedRequiredScalarKeys<M, F>[],
       requiresOneOfKeySets:
         fkRequirementKeySets as unknown as readonly CreateRequirementGroup<M>[],
+      provides: model["~"].names.ts,
     }
   );
 };

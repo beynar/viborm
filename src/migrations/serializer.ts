@@ -30,6 +30,8 @@ import {
 } from "../schema/scalars/decimal/provider-limits";
 import { idDomainOf } from "../schema/validation/id-domains";
 import {
+  foreignKeyOnDelete,
+  junctionOnDelete,
   type ResolvedRelationEdge,
   type ResolvedRelationIndex,
   type ResolvedVariantJunctionEdge,
@@ -551,25 +553,14 @@ export function serializeResolvedModels(
       // every local member is nullable defaults to SET NULL and a required one to
       // RESTRICT, so deletes behave identically across databases (MySQL checks
       // self-referencing FKs row-by-row where PG/SQLite validate at statement
-      // end). TOTAL nullability, not the nullable SUBSET the write side clears:
-      // one referential action governs the whole constraint.
-      const fkNullable = fkFields.every((field) => {
-        const fkScalar = modelState.scalars[field] as Scalar | undefined;
-        return fkScalar?.["~"].state.nullable === true;
-      });
-      const defaultOnDelete: ReferentialAction = fkNullable
-        ? "setNull"
-        : "restrict";
-
+      // end). The rule has one owner, `foreignKeyOnDelete`, which the engine's
+      // referential requirement reads too.
       foreignKeys.push({
         name: `${tableName}_${fkColumns.join("_")}_fkey`,
         columns: fkColumns,
         referencedTable: targetTableName,
         referencedColumns,
-        onDelete: mapReferentialAction(
-          edge.reference.onDelete,
-          defaultOnDelete
-        ),
+        onDelete: foreignKeyOnDelete(edge),
         onUpdate: mapReferentialAction(edge.reference.onUpdate, "noAction"),
       });
 
@@ -723,14 +714,14 @@ export function serializeResolvedModels(
       members: sourceMembers,
       table: sourceTableName,
       sortKey: modelName.toLowerCase(),
-      onDelete: mapReferentialAction(topology.source.onDelete, "cascade"),
+      onDelete: junctionOnDelete(topology.source),
       onUpdate: mapReferentialAction(topology.source.onUpdate, "cascade"),
     };
     const targetSide = {
       members: targetMembers,
       table: targetTableName,
       sortKey: targetModelName.toLowerCase(),
-      onDelete: mapReferentialAction(topology.target.onDelete, "cascade"),
+      onDelete: junctionOnDelete(topology.target),
       onUpdate: mapReferentialAction(topology.target.onUpdate, "cascade"),
     };
     let [first, second] = [sourceSide, targetSide];

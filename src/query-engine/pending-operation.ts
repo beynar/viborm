@@ -10,12 +10,19 @@ import {
   InvalidTransactionInputError,
   retainWriteOutcomeFailure,
 } from "@errors";
-import { lookupResolvedExtensionHandlers } from "@extensions/chain";
+import {
+  lookupPlacedControls,
+  lookupResolvedExtensionHandlers,
+} from "@extensions/chain";
+import { type AdmittedControls, admitControls } from "@extensions/controls";
 import { observeOperation } from "@extensions/observation";
 import {
   executePreparedQuery,
+  type PreparedModelQueryContext,
+  type QueryInterceptionMode,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
+import { callRows } from "@extensions/rows";
 import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { CacheResultCodec } from "./cache-flow";
@@ -68,6 +75,8 @@ type AttachPendingCacheExecution = <T>(
 
 interface PendingCacheResultAccess {
   readonly args: Record<string, unknown>;
+  /** The controls the read admitted: part of what its cache entry is keyed on. */
+  readonly controls: AdmittedControls | undefined;
   readonly codec: CacheResultCodec;
   readonly executionContext: QueryExecutionContext;
 }
@@ -116,18 +125,28 @@ function combineWriteNotifications(
   };
 }
 
-/** Client-owned work that must finish before operation construction starts. */
-export type PrepareOperationInput = () => Record<string, unknown>;
+/**
+ * Client-owned work that must finish before operation construction starts. It
+ * receives the arguments without their controls, and the controls admitted
+ * from them.
+ */
+export type PrepareOperationInput = (
+  args: Record<string, unknown>,
+  controls: AdmittedControls | undefined
+) => Record<string, unknown>;
 
 /** Package-owned write listener prepared only after the operation input is trusted. */
 export type PrepareWriteOutcomeRegistration = (
-  context: QueryExecutionContext
+  context: QueryExecutionContext,
+  controls: AdmittedControls | undefined
 ) => WriteOutcomeRegistration | undefined;
 
 interface OperationInputPreparation {
   readonly prepare: PrepareOperationInput;
   status: "pending" | "success" | "failure";
   args?: Record<string, unknown>;
+  /** The operation's one admission record, settled with its arguments. */
+  controls?: AdmittedControls;
   error?: unknown;
 }
 
@@ -217,6 +236,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       operation.#wrapExecution(wrapper);
     readPendingCacheResultFriend = (operation) => ({
       args: operation.cacheKeyArgs(),
+      controls: operation.#inputPreparation?.controls,
       codec: operation.#cacheResultCodec(),
       executionContext: operation.#context.attribution,
     });
@@ -278,13 +298,7 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         const queryContext =
           handlers === undefined || handlers.length === 0
             ? undefined
-            : Object.freeze({
-                mode: "array" as const,
-                kind: "model" as const,
-                model: operation.#modelName,
-                operation: requestedOperation,
-                input: snapshotQueryInput(preparedInput),
-              });
+            : operation.#queryContext("array", preparedInput);
         return executePreparedQuery<unknown, Record<string, unknown>>(
           queryContext,
           handlers,
@@ -426,7 +440,11 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     Object.freeze(this);
   }
 
-  /** Resolve client request preparation once, caching both values and throws. */
+  /**
+   * Resolve client request preparation once, caching both values and throws.
+   * The operation's controls leave its arguments and are admitted first, so
+   * the record is settled with the arguments and no request handler sees one.
+   */
   #resolveArgs(): Record<string, unknown> {
     const preparation = this.#inputPreparation;
     if (preparation === undefined) return this.#args;
@@ -436,8 +454,21 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     if (preparation.status === "failure") throw preparation.error;
 
     try {
-      const args = preparation.prepare();
+      const placed = lookupPlacedControls(
+        this.#engine.extensionChain,
+        this.#modelName,
+        String(this.#options.originalOperation)
+      );
+      const admission =
+        placed.length === 0
+          ? undefined
+          : admitControls(this.#modelName, this.#operation, this.#args, placed);
+      const args = preparation.prepare(
+        admission?.args ?? this.#args,
+        admission?.controls
+      );
       preparation.args = args;
+      preparation.controls = admission?.controls;
       preparation.status = "success";
       return args;
     } catch (error) {
@@ -453,7 +484,8 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       return this.#writeOutcomeRegistration;
     }
     this.#writeOutcomeRegistration = this.#prepareWriteOutcomeRegistration?.(
-      this.#context.attribution
+      this.#context.attribution,
+      this.#inputPreparation?.controls
     );
     this.#writeOutcomeRegistrationResolved = true;
     return this.#writeOutcomeRegistration;
@@ -479,10 +511,14 @@ export class PendingOperation<T> implements TransactionOperation<T> {
         `Unknown operation '${this.#operation}' on model '${this.#modelName}'. Known operations: ${[...ROUTED_OPERATIONS].sort().join(", ")}.`
       );
     }
+    const args = this.#resolveArgs();
+    const binding = this.#engine.extensionChain?.callRows;
     const routed = this.#route.operation(
       this.#model,
       String(this.#options.originalOperation),
-      this.#resolveArgs()
+      args,
+      binding &&
+        callRows(binding, this.#modelName, this.#inputPreparation?.controls)
     );
     this.#routedInstance = routed;
     if (this.#operationResolution) {
@@ -514,6 +550,22 @@ export class PendingOperation<T> implements TransactionOperation<T> {
    */
   #preparedInput(): Record<string, unknown> {
     return this.#resolveRouted().preparedArgs;
+  }
+
+  /** The prepared facts one query handler chain inspects. */
+  #queryContext(
+    mode: QueryInterceptionMode,
+    preparedInput: Record<string, unknown>
+  ): PreparedModelQueryContext<Record<string, unknown>> {
+    const controls = this.#inputPreparation?.controls;
+    return Object.freeze({
+      mode,
+      kind: "model",
+      model: this.#modelName,
+      operation: String(this.#options.originalOperation),
+      input: snapshotQueryInput(preparedInput),
+      ...(controls === undefined ? {} : { controls }),
+    });
   }
 
   /** The detached cache representation of this read, from its result owner. */
@@ -619,15 +671,10 @@ export class PendingOperation<T> implements TransactionOperation<T> {
     const context =
       handlers === undefined || handlers.length === 0
         ? undefined
-        : Object.freeze({
-            mode: this.#engine.transactionWriteOutcomes
-              ? ("transaction" as const)
-              : ("direct" as const),
-            kind: "model" as const,
-            model: this.#modelName,
-            operation: requestedOperation,
-            input: snapshotQueryInput(preparedInput),
-          });
+        : this.#queryContext(
+            this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
+            preparedInput
+          );
     return executePreparedQuery<T, Record<string, unknown>>(
       context,
       handlers,

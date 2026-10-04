@@ -1,6 +1,6 @@
 ---
 title: Extensions
-description: Extend request, query, statement, observation, client, and model boundaries
+description: Extend request, query, statement, observation, client, and model boundaries, and declare arguments, visible rows, what a delete does, and fields an extension writes
 icon: puzzle
 ---
 
@@ -30,11 +30,16 @@ const measured = client.$extends(timing);
     description="Choose the right boundary and build a typed reusable extension"
     href="/docs/extensions/create"
   />
+  <Card
+    title="Recipes"
+    description="Tenancy, audit stamping and optimistic locking, one declaration each"
+    href="/docs/extensions/recipes"
+  />
 </CardGroup>
 
-## The six capabilities
+## The ten capabilities
 
-An extension has one name and any subset of exactly six capabilities:
+An extension has one name and any subset of ten capabilities:
 
 | Capability | Boundary | Authority |
 |---|---|---|
@@ -44,17 +49,24 @@ An extension has one name and any subset of exactly six capabilities:
 | `observe` | A real lifecycle unit | Read completion only; cannot change application behavior |
 | `client` | Derived client proxy | Add typed dollar-prefixed methods |
 | `model` | Derived model delegate | Add typed model methods |
+| `controls` | Operation arguments | Declare an argument; only the declaring extension's handlers see its value |
+| `rows` | Which rows an operation sees | Row filters per model, chosen per call by one argument, with the call's values |
+| `deletion` | What a delete does | Turn a delete of a model into an update with fixed data and the call's time |
+| `data` | Fields every create and update writes | Fixed values or the call's values, written where the caller left the field out |
 
 These are one extension language, not one universal hook. Request transforms
 are synchronous. Query interceptors are asynchronous and authoritative.
 Statement transforms are trusted low-level SQL rewrites. Observers are
 protected and failure-contained. Client and model factories change the static
-surface.
+surface. `controls`, `rows`, `deletion` and `data` are plain data: core applies them at
+every place they concern, so an extension declares what it wants instead of
+rewriting queries.
 
 ## Official extensions
 
-Official extensions use the same composition language while retaining private
-access to the core facts they need:
+Official extensions use the same composition language. Cache, instrumentation
+and default omit retain private access to the core facts they need; soft delete
+is built only from the public capabilities above:
 
 <CardGroup>
   <Card
@@ -72,6 +84,11 @@ access to the core facts they need:
     description="Typed default field omission for one derived client"
     href="/docs/extensions/omit"
   />
+  <Card
+    title="Soft delete"
+    description="Tombstones instead of deletes, hidden from reads, restorable and purgeable"
+    href="/docs/extensions/soft-delete"
+  />
 </CardGroup>
 
 ## Operation lifecycle
@@ -83,6 +100,7 @@ derived root or transaction view is constructed:
 
 ```text
 operation observer begins
+  declared controls taken out of the arguments and checked
   request transforms
   default omit
   core validation and mandatory preparation
@@ -177,4 +195,8 @@ field use, raw SQL, statement transforms, and data-dependent write scopes need
 one graph-wide semantic policy owner. VibORM does not currently export an RBAC
 helper. `omit` is presentation control, not authorization: query-level and
 client-default omission can be overridden, and even model `.omit()` does not
-replace database authorization.
+replace database authorization. `rows` and the soft-delete extension built on it
+decide which rows are visible, not who may see them: any caller can choose
+another mode or pass another value, and raw SQL ignores them. A tenant filter
+keeps a call inside the tenant it names; your server, not the caller, must
+choose that tenant.
