@@ -374,6 +374,8 @@ describe("a deletion entry without rows", () => {
   });
 });
 
+const POST_READ = /^\s*SELECT\b[\s\S]*\bFROM "post"/i;
+
 /** Runs one statement right after the first read of `post` once armed. */
 class AfterLockSQLite3Driver extends SQLite3Driver {
   afterRead: string | undefined;
@@ -385,7 +387,7 @@ class AfterLockSQLite3Driver extends SQLite3Driver {
   ): Promise<QueryResult<T>> {
     const result = await super.execute<T>(client, sql, params);
     const pending = this.afterRead;
-    if (pending && /^\s*SELECT\b[\s\S]*\bFROM "post"/i.test(sql)) {
+    if (pending && POST_READ.test(sql)) {
       this.afterRead = undefined;
       await this.executeRaw(client, pending);
     }
