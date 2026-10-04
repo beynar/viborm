@@ -189,6 +189,14 @@ export async function placement() {
   await db.post.updateMany({ data: {}, mode: "hard" });
   // @ts-expect-error the base client has no controls
   await base.post.findMany({ deleted: "with" });
+  // A control's value is typed by its declaration, inline and held alike.
+  // @ts-expect-error "bogus" is not a mode
+  await db.post.findMany({ deleted: "bogus" });
+  const heldMode = { where: { id: "p1" }, deleted: "only" } as const;
+  await db.post.findMany(heldMode);
+  const heldBogus = { deleted: "bogus" } as const;
+  // @ts-expect-error a held value is checked too
+  await db.post.findMany(heldBogus);
   await db.$transaction(async (tx) => {
     await tx.post.findMany({ deleted: "only" });
     await tx.tag.findMany({ deleted: "with" });

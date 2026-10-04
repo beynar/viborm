@@ -728,12 +728,17 @@ type NamesTarget<Names, Target extends Model<any>, S> = Names extends keyof S
     : never
   : never;
 
-/** A payload with the operation's placed controls beside its own keys. */
-type WithControls<T, Controls> = [keyof Controls] extends [never]
-  ? T
-  : T extends object
-    ? T & Controls
-    : T;
+/**
+ * An operation's parameter with its placed controls beside the payload's own
+ * keys. Controls join the PARAMETER, never the payload the call's argument is
+ * inferred against: an intersection there is rebuilt in every inference and
+ * every guard of every operation, which measured as most of the type cost of
+ * a client with controls. The parameter gives a control value its contextual
+ * literal type all the same.
+ */
+type WithControlArgs<Parameter, Controls> = [keyof Controls] extends [never]
+  ? Parameter
+  : Parameter & Controls;
 
 /**
  * Every key ONE clause accepts, taking the union across a union-typed clause
@@ -1351,14 +1356,15 @@ type NoExtraOperationKeys<
   Arg,
   Payload,
   M extends Model<any>,
+  Controls = NoControls,
 > = Arg &
-  Record<Exclude<keyof Arg, keyof Payload>, never> &
+  Record<Exclude<keyof Arg, keyof Payload | keyof Controls>, never> &
   ClauseGuard<Arg, Payload, "where"> &
   ClauseGuard<Arg, Payload, "select"> &
   ClauseGuard<Arg, Payload, "include"> &
   ClauseGuard<Arg, Payload, "orderBy"> &
   ClauseGuard<Arg, Payload, "omit"> &
-  ClauseGuard<Arg, Payload, "cache"> &
+  ClauseGuard<Arg, Controls, "cache"> &
   DirectPolymorphicProjectionGuard<Arg, M, "select"> &
   DirectPolymorphicProjectionGuard<Arg, M, "include"> &
   RecursiveProjectionRootGuard<Arg> &
@@ -1378,20 +1384,26 @@ type Operation<
   ClientDefaults = never,
   Controls = NoControls,
   Payload = OperationPayload<O, M>,
-  ClientPayload = WithControls<Payload, Controls>,
-> = undefined extends ClientPayload
-  ? <Arg extends ClientPayload>(
-      args?: NoExtraOperationKeys<
-        O,
-        Exclude<Arg, undefined>,
-        Exclude<ClientPayload, undefined>,
-        M
+> = undefined extends Payload
+  ? <Arg extends Payload>(
+      args?: WithControlArgs<
+        NoExtraOperationKeys<
+          O,
+          Exclude<Arg, undefined>,
+          Exclude<Payload, undefined>,
+          M,
+          Controls
+        >,
+        Controls
       >
     ) => PendingOperation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >
-  : <Arg extends ClientPayload>(
-      args: NoExtraOperationKeys<O, Arg, ClientPayload, M>
+  : <Arg extends Payload>(
+      args: WithControlArgs<
+        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
+        Controls
+      >
     ) => PendingOperation<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >;
@@ -1405,20 +1417,27 @@ type CachedOperation<
   DefaultOmit = undefined,
   ClientDefaults = never,
   Controls = NoControls,
-  Payload = WithControls<OperationPayload<O, M>, Controls>,
+  Payload = OperationPayload<O, M>,
 > = undefined extends Payload
   ? <Arg extends Payload>(
-      args?: NoExtraOperationKeys<
-        O,
-        Exclude<Arg, undefined>,
-        Exclude<Payload, undefined>,
-        M
+      args?: WithControlArgs<
+        NoExtraOperationKeys<
+          O,
+          Exclude<Arg, undefined>,
+          Exclude<Payload, undefined>,
+          M,
+          Controls
+        >,
+        Controls
       >
     ) => Promise<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >
   : <Arg extends Payload>(
-      args: NoExtraOperationKeys<O, Arg, Payload, M>
+      args: WithControlArgs<
+        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
+        Controls
+      >
     ) => Promise<
       OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
     >;
