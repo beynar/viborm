@@ -613,23 +613,21 @@ export async function introspect(
   // catalog rows actually carry.
   const catalogNamespace = await resolveCatalogNamespace(executeRaw, namespace);
 
-  // Execute all queries in parallel
-  const [
-    tablesResult,
-    columnsResult,
-    primaryKeysResult,
-    indexesResult,
-    foreignKeysResult,
-  ] = await Promise.all([
-    executeRaw<MySQLTable>(TABLES_QUERY, [catalogNamespace]),
-    executeRaw<MySQLColumn>(COLUMNS_QUERY, [catalogNamespace]),
-    executeRaw<MySQLPrimaryKey>(PRIMARY_KEYS_QUERY, [catalogNamespace]),
-    executeRaw<MySQLIndex>(INDEXES_QUERY, [catalogNamespace]),
-    executeRaw<MySQLForeignKey>(FOREIGN_KEYS_QUERY, [
-      catalogNamespace,
-      catalogNamespace,
-    ]),
-  ]);
+  // One after another: these run on the command's ONE pinned session, and a
+  // connection runs one statement at a time. mysql2 queues overlapping
+  // queries silently, but the overlap bought nothing.
+  const scope = [catalogNamespace];
+  const tablesResult = await executeRaw<MySQLTable>(TABLES_QUERY, scope);
+  const columnsResult = await executeRaw<MySQLColumn>(COLUMNS_QUERY, scope);
+  const primaryKeysResult = await executeRaw<MySQLPrimaryKey>(
+    PRIMARY_KEYS_QUERY,
+    scope
+  );
+  const indexesResult = await executeRaw<MySQLIndex>(INDEXES_QUERY, scope);
+  const foreignKeysResult = await executeRaw<MySQLForeignKey>(
+    FOREIGN_KEYS_QUERY,
+    [catalogNamespace, catalogNamespace]
+  );
 
   admitContainedForeignKeys(foreignKeysResult.rows, catalogNamespace);
 
