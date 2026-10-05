@@ -1,16 +1,19 @@
+import { EventEmitter } from "node:events";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver } from "@drivers/driver";
 import { LibSQLDriver } from "@drivers/libsql";
 import { MySQL2Driver } from "@drivers/mysql2";
-import { PgDriver } from "@drivers/pg";
+import { createClient as createPgClient, PgDriver } from "@drivers/pg";
 import { PlanetScaleDriver } from "@drivers/planetscale";
+import { readSuppressedFailures } from "@drivers/shared";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { QueryResult } from "@drivers/types";
 import {
   Client as PlanetScaleClient,
   type Config as PlanetScaleConfig,
 } from "@planetscale/database";
+import { s } from "@schema";
 import { describe, expect, test, vi } from "vitest";
 
 interface Deferred {
@@ -310,13 +313,13 @@ describe("provider transaction cleanup", () => {
   test("pg discards a connection when rollback fails", async () => {
     const rollbackError = new Error("rollback failed");
     const release = vi.fn();
-    const connection = {
+    const connection = Object.assign(new EventEmitter(), {
       query: vi.fn(async (sql: string) => {
         if (sql === "ROLLBACK") throw rollbackError;
         return {};
       }),
       release,
-    };
+    });
     const pool = { connect: vi.fn(async () => connection) };
     const driver = new PgDriver();
     const transaction = Reflect.get(driver, "transaction");
@@ -335,7 +338,7 @@ describe("provider transaction cleanup", () => {
 
   test("pg poisons the pool driver when discarding the connection throws", async () => {
     const driver = new PgDriver();
-    const connection = {
+    const connection = Object.assign(new EventEmitter(), {
       query: vi.fn(async (sql: string) => {
         if (sql === "ROLLBACK") throw new Error("rollback failed");
         return {};
@@ -343,7 +346,7 @@ describe("provider transaction cleanup", () => {
       release: vi.fn(() => {
         throw new Error("release failed");
       }),
-    };
+    });
     await expect(
       Reflect.apply(Reflect.get(driver, "transaction"), driver, [
         { connect: vi.fn(async () => connection) },
@@ -357,10 +360,10 @@ describe("provider transaction cleanup", () => {
 
   test("pg releases normally after a callback failure and successful rollback", async () => {
     const releaseAfterRollback = vi.fn();
-    const rollbackConnection = {
+    const rollbackConnection = Object.assign(new EventEmitter(), {
       query: vi.fn(async () => ({})),
       release: releaseAfterRollback,
-    };
+    });
     const rollbackPool = {
       connect: vi.fn(async () => rollbackConnection),
     };
@@ -386,13 +389,13 @@ describe("provider transaction cleanup", () => {
     const callback = vi.fn(async () => undefined);
     const driver = new PgDriver();
     const transaction = Reflect.get(driver, "transaction");
-    const connection = {
+    const connection = Object.assign(new EventEmitter(), {
       query: vi.fn(async (sql: string) => {
         if (sql === failedStatement) throw failure;
         return {};
       }),
       release,
-    };
+    });
 
     await expect(
       Reflect.apply(transaction, driver, [
@@ -607,3 +610,245 @@ describe("provider transaction cleanup", () => {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+// pg-pool takes its idle listener off a client it hands out and puts it back on
+// release, so while a transaction holds the client a dropped connection (a
+// restart, a failover, a terminated backend) emits 'error' with nobody
+// listening — which Node turns into a process exit (#75).
+describe("pg owns the error channel of a client it checked out", () => {
+  class CheckedOutClient extends EventEmitter {
+    readonly statements: string[] = [];
+    readonly releases: unknown[][] = [];
+    query(statement: string): Promise<{ rows: []; rowCount: null }> {
+      this.statements.push(statement);
+      return Promise.resolve({ rows: [], rowCount: null });
+    }
+    release(...args: unknown[]): void {
+      this.releases.push(args);
+    }
+  }
+
+  const connectionDropped = () =>
+    Object.assign(new Error("connection dropped"), { code: "57P01" });
+
+  const transactionOn = (client: CheckedOutClient) => {
+    const driver = new PgDriver();
+    const transaction = Reflect.get(driver, "transaction");
+    return <T>(callback: () => Promise<T>): Promise<T> =>
+      Reflect.apply(transaction, driver, [
+        { connect: () => Promise.resolve(client) },
+        callback,
+      ]);
+  };
+
+  const pinnedSessionOn = (client: CheckedOutClient) => {
+    const pool = Object.assign(new EventEmitter(), {
+      connect: () => Promise.resolve(client),
+      end: () => Promise.resolve(),
+    });
+    const driver = new PgDriver({ pool: pool as never });
+    const pinnedSession = Reflect.get(driver, "pinnedSession");
+    return (): Promise<{ release(discard: boolean): Promise<void> }> =>
+      Reflect.apply(pinnedSession, driver, []);
+  };
+
+  test("rejects a public $transaction and discards the client instead of exiting", async () => {
+    const client = new CheckedOutClient();
+    const pool = Object.assign(new EventEmitter(), {
+      connect: () => Promise.resolve(client),
+      end: () => Promise.resolve(),
+    });
+    const db = createPgClient({
+      schema: { item: s.model({ id: s.int().id() }) },
+      pool: pool as never,
+    });
+    const failure = connectionDropped();
+    let listenersInside = 0;
+
+    const outcome = db.$transaction(async () => {
+      listenersInside = client.listenerCount("error");
+      // From the event loop, as a socket would: no promise is on this stack.
+      setImmediate(() => client.emit("error", failure));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return "committed";
+    });
+
+    // Normalized like any failed transaction statement: the client's own
+    // report is its (redacted) original cause, with its SQLSTATE kept.
+    await expect(outcome).rejects.toMatchObject({
+      name: "QueryError",
+      originalCause: { code: "57P01" },
+    });
+    expect(listenersInside).toBe(1);
+    expect(client.statements).toEqual(["BEGIN"]);
+    expect(client.releases).toEqual([[failure]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("keeps a public callback's own failure primary and the client's beside it", async () => {
+    const client = new CheckedOutClient();
+    const pool = Object.assign(new EventEmitter(), {
+      connect: () => Promise.resolve(client),
+      end: () => Promise.resolve(),
+    });
+    const db = createPgClient({
+      schema: { item: s.model({ id: s.int().id() }) },
+      pool: pool as never,
+    });
+    const failure = connectionDropped();
+    const callbackFailure = new Error("external work failed");
+
+    const outcome = db.$transaction(async () => {
+      setImmediate(() => client.emit("error", failure));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      throw callbackFailure;
+    });
+
+    await expect(outcome).rejects.toBe(callbackFailure);
+    expect(readSuppressedFailures(callbackFailure)).toEqual([failure]);
+    expect(client.statements).toEqual(["BEGIN"]);
+    expect(client.releases).toEqual([[failure]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("keeps the client failure beside a public statement failure", async () => {
+    const client = new CheckedOutClient();
+    const failure = connectionDropped();
+    client.query = (statement: string) => {
+      client.statements.push(statement);
+      if (statement !== "COMMIT") {
+        return Promise.resolve({ rows: [], rowCount: null });
+      }
+      client.emit("error", failure);
+      return Promise.reject(new Error("COMMIT failed"));
+    };
+    const pool = Object.assign(new EventEmitter(), {
+      connect: () => Promise.resolve(client),
+      end: () => Promise.resolve(),
+    });
+    const db = createPgClient({
+      schema: { item: s.model({ id: s.int().id() }) },
+      pool: pool as never,
+    });
+
+    const caught = await db
+      .$transaction(() => Promise.resolve(1))
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+
+    // Mapping the provider's statement failure keeps what it retained.
+    expect(caught).toMatchObject({ name: "QueryError" });
+    expect(readSuppressedFailures(caught)).toEqual([failure]);
+  });
+
+  test("never commits a callback that resolves after its connection failed", async () => {
+    const client = new CheckedOutClient();
+    const failure = connectionDropped();
+
+    await expect(
+      transactionOn(client)(() => {
+        client.emit("error", failure);
+        return Promise.resolve("value");
+      })
+    ).rejects.toBe(failure);
+    // The failure is primary here, so it is not also recorded beside itself.
+    expect(readSuppressedFailures(failure)).toEqual([]);
+    expect(client.statements).toEqual(["BEGIN"]);
+    expect(client.releases).toEqual([[failure]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("keeps the callback's own failure primary when the client fails too", async () => {
+    const client = new CheckedOutClient();
+    const failure = connectionDropped();
+    const callbackFailure = new Error("callback failed");
+
+    await expect(
+      transactionOn(client)(() => {
+        client.emit("error", failure);
+        client.emit("error", new Error("second report"));
+        return Promise.reject(callbackFailure);
+      })
+    ).rejects.toBe(callbackFailure);
+    // The connection's first report travels beside the callback's failure.
+    expect(readSuppressedFailures(callbackFailure)).toEqual([failure]);
+    // No ROLLBACK on a client that is no longer queryable: the server ends the
+    // transaction with the session.
+    expect(client.statements).toEqual(["BEGIN"]);
+    expect(client.releases).toEqual([[failure]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("keeps a failed statement as the discard reason when the client reports later", async () => {
+    const client = new CheckedOutClient();
+    const statementFailure = new Error("COMMIT failed");
+    const failure = connectionDropped();
+    client.query = (statement: string) => {
+      client.statements.push(statement);
+      if (statement !== "COMMIT") {
+        return Promise.resolve({ rows: [], rowCount: null });
+      }
+      client.emit("error", failure);
+      return Promise.reject(statementFailure);
+    };
+
+    await expect(
+      transactionOn(client)(() => Promise.resolve("value"))
+    ).rejects.toBe(statementFailure);
+    expect(readSuppressedFailures(statementFailure)).toEqual([failure]);
+    expect(client.statements).toEqual(["BEGIN", "COMMIT"]);
+    expect(client.releases).toEqual([[statementFailure]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("releases a healthy client normally and stops listening", async () => {
+    const client = new CheckedOutClient();
+
+    await expect(
+      transactionOn(client)(() => Promise.resolve("value"))
+    ).resolves.toBe("value");
+    expect(client.statements).toEqual(["BEGIN", "COMMIT"]);
+    expect(client.releases).toEqual([[]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("stops listening even when release throws", async () => {
+    const client = new CheckedOutClient();
+    client.release = () => {
+      throw new Error("release failed");
+    };
+
+    await expect(
+      transactionOn(client)(() => Promise.resolve("value"))
+    ).rejects.toThrow("release failed");
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("discards a pinned session whose client failed while it was held", async () => {
+    const client = new CheckedOutClient();
+    const failure = connectionDropped();
+
+    const reservation = await pinnedSessionOn(client)();
+    expect(client.listenerCount("error")).toBe(1);
+    client.emit("error", failure);
+    await reservation.release(false);
+
+    expect(client.releases).toEqual([[failure]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("releases a healthy pinned session as asked and stops listening", async () => {
+    const client = new CheckedOutClient();
+    const pin = pinnedSessionOn(client);
+
+    const kept = await pin();
+    await kept.release(false);
+    const discarded = await pin();
+    await discarded.release(true);
+
+    expect(client.releases).toEqual([[undefined], [true]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+});
