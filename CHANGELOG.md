@@ -5,6 +5,14 @@ Versioning.
 
 ## Unreleased
 
+- **Fixed: a dropped `pg` connection no longer ends the process.** While a
+  `$transaction` (or a migration's reserved session) held a pooled client,
+  nothing listened to that client's `error` event: a server restart, failover
+  or terminated backend crashed Node with an unhandled `error`, and code that
+  contained it could commit and return the broken client to the pool. The
+  transaction now rejects with that failure, never commits after it, and
+  releases the client so the pool destroys it.
+
 ## 1.0.0-rc.5 — Release candidate (not yet published)
 
 - **Performance: a client created per request.** Clients built over the same

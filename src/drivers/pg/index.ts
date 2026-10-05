@@ -81,6 +81,38 @@ function createOwnedPoolErrorState(): OwnedPoolErrorState {
   return state;
 }
 
+/**
+ * The `error` channel of one checked-out client, owned for as long as VibORM
+ * holds that client.
+ *
+ * pg-pool removes its idle listener on checkout and puts it back on release,
+ * so a connection that drops in between (a restart, a failover, a terminated
+ * backend) would otherwise emit an unhandled `error` and end the process. The
+ * first failure is kept: its holder refuses to commit after it and releases the
+ * client with it, so the pool destroys that connection instead of reusing it.
+ *
+ * This holds for a supplied pool too. Its `error` event stays the caller's, but
+ * a checked-out client is the holder's to answer for until it is released.
+ */
+interface HeldClientErrors {
+  readonly failure: () => Error | undefined;
+  readonly stop: () => void;
+}
+
+function holdClientErrors(client: PoolClient): HeldClientErrors {
+  let failure: Error | undefined;
+  const retain = (error: Error) => {
+    failure ??= error;
+  };
+  client.on("error", retain);
+  return {
+    failure: () => failure,
+    stop: () => {
+      client.off("error", retain);
+    },
+  };
+}
+
 // ============================================================
 // EXPORTED OPTIONS
 // ============================================================
@@ -438,6 +470,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
       context,
       options?.maxWaitMs
     );
+    const clientErrors = holdClientErrors(poolClient);
     let releaseError: Error | boolean | undefined;
     const queryOrDiscard = async (statement: string) => {
       try {
@@ -450,13 +483,25 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     return runTransactionLifecycle({
       begin: () => queryOrDiscard("BEGIN"),
       callback: () => fn(poolClient),
-      commit: () => queryOrDiscard("COMMIT"),
-      rollback: () => queryOrDiscard("ROLLBACK"),
+      commit: () => {
+        // A callback that settles after its connection failed must not commit:
+        // whatever it awaited meanwhile never reached the database.
+        const failure = clientErrors.failure();
+        if (failure !== undefined) throw failure;
+        return queryOrDiscard("COMMIT");
+      },
+      // The server ends a transaction with its session; a ROLLBACK sent on a
+      // client that is no longer queryable would only add a second failure.
+      rollback: () =>
+        clientErrors.failure() === undefined
+          ? queryOrDiscard("ROLLBACK")
+          : undefined,
       phases: getExecutionTransactionPhases(context),
       close: () => {
         try {
-          if (releaseError) {
-            poolClient.release(releaseError);
+          const discard = releaseError ?? clientErrors.failure();
+          if (discard) {
+            poolClient.release(discard);
             return;
           }
           poolClient.release();
@@ -468,6 +513,8 @@ export class PgDriver extends Driver<Pool, PoolClient> {
             )
           );
           throw error;
+        } finally {
+          clientErrors.stop();
         }
       },
     });
@@ -492,10 +539,17 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     const poolClient = await this.acquirePooledClient(client, {
       operation: "pinnedSession",
     });
+    const clientErrors = holdClientErrors(poolClient);
     return {
       session: poolClient,
       release: (discard) => {
-        poolClient.release(discard ? true : undefined);
+        try {
+          poolClient.release(
+            clientErrors.failure() ?? (discard ? true : undefined)
+          );
+        } finally {
+          clientErrors.stop();
+        }
         return Promise.resolve();
       },
     };

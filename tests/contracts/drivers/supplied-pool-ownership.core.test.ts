@@ -34,6 +34,7 @@
  * transport they may be sharing with code that meant to hear it.
  */
 
+import { EventEmitter } from "node:events";
 import { BunSQLDriver } from "@drivers/bun-sql";
 import { MySQL2Driver, type MySQL2DriverOptions } from "@drivers/mysql2";
 import { PgDriver, type PgDriverOptions } from "@drivers/pg";
@@ -888,7 +889,7 @@ describe("pg listens only on the pool it owns", () => {
     const pool = createdPgPool(driver);
     const background = new Error("idle connection died during transaction");
     const statementFailure = new Error("transaction statement failed");
-    const pooledClient = {
+    const pooledClient = Object.assign(new EventEmitter(), {
       query: (statement: string) => {
         if (statement === "BEGIN") {
           pool.emit("error", background);
@@ -898,7 +899,7 @@ describe("pg listens only on the pool it owns", () => {
         return Promise.resolve();
       },
       release: () => undefined,
-    };
+    });
     Object.defineProperty(pool, "connect", {
       configurable: true,
       value: () => Promise.resolve(pooledClient),
@@ -1047,10 +1048,10 @@ describe("pg listens only on the pool it owns", () => {
           acquisitions.push(resolve);
         }),
     });
-    const pooledClient = {
+    const pooledClient = Object.assign(new EventEmitter(), {
       query: () => Promise.resolve(),
       release: () => undefined,
-    };
+    });
 
     const first = driver._transaction(() => Promise.resolve("first"));
     const older = driver._transaction(() => Promise.resolve("older"));

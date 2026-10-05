@@ -35,6 +35,7 @@ import {
 import { vectorContract } from "@tests/contracts/drivers/behaviors/vector-behavior";
 import { PgBatchForcedDriver } from "@tests/fixtures/drivers/batch-forced-pg";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { Pool } from "pg";
 import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
 
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
@@ -294,6 +295,47 @@ describeIf("pg Driver", () => {
       );
       expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(0);
     });
+
+    // #75: a backend that dies while the transaction is idle on its client is
+    // reported as the client's 'error' event, not as a statement rejection.
+    // Unheard, that event ended the process.
+    test("rejects and discards when the server terminates the transaction's backend", async () => {
+      const killer = new Pool({
+        connectionString: TEST_CONNECTION_STRING,
+        max: 1,
+      });
+      try {
+        const outcome = driver.withTransaction(async (txDriver) => {
+          await txDriver._executeRaw(
+            `INSERT INTO "pg_test_users" ("id", "email", "name") VALUES ($1, $2, $3)`,
+            ["user-1", "test@example.com", "Test User"]
+          );
+          const { rows } = await txDriver._executeRaw<{ pid: number }>(
+            "SELECT pg_backend_pid() AS pid"
+          );
+          const pid = rows[0]?.pid;
+          await killer.query("SELECT pg_terminate_backend($1)", [pid]);
+          for (let waited = 0; waited < 50; waited += 1) {
+            const alive = await killer.query(
+              "SELECT 1 FROM pg_stat_activity WHERE pid = $1",
+              [pid]
+            );
+            if (alive.rowCount === 0) break;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          }
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        });
+
+        await expect(outcome).rejects.toBeInstanceOf(Error);
+        // Never committed, and the pool replaced the discarded connection.
+        const result = await driver._executeRaw<{ count: string }>(
+          `SELECT COUNT(*) as count FROM "pg_test_users"`
+        );
+        expect(Number.parseInt(result.rows[0]?.count ?? "0", 10)).toBe(0);
+      } finally {
+        await killer.end();
+      }
+    }, 30_000);
 
     test("supports nested transactions with savepoints", async () => {
       await driver.withTransaction(async (txDriver) => {
