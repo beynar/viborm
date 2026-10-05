@@ -6,6 +6,7 @@ import { LibSQLDriver } from "@drivers/libsql";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { createClient as createPgClient, PgDriver } from "@drivers/pg";
 import { PlanetScaleDriver } from "@drivers/planetscale";
+import { readSuppressedFailures } from "@drivers/shared";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { QueryResult } from "@drivers/types";
 import {
@@ -684,6 +685,64 @@ describe("pg owns the error channel of a client it checked out", () => {
     expect(client.listenerCount("error")).toBe(0);
   });
 
+  test("keeps a public callback's own failure primary and the client's beside it", async () => {
+    const client = new CheckedOutClient();
+    const pool = Object.assign(new EventEmitter(), {
+      connect: () => Promise.resolve(client),
+      end: () => Promise.resolve(),
+    });
+    const db = createPgClient({
+      schema: { item: s.model({ id: s.int().id() }) },
+      pool: pool as never,
+    });
+    const failure = connectionDropped();
+    const callbackFailure = new Error("external work failed");
+
+    const outcome = db.$transaction(async () => {
+      setImmediate(() => client.emit("error", failure));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      throw callbackFailure;
+    });
+
+    await expect(outcome).rejects.toBe(callbackFailure);
+    expect(readSuppressedFailures(callbackFailure)).toEqual([failure]);
+    expect(client.statements).toEqual(["BEGIN"]);
+    expect(client.releases).toEqual([[failure]]);
+    expect(client.listenerCount("error")).toBe(0);
+  });
+
+  test("keeps the client failure beside a public statement failure", async () => {
+    const client = new CheckedOutClient();
+    const failure = connectionDropped();
+    client.query = (statement: string) => {
+      client.statements.push(statement);
+      if (statement !== "COMMIT") {
+        return Promise.resolve({ rows: [], rowCount: null });
+      }
+      client.emit("error", failure);
+      return Promise.reject(new Error("COMMIT failed"));
+    };
+    const pool = Object.assign(new EventEmitter(), {
+      connect: () => Promise.resolve(client),
+      end: () => Promise.resolve(),
+    });
+    const db = createPgClient({
+      schema: { item: s.model({ id: s.int().id() }) },
+      pool: pool as never,
+    });
+
+    const caught = await db
+      .$transaction(() => Promise.resolve(1))
+      .then(
+        () => undefined,
+        (error: unknown) => error
+      );
+
+    // Mapping the provider's statement failure keeps what it retained.
+    expect(caught).toMatchObject({ name: "QueryError" });
+    expect(readSuppressedFailures(caught)).toEqual([failure]);
+  });
+
   test("never commits a callback that resolves after its connection failed", async () => {
     const client = new CheckedOutClient();
     const failure = connectionDropped();
@@ -694,6 +753,8 @@ describe("pg owns the error channel of a client it checked out", () => {
         return Promise.resolve("value");
       })
     ).rejects.toBe(failure);
+    // The failure is primary here, so it is not also recorded beside itself.
+    expect(readSuppressedFailures(failure)).toEqual([]);
     expect(client.statements).toEqual(["BEGIN"]);
     expect(client.releases).toEqual([[failure]]);
     expect(client.listenerCount("error")).toBe(0);
@@ -711,6 +772,8 @@ describe("pg owns the error channel of a client it checked out", () => {
         return Promise.reject(callbackFailure);
       })
     ).rejects.toBe(callbackFailure);
+    // The connection's first report travels beside the callback's failure.
+    expect(readSuppressedFailures(callbackFailure)).toEqual([failure]);
     // No ROLLBACK on a client that is no longer queryable: the server ends the
     // transaction with the session.
     expect(client.statements).toEqual(["BEGIN"]);
@@ -721,18 +784,20 @@ describe("pg owns the error channel of a client it checked out", () => {
   test("keeps a failed statement as the discard reason when the client reports later", async () => {
     const client = new CheckedOutClient();
     const statementFailure = new Error("COMMIT failed");
+    const failure = connectionDropped();
     client.query = (statement: string) => {
       client.statements.push(statement);
       if (statement !== "COMMIT") {
         return Promise.resolve({ rows: [], rowCount: null });
       }
-      client.emit("error", connectionDropped());
+      client.emit("error", failure);
       return Promise.reject(statementFailure);
     };
 
     await expect(
       transactionOn(client)(() => Promise.resolve("value"))
     ).rejects.toBe(statementFailure);
+    expect(readSuppressedFailures(statementFailure)).toEqual([failure]);
     expect(client.statements).toEqual(["BEGIN", "COMMIT"]);
     expect(client.releases).toEqual([[statementFailure]]);
     expect(client.listenerCount("error")).toBe(0);

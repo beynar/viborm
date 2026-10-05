@@ -200,7 +200,11 @@ function cloneVibORMError(
   return transferSuppressedFailureEvidence(error, clonedError);
 }
 
-function transferSuppressedFailureEvidence(
+/**
+ * Carry the evidence a failure retained onto the failure that replaces it, so
+ * rebuilding a primary (a clone, a mapped provider error) never drops it.
+ */
+export function transferSuppressedFailureEvidence(
   source: unknown,
   target: VibORMError
 ): VibORMError {

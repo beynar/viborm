@@ -23,6 +23,7 @@ import {
   buildMeta,
   type DriverErrorContext,
   type DriverErrorShape,
+  transferSuppressedFailureEvidence,
 } from "./driver-error-context";
 import type { Dialect } from "./types";
 
@@ -342,20 +343,24 @@ function mapProviderError(
     meta,
     context
   );
-  if (!recognized) {
-    return new QueryError("Query execution failed", {
+  let failure: DriverFailure;
+  if (recognized) {
+    const [Failure, message, failureCode] = recognized;
+    failure = new Failure(message, {
+      cause,
+      code: failureCode,
+      diagnostics,
+      meta,
+    });
+  } else {
+    failure = new QueryError("Query execution failed", {
       cause,
       diagnostics,
       meta,
     });
   }
-  const [Failure, message, failureCode] = recognized;
-  return new Failure(message, {
-    cause,
-    code: failureCode,
-    diagnostics,
-    meta,
-  });
+  transferSuppressedFailureEvidence(error, failure);
+  return failure;
 }
 
 /**

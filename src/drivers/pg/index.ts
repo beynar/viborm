@@ -471,18 +471,32 @@ export class PgDriver extends Driver<Pool, PoolClient> {
       options?.maxWaitMs
     );
     const clientErrors = holdClientErrors(poolClient);
+    // A step's own failure stays primary; a different client failure travels
+    // beside it through the shared evidence owner instead of being lost.
+    const withClientFailure = (error: unknown): unknown => {
+      const failure = clientErrors.failure();
+      return failure === undefined || failure === error
+        ? error
+        : withSuppressedFailure(error, failure);
+    };
     let releaseError: Error | boolean | undefined;
     const queryOrDiscard = async (statement: string) => {
       try {
         await poolClient.query(statement);
       } catch (error) {
         releaseError ??= error instanceof Error ? error : true;
-        throw error;
+        throw withClientFailure(error);
       }
     };
     return runTransactionLifecycle({
       begin: () => queryOrDiscard("BEGIN"),
-      callback: () => fn(poolClient),
+      callback: async () => {
+        try {
+          return await fn(poolClient);
+        } catch (error) {
+          throw withClientFailure(error);
+        }
+      },
       commit: () => {
         // A callback that settles after its connection failed must not commit:
         // whatever it awaited meanwhile never reached the database.
