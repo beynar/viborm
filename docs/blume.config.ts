@@ -1,4 +1,5 @@
 import { defineConfig } from "blume";
+import { cloudflare } from "blume/deploy";
 
 export default defineConfig({
   title: "VibORM",
@@ -70,12 +71,12 @@ export default defineConfig({
       status: 308,
     },
   ],
-  deployment: {
+  deployment: cloudflare({
     output: "server",
-    adapter: "cloudflare",
     site: "https://viborm.dev",
-  },
-  ai: {
+  }),
+  agents: {
+    agentReadability: true,
     llmsTxt: true,
     webmcp: true,
     mcp: {
@@ -85,8 +86,5 @@ export default defineConfig({
       instructions:
         "You are a helpful assistant that can help with VibORM questions.",
     },
-  },
-  seo: {
-    agentReadability: true,
   },
 });
