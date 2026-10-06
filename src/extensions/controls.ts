@@ -410,49 +410,87 @@ const snapshots = new WeakSet<object>();
  * An admitted value as the call holds it from here on. Plain data is copied
  * once and frozen, so every reader of the call's controls (the rows its
  * filters bind, the key its cached read is stored under, its handlers) reads
- * the same value whatever the caller later does to its own. A value with no
- * canonical spelling, or one that cannot be copied (a Proxy), is kept as
- * given: the call binds it for itself alone and its read is not cached.
+ * the same value whatever the caller later does to its own. A value already
+ * fixed all the way down is kept by identity. A value a copy would change
+ * (a non-enumerable or symbol property, which `structuredClone` drops; a
+ * getter, whose answer only calling it shows), one that resists inspection,
+ * one with no canonical spelling, or one that cannot be copied (a Proxy), is
+ * kept as given, as are bytes (an indexed write survives `freeze`); a copy
+ * that still holds a `Date` is kept but not stable (`setTime` survives it). In
+ * those cases the call binds the value for itself alone and its read is not
+ * cached.
  */
 export function snapshotControlValue(value: unknown): unknown {
   if (typeof value !== "object" || value === null) return value;
   if (!isCanonicalKeyData(value)) return value;
-  // Already immutable all the way down (an extension's own admitted value,
-  // such as the cache's options, which it later finds by identity): stable
-  // as it is.
-  if (isDeeplyFrozen(value)) {
+  let capture: ReturnType<typeof captureOf>;
+  try {
+    capture = captureOf(value, new WeakSet());
+  } catch {
+    // A Proxy may answer the canonical check and refuse a later reflection.
+    return value;
+  }
+  if (capture === "opaque") return value;
+  if (capture === "fixed") {
     snapshots.add(value);
     return value;
   }
-  let copy: unknown;
+  let copy: object;
   try {
     copy = structuredClone(value);
   } catch {
     return value;
   }
-  return deepFreeze(copy as object);
+  if (freezeCopy(copy)) snapshots.add(copy);
+  return copy;
 }
 
-function isDeeplyFrozen(value: object): boolean {
-  if (ArrayBuffer.isView(value) || value instanceof Date) return false;
-  return (
-    Object.isFrozen(value) &&
-    Object.values(value).every(
-      (entry) =>
-        typeof entry !== "object" || entry === null || isDeeplyFrozen(entry)
+/**
+ * How an admitted value can be held: `fixed` when nothing reachable from it
+ * can change (frozen own data properties only, no `Date`), `copy` when a
+ * copy reproduces it (enumerable string-keyed data properties), `opaque`
+ * when a copy might not (a non-enumerable or symbol property, or a getter,
+ * never called here) or would not fix it (bytes).
+ */
+function captureOf(
+  value: object,
+  seen: WeakSet<object>
+): "fixed" | "copy" | "opaque" {
+  // Bytes are never stable (an indexed write survives `freeze`), and their
+  // own properties are one per byte: kept as given, unread.
+  if (ArrayBuffer.isView(value)) return "opaque";
+  if (seen.has(value)) return "fixed";
+  seen.add(value);
+  let capture: "fixed" | "copy" =
+    value instanceof Date || !Object.isFrozen(value) ? "copy" : "fixed";
+  const array = Array.isArray(value);
+  for (const key of Reflect.ownKeys(value)) {
+    if (array && key === "length") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (
+      typeof key === "symbol" ||
+      !descriptor.enumerable ||
+      !("value" in descriptor)
     )
-  );
+      return "opaque";
+    const entry: unknown = descriptor.value;
+    if (typeof entry !== "object" || entry === null) continue;
+    const inner = captureOf(entry, seen);
+    if (inner === "opaque") return "opaque";
+    if (inner === "copy") capture = "copy";
+  }
+  return capture;
 }
 
-function deepFreeze(value: object): object {
-  // A typed array cannot be frozen; the copy is private to the call anyway.
-  if (!ArrayBuffer.isView(value)) {
-    for (const entry of Object.values(value))
-      if (typeof entry === "object" && entry !== null) deepFreeze(entry);
-    Object.freeze(value);
-  }
-  snapshots.add(value);
-  return value;
+/** Freeze a private copy; answer whether nothing in it can still change. */
+function freezeCopy(value: object): boolean {
+  if (value instanceof Date) return false;
+  let fixed = true;
+  for (const entry of Object.values(value))
+    if (typeof entry === "object" && entry !== null && !freezeCopy(entry))
+      fixed = false;
+  Object.freeze(value);
+  return fixed;
 }
 
 /**

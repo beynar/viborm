@@ -1219,7 +1219,7 @@ describe("controls: rows bound to the call", () => {
   });
 
   test("admission fixes plain data once: a frozen copy, the immutable as given, anything else unstable", () => {
-    const given = { tags: ["a"], at: new Date(0), bytes: new Uint8Array([1]) };
+    const given = { tags: ["a"], nested: { team: "red" } };
     const fixed = snapshotControlValue(given) as typeof given;
     expect(fixed).toEqual(given);
     expect(fixed).not.toBe(given);
@@ -1228,11 +1228,76 @@ describe("controls: rows bound to the call", () => {
     expect(fixed.tags).toEqual(["a"]);
     expect(isStableControlValue(fixed)).toBe(true);
     expect(isStableControlValue(given)).toBe(false);
+    // A Date stays writable through `freeze` (`setTime`): its copy is the
+    // call's own, never stable.
+    const dated = snapshotControlValue({ at: new Date(0) }) as { at: Date };
+    expect(dated.at).toEqual(new Date(0));
+    expect(isStableControlValue(dated)).toBe(false);
+    expect(isStableControlValue(snapshotControlValue(new Date(0)))).toBe(false);
+    // Bytes too, and their properties are one per byte: kept as given,
+    // unread, however large.
+    const bytes = new Uint8Array(1024 * 1024).fill(7);
+    expect(snapshotControlValue(bytes)).toBe(bytes);
+    expect(isStableControlValue(bytes)).toBe(false);
+    const carrying = { payload: bytes };
+    expect(snapshotControlValue(carrying)).toBe(carrying);
+    expect(isStableControlValue(carrying)).toBe(false);
+    // A getter's answer is only known by calling it, and it may answer anew:
+    // kept as given, unstable, whatever it returns.
+    let tenant = "acme";
+    const live = Object.freeze({
+      get tenant() {
+        return tenant;
+      },
+    });
+    expect(snapshotControlValue(live)).toBe(live);
+    tenant = "globex";
+    expect(live.tenant).toBe("globex");
+    expect(isStableControlValue(live)).toBe(false);
+    // A Proxy that answers the canonical check and then refuses reflection
+    // is kept as given rather than failing the call.
+    let reflections = 0;
+    const fickle = new Proxy(
+      { tenant: "a" },
+      {
+        ownKeys(target) {
+          reflections += 1;
+          if (reflections > 1) throw new Error("no longer reflectable");
+          return Reflect.ownKeys(target);
+        },
+      }
+    );
+    expect(snapshotControlValue(fickle)).toBe(fickle);
+    expect(isStableControlValue(fickle)).toBe(false);
+    // A copy drops non-enumerable properties, so a value holding one is kept
+    // as given, unstable: a getter's answer and a cycle through it survive.
+    const hidden = Object.freeze(
+      Object.defineProperty({ display: "acme" }, "tenant", {
+        get: () => "tenant-42",
+      })
+    ) as { display: string; tenant?: string };
+    expect(snapshotControlValue(hidden)).toBe(hidden);
+    expect(hidden.tenant).toBe("tenant-42");
+    expect(isStableControlValue(hidden)).toBe(false);
+    const cyclic = { tenant: "acme" };
+    Object.defineProperty(cyclic, "metadata", { value: cyclic });
+    Object.freeze(cyclic);
+    expect(snapshotControlValue(cyclic)).toBe(cyclic);
+    expect(isStableControlValue(cyclic)).toBe(false);
+    // So is a record that holds such a value anywhere inside it.
+    const holding = { scope: hidden };
+    expect(snapshotControlValue(holding)).toBe(holding);
+    expect(isStableControlValue(holding)).toBe(false);
+    // A record reached twice is judged once: frozen both times, kept.
+    const shared = Object.freeze({ team: "red" });
+    const twice = Object.freeze({ author: shared, by: shared });
+    expect(snapshotControlValue(twice)).toBe(twice);
+    expect(isStableControlValue(twice)).toBe(true);
     // Already immutable all the way down: kept, by identity.
     const frozen = Object.freeze({ list: Object.freeze(["x"]) });
     expect(snapshotControlValue(frozen)).toBe(frozen);
     expect(isStableControlValue(frozen)).toBe(true);
-    // A frozen record holding a Date or bytes is copied: those stay mutable.
+    // A frozen record holding a Date is copied: a Date stays mutable.
     const holder = Object.freeze({ at: new Date(0) });
     expect(snapshotControlValue(holder)).not.toBe(holder);
     // No canonical spelling, or no copy: kept as given, never stable.
@@ -1530,7 +1595,7 @@ describe("controls: rows bound to the call", () => {
     expect(await relatedIds({ view: "all" })).toEqual(["d1", "d2", "t1", "t2"]);
   });
 
-  test("a memo hit still returns the one domain for equal values, bound from admission's copy of them", () => {
+  test("a memo hit returns the one domain for equal plain values; a Date is bound for its call alone", () => {
     const dated = {
       control: "scope",
       default: "tenant",
@@ -1558,12 +1623,27 @@ describe("controls: rows bound to the call", () => {
     expect(where).toEqual({ deletedAt: day, authorId: { in: authors } });
     expect(where!.deletedAt).not.toBe(day);
     expect((where!.authorId as { in: unknown }).in).not.toBe(authors);
+    // A Date stays writable after admission (a handler's `setTime`), so it
+    // never keys the memo: an equal call binds its own domain.
     const again = callRows(binding, "post", {
       day: snapshotControlValue(new Date("2026-01-01T00:00:00.000Z")),
       authors: snapshotControlValue(["u1"]),
     });
-    expect(again).toBe(first);
-    expect(again.domain).toBe(first.domain);
+    expect(again).not.toBe(first);
+    expect(again.domain.root.get("post")).toEqual([where]);
+    expect(binding.bound.size).toBe(0);
+    // Equal plain data does key it: one domain for both calls.
+    const listed = {
+      day: null,
+      authors: snapshotControlValue(["u1"]),
+    };
+    const memoized = callRows(binding, "post", listed);
+    expect(
+      callRows(binding, "post", {
+        day: null,
+        authors: snapshotControlValue(["u1"]),
+      })
+    ).toBe(memoized);
     expect(binding.bound.size).toBe(1);
     // The combination whose own predicates name nothing keeps its domain.
     expect(callRows(binding, "post", { scope: "all", day }).domain).toBe(

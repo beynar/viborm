@@ -42,4 +42,10 @@ export interface DatabaseAdapterCapabilities {
    * See `buildBulkLimitWhere` in query-engine/operations/bulk-limit.ts.
    */
   supportsMutationRowLimit: boolean;
+  /**
+   * Whether a read can lock the rows it takes (`SELECT … FOR UPDATE`).
+   * PostgreSQL and MySQL do; SQLite locks the whole database and omits the
+   * clause, so a read taken only to lock rows is skipped there.
+   */
+  supportsRowLocks: boolean;
 }

@@ -681,6 +681,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsTargetedUpsert: true,
       supportsMutationTargetInSubquery: true,
       supportsMutationRowLimit: false,
+      supportsRowLocks: true,
     });
     expect(mysql.capabilities).toEqual({
       supportsReturning: false,
@@ -692,6 +693,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsTargetedUpsert: false,
       supportsMutationTargetInSubquery: false,
       supportsMutationRowLimit: true,
+      supportsRowLocks: true,
     });
     expect(sqlite.capabilities).toEqual({
       supportsReturning: true,
@@ -703,6 +705,7 @@ describe("dialect physical SQL vocabulary", () => {
       supportsTargetedUpsert: true,
       supportsMutationTargetInSubquery: true,
       supportsMutationRowLimit: false,
+      supportsRowLocks: false,
     });
   });
 });

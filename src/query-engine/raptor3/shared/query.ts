@@ -1878,6 +1878,29 @@ export class Queries {
     });
   }
   /**
+   * Every row of `selector` locked, answered as ONE row: the inner read takes
+   * the row locks (`FOR UPDATE`), and the count over it, which must consume
+   * every row, is all that crosses the wire. Locking a million candidates
+   * then costs one row back, not a million keys.
+   */
+  lockAll(selector: PreparedSelector): Query {
+    const a = this.adapter;
+    const inner = this.#rootAlias();
+    const locked = assembleAdapterSelect(a, {
+      columns: a.literals.true(),
+      from: this.table(selector.model, inner),
+      where: this.lowerSelector(selector, inner),
+      forUpdate: true,
+    });
+    return {
+      sql: assembleAdapterSelect(a, {
+        columns: a.identifiers.aliased(a.aggregates.count(), "_count"),
+        from: a.subqueries.correlate(locked, this.alias()),
+      }),
+      shape: { kind: "object", fields: { _count: COUNT_LEAF } },
+    };
+  }
+  /**
    * The rows whose key is at most `last`'s in key order: over a selector whose
    * key-ordered read ended at `last`, that read's rows, at one bound value per
    * key however many they are (keys are NOT NULL: a row-value `<=`).

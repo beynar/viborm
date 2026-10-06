@@ -419,4 +419,140 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
       [51, false],
     ]);
   });
+
+  // A row read into the window can stop matching before the effect (SQLite
+  // locks nothing): the effect still names the filter, and leaves it alone.
+  test("a row that stops matching after the read is not taken", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.createMany({
+      data: [
+        { id: 61, authorId: 1, title: "x" },
+        { id: 62, authorId: 1, title: "x" },
+      ],
+    });
+    driver.afterRead = 'UPDATE "post" SET "title" = \'y\' WHERE "id" = 61';
+    expect(
+      await db.post.deleteMany({ where: { title: "x" }, limit: 2 })
+    ).toEqual({ count: 1 });
+    const rows = await base.post.findMany({
+      where: { id: { in: [61, 62] } },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    });
+    expect(rows.map((row) => [row.id, row.deletedAt === null])).toEqual([
+      [61, true],
+      [62, false],
+    ]);
+  });
+
+  // A row lock holds the row, not the related rows its filter reads: the
+  // effect still names the filter, so a post whose author was renamed after
+  // the lock is left alone.
+  test("a row whose related filter stops matching after the read is not taken", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.createMany({
+      data: [
+        { id: 61, authorId: 1, title: "x" },
+        { id: 62, authorId: 2, title: "x" },
+      ],
+    });
+    driver.afterRead = 'UPDATE "author" SET "name" = \'z\' WHERE "id" = 1';
+    expect(
+      await db.post.deleteMany({
+        where: {
+          id: { in: [61, 62] },
+          author: { is: { name: { in: ["a1", "a2"] } } },
+        },
+        limit: 2,
+      })
+    ).toEqual({ count: 1 });
+    const rows = await base.post.findMany({
+      where: { id: { in: [61, 62] } },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    });
+    expect(rows.map((row) => [row.id, row.deletedAt === null])).toEqual([
+      [61, true],
+      [62, false],
+    ]);
+  });
+
+  // Within half the budget, and with what else both statements bind, the
+  // window stays exact: a row restored below it after the lock is not taken.
+  test("a window within the bind budget takes exactly its locked keys", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.create({
+      data: { id: 5000, authorId: 1, title: "p5000", deletedAt: new Date(0) },
+    });
+    await base.post.createMany({
+      data: Array.from({ length: 400 }, (_, index) => ({
+        id: 5001 + index,
+        authorId: 1,
+        title: `p${5001 + index}`,
+      })),
+    });
+    driver.afterRead = 'UPDATE "post" SET "deletedAt" = NULL WHERE "id" = 5000';
+    expect(
+      await db.post.deleteMany({ where: { id: { gte: 5000 } }, limit: 400 })
+    ).toEqual({ count: 400 });
+    expect(
+      await base.post.findMany({
+        where: { id: { gte: 5000 }, deletedAt: null },
+        select: { id: true },
+      })
+    ).toEqual([{ id: 5000 }]);
+  });
+
+  // Past the bind budget the window is the candidates up to the last locked
+  // key, with the limit kept on the effect: a row that becomes a candidate
+  // below that key after the lock can be taken, but never on top of `limit`.
+  test("a window past the bind budget still takes at most `limit` rows", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.create({
+      data: { id: 5000, authorId: 1, title: "p5000", deletedAt: new Date(0) },
+    });
+    await base.post.createMany({
+      data: Array.from({ length: 1000 }, (_, index) => ({
+        id: 5001 + index,
+        authorId: 1,
+        title: `p${5001 + index}`,
+      })),
+    });
+    // The lock takes 5001-6000 (1000 keys, past SQLite's 999); another
+    // writer then restores 5000, which sorts below them all.
+    driver.afterRead = 'UPDATE "post" SET "deletedAt" = NULL WHERE "id" = 5000';
+    expect(
+      await db.post.deleteMany({ where: { id: { gte: 5000 } }, limit: 1000 })
+    ).toEqual({ count: 1000 });
+    expect(
+      await base.post.findMany({
+        where: { id: { gte: 5000 }, deletedAt: null },
+        select: { id: true },
+      })
+    ).toEqual([{ id: 6000 }]);
+  });
+
+  // A set of key equalities nests one level per key: 995 keys, a one-value
+  // filter and the tombstone's three assignments fit SQLite's 999 bound
+  // values exactly, but not its expression depth of 1000. The keys are
+  // counted against half the budget before anything is compiled, so the
+  // window takes the key range instead.
+  test("a window of keys past half the budget is never compiled", async () => {
+    const { base, db } = await fixture();
+    await base.author.create({ data: { id: 9, name: "a9" } });
+    await base.post.createMany({
+      data: Array.from({ length: 995 }, (_, index) => ({
+        id: 7000 + index,
+        authorId: 9,
+        title: `d${index}`,
+      })),
+    });
+    expect(
+      await db.post.deleteMany({ where: { authorId: 9 }, limit: 995 })
+    ).toEqual({ count: 995 });
+  });
 });
