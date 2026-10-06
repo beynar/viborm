@@ -951,6 +951,11 @@ export function runDeletionCapabilityBehavior(
     // matches.
     test("a batched limited deleteMany keeps its filter beside the window", async () => {
       const { db } = context;
+      // How the dialect spells the filter once: MySQL adds `BINARY` beside
+      // its case-insensitive `=`, so one filter names the column twice.
+      statements.length = 0;
+      await db.post.findMany({ where: { title: "p14" }, select: { id: true } });
+      const once = statements[0]!.sql.match(TITLE_FILTER)!.length;
       statements.length = 0;
       expect(
         await db.$transaction([
@@ -963,7 +968,7 @@ export function runDeletionCapabilityBehavior(
       // Once outside, and once inside each window read (an interactive
       // transport names its locked keys instead, beside the same filter).
       const windows = write!.sql.match(WINDOW_READ)?.length ?? 0;
-      expect(write!.sql.match(TITLE_FILTER)).toHaveLength(windows + 1);
+      expect(write!.sql.match(TITLE_FILTER)).toHaveLength(once * (windows + 1));
     });
 
     // A window of locked keys rides both statements only where both still fit
