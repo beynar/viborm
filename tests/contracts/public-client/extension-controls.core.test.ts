@@ -1251,6 +1251,12 @@ describe("controls: rows bound to the call", () => {
     expect(read.tenant).toBe("acme");
     expect(isStableControlValue(read)).toBe(true);
     expect(isStableControlValue(live)).toBe(false);
+    // Non-enumerable metadata pointing back at its own record is walked once.
+    const cyclic = { tenant: "acme" };
+    Object.defineProperty(cyclic, "metadata", { value: cyclic });
+    Object.freeze(cyclic);
+    expect(snapshotControlValue(cyclic)).toBe(cyclic);
+    expect(isStableControlValue(cyclic)).toBe(true);
     // Already immutable all the way down: kept, by identity.
     const frozen = Object.freeze({ list: Object.freeze(["x"]) });
     expect(snapshotControlValue(frozen)).toBe(frozen);

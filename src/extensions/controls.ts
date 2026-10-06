@@ -443,15 +443,23 @@ export function snapshotControlValue(value: unknown): unknown {
  * keeps state `freeze` does not reach. Only own data properties, all frozen,
  * keep one value.
  */
-function isDeeplyFrozen(value: object): boolean {
+function isDeeplyFrozen(value: object, seen = new WeakSet<object>()): boolean {
   if (ArrayBuffer.isView(value) || value instanceof Date) return false;
   if (!Object.isFrozen(value)) return false;
+  // Every own property is walked, enumerable or not, so a reference back to
+  // an object already being checked is answered by that check.
+  if (seen.has(value)) return true;
+  seen.add(value);
   for (const descriptor of Object.values(
     Object.getOwnPropertyDescriptors(value)
   )) {
     if (!("value" in descriptor)) return false;
     const entry: unknown = descriptor.value;
-    if (typeof entry === "object" && entry !== null && !isDeeplyFrozen(entry))
+    if (
+      typeof entry === "object" &&
+      entry !== null &&
+      !isDeeplyFrozen(entry, seen)
+    )
       return false;
   }
   return true;

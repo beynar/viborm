@@ -420,6 +420,32 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
     ]);
   });
 
+  // SQLite locks no row, so a row read into the window can stop matching
+  // before the effect: the effect still names the filter, and leaves it alone.
+  test("a row that stops matching after the read is not taken where rows are not locked", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.createMany({
+      data: [
+        { id: 61, authorId: 1, title: "x" },
+        { id: 62, authorId: 1, title: "x" },
+      ],
+    });
+    driver.afterRead = 'UPDATE "post" SET "title" = \'y\' WHERE "id" = 61';
+    expect(
+      await db.post.deleteMany({ where: { title: "x" }, limit: 2 })
+    ).toEqual({ count: 1 });
+    const rows = await base.post.findMany({
+      where: { id: { in: [61, 62] } },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    });
+    expect(rows.map((row) => [row.id, row.deletedAt === null])).toEqual([
+      [61, true],
+      [62, false],
+    ]);
+  });
+
   // The compiled statements are the meter, not a share of the budget: 600
   // keys still fit SQLite's 999 with what else both statements bind, so the
   // window stays exact and a row restored below it after the lock is not taken.

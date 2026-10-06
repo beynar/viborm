@@ -1749,18 +1749,25 @@ export class Commands {
         if (limit !== undefined && ctx.usesBatch)
           taken = queries.window(candidates, limit);
         else if (limit !== undefined) {
-          // A locked row stays a candidate until the call ends, so its key
-          // alone names it; the effect takes exactly the rows the lock took.
+          // The effect takes exactly the rows the lock took. A locked row
+          // stays a candidate until the call ends, so its key alone names it;
+          // where nothing locks it (SQLite), it must still be a candidate.
           const rows = await ctx.read(locked(candidates, limit), true);
-          const exact = queries.includeIdentities(
+          const keys = queries.includeIdentities(
             model,
             rows.map((row) => ctx.schema.identity(model, row))
           );
+          const exact = ctx.driver.adapter.capabilities.supportsRowLocks
+            ? keys
+            : queries.andSelectors(model, [candidates, keys]);
+          // Room for one captured key too: a result re-read by key writes
+          // the window AND a run of captured keys per statement.
           const budget = ctx.driver.maxBindParametersPerStatement;
           const fits =
             budget === undefined ||
             (locked(this.blocked(exact)!, 1).sql.values.length <= budget &&
               (queries.lowerSelector(exact)?.values.length ?? 0) +
+                ctx.schema.keys(model).length +
                 effectBinds() <=
                 budget);
           if (fits || rows.length === 0) taken = exact;

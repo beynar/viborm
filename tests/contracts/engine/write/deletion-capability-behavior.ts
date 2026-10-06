@@ -969,6 +969,36 @@ export function runDeletionCapabilityBehavior(
       expect(physicalDeletes()).toEqual([]);
     });
 
+    // Without RETURNING a selected result is re-read by key, and its write
+    // binds the window AND the captured keys: split by the bind budget, soft
+    // and hard alike.
+    test("a selected limited deleteMany over a long `in` list fits the bind budget", async () => {
+      const { base, db } = context;
+      await base.post.createMany({
+        data: Array.from({ length: 800 }, (_, index) => ({
+          id: 4000 + index,
+          authorId: 2,
+          title: `l${index}`,
+        })),
+      });
+      const where = {
+        id: { in: Array.from({ length: 800 }, (_, index) => 4000 + index) },
+      };
+      const select = { id: true } as const;
+      const soft = await db.post.deleteMany({ where, limit: 400, select });
+      expect(soft.map((row) => row.id)).toEqual(
+        Array.from({ length: 400 }, (_, index) => 4000 + index)
+      );
+      const hard = await db.post.deleteMany({
+        where,
+        limit: 400,
+        mode: "hard",
+        select,
+      });
+      expect(hard).toHaveLength(400);
+      expect(await base.post.count({ where })).toBe(400);
+    });
+
     // Owner ruling (2026-10-02): a limited deleteMany takes the first `limit`
     // rows the call may take ordered by key, as findMany's `take` does; for a
     // soft delete, the rows not tombstoned already. Entries and folders were

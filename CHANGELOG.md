@@ -5,16 +5,21 @@ Versioning.
 
 ## Unreleased
 
-- **Fixed: an unlimited soft delete no longer reads every candidate key.**
-  Before tombstoning a model that a restricting relation references, a
-  `deleteMany` without `limit` locked its candidates by reading all their keys
-  into memory. PostgreSQL and MySQL now take the same locks with one counted
-  row back; SQLite, which has no row locks, skips the read.
-- **Fixed: a limited soft delete fits the bind budget.** A `deleteMany` with
-  `limit` and a long `in` list could fail with "needs N bound values, above
-  the verified limit" on SQLite and the batch-only drivers: the window
-  restated the caller's filter in both statements. It is now stated once, and
-  the locked-key window is metered on the compiled statements.
+- **Fixed: an unlimited soft delete no longer reads every candidate key to
+  lock them.** Before tombstoning a model that a restricting relation
+  references, a `deleteMany` without `limit` locked its candidates by reading
+  all their keys into memory. PostgreSQL and MySQL now take the same locks
+  with one counted row back; SQLite, which has no row locks, skips the read.
+  A `deleteMany` with `select` still reads one key per row it returns.
+- **Fixed: large limited or selected deletes fit the bind budget.** A soft
+  `deleteMany` with `limit` and a long `in` list could fail with "needs N
+  bound values, above the verified limit" on SQLite and the batch-only
+  drivers: the window restated the caller's filter in both statements. It is
+  now stated once, and the locked-key window is metered on the compiled
+  statements. On a database without `RETURNING` (MySQL), a selected
+  `updateMany` or `deleteMany` re-reads its rows by key, and its write, which
+  binds the filter and every captured key, is now split by the bind budget
+  instead of failing past it.
 - **Fixed: a mutable control value no longer keys shared state.** A control
   value holding a `Date` or bytes, or a frozen object whose getter changes its
   answer, could key a row filter or a cached read whose value then changed
