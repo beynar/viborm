@@ -420,9 +420,9 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
     ]);
   });
 
-  // SQLite locks no row, so a row read into the window can stop matching
-  // before the effect: the effect still names the filter, and leaves it alone.
-  test("a row that stops matching after the read is not taken where rows are not locked", async () => {
+  // A row read into the window can stop matching before the effect (SQLite
+  // locks nothing): the effect still names the filter, and leaves it alone.
+  test("a row that stops matching after the read is not taken", async () => {
     const driver = new AfterLockSQLite3Driver();
     const { base, db } = await fixture(driver);
     await base.post.createMany({
@@ -434,6 +434,39 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
     driver.afterRead = 'UPDATE "post" SET "title" = \'y\' WHERE "id" = 61';
     expect(
       await db.post.deleteMany({ where: { title: "x" }, limit: 2 })
+    ).toEqual({ count: 1 });
+    const rows = await base.post.findMany({
+      where: { id: { in: [61, 62] } },
+      select: { id: true, deletedAt: true },
+      orderBy: { id: "asc" },
+    });
+    expect(rows.map((row) => [row.id, row.deletedAt === null])).toEqual([
+      [61, true],
+      [62, false],
+    ]);
+  });
+
+  // A row lock holds the row, not the related rows its filter reads: the
+  // effect still names the filter, so a post whose author was renamed after
+  // the lock is left alone.
+  test("a row whose related filter stops matching after the read is not taken", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.createMany({
+      data: [
+        { id: 61, authorId: 1, title: "x" },
+        { id: 62, authorId: 2, title: "x" },
+      ],
+    });
+    driver.afterRead = 'UPDATE "author" SET "name" = \'z\' WHERE "id" = 1';
+    expect(
+      await db.post.deleteMany({
+        where: {
+          id: { in: [61, 62] },
+          author: { is: { name: { in: ["a1", "a2"] } } },
+        },
+        limit: 2,
+      })
     ).toEqual({ count: 1 });
     const rows = await base.post.findMany({
       where: { id: { in: [61, 62] } },

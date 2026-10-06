@@ -1251,12 +1251,30 @@ describe("controls: rows bound to the call", () => {
     expect(read.tenant).toBe("acme");
     expect(isStableControlValue(read)).toBe(true);
     expect(isStableControlValue(live)).toBe(false);
-    // Non-enumerable metadata pointing back at its own record is walked once.
+    // A copy drops non-enumerable properties, so a value holding one is kept
+    // as given, unstable: a getter's answer and a cycle through it survive.
+    const hidden = Object.freeze(
+      Object.defineProperty({ display: "acme" }, "tenant", {
+        get: () => "tenant-42",
+      })
+    ) as { display: string; tenant?: string };
+    expect(snapshotControlValue(hidden)).toBe(hidden);
+    expect(hidden.tenant).toBe("tenant-42");
+    expect(isStableControlValue(hidden)).toBe(false);
     const cyclic = { tenant: "acme" };
     Object.defineProperty(cyclic, "metadata", { value: cyclic });
     Object.freeze(cyclic);
     expect(snapshotControlValue(cyclic)).toBe(cyclic);
-    expect(isStableControlValue(cyclic)).toBe(true);
+    expect(isStableControlValue(cyclic)).toBe(false);
+    // So is a record that holds such a value anywhere inside it.
+    const holding = { scope: hidden };
+    expect(snapshotControlValue(holding)).toBe(holding);
+    expect(isStableControlValue(holding)).toBe(false);
+    // A record reached twice is judged once: frozen both times, kept.
+    const shared = Object.freeze({ team: "red" });
+    const twice = Object.freeze({ author: shared, by: shared });
+    expect(snapshotControlValue(twice)).toBe(twice);
+    expect(isStableControlValue(twice)).toBe(true);
     // Already immutable all the way down: kept, by identity.
     const frozen = Object.freeze({ list: Object.freeze(["x"]) });
     expect(snapshotControlValue(frozen)).toBe(frozen);

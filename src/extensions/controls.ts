@@ -410,20 +410,21 @@ const snapshots = new WeakSet<object>();
  * An admitted value as the call holds it from here on. Plain data is copied
  * once and frozen, so every reader of the call's controls (the rows its
  * filters bind, the key its cached read is stored under, its handlers) reads
- * the same value whatever the caller later does to its own. A value with no
- * canonical spelling, or one that cannot be copied (a Proxy), is kept as
- * given; a copy that still holds a `Date` or a typed array is kept but not
+ * the same value whatever the caller later does to its own. A value already
+ * fixed all the way down is kept by identity. A value a copy would change
+ * (a non-enumerable or symbol property, which `structuredClone` drops), one
+ * with no canonical spelling, or one that cannot be copied (a Proxy), is kept
+ * as given; a copy that still holds a `Date` or a typed array is kept but not
  * stable, because `freeze` cannot fix them (`setTime`, an indexed write). In
- * both cases the call binds the value for itself alone and its read is not
+ * those cases the call binds the value for itself alone and its read is not
  * cached.
  */
 export function snapshotControlValue(value: unknown): unknown {
   if (typeof value !== "object" || value === null) return value;
   if (!isCanonicalKeyData(value)) return value;
-  // Already immutable all the way down (an extension's own admitted value,
-  // such as the cache's options, which it later finds by identity): stable
-  // as it is.
-  if (isDeeplyFrozen(value)) {
+  const capture = captureOf(value, new WeakSet());
+  if (capture === "opaque") return value;
+  if (capture === "fixed") {
     snapshots.add(value);
     return value;
   }
@@ -438,31 +439,40 @@ export function snapshotControlValue(value: unknown): unknown {
 }
 
 /**
- * Whether nothing reachable from `value` can still change. Frozen is not
- * enough: a getter answers anew on every read, and a `Date` or a typed array
- * keeps state `freeze` does not reach. Only own data properties, all frozen,
- * keep one value.
+ * How an admitted value can be held: `fixed` when nothing reachable from it
+ * can change (frozen own data properties only, no `Date` or typed array),
+ * `copy` when a copy reproduces it (enumerable string-keyed properties, a
+ * getter read once), `opaque` when a copy would not (a non-enumerable or
+ * symbol property). Descriptors are read, never values through a getter.
  */
-function isDeeplyFrozen(value: object, seen = new WeakSet<object>()): boolean {
-  if (ArrayBuffer.isView(value) || value instanceof Date) return false;
-  if (!Object.isFrozen(value)) return false;
-  // Every own property is walked, enumerable or not, so a reference back to
-  // an object already being checked is answered by that check.
-  if (seen.has(value)) return true;
+function captureOf(
+  value: object,
+  seen: WeakSet<object>
+): "fixed" | "copy" | "opaque" {
+  if (seen.has(value)) return "fixed";
   seen.add(value);
-  for (const descriptor of Object.values(
-    Object.getOwnPropertyDescriptors(value)
-  )) {
-    if (!("value" in descriptor)) return false;
+  let capture: "fixed" | "copy" =
+    ArrayBuffer.isView(value) ||
+    value instanceof Date ||
+    !Object.isFrozen(value)
+      ? "copy"
+      : "fixed";
+  const array = Array.isArray(value);
+  for (const key of Reflect.ownKeys(value)) {
+    if (array && key === "length") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
+    if (typeof key === "symbol" || !descriptor.enumerable) return "opaque";
+    if (!("value" in descriptor)) {
+      capture = "copy";
+      continue;
+    }
     const entry: unknown = descriptor.value;
-    if (
-      typeof entry === "object" &&
-      entry !== null &&
-      !isDeeplyFrozen(entry, seen)
-    )
-      return false;
+    if (typeof entry !== "object" || entry === null) continue;
+    const inner = captureOf(entry, seen);
+    if (inner === "opaque") return "opaque";
+    if (inner === "copy") capture = "copy";
   }
-  return true;
+  return capture;
 }
 
 /** Freeze a private copy; answer whether nothing in it can still change. */

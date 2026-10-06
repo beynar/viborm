@@ -2707,10 +2707,7 @@ export class OperationContext {
    * cardinality sentence, never a silent success publishing the captured rows.
    * The verb is named, not read from {@link operation}: a root `delete` that
    * captures answers with `deleteMany`'s sentence, as it always has. The statement is built after the premises, where a lowered
-   * target's aliases continue the last premise statement's scope. It binds
-   * the selector AND every captured key, so it is split by the driver's bind
-   * budget as a series read is ({@link seriesQueries}): one statement per run
-   * of keys, each judged on its own row count, all in the same unit.
+   * target's aliases continue the last premise statement's scope.
    *
    * Failure and commit stay separate facts there. On an operation-owned
    * interactive transaction the owner rolls back; on a batch that already
@@ -2745,30 +2742,20 @@ export class OperationContext {
         { meta: this.#errorMeta }
       );
     await this.requireCapturedSet(model, selector, identities, limit, changed);
-    const chunks = compileBindBudgetChunks(
-      identities.length,
-      normalizedBindParameterLimit(this.driver.maxBindParametersPerStatement),
-      (start, end) =>
-        mutation(
-          this.capturedTarget(model, selector, identities.slice(start, end))
-        )
+    const statement = mutation(
+      this.capturedTarget(model, selector, identities)
     );
     const context = this.statementContext(model, this.operation);
-    const answered = (
-      response: QueryResult<unknown>,
-      chunk: (typeof chunks)[number]
-    ) => {
-      if (response.rowCount !== chunk.end - chunk.start)
+    const answered = (response: QueryResult<unknown>) => {
+      if (response.rowCount !== identities.length)
         throw this.failure(changed(), "result");
     };
     if (!this.usesBatch) {
-      for (const chunk of chunks)
-        answered(
-          await this.dispatch(1, false, () =>
-            this.#transport._execute(chunk.statement, context)
-          ),
-          chunk
-        );
+      answered(
+        await this.dispatch(1, false, () =>
+          this.#transport._execute(statement, context)
+        )
+      );
       return;
     }
     // Its own answer, by its own position: the batch also carries this
@@ -2780,18 +2767,16 @@ export class OperationContext {
     // record series of its own ({@link failure}), as `setMutations` states it.
     const member: Member = {};
     this.#setWindow = member;
-    for (const chunk of chunks) this.#queue(chunk.statement, context, member);
+    this.#queue(statement, context, member);
     const responses = await this.submit(true, member);
     await this.settleSubmitted(() => {
-      for (const [offset, chunk] of chunks.entries()) {
-        const response = responses[index + offset];
-        if (!response)
-          throw new TransactionError(
-            `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
-            { meta: this.#errorMeta }
-          );
-        answered(response, chunk);
-      }
+      const response = responses[index];
+      if (!response)
+        throw new TransactionError(
+          `Driver '${this.driver.driverName}' omitted the prepared result for operation '${this.operation}'.`,
+          { meta: this.#errorMeta }
+        );
+      answered(response);
     });
   }
   /**

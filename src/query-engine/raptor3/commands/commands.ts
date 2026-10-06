@@ -1701,8 +1701,9 @@ export class Commands {
    * that becomes a candidate below that key after the lock still cannot make
    * the count exceed it. A batch states the window in SQL in both
    * statements ({@link Queries.window}), whose total order gives the one atomic
-   * unit one answer. `effectBinds` counts what the effect binds beyond its
-   * selector (its assignments): the compiled statements are the meter.
+   * unit one answer. `effectBinds(rows)` counts what the effect binds beyond
+   * its selector: its assignments, and the captured keys of a result re-read
+   * by key. The compiled statements are the meter.
    *
    * An interactive session locks the candidates before it asks (DC14): the
    * premise is then a later statement, so it sees a child a concurrent writer
@@ -1717,7 +1718,7 @@ export class Commands {
     candidates: PreparedSelector,
     limit: number | undefined,
     single: boolean,
-    effectBinds: () => number,
+    effectBinds: (rows: number) => number,
     effect: (window: PreparedSelector, limit?: number) => Promise<unknown>
   ): PhysicalPlan {
     const blocked = this.blocked(candidates);
@@ -1749,26 +1750,23 @@ export class Commands {
         if (limit !== undefined && ctx.usesBatch)
           taken = queries.window(candidates, limit);
         else if (limit !== undefined) {
-          // The effect takes exactly the rows the lock took. A locked row
-          // stays a candidate until the call ends, so its key alone names it;
-          // where nothing locks it (SQLite), it must still be a candidate.
+          // The effect takes exactly the rows the lock took, still under the
+          // candidates' own predicates: a lock holds the row, not the related
+          // rows a filter or a row domain reads.
           const rows = await ctx.read(locked(candidates, limit), true);
-          const keys = queries.includeIdentities(
-            model,
-            rows.map((row) => ctx.schema.identity(model, row))
-          );
-          const exact = ctx.driver.adapter.capabilities.supportsRowLocks
-            ? keys
-            : queries.andSelectors(model, [candidates, keys]);
-          // Room for one captured key too: a result re-read by key writes
-          // the window AND a run of captured keys per statement.
+          const exact = queries.andSelectors(model, [
+            candidates,
+            queries.includeIdentities(
+              model,
+              rows.map((row) => ctx.schema.identity(model, row))
+            ),
+          ]);
           const budget = ctx.driver.maxBindParametersPerStatement;
           const fits =
             budget === undefined ||
             (locked(this.blocked(exact)!, 1).sql.values.length <= budget &&
               (queries.lowerSelector(exact)?.values.length ?? 0) +
-                ctx.schema.keys(model).length +
-                effectBinds() <=
+                effectBinds(rows.length) <=
                 budget);
           if (fits || rows.length === 0) taken = exact;
           else {
@@ -2035,12 +2033,17 @@ export class Commands {
         selector,
         args.limit,
         single,
-        () => {
-          let assigned = 0;
+        (rows) => {
+          // A result without RETURNING is re-read by key, and its write binds
+          // the captured keys beside the selector.
+          let bound =
+            projection && !(returning && returningSafeProjection(projection))
+              ? rows * ctx.schema.keys(model).length
+              : 0;
           for (const [field, value] of Object.entries(values))
-            assigned += ctx.queries.updateAssignment(model, field, value).values
+            bound += ctx.queries.updateAssignment(model, field, value).values
               .length;
-          return assigned;
+          return bound;
         },
         (window, limit) =>
           ctx.updateMany(model, window, values, limit, projection, missing)
