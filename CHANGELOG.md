@@ -5,6 +5,21 @@ Versioning.
 
 ## Unreleased
 
+- **Fixed: an unlimited soft delete no longer reads every candidate key.**
+  Before tombstoning a model that a restricting relation references, a
+  `deleteMany` without `limit` locked its candidates by reading all their keys
+  into memory. PostgreSQL and MySQL now take the same locks with one counted
+  row back; SQLite, which has no row locks, skips the read.
+- **Fixed: a limited soft delete fits the bind budget.** A `deleteMany` with
+  `limit` and a long `in` list could fail with "needs N bound values, above
+  the verified limit" on SQLite and the batch-only drivers: the window
+  restated the caller's filter in both statements. It is now stated once, and
+  the locked-key window is metered on the compiled statements.
+- **Fixed: a mutable control value no longer keys shared state.** A control
+  value holding a `Date` or bytes, or a frozen object whose getter changes its
+  answer, could key a row filter or a cached read whose value then changed
+  under it. Such a value now binds its row filters for its call alone and its
+  read is not cached.
 - **Fixed: a dropped `pg` connection no longer ends the process.** While a
   `$transaction` (or a migration's reserved session) held a pooled client,
   nothing listened to that client's `error` event: a server restart, failover

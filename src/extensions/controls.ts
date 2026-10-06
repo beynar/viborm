@@ -412,7 +412,10 @@ const snapshots = new WeakSet<object>();
  * filters bind, the key its cached read is stored under, its handlers) reads
  * the same value whatever the caller later does to its own. A value with no
  * canonical spelling, or one that cannot be copied (a Proxy), is kept as
- * given: the call binds it for itself alone and its read is not cached.
+ * given; a copy that still holds a `Date` or a typed array is kept but not
+ * stable, because `freeze` cannot fix them (`setTime`, an indexed write). In
+ * both cases the call binds the value for itself alone and its read is not
+ * cached.
  */
 export function snapshotControlValue(value: unknown): unknown {
   if (typeof value !== "object" || value === null) return value;
@@ -424,35 +427,45 @@ export function snapshotControlValue(value: unknown): unknown {
     snapshots.add(value);
     return value;
   }
-  let copy: unknown;
+  let copy: object;
   try {
     copy = structuredClone(value);
   } catch {
     return value;
   }
-  return deepFreeze(copy as object);
+  if (freezeCopy(copy)) snapshots.add(copy);
+  return copy;
 }
 
+/**
+ * Whether nothing reachable from `value` can still change. Frozen is not
+ * enough: a getter answers anew on every read, and a `Date` or a typed array
+ * keeps state `freeze` does not reach. Only own data properties, all frozen,
+ * keep one value.
+ */
 function isDeeplyFrozen(value: object): boolean {
   if (ArrayBuffer.isView(value) || value instanceof Date) return false;
-  return (
-    Object.isFrozen(value) &&
-    Object.values(value).every(
-      (entry) =>
-        typeof entry !== "object" || entry === null || isDeeplyFrozen(entry)
-    )
-  );
+  if (!Object.isFrozen(value)) return false;
+  for (const descriptor of Object.values(
+    Object.getOwnPropertyDescriptors(value)
+  )) {
+    if (!("value" in descriptor)) return false;
+    const entry: unknown = descriptor.value;
+    if (typeof entry === "object" && entry !== null && !isDeeplyFrozen(entry))
+      return false;
+  }
+  return true;
 }
 
-function deepFreeze(value: object): object {
-  // A typed array cannot be frozen; the copy is private to the call anyway.
-  if (!ArrayBuffer.isView(value)) {
-    for (const entry of Object.values(value))
-      if (typeof entry === "object" && entry !== null) deepFreeze(entry);
-    Object.freeze(value);
-  }
-  snapshots.add(value);
-  return value;
+/** Freeze a private copy; answer whether nothing in it can still change. */
+function freezeCopy(value: object): boolean {
+  if (ArrayBuffer.isView(value) || value instanceof Date) return false;
+  let fixed = true;
+  for (const entry of Object.values(value))
+    if (typeof entry === "object" && entry !== null && !freezeCopy(entry))
+      fixed = false;
+  Object.freeze(value);
+  return fixed;
 }
 
 /**

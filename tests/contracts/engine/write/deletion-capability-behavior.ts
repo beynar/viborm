@@ -40,6 +40,10 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 const T = new Date("2026-01-01T00:00:00.000Z");
 const DELETE_STATEMENT = /^\s*DELETE\b/i;
 const UPDATE_STATEMENT = /^\s*UPDATE\b/i;
+const POST_READ =
+  /^\s*SELECT\b[\s\S]*\bFROM\s+(?:["`]?\w+["`]?\.)?["`]?post["`]?/i;
+const COUNTED_LOCK = /COUNT\(\*\)[\s\S]*\bFOR UPDATE\b/i;
+const LIMITED = /\bLIMIT\b/i;
 /** An UPDATE whose SET starts with the marker: a tombstone write. */
 const TOMBSTONE_WRITE = /^\s*UPDATE\s+\S+\s+SET\s+["`]?deletedAt\b/i;
 const ACTOR = "actor-1";
@@ -913,6 +917,55 @@ export function runDeletionCapabilityBehavior(
           take: 1,
         })
       ).toEqual([{ a: 2, b: 201 }]);
+      expect(physicalDeletes()).toEqual([]);
+    });
+
+    // The lock an unlimited delete takes before its premise needs no key: it
+    // is one counted row where the provider locks rows, and no read at all
+    // where it cannot (SQLite) or where a batch states the premise in SQL.
+    test("an unlimited deleteMany locks its candidates with one row back, or reads nothing to lock", async () => {
+      const { base, db } = context;
+      statements.length = 0;
+      expect(await db.post.deleteMany({ where: { id: { in: [14] } } })).toEqual(
+        { count: 1 }
+      );
+      const reads = statements.filter((statement) =>
+        POST_READ.test(statement.sql)
+      );
+      const locks = reads.filter((read) => COUNTED_LOCK.test(read.sql));
+      const locking =
+        base.$driver.supportsTransactions &&
+        base.$driver.adapter.capabilities.supportsRowLocks;
+      expect(locks).toHaveLength(locking ? 1 : 0);
+      // Every other read is the premise, which asks for one row.
+      for (const read of reads)
+        if (!COUNTED_LOCK.test(read.sql)) expect(read.sql).toMatch(LIMITED);
+    });
+
+    // A window of locked keys rides both statements only where both still fit
+    // the bind budget with everything else they bind: here a caller's own
+    // 800-value `in` list, which with 400 keys passes SQLite's 999.
+    test("a limited deleteMany over a long `in` list fits the bind budget", async () => {
+      const { base, db } = context;
+      await base.post.createMany({
+        data: Array.from({ length: 800 }, (_, index) => ({
+          id: 4000 + index,
+          authorId: 2,
+          title: `l${index}`,
+        })),
+      });
+      const where = {
+        id: { in: Array.from({ length: 800 }, (_, index) => 4000 + index) },
+      };
+      expect(await db.post.deleteMany({ where, limit: 400 })).toEqual({
+        count: 400,
+      });
+      expect(await db.post.deleteMany({ where, limit: 400 })).toEqual({
+        count: 400,
+      });
+      expect(await db.post.deleteMany({ where, limit: 400 })).toEqual({
+        count: 0,
+      });
       expect(physicalDeletes()).toEqual([]);
     });
 

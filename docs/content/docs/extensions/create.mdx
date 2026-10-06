@@ -294,7 +294,9 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
   take a name core already uses as an argument (`where`, `data`, `select`, …)
   or one another extension declares.
 - The official [cache](/docs/extensions/cache) declares its mutation `cache`
-  option this way. A cached read is keyed on the controls it received.
+  option this way. A cached read is keyed on the controls it received. A
+  value holding a `Date` or bytes is never part of a key: both stay writable
+  after the call takes them, so a read with such a control always runs.
 
 ## Choose visible rows with `rows`
 

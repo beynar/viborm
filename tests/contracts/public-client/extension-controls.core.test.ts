@@ -1219,7 +1219,7 @@ describe("controls: rows bound to the call", () => {
   });
 
   test("admission fixes plain data once: a frozen copy, the immutable as given, anything else unstable", () => {
-    const given = { tags: ["a"], at: new Date(0), bytes: new Uint8Array([1]) };
+    const given = { tags: ["a"], nested: { team: "red" } };
     const fixed = snapshotControlValue(given) as typeof given;
     expect(fixed).toEqual(given);
     expect(fixed).not.toBe(given);
@@ -1228,6 +1228,29 @@ describe("controls: rows bound to the call", () => {
     expect(fixed.tags).toEqual(["a"]);
     expect(isStableControlValue(fixed)).toBe(true);
     expect(isStableControlValue(given)).toBe(false);
+    // A Date or bytes stay writable through `freeze` (`setTime`, an indexed
+    // write): such a copy is the call's own, never stable.
+    for (const leaf of [new Date(0), new Uint8Array([1])]) {
+      const copied = snapshotControlValue({ leaf }) as { leaf: unknown };
+      expect(copied.leaf).toEqual(leaf);
+      expect(copied.leaf).not.toBe(leaf);
+      expect(isStableControlValue(copied)).toBe(false);
+      expect(isStableControlValue(snapshotControlValue(leaf))).toBe(false);
+    }
+    // A frozen record whose getter answers anew is copied, read once: the
+    // copy keeps that one answer and is stable.
+    let tenant = "acme";
+    const live = Object.freeze({
+      get tenant() {
+        return tenant;
+      },
+    });
+    const read = snapshotControlValue(live) as { tenant: string };
+    expect(read).not.toBe(live);
+    tenant = "globex";
+    expect(read.tenant).toBe("acme");
+    expect(isStableControlValue(read)).toBe(true);
+    expect(isStableControlValue(live)).toBe(false);
     // Already immutable all the way down: kept, by identity.
     const frozen = Object.freeze({ list: Object.freeze(["x"]) });
     expect(snapshotControlValue(frozen)).toBe(frozen);
@@ -1530,7 +1553,7 @@ describe("controls: rows bound to the call", () => {
     expect(await relatedIds({ view: "all" })).toEqual(["d1", "d2", "t1", "t2"]);
   });
 
-  test("a memo hit still returns the one domain for equal values, bound from admission's copy of them", () => {
+  test("a memo hit returns the one domain for equal plain values; a Date is bound for its call alone", () => {
     const dated = {
       control: "scope",
       default: "tenant",
@@ -1558,12 +1581,27 @@ describe("controls: rows bound to the call", () => {
     expect(where).toEqual({ deletedAt: day, authorId: { in: authors } });
     expect(where!.deletedAt).not.toBe(day);
     expect((where!.authorId as { in: unknown }).in).not.toBe(authors);
+    // A Date stays writable after admission (a handler's `setTime`), so it
+    // never keys the memo: an equal call binds its own domain.
     const again = callRows(binding, "post", {
       day: snapshotControlValue(new Date("2026-01-01T00:00:00.000Z")),
       authors: snapshotControlValue(["u1"]),
     });
-    expect(again).toBe(first);
-    expect(again.domain).toBe(first.domain);
+    expect(again).not.toBe(first);
+    expect(again.domain.root.get("post")).toEqual([where]);
+    expect(binding.bound.size).toBe(0);
+    // Equal plain data does key it: one domain for both calls.
+    const listed = {
+      day: null,
+      authors: snapshotControlValue(["u1"]),
+    };
+    const memoized = callRows(binding, "post", listed);
+    expect(
+      callRows(binding, "post", {
+        day: null,
+        authors: snapshotControlValue(["u1"]),
+      })
+    ).toBe(memoized);
     expect(binding.bound.size).toBe(1);
     // The combination whose own predicates name nothing keeps its domain.
     expect(callRows(binding, "post", { scope: "all", day }).domain).toBe(

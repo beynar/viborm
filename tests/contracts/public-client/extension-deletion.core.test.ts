@@ -419,4 +419,62 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
       [51, false],
     ]);
   });
+
+  // The compiled statements are the meter, not a share of the budget: 600
+  // keys still fit SQLite's 999 with what else both statements bind, so the
+  // window stays exact and a row restored below it after the lock is not taken.
+  test("a window within the bind budget takes exactly its locked keys, however many", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.create({
+      data: { id: 5000, authorId: 1, title: "p5000", deletedAt: new Date(0) },
+    });
+    await base.post.createMany({
+      data: Array.from({ length: 600 }, (_, index) => ({
+        id: 5001 + index,
+        authorId: 1,
+        title: `p${5001 + index}`,
+      })),
+    });
+    driver.afterRead = 'UPDATE "post" SET "deletedAt" = NULL WHERE "id" = 5000';
+    expect(
+      await db.post.deleteMany({ where: { id: { gte: 5000 } }, limit: 600 })
+    ).toEqual({ count: 600 });
+    expect(
+      await base.post.findMany({
+        where: { id: { gte: 5000 }, deletedAt: null },
+        select: { id: true },
+      })
+    ).toEqual([{ id: 5000 }]);
+  });
+
+  // Past the bind budget the window is the candidates up to the last locked
+  // key, with the limit kept on the effect: a row that becomes a candidate
+  // below that key after the lock can be taken, but never on top of `limit`.
+  test("a window past the bind budget still takes at most `limit` rows", async () => {
+    const driver = new AfterLockSQLite3Driver();
+    const { base, db } = await fixture(driver);
+    await base.post.create({
+      data: { id: 5000, authorId: 1, title: "p5000", deletedAt: new Date(0) },
+    });
+    await base.post.createMany({
+      data: Array.from({ length: 1000 }, (_, index) => ({
+        id: 5001 + index,
+        authorId: 1,
+        title: `p${5001 + index}`,
+      })),
+    });
+    // The lock takes 5001-6000 (1000 keys, past SQLite's 999); another
+    // writer then restores 5000, which sorts below them all.
+    driver.afterRead = 'UPDATE "post" SET "deletedAt" = NULL WHERE "id" = 5000';
+    expect(
+      await db.post.deleteMany({ where: { id: { gte: 5000 } }, limit: 1000 })
+    ).toEqual({ count: 1000 });
+    expect(
+      await base.post.findMany({
+        where: { id: { gte: 5000 }, deletedAt: null },
+        select: { id: true },
+      })
+    ).toEqual([{ id: 6000 }]);
+  });
 });

@@ -1693,26 +1693,31 @@ export class Commands {
    * delete of those same rows, which every limited write takes in that order
    * too (`Queries.lowerMutationLimit`). An interactive session
    * READS the window — the lock below, limited — and both statements take
-   * exactly the rows it locked, by key. A window too long to bind as keys
-   * (past half the driver's bind budget: SQLite's 999 at the chunked-delete
-   * idiom's 1000) takes the candidates up to its last key
-   * ({@link Queries.through}, one bound value per key column) and the effect
-   * keeps the limit, so a row that becomes a candidate below that key after
-   * the lock still cannot make the count exceed it. A batch states the window in SQL in both
+   * exactly the rows it locked, by key. Where either statement, compiled with
+   * those keys, would pass the driver's bind budget (SQLite's 999 at the
+   * chunked-delete idiom's 1000, or a caller's own long `in` list), the window
+   * is the candidates up to its last key instead ({@link Queries.through},
+   * one bound value per key column) and the effect keeps the limit, so a row
+   * that becomes a candidate below that key after the lock still cannot make
+   * the count exceed it. A batch states the window in SQL in both
    * statements ({@link Queries.window}), whose total order gives the one atomic
-   * unit one answer.
+   * unit one answer. `effectBinds` counts what the effect binds beyond its
+   * selector (its assignments): the compiled statements are the meter.
    *
    * An interactive session locks the candidates before it asks (DC14): the
    * premise is then a later statement, so it sees a child a concurrent writer
    * committed while holding a candidate, and a writer that reaches a
    * candidate afterwards waits for the tombstone and no longer finds it live.
    * Measured on PostgreSQL: without the lock both interleavings of a
-   * create-with-connect leave a live child under a tombstone.
+   * create-with-connect leave a live child under a tombstone. Without a limit
+   * no key is needed, so the lock is answered as one count
+   * ({@link Queries.lockAll}), and skipped where the provider has no row lock.
    */
   #unreferenced(
     candidates: PreparedSelector,
     limit: number | undefined,
     single: boolean,
+    effectBinds: () => number,
     effect: (window: PreparedSelector, limit?: number) => Promise<unknown>
   ): PhysicalPlan {
     const blocked = this.blocked(candidates);
@@ -1736,37 +1741,51 @@ export class Commands {
             undefined,
             { selector, forUpdate: !ctx.usesBatch }
           );
-        // The window, where a limit names one: the locking read, limited, is
-        // in total key order as every windowed read is (`Queries.select`). The
-        // premise and the effect take exactly the rows it locked, by key; a
-        // window too long to bind as keys takes the candidates up to its last
-        // key, and the effect keeps the limit, so a row that becomes a
-        // candidate below that key after the lock still cannot make it more.
-        let window: PreparedSelector | undefined;
+        // The rows the call takes, stated once: the premise asks about them
+        // and the effect writes them. A limit names a window of the
+        // candidates, the first `limit` in key order (`Queries.select`).
+        let taken = candidates;
         let effectLimit: number | undefined;
-        if (!ctx.usesBatch) {
+        if (limit !== undefined && ctx.usesBatch)
+          taken = queries.window(candidates, limit);
+        else if (limit !== undefined) {
+          // A locked row stays a candidate until the call ends, so its key
+          // alone names it; the effect takes exactly the rows the lock took.
           const rows = await ctx.read(locked(candidates, limit), true);
-          if (limit !== undefined) {
-            const keys = rows.map((row) => ctx.schema.identity(model, row));
-            const budget = ctx.driver.maxBindParametersPerStatement;
-            const bound = keys.length * ctx.schema.keys(model).length;
-            if (budget === undefined || bound <= budget / 2)
-              window = queries.includeIdentities(model, keys);
-            else {
-              window = queries.through(model, keys.at(-1)!);
-              effectLimit = limit;
-            }
+          const exact = queries.includeIdentities(
+            model,
+            rows.map((row) => ctx.schema.identity(model, row))
+          );
+          const budget = ctx.driver.maxBindParametersPerStatement;
+          const fits =
+            budget === undefined ||
+            (locked(this.blocked(exact)!, 1).sql.values.length <= budget &&
+              (queries.lowerSelector(exact)?.values.length ?? 0) +
+                effectBinds() <=
+                budget);
+          if (fits || rows.length === 0) taken = exact;
+          else {
+            // Too long to bind as keys: the candidates up to the last locked
+            // key, and the effect keeps the limit, so a row that becomes a
+            // candidate below that key after the lock still cannot make the
+            // count exceed it.
+            taken = queries.andSelectors(model, [
+              candidates,
+              queries.through(model, ctx.schema.identity(model, rows.at(-1)!)),
+            ]);
+            effectLimit = limit;
           }
-        } else if (limit !== undefined)
-          window = queries.window(candidates, limit);
-        const within = (selector: PreparedSelector) =>
-          window ? queries.andSelectors(model, [selector, window]) : selector;
-        const query = locked(within(blocked), 1);
+        } else if (
+          !ctx.usesBatch &&
+          ctx.driver.adapter.capabilities.supportsRowLocks
+        )
+          await ctx.read(queries.lockAll(candidates), true);
+        const query = locked(this.blocked(taken)!, 1);
         // A packaged array member states it inside the array's atomic unit.
         if (ctx.preparesBatch)
           ctx.packageGuard(model, query.sql, "notExists", failure);
         else await ctx.requireAbsent(query, this.restrictFailure(model)());
-        return effect(within(candidates), effectLimit);
+        return effect(taken, effectLimit);
       },
     };
   }
@@ -2005,8 +2024,19 @@ export class Commands {
             ctx.deleteMany(model, selector, args.limit, projection, missing),
         };
       const values = tombstone.admitted;
-      return this.#unreferenced(selector, args.limit, single, (window, limit) =>
-        ctx.updateMany(model, window, values, limit, projection, missing)
+      return this.#unreferenced(
+        selector,
+        args.limit,
+        single,
+        () => {
+          let assigned = 0;
+          for (const [field, value] of Object.entries(values))
+            assigned += ctx.queries.updateAssignment(model, field, value).values
+              .length;
+          return assigned;
+        },
+        (window, limit) =>
+          ctx.updateMany(model, window, values, limit, projection, missing)
       );
     }
     if (ctx.operation === "upsert") {

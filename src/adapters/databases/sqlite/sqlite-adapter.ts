@@ -706,6 +706,7 @@ const SQLITE_CAPABILITIES = {
   // UPDATE/DELETE ... LIMIT needs SQLITE_ENABLE_UPDATE_DELETE_LIMIT, which is
   // off in the builds this project targets (better-sqlite3, libSQL, D1).
   supportsMutationRowLimit: false,
+  supportsRowLocks: false,
 };
 
 const SQLITE_RESULT: AdapterResultParser = {

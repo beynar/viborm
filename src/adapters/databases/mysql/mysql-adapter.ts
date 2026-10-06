@@ -969,6 +969,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     // only portable spelling here: the PK-subquery form would re-read the
     // mutated table and trip the same ERROR 1093 as above.
     supportsMutationRowLimit: true,
+    supportsRowLocks: true,
   };
 
   lastInsertId = (): Sql => sql.raw`LAST_INSERT_ID()`;
