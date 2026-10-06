@@ -11,3 +11,8 @@ updates:
     schedule:
       interval: monthly
     open-pull-requests-limit: 5
+    ignore:
+      # Types follow the oldest supported Node (engines >=22): a newer major
+      # brings APIs, and undici types, that Node 22 does not have.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
