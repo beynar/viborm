@@ -255,7 +255,7 @@
     "typescript": "5.9.3",
     "typescript-5-8": "npm:typescript@5.8.3",
     "typescript-native": "npm:typescript@7.0.2",
-    "ultracite": "7.0.6",
+    "ultracite": "7.0.10",
     "valibot": "^1.2.0",
     "vitest": "^3.1.4",
     "wrangler": "4.44.0",
