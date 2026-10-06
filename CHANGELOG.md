@@ -11,14 +11,15 @@ Versioning.
   all their keys into memory. PostgreSQL and MySQL now take the same locks
   with one counted row back; SQLite, which has no row locks, skips the read.
   A `deleteMany` with `select` still reads one key per row it returns.
-- **Fixed: a limited soft delete fits the bind budget where it can.** A soft
-  `deleteMany` with `limit` and a long `in` list chose its window of locked
-  keys by a share of the bind budget and could fail with "needs N bound
-  values, above the verified limit". The window is now chosen by metering the
-  compiled statements, including the keys a selected result re-reads without
-  `RETURNING`, and falls back to the key range when the keys do not fit. In an
-  array transaction the window is SQL beside the caller's filter, which is
-  then bound twice; past the budget it is refused before anything is written.
+- **Fixed: a limited soft delete checks every value its statements bind.** A
+  soft `deleteMany` with `limit` chose its window of locked keys by counting
+  the keys alone, so a long `in` list or a selected result re-read by key
+  without `RETURNING` (MySQL) could still fail with "needs N bound values,
+  above the verified limit". The keys are still capped at half the bind
+  budget, and the compiled statements, with everything they bind, are now
+  checked too; past either, the window is the key range. In an array
+  transaction the window is SQL beside the caller's filter, which is then
+  bound twice; past the budget it is refused before anything is written.
 - **Fixed: a mutable control value no longer keys shared state.** A control
   value holding a `Date` or bytes, or a frozen object whose getter changes its
   answer, could key a row filter or a cached read whose value then changed

@@ -1693,10 +1693,11 @@ export class Commands {
    * delete of those same rows, which every limited write takes in that order
    * too (`Queries.lowerMutationLimit`). An interactive session
    * READS the window — the lock below, limited — and both statements take
-   * exactly the rows it locked, by key. Where either statement, compiled with
-   * those keys, would pass the driver's bind budget (SQLite's 999 at the
-   * chunked-delete idiom's 1000, or a caller's own long `in` list), the window
-   * is the candidates up to its last key instead ({@link Queries.through},
+   * exactly the rows it locked, by key. Where the keys pass half the driver's
+   * bind budget (counted before compiling: SQLite's 999 at the chunked-delete
+   * idiom's 1000), or either statement, compiled with them, would pass the
+   * budget (a caller's own long `in` list), the window is the candidates up to
+   * its last key instead ({@link Queries.through},
    * one bound value per key column) and the effect keeps the limit, so a row
    * that becomes a candidate below that key after the lock still cannot make
    * the count exceed it. A batch states the window in SQL in both
@@ -1760,21 +1761,32 @@ export class Commands {
           // candidates' own predicates: a lock holds the row, not the related
           // rows a filter or a row domain reads.
           const rows = await ctx.read(locked(candidates, limit), true);
-          const exact = queries.andSelectors(model, [
-            candidates,
-            queries.includeIdentities(
-              model,
-              rows.map((row) => ctx.schema.identity(model, row))
-            ),
-          ]);
+          // Counted before anything is compiled: the keys alone may not pass
+          // half the budget (the premise and the effect each bind them), and
+          // a set of key equalities nests one level per key, so this also
+          // keeps it within a compiler's expression depth (SQLite's 1000).
           const budget = ctx.driver.maxBindParametersPerStatement;
-          const fits =
+          const keyed =
             budget === undefined ||
-            (locked(this.blocked(exact)!, 1).sql.values.length <= budget &&
-              (queries.lowerSelector(exact)?.values.length ?? 0) +
-                effectBinds(rows.length) <=
-                budget);
-          if (fits || rows.length === 0) taken = exact;
+            rows.length * ctx.schema.keys(model).length <= budget / 2;
+          const exact = keyed
+            ? queries.andSelectors(model, [
+                candidates,
+                queries.includeIdentities(
+                  model,
+                  rows.map((row) => ctx.schema.identity(model, row))
+                ),
+              ])
+            : undefined;
+          // Then the compiled statements, with all they bind beside the keys.
+          const fits =
+            exact !== undefined &&
+            (budget === undefined ||
+              (locked(this.blocked(exact)!, 1).sql.values.length <= budget &&
+                (queries.lowerSelector(exact)?.values.length ?? 0) +
+                  effectBinds(rows.length) <=
+                  budget));
+          if (exact && (fits || rows.length === 0)) taken = exact;
           else {
             // Too long to bind as keys: the candidates up to the last locked
             // key, and the effect keeps the limit, so a row that becomes a

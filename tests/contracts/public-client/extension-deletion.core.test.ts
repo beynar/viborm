@@ -479,17 +479,16 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
     ]);
   });
 
-  // The compiled statements are the meter, not a share of the budget: 600
-  // keys still fit SQLite's 999 with what else both statements bind, so the
-  // window stays exact and a row restored below it after the lock is not taken.
-  test("a window within the bind budget takes exactly its locked keys, however many", async () => {
+  // Within half the budget, and with what else both statements bind, the
+  // window stays exact: a row restored below it after the lock is not taken.
+  test("a window within the bind budget takes exactly its locked keys", async () => {
     const driver = new AfterLockSQLite3Driver();
     const { base, db } = await fixture(driver);
     await base.post.create({
       data: { id: 5000, authorId: 1, title: "p5000", deletedAt: new Date(0) },
     });
     await base.post.createMany({
-      data: Array.from({ length: 600 }, (_, index) => ({
+      data: Array.from({ length: 400 }, (_, index) => ({
         id: 5001 + index,
         authorId: 1,
         title: `p${5001 + index}`,
@@ -497,8 +496,8 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
     });
     driver.afterRead = 'UPDATE "post" SET "deletedAt" = NULL WHERE "id" = 5000';
     expect(
-      await db.post.deleteMany({ where: { id: { gte: 5000 } }, limit: 600 })
-    ).toEqual({ count: 600 });
+      await db.post.deleteMany({ where: { id: { gte: 5000 } }, limit: 400 })
+    ).toEqual({ count: 400 });
     expect(
       await base.post.findMany({
         where: { id: { gte: 5000 }, deletedAt: null },
@@ -535,5 +534,25 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
         select: { id: true },
       })
     ).toEqual([{ id: 6000 }]);
+  });
+
+  // A set of key equalities nests one level per key: 995 keys, a one-value
+  // filter and the tombstone's three assignments fit SQLite's 999 bound
+  // values exactly, but not its expression depth of 1000. The keys are
+  // counted against half the budget before anything is compiled, so the
+  // window takes the key range instead.
+  test("a window of keys past half the budget is never compiled", async () => {
+    const { base, db } = await fixture();
+    await base.author.create({ data: { id: 9, name: "a9" } });
+    await base.post.createMany({
+      data: Array.from({ length: 995 }, (_, index) => ({
+        id: 7000 + index,
+        authorId: 9,
+        title: `d${index}`,
+      })),
+    });
+    expect(
+      await db.post.deleteMany({ where: { authorId: 9 }, limit: 995 })
+    ).toEqual({ count: 995 });
   });
 });

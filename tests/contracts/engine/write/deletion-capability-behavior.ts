@@ -1009,9 +1009,9 @@ export function runDeletionCapabilityBehavior(
     });
 
     // Without RETURNING a selected result is re-read by key, and its write
-    // binds the captured keys beside its selector: a window of 600 locked
-    // keys would bind them twice, past SQLite's 999, so it takes the
-    // candidates up to its last key instead.
+    // binds the captured keys beside its selector: a window of 499 locked
+    // keys, within half of SQLite's 999, would bind them twice past it, so it
+    // takes the candidates up to its last key instead.
     test("a selected limited deleteMany counts the keys its re-read binds", async () => {
       const { base, db } = context;
       await base.post.createMany({
@@ -1023,17 +1023,17 @@ export function runDeletionCapabilityBehavior(
       });
       const deleted = await db.post.deleteMany({
         where: { id: { gte: 4000 } },
-        limit: 600,
+        limit: 499,
         select: { id: true },
       });
       expect(deleted.map((row) => row.id)).toEqual(
-        Array.from({ length: 600 }, (_, index) => 4000 + index)
+        Array.from({ length: 499 }, (_, index) => 4000 + index)
       );
       expect(
         await base.post.count({
           where: { id: { gte: 4000 }, deletedAt: null },
         })
-      ).toBe(100);
+      ).toBe(201);
     });
 
     // Owner ruling (2026-10-02): a limited deleteMany takes the first `limit`

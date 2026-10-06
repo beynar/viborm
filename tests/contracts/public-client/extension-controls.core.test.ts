@@ -1228,15 +1228,20 @@ describe("controls: rows bound to the call", () => {
     expect(fixed.tags).toEqual(["a"]);
     expect(isStableControlValue(fixed)).toBe(true);
     expect(isStableControlValue(given)).toBe(false);
-    // A Date or bytes stay writable through `freeze` (`setTime`, an indexed
-    // write): such a copy is the call's own, never stable.
-    for (const leaf of [new Date(0), new Uint8Array([1])]) {
-      const copied = snapshotControlValue({ leaf }) as { leaf: unknown };
-      expect(copied.leaf).toEqual(leaf);
-      expect(copied.leaf).not.toBe(leaf);
-      expect(isStableControlValue(copied)).toBe(false);
-      expect(isStableControlValue(snapshotControlValue(leaf))).toBe(false);
-    }
+    // A Date stays writable through `freeze` (`setTime`): its copy is the
+    // call's own, never stable.
+    const dated = snapshotControlValue({ at: new Date(0) }) as { at: Date };
+    expect(dated.at).toEqual(new Date(0));
+    expect(isStableControlValue(dated)).toBe(false);
+    expect(isStableControlValue(snapshotControlValue(new Date(0)))).toBe(false);
+    // Bytes too, and their properties are one per byte: kept as given,
+    // unread, however large.
+    const bytes = new Uint8Array(1024 * 1024).fill(7);
+    expect(snapshotControlValue(bytes)).toBe(bytes);
+    expect(isStableControlValue(bytes)).toBe(false);
+    const carrying = { payload: bytes };
+    expect(snapshotControlValue(carrying)).toBe(carrying);
+    expect(isStableControlValue(carrying)).toBe(false);
     // A getter's answer is only known by calling it, and it may answer anew:
     // kept as given, unstable, whatever it returns.
     let tenant = "acme";
@@ -1292,7 +1297,7 @@ describe("controls: rows bound to the call", () => {
     const frozen = Object.freeze({ list: Object.freeze(["x"]) });
     expect(snapshotControlValue(frozen)).toBe(frozen);
     expect(isStableControlValue(frozen)).toBe(true);
-    // A frozen record holding a Date or bytes is copied: those stay mutable.
+    // A frozen record holding a Date is copied: a Date stays mutable.
     const holder = Object.freeze({ at: new Date(0) });
     expect(snapshotControlValue(holder)).not.toBe(holder);
     // No canonical spelling, or no copy: kept as given, never stable.

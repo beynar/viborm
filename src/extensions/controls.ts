@@ -415,8 +415,8 @@ const snapshots = new WeakSet<object>();
  * (a non-enumerable or symbol property, which `structuredClone` drops; a
  * getter, whose answer only calling it shows), one that resists inspection,
  * one with no canonical spelling, or one that cannot be copied (a Proxy), is
- * kept as given; a copy that still holds a `Date` or a typed array is kept but not
- * stable, because `freeze` cannot fix them (`setTime`, an indexed write). In
+ * kept as given, as are bytes (an indexed write survives `freeze`); a copy
+ * that still holds a `Date` is kept but not stable (`setTime` survives it). In
  * those cases the call binds the value for itself alone and its read is not
  * cached.
  */
@@ -447,23 +447,22 @@ export function snapshotControlValue(value: unknown): unknown {
 
 /**
  * How an admitted value can be held: `fixed` when nothing reachable from it
- * can change (frozen own data properties only, no `Date` or typed array),
- * `copy` when a copy reproduces it (enumerable string-keyed data
- * properties), `opaque` when a copy might not (a non-enumerable or symbol
- * property, or a getter, never called here).
+ * can change (frozen own data properties only, no `Date`), `copy` when a
+ * copy reproduces it (enumerable string-keyed data properties), `opaque`
+ * when a copy might not (a non-enumerable or symbol property, or a getter,
+ * never called here) or would not fix it (bytes).
  */
 function captureOf(
   value: object,
   seen: WeakSet<object>
 ): "fixed" | "copy" | "opaque" {
+  // Bytes are never stable (an indexed write survives `freeze`), and their
+  // own properties are one per byte: kept as given, unread.
+  if (ArrayBuffer.isView(value)) return "opaque";
   if (seen.has(value)) return "fixed";
   seen.add(value);
   let capture: "fixed" | "copy" =
-    ArrayBuffer.isView(value) ||
-    value instanceof Date ||
-    !Object.isFrozen(value)
-      ? "copy"
-      : "fixed";
+    value instanceof Date || !Object.isFrozen(value) ? "copy" : "fixed";
   const array = Array.isArray(value);
   for (const key of Reflect.ownKeys(value)) {
     if (array && key === "length") continue;
@@ -485,7 +484,7 @@ function captureOf(
 
 /** Freeze a private copy; answer whether nothing in it can still change. */
 function freezeCopy(value: object): boolean {
-  if (ArrayBuffer.isView(value) || value instanceof Date) return false;
+  if (value instanceof Date) return false;
   let fixed = true;
   for (const entry of Object.values(value))
     if (typeof entry === "object" && entry !== null && !freezeCopy(entry))
