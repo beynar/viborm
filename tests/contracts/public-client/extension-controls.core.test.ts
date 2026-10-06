@@ -1237,20 +1237,33 @@ describe("controls: rows bound to the call", () => {
       expect(isStableControlValue(copied)).toBe(false);
       expect(isStableControlValue(snapshotControlValue(leaf))).toBe(false);
     }
-    // A frozen record whose getter answers anew is copied, read once: the
-    // copy keeps that one answer and is stable.
+    // A getter's answer is only known by calling it, and it may answer anew:
+    // kept as given, unstable, whatever it returns.
     let tenant = "acme";
     const live = Object.freeze({
       get tenant() {
         return tenant;
       },
     });
-    const read = snapshotControlValue(live) as { tenant: string };
-    expect(read).not.toBe(live);
+    expect(snapshotControlValue(live)).toBe(live);
     tenant = "globex";
-    expect(read.tenant).toBe("acme");
-    expect(isStableControlValue(read)).toBe(true);
+    expect(live.tenant).toBe("globex");
     expect(isStableControlValue(live)).toBe(false);
+    // A Proxy that answers the canonical check and then refuses reflection
+    // is kept as given rather than failing the call.
+    let reflections = 0;
+    const fickle = new Proxy(
+      { tenant: "a" },
+      {
+        ownKeys(target) {
+          reflections += 1;
+          if (reflections > 1) throw new Error("no longer reflectable");
+          return Reflect.ownKeys(target);
+        },
+      }
+    );
+    expect(snapshotControlValue(fickle)).toBe(fickle);
+    expect(isStableControlValue(fickle)).toBe(false);
     // A copy drops non-enumerable properties, so a value holding one is kept
     // as given, unstable: a getter's answer and a cycle through it survive.
     const hidden = Object.freeze(

@@ -1747,8 +1747,14 @@ export class Commands {
         // candidates, the first `limit` in key order (`Queries.select`).
         let taken = candidates;
         let effectLimit: number | undefined;
+        // A batch's window is SQL beside the candidates: the write re-checks
+        // both on a row a concurrent writer changed (READ COMMITTED), so the
+        // window alone would take a row that no longer matches.
         if (limit !== undefined && ctx.usesBatch)
-          taken = queries.window(candidates, limit);
+          taken = queries.andSelectors(model, [
+            candidates,
+            queries.window(candidates, limit),
+          ]);
         else if (limit !== undefined) {
           // The effect takes exactly the rows the lock took, still under the
           // candidates' own predicates: a lock holds the row, not the related

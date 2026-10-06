@@ -44,6 +44,8 @@ const POST_READ =
   /^\s*SELECT\b[\s\S]*\bFROM\s+(?:["`]?\w+["`]?\.)?["`]?post["`]?/i;
 const COUNTED_LOCK = /COUNT\(\*\)[\s\S]*\bFOR UPDATE\b/i;
 const LIMITED = /\bLIMIT\b/i;
+const TITLE_FILTER = /["`]?title["`]?(?:\s+COLLATE\s+\w+)?\s*=\s*\?/gi;
+const WINDOW_READ = /\bIN\s*\(\s*SELECT\b/gi;
 /** An UPDATE whose SET starts with the marker: a tombstone write. */
 const TOMBSTONE_WRITE = /^\s*UPDATE\s+\S+\s+SET\s+["`]?deletedAt\b/i;
 const ACTOR = "actor-1";
@@ -942,10 +944,35 @@ export function runDeletionCapabilityBehavior(
         if (!COUNTED_LOCK.test(read.sql)) expect(read.sql).toMatch(LIMITED);
     });
 
+    // A batch states its window in SQL. The write keeps the caller's filter
+    // beside it, outside the window's own read: under READ COMMITTED a
+    // row a concurrent writer changed is re-checked against the outer
+    // predicates only, so the window alone would take a row that no longer
+    // matches.
+    test("a batched limited deleteMany keeps its filter beside the window", async () => {
+      const { db } = context;
+      statements.length = 0;
+      expect(
+        await db.$transaction([
+          db.post.deleteMany({ where: { title: "p14" }, limit: 1 }),
+        ])
+      ).toEqual([{ count: 1 }]);
+      const [write] = statements.filter((statement) =>
+        TOMBSTONE_WRITE.test(statement.sql)
+      );
+      // Once outside, and once inside each window read (an interactive
+      // transport names its locked keys instead, beside the same filter).
+      const windows = write!.sql.match(WINDOW_READ)?.length ?? 0;
+      expect(write!.sql.match(TITLE_FILTER)).toHaveLength(windows + 1);
+    });
+
     // A window of locked keys rides both statements only where both still fit
     // the bind budget with everything else they bind: here a caller's own
-    // 800-value `in` list, which with 400 keys passes SQLite's 999.
-    test("a limited deleteMany over a long `in` list fits the bind budget", async () => {
+    // 800-value `in` list, which with 400 keys passes SQLite's 999, so the
+    // window is the candidates up to the last locked key. A batch states its
+    // window in SQL beside the candidates, binding the list twice: past the
+    // budget it is refused before anything is written.
+    test("a limited deleteMany over a long `in` list fits the bind budget, or is refused before writing", async () => {
       const { base, db } = context;
       await base.post.createMany({
         data: Array.from({ length: 800 }, (_, index) => ({
@@ -957,6 +984,13 @@ export function runDeletionCapabilityBehavior(
       const where = {
         id: { in: Array.from({ length: 800 }, (_, index) => 4000 + index) },
       };
+      if (!base.$driver.supportsTransactions) {
+        expect(
+          await failure(db.post.deleteMany({ where, limit: 400 }))
+        ).toMatchObject({ message: expect.stringContaining("bound values") });
+        expect(await base.post.count({ where: { deletedAt: null } })).toBe(806);
+        return;
+      }
       expect(await db.post.deleteMany({ where, limit: 400 })).toEqual({
         count: 400,
       });

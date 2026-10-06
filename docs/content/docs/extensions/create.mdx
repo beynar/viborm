@@ -295,8 +295,9 @@ await db.post.update({ where: { id }, data: { title }, reason: "typo" });
   or one another extension declares.
 - The official [cache](/docs/extensions/cache) declares its mutation `cache`
   option this way. A cached read is keyed on the controls it received. A
-  value holding a `Date` or bytes is never part of a key: both stay writable
-  after the call takes them, so a read with such a control always runs.
+  value holding a `Date`, bytes, a getter or a non-enumerable property is
+  never part of a key: VibORM cannot fix such a value when the call takes it,
+  so a read with such a control always runs.
 
 ## Choose visible rows with `rows`
 

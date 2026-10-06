@@ -412,9 +412,10 @@ const snapshots = new WeakSet<object>();
  * filters bind, the key its cached read is stored under, its handlers) reads
  * the same value whatever the caller later does to its own. A value already
  * fixed all the way down is kept by identity. A value a copy would change
- * (a non-enumerable or symbol property, which `structuredClone` drops), one
- * with no canonical spelling, or one that cannot be copied (a Proxy), is kept
- * as given; a copy that still holds a `Date` or a typed array is kept but not
+ * (a non-enumerable or symbol property, which `structuredClone` drops; a
+ * getter, whose answer only calling it shows), one that resists inspection,
+ * one with no canonical spelling, or one that cannot be copied (a Proxy), is
+ * kept as given; a copy that still holds a `Date` or a typed array is kept but not
  * stable, because `freeze` cannot fix them (`setTime`, an indexed write). In
  * those cases the call binds the value for itself alone and its read is not
  * cached.
@@ -422,7 +423,13 @@ const snapshots = new WeakSet<object>();
 export function snapshotControlValue(value: unknown): unknown {
   if (typeof value !== "object" || value === null) return value;
   if (!isCanonicalKeyData(value)) return value;
-  const capture = captureOf(value, new WeakSet());
+  let capture: ReturnType<typeof captureOf>;
+  try {
+    capture = captureOf(value, new WeakSet());
+  } catch {
+    // A Proxy may answer the canonical check and refuse a later reflection.
+    return value;
+  }
   if (capture === "opaque") return value;
   if (capture === "fixed") {
     snapshots.add(value);
@@ -441,9 +448,9 @@ export function snapshotControlValue(value: unknown): unknown {
 /**
  * How an admitted value can be held: `fixed` when nothing reachable from it
  * can change (frozen own data properties only, no `Date` or typed array),
- * `copy` when a copy reproduces it (enumerable string-keyed properties, a
- * getter read once), `opaque` when a copy would not (a non-enumerable or
- * symbol property). Descriptors are read, never values through a getter.
+ * `copy` when a copy reproduces it (enumerable string-keyed data
+ * properties), `opaque` when a copy might not (a non-enumerable or symbol
+ * property, or a getter, never called here).
  */
 function captureOf(
   value: object,
@@ -461,11 +468,12 @@ function captureOf(
   for (const key of Reflect.ownKeys(value)) {
     if (array && key === "length") continue;
     const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
-    if (typeof key === "symbol" || !descriptor.enumerable) return "opaque";
-    if (!("value" in descriptor)) {
-      capture = "copy";
-      continue;
-    }
+    if (
+      typeof key === "symbol" ||
+      !descriptor.enumerable ||
+      !("value" in descriptor)
+    )
+      return "opaque";
     const entry: unknown = descriptor.value;
     if (typeof entry !== "object" || entry === null) continue;
     const inner = captureOf(entry, seen);

@@ -11,18 +11,20 @@ Versioning.
   all their keys into memory. PostgreSQL and MySQL now take the same locks
   with one counted row back; SQLite, which has no row locks, skips the read.
   A `deleteMany` with `select` still reads one key per row it returns.
-- **Fixed: a limited soft delete fits the bind budget.** A soft `deleteMany`
-  with `limit` and a long `in` list could fail with "needs N bound values,
-  above the verified limit" on SQLite and the batch-only drivers: the batch
-  window restated the caller's filter in both statements. It is now stated
-  once, and the window of locked keys is chosen by metering the compiled
-  statements, including the keys a selected result re-reads without
-  `RETURNING`.
+- **Fixed: a limited soft delete fits the bind budget where it can.** A soft
+  `deleteMany` with `limit` and a long `in` list chose its window of locked
+  keys by a share of the bind budget and could fail with "needs N bound
+  values, above the verified limit". The window is now chosen by metering the
+  compiled statements, including the keys a selected result re-reads without
+  `RETURNING`, and falls back to the key range when the keys do not fit. In an
+  array transaction the window is SQL beside the caller's filter, which is
+  then bound twice; past the budget it is refused before anything is written.
 - **Fixed: a mutable control value no longer keys shared state.** A control
   value holding a `Date` or bytes, or a frozen object whose getter changes its
   answer, could key a row filter or a cached read whose value then changed
-  under it. Such a value now binds its row filters for its call alone and its
-  read is not cached.
+  under it. Such a value, and one holding a getter or a non-enumerable
+  property, now binds its row filters for its call alone and its read is not
+  cached.
 - **Fixed: a dropped `pg` connection no longer ends the process.** While a
   `$transaction` (or a migration's reserved session) held a pooled client,
   nothing listened to that client's `error` event: a server restart, failover
