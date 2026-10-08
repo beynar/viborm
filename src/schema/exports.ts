@@ -29,6 +29,7 @@ export { s } from "./index";
 // Model and scalar types for advanced usage
 export type { AnyModel, Model, ModelShape, ModelState } from "./model";
 export type {
+  InitialModelState,
   ModelInternal,
   UpdateState as ModelUpdateState,
 } from "./model/model";

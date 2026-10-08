@@ -413,8 +413,8 @@ describe("G3P-04 review regressions", () => {
       );
       assert.deepEqual(
         tape,
-        ["SELECT", "INSERT"],
-        "Borrowed execution cannot reselect the winner, update it, or replay the operation"
+        ["INSERT"],
+        "Native upsert does not probe, reselect, update again, or replay on failure"
       );
       assert.equal(
         admissions,

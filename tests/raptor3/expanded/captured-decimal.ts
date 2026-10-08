@@ -1,6 +1,9 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
+import { sqliteDecimalCheck } from "@adapters/databases/sqlite/storage/decimal";
 import { createClient } from "@client/client";
 import { s } from "@schema";
+import { createIdentifierQuoter } from "@src/sql/identifiers";
 import type { ScenarioDefinition } from "../harness/protocol";
 
 export const capturedDecimalScenario: ScenarioDefinition = {
@@ -31,6 +34,14 @@ export const capturedDecimalScenario: ScenarioDefinition = {
       })
       .map("g1_cd_notes");
     const schema = { account, note };
+    const quote = createIdentifierQuoter('"');
+    const check = (column: string) =>
+      sqliteDecimalCheck(
+        { name: column, nullable: false },
+        { precision: 12, scale: 2 },
+        "scalar",
+        quote
+      );
     const args = {
       where: { id: "10" },
       data: { notes: { create: { id: 1, label: "New" } } },
@@ -39,19 +50,19 @@ export const capturedDecimalScenario: ScenarioDefinition = {
     const initial = {
       accounts: [
         { id: 1000, code: 250, label: "Exact" },
-        { id: 100000, code: 25000, label: "Coefficient namesake" },
+        { id: 100_000, code: 25_000, label: "Coefficient namesake" },
       ],
-      notes: [{ id: 7, label: "Untouched", accountCode: 25000 }],
+      notes: [{ id: 7, label: "Untouched", accountCode: 25_000 }],
     };
     return {
       publicInput: { model: "account", operation: "update", args },
       requiredCuts: [],
       seed(database) {
         database.exec(`
-          CREATE TABLE g1_cd_accounts(id INTEGER PRIMARY KEY,code INTEGER NOT NULL UNIQUE,label TEXT NOT NULL);
-          CREATE TABLE g1_cd_notes(id INTEGER PRIMARY KEY,label TEXT NOT NULL,accountCode INTEGER NOT NULL REFERENCES g1_cd_accounts(code));
-          INSERT INTO g1_cd_accounts VALUES(1000,250,'Exact'),(100000,25000,'Coefficient namesake');
-          INSERT INTO g1_cd_notes VALUES(7,'Untouched',25000);
+          CREATE TABLE g1_cd_accounts(id INTEGER PRIMARY KEY ${check("id")},code INTEGER NOT NULL UNIQUE ${check("code")},label TEXT NOT NULL);
+          CREATE TABLE g1_cd_notes(id INTEGER PRIMARY KEY,label TEXT NOT NULL,accountCode INTEGER NOT NULL ${check("accountCode")} REFERENCES g1_cd_accounts(code));
+          INSERT INTO g1_cd_accounts VALUES(1000,250,'Exact'),(100_000,25_000,'Coefficient namesake');
+          INSERT INTO g1_cd_notes VALUES(7,'Untouched',25_000);
         `);
       },
       async invoke(driver, candidateFactory) {

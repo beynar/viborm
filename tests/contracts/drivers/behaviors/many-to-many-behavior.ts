@@ -454,13 +454,7 @@ export function runManyToManyBehavior({
       expect(await tagIdsOf("p1")).toEqual([]);
     });
 
-    // RETARGETED by N6-U3 (own-write linearization, ATOM §4.1), from a rejection to an
-    // accept-and-execute assertion on the SAME payload, on every driver leg. `connect`
-    // reads nothing, so it is a stage-3 pure adder ordered AFTER the junction's
-    // `deleteMany`, whose filter is therefore resolved against committed membership —
-    // t2 is not a member when the removal runs, so tag-2 survives and the sibling
-    // `connect` then attaches it. The rejection this replaced was the legality
-    // derivation walking an order the engine did not execute.
+    // V1 requires the payload to spell its clearing phase before adding.
     test("connect lands after a deleteMany that cannot see it", async () => {
       const c = requireClient(client);
       await c.post.update({
@@ -472,8 +466,8 @@ export function runManyToManyBehavior({
         where: { id: "p1" },
         data: {
           tags: {
-            connect: { id: "t2" },
             deleteMany: { name: "tag-2" },
+            connect: { id: "t2" },
           },
         },
       });

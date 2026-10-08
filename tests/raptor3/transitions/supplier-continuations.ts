@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { createClient } from "@client/client";
@@ -253,12 +254,18 @@ export const supplierContinuationScenarios: ScenarioDefinition[] = cases.map(
               : "Cannot update relation 'badge': target record was not found for this parent."
           );
           assert(failure.meta !== null && typeof failure.meta === "object");
-          if (uniqueFailure)
+          if (uniqueFailure) {
+            assert.equal(
+              "table" in failure.meta ? failure.meta.table : undefined,
+              "g2_supplier_badges",
+              "The modifier must fail on the requested target table"
+            );
             assert.deepEqual(
               "columns" in failure.meta ? failure.meta.columns : undefined,
-              ["g2_supplier_badges.id"],
+              ["id"],
               "The modifier must fail on the requested target key, not on supplier occupancy"
             );
+          }
           const progress =
             "recordSeriesProgress" in failure.meta
               ? failure.meta.recordSeriesProgress

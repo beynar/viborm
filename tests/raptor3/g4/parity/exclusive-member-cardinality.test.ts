@@ -336,7 +336,7 @@ for (const [route, make] of [
           where: { warehouseId: "w1" },
           data: {
             label: "written",
-            items: { connect: [], connectOrCreate: [], set: [] },
+            items: { set: [], connect: [], connectOrCreate: [] },
           },
         }),
         { count: 2 }

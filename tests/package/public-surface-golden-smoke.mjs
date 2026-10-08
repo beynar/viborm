@@ -225,7 +225,7 @@ try {
   });
   assert.throws(() => new MemoryCache(hostileClock));
   assert.equal(hostileReads, 0);
-  assert.throws(() => new MemoryCache(undefined));
+  assert.ok(new MemoryCache(undefined) instanceof MemoryCache);
 
   const { PostgresAdapter } = runtimeNamespaces.get("./adapters");
   class ExternalPostgresAdapter extends PostgresAdapter {}

@@ -392,3 +392,38 @@ An empty SQL-only mock result now pins the returning fast-create V2006 QueryErro
 (the query owner corrected its missing-result callback), the existing MySQL
 fallback category, and a createMany count of zero. No provider effect is claimed
 for these SQL-only fixtures.
+
+## Final native MySQL follow-through
+
+A fresh local MySQL **8.4.11** reproduces and then qualifies the final enum fix.
+The initial CREATE and raw default insertion already worked; widening the enum
+failed with provider errno **1067**, invalid default for `kind`. The shared inline
+enum reader had treated MySQL's escaped literal spelling as logical values, so
+the ALTER doubled backslashes a second time while retaining the correctly
+encoded default. The existing MySQL catalog inverse now lives with its literal
+writer in type-mapping and serves both catalog admission and inline-enum diffing.
+SQLite's quote-only carrier retains ordinary backslashes. There is one physical
+escape table and no new public enum language.
+
+Both intact escaped/Unicode/trailing-backslash provider witnesses, seven
+namespace containment cases, and the spatial-index plan case pass **10/10**,
+**5.17s / 630.7 MiB**, teardown verified
+(`/tmp/viborm-v1-mysql-enum-namespace-final.log`). The plan case executes all three
+positive and two negative predicates against the same key/range oracles. MySQL's
+actual range table appears below `query_block.ordering_operation.table` after
+deterministic ordering; the fixture now reads that actual node and asserts it
+exists. The second-database namespace setup explicitly selects `ns_notes`,
+preserving the separately owned sentinel.
+
+The focused codec regression and physical type mapping suite pass **93 distinct
+cases**, executed in both migration projects (**186/186** executions),
+**5.45s / 553.5 MiB**, teardown verified
+(`/tmp/viborm-v1-mysql-enum-codec-core.log`). Current fixed-scope source is
+**30,925 → 32,774 (+1,849; 5.98%)** against the same integrated
+review revision and owners.
+
+The D1 scalar fixtures were corrected without changing runtime admission: their
+reserved decimal checks now come from the existing exact physical writer, and
+the CUID default requests generation explicitly. Actual D1 qualification is
+queued with the query owner's remaining fixture corrections. Documentation
+validate/build also remain queued behind package qualification.

@@ -1,4 +1,5 @@
 import { MigrationError, VibORMErrorCode } from "../../errors";
+import { parseMySqlEnumValues } from "../drivers/type-mapping";
 import { validateResolveResult } from "../resolver";
 import {
   createEnumValueRemovalChange,
@@ -15,6 +16,8 @@ const INLINE_ENUM_TOKEN =
 export function inlineEnumValues(type: string): string[] | undefined {
   const match = INLINE_ENUM_TOKEN.exec(type.trim());
   if (!match?.[1]) return;
+  if (type.trim().toLowerCase().startsWith("enum("))
+    return parseMySqlEnumValues(type) ?? undefined;
   return Array.from(match[1].matchAll(/'((?:[^']|'')*)'/g), (item) =>
     item[1]!.replaceAll("''", "'")
   );

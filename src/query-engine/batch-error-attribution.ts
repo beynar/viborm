@@ -101,6 +101,17 @@ export async function attributeOperationBatchError(
     }
     return error;
   }
+  if (
+    guards.length > 0 &&
+    batchMayContainAssertionCollision(
+      statements,
+      driver.dialect,
+      new Set(guards.map((guard) => guard.queryIndex))
+    )
+  ) {
+    // A failed premise after rollback does not identify which statement failed.
+    return error;
+  }
   for (const guard of guards) {
     const result = await driver._execute(
       guard.probe,
@@ -113,9 +124,9 @@ export async function attributeOperationBatchError(
   }
   const [candidate] = guards;
   if (candidate) {
-    const attributable =
-      guards.every((guard) => sameAttribution(guard, candidate)) &&
-      !batchMayContainAssertionCollision(statements, driver.dialect);
+    const attributable = guards.every((guard) =>
+      sameAttribution(guard, candidate)
+    );
     return attributable
       ? createFailureError(
           candidate.failure,

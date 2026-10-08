@@ -166,36 +166,6 @@ export class RelationBody {
       parent.model["~"].state.relations[name]!["~"].state.cardinality === "many"
         ? collectionMutationOrder
         : mutationOrder;
-    if (order === collectionMutationOrder) {
-      let adding: string | undefined;
-      for (const verb of Object.keys(rawMutation)) {
-        if (rawMutation[verb] === undefined) continue;
-        if (
-          [
-            "upsert",
-            "connectOrCreate",
-            "connect",
-            "create",
-            "createMany",
-          ].includes(verb)
-        )
-          adding ??= verb;
-        else if (
-          adding &&
-          ["disconnect", "delete", "set", "updateMany", "deleteMany"].includes(
-            verb
-          )
-        ) {
-          parent.fields.reject(
-            new NestedWriteError(
-              `Relation '${name}' must spell clearing verb '${verb}' before adding verb '${adding}'.`,
-              name
-            )
-          );
-          return;
-        }
-      }
-    }
     const bound = new Map<string | undefined, Membership>();
     const membership = (variant?: string) => {
       let edge = bound.get(variant);

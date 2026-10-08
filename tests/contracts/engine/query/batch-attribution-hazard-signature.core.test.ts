@@ -44,6 +44,7 @@ import { beforeAll, describe, expect, test } from "vitest";
 class SqlOnlyDriver extends Driver<null, null> {
   readonly adapter: DatabaseAdapter;
   probeExists = true;
+  probeCalls = 0;
 
   constructor(adapter: DatabaseAdapter, dialect: Dialect) {
     super(dialect, `hazard-signature-${dialect}`);
@@ -58,8 +59,9 @@ class SqlOnlyDriver extends Driver<null, null> {
     // No external client is allocated by this SQL-only driver.
   }
 
-  /** A guard re-probe finds its row: every probe here comes back CLEAN. */
+  /** Each case controls whether a guard re-probe finds its row. */
   protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+    this.probeCalls++;
     return this.probeExists
       ? { rows: [{ found: 1 } as T], rowCount: 1 }
       : { rows: [], rowCount: 0 };
@@ -240,6 +242,68 @@ describe("batch guard attribution contracts", () => {
     );
 
     expect(attributed).toBe(error);
+  });
+
+  test("a guard subset cannot claim another owner's unindexed assertion", async () => {
+    const driver = postgresDriver();
+    const error = new NestedWriteAssertionError("assertion failed");
+    const statement = {
+      sql: driver.adapter.assertions.exists(sql`SELECT 1`).toStatement(),
+    };
+    // Both premises hold after rollback. Only the first belongs to this owner;
+    // the second may have rejected a mutation in the same atomic batch.
+    expect(
+      await attributeOperationBatchError(error, [cleanGuard()], driver, [
+        statement,
+        statement,
+      ])
+    ).toBe(error);
+    expect(
+      errorName(
+        await attributeOperationBatchError(
+          error,
+          [cleanGuard(), { ...cleanGuard(), queryIndex: 1 }],
+          driver,
+          [statement, statement]
+        )
+      )
+    ).toBe("NotFoundError");
+  });
+
+  test.each([
+    "exists",
+    "notExists",
+  ] as const)("a violated %s premise cannot identify an earlier foreign assertion", async (premise) => {
+    const driver = postgresDriver();
+    driver.probeExists = premise === "notExists";
+    const error = new NestedWriteAssertionError("assertion failed");
+    const statement = {
+      sql: driver.adapter.assertions.exists(sql`SELECT 1`).toStatement(),
+    };
+    const guard: PreparedBatchGuard = {
+      ...cleanGuard(),
+      queryIndex: 1,
+      premise,
+    };
+    expect(
+      await attributeOperationBatchError(error, [guard], driver, [
+        statement,
+        statement,
+      ])
+    ).toBe(error);
+    expect(driver.probeCalls).toBe(0);
+    const indexed = new NestedWriteAssertionError("assertion failed", {
+      meta: { statementIndex: 1 },
+    });
+    expect(
+      errorName(
+        await attributeOperationBatchError(indexed, [guard], driver, [
+          statement,
+          statement,
+        ])
+      )
+    ).toBe("NotFoundError");
+    expect(driver.probeCalls).toBe(0);
   });
 
   test("returns the assertion floor when no guard can own the failure", async () => {

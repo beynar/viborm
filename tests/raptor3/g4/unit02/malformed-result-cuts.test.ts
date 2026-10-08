@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 /**
  * G4-02 author check — the malformed-result property at the cuts that SURROUND
  * the folded root `create` (raptor3 plan §5.4).
@@ -34,6 +35,8 @@ import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
+const SELECT_STATEMENT = /^SELECT\b/;
+
 /** The one fault: the provider answers a row whose `id` is not an integer. */
 function corruptReturnedId<T>(response: QueryResult<T>): boolean {
   if (response.rows.length === 0) return false;
@@ -61,7 +64,7 @@ class CorruptingDriver extends SQLite3Driver {
     client: Database.Database,
     statement: string,
     parameters: unknown[],
-    context?: QueryExecutionContext
+    _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     this.statements.push(statement);
     const response = await super.execute<T>(client, statement, parameters);
@@ -166,7 +169,7 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
       `the split trace needs more than one statement: ${JSON.stringify(statements)}`
     );
     assert.ok(
-      statements.some((statement) => /^SELECT\b/.test(statement)),
+      statements.some((statement) => SELECT_STATEMENT.test(statement)),
       `the stored row is read back: ${JSON.stringify(statements)}`
     );
     const observed = identity(seen.failure);

@@ -527,7 +527,7 @@ export function runPolymorphicCollectionReadBehavior(
           where: { id: first.id },
           include: { gallery: true },
         })
-      ).rejects.toBeInstanceOf(QueryEngineError);
+      ).rejects.toMatchObject({ name: "QueryError", code: "V2006" });
       // The other half of the §13.3 row — "even when a target filter would
       // leave one visible row" — is pinned as BYTES in
       // `polymorphic-inverse-read-sql.core.test.ts`: both integrity branches sit

@@ -34,6 +34,26 @@ const scripts = [
   ["enforces the release artifact contract", "./release-contract-smoke.mjs"],
   ["requires exact-main CI before release", "./release-ci-smoke.mjs"],
   [
+    "keeps root/schema declarations independent of optional provider peers",
+    "./optional-peer-declarations-smoke.mjs",
+  ],
+  [
+    "supports genuine CommonJS runtime and typed consumers",
+    "./commonjs-consumer-smoke.mjs",
+  ],
+  [
+    "types and executes the documented provider setup contracts",
+    "./driver-setup-consumer-smoke.mjs",
+  ],
+  [
+    "loads installed CLI TypeScript configuration and environment files",
+    "./cli-config-consumer-smoke.mjs",
+  ],
+  [
+    "preserves dependency security regressions",
+    "./security-dependencies-smoke.mjs",
+  ],
+  [
     "resumes and verifies GitHub release publication",
     "./github-release-smoke.mjs",
   ],
@@ -46,6 +66,40 @@ const scripts = [
     "../../scripts/consumer-type-floor.mjs",
     { VIBORM_TYPESCRIPT_BIN: "node_modules/typescript-5-8/bin/tsc" },
   ],
+  ...(["chain100", "chain200", "ring10"] as const).map(
+    (fixture) =>
+      [
+        `retains TS5.9 public query inference for ${fixture}`,
+        "./declaration-consumer-smoke.mjs",
+        {
+          VIBORM_DECLARATION_COMPILER: "TS5.9",
+          VIBORM_DECLARATION_CASE: fixture,
+        },
+      ] as const
+  ),
+  ...(["TS5.8", "native"] as const).flatMap((compiler) =>
+    (
+      [
+        "db",
+        "chain2",
+        "chain5",
+        "chain30",
+        "chain100",
+        "chain200",
+        "ring10",
+      ] as const
+    ).map(
+      (fixture) =>
+        [
+          `retains ${compiler} public declarations for ${fixture}`,
+          "./declaration-consumer-smoke.mjs",
+          {
+            VIBORM_DECLARATION_COMPILER: compiler,
+            VIBORM_DECLARATION_CASE: fixture,
+          },
+        ] as const
+    )
+  ),
 ] as const;
 
 describe("built package", () => {
@@ -60,6 +114,8 @@ describe("built package", () => {
           ...scriptEnv,
         },
         stdio: "pipe",
+        timeout: 30_000,
+        killSignal: "SIGKILL",
       });
     });
   }

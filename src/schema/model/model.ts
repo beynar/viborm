@@ -45,6 +45,16 @@ export interface ModelState {
   uniques: Record<string, Scalar>;
 }
 
+/** Initial model projections stay named when a consumer emits recursive graphs. */
+export interface InitialModelState<Shape extends ModelShape>
+  extends ModelState {
+  shape: Shape;
+  scalars: ScalarMap<Shape>;
+  relations: RelationMap<Shape>;
+  uniques: UniqueScalarMap<Shape>;
+  omit: undefined;
+}
+
 /**
  * Internal accessor return type for Model["~"]
  * Explicit type annotation to avoid TS7056 (type too complex to serialize)
@@ -562,18 +572,7 @@ export class Model<State extends ModelState> {
 
 export const model = <TShape extends DeclaredModelShape>(
   shape: TShape
-): Model<
-  UpdateState<
-    ModelState,
-    {
-      shape: TShape;
-      scalars: ScalarMap<TShape>;
-      relations: RelationMap<TShape>;
-      uniques: UniqueScalarMap<TShape>;
-      omit: undefined;
-    }
-  >
-> =>
+): Model<InitialModelState<TShape>> =>
   new Model({
     compoundId: undefined,
     compoundUniques: undefined,

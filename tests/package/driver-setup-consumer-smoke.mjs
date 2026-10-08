@@ -30,7 +30,11 @@ console.log('driver-setup-public: pass');
 `,
   },
   ({ root, run }) => {
-    for (const name of ["postgres", "@cloudflare/workers-types"]) {
+    for (const name of [
+      "postgres",
+      "@cloudflare/workers-types",
+      "@types/node",
+    ]) {
       const target = join(root, "node_modules", name);
       mkdirSync(dirname(target), { recursive: true });
       symlinkSync(
@@ -50,7 +54,7 @@ console.log('driver-setup-public: pass');
           target: "ES2022",
           module: "ESNext",
           moduleResolution: "Bundler",
-          types: [],
+          types: ["node"],
           lib: ["ES2022", "DOM"],
         },
         files: ["consumer.ts"],

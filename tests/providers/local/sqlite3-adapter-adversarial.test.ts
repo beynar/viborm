@@ -1,7 +1,10 @@
 import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
+import { type Sql, sql } from "@sql";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, expect, test } from "vitest";
+
+const TAG_ALIAS = /FROM "tag" AS "(q\d+)"/;
 
 const parent = s.model({ id: s.int().id(), entries: s.toMany(() => entry) });
 const entry = s.model({
@@ -236,6 +239,41 @@ test("relation-filtered pages do not duplicate parents with multiple matching ju
         })
       ).map(({ id }) => id)
     ).toEqual([3, 4, 5]);
+    const statements: Sql[] = [];
+    const observed = db.$extends({
+      name: "plan-witness",
+      statement(context) {
+        if (context.model === "article" && context.operation === "findMany")
+          statements.push(context.statement);
+        return context.statement;
+      },
+    });
+    expect(
+      (await observed.article.findMany({ include: { tags: true } })).length
+    ).toBe(7);
+    expect(statements).toHaveLength(1);
+    const statement = statements[0]!;
+    const targetAlias = TAG_ALIAS.exec(statement.toStatement("?"))?.[1];
+    expect(targetAlias).toBeDefined();
+    const plan = await db.$queryRaw<{ detail: string }>(
+      sql`EXPLAIN QUERY PLAN ${statement}`
+    );
+    const details = plan.map((row) => row.detail);
+    expect(
+      details.some((detail) =>
+        detail.startsWith(`SEARCH ${targetAlias} USING INTEGER PRIMARY KEY`)
+      )
+    ).toBe(true);
+    expect(
+      details.some((detail) => detail.startsWith(`SCAN ${targetAlias}`))
+    ).toBe(false);
+    expect(
+      details.some(
+        (detail) =>
+          detail.includes("USING COVERING INDEX") &&
+          detail.includes("(articleId=?)")
+      )
+    ).toBe(true);
   } finally {
     await db.$disconnect();
   }

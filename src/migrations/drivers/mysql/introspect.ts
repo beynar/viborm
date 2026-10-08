@@ -24,9 +24,10 @@ import type {
   UniqueConstraintDef,
 } from "../../types";
 import {
-  MYSQL_LITERAL_ESCAPES,
+  MYSQL_PRINTED_CHARACTERS,
   mysqlEnumType,
   mysqlStringLiteral,
+  parseMySqlEnumValues,
 } from "../type-mapping";
 import { groupBy, groupByNested } from "../utils";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
@@ -135,8 +136,6 @@ ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME, kcu.ORDINAL_POSITION
 // CONSTANTS
 // =============================================================================
 
-const ENUM_VALUES_REGEX = /enum\((.+)\)/i;
-
 /**
  * The MySQL storage whose literal default the catalog already reports the way
  * the estate spells it: a number is a number, and a `BIT` default is reported
@@ -157,93 +156,6 @@ const MYSQL_NUMERIC_DATA_TYPES = new Set([
   "smallint",
   "tinyint",
 ]);
-
-/**
- * What MySQL's printer writes, read backwards: the WRITE table
- * (`mysqlStringLiteral`) inverted, plus the apostrophe, which MySQL prints as
- * `\'` although the DDL spelling doubles it instead. Every other character —
- * tab, backspace, `"` — is printed raw (measured on 8.4.11), so an escape
- * outside this table is one this inverse does not own.
- *
- * ONE table, both catalog vocabularies, because both are MySQL printing a
- * string literal it parsed: the expression default below, and an ENUM's members
- * inside `COLUMN_TYPE`. The enum printer writes a strict SUBSET of it (`\\`,
- * `\n`, `\r`, `\0`; it doubles `'` and prints ctrl-Z raw, measured), so reading
- * one table backwards covers both and leaves the same remainder unowned.
- */
-const MYSQL_PRINTED_CHARACTERS: ReadonlyMap<string, string> = new Map([
-  ["'", "'"],
-  ...[...MYSQL_LITERAL_ESCAPES].map(
-    ([character, sequence]) =>
-      [sequence.slice(1), character] as [string, string]
-  ),
-]);
-
-/**
- * Parse enum values from MySQL COLUMN_TYPE string, or `null` when the catalog
- * spelled one this inverse does not own.
- *
- * Handles values containing commas, doubled single quotes (''), and the
- * backslash escapes MySQL's printer writes (`MYSQL_PRINTED_CHARACTERS`).
- * Example: "enum('a,b','it''s','c')" -> ['a,b', "it's", 'c']
- * Example: String.raw`enum('a\\b','line1\nline2')` -> ["a\\b", "line1\nline2"]
- *
- * Reading `\x` as a bare `x` — which is what "skip the backslash" does — turned
- * the printed `\n` of a declared NEWLINE into the letter `n`, a value the
- * declaration never held. An escape outside the table is not one this server
- * printed for a member the estate spelled, so inverting it would be a guess:
- * the column keeps MySQL's own `COLUMN_TYPE` instead and the push fails at the
- * final attestation, the same fail-closed direction the string inverse takes.
- */
-function parseEnumValues(columnType: string): string[] | null {
-  const match = columnType.match(ENUM_VALUES_REGEX);
-  if (!match?.[1]) return null;
-
-  const content = match[1];
-  const values: string[] = [];
-  let i = 0;
-
-  while (i < content.length) {
-    // Skip whitespace and commas
-    while (i < content.length && (content[i] === " " || content[i] === ",")) {
-      i++;
-    }
-    if (i >= content.length) break;
-
-    // Expect opening quote
-    if (content[i] !== "'") {
-      i++;
-      continue;
-    }
-    i++; // Skip opening quote
-
-    // Collect value until closing quote (handle escaped quotes '' and \')
-    let value = "";
-    while (i < content.length) {
-      if (content[i] === "\\" && i + 1 < content.length) {
-        // Backslash escape - the character MySQL's printer wrote it for
-        const printed = MYSQL_PRINTED_CHARACTERS.get(content[i + 1] ?? "");
-        if (printed === undefined) return null;
-        value += printed;
-        i += 2;
-      } else if (content[i] === "'" && content[i + 1] === "'") {
-        // Doubled quote escape - add single quote and skip both
-        value += "'";
-        i += 2;
-      } else if (content[i] === "'") {
-        // Closing quote
-        i++;
-        break;
-      } else {
-        value += content[i];
-        i++;
-      }
-    }
-    values.push(value);
-  }
-
-  return values.length > 0 ? values : null;
-}
 
 // =============================================================================
 // HELPER FUNCTIONS
@@ -276,7 +188,7 @@ function formatColumnType(col: MySQLColumn): string {
   // two snapshots name one type. A COLUMN_TYPE that parses to no values at all
   // is not an enum MySQL could have created; it stays exactly as read.
   if (col.DATA_TYPE === "enum") {
-    const values = parseEnumValues(col.COLUMN_TYPE);
+    const values = parseMySqlEnumValues(col.COLUMN_TYPE);
     return values ? mysqlEnumType(values) : col.COLUMN_TYPE;
   }
 
@@ -695,7 +607,7 @@ export async function introspect(
       // anything else here, as a derived `table$column$enum` did, made every
       // enum-bearing schema carry two enum definitions that could never match.
       if (col.DATA_TYPE === "enum") {
-        const values = parseEnumValues(col.COLUMN_TYPE);
+        const values = parseMySqlEnumValues(col.COLUMN_TYPE);
         const enumName = values && mysqlEnumType(values);
         if (values && enumName && !seenEnums.has(enumName)) {
           enumDefs.push({ name: enumName, values });

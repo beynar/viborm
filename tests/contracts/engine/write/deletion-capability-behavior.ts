@@ -860,7 +860,7 @@ export function runDeletionCapabilityBehavior(
 
     // A window read by an interactive session is stated in the premise and
     // the effect at a constant cost in bound values, however long it is: a
-    // `limit` of 1000 is the chunked-delete idiom, and SQLite verifies 999.
+    // `limit` of 1000 is the chunked-delete idiom.
     test("a limited deleteMany's window costs the same bound values however long it is", async () => {
       const { base, db } = context;
       // Posts 1000-3099 are free but 3050, which comment 200 references.
@@ -971,13 +971,9 @@ export function runDeletionCapabilityBehavior(
       expect(write!.sql.match(TITLE_FILTER)).toHaveLength(once * (windows + 1));
     });
 
-    // A window of locked keys rides both statements only where both still fit
-    // the bind budget with everything else they bind: here a caller's own
-    // 800-value `in` list, which with 400 keys passes SQLite's 999, so the
-    // window is the candidates up to the last locked key. A batch states its
-    // window in SQL beside the candidates, binding the list twice: past the
-    // budget it is refused before anything is written.
-    test("a limited deleteMany over a long `in` list fits the bind budget, or is refused before writing", async () => {
+    // The 800-value selector and its limited window fit the concrete SQLite,
+    // PostgreSQL and MySQL driver capacities on both transaction substrates.
+    test("a limited deleteMany over a long `in` list fits the provider bind budget", async () => {
       const { base, db } = context;
       await base.post.createMany({
         data: Array.from({ length: 800 }, (_, index) => ({
@@ -989,13 +985,6 @@ export function runDeletionCapabilityBehavior(
       const where = {
         id: { in: Array.from({ length: 800 }, (_, index) => 4000 + index) },
       };
-      if (!base.$driver.supportsTransactions) {
-        expect(
-          await failure(db.post.deleteMany({ where, limit: 400 }))
-        ).toMatchObject({ message: expect.stringContaining("bound values") });
-        expect(await base.post.count({ where: { deletedAt: null } })).toBe(806);
-        return;
-      }
       expect(await db.post.deleteMany({ where, limit: 400 })).toEqual({
         count: 400,
       });
@@ -1008,10 +997,8 @@ export function runDeletionCapabilityBehavior(
       expect(physicalDeletes()).toEqual([]);
     });
 
-    // Without RETURNING a selected result is re-read by key, and its write
-    // binds the captured keys beside its selector: a window of 499 locked
-    // keys, within half of SQLite's 999, would bind them twice past it, so it
-    // takes the candidates up to its last key instead.
+    // Without RETURNING a selected result is re-read by key. Both the write
+    // and re-read must retain every captured identity within provider capacity.
     test("a selected limited deleteMany counts the keys its re-read binds", async () => {
       const { base, db } = context;
       await base.post.createMany({

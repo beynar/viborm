@@ -1060,10 +1060,10 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     // readback included) exist before the provider sees anything.
     assert.deepEqual(batch.driver.timeline, [
       "admit:findMany",
-      "prepare:findMany",
       "admit:findUnique",
-      "prepare:findUnique",
       "admit:create",
+      "prepare:findMany",
+      "prepare:findUnique",
       "batch:4",
       "dispatch:SELECT",
       "dispatch:SELECT",
@@ -1635,9 +1635,14 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     // any read — not a recursion-specific error.
     assert.deepEqual(identity(recursiveRead.failure), {
       name: "QueryError",
-      code: "V2001",
-      message: "Query execution failed",
-      meta: { driver: "sqlite3", model: "node", operation: "findUnique" },
+      code: "V2004",
+      message: "Database table or column does not exist",
+      meta: {
+        driver: "sqlite3",
+        model: "node",
+        operation: "findUnique",
+        providerCode: "SQLITE_ERROR",
+      },
     });
     assert.deepEqual(
       identity(recursiveRead.failure),
@@ -1677,7 +1682,8 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
       code: "V3001",
       message: "Unique constraint violation",
       meta: {
-        columns: ["rq06_composition_nodes.id"],
+        columns: ["id"],
+        table: "rq06_composition_nodes",
         driver: "sqlite3",
         model: "node",
         operation: "create",

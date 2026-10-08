@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 /**
  * G4-02 author check — **D-7: a lone statement leaves the batch.**
  *

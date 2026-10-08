@@ -1,7 +1,12 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
 import type { ScenarioDefinition } from "../harness/protocol";
+
+const UNKNOWN_PARENT_KEY = /Unknown key: pa/;
+const OWNED_PARENT_KEY =
+  /Relation 'kids' owns 'pa, pb'; omit it from nested create and update data\./;
 
 const literalCases = [
   "g1-compound-agree-partial",
@@ -193,9 +198,7 @@ const literalScenarios: ScenarioDefinition[] = literalCases.map((id) => ({
         );
         assert.match(
           observation.outcome.failure.message,
-          selected || createOwned
-            ? /Unknown key: pa/
-            : /Relation 'kids' owns 'pa, pb'; omit it from nested create and update data\./
+          selected || createOwned ? UNKNOWN_PARENT_KEY : OWNED_PARENT_KEY
         );
       },
     };

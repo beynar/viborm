@@ -68,6 +68,42 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
+- PR #84 is at `5f8cb08af1b4cc0200f5cab40eeede86dbe9a80f`; checkpoint 3 is
+  being qualified. CI2 `37787030484` passed Core and the type/docs checks.
+  Its formatting step checked **zero files** in the shallow checkout. CI now
+  passes explicit Git-diff paths to Biome; the actual local 500-file check
+  passed after scoped assertion-helper suppressions and safe formatting.
+- Immutable build8 passed in 2.35 s at 1015.0 MiB; tarball SHA256
+  `ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37`.
+  Named initial model state reduced the native five-model declaration from
+  4,149,140 to 284,871 bytes. Native chain30 now emits within the unchanged
+  memory ceiling (2.10 s, 823 MiB); the declaration is still 8.35 MB.
+  Unannotated 200-model queries pass strict TS5.8, JS TS5.9 and native TS7.
+  Actual paired-schema/client/$extends source and emitted downstream consumer
+  proofs also pass TS5.8/native. The declaration bundler still loses explicit
+  type-only class exports; the official metadata option did not fix it. A
+  narrow source-derived export-kind correction awaits build9 qualification.
+- The root's composed-batch attribution fix now checks competing signatures
+  **before** unindexed re-probes, following independent migration-agent review.
+  A changed premise after rollback cannot identify the statement that failed.
+  Regression cases retain both premise forms, all-owned fallback, and exact
+  provider-index authority.
+- Real isolated MySQL 8.4.11 passes all 10 final cases: escaped enum CREATE,
+  widening ALTER, raw default and no-op introspection; seven namespace cases;
+  and spatial index positive/negative plans. The enum parser now reuses the
+  existing MySQL catalog escape decoder instead of double-escaping members.
+- Query correction gate: 641/649 tests passed. The remaining real nested
+  collection-order refusal was too late and allowed an earlier write to commit.
+  That rule now lives once in relation admission, before DML; the unchanged
+  no-partial-effect witness awaits the follow-up gate. Captured time dispatch
+  now uses the existing canonical time codec.
+- Actual better-sqlite3 13.0.3 / SQLite 3.53.4 packed-consumer smoke passes
+  migration, relation-filtered pagination, nested include, rollback and borrowed
+  connection ownership. Peer minimums are now ^12.11.1 or ^13.0.3, matching the
+  qualified SQLite branches; frozen-install verification is queued.
+
+The entries below describe earlier checkpoints and are superseded where noted.
+
 - Final local integration: native15 passed27.40s5290.0MiB; core7 all four
   sequential shards passed all9624 tests, unchanged budgets. Build6 passed2.79s
   960.9MiB; immutable artifact SHA256

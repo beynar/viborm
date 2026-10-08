@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
@@ -17,6 +18,9 @@ import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
+const OMITTED_PREPARED_RESULT = /omitted the prepared result/;
+const SELECT_STATEMENT = /^SELECT\b/i;
+
 const PARENT_INSERT = /^INSERT INTO "g3_author_execution_parents"/;
 
 class ObservedSQLiteDriver extends SQLite3Driver {
@@ -26,7 +30,7 @@ class ObservedSQLiteDriver extends SQLite3Driver {
     client: Database.Database,
     statement: string,
     parameters: unknown[],
-    context?: QueryExecutionContext
+    _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     this.statements.push(statement);
     return super.execute<T>(client, statement, parameters);
@@ -476,7 +480,7 @@ describe("G3-02 author execution regressions", () => {
         () => prepared!.parseResult(driver.batchResults[0]!.slice(0, -1)),
         (failure) => {
           assert(failure instanceof TransactionError);
-          assert.match(failure.message, /omitted the prepared result/);
+          assert.match(failure.message, OMITTED_PREPARED_RESULT);
           assert.equal(failure.meta.model, "record");
           assert.equal(failure.meta.operation, "create");
           return true;
@@ -492,7 +496,7 @@ describe("G3-02 author execution regressions", () => {
       assert.equal(preparedSeries.length, 1);
       assert.equal(
         preparedSeries[0]!.queries.filter(({ sql }) =>
-          /^SELECT\b/i.test(sql.trim())
+          SELECT_STATEMENT.test(sql.trim())
         ).length,
         1
       );
@@ -512,7 +516,7 @@ describe("G3-02 author execution regressions", () => {
       assert.equal(preparedSeries.length, 2);
       const multiple = preparedSeries[1]!;
       const terminalIndexes = multiple.queries.flatMap(({ sql }, index) =>
-        /^SELECT\b/i.test(sql.trim()) ? [index] : []
+        SELECT_STATEMENT.test(sql.trim()) ? [index] : []
       );
       assert(
         terminalIndexes.length > 1,
@@ -530,7 +534,7 @@ describe("G3-02 author execution regressions", () => {
           ),
         (failure) => {
           assert(failure instanceof TransactionError);
-          assert.match(failure.message, /omitted the prepared result/);
+          assert.match(failure.message, OMITTED_PREPARED_RESULT);
           assert.equal(failure.meta.model, "parent");
           assert.equal(failure.meta.operation, "createMany");
           return true;

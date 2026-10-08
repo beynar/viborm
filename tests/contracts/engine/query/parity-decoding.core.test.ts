@@ -4,19 +4,12 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import {
-  type Dialect,
-  Driver,
-  type DriverResultParser,
-  type QueryExecutionContext,
-} from "@drivers";
-import { SQLite3Driver } from "@drivers/sqlite3";
+import { type Dialect, Driver, type DriverResultParser } from "@drivers";
 import { sqliteResultParser } from "@drivers/shared";
 import { QueryError } from "@errors";
 import { CURSOR_CARRIER_PREFIX } from "@query-engine/result-aliases";
 import { hydrateSchemaNames, s } from "@schema";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   createModelRegistry,
   TestQueryEngine,
@@ -41,7 +34,6 @@ class ScriptedDriver extends Driver<null, null> {
   readonly statements: string[] = [];
   readonly result: DriverResultParser | undefined;
   private readonly rows: Record<string, unknown>[];
-  private readonly catalog: SQLite3Driver | undefined;
   constructor(
     rows: Record<string, unknown>[],
     dialect: Dialect = "sqlite",
@@ -50,37 +42,24 @@ class ScriptedDriver extends Driver<null, null> {
   ) {
     super(dialect, "scripted");
     this.rows = rows;
-    this.catalog = dialect === "sqlite" ? new SQLite3Driver() : undefined;
     this.result = result;
     this.adapter = adapter;
   }
   protected async initClient() {
-    if (this.catalog)
-      await syncLiveSchema(createClient({ schema, driver: this.catalog }));
     return null;
   }
   protected async closeClient() {
-    await this.catalog?.disconnect();
+    /* No transport resource exists. */
   }
   protected async execute<T>(
     _client: null,
     sql: string,
-    params: unknown[],
-    context?: QueryExecutionContext
+    _params: unknown[]
   ): Promise<{ rows: T[]; rowCount: number }> {
-    if (context?.model === "$schema" && this.catalog)
-      return this.catalog._executeRaw<T>(sql, params, context);
     this.statements.push(sql);
     return { rows: this.rows as T[], rowCount: this.rows.length };
   }
-  protected async executeRaw<T>(
-    _client: null,
-    statement: string,
-    params: unknown[] | undefined,
-    context?: QueryExecutionContext
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    if (context?.model === "$schema" && this.catalog)
-      return this.catalog._executeRaw<T>(statement, params, context);
+  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
     return { rows: [], rowCount: 0 };
   }
   protected async transaction<T>(
@@ -106,7 +85,6 @@ const parent = s
   .model({
     id: s.int().id(),
     meta: s.json().nullable(),
-    price: s.decimal({ precision: 12, scale: 2 }),
     bucket: s.string().nullable(),
     children: s.toMany(() => child),
   })
@@ -402,9 +380,32 @@ describe("one physical vocabulary", () => {
   }
 
   test("a decimal carried inside a window stays TEXT", () => {
-    const statement = build(child, {
-      select: { id: true, parent: { select: { price: true } } },
+    // This projection-only graph has a decimal. Scripted decoder rows above
+    // have no physical storage dependency and therefore own no live resource.
+    const priced = s.model({
+      id: s.int().id(),
+      price: s.decimal({ precision: 12, scale: 2 }),
+      items: s.toMany(() => item),
     });
+    const item = s.model({
+      id: s.int().id(),
+      pricedId: s.int(),
+      priced: s
+        .toOne(() => priced)
+        .fields("pricedId")
+        .references("id"),
+    });
+    const pricedSchema = { priced, item };
+    hydrateSchemaNames(pricedSchema);
+    const engine = new TestQueryEngine(
+      new SqlOnlyDriver(new SQLiteAdapter(), "sqlite"),
+      createModelRegistry(pricedSchema, createSchemaRegistry(pricedSchema))
+    );
+    const statement = engine
+      .build(item, "findMany", {
+        select: { id: true, priced: { select: { price: true } } },
+      })
+      .toStatement("?");
     // The projection casts a decimal to text; the carrier must state the same
     // physical fact, or the container rounds it into a JSON number.
     expect(statement.match(/CAST\(/g)?.length ?? 0).toBeGreaterThanOrEqual(2);

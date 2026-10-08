@@ -38,8 +38,32 @@ const nativeText = s.model({
   query: s.string(PG.STRING.TSQUERY),
   bits: s.string(PG.STRING.BIT(8)),
 });
+const carrierOwner = s
+  .model({ id: s.int().id(), rows: s.toMany(() => carrierRow) })
+  .map("v1_carrier_owners");
+const carrierRow = s
+  .model({
+    id: s.int().id(),
+    ownerId: s.int(),
+    owner: s
+      .toOne(() => carrierOwner)
+      .fields("ownerId")
+      .references("id"),
+    at: s.dateTime(PG.DATETIME.TIMESTAMPTZ(3)),
+    moments: s.dateTime(PG.DATETIME.TIMESTAMPTZ(3)).array(),
+    keys: s.bigInt().array(),
+  })
+  .map("v1_carrier_rows");
 const client = createClient({
-  schema: { event, place, embedding, label, nativeText },
+  schema: {
+    event,
+    place,
+    embedding,
+    label,
+    nativeText,
+    carrierOwner,
+    carrierRow,
+  },
   options: { extensions: { postgis, vector, citext } },
   postgis: true,
   pgvector: true,
@@ -357,4 +381,34 @@ test("native PostgreSQL string values support text patterns/mode while equality 
     })
   ).rejects.toBeInstanceOf(UnsupportedOperationError);
   expect(await client.nativeText.count({ where: { document: null } })).toBe(0);
+});
+
+test("named-zone second offsets and bigint arrays remain exact through relation carriers", async () => {
+  const instant = new Date("0099-02-03T04:05:06.789Z");
+  const keys = [9007199254740993n, -9007199254740993n];
+  await client.carrierOwner.create({ data: { id: 1 } });
+  await client.carrierRow.create({
+    data: { id: 1, ownerId: 1, at: instant, moments: [instant], keys },
+  });
+  await client.$executeRawUnsafe("SET TIME ZONE 'Europe/Paris'");
+  try {
+    const physical = await client.$queryRawUnsafe<{ at: string }>(
+      "SELECT to_json(at) #>> '{}' AS at FROM v1_carrier_rows"
+    );
+    expect(physical[0]!.at.endsWith("+00:09:21")).toBe(true);
+    const include = await client.carrierOwner.findUniqueOrThrow({
+      where: { id: 1 },
+      include: { rows: true },
+    });
+    expect(include.rows[0]!.at).toEqual(instant);
+    expect(include.rows[0]!.moments).toEqual([instant]);
+    expect(include.rows[0]!.keys).toEqual(keys);
+    const select = await client.carrierOwner.findUniqueOrThrow({
+      where: { id: 1 },
+      select: { rows: { select: { at: true, moments: true, keys: true } } },
+    });
+    expect(select.rows).toEqual([{ at: instant, moments: [instant], keys }]);
+  } finally {
+    await client.$executeRawUnsafe("SET TIME ZONE 'UTC'");
+  }
 });

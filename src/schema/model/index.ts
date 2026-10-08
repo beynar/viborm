@@ -27,6 +27,7 @@ export type {
   IndexOptions,
   // Index types
   IndexType,
+  InitialModelState,
   // State types
   ModelState,
 } from "./model";

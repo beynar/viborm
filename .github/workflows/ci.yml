@@ -73,9 +73,9 @@ jobs:
         run: node scripts/run-node-safe.mjs 512 60000 tests/package/security-dependencies-smoke.mjs
 
       - name: Check changed formatting and lint rules
-        run: >-
-          pnpm exec biome check --changed --since="${QUALITY_BASE_SHA}"
-          --no-errors-on-unmatched
+        run: |
+          git diff --name-only --diff-filter=ACMRT -z "${QUALITY_BASE_SHA}" HEAD |
+            xargs -0 -r pnpm exec biome check --no-errors-on-unmatched
 
       - name: Check documentation
         run: pnpm --dir docs validate

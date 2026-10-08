@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
@@ -270,7 +271,7 @@ export function extensionBScenario(
                 `effect:relation-updateMany/root-member/${completedRelationMembers.size - 1}`
               );
             }
-          } else if (!scalarEffectObserved && !isInvalid && recipe.limit > 0) {
+          } else if (!(scalarEffectObserved || isInvalid) && recipe.limit > 0) {
             const state = database
               .prepare(
                 recipe.mutation === "scalar-deleteMany"

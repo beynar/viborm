@@ -1,6 +1,8 @@
-import { defineConfig, type UserConfig } from "tsdown";
+import { readFileSync } from "node:fs";
+import { defineConfig, type Rolldown, type UserConfig } from "tsdown";
+import ts from "typescript";
 
-const runtime: UserConfig = {
+const runtime = {
   // Multiple entry points for tree-shaking
   entry: {
     // Main entry
@@ -117,10 +119,73 @@ const runtime: UserConfig = {
   dts: false,
   // Enable tree-shaking
   treeshake: true,
+} satisfies UserConfig;
+
+function namedExports(source: ts.SourceFile) {
+  return source.statements.flatMap((statement) =>
+    ts.isExportDeclaration(statement) &&
+    statement.exportClause &&
+    ts.isNamedExports(statement.exportClause)
+      ? statement.exportClause.elements.map((member) => ({
+          name: member.name.text,
+          typeOnly: statement.isTypeOnly || member.isTypeOnly,
+          position: member.getStart(source),
+        }))
+      : []
+  );
+}
+
+// Shared declaration chunking loses explicit type-only class reexports.
+// Recover only each public entry's own source declarations, including aliases.
+const declarationExportKinds: Rolldown.Plugin = {
+  name: "preserve-public-type-export-kinds",
+  generateBundle(_options, bundle) {
+    for (const chunk of Object.values(bundle)) {
+      if (chunk.type !== "chunk" || !chunk.fileName.endsWith(".d.mts"))
+        continue;
+      const entry = Object.entries(runtime.entry).find(
+        ([name]) => name === chunk.name
+      );
+      if (!entry) continue;
+      const source = ts.createSourceFile(
+        entry[1],
+        readFileSync(entry[1], "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const names = new Set(
+        namedExports(source)
+          .filter((member) => member.typeOnly)
+          .map((member) => member.name)
+      );
+      const declaration = ts.createSourceFile(
+        chunk.fileName,
+        chunk.code,
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const positions = namedExports(declaration)
+        .filter((member) => !member.typeOnly && names.has(member.name))
+        .map((member) => member.position)
+        .sort((left, right) => right - left);
+      for (const position of positions)
+        chunk.code = `${chunk.code.slice(0, position)}type ${chunk.code.slice(position)}`;
+    }
+  },
 };
 
+const { "soft-delete": softDelete, ...runtimeEntries } = runtime.entry;
+
 export default defineConfig([
-  runtime,
+  { ...runtime, entry: runtimeEntries },
+  {
+    ...runtime,
+    entry: { "soft-delete": softDelete },
+    clean: false,
+    // This type-only consumer has no runtime imports. Preserve that boundary
+    // instead of retaining a shared name-preservation helper after minification.
+    outputOptions: { keepNames: false },
+  },
   {
     ...runtime,
     clean: false,
@@ -128,5 +193,6 @@ export default defineConfig([
     sourcemap: false,
     outputOptions: { keepNames: false },
     dts: { emitDtsOnly: true },
+    plugins: [declarationExportKinds],
   },
 ]);

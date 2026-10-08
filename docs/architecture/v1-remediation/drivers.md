@@ -735,3 +735,48 @@ golden changes are exactly canonical class/code span attributes, sanitized nativ
 cause alias/redaction, validation issue/source/path presentation, and conservative
 cache.clear observation. Full runtime vocabulary explicitly includes the newly
 public existing error classes and guards.
+
+### Immutable artifact6 qualification
+
+Native15 and all four core7 shards passed before build6. Exact PGlite32768
+bind refusal now passes within13/13 capacity cases: the controlled provider
+query never runs. That proves pre-dispatch avoidance of the known poison
+trigger; it does not prove a32767-scale provider result.
+
+Artifact6 SHA256 is
+`23b9f10d5bca0828a0b23f58dde1021cc7199e48d5b9e71a725d7b32bdd01c9b`.
+Strict TS5.8 ALL composite client/schema/$extends downstream positives and
+scalar/data/raw-argument/recursion negatives passed; unannotated chains2/5/30
+emit and chain100/ring10 queries also passed. Native emission still reports
+missing root ReferentialAction and serialization length TS7056. The combined
+command ended41.27s/1189.4MiB; TS5.8 emits1.54MB for the representative db
+package, so passing compilation is not a performance claim. Existing relation
+capability types were reexported by name for a fresh build7 native proof; no
+runtime terminals, annotation workaround or skipLibCheck were introduced.
+
+Independent immutable artifact6 checks passed: no-peer strict TS5.8/native
+5.45s/761.4MiB; actual CommonJS runtime and .cts strict both compilers
+5.62s/927.8MiB on Node24.14; genuine D1 Session/sqliteResultParser/supplied
+postgres setup5.61s/895.9MiB (with real postgres, Workers and Node typings);
+installed CLI typed config with project .env0.27s; soft-delete public consumer
+3.45s/758.5MiB. All disposable consumer directories were removed.
+The security dependency reproduction fixture also passes against the current
+installed graph. Existing Decimal identity and error-name scripts inspect
+fresh dist6, not the tarball: both pass; Decimal's exact refusal census now
+accepts the minifier's backtick delimiter and the decisive schema/root instance
+identity remains intact. Public type golden advances with build7 and is still
+pending that artifact.
+
+### Artifact7 producer and declaration checkpoint
+
+Immutable artifact7 SHA256 `2cdfa2eafd06bf4d9e9cf28601ec49f9cfb3da4b7b0d26c0d5ef30eadcb84c36`: the named public relation capability exports eliminate native TS2883/TS7056 in the genuine exported schema/client/$extends producer. Corrected the test fixture's invalid one-sided relation by supplying its inverse; the retained direct `author.name` assertion now passes independently against source inference and emitted declarations. Actual packed client construction executes L5 topology admission. Native db passes5.62s/699MiB and emits209434bytes; ring10 and chain100 ordinary nested queries pass1.90s/712MiB and2.63s/636MiB; chain2 and chain5 declarations pass1.78s/648MiB and1.99s/722MiB, emitting147316 and4149140bytes.
+
+H13 remains open: native chain30 declaration emission exceeds the unchanged1536MiB sampled ceiling at1577.8MiB (5.59s; teardown verified). The packed public golden also finds that the declaration bundler loses explicit type-only class export kinds although runtime exports remain correct. Retained its negative import/value probes and saved a minimal official `dts.sideEffects:true` metadata candidate for fresh build8. No resource increase or caller annotation masks either defect. Durable package registration now separates each compiler/case under the existing30s test ceiling and includes real no-peer/CJS/setup/CLI/dependency-security smokes.
+
+### Artifact8: actual declaration scaling and compiler crash repair
+
+Immutable artifact8 SHA256 `ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37`: the initial model state now has one named interface with exactly the previous shape/scalar/relation/unique/omit refinements. No runtime body change, casts, caller annotations or depth caps. Native chain5 declarations shrink from4149140 to284871bytes; native chain30 now emits8352040bytes in2.10s/823MiB within the unchanged1536MiB ceiling. This repairs the observed resource failure, not a claim that declaration size or all editor overhead is small.
+
+The original JS compiler crash began after120–150 FK hops; chain100 alone did not cover it. The durable new unannotated chain200 case covers199hops and passes actual strictTS5.8,JS5.9,native public query checks in4.11s/943MiB,3.91s/963MiB,1.68s/700MiB respectively, with teardown verified. Actual exported db/source/emitted downstream positives and scalar/data/raw/recursion negatives pass strictTS5.8/native at the real768MiB heap and30s child wall budget:68011/56773-byte declarations,12.25s/892MiB and5.03s/729MiB. Paired required-owner nullability is checked by direct author.name and actual L5 construction, with no optional chaining. Multi-key groupBy reads both named fields through the same public consumer.
+
+Final public export-kind golden still fails: the declaration bundler exposes type-only classes as values. Its official sideEffects option did not fix this and was removed. The next build carries a narrowly scoped source-AST correction of explicit named public entry type reexports, preserving aliases and all negative import/value probes. No H13/package completion claim until fresh proof. Each durable package subprocess now has explicit30000ms timeout/SIGKILL in addition to the outer safe process-group/RSS runner; Vitest's blocking-call timer alone was insufficient.

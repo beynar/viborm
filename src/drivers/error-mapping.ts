@@ -66,15 +66,20 @@ const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
  * Report whether an ordinary statement can raise the same provider error as a
  * batch assertion. Assertion statements carry {@link ASSERTION_MARKER}; all
  * other statements are checked against the executing dialect's failure
- * signature. A conservative match leaves the raw provider error unattributed.
+ * signature. With an ownership set, assertions outside that set also collide.
+ * A conservative match leaves the raw provider error unattributed.
  */
 export function batchMayContainAssertionCollision(
   statements: readonly { readonly sql: string }[],
-  dialect: Dialect
+  dialect: Dialect,
+  ownedAssertions?: ReadonlySet<number>
 ): boolean {
   const signature = FOREIGN_ASSERTION_SIGNATURE[dialect];
-  for (const statement of statements) {
-    if (statement.sql.includes(ASSERTION_MARKER)) continue;
+  for (const [index, statement] of statements.entries()) {
+    if (statement.sql.includes(ASSERTION_MARKER)) {
+      if (ownedAssertions && !ownedAssertions.has(index)) return true;
+      continue;
+    }
     if (signature.test(statement.sql)) return true;
   }
   return false;

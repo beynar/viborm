@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { ASSERTION_MARKER } from "@drivers/error-mapping";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";

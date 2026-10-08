@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "vitest";
 import { closeWorld, createWorld, seedAuthor } from "./world";
 
+const INVALID_BOOLEAN_RESULT =
+  /The "findMany" result is incompatible with the boolean scalar domain: the value is not true, false, zero, or one\./;
+const UNSAFE_INTEGER_RESULT =
+  /malformed int scalar .*: the integer is outside the safe range\./;
+
 describe("G4-01 scalar codec crossings (SC-01..SC-14, SL-01..SL-10, Q-R01)", () => {
   it("decodes every admitted scalar domain from its physical spelling", async () => {
     const world = createWorld();
@@ -84,10 +89,7 @@ describe("G4-01 scalar codec crossings (SC-01..SC-14, SL-01..SL-10, Q-R01)", () 
       await assert.rejects(
         world.engine.execute("author", "findMany", { where: { id: 2 } }),
         (error: Error) => {
-          assert.match(
-            error.message,
-            /The "findMany" result is incompatible with the boolean scalar domain: the value is not true, false, zero, or one\./
-          );
+          assert.match(error.message, INVALID_BOOLEAN_RESULT);
           const meta = (error as { meta?: Record<string, unknown> }).meta;
           assert.equal(meta?.scalarType, "boolean");
           assert.equal(meta?.operation, "findMany");
@@ -109,10 +111,7 @@ describe("G4-01 scalar codec crossings (SC-01..SC-14, SL-01..SL-10, Q-R01)", () 
       await assert.rejects(
         world.engine.execute("author", "findMany", {}),
         (error: Error) => {
-          assert.match(
-            error.message,
-            /malformed int scalar .*: the integer is outside the safe range\./
-          );
+          assert.match(error.message, UNSAFE_INTEGER_RESULT);
           return true;
         }
       );

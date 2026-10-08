@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -368,7 +369,7 @@ function assertActorOutcome(
   );
   assert.equal(
     outcome.failure.code,
-    preciseMalformed ? "V2006" : malformed ? "V9001" : "V2001"
+    preciseMalformed ? "V2006" : malformed ? "V9001" : "V2002"
   );
   assert.equal(
     outcome.failure.message,
@@ -376,7 +377,7 @@ function assertActorOutcome(
       ? preciseMalformed
         ? `The "${actor.operation}" result is incompatible with the int scalar domain: the value is not a canonical integer.`
         : "Record-series execution failed at a committed-segment boundary."
-      : "Query execution failed"
+      : "Query timed out"
   );
   const ack = profile === "scripted-returning-ack";
   const producer = actor.fault.startsWith("producer-");
@@ -642,7 +643,7 @@ export async function runTransportWorld(
         .record(z.string(), z.unknown())
         .parse(outcome.failure.meta);
       if (meta.recordSeriesProgress === undefined) continue;
-      delete meta.recordSeriesProgress;
+      Reflect.deleteProperty(meta, "recordSeriesProgress");
       outcome.failure.meta = meta;
       changed = true;
     }
@@ -764,7 +765,7 @@ export async function runTransportWorld(
           ...(observed.subsequentOutcomes ?? []),
         ];
         assert.equal(observedOutcomes.length, actors.length);
-        actors.forEach((actor, index) =>
+        actors.forEach((actor, index) => {
           assertActorOutcome(
             actor,
             observedOutcomes[index]!,
@@ -777,8 +778,8 @@ export async function runTransportWorld(
                 : []
             )[0],
             candidate
-          )
-        );
+          );
+        });
         assert.deepEqual(
           tape.events.flatMap((event) =>
             event.kind === "injected-failure" ? [event.cut] : []

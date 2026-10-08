@@ -23,13 +23,13 @@
  * container and port used for a run are recorded in the receipt beside it.
  */
 
-import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { createClient } from "@client/client";
 import type { Operations } from "@client/types";
 import { PgDriver } from "@drivers/pg";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 
 const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
@@ -185,7 +185,6 @@ describe.runIf(provider === "pg" && port > 0)(
           );
           const shipped = await measure("shipped");
           const candidate = await measure("candidate");
-          // biome-ignore lint/suspicious/noConsole: the probe's measurement IS its output.
           console.log(
             `${JSON.stringify(shipped) === JSON.stringify(candidate) ? "AGREE" : "DIFFER"}  ${name}\n    shipped   ${JSON.stringify(shipped)}\n    candidate ${JSON.stringify(candidate)}`
           );

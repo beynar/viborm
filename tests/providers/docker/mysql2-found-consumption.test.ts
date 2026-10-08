@@ -302,7 +302,7 @@ const outcomeOf = async <T>(
  * actually changed — a diagnosis the single statement never made.
  */
 const CONJOINED_PREMISE =
-  "query-engine-v2 top-level upsert matched premise (targetWhere, setWhere) changed before the atomic batch.";
+  "The upsert matched premise (targetWhere, setWhere) changed before the atomic batch.";
 
 /** The dual-condition shape: both conditions match `t1` as it stands. */
 const conjoinedUpsert = async (subject: FoundClient) =>
@@ -474,7 +474,7 @@ describeIf("the shared FOUND-consumption rule on native MySQL", () => {
       expect(outcome.value).toBeUndefined();
       expect(outcome.failure).toBeInstanceOf(TransactionError);
       expect((outcome.failure as Error).message).toBe(
-        "query-engine-v2 top-level upsert setWhere match premise changed before the atomic batch."
+        "The upsert setWhere match premise changed before the atomic batch."
       );
       expect(
         composed(outcome.failure).some(

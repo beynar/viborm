@@ -242,7 +242,11 @@ describeIf("MySQL2 Driver", () => {
           sql`EXPLAIN FORMAT=JSON ${statement}`
         );
         const document = JSON.parse(result.rows[0]?.EXPLAIN ?? "null");
-        return document.query_block?.table;
+        const table =
+          document.query_block?.ordering_operation?.table ??
+          document.query_block?.table;
+        expect(table).toBeDefined();
+        return table;
       };
 
       for (const where of [
@@ -1147,7 +1151,8 @@ describeIf("MySQL namespace containment", () => {
       schema: noteSchema,
       driver: crossTargetDriver(BETA_DB),
     });
-    await syncLiveSchema(second);
+    // The beta sentinel belongs to the containment witness, outside this estate.
+    await syncLiveSchema(second, { tables: ["ns_notes"] });
     await second.note.create({ data: { id: "b1", title: "beta copy" } });
     expect(
       (await second.note.findMany({})).map((row: { id: string }) => row.id)

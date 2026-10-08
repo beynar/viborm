@@ -1006,7 +1006,7 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
             include: { album: true },
           })
         )
-      ).toBeInstanceOf(QueryEngineError);
+      ).toMatchObject({ name: "QueryError", code: "V2006" });
     });
 
     test("the control on a model no entry governs: a no-op where no relation reaches it, `only` reads related rows as `without`", async () => {

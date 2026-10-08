@@ -80,6 +80,7 @@ export type {
   EnumSchema,
   GeneratorDefaultBrand,
   Getter,
+  InitialModelState,
   IntegerSchema,
   IntScalar,
   IsoDateSchema,

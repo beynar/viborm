@@ -12,7 +12,7 @@ import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
 
 const db = `import { createClient, defineExtension, s } from "viborm";
 import { SQLite3Driver } from "viborm/sqlite3";
-export const user = s.model({ id: s.string().id(), name: s.string(), active: s.boolean() });
+export const user = s.model({ id: s.string().id(), name: s.string(), active: s.boolean(), posts: s.toMany(() => post) });
 export const post = s.model({ id: s.string().id(), title: s.string(), authorId: s.string(), author: s.toOne(() => user).fields("authorId").references("id") });
 export const sale = s.model({ id: s.string().id(), region: s.string(), channel: s.string(), amount: s.decimal({ precision: 10, scale: 2 }) });
 export const schema = { user, post, sale };
@@ -89,12 +89,21 @@ export const load = () => db.m0.findUnique({ where: { id: "first" }, include: { 
 }
 const compilers = [
   ["TS5.8", join(repositoryRoot, "node_modules/typescript-5-8/bin/tsc")],
+  ["TS5.9", join(repositoryRoot, "node_modules/typescript/bin/tsc")],
   ["native", join(repositoryRoot, "node_modules/typescript-native/bin/tsc")],
 ];
 
 const compilerChoice = process.env.VIBORM_DECLARATION_COMPILER;
 const caseChoice = process.env.VIBORM_DECLARATION_CASE;
-const cases = ["db", "chain2", "chain5", "chain30", "chain100", "ring10"];
+const cases = [
+  "db",
+  "chain2",
+  "chain5",
+  "chain30",
+  "chain100",
+  "chain200",
+  "ring10",
+];
 if (compilerChoice && !compilers.some(([label]) => label === compilerChoice))
   throw new Error(`Unknown declaration compiler: ${compilerChoice}`);
 if (caseChoice && !cases.includes(caseChoice))
@@ -104,7 +113,7 @@ const includesCase = (name) => !caseChoice || caseChoice === name;
 withPackedConsumer(
   "viborm-declaration-consumer",
   { "db.ts": db },
-  ({ root }) => {
+  ({ root, run }) => {
     // better-sqlite3 publishes its types through its real DefinitelyTyped peer.
     // Supply the two declared typings a SQLite user installs; no ambient stubs.
     mkdirSync(join(root, "node_modules/@types"), { recursive: true });
@@ -114,6 +123,16 @@ withPackedConsumer(
         join(root, "node_modules/@types", peer),
         "dir"
       );
+    if (includesCase("db")) {
+      // Construction executes the actual L5 topology gate: the required owner
+      // has its inverse, rather than an invalid one-sided declaration.
+      writeFileSync(
+        join(root, "runtime.ts"),
+        'import { db } from "./db.ts";\nif (!db.$schema.post) throw new Error("Missing admitted model");\nconsole.log("declaration topology: pass");\n'
+      );
+      run("runtime.ts", "declaration topology");
+      writeFileSync(join(root, "use-source.ts"), downstream);
+    }
     for (const [label, compiler] of compilers) {
       if (compilerChoice && compilerChoice !== label) continue;
       const output = join(root, label);
@@ -139,6 +158,28 @@ withPackedConsumer(
       );
       try {
         if (includesCase("db")) {
+          // Pin source inference separately from the emitted declaration's
+          // downstream inference; both must preserve required-owner nullability.
+          execFileSync(
+            process.execPath,
+            [
+              compiler,
+              "--strict",
+              "--noEmit",
+              "--target",
+              "ES2022",
+              "--module",
+              "ESNext",
+              "--moduleResolution",
+              "Bundler",
+              "--types",
+              "node",
+              "--typeRoots",
+              join(repositoryRoot, "node_modules/@types"),
+              join(root, "use-source.ts"),
+            ],
+            { cwd: root, encoding: "utf8", stdio: "pipe" }
+          );
           execFileSync(process.execPath, [compiler, "--project", project], {
             cwd: root,
             encoding: "utf8",
@@ -213,6 +254,8 @@ withPackedConsumer(
         }
         for (const [count, ring] of [
           [100, false],
+          // The original JS compiler crash began after120–150 FK hops.
+          [200, false],
           [10, true],
         ]) {
           if (!includesCase(`${ring ? "ring" : "chain"}${count}`)) continue;

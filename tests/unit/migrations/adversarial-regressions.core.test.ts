@@ -7,6 +7,7 @@ import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
 import { generateV1 } from "@migrations/generate-v1";
+import { inlineEnumValues } from "@migrations/push/enum-removals";
 import {
   fingerprintSnapshot,
   normalizeDefault,
@@ -741,6 +742,25 @@ describe("adversarial migration regressions", () => {
     expect(normalizeDefault("'T'", "text")).not.toBe(
       normalizeDefault("'t'", "text")
     );
+  });
+  test("inline MySQL enum alterations consume logical escaped values once", () => {
+    const members = [
+      "plain",
+      "a\\b",
+      "line1\nline2",
+      "it's",
+      "café ☕",
+      "end\\",
+    ];
+    const type = mysqlMigrationDriver.getEnumColumnType(
+      "kinds",
+      "kind",
+      members
+    );
+    expect(inlineEnumValues(type)).toEqual(members);
+    expect(
+      inlineEnumValues(`TEXT CHECK("kind" IN ('a\\b', 'line1\nline2'))`)
+    ).toEqual(["a\\b", "line1\nline2"]);
   });
   test("inline enum comparison preserves quoted values and column names", () => {
     expect(normalizeType(`TEXT CHECK("Status" IN ('ACTIVE'))`)).not.toBe(

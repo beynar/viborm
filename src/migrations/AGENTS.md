@@ -169,7 +169,11 @@ standalone enum object, so `mysqlEnumType` (`drivers/type-mapping.ts`) is the
 ONE spelling: `getEnumColumnType` writes it, `drivers/mysql/introspect.ts`
 re-spells the catalog's `enum('a','b')` through it, and that same text is the
 enum's identity in `snapshot.enums` on both sides — a name derived only on the
-live side never equalled the desired one. A default is reported in two
+live side never equalled the desired one. The MySQL literal writer and its
+escape inverse share `drivers/type-mapping.ts`; catalog introspection and inline
+enum diffing consume those logical members before rendering an ALTER. SQLite's
+inline CHECK carrier keeps ordinary backslashes and decodes doubled quotes only.
+A default is reported in two
 vocabularies and neither is the estate's: a LITERAL default comes back as the
 bare value with its quotes gone, an EXPRESSION default as MySQL's deparse,
 escaped TWICE — once by MySQL printing the string literal, once by the catalog

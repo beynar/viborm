@@ -19,10 +19,12 @@
  */
 
 import assert from "node:assert/strict";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterEach, describe, it } from "vitest";
-import { cost, createWorld, worldSchema, type World } from "../../unit02/world";
+import { cost, createWorld, type World, worldSchema } from "../../unit02/world";
+
+const ESCAPED_ERROR = /Error: .+/;
 
 describe("G4 perf review — the lazy sentinels keep their identity", () => {
   let world: World | undefined;
@@ -96,7 +98,7 @@ describe("G4 perf review — the lazy sentinels keep their identity", () => {
       "prepareBatch leaked its own control-flow sentinel to the caller"
     );
     escaped = `${(raised as Error).name}: ${(raised as Error).message}`;
-    assert.match(escaped, /Error: .+/);
+    assert.match(escaped, ESCAPED_ERROR);
   });
 
   it("keeps the envelope sentinel's deferred re-entry, with the frozen physical cost", async () => {
@@ -158,7 +160,10 @@ describe("G4 perf review — the scalars trim is a pure reuse", () => {
       const reference = referenceScalars(names, payload);
       assert.deepEqual(live, reference, JSON.stringify(payload));
       assert.deepEqual(Object.keys(live), Object.keys(reference));
-      assert.equal(Object.getPrototypeOf(live), Object.getPrototypeOf(reference));
+      assert.equal(
+        Object.getPrototypeOf(live),
+        Object.getPrototypeOf(reference)
+      );
       for (const key of Object.keys(reference))
         assert.equal(
           Object.is(live[key], reference[key]),

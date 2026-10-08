@@ -54,6 +54,7 @@ import { validateGeoPoint } from "@validation/primitives/geo-point-codec";
 import type { GeoArea, GeoPoint } from "@validation/primitives/geo-values";
 import {
   validateIsoDate,
+  validateIsoTime,
   validateIsoTimestamp,
 } from "@validation/primitives/iso";
 import {
@@ -1092,6 +1093,7 @@ export class Queries {
       case "vector":
       case "datetime":
       case "date":
+      case "time":
         return this.#typedScalarValue(scalar, value, field);
       default:
         return a.literals.value(value);
@@ -1143,6 +1145,8 @@ export class Queries {
             )
           : a.literals.value(wire);
       }
+      case "time":
+        return a.literals.value(admittedTemporal(value, validateIsoTime));
       case "date": {
         const wire = admittedTemporal(value, validateIsoDate);
         return typeof wire === "string"

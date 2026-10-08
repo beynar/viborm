@@ -280,21 +280,17 @@ for (const [route, returning, batch] of ROUTES) {
     });
 
     it("leaves the row where it was located when the choice took its MISSING arm", async () => {
-      // Reaching the missing arm of a CORRELATED parent-held `upsert` needs a
-      // row whose membership names NO target, and only the shared primary key
-      // makes that observable, so the reference must not be enforced: the
-      // database is SUPPLIED with `foreign_keys` off (the same construction as
-      // `published-key.test.ts`). The hold was stated from the FOUND arm's
-      // payload and that arm never ran, so nothing cascaded and the row's own
-      // statement still addresses the row it located — the current values and
-      // the original observation agree, and the readback must not use the
-      // key the found arm WOULD have published.
+      // A pre-existing orphan exercises the correlated MISSING arm. The
+      // typed transport keeps foreign-key enforcement enabled; raw fixture
+      // setup alone supplies the legacy estate before the tested operation.
       const database = new Database(":memory:");
-      database.pragma("foreign_keys = OFF");
+      database.pragma("foreign_keys = ON");
       const client = await world({ client: database });
-      await client.card.create({
-        data: { accountId: "ghost", label: "ghost", tally: 1 },
-      });
+      // Prepare a pre-existing orphan as raw fixture data. Restore enforcement
+      // before any typed operation; borrowed driver admission remains strict.
+      database.pragma("foreign_keys = OFF");
+      database.exec("INSERT INTO fc02a_cards VALUES('ghost','ghost',1,NULL)");
+      database.pragma("foreign_keys = ON");
       assert.deepEqual(
         await client.card.update({
           where: { accountId: "ghost" },

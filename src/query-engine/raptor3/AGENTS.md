@@ -999,12 +999,9 @@ active path seeded by the outer row; the live cache stores and restores them
 through `recursiveRelationCodec`. Its carrier checks refuse through
 `InvalidScalarResult`, whose `scalarType` names the kind of check
 (`recursive depth`, `recursive edge endpoint`, …), so a carrier refused
-there reaches the caller as the operation's one malformed-result
-`QueryEngineError`, as a malformed ordinary row does (except as a member of
-a `$transaction([...])` array on a batch-only transport: the array owner
-parses that member's result and, like an ordinary malformed member, it
-surfaces as `QueryError` V2001); the FK-cycle refusal, a property of the
-data, is its own `QueryEngineError`. The output key
+there reaches the caller as the operation's non-retryable
+`QueryError` V2006 (`QUERY_RESULT_INVALID`), as a malformed ordinary row does.
+The FK-cycle invariant refusal remains its own `QueryEngineError`. The output key
 `_distance` has one producer, the selected distance: schema validation refuses
 a member of that name (F010, as for `_count`), so neither `prepareProjection`
 nor `relationShape` checks for a scalar, relation or recursive slot competing
@@ -1263,7 +1260,7 @@ rule, so a provider that decodes `'null'` into the JSON null document still
 writes a NOT NULL `json` column. Object shapes carry nullability — a carrier the
 statement always builds cannot decode as `null` — members are read with
 `Object.hasOwn`, and the decoder's structural failures are
-`InvalidScalarResult`, which `run` publishes as the public `QueryEngineError`.
+`InvalidScalarResult`, which `run` publishes as non-retryable public `QueryError` V2006 (`QUERY_RESULT_INVALID`).
 **And the member LIST of a decoded document is the PROJECTION's fact, not the
 row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once and
 freezes it, and the decoder reads it — `Object.entries(shape.fields)`, OWN

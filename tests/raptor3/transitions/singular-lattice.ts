@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -332,7 +333,7 @@ export const singularLatticeScenarios: ScenarioDefinition[] =
             assert.equal(failure.code, "V4001");
             assert.equal(
               failure.message,
-              `Validation failed for update: Unsupported to-one operation combination: ${recipe.rejectedKinds}`
+              `Validation failed for update: data.badge: Unsupported to-one operation combination: ${recipe.rejectedKinds}`
             );
             return;
           }

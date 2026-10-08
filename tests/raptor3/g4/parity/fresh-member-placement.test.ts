@@ -257,59 +257,41 @@ for (const [route, make] of [
       );
     });
 
-    it("a member's dependent capture moves behind the choice's MISSING arm: the deleteMany removes the tag the connectOrCreate created", async () => {
-      const client = await world();
-      await client.post.updateMany({
-        where: { id: "p1" },
-        data: {
-          tags: {
-            connectOrCreate: {
-              where: { id: 9 },
-              create: { id: 9, code: "nine" },
-            },
-            deleteMany: { code: "nine" },
-          },
-        },
-      });
-      assert.deepEqual(await tags(client), [7]);
-      assert.deepEqual(
-        (
-          await client.post.findMany({
+    for (const found of [false, true])
+      it(`refuses adding-before-clearing on the choice's ${found ? "FOUND" : "MISSING"} arm without effects`, async () => {
+        const client = await world();
+        if (found) await client.tag.create({ data: { id: 9, code: "nine" } });
+        driver.reset();
+        await assert.rejects(
+          client.post.updateMany({
             where: { id: "p1" },
-            include: { tags: { orderBy: { id: "asc" } } },
-          })
-        ).map((row) => row.tags.map((member) => member.id)),
-        [[7]]
-      );
-    });
-
-    it("the opposite arm of the same choice: the FOUND arm connects the existing tag, and the same capture still removes it", async () => {
-      const client = await world();
-      await client.tag.create({ data: { id: 9, code: "nine" } });
-      driver.reset();
-      await client.post.updateMany({
-        where: { id: "p1" },
-        data: {
-          tags: {
-            connectOrCreate: {
-              where: { id: 9 },
-              create: { id: 9, code: "nine" },
+            data: {
+              tags: {
+                connectOrCreate: {
+                  where: { id: 9 },
+                  create: { id: 9, code: "nine" },
+                },
+                deleteMany: { code: "nine" },
+              },
             },
-            deleteMany: { code: "nine" },
-          },
-        },
+          }),
+          {
+            code: "V4001",
+            message:
+              "Validation failed for updateMany: data.tags: Collection mutation must spell clearing verb 'deleteMany' before adding verb 'connectOrCreate'.",
+          }
+        );
+        assert.deepEqual(await tags(client), found ? [7, 9] : [7]);
+        assert.deepEqual(
+          (
+            await client.post.findMany({
+              where: { id: "p1" },
+              include: { tags: { orderBy: { id: "asc" } } },
+            })
+          ).map((row) => row.tags.map((member) => member.id)),
+          [[7]]
+        );
       });
-      assert.deepEqual(await tags(client), [7]);
-      assert.deepEqual(
-        (
-          await client.post.findMany({
-            where: { id: "p1" },
-            include: { tags: { orderBy: { id: "asc" } } },
-          })
-        ).map((row) => row.tags.map((member) => member.id)),
-        [[7]]
-      );
-    });
 
     it("a deeper expansion inside a running member: the inner series' own members are placed while the outer member executes", async () => {
       const client = await world();

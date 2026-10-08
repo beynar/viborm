@@ -37,7 +37,7 @@ const distRoot = join(repositoryRoot, "dist");
  * lives in a second module. This one is `div`'s, and it is the class's alone —
  * grepped across `src/` to be sure.
  */
-const REFUSAL = /(["'])Division by zero\1/;
+const REFUSAL = /(["'`])Division by zero\1/;
 
 const rootEntry = await import(pathToFileURL(join(distRoot, "index.mjs")).href);
 

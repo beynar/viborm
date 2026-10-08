@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -135,7 +136,10 @@ export const upsertMembershipScenario: ScenarioDefinition = {
         } else if (
           completion.parameters.includes("selected") &&
           completion.rows.some(
-            (row) => isRecord(row) && row.id === 10n && row.parentId === 1n
+            (row) =>
+              isRecord(row) &&
+              (row.id === 10n || row.id === 10) &&
+              (row.parentId === 1n || row.parentId === 1)
           )
         )
           memberCaptured = true;

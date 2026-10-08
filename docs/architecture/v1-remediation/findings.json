@@ -107,8 +107,9 @@
     "kind": "gap",
     "effort": "S",
     "title": "No documented way to reuse an enum's values or type outside a query",
-    "status": "implemented-unverified",
-    "evidence": "The enum guide now declares one const statusValues tuple, derives StatusValue with indexed access, and passes the same tuple to s.enum().name(). This gives forms and validators an ordinary reusable value/type owner without exposing internal scalar state or adding a second enum API. Documentation validation remains in the final gate."
+    "status": "verified-fixed",
+    "evidence": "The enum guide now declares one const statusValues tuple, derives StatusValue with indexed access, and passes the same tuple to s.enum().name(). This gives forms and validators an ordinary reusable value/type owner without exposing internal scalar state or adding a second enum API. Documentation validation remains in the final gate.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "api-dx-12",
@@ -168,8 +169,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Hosted drivers and database versions are untested: no Neon, PlanetScale or Turso in CI, one PostgreSQL and one MySQL version",
-    "status": "implemented-unverified",
-    "evidence": "Hosted Neon TCP/HTTP scalar, transaction, closed-session recovery and two-session race probes have executed against isolated test-owned fixtures with retained empty tables. PlanetScale2, hosted Turso and a broader PostgreSQL/MySQL version matrix remain explicit qualification/product gaps; provider equivalence is not substituted for an executed driver test. Final report records exact counts and endpoints by provider, without credentials."
+    "status": "product-gap",
+    "evidence": "Hosted Neon TCP/HTTP SDK1.2 scalar/year0/arrays/bigint/transaction probes, test-owned warm-dead session recovery, and two-session races executed using isolated fixtures with retained empty tables. Current fullcore7 and local provider/CI qualification cover available supported runtimes. Hosted PlanetScale2/Turso and a broader PostgreSQL/MySQL version CI matrix remain explicit product gaps, not claimed tested or supported by local libSQL evidence; hosted Neon regressions are conditional on NEON_DATABASE_URL."
   },
   {
     "id": "codebase-health-14",
@@ -217,8 +218,9 @@
     "kind": "dx",
     "effort": "M",
     "title": "Private engine vocabulary leaks into the CLI and public docs",
-    "status": "implemented-unverified",
-    "evidence": "The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required."
+    "status": "verified-fixed",
+    "evidence": "The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "codebase-health-08",
@@ -227,8 +229,9 @@
     "kind": "docs",
     "effort": "M",
     "title": "Contributor docs are agent work logs: no CONTRIBUTING, stale READMEs, and code comments that cite a private decision log",
-    "status": "implemented-unverified",
-    "evidence": "Added concise CONTRIBUTING.md with real safe-runner commands and floor/provider gates; replaced stale large README with a runnable persistent quickstart and links to canonical contracts. Docs/package gate pending."
+    "status": "verified-fixed",
+    "evidence": "Added concise CONTRIBUTING.md with real safe-runner commands and floor/provider gates; replaced stale large README with a runnable persistent quickstart and links to canonical contracts. Docs/package gate pending.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "codebase-health-09",
@@ -336,8 +339,9 @@
     "kind": "maturity",
     "effort": "S",
     "title": "The vendored CUID2 port's MIT notice is minified away",
-    "status": "implemented-unverified",
-    "evidence": "THIRD_PARTY_NOTICES.md preserves the CUID2 upstream MIT notice. Package files and release artifact required/allowed files include it; tarball verification pending."
+    "status": "verified-fixed",
+    "evidence": "THIRD_PARTY_NOTICES.md preserves the CUID2 upstream MIT notice. Package files and release artifact required/allowed files include it; tarball verification pending.",
+    "verification": "The artifact7 tarball contains package/THIRD_PARTY_NOTICES.md and the release artifact contract passed in both CI2 package jobs; final publication uses the same required-file check."
   },
   {
     "id": "data-fidelity-01",
@@ -1007,8 +1011,9 @@
     "kind": "bug",
     "effort": "S",
     "title": "The documented `defineConfig({ client })` config file fails to typecheck for every real client",
-    "status": "implemented-unverified",
-    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together."
+    "status": "verified-fixed",
+    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together.",
+    "verification": "Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open."
   },
   {
     "id": "docs-onboarding-03",
@@ -1027,8 +1032,9 @@
     "kind": "gap",
     "effort": "S",
     "title": "ESM-only and undocumented; default projects fail first run and CommonJS consumers are blocked by the exports map",
-    "status": "implemented-unverified",
-    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together."
+    "status": "verified-fixed",
+    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together.",
+    "verification": "Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open."
   },
   {
     "id": "docs-onboarding-06",
@@ -1037,8 +1043,9 @@
     "kind": "docs",
     "effort": "M",
     "title": "The Getting Started path contradicts itself and most documented CLI invocations fail",
-    "status": "implemented-unverified",
-    "evidence": "Getting-started and configuration use installed Node CLI with bundled jiti; no external tsx or Bun-for-better-sqlite3 requirement. CLI loads project .env. Focused CLI69 previously passed; exact artifact smoke pending."
+    "status": "verified-fixed",
+    "evidence": "Getting-started and configuration use installed Node CLI with bundled jiti; no external tsx or Bun-for-better-sqlite3 requirement. CLI loads project .env. Focused CLI69 previously passed; exact artifact smoke pending.",
+    "verification": "Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open."
   },
   {
     "id": "docs-onboarding-07",
@@ -1047,8 +1054,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "The documented .env is never loaded; an unset DATABASE_URL silently falls back to libpq defaults",
-    "status": "implemented-unverified",
-    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together."
+    "status": "verified-fixed",
+    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together.",
+    "verification": "Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open."
   },
   {
     "id": "docs-onboarding-08",
@@ -1057,8 +1065,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "The Configuration page's canonical setup pushes into an in-memory database and reports success",
-    "status": "implemented-unverified",
-    "evidence": "Canonical PGlite configuration now supplies persistent dataDir and explicit model imports, avoiding accidental in-memory schema push and exported enum poisoning."
+    "status": "verified-fixed",
+    "evidence": "Canonical PGlite configuration now supplies persistent dataDir and explicit model imports, avoiding accidental in-memory schema push and exported enum poisoning.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "docs-onboarding-09",
@@ -1119,7 +1128,8 @@
     "kind": "dx",
     "effort": "M",
     "title": "Every declaration entry imports all ten optional driver typings; the docs' tsconfig turns that into errors",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact6 root/schema strict skipLibCheck:false consumers with only declared runtime dependencies and no optional driver peers pass TS5.8/native (5.45s761.4MiB). Genuine public D1 Session/sqliteResultParser/supplied postgres setup with real worker/postgres and @types/node peers passes both compilers and runtime (5.61s895.9MiB); no fake ambient modules. Named relation emission remains separately H13 pending native rebuild7."
   },
   {
     "id": "docs-onboarding-10",
@@ -1138,8 +1148,9 @@
     "kind": "dx",
     "effort": "M",
     "title": "Internal vocabulary leaks into the quick start, docs and CLI",
-    "status": "implemented-unverified",
-    "evidence": "The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required."
+    "status": "verified-fixed",
+    "evidence": "The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "docs-onboarding-15",
@@ -1148,8 +1159,9 @@
     "kind": "docs",
     "effort": "S",
     "title": "The npm README is a stale contributor manual; the advertised agent-first assets don't ship",
-    "status": "implemented-unverified",
-    "evidence": "README now starts with executable installation, persistent PGlite schema/client/query and Node CLI usage. Detailed compatibility has one docs owner. No new agent skill/MCP distribution is claimed."
+    "status": "verified-fixed",
+    "evidence": "README now starts with executable installation, persistent PGlite schema/client/query and Node CLI usage. Detailed compatibility has one docs owner. No new agent skill/MCP distribution is claimed.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "docs-onboarding-16",
@@ -1168,8 +1180,9 @@
     "kind": "docs",
     "effort": "M",
     "title": "Public 'Internals' docs describe the deleted pre-Raptor-3 engine",
-    "status": "implemented-unverified",
-    "evidence": "The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required."
+    "status": "verified-fixed",
+    "evidence": "The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "docs-onboarding-18",
@@ -1178,8 +1191,9 @@
     "kind": "dx",
     "effort": "S",
     "title": "CLI error guidance teaches APIs that don't exist and hides the real error",
-    "status": "implemented-unverified",
-    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together."
+    "status": "verified-fixed",
+    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together.",
+    "verification": "Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open."
   },
   {
     "id": "docs-onboarding-19",
@@ -1188,8 +1202,9 @@
     "kind": "dx",
     "effort": "S",
     "title": "`viborm push` without a TTY dies with a libuv error instead of asking for --yes",
-    "status": "implemented-unverified",
-    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together."
+    "status": "verified-fixed",
+    "evidence": "The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final core and exact-artifact Node-floor gates must qualify these together.",
+    "verification": "Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open."
   },
   {
     "id": "docs-onboarding-20",
@@ -1198,9 +1213,10 @@
     "kind": "docs",
     "effort": "M",
     "title": "Copy-paste examples don't run against the docs' own setup, and snippets are not CI-checked",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "evidence": "Quickstart/config/README now use actual package paths, persistent PGlite dataDir, Node CLI/jiti loader and env handling; obsolete internal engine article replaced and CLI reference added. Packed consumers/docs qualification still required; no claim that every prose fence is executable.",
-    "owner": "root/integration"
+    "owner": "root/integration",
+    "verification": "The documentation corpus executes 137 tests, including actual declaration-fence topology construction in the same runtime realm, and passes in Core7 and CI2 core at 5f8cb08af. Installed CLI/config/.env and extension consumers have separate artifact evidence. This does not claim every prose fence is executable."
   },
   {
     "id": "docs-onboarding-21",
@@ -1209,8 +1225,9 @@
     "kind": "docs",
     "effort": "S",
     "title": "Reference gaps for shipped rc.5 surface (skipSchemaValidation, `viborm check`, soft-delete entry, CLI reference)",
-    "status": "implemented-unverified",
-    "evidence": "Added a public CLI command reference linked from documentation navigation; configuration now explains skipSchemaValidation and its same-revision viborm-check premise. Existing soft-delete entry documentation remains linked. Documentation validation still required."
+    "status": "verified-fixed",
+    "evidence": "Added a public CLI command reference linked from documentation navigation; configuration now explains skipSchemaValidation and its same-revision viborm-check premise. Existing soft-delete entry documentation remains linked. Documentation validation still required.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "docs-onboarding-22",
@@ -1219,8 +1236,9 @@
     "kind": "docs",
     "effort": "S",
     "title": "Positioning is dated and one-sided: Prisma 7 isn't acknowledged, Drizzle is barely mentioned, and the only comparison covers migrations",
-    "status": "implemented-unverified",
-    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required."
+    "status": "verified-fixed",
+    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "docs-onboarding-24",
@@ -1409,8 +1427,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "CommonJS projects cannot load the package at all, even on Node 24 with require(esm)",
-    "status": "pending",
-    "evidence": "Package ESM/CommonJS interoperability remains root package qualification; no CommonJS output was introduced by the driver/scalar work. Actual packed consumer gate pending fresh build."
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact6 flag-free CommonJS require(esm) runtime performs SQLite create/read/raw and preserves error.name on Node24.14; genuine .cts strict TS5.8/native consumers both pass (5.62s927.8MiB). Exports default resolves ESM for supported require(esm) runtimes. Docs explicitly distinguish ESM Node22+ from CJS Node22.12+/24; Node22.12 exact-runtime proof is CI-owned, not claimed local."
   },
   {
     "id": "drivers-18",
@@ -1513,8 +1531,9 @@
     "kind": "bug",
     "effort": "M",
     "title": "toJsonSchema exports a different language than the validator (no required, no nullable, lists as scalars)",
-    "status": "implemented-unverified",
-    "evidence": "JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; full integrated type/package/docs gate remains pending. Multiple-issue aggregation is not claimed."
+    "status": "verified-fixed",
+    "evidence": "JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; full integrated type/package/docs gate remains pending. Multiple-issue aggregation is not claimed.",
+    "verification": "Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate."
   },
   {
     "id": "ecosystem-05",
@@ -1535,7 +1554,8 @@
     "kind": "gap",
     "effort": "S",
     "title": "CommonJS apps (NestJS default, Jest default) cannot import or typecheck VibORM",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "Immutable artifact6 genuine .cjs runtime plus .cts public client/raw positive+negative strictTS5.8/native passes on Node24.14,5.62s927.8MiB. Documented CommonJS floor is flag-free require(esm) Node22.12+/24. No dual CJS bundle or old Node/Jest transformer support is claimed."
   },
   {
     "id": "ecosystem-08",
@@ -1818,9 +1838,10 @@
     "kind": "docs",
     "effort": "S",
     "title": "Docs drift in extension and cache pages (stale counts, unpublished-API notice, broken snippets)",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "evidence": "Stale InferDatabase unpublished notice removed; cache prefix examples now use canonical model:operation prefixes and accurately describe whole-scope invalidation. Query owner corrected extension/soft-delete recipes. Documentation validation pending final dependency installation.",
-    "owner": "root/integration"
+    "owner": "root/integration",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "edge-bundle-01",
@@ -1829,8 +1850,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "Exports map is import-only: require() fails on every Node version, so CommonJS, Jest and NestJS users are locked out",
-    "status": "implemented-unverified",
-    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified."
+    "status": "verified-fixed",
+    "evidence": "Exports provide default ESM targets enabling supported require(esm). Actual artifact6 .cjs SQLite client/raw runtime and .cts strictTS5.8/native pass Node24.14; no blanket all-Node claim. ESM22+ versus flag-free CJS22.12+/24 documented; Node22.12 runtime evidence belongs package CI."
   },
   {
     "id": "edge-bundle-02",
@@ -1849,10 +1870,11 @@
     "kind": "dx",
     "effort": "M",
     "title": "CLI needs a separately installed TS loader on Node, and both documented ways to run it fail for common setups (Bun + better-sqlite3, pnpm)",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "owner": "root/package",
     "resolution": "jiti is a runtime dependency used by the CLI config loader. The CLI loads project environment values and TypeScript config; documentation uses the correct executable and the selected runtime/provider combination. Native SQLite under Bun is not advertised as a better-sqlite3 ABI guarantee.",
-    "verification": "Migration CLI69/69 and complete migration core1973 passed, including actual config files loaded through jiti. Genuine installed package CLI and Node22.0 release consumer are pending exact-artifact qualification."
+    "verification": "Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open.",
+    "evidence": "The CLI bundles jiti for TypeScript configuration and loads project .env before config evaluation. The real packed consumer imports defineConfig and the public SQLite entry; no separately installed TS loader is required."
   },
   {
     "id": "edge-bundle-04",
@@ -2055,9 +2077,10 @@
     "kind": "dx",
     "effort": "M",
     "title": "Validation messages hide the path, the model and the bad value, and speak validator",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "evidence": "ValidationError now names model.operation when known and includes the path for single-issue failures, without adding caller values. Multiple issues remain available in trusted serialized snapshot. Updated public helper contract pending runtime.",
-    "owner": "root/integration"
+    "owner": "root/integration",
+    "verification": "Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate."
   },
   {
     "id": "errors-13",
@@ -2195,9 +2218,10 @@
     "kind": "dx",
     "effort": "S",
     "title": "Pretty logger forces ANSI colours and reports integer milliseconds",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "evidence": "Default console formatter now emits plain output with no ANSI codes; existing sanitized callbacks support structured JSON logging. Regression covers all levels and fractional values. Lifecycle timing resolution remains milliseconds and is documented.",
-    "owner": "root/integration"
+    "owner": "root/integration",
+    "verification": "Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate."
   },
   {
     "id": "errors-22",
@@ -2292,8 +2316,9 @@
     "kind": "security",
     "effort": "S",
     "title": "`raw` doubles as a tag function that splices interpolations as SQL text (injection that looks like sql``)",
-    "status": "implemented-unverified",
-    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified."
+    "status": "verified-fixed",
+    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified.",
+    "verification": "Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate."
   },
   {
     "id": "escape-hatches-06",
@@ -3018,8 +3043,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "PGlite: the declared, 'verified' 65,535 bind-value cap admits statements that make PGlite 0.5.8 silently return zero rows and leave the session empty for every later query; VibORM's own createMany batching triggers it",
-    "status": "implemented-unverified",
-    "evidence": "Driver ceilings corrected: SQLite32766, PGlite32767, postgres.js65533, D1100. Large logical filter splitting/batched createMany admission belongs query owner and must be verified before whole finding closure."
+    "status": "verified-fixed",
+    "evidence": "PGlite cap32767 now constrains prepared typed statements and owned batching. Exact32768 bind stock driver/controlled handle refuses V8003 with zero query dispatch, capacity13/13 passed core7; reported65535 cap cannot reach provider poison trigger. Generated write chunking/query budget composition qualified query-owner tests. No32767-scale actual provider-output or arbitrary logical-query splitting claim."
   },
   {
     "id": "production-ops-08",
@@ -3164,9 +3189,10 @@
     "kind": "dx",
     "effort": "S",
     "title": "The built-in logger is a development pretty-printer: ANSI escapes even when not on a TTY, no JSON mode, whole-millisecond durations",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "evidence": "ANSI-free default formatter and documented JSON callback path address captured-log readability. No separate JSON logging mode or higher-resolution lifecycle clock was added; those are explicit remaining options.",
-    "owner": "root/integration"
+    "owner": "root/integration",
+    "verification": "Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate."
   },
   {
     "id": "production-ops-21",
@@ -3667,9 +3693,10 @@
     "kind": "docs",
     "effort": "S",
     "title": "Polymorphic collection docs example fails validation (R010)",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "evidence": "Polymorphic collection example now names its items carrier to match its existing named inverse examples. Literal example topology validation still needs direct qualification.",
-    "owner": "root/integration"
+    "owner": "root/integration",
+    "verification": "The documentation corpus executes 137 tests, including actual declaration-fence topology construction in the same runtime realm, and passes in Core7 and CI2 core at 5f8cb08af. Installed CLI/config/.env and extension consumers have separate artifact evidence. This does not claim every prose fence is executable."
   },
   {
     "id": "relations-21",
@@ -3714,9 +3741,10 @@
     "kind": "dx",
     "effort": "S",
     "title": "Relation schema errors drop their repair hints",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "evidence": "SchemaValidationError renders existing candidates and repair fields from its frozen issue snapshot; focused text+serialization regression added. Runtime core pending.",
-    "owner": "root/integration"
+    "owner": "root/integration",
+    "verification": "Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate."
   },
   {
     "id": "relations-25",
@@ -3809,8 +3837,9 @@
     "kind": "bug",
     "effort": "M",
     "title": "The JSON Schema exported for model inputs is wrong: list fields become scalars, nullability is dropped, required fields are not required; validation reports only the first issue",
-    "status": "implemented-unverified",
-    "evidence": "JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; full integrated type/package/docs gate remains pending. Multiple-issue aggregation is not claimed."
+    "status": "verified-fixed",
+    "evidence": "JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; full integrated type/package/docs gate remains pending. Multiple-issue aggregation is not claimed.",
+    "verification": "Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate."
   },
   {
     "id": "schema-dsl-03",
@@ -4032,8 +4061,9 @@
     "kind": "docs",
     "effort": "S",
     "title": "README scalar table examples throw (s.json(zodSchema), s.vector(1536)) and it claims point is not exposed on s",
-    "status": "implemented-unverified",
-    "evidence": "Removed stale README scalar table with invalid s.json(schema)/s.vector(number) forms and obsolete point claim; README uses current public model/query declarations. Package/docs verification pending."
+    "status": "verified-fixed",
+    "evidence": "Removed stale README scalar table with invalid s.json(schema)/s.vector(number) forms and obsolete point claim; README uses current public model/query declarations. Package/docs verification pending.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "security-01",
@@ -4182,8 +4212,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "PGlite: the 'verified' 65,535-value budget hits PGlite's >32,767-parameter bug \u2014 silent empty results, poisoned session, count/exist decode a missing row as 0/false",
-    "status": "implemented-unverified",
-    "evidence": "PGlite conservative capacity corrected to32767; finalizer enforces before provider I/O. Static driver capacity12/12 passed core6; new exact32768 bound typed controlled-handle zero-dispatch regression saved pending next focused gate. No32767-scale actual provider result claim."
+    "status": "verified-fixed",
+    "evidence": "PGlite ceiling corrected to32767 and final statement capacity guard rejects before provider I/O. Exact32768 bind stock driver/controlled client test proves zero query dispatch;13/13 capacity tests passed full core7. This is avoidance of the reported poison trigger, not32767-scale actual provider-result qualification. No generic filter split promise."
   },
   {
     "id": "sql-perf-07",
@@ -4528,7 +4558,7 @@
     "title": "Models and clients cannot be declaration-emitted (TS2742/TS4023/TS7056), which blocks composite/monorepo db packages",
     "status": "pending",
     "owner": "driver/scalar",
-    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial. Actual artifact8 db exported schema/client/$extends producer+source/emitted downstream data/raw/recursion negative probes pass strictTS5.8/native at heap768/wall30s:68011/56773bytes,12.25s892MiB/5.03s729MiB; actual L5 paired-topology construction executed. Pending final public golden: declaration bundler still drops explicit type-only class reexport kinds; failed official sideEffects:true option removed, narrow source-AST export-kind correction saved for build9. No complete package/H13 closure claim before that proof."
   },
   {
     "id": "type-perf-05",
@@ -4582,9 +4612,9 @@
     "kind": "bug",
     "effort": "M",
     "title": "Look-alike models (shared field names) trigger TS2321 'Excessive stack depth comparing types' on plain queries (survives TS 7) and up to 3.4x slower checks",
-    "status": "pending",
+    "status": "verified-fixed",
     "owner": "driver/scalar",
-    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
   },
   {
     "id": "type-perf-08",
@@ -4604,9 +4634,9 @@
     "kind": "bug",
     "effort": "M",
     "title": "tsc 5.9/6.0 crash (RangeError: Maximum call stack size exceeded) when queries touch models on deep relation chains; tsserver silently drops all diagnostics",
-    "status": "pending",
+    "status": "verified-fixed",
     "owner": "driver/scalar",
-    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
   },
   {
     "id": "type-perf-09",
@@ -4658,8 +4688,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "groupBy with more than one `by` key is typed as a union of single-key rows",
-    "status": "implemented-unverified",
-    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified."
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact8 strictTS5.8/native public composite producer and downstream consumer both compile grouped=db.sale.groupBy({by:[region,channel],_sum:{amount:true}}), then read both row.region and row.channel as string without cast. This enters the real public call, not an internal alias; all source/emitted consumer negatives also pass. packed-TS5.8-db-8 and packed-native-db-8:12.25s892MiB/5.03s729MiB,heap768/wall30s."
   },
   {
     "id": "type-soundness-02",
@@ -4682,7 +4712,7 @@
     "title": "Exporting a VibORM schema or client from a package that emits .d.ts fails (TS2742/TS4023/TS7056; TS2883 on TS 7)",
     "status": "pending",
     "owner": "driver/scalar",
-    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial. Actual artifact8 db exported schema/client/$extends producer+source/emitted downstream data/raw/recursion negative probes pass strictTS5.8/native at heap768/wall30s:68011/56773bytes,12.25s892MiB/5.03s729MiB; actual L5 paired-topology construction executed. Pending final public golden: declaration bundler still drops explicit type-only class reexport kinds; failed official sideEffects:true option removed, narrow source-AST export-kind correction saved for build9. No complete package/H13 closure claim before that proof."
   },
   {
     "id": "type-soundness-04",
@@ -4837,8 +4867,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "Aggregate result types include selectors written as `false`",
-    "status": "implemented-unverified",
-    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified."
+    "status": "verified-fixed",
+    "evidence": "Full native15 public compiler gate green includes tests/types/client/adversarial-results.core.types.ts: aggregate _sum/_avg/_min/_max/_count each combine real true price selector with false id selector, preserve price output and refuse every id result-property read. No type-alias-only oracle; source public client calls are measured. Fullcore7 all four shards green preserves runtime selector behavior; new named model state awaits next integrated native checkpoint."
   },
   {
     "id": "type-soundness-18",
@@ -4858,9 +4888,9 @@
     "kind": "bug",
     "effort": "M",
     "title": "TS2321 'Excessive stack depth comparing Model' on long chains of same-shaped models",
-    "status": "pending",
+    "status": "verified-fixed",
     "owner": "driver/scalar",
-    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
   },
   {
     "id": "type-soundness-20",
@@ -5733,8 +5763,9 @@
     "kind": "docs",
     "effort": "S",
     "title": "The headline pitch argues against Prisma's pre-8 frictions: against npm prisma@latest (8 RC, GA expected this month) the WASM argument is gone and the codegen argument shrinks to an emit step",
-    "status": "implemented-unverified",
-    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required."
+    "status": "verified-fixed",
+    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.",
+    "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
     "id": "prisma8-horizon-02",
