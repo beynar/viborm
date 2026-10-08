@@ -132,6 +132,15 @@ Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
 
 postgres.js supports full transactions with automatic savepoints for nested transactions — see [Transactions](/docs/client/transactions).
 
+When a physical connection failure rejects `BEGIN` before the callback enters,
+VibORM preserves that failure and drains the provider's stale reconnect response
+through at most two acquisitions from the same pool, within one cleanup deadline
+using the transaction acquisition budget (five seconds by default). It releases
+each lease without running caller SQL. It never
+replays the callback or closes a supplied pool. If cleanup cannot establish pool
+availability, this driver wrapper refuses further work until disconnect; the
+caller still owns the supplied pool's lifecycle.
+
 ## Prepared statements
 
 Generated and raw statements default to `prepare: false`, which avoids session

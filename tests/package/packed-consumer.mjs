@@ -35,7 +35,7 @@ const repositoryPackage = JSON.parse(
 const tsc = join(repositoryRoot, "node_modules", "typescript", "bin", "tsc");
 
 /** The packed archive: `VIBORM_PACKAGE_TARBALL`, or one packed into `into`. */
-function packedArchive(into) {
+export function packedArchive(into) {
   const archive = process.env.VIBORM_PACKAGE_TARBALL;
   if (archive !== undefined) return archive;
   execFileSync("pnpm", ["pack", "--pack-destination", into], {

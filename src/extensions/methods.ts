@@ -1,10 +1,10 @@
 import type { TransactionClient, VibORMConfig } from "@client/client";
 import { RAW_METHOD_NAMES, type RawSurface } from "@client/raw";
+import type { ClientSchema } from "@client/schema-links";
 import type {
   Client,
   ClientRowsContext,
   Operations,
-  Schema,
   StampedOperation,
   StampedOperations,
 } from "@client/types";
@@ -32,9 +32,13 @@ export type RuntimeModelMethodContribution = Readonly<
 >;
 
 declare const extensionCacheState: unique symbol;
-type ExtensionCacheState = typeof extensionCacheState;
+export interface ExtensionCacheState {
+  readonly [extensionCacheState]: true;
+}
 declare const extensionResultConsumerState: unique symbol;
-type ExtensionResultConsumerState = typeof extensionResultConsumerState;
+export interface ExtensionResultConsumerState {
+  readonly [extensionResultConsumerState]: true;
+}
 
 /** The only static facts accumulated while extensions are chained. */
 export interface ClientExtensionState<
@@ -117,7 +121,7 @@ type MethodsForModel<
 export type ExtensionModelDelegate<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-  ModelName extends keyof C["schema"],
+  ModelName extends keyof ClientSchema<C>,
 > = ([X["data"]] extends [never]
   ? Client<C, ClientRowsContext<C, X["rows"]>, X["controls"]>[ModelName]
   : Omit<
@@ -142,9 +146,13 @@ export type ExtensionModelDelegate<
 export type ExtensionModelClient<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
-> = [C["schema"]] extends [Schema]
+> = [keyof C["schema"]] extends [PropertyKey]
   ? {
-      [ModelName in keyof C["schema"]]: ExtensionModelDelegate<C, X, ModelName>;
+      [ModelName in keyof ClientSchema<C>]: ExtensionModelDelegate<
+        C,
+        X,
+        ModelName
+      >;
     }
   : unknown;
 
@@ -155,7 +163,7 @@ export type ExtensionClientScope<
 > = ExtensionModelClient<C, X> &
   RawSurface &
   X["client"] & {
-    readonly $schema: C["schema"];
+    readonly $schema: ClientSchema<C>;
     readonly $transaction: TransactionClient<C, X>["$transaction"];
   };
 
@@ -292,26 +300,61 @@ export type ResultConsumerContextOf<Definition> = Definition extends
       : "result-consuming"
     : "result-independent";
 
-type ResultConsumerStateOf<
-  X extends ExtensionStateConstraint,
-  Definition,
-> = ResultConsumerContextOf<Definition> extends "result-consuming"
-  ? ExtensionResultConsumerState
-  : X["resultConsumer"];
-
-/** Accumulate the same seven facts lazily, without a conditional generic fallback. */
-export interface MergeExtensionState<
-  X extends ExtensionStateConstraint,
-  Definition,
+/** Incoming facts keep their nominal bit derivation inside this named state. */
+export interface ExtensionContributionState<
+  ClientMethods extends object,
+  ModelMethods extends object,
+  Controls extends object,
+  RowModels extends string,
+  Data,
+  ConsumerContext extends string,
 > extends ExtensionStateConstraint {
-  readonly client: X["client"] & ClientMethodsOf<Definition>;
-  readonly models: MergeModelMethods<X["models"], ModelMethodsOf<Definition>>;
-  readonly cache: X["cache"];
-  readonly resultConsumer: ResultConsumerStateOf<X, Definition>;
-  readonly controls: X["controls"] & DefinitionControls<Definition>;
-  readonly rows: X["rows"] | RowsModels<Definition>;
-  readonly data: X["data"] | DefinitionData<Definition>;
+  readonly client: ClientMethods;
+  readonly models: ModelMethods;
+  readonly cache: undefined;
+  readonly resultConsumer: ConsumerContext extends "result-consuming"
+    ? ExtensionResultConsumerState
+    : undefined;
+  readonly controls: Controls;
+  readonly rows: RowModels;
+  readonly data: Data;
 }
+
+/** Retain contribution facts, never the factory's contextual argument surface. */
+export type ExtensionStateContributionOf<Definition> = [Definition] extends [
+  unknown,
+]
+  ? ExtensionContributionState<
+      ClientMethodsOf<Definition>,
+      ModelMethodsOf<Definition>,
+      DefinitionControls<Definition>,
+      RowsModels<Definition>,
+      DefinitionData<Definition>,
+      ResultConsumerContextOf<Definition>
+    >
+  : never;
+
+/** Accumulate the same seven facts lazily, without retaining callback definitions. */
+export interface AccumulatedExtensionState<
+  X extends ExtensionStateConstraint,
+  Contribution extends ExtensionStateConstraint,
+> extends ExtensionStateConstraint {
+  readonly client: X["client"] & Contribution["client"];
+  readonly models: MergeModelMethods<X["models"], Contribution["models"]>;
+  readonly cache: X["cache"];
+  readonly resultConsumer: HasResultConsumingExtension<Contribution> extends true
+    ? ExtensionResultConsumerState
+    : X["resultConsumer"];
+  readonly controls: X["controls"] & Contribution["controls"];
+  readonly rows: X["rows"] | Contribution["rows"];
+  readonly data: X["data"] | Contribution["data"];
+}
+
+/** Public compatibility surface: the incoming argument remains a definition. */
+export type MergeExtensionState<
+  X extends ExtensionStateConstraint,
+  Definition,
+> = AccumulatedExtensionState<X, ExtensionStateContributionOf<Definition>>;
 
 export interface BoundExtensionMethods {
   readonly client: Readonly<Record<string, RuntimeExtensionMethodFunction>>;

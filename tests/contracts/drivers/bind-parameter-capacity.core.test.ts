@@ -1,6 +1,8 @@
+import { createClient } from "@client/client";
 import { BunSQLDriver } from "@drivers/bun-sql";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
 import { D1Driver } from "@drivers/d1";
+import type { QueryResult } from "@drivers/exports";
 import { LibSQLDriver } from "@drivers/libsql";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { NeonHTTPDriver } from "@drivers/neon-http";
@@ -9,7 +11,9 @@ import { PGliteDriver } from "@drivers/pglite";
 import { PlanetScaleDriver } from "@drivers/planetscale";
 import { PostgresDriver } from "@drivers/postgres";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import { s } from "@schema";
 import { join, sql } from "@sql";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, test, vi } from "vitest";
 
 class UnknownCapacityDriver extends PGliteDriver {
@@ -50,6 +54,56 @@ describe("driver bind-parameter capacity", () => {
       ),
     });
     expect(query).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    [
+      "postgres.js",
+      new PostgresDriver().maxBindParametersPerStatement,
+      21_845,
+      65_532,
+    ],
+    [
+      "PGlite",
+      new PGliteDriver().maxBindParametersPerStatement,
+      10_923,
+      32_766,
+    ],
+  ])("public createMany chunks before %s's known overflow", async (_name, limit, count, firstChunk) => {
+    class ThresholdDriver extends PlanningDriver {
+      readonly dispatched: number[] = [];
+      constructor() {
+        super("postgresql", {
+          maxBindParametersPerStatement: limit,
+        });
+      }
+      protected override async execute<T>(
+        _client: null,
+        _statement: string,
+        parameters: unknown[]
+      ): Promise<QueryResult<T>> {
+        this.dispatched.push(parameters.length);
+        return { rows: [], rowCount: parameters.length / 3 };
+      }
+    }
+    const driver = new ThresholdDriver();
+    const entry = s.model({
+      id: s.int().id(),
+      first: s.int(),
+      second: s.int(),
+    });
+    const client = createClient({ schema: { entry }, driver });
+    try {
+      const rows = Array.from({ length: count }, (_, id) => ({
+        id,
+        first: id,
+        second: id,
+      }));
+      expect(await client.entry.createMany({ data: rows })).toEqual({ count });
+      expect(driver.dispatched).toEqual([firstChunk, 3]);
+    } finally {
+      await client.$disconnect();
+    }
   });
 
   test("an unverified custom driver fails safe", () => {

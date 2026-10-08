@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noBitwiseOperators: this seeded corpus generator deliberately reproduces uint32 PRNG state transitions.
 /**
  * Seeded worlds for the G4 generated read campaign.
  *
@@ -123,7 +124,7 @@ export function generationSchema() {
 
 /** xorshift32; the campaign's only source of variation. */
 export function picker(seed: number) {
-  let state = (seed ^ 0x5bf0_3635) >>> 0 || 0x9e37_79b9;
+  let state = (seed ^ 0x5b_f0_36_35) >>> 0 || 0x9e_37_79_b9;
   return (limit: number) => {
     state ^= state << 13;
     state ^= state >>> 17;
@@ -305,11 +306,10 @@ export interface G4ReturnedEnvelope {
 class ProfileDriver extends SQLite3Driver {
   override readonly supportsOrderedCommittedSegments: boolean;
 
-  constructor(
-    client: Database.Database,
-    private readonly profile: G4GenerationProfile
-  ) {
+  private readonly profile: G4GenerationProfile;
+  constructor(client: Database.Database, profile: G4GenerationProfile) {
     super({ client });
+    this.profile = profile;
     this.supportsOrderedCommittedSegments =
       profile === "scripted-returning-ack";
   }
@@ -326,7 +326,8 @@ class ProfileDriver extends SQLite3Driver {
 
   /** What the transport actually did since the seal, not what it is named. */
   observedTransport(): G4TransportModel | "none" {
-    if (this.observed.size === 1) return [...this.observed][0] as G4TransportModel;
+    if (this.observed.size === 1)
+      return [...this.observed][0] as G4TransportModel;
     return "none";
   }
 
@@ -431,7 +432,7 @@ export async function createGeneratedWorld(
   profile: G4GenerationProfile
 ): Promise<GeneratedWorld> {
   const database = new Database(":memory:");
-  database.pragma("foreign_keys = OFF");
+  database.pragma("foreign_keys = ON");
   const driver = new ProfileDriver(database, profile);
   const schema = generationSchema();
   const client = createClient({ schema, driver });

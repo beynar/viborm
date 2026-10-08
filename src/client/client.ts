@@ -29,15 +29,16 @@ import type {
   SchemaBoundExtensionAdmission,
 } from "@extensions/definition";
 import {
+  type AccumulatedExtensionState,
   type BoundExtensionMethods,
   bindExtensionMethods,
   type EmptyClientExtensionState,
   type EnableExtensionCache,
   type ExtensionModelClient,
   type ExtensionStateConstraint,
+  type ExtensionStateContributionOf,
   type HasExtensionCache,
   type HasResultConsumingExtension,
-  type MergeExtensionState,
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
@@ -86,6 +87,7 @@ import {
   type RawOperation,
   type RawSurface,
 } from "./raw";
+import type { ClientSchema, LinkedClientConfig } from "./schema-links";
 import type {
   CachedClient,
   Client,
@@ -94,6 +96,16 @@ import type {
   Operations,
   Schema,
 } from "./types";
+
+export type {
+  ClientSchema,
+  FlatSchema,
+  Linked,
+  LinkedClientConfig,
+  Links,
+  RelationLinks,
+} from "./schema-links";
+
 import { assertNonEmptyUniqueWhere } from "./unique-where-guard";
 
 interface OfficialReadCache {
@@ -280,7 +292,7 @@ type AppliedExtensionState<
   ? EnableExtensionCache<X>
   : Definition extends OfficialDefaultOmitExtension
     ? X
-    : MergeExtensionState<X, Definition>;
+    : AccumulatedExtensionState<X, ExtensionStateContributionOf<Definition>>;
 
 /**
  * The keys a proposed config names that the surface does not have: the typos.
@@ -322,7 +334,7 @@ export type TransactionClient<
   X extends ExtensionStateConstraint = EmptyClientExtensionState,
 > = ExtensionModelClient<C, X> &
   RawSurface & {
-    readonly $schema: C["schema"];
+    readonly $schema: ClientSchema<C>;
     $transaction: {
       <T>(
         fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
@@ -374,7 +386,7 @@ interface VibORMClientMembers<
   /** Access the underlying driver */
   $driver: AnyDriver;
   /** Access the schema (models) */
-  $schema: C["schema"];
+  $schema: ClientSchema<C>;
   /**
    * Run operations in a transaction or batch
    *
@@ -497,7 +509,7 @@ export type ExtendedOperationResult<
 > = Client extends VibORMClient<infer C, infer X>
   ? ContextualOperationResult<
       C,
-      ModelName & keyof C["schema"],
+      ModelName & keyof ClientSchema<C>,
       O,
       Args,
       ClientRowsContext<C, X["rows"]>
@@ -508,7 +520,7 @@ export type ExtendedOperationResult<
  * VibORM Client
  */
 export class VibORM<C extends VibORMConfig> {
-  readonly #schema: C["schema"];
+  readonly #schema: ClientSchema<C>;
   readonly #engine: QueryEngine;
   readonly #relations: ResolvedRelationIndex;
   /** One resolved declarative omit per authenticated capability on this client. */
@@ -524,7 +536,7 @@ export class VibORM<C extends VibORMConfig> {
    *   copies it (§10E.10, §11.4.10).
    */
   constructor(config: C, { relations, schemaRegistry }: PreparedSchema) {
-    this.#schema = config.schema as C["schema"];
+    this.#schema = config.schema as ClientSchema<C>;
     this.#relations = relations;
 
     // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
@@ -570,7 +582,7 @@ export class VibORM<C extends VibORMConfig> {
   /** Build one model operation through the common lazy client preparation path. */
   #prepareModelOperation(
     engine: QueryEngine,
-    modelName: keyof C["schema"],
+    modelName: keyof ClientSchema<C>,
     operation: Operations,
     args: unknown,
     clientOmit: ClientOmitResolver | undefined,
@@ -915,9 +927,10 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Create one root view: the shared ladder plus the root-only utilities. */
-  #createRootView<X extends ExtensionStateConstraint>(
-    engine: QueryEngine
-  ): VibORMClient<C, X> {
+  #createRootView<
+    X extends ExtensionStateConstraint,
+    ViewConfig extends VibORMConfig = C,
+  >(engine: QueryEngine): VibORMClient<ViewConfig, X> {
     const chain = engine.extensionChain;
     const clientOmit =
       chain === undefined ? undefined : this.#resolveClientOmit(chain);
@@ -980,7 +993,10 @@ export class VibORM<C extends VibORMConfig> {
   /**
    * Create the full client with all utility methods
    */
-  static create<C extends VibORMConfig>(config: C): VibORMClient<C> {
+  static create<
+    C extends VibORMConfig,
+    ViewConfig extends VibORMConfig = LinkedClientConfig<C>,
+  >(config: C): VibORMClient<ViewConfig> {
     if (!config.driver) {
       throw new ClientInitializationError(
         "Driver is required to create a client. Pass a driver in createClient options."
@@ -1023,7 +1039,9 @@ export class VibORM<C extends VibORMConfig> {
       return new VibORM<C>(config, prepared);
     });
 
-    return orm.#createRootView<EmptyClientExtensionState>(orm.#engine);
+    return orm.#createRootView<EmptyClientExtensionState, ViewConfig>(
+      orm.#engine
+    );
   }
 }
 
@@ -1133,11 +1151,16 @@ export const createClient = <S extends Schema, Config extends VibORMConfig<S>>(
   // `Config` captures the whole literal for the result types. The structural
   // refusal rejects unknown keys for fresh and held configuration values.
   config: Config & VibORMConfig<S> & NoExtraConfigKeys<Config, VibORMConfig<S>>
-): VibORMClient<Config> => {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<Config>]: LinkedClientConfig<Config>[P];
+}> => {
   // Explicit `Config`: the parameter's refusal members (`NoExtraConfigKeys`) are
   // there to reject typo'd keys, not to be threaded into the client's result
   // types — inferring `C` from the intersection would carry them along.
-  return VibORM.create<Config>(config);
+  return VibORM.create<
+    Config,
+    { [P in keyof LinkedClientConfig<Config>]: LinkedClientConfig<Config>[P] }
+  >(config);
 };
 
 /**
@@ -1152,13 +1175,22 @@ export const createClientFromDriverConfig = <
   config: C,
   driver: D
 ): VibORMClient<{
-  schema: C["schema"];
-  driver: D;
+  [P in keyof LinkedClientConfig<C & { driver: D }>]: LinkedClientConfig<
+    C & { driver: D }
+  >[P];
 }> => {
   const { schema, skipSchemaValidation } = config;
-  return VibORM.create({
+  const coreConfig = {
     schema,
     driver,
     ...(skipSchemaValidation === undefined ? {} : { skipSchemaValidation }),
-  });
+  };
+  return VibORM.create<
+    typeof coreConfig,
+    {
+      [P in keyof LinkedClientConfig<C & { driver: D }>]: LinkedClientConfig<
+        C & { driver: D }
+      >[P];
+    }
+  >(coreConfig);
 };

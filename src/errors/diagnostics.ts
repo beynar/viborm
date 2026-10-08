@@ -631,17 +631,11 @@ function sanitizeObject(
         descriptor && "value" in descriptor
           ? descriptor.value
           : UNREADABLE_VALUE;
-      const entry =
-        insideCause &&
-        typeof raw === "string" &&
-        ["message", "detail", "hint"].includes(normalizedKey)
-          ? sanitizeDiagnosticText(raw, state)
-          : raw;
       defineSafe(
         result,
         sanitizeString(key, state),
         sanitizeUnknown(
-          entry,
+          raw,
           state,
           depth + 1,
           insideCause || (!insideParameters && CAUSE_KEYS.has(normalizedKey)),

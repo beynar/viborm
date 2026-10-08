@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { sqliteDecimalCheck } from "@adapters/databases/sqlite/storage/decimal";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
-import { createModelFieldRefs } from "@schema/field-ref";
 import { s } from "@schema";
+import { createModelFieldRefs } from "@schema/field-ref";
+import { createIdentifierQuoter } from "@src/sql/identifiers";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -27,9 +29,16 @@ const refs = createModelFieldRefs("ledger", ledger) as Record<string, unknown>;
 
 function build(): { db: Database.Database; driver: SQLite3Driver } {
   const db = new Database(":memory:");
+  db.pragma("foreign_keys = ON");
+  const quote = createIdentifierQuoter('"');
   db.exec(
-    `CREATE TABLE fu2_ledger(id INTEGER PRIMARY KEY, cents TEXT NOT NULL, micros TEXT NOT NULL, alsoCents TEXT NOT NULL);
-     INSERT INTO fu2_ledger VALUES (1,'1.20','1.2000','1.20'),(2,'2.00','9.0000','3.00');`
+    `CREATE TABLE fu2_ledger(
+       id INTEGER PRIMARY KEY,
+       cents INTEGER NOT NULL ${sqliteDecimalCheck({ name: "cents", nullable: false }, { precision: 12, scale: 2 }, "scalar", quote)},
+       micros INTEGER NOT NULL ${sqliteDecimalCheck({ name: "micros", nullable: false }, { precision: 12, scale: 4 }, "scalar", quote)},
+       alsoCents INTEGER NOT NULL ${sqliteDecimalCheck({ name: "alsoCents", nullable: false }, { precision: 12, scale: 2 }, "scalar", quote)}
+     );
+     INSERT INTO fu2_ledger VALUES (1,120,12000,120),(2,200,90000,300);`
   );
   return { db, driver: new SQLite3Driver({ client: db }) };
 }
@@ -53,7 +62,9 @@ async function bothOutcomes(
     const engine = createTestCommandEngine({ schema, driver: right.driver });
     return {
       shipped: await capture(() => client.ledger.findMany(args)),
-      candidate: await capture(() => engine.execute("ledger", "findMany", args)),
+      candidate: await capture(() =>
+        engine.execute("ledger", "findMany", args)
+      ),
     };
   } finally {
     await left.driver.disconnect();
@@ -75,6 +86,7 @@ describe("G4-01 repair 2 review — decimal field-reference domains", () => {
       seen.shipped,
       `same domain\n  candidate ${JSON.stringify(seen.candidate)}\n  shipped   ${JSON.stringify(seen.shipped)}`
     );
+    assert.deepEqual(seen.candidate, { ok: [{ id: 1 }] });
   });
 
   it("agrees on a reference between two decimals of DIFFERENT domains", async () => {

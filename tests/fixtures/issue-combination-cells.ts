@@ -91,7 +91,9 @@ async function planned(driver: AnyDriver, variant: CombinationVariant) {
     dryRun: true,
     resolve: proceed,
   });
-  return plan.operations.map((operation) => operation.label);
+  return plan.operations.map((operation) =>
+    operation.id.slice(0, operation.id.indexOf(":"))
+  );
 }
 
 async function seeded(driver: AnyDriver) {

@@ -9,6 +9,7 @@
 /** Live SQLite DateTime recreation and atomicity contracts. */
 
 import { createClient } from "@client/client";
+import { sqliteCanonicalDateTimeExpression } from "@migrations";
 import { createMigrationClient } from "@migrations/client";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s, TYPES } from "@schema";
@@ -326,6 +327,14 @@ describe("SQLite DateTime table recreation", () => {
     });
     const textMigration = await push(textAfter, { force: true });
     expect(textMigration.sql.join("\n")).toContain("CASE WHEN");
+    await expect(textAfter.event.findMany()).rejects.toThrow(
+      "not canonical UTC text"
+    );
+    // The manual repair uses the same admitted calendar/epoch grammar; typed
+    // comparisons only become valid after storage is canonicalized.
+    await textDriver._executeRaw(
+      `UPDATE "datetime_text_adoption" SET "at" = ${sqliteCanonicalDateTimeExpression("at")}`
+    );
     await expect(
       textAfter.event.findMany({
         where: { at: { equals: spelling } },
@@ -334,7 +343,7 @@ describe("SQLite DateTime table recreation", () => {
     const storedText = await textDriver._executeRaw<{ at: string }>(
       'SELECT "at" FROM "datetime_text_adoption"'
     );
-    expect(storedText.rows).toEqual([{ at: spelling }]);
+    expect(storedText.rows).toEqual([{ at: new Date(spelling).toISOString() }]);
     await textAfter.$disconnect();
 
     const integerDriver = createInMemorySQLite3Driver();

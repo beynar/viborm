@@ -251,7 +251,11 @@ export async function loadConfig(
  * Dynamically imports a TypeScript/JavaScript module.
  */
 export function loadCliModule<T>(filePath: string): Promise<T> {
-  return createJiti(filePath, { tsconfigPaths: true }).import<T>(filePath);
+  // Consumers select authored exports; synthetic defaults mask named config/authors.
+  return createJiti(filePath, {
+    tsconfigPaths: true,
+    interopDefault: false,
+  }).import<T>(filePath);
 }
 
 /**

@@ -363,6 +363,20 @@ describe("statement-transform failures", () => {
       expect(error.originalCause).toBeInstanceOf(Error);
     }
   });
+
+  test("rejects a native Sql instance with a tampered renderer", () => {
+    const tampered = Object.defineProperty(sql`SELECT 1`, "toStatement", {
+      value: 42,
+    });
+    const failure = captureQueryError(() =>
+      applyStatementTransforms(sql`SELECT 1`, "post", "findMany", [
+        transformReturning("tampered-native-renderer", tampered),
+      ])
+    );
+    expect(failure.message).toContain("returned an unreadable value");
+    expect(failure.originalCause).toBeInstanceOf(Error);
+    expect(failure.message).toContain("tampered-native-renderer");
+  });
 });
 
 describe("coverage low value", () => {

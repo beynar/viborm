@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: fixture assertion helpers are invoked only by registered Vitest cells or their setup hooks.
 /**
  * G4-02 phase-2 review — the recursive carrier's identities, through the
  * ordinary projection.
@@ -60,7 +61,7 @@ let client: ReturnType<typeof buildClient>;
 
 beforeEach(async () => {
   database = new Database(":memory:");
-  database.pragma("foreign_keys = OFF");
+  database.pragma("foreign_keys = ON");
   driver = new SQLite3Driver({ client: database });
   client = buildClient(driver);
   assert.equal((await syncLiveSchema(client)).applied, true);
@@ -77,11 +78,18 @@ function insert(
   parent: string | null,
   big = 1n
 ): void {
-  database
-    .prepare(
-      `INSERT INTO ${NODE_TABLE} (tenant_key, node_code, sibling_rank, node_big, parent_tenant_key, parent_node_code) VALUES (?,?,?,?,?,?)`
-    )
-    .run("t", code, rank, String(big), parent === null ? null : "t", parent);
+  // Raw fixture insertion may temporarily form a dangling/cyclic edge; the
+  // borrowed typed client was admitted and is used only with enforcement on.
+  database.pragma("foreign_keys = OFF");
+  try {
+    database
+      .prepare(
+        `INSERT INTO ${NODE_TABLE} (tenant_key, node_code, sibling_rank, node_big, parent_tenant_key, parent_node_code) VALUES (?,?,?,?,?,?)`
+      )
+      .run("t", code, rank, String(big), parent === null ? null : "t", parent);
+  } finally {
+    database.pragma("foreign_keys = ON");
+  }
 }
 
 /** The ordinary `findMany`, descending `children` from the named roots. */

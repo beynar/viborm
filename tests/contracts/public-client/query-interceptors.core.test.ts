@@ -1175,6 +1175,31 @@ describe("query write-outcome publication", () => {
 });
 
 describe("hostile query thenables", () => {
+  test("reports commit certainty when post-proceed work rejects with a non-Error", async () => {
+    const failure = await captureFailure(
+      executePreparedQuery(
+        modelContext("create"),
+        [
+          {
+            extension: "committed-post-work",
+            async handler({ proceed }) {
+              await proceed();
+              return Promise.reject("private post-work failure");
+            },
+          },
+        ],
+        async () => ({ count: 1 }),
+        true,
+        undefined,
+        { readCommitCertainty: () => "committed" }
+      )
+    );
+    expect(requireQueryError(failure).meta).toMatchObject({
+      commitCertainty: "committed",
+    });
+    expect(requireQueryError(failure).originalCause).toBeInstanceOf(Error);
+    expect(requireQueryError(failure).message).toContain("committed-post-work");
+  });
   test("does not confuse an undefined rejection with absent protocol failure", async () => {
     const failure = await captureFailure(
       runQueryInterceptors(

@@ -16,6 +16,7 @@ import {
   decodePhysicalDecimalList,
   decodePhysicalWidenedSum,
   decodeWidenedSum,
+  describeDecimalDomain,
   describeProviderLimitRefusal,
   encodeDecimalListContainer,
   encodePhysicalDecimal,
@@ -23,6 +24,7 @@ import {
   logicalToCoefficient,
   materializePhysicalDecimal,
   materializePhysicalWidenedSum,
+  readStoredDecimalDescriptor,
   sameDecimalDescriptor,
   toDecimal,
 } from "@validation/primitives/decimal-codec";
@@ -1054,5 +1056,49 @@ describe("the documented value surface", () => {
     const gone = [...documentedNames(noteSection("- **Gone:**"))];
     expect(gone.length).toBeGreaterThan(0);
     expect(gone.filter((name) => prototypeMembers.has(name))).toEqual([]);
+  });
+});
+
+describe("decimal catalog admission", () => {
+  test("only a finite safe integer is admitted as a stored precision or scale", () => {
+    expect(readStoredDecimalDescriptor(10, 2, "mysql")).toEqual({
+      precision: 10,
+      scale: 2,
+    });
+    expect(readStoredDecimalDescriptor("10", "2", "mysql")).toEqual({
+      precision: 10,
+      scale: 2,
+    });
+    expect(readStoredDecimalDescriptor(10.5, 2, "mysql")).toBeUndefined();
+    expect(
+      readStoredDecimalDescriptor(Number.MAX_SAFE_INTEGER + 2, 2, "mysql")
+    ).toBeUndefined();
+    expect(readStoredDecimalDescriptor(null, 2, "mysql")).toBeUndefined();
+    expect(readStoredDecimalDescriptor("10.5", 2, "mysql")).toBeUndefined();
+  });
+
+  test.each([
+    [0, 0],
+    [10, -1],
+    [2, 3],
+    [10, undefined],
+    ["9007199254740992", "0"],
+    [66, 0],
+  ])("refuses invalid MySQL precision %s and scale %s", (precision, scale) => {
+    expect(
+      readStoredDecimalDescriptor(precision, scale, "mysql")
+    ).toBeUndefined();
+  });
+
+  test("catalog domains obey the selected provider and describe exact bounds", () => {
+    expect(readStoredDecimalDescriptor(19, 0, "sqlite")).toBeUndefined();
+    expect(readStoredDecimalDescriptor(1001, 0, "pg")).toBeUndefined();
+    expect(readStoredDecimalDescriptor(1000, 2, "pg")).toEqual({
+      precision: 1000,
+      scale: 2,
+    });
+    expect(describeDecimalDomain({ precision: 10, scale: 2 })).toBe(
+      "precision 10, scale 2"
+    );
   });
 });

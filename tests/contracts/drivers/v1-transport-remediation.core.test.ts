@@ -7,6 +7,25 @@ import postgres from "postgres";
 import { describe, expect, it } from "vitest";
 
 describe("V1 provider boundary regressions", () => {
+  it.each([
+    "null",
+    "false",
+    "42",
+  ])("refuses ssl=%s when the URL requires verified TLS", (ssl) => {
+    expect(() =>
+      parseMySQLUrl(`mysql://localhost/db?sslmode=require&ssl=${ssl}`)
+    ).toThrow("requires a TLS configuration");
+  });
+
+  it("retains an explicit TLS profile and supplies TLS when sslmode alone requires it", () => {
+    expect(
+      parseMySQLUrl("mysql://localhost/db?sslmode=verify-full").ssl
+    ).toEqual({});
+    expect(
+      parseMySQLUrl("mysql://localhost/db?sslmode=require&ssl=Amazon%20RDS").ssl
+    ).toBe("Amazon RDS");
+  });
+
   it("preserves MySQL TLS/options and decodes URL credentials exactly once", () => {
     const options = parseMySQLUrl(
       "mysql://user%40tenant:p%25%2Fword@localhost/app%5Fdb?ssl=%7B%22rejectUnauthorized%22%3Atrue%7D&connectTimeout=4200"

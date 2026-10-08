@@ -10,6 +10,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -527,7 +528,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: MySQL2ClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S>
-): VibORMClient<C & { driver: MySQL2Driver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: MySQL2Driver }
+  >]: LinkedClientConfig<C & { driver: MySQL2Driver }>[P];
+}> {
   const { pool, options = {}, databaseUrl } = config;
   const attestation = resolveMigrationNamespaceAttestationOption(config);
   const namespace = resolveNamespaceOption(config);
@@ -547,7 +552,5 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
 
   const driver = new MySQL2Driver(driverOptions);
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: MySQL2Driver }
-  >;
+  return createClientFromDriverConfig<S, C, MySQL2Driver>(config, driver);
 }

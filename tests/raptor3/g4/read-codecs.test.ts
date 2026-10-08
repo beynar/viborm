@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: fixture assertion helpers are invoked only by registered Vitest cells or their setup hooks.
 /**
  * G4 C12 fixed witnesses — inventory family D read crossings, SC-01…SC-14 and
  * SL-01…SL-10, plus Q-R01's malformed-provider-row boundary.
@@ -16,15 +17,15 @@ import { Decimal } from "@src/index";
 import { canonicalizeDecimal } from "@validation/primitives/decimal-codec";
 import { afterEach, beforeEach, describe, it } from "vitest";
 import {
-  EMBEDDINGS,
-  PLACES,
-  PLACE_TABLE,
-  SPECIMENS,
-  SPECIMEN_TABLE,
-  type SpecimenValues,
-  VECTOR_TABLE,
   codecWorldSchema,
+  EMBEDDINGS,
+  PLACE_TABLE,
+  PLACES,
+  SPECIMEN_TABLE,
+  SPECIMENS,
+  type SpecimenValues,
   spatialWorldSchema,
+  VECTOR_TABLE,
   vectorWorldSchema,
 } from "./codec-schema";
 import {
@@ -36,14 +37,25 @@ import {
   type WitnessWorld,
 } from "./witness-world";
 
+const GEOGRAPHIC_DISTANCE_REFUSAL =
+  /GeoPoint distance is not supported by this provider/;
+
 function assertDecimal(actual: unknown, expected: string, label: string): void {
   assert.ok(actual instanceof Decimal, `${label} is not a Decimal`);
   assert.equal(canonicalizeDecimal(actual), expected, label);
 }
 
-function assertBytes(actual: unknown, expected: Uint8Array, label: string): void {
+function assertBytes(
+  actual: unknown,
+  expected: Uint8Array,
+  label: string
+): void {
   assert.ok(actual instanceof Uint8Array, `${label} is not a Uint8Array`);
-  assert.equal(actual.constructor, Uint8Array, `${label} is not exactly Uint8Array`);
+  assert.equal(
+    actual.constructor,
+    Uint8Array,
+    `${label} is not exactly Uint8Array`
+  );
   assert.deepEqual([...actual], [...expected], label);
 }
 
@@ -52,8 +64,15 @@ function assertMoment(actual: unknown, expected: Date, label: string): void {
   assert.equal(actual.toISOString(), expected.toISOString(), label);
 }
 
-function assertSpecimen(row: unknown, expected: SpecimenValues, who: string): void {
-  assert.ok(row !== null && typeof row === "object", `${who}: missing specimen row`);
+function assertSpecimen(
+  row: unknown,
+  expected: SpecimenValues,
+  who: string
+): void {
+  assert.ok(
+    row !== null && typeof row === "object",
+    `${who}: missing specimen row`
+  );
   const actual = row as Record<string, unknown>;
   assert.equal(actual.id, expected.id, `${who}: id`);
   assert.equal(actual.label, expected.label, `${who}: SC-01 string`);
@@ -129,7 +148,7 @@ describe("G4 C12 scalar and list codec read crossings", () => {
       )
       .get() as Record<string, unknown>;
     assert.equal(stored.amount_value, 123_456_001);
-    assert.equal(stored.clock_value, "13:45:30");
+    assert.equal(stored.clock_value, "13:45:30.000");
     assert.equal(stored.status_value, "ACTIVE");
     assert.equal(stored.flag_value, 1);
     assert.equal(stored.label_list, '["alpha","beta"]');
@@ -155,9 +174,13 @@ describe("G4 C12 scalar and list codec read crossings", () => {
         where: { id: specimen.id },
       });
       assertSpecimen(shipped, specimen, "shipped");
-      const candidate = await world.candidate.execute("specimen", "findUnique", {
-        where: { id: specimen.id },
-      });
+      const candidate = await world.candidate.execute(
+        "specimen",
+        "findUnique",
+        {
+          where: { id: specimen.id },
+        }
+      );
       assertSpecimen(candidate, specimen, "candidate");
     }
   });
@@ -177,8 +200,16 @@ describe("G4 C12 scalar and list codec read crossings", () => {
     const right = second as Record<string, unknown>;
     assertDecimal(left.amount, "123456.001", "first decimal");
     assertDecimal(right.amount, "123456.001", "second decimal");
-    assert.notEqual(left.amount, right.amount, "a Decimal must be freshly materialized");
-    assert.notEqual(left.amounts, right.amounts, "a decimal list must be a fresh array");
+    assert.notEqual(
+      left.amount,
+      right.amount,
+      "a Decimal must be freshly materialized"
+    );
+    assert.notEqual(
+      left.amounts,
+      right.amounts,
+      "a decimal list must be a fresh array"
+    );
   });
 
   it("SC-11 keeps the database NULL and the JSON null sentinels distinct", async () => {
@@ -244,9 +275,21 @@ describe("G4 C12 scalar and list codec read crossings", () => {
         select: { payload: true },
       })
     );
-    assertBytes(first[0]?.payload, new Uint8Array([0, 1, 2, 128, 253, 255]), "first");
-    assertBytes(second[0]?.payload, new Uint8Array([0, 1, 2, 128, 253, 255]), "second");
-    assert.notEqual(first[0]?.payload, second[0]?.payload, "blob containers must be fresh");
+    assertBytes(
+      first[0]?.payload,
+      new Uint8Array([0, 1, 2, 128, 253, 255]),
+      "first"
+    );
+    assertBytes(
+      second[0]?.payload,
+      new Uint8Array([0, 1, 2, 128, 253, 255]),
+      "second"
+    );
+    assert.notEqual(
+      first[0]?.payload,
+      second[0]?.payload,
+      "blob containers must be fresh"
+    );
   });
 
   it("SL-01…SL-05 and SL-07…SL-10 answer the list container predicates", async () => {
@@ -323,7 +366,9 @@ describe("G4 C12 scalar and list codec read crossings", () => {
 
   it("Q-R01 refuses a malformed provider row at the decode boundary", async () => {
     world.database
-      .prepare(`UPDATE ${SPECIMEN_TABLE} SET count_value = 'not-an-int' WHERE id = 1`)
+      .prepare(
+        `UPDATE ${SPECIMEN_TABLE} SET count_value = 'not-an-int' WHERE id = 1`
+      )
       .run();
     const shipped = await observeFailure(() =>
       Promise.resolve(
@@ -415,7 +460,7 @@ describe("G4 C12 spatial codec read crossings (SC-13, SC-14)", () => {
       },
       {
         name: "FeatureNotSupportedError",
-        message: /GeoPoint distance is not supported by this provider/,
+        message: GEOGRAPHIC_DISTANCE_REFUSAL,
       }
     );
   });
@@ -425,71 +470,45 @@ describe("G4 C12 vector capability boundary (SC-13)", () => {
   let world: WitnessWorld;
 
   beforeEach(async () => {
-    // This is the one witness world whose row CANNOT be written by the shipped
-    // client: both engines refuse a vector write here, so an engine-written
-    // seed would leave the table empty and make the read half vacuous. The row
-    // is therefore hand-written with raw SQL, the mechanism `WitnessWorld`
-    // exposes for exactly this case, and the physical spelling it writes is
-    // pinned in the cell below.
-    world = await createWitnessWorld(vectorWorldSchema(), {
-      seed: (database) => {
-        const seeded = EMBEDDINGS[0];
-        assert.ok(seeded, "SC-13 needs a seeded embedding");
-        database
-          .prepare(
-            `INSERT INTO ${VECTOR_TABLE} (id, embedded_name, embedded_vector) VALUES (?, ?, ?)`
-          )
-          .run(seeded.id, seeded.name, JSON.stringify(seeded.embedding));
-      },
-    });
+    world = await createWitnessWorld(vectorWorldSchema());
+    const seeded = EMBEDDINGS[0];
+    assert.ok(seeded, "SC-13 needs a seeded embedding");
+    await world.shipped.embedded?.create?.({ data: { ...seeded } });
   });
 
   afterEach(async () => {
     await world?.close();
   });
 
-  /**
-   * SQLite declares no vector tier (`sqlite-adapter.ts` `vector =
-   * unsupportedVector`). The WRITE is where the capability is asked: the
-   * contract is a refusal with one identity, not a silent degradation, and the
-   * candidate must refuse identically. The READ is still answered — the vector
-   * field carries as JSON — so the same cell measures that a stored vector
-   * comes back decoded from both engines. What is NOT witnessed here is the
-   * round trip through the engine's own vector writer; that needs a capable
-   * provider, in `tests/raptor3/g4/native/`.
-   */
-  it("SC-13 refuses a vector write identically and decodes a stored vector", async () => {
+  it("SC-13 writes and decodes JSON vectors without a native distance tier", async () => {
     const seeded = EMBEDDINGS[0];
-    const refused = EMBEDDINGS[1];
-    assert.ok(seeded && refused, "SC-13 needs two embedding fixtures");
-    // A row the seed did NOT write, so a duplicate key can never stand in for
-    // the capability refusal.
-    const shippedWrite = await observeFailure(() =>
-      Promise.resolve(
-        world.shipped.embedded?.create?.({ data: { ...refused } })
-      )
+    const written = EMBEDDINGS[1];
+    assert.ok(seeded && written, "SC-13 needs two embedding fixtures");
+    assert.deepEqual(
+      await world.candidate.execute("embedded", "create", {
+        data: { ...written },
+      }),
+      written
     );
-    const candidateWrite = await observeFailure(() =>
-      world.candidate.execute("embedded", "create", { data: { ...refused } })
-    );
-    assert.equal(
-      candidateWrite.constructorName,
-      shippedWrite.constructorName,
-      `the candidate raised ${candidateWrite.constructorName} (${candidateWrite.message}) where the shipped engine raises ${shippedWrite.constructorName}`
-    );
-    const stored = world.database
-      .prepare(`SELECT embedded_vector FROM ${VECTOR_TABLE} WHERE id = ?`)
-      .get(seeded.id) as Record<string, unknown>;
-    assert.equal(stored.embedded_vector, "[1,0,0]");
-    // One read, two facts: the refused write stored nothing (a leaked row would
-    // show up as a second member) and both engines decode the stored list to
-    // the hand value.
+    const physical = world.database
+      .prepare(`SELECT embedded_vector FROM ${VECTOR_TABLE} ORDER BY id`)
+      .all();
+    assert.deepEqual(physical, [
+      { embedded_vector: "[1,0,0]" },
+      { embedded_vector: "[0,1,0]" },
+    ]);
     await expectRead(
       world,
       "embedded",
       "findMany",
-      { select: { embedding: true } },
-      [{ embedding: [...seeded.embedding] }]
+      {
+        orderBy: { id: "asc" },
+        select: { id: true, name: true, embedding: true },
+      },
+      [
+        { ...seeded, embedding: [...seeded.embedding] },
+        { ...written, embedding: [...written.embedding] },
+      ]
     );
   });
 });

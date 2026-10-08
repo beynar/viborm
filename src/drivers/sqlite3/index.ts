@@ -11,6 +11,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -427,12 +428,14 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: SQLite3ClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, SQLite3DriverOptions, S>
-): VibORMClient<C & { driver: SQLite3Driver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: SQLite3Driver }
+  >]: LinkedClientConfig<C & { driver: SQLite3Driver }>[P];
+}> {
   const { client, dataDir, options } = config;
 
   const driver = new SQLite3Driver({ client, dataDir, options });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: SQLite3Driver }
-  >;
+  return createClientFromDriverConfig<S, C, SQLite3Driver>(config, driver);
 }

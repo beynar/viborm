@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
-import { QueryEngineError } from "@errors";
+import { QueryError, VibORMErrorCode } from "@errors";
 import { describe, it } from "vitest";
-import { closeWorld, createWorld, seedNote, seedPerson, type World } from "./world";
+import { closeWorld, createWorld, seedNote, seedPerson } from "./world";
+
+const INVALID_STRING_RESULT =
+  /incompatible with the string scalar domain: a required scalar is null/;
+const INVALID_ENUM_RESULT =
+  /incompatible with the enum scalar domain: the value is not a declared enum member/;
+const INVALID_INTEGER_RESULT =
+  /incompatible with the int scalar domain: the integer is outside the safe range/;
 
 /**
  * Q-R01 probe. Every leaf is decoded strictly, at every placement, and a
@@ -29,10 +36,12 @@ describe("G4-01 review — strict decoding", () => {
         })
       );
       assert.ok(
-        error instanceof QueryEngineError,
-        `expected a QueryEngineError, got ${error.constructor.name}: ${error.message}`
+        error instanceof QueryError,
+        `expected a QueryError, got ${error.constructor.name}: ${error.message}`
       );
-      assert.match(error.message, /malformed string scalar/);
+      assert.equal(error.code, VibORMErrorCode.QUERY_RESULT_INVALID);
+      assert.equal(error.isRetryable(), false);
+      assert.match(error.message, INVALID_STRING_RESULT);
     } finally {
       await closeWorld(created);
     }
@@ -48,8 +57,10 @@ describe("G4-01 review — strict decoding", () => {
           select: { tier: true },
         })
       );
-      assert.ok(error instanceof QueryEngineError, error.message);
-      assert.match(error.message, /malformed enum scalar/);
+      assert.ok(error instanceof QueryError, error.message);
+      assert.equal(error.code, VibORMErrorCode.QUERY_RESULT_INVALID);
+      assert.equal(error.isRetryable(), false);
+      assert.match(error.message, INVALID_ENUM_RESULT);
     } finally {
       await closeWorld(created);
     }
@@ -68,8 +79,10 @@ describe("G4-01 review — strict decoding", () => {
           select: { id: true, notes: { select: { rank: true } } },
         })
       );
-      assert.ok(error instanceof QueryEngineError, error.message);
-      assert.match(error.message, /malformed int(eger)? scalar/);
+      assert.ok(error instanceof QueryError, error.message);
+      assert.equal(error.code, VibORMErrorCode.QUERY_RESULT_INVALID);
+      assert.equal(error.isRetryable(), false);
+      assert.match(error.message, INVALID_INTEGER_RESULT);
     } finally {
       await closeWorld(created);
     }

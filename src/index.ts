@@ -39,6 +39,7 @@ export {
   renderSchemaType,
   validateOperationPayload,
 } from "./client/schema-introspection.js";
+export type { NoControls, PlacedControl } from "./extensions/controls.js";
 export {
   type ClientExtension,
   defineExtension,
@@ -49,8 +50,12 @@ export {
   type StatementHandler,
 } from "./extensions/index.js";
 export type {
+  AccumulatedExtensionState,
   ClientExtensionState,
   EmptyClientExtensionState,
+  ExtensionCacheState,
+  ExtensionContributionState,
+  ExtensionResultConsumerState,
   MergeExtensionState,
 } from "./extensions/methods";
 // Pending operations (for transaction batching)
@@ -234,9 +239,17 @@ export {
 // SCHEMA UTILITIES
 // =============================================================================
 
+export type {
+  ClientSchema,
+  FlatSchema,
+  Linked,
+  LinkedClientConfig,
+  Links,
+  RelationLinks,
+} from "./client/schema-links.js";
+export type { IndexDefinition, IndexOptions } from "./schema/model/index.js";
 // Schema introspection
 export { getSchemas } from "./schema/schemas.js";
-
 export type {
   SchemaValidationIssue,
   Severity,
@@ -249,3 +262,4 @@ export {
   validateSchema,
   validateSchemaOrThrow,
 } from "./schema/validation/index.js";
+export type { ObjectSchema, VibSchema } from "./validation/index.js";

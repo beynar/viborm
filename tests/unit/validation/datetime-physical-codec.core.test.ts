@@ -1,7 +1,10 @@
 import {
   type DateTimeNumericForm,
   decodePhysicalDateTime,
+  decodeProviderTimestamp,
+  encodeMySqlDateTime,
   encodePhysicalDateTime,
+  encodePostgresTemporal,
   numericDateTimeForm,
 } from "@validation/primitives/datetime-physical-codec";
 import {
@@ -15,6 +18,40 @@ const INSTANT_MILLIS = 1_705_314_600_000;
 const INSTANT_JULIAN = INSTANT_MILLIS / 86_400_000 + 2_440_587.5;
 
 describe("datetime physical codec", () => {
+  test("provider encoders retain ancient calendar years and millisecond precision", () => {
+    expect(encodePostgresTemporal("0000-01-01T00:00:00.123Z")).toBe(
+      "0001-01-01T00:00:00.123Z BC"
+    );
+    expect(encodePostgresTemporal(INSTANT_ISO)).toBe(INSTANT_ISO);
+    expect(encodeMySqlDateTime("0099-01-01T00:00:00.123Z")).toBe(
+      "0099-01-01 00:00:00.123"
+    );
+  });
+
+  test.each([
+    ["0001-01-01 00:00:00+00 BC", "0000-01-01T00:00:00.000Z"],
+    ["0099-01-01 00:09:21+00:09:21", "0099-01-01T00:00:00.000Z"],
+    ["2024-02-29 05:00:00.123456-02:30:15", "2024-02-29T07:30:15.123Z"],
+    ["2024-02-29 05:00:00+0230", "2024-02-29T02:30:00.000Z"],
+    ["2024-02-29T05:00:00Z", "2024-02-29T05:00:00.000Z"],
+    ["2024-02-29 05:00:00", "2024-02-29T05:00:00.000Z"],
+  ])("decodes provider timestamp %s independently of local time", (input, expected) => {
+    expect(decodeProviderTimestamp(input)?.toISOString()).toBe(expected);
+  });
+
+  test.each([
+    "not a timestamp",
+    "2023-02-29 05:00:00",
+    "2024-02-29 24:00:00",
+    "2024-02-29 05:00:00+24:00",
+    "2024-02-29 05:00:00+00:60",
+    "2024-02-29 05:00:00+00:00:60",
+    "0000-01-01 00:00:00+01",
+    "9999-12-31 23:59:59-01",
+  ])("refuses a provider timestamp outside the DateTime domain: %s", (input) => {
+    expect(decodeProviderTimestamp(input)).toBeUndefined();
+  });
+
   describe("encodePhysicalDateTime", () => {
     test("text is the identity — the ISO string IS the physical value", () => {
       expect(encodePhysicalDateTime(INSTANT_ISO, "text")).toBe(INSTANT_ISO);

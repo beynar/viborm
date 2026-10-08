@@ -13,18 +13,26 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { ClientInitializationError, unsupportedVector } from "@errors";
+import {
+  ClientInitializationError,
+  unsupportedVector,
+  VibORMErrorCode,
+} from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
 } from "postgres";
 import { Driver, type QueryExecutionContext } from "../driver";
+import { normalizeDriverError } from "../error-mapping";
 import { getExecutionTransactionPhases } from "../execution-context";
 import {
+  acquireWithMaxWait,
+  type DriverTransactionOptions,
   defineImmutableDriverFact,
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
@@ -33,6 +41,7 @@ import {
   resolveNamespaceOption,
   runProviderManagedTransaction,
   type TransactionOptionSupport,
+  withSuppressedFailure,
 } from "../shared";
 import type { QueryResult } from "../types";
 
@@ -276,20 +285,83 @@ export class PostgresDriver extends Driver<
   protected async transaction<T>(
     client: PostgresClient | PostgresTransaction,
     fn: (tx: PostgresTransaction) => Promise<T>,
-    context?: QueryExecutionContext
+    context?: QueryExecutionContext,
+    options?: DriverTransactionOptions
   ): Promise<T> {
     if (isTransaction(client)) {
       throw nestedTransactionDispatchError(this.driverName);
     }
 
     return runProviderManagedTransaction({
-      run: (callback) => client.begin(callback),
+      run: async (callback) => {
+        let entered = false;
+        try {
+          return await client.begin((tx) => {
+            entered = true;
+            return callback(tx);
+          });
+        } catch (error) {
+          if (!entered && this.isConnectionFailure(error))
+            await this.recoverFailedBegin(
+              client,
+              error,
+              options?.maxWaitMs ?? 5000
+            );
+          throw error;
+        }
+      },
       callback: fn,
       phases: getExecutionTransactionPhases(context),
       // The provider transaction primitive already rolls back/discards its
       // failed session. A transaction does not own this shared pool/database.
       close: async () => undefined,
     });
+  }
+
+  private isConnectionFailure(error: unknown): boolean {
+    const failure = normalizeDriverError(error, {
+      driverName: this.driverName,
+      dialect: this.dialect,
+    });
+    return (
+      failure.code === VibORMErrorCode.CONNECTION_FAILED ||
+      failure.code === VibORMErrorCode.CONNECTION_TIMEOUT
+    );
+  }
+
+  private async recoverFailedBegin(
+    client: PostgresClient,
+    primary: unknown,
+    maxWaitMs: number
+  ): Promise<void> {
+    // postgres.js can retain a fatal response across reconnect, rejecting the
+    // next acquisition before dispatch. Drain that startup error with leases,
+    // never caller SQL; the callback above has provably not entered.
+    const deadline = Date.now() + maxWaitMs;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      try {
+        const lease = await acquireWithMaxWait(
+          () => client.reserve(),
+          (late) => late.release(),
+          remaining,
+          { driverName: this.driverName, form: "callback" }
+        );
+        lease.release();
+        return;
+      } catch (cleanup) {
+        withSuppressedFailure(primary, cleanup);
+        if (attempt === 1 || !this.isConnectionFailure(cleanup)) break;
+      }
+    }
+    // Only this wrapper is quarantined; the shared native pool stays borrowed.
+    this.transactionCleanupFailed(
+      normalizeDriverError(primary, {
+        driverName: this.driverName,
+        dialect: this.dialect,
+      })
+    );
   }
 
   /**
@@ -352,7 +424,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: PostgresClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, PostgresDriverOptions, S>
-): VibORMClient<C & { driver: PostgresDriver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: PostgresDriver }
+  >]: LinkedClientConfig<C & { driver: PostgresDriver }>[P];
+}> {
   const { client, options = {}, pgvector, postgis, databaseUrl } = config;
   const namespace = resolveNamespaceOption(config);
 
@@ -365,7 +441,5 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     namespace,
   });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: PostgresDriver }
-  >;
+  return createClientFromDriverConfig<S, C, PostgresDriver>(config, driver);
 }

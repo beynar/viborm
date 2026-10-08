@@ -1,10 +1,12 @@
 /**
  * Complete TypeScript checking as ONE program.
  *
- * Every file the root tsconfig.json intends - 1589 of them - is checked by the
+ * Every file the root tsconfig.json intends is checked by the
  * native TypeScript 7 compiler (`typescript-native`, an alias of
- * typescript@7.0.2) in a single bounded process: measured 5.7 s and 5342 MiB
- * peak. The JS typescript@5.9.3 stays installed for the scripts that use the
+ * typescript@7.0.2) in a single bounded process. Serial compiler scheduling
+ * keeps the complete linked-client type graph below the existing RSS ceiling;
+ * the complete qualification passed in 44.32 s at 6012.3 MiB. The JS
+ * typescript@5.9.3 stays installed for the scripts that use the
  * compiler API, which the native package no longer ships.
  *
  * This replaces two-hundred-odd sequential 1280 MB-heap shards of the JS
@@ -28,7 +30,7 @@ const nativeTscEntry = fileURLToPath(
   new URL("../node_modules/typescript-native/bin/tsc", import.meta.url)
 );
 const rootProject = fileURLToPath(new URL("../tsconfig.json", import.meta.url));
-// A runaway detector, like the ceiling: the measured run is under six seconds.
+// A runaway detector, unchanged when compiler scheduling changes.
 const WALL_LIMIT_MS = 5 * 60 * 1000;
 const label = "TypeScript (whole estate, native)";
 
@@ -41,10 +43,16 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 let code = 1;
 try {
   run = startBoundedProcess({
-    arguments: [nativeTscEntry, "--project", rootProject, "--noEmit"],
+    arguments: [
+      nativeTscEntry,
+      "--project",
+      rootProject,
+      "--noEmit",
+      "--singleThreaded",
+    ],
     command: process.execPath,
     // Collect before the existing RSS ceiling; the native compiler uses Go.
-    env: { ...process.env, GOMEMLIMIT: process.env.GOMEMLIMIT ?? "6GiB" },
+    env: { ...process.env, GOMEMLIMIT: process.env.GOMEMLIMIT ?? "5GiB" },
     label,
     rssCeiling: WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
     wallLimitMs: WALL_LIMIT_MS,

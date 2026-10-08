@@ -38,6 +38,9 @@ test.runIf(bunVersion.status === 0)(
     expect(result.stdout).toContain("raw Date cutoff evidence passed");
     expect(result.stdout).toContain("surrogate refusal evidence passed");
     expect(result.stdout).toContain(
+      "supplied foreign-key refusal evidence passed"
+    );
+    expect(result.stdout).toContain(
       "supplied control ownership evidence passed"
     );
   }

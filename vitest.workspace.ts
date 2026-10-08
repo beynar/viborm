@@ -151,6 +151,7 @@ export default defineWorkspace([
     test: {
       name: "coverage-extensions",
       include: [
+        "tests/contracts/public-client/adversarial-v1-extension.core.test.ts",
         "tests/contracts/architecture/extension-system-census.core.test.ts",
         "tests/contracts/public-client/default-omit-extension.core.test.ts",
         "tests/contracts/public-client/extension-controls.core.test.ts",
@@ -191,6 +192,25 @@ export default defineWorkspace([
     "tests/contracts/public-client/official-cache-instrumentation.core.test.ts",
     "tests/contracts/public-client/official-cache-swr.core.test.ts",
     "tests/contracts/public-client/protected-cache-observers.core.test.ts",
+  ]),
+  coverageProject("provider-diagnostics", [
+    "tests/contracts/public-client/errors/provider-details-callsite.core.test.ts",
+  ]),
+  // Physical codecs serve both runtime admission and migration introspection.
+  // Keep their existing consumer proofs in the adapter owner's denominator.
+  coverageProject("adapter-storage", [
+    "tests/unit/migrations/sqlite-driver-boundaries.core.test.ts",
+    "tests/unit/migrations/sqlite-definition-parser-remaining.core.test.ts",
+    "tests/unit/migrations/sqlite-datetime-recreation.test.ts",
+    "tests/unit/migrations/decimal-sqlite-integrity.test.ts",
+    "tests/unit/migrations/decimal-descriptor-carriers.core.test.ts",
+    "tests/unit/migrations/decimal-descriptor-ddl.core.test.ts",
+    "tests/unit/migrations/decimal-list-defaults.core.test.ts",
+    "tests/unit/migrations/native-type-map-ddl.core.test.ts",
+    "tests/unit/migrations/geopoint-ddl.core.test.ts",
+    "tests/unit/migrations/v1-push.core.test.ts",
+    "tests/providers/local/sqlite3-storage-admission.test.ts",
+    "tests/providers/local/sqlite3-adapter-adversarial.test.ts",
   ]),
   coverageProject("client", [...CLIENT_COVERAGE_TESTS]),
   coverageProject("drivers", [...DRIVER_COVERAGE_TESTS]),
@@ -239,6 +259,9 @@ export default defineWorkspace([
     extends: "./vitest.config.ts",
     test: {
       name: "package",
+      // A failed smoke can leave compiler descendants alive until the bounded
+      // launcher closes its group. Never start a successor in that group.
+      bail: 1,
       include: ["tests/package/**/*.test.ts"],
     },
   },

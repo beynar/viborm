@@ -15,7 +15,9 @@
  */
 
 import { NeonHTTPDriver } from "@drivers/neon-http";
+import type { BatchQuery, QueryExecutionContext } from "@drivers/types";
 import { QueryError } from "@errors";
+import type { NeonQueryFunction } from "@neondatabase/serverless";
 import { sql } from "@sql";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -38,6 +40,7 @@ const neonProvider = vi.hoisted(() => {
      * post-commit cardinality check (`index.ts:306`) can ever be reached.
      */
     providerResultCount: number | undefined;
+    invalidBatchEnvelope: boolean;
     singleResult: unknown;
     /** Every statement handed to the submitted-query builder, in order. */
     submitted: { params: unknown[]; sql: string }[];
@@ -46,6 +49,7 @@ const neonProvider = vi.hoisted(() => {
   } = {
     batchResults: [],
     providerResultCount: undefined,
+    invalidBatchEnvelope: false,
     singleResult: undefined,
     submitted: [],
     synchronousFailureSql: undefined,
@@ -76,6 +80,7 @@ const neonProvider = vi.hoisted(() => {
               submit(query.queryData.query, query.queryData.params)
             )
       );
+      if (state.invalidBatchEnvelope) return null;
       return state.providerResultCount === undefined
         ? results
         : results.slice(0, state.providerResultCount);
@@ -130,12 +135,78 @@ beforeEach(() => {
   vi.clearAllMocks();
   neonProvider.state.batchResults = [];
   neonProvider.state.providerResultCount = undefined;
+  neonProvider.state.invalidBatchEnvelope = false;
   neonProvider.state.singleResult = fullResult([], 0);
   neonProvider.state.submitted = [];
   neonProvider.state.synchronousFailureSql = undefined;
 });
 
+/** Subclass hooks may omit context; they retain the same strict provider boundary. */
+class HookProbe extends NeonHTTPDriver {
+  open() {
+    return this.initClient();
+  }
+  typed(client: NeonQueryFunction<false, true>) {
+    return this.execute(client, "SELECT 1", []);
+  }
+  raw(client: NeonQueryFunction<false, true>) {
+    return this.executeRaw(client, "SELECT 1", undefined);
+  }
+  batch(
+    client: NeonQueryFunction<false, true>,
+    queries: BatchQuery[],
+    context?: QueryExecutionContext,
+    committed?: () => Promise<void>
+  ) {
+    return this.executeBatch(client, queries, context, committed);
+  }
+}
+
 describe("Neon HTTP controlled transport execution", () => {
+  test("contextless subclass hooks retain exact rows and one commit notification", async () => {
+    const driver = new HookProbe({
+      databaseUrl: "postgres://local.test/viborm",
+    });
+    const client = await driver.open();
+    neonProvider.state.singleResult = fullResult([{ id: 1 }], 1);
+    await expect(driver.typed(client)).resolves.toEqual({
+      rows: [{ id: 1 }],
+      rowCount: 1,
+    });
+    await expect(driver.raw(client)).resolves.toEqual({
+      rows: [{ id: 1 }],
+      rowCount: 1,
+    });
+    neonProvider.state.batchResults = [fullResult([{ id: 2 }], 1)];
+    const committed = vi.fn(async () => undefined);
+    await expect(
+      driver.batch(client, [{ sql: "SELECT 2" }], undefined, committed)
+    ).resolves.toEqual([{ rows: [{ id: 2 }], rowCount: 1 }]);
+    expect(committed).toHaveBeenCalledOnce();
+    expect(neonProvider.transaction).toHaveBeenCalledOnce();
+  });
+
+  test("refuses a malformed batch envelope after acknowledgement without inventing results or replaying", async () => {
+    const driver = new HookProbe({
+      databaseUrl: "postgres://local.test/viborm",
+    });
+    const client = await driver.open();
+    neonProvider.state.invalidBatchEnvelope = true;
+    const committed = vi.fn(async () => undefined);
+    const failure = await captureQueryError(
+      driver.batch(client, [{ sql: "SELECT 1" }], {}, committed)
+    );
+    expect(failure.message).toContain(
+      "expected 1 statement results but received 0"
+    );
+    expect(failure.meta).toMatchObject({
+      driver: "neon-http",
+      operation: "execute",
+    });
+    expect(committed).toHaveBeenCalledOnce();
+    expect(neonProvider.transaction).toHaveBeenCalledOnce();
+  });
+
   test("initializes the HTTP query with UTC-safe parsers and executes typed and raw statements", async () => {
     neonProvider.state.singleResult = fullResult([{ id: 7 }], 1);
     const fetchOptions = { cache: "no-store" as const };

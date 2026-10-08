@@ -6,6 +6,34 @@ The original checkout was 19 commits behind that reviewed base; its pre-existing
 changes remain untouched. Session baseline counts must therefore distinguish
 upstream additions from this remediation.
 
+## Current final qualification
+
+Final6 completed all four query-engine coverage projects: **3,176/3,176 tests
+across 242 files**, with 107.49s summed bounded wall time and 1,356.9MiB maximum
+sampled process-group RSS. Every part verified teardown under the unchanged
+1,536MiB ordinary ceiling. Root reported exit0 and no remaining live process;
+the terminal summaries and final merged thresholds were independently inspected
+in `/tmp/viborm-v1-coverage-query-engine-core-integration-6.log`.
+
+| Project | Files passed | Tests passed | Bounded wall | Peak sampled group RSS |
+| --- | ---: | ---: | ---: | ---: |
+| layer-query-engine | 34 | 751 | 14.66s | 904.5MiB |
+| coverage-write-engine-core | 4 | 82 | 5.18s | 490.7MiB |
+| coverage-write-engine | 5 | 95 | 5.16s | 524.9MiB |
+| coverage-raptor3 | 199 | 2,248 | 82.49s | 1,356.9MiB |
+
+Merged coverage passes every unchanged subsystem floor: statements and lines
+94.23% against 87%, branches 94.33% against 91%, and functions 95.37% against
+90%. No source exclusion, floor reduction, raised resource ceiling, skipped
+failing assertion, or expected-timeout pass was used to obtain this result.
+
+The earlier worklog tables and checkpoints below retain historical observations;
+their queued core-query checks are superseded by Final6. Provider qualifications
+remain the separately identified executed witnesses, and missing public APIs or
+new query strategies remain product boundaries. This query gate does not qualify
+the unannotated cyclic declaration workflow: V1 remains held on that separate
+requirement, with evidence in [declaration-backends.md](declaration-backends.md).
+
 | Review cluster / findings | Change | Evidence / state |
 | --- | --- | --- |
 | C6, nested-write-differential-01/-06 | Clear-first to-many order: disconnect, delete, set, updateMany, deleteMany, update, upsert, connectOrCreate, connect, create, createMany. Adding-before-clearing spelling fails at preparation, with deferred arm failure retained for untaken upsert arms. | Dedicated SQLite set/connectOrCreate and no-write refusal oracle passed. Public docs consolidation is root-owned. |
@@ -274,3 +302,73 @@ are now frozen. One remaining PG nonenum brace-array pin was obsolete after H21
 and now accepts the declared native array-text grammar. JSON-container dialects
 accept JSON text only, gated by the existing adapter carrier declaration. The
 final169 followup is still required after root yields the runner.
+
+The earlier pending169 layer follow-up was superseded by the complete integrated core7 run: all four shards passed9,624/9,624 tests. Subsequent real-provider and semantic qualification is recorded below; historical failed attempts above remain failed evidence, not completion claims.
+
+### Final query qualification checkpoint (2026-10-08)
+
+The L3 collection update bags now own clearing-before-supply refusal using their existing partial-object admission hook. The late L6 copy of that rule was removed. An invalid nested spelling stops before root or member DML, including batch-only segmented execution; canonical set/create, delete/create and set/connectOrCreate still execute. The validator already removes undefined keys, and its duplicate undefined check was removed after coverage exposed that unreachable state. A public omitted-undefined regression preserves that boundary.
+
+Clock identity operands now use the existing ISO-time owner to reconstitute canonical millisecond text from decoded clocks; timestamp text retains its separate physical-byte contract. Controlled fixture cuts recognize the driver's actual BEGIN IMMEDIATE, and the shared harness records the successful begin only after native execution. Held late transaction results preserve the original caller failure by identity and cannot publish a successor or prefix.
+
+Actual final checks (all teardown verified):
+
+- Query correction gate: 135/135, 10 files, 6.57s, 707.3MiB; /tmp/viborm-v1-query-ci2-corrections-4.log. Earlier 641/649, 104/113 and 133/135 were genuine failures diagnosed and corrected, never presented as green.
+- L3 combined-verb and OwnWrite/conditional counterparts: 283/283, 7 files, 4.53s, 559.5MiB; /tmp/viborm-v1-query-ci3-counterparts.log.
+- D1 local worker: 40/40, 6.47s, 675MiB; no-effect unsupported skipping, supported scalar skipping, committed invalidation, exact decimal and CUID generation; /tmp/viborm-v1-query-d1-final.log. Remote checkpoint CI3 Bun+D1 also passed.
+- SQLite public provider proofs: 14/14 initially, 3.44s/506MiB; then binary64 edge suite 10/10, 3.55s/482.5MiB. Math.PI, positive/negative Number.MAX_VALUE and Number.MIN_VALUE survive include and all four aggregate carriers. Bigint-list has preserves >2^53 exact members and rejects an adjacent nonmember. Actual m:n EXPLAIN requires source-junction covering-index probe and target primary-key SEARCH, with no target SCAN. Logs /tmp/viborm-v1-query-sqlite-proof-final.log and /tmp/viborm-v1-query-sqlite-binary64-final.log.
+- Actual isolated PGlite: 9/9, 14.73s, 1801.9MiB under the existing 2560MiB allowance. A server Europe/Paris session emits ancient year0099 +00:09:21; Date/temporal-array/bigint-array include AND nested select stay exact. UTC restored in finally. /tmp/viborm-v1-query-pg-named-zone-final.log.
+- Exact A/B semantic campaigns: each100seeds x2profiles =200 completed schedules plus verified saved replays. A4.78s/727.8MiB, B4.58s/624.4MiB; runner authenticated production c62823e484e3fe8a0182e4475656980ba341743d865cf4a8ea04099d92df2374 and harness b9e7001a2689a11fdd47a86b91ceef379a6e4040cffc08031c98371323dfcbc0. These fingerprints precede the parent's later style-only constructor change; they are not claimed as the final release hash. Logs /tmp/viborm-v1-query-semantic-a-final.log and /tmp/viborm-v1-query-semantic-b-final.log.
+
+Production source under the delegated roots currently measures 30,902 reviewed-base lines versus 31,894 current lines (net+992, 3.21%). This includes concurrent parent/driver edits in those roots and excludes tests/documentation. It is an observed footprint, not a performance or independent-complexity claim. General nested create[]/connect/set batching, cursor relation/distance support and deeper static data/operator exactness remain explicitly separated product boundaries. V1 does not invent a second transaction owner, topology registry, cache key hash, or raw expression DSL.
+
+The integrated validation coverage rerun `/tmp/viborm-v1-coverage-validation-2.log` now proves statements, branches, functions and lines all100% at their unchanged100% floors. It includes the undefined-omission collection case and HAVING callback refusal without caller-code execution. The decimal census correction is verified44/44,7.45s wall497.4MiB RSS with teardown confirmed (`/tmp/viborm-v1-query-decimal-census-final.log`); its only corrections are owner relocation and once-only SQLite catalog-flag exemptions with independent duplicate/amount/wrong-function negatives. Actual shipped-source floating-transport census remains zero.
+
+Package orchestration follow-through: the controlled sync/async timeout regression confirms that killing the smoke leaves its compiler alive in the same aggregate group. Installed Vitest3.1.4 project-level bail stops every successor; the existing bounded-process owner then verifies complete group teardown. Gate18/18 passed6.10s (`/tmp/viborm-v1-package-process-ownership-3.log`). Package orchestration now uses async execFile at the unchanged30s timeout/768MiB heap, project bail1, and one packed archive across fresh isolated consumer fixtures through the existing tarball seam. Aggregate1536MiB/300s bounds remain unchanged; no competing tree cleanup or detached smoke group was added. This confirms the leak mechanism; the historical CI process roster was not captured, and a complete repaired package qualification remains pending.
+
+The Neon committed-segment coverage fixture now uses the installed SDK query descriptors/client.query/array-transaction shape. All13 tests pass2.99s420.2MiB (`/tmp/viborm-v1-query-neon-capability-final-3.log`). The original false-capability uncertainty progress assertions remain intact through an explicit test-owned unacknowledged transport double, while the true-capability counterpart preserves the exact original failure without inventing committed progress. Opaque multi-statement errors again retain transaction context, with exact one-statement attribution unchanged. No production driver or query engine change was needed.
+
+### Final6 fixture repair and preservation review
+
+Earlier full coverage attempts exposed genuine fixture failures and a resource
+termination; those attempts remain failed receipts. The corrected focused gates
+passed154/154 (6.47s,770MiB) and76/76 (6.37s,738.1MiB), before the complete
+Final6 run above passed. The full corpus includes the formerly failing recursive,
+vector, decimal, decoder, null-order and generated transition suites.
+
+- Borrowed SQLite fixtures now enable foreign keys before client construction.
+  Deliberate raw orphan/cycle seeds disable them only for the owned seed and
+  restore them before typed operations. No production admission check was relaxed.
+- Decimal field-reference fixtures now use the existing checked INTEGER
+  coefficient owner and correctly scaled seed values. Same-domain equality and
+  negation retain exact successful IDs; different precision/scale still refuses
+  with the original directional diagnostic. Public-route/candidate parity no
+  longer compares an admitted coefficient domain with foreign TEXT storage.
+- Vector fixtures now prove supported JSON storage and exact write/read values,
+  while malformed dimensions still refuse before effects and absent distance
+  capability still refuses. Recursive statement-count witnesses keep all physical
+  observations and distinguish protected schema guards by the actual context
+  model, preserving the single typed recursive SELECT claim.
+- Scalar and absent-relation ordering now pins the approved ASC NULLS LAST /
+  DESC NULLS FIRST contract, including independent expected IDs. Explicit null
+  overrides, cursor windows, signed take and identity completion remain checked.
+  Distinct negative take preserves forward representatives before slicing.
+- Malformed-result witnesses retain their hostile values and now pin the public
+  V2006 QueryError taxonomy, nonretryability and precise scalar-domain reason.
+  They still prove strict refusal at direct and nested result placements.
+- Generated collection transitions retain canonical success cases, exact error
+  identity/code/message checks, boundary observations, full rollback snapshots
+  and untouched-row comparisons. The retired supply-before-set expectation was
+  replaced with the approved clear-before-supply contract: a missing set target
+  refuses before later supply, observed at every boundary; a distinct existing
+  set target still permits and retains the later supplied membership. Delete/
+  create uses canonical ordering, while delete/update still proves the missing
+  target was observed after deletion and that the operation rolls back.
+
+These repairs preserve the intended positive, negative and effect guarantees;
+obsolete assertions of intentionally corrected behavior were replaced with
+explicit contract counterparts, not removed to make the gate pass. The latest
+seven-file repair diff was reviewed independently before Final6. No semantic
+failure remains in the completed query coverage receipt. All owned source,
+tests and this report are now frozen; remaining release qualification and the
+separate type-emission correction stay with their assigned owners.

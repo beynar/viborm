@@ -300,14 +300,18 @@ describe("tables that survive", () => {
 
     const fresh = s.model({ id: s.string().id() });
     const widened = s.model({ id: s.string().id(), size: s.int() });
+    const renameQuestions: string[] = [];
     const { preview, applied } = await pushDestructive(
       driver,
       { kept: widened.map("new_kept"), fresh },
       (change) => {
         if (change.type === "ambiguous") {
-          return change.table === "old_kept" || change.oldName === "old_kept"
-            ? change.rename()
-            : change.addAndDrop();
+          renameQuestions.push(`${change.oldName}->${change.newName}`);
+          if (change.oldName === "old_kept")
+            return change.newName === "new_kept"
+              ? change.rename()
+              : change.reject();
+          return change.addAndDrop();
         }
         return change.type === "destructive"
           ? change.proceed()
@@ -320,10 +324,12 @@ describe("tables that survive", () => {
       "aaa_parent",
     ]);
     expect(applied.outcome).toBe("applied");
+    expect(renameQuestions).toContain("old_kept->new_kept");
     expect(await tables(driver)).toEqual(["fresh", "new_kept"]);
     expect(await rows(driver, `SELECT * FROM "new_kept"`)).toEqual([
       { id: "k", size: 7 },
     ]);
+    expect(await rows(driver, `SELECT * FROM "fresh"`)).toEqual([]);
     await driver.disconnect();
   });
 });

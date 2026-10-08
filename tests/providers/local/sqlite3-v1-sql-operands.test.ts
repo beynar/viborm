@@ -147,3 +147,40 @@ test("bigint list membership compares exact text members on SQLite", async () =>
     await db.list.findMany({ where: { keys: { has: 9007199254740994n } } })
   ).toEqual([]);
 });
+
+test("1000 caller identities update and delete through the actual SQLite bind capacity", async () => {
+  const ids = Array.from({ length: 1000 }, (_, index) => index + 1000);
+  try {
+    expect(
+      await db.entry.createMany({
+        data: ids.map((id) => ({ id, score: 1, floor: 0, parentId: 1 })),
+      })
+    ).toEqual({ count: 1000 });
+    expect(
+      await db.entry.updateMany({
+        where: { id: { in: ids } },
+        data: { score: 7 },
+      })
+    ).toEqual({ count: 1000 });
+    expect(await db.entry.count({ where: { id: { in: ids }, score: 7 } })).toBe(
+      1000
+    );
+    expect(
+      await db.entry.findMany({
+        where: { id: { lt: 1000 } },
+        select: { id: true, score: true },
+        orderBy: { id: "asc" },
+      })
+    ).toEqual([
+      { id: 1, score: 12 },
+      { id: 2, score: 13 },
+      { id: 3, score: 4 },
+    ]);
+    expect(await db.entry.deleteMany({ where: { id: { in: ids } } })).toEqual({
+      count: 1000,
+    });
+    expect(await db.entry.count()).toBe(3);
+  } finally {
+    await db.entry.deleteMany({ where: { id: { in: ids } } });
+  }
+});

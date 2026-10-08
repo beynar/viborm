@@ -14,6 +14,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -341,7 +342,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: NeonHTTPClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, NeonHTTPDriverOptions, S>
-): VibORMClient<C & { driver: NeonHTTPDriver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: NeonHTTPDriver }
+  >]: LinkedClientConfig<C & { driver: NeonHTTPDriver }>[P];
+}> {
   const { databaseUrl, options, pgvector, postgis } = config;
   const namespace = resolveNamespaceOption(config);
 
@@ -353,7 +358,5 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     namespace,
   });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: NeonHTTPDriver }
-  >;
+  return createClientFromDriverConfig<S, C, NeonHTTPDriver>(config, driver);
 }

@@ -1,5 +1,9 @@
 import { readSuppressedFailures } from "@src/drivers/shared/suppressed-failure";
-import { MigrationError, VibORMErrorCode } from "@src/errors";
+import {
+  MigrationError,
+  UnsupportedOperationError,
+  VibORMErrorCode,
+} from "@src/errors";
 /**
  * Unit tests for `src/cli/utils.ts` — the CLI's pure/config layer.
  *
@@ -50,6 +54,26 @@ describe("loadConfig", () => {
   });
 
   // --- config file discovery ---------------------------------------------
+
+  it.each([
+    "namedConfig",
+    "moduleItself",
+  ] as const)("loads the supported %s module export", async (exportKind) => {
+    writeConfigFixture(project, {
+      exportKind,
+      dialect: "sqlite3",
+      migrationsBlock: 'migrations: { dir: "named-options" }',
+    });
+    const loaded = await loadConfig({ config: project.configPath });
+    expect(Object.keys(loaded.models)).toEqual(["user"]);
+    if (exportKind === "namedConfig")
+      expect(loaded.migrations).toEqual({ dir: "named-options" });
+    expect(
+      (await loaded.driver._executeRaw<{ ready: number }>("SELECT 1 AS ready"))
+        .rows
+    ).toEqual([{ ready: 1 }]);
+    await loaded.client.$disconnect();
+  });
 
   it("loads an existing file given by absolute --config path", async () => {
     writeConfigFixture(project);
@@ -370,6 +394,50 @@ describe("defineConfig", () => {
 });
 
 describe("CLI failure boundary", () => {
+  it("keeps trusted codes and untrusted JSON/string/object failures distinct", () => {
+    const sentinel = new Error("exited");
+    const output: string[] = [];
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk) => {
+        output.push(String(chunk));
+        return true;
+      });
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw sentinel;
+    });
+    const cases: readonly (readonly [unknown, number])[] = [
+      [
+        new MigrationError(
+          "decision",
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        ),
+        20,
+      ],
+      [new UnsupportedOperationError("unsupported"), 2],
+      [new Error("ordinary"), 1],
+      ["string", 1],
+      [42, 1],
+    ];
+    try {
+      for (const [failure, code] of cases) {
+        expect(() => failCli(failure, true)).toThrow(sentinel);
+        expect(JSON.parse(output.pop()!)).toMatchObject({ exitCode: code });
+        expect(exit).toHaveBeenLastCalledWith(code);
+        expect(() => failCli(failure)).toThrow(sentinel);
+        expect(output.pop()).toContain(
+          failure === 42
+            ? "CLI operation failed"
+            : failure instanceof Error
+              ? failure.message
+              : String(failure)
+        );
+      }
+    } finally {
+      stderr.mockRestore();
+      exit.mockRestore();
+    }
+  });
   it("prints Error and non-Error failures before exiting unsuccessfully", () => {
     const exitSentinel = new Error("process exited");
     const stderr = vi

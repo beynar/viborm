@@ -29,7 +29,19 @@ export default {
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `database` | `D1Database` | D1 database binding from Worker env |
+| `database` | `D1Database \| D1DatabaseSession` | D1 database binding or session from Worker env |
+
+### Database sessions
+
+Pass a session created for the current request as the database:
+
+```typescript
+import { createClient } from "viborm/d1";
+
+const session = env.DB.withSession("first-primary");
+const client = createClient({ database: session, schema });
+const users = await client.user.findMany();
+```
 
 ## Binary values
 

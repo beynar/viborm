@@ -605,8 +605,7 @@ A plugin generic over the client it receives (a function of
 `VibORMClient<C, X>`, with `C extends VibORMConfig` and
 `X extends ExtensionState`) cannot see a model's methods inside that function,
 and indexes the client type with `M[K & keyof M]`. It declares the signatures
-of the methods it returns with `ExtendedOperationResult<Client, Model,
-Operation, Args>`, the result type of one operation on that client with its
+of the methods it returns with `ExtendedOperationResult<Client, Model, Operation, Args>`, the result type of one operation on that client with its
 `defaultOmit` applied and its `rows` read (a to-one relation to a model with
 an entry is `| null`), and calls the delegate's method through one cast. The
 [soft-delete source](https://github.com/beynar/viborm/blob/main/src/soft-delete/index.ts)

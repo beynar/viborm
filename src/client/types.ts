@@ -1,3 +1,4 @@
+import type { ClientSchema } from "@client/schema-links";
 /**
  * Client Types
  *
@@ -9,6 +10,7 @@
 import type { PendingOperation } from "@query-engine/pending-operation";
 import type { Model, ModelState } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
+import type { AnyRelation } from "@schema/relation";
 import type {
   Cardinality,
   TargetKind,
@@ -315,7 +317,7 @@ type SoftenOmit<O> = [O] extends [undefined]
 /** What this client hides by default for one model of its schema. */
 export type ClientDefaultOmit<
   C extends VibORMConfig,
-  K extends keyof C["schema"],
+  K extends keyof ClientSchema<C>,
 > = NamedOnly<SoftenOmit<ModelOmitEntry<NamedOnly<ConfigOmit<C>>, K>>>;
 
 type ConfiguredOmitRecordKeys<O> = O extends unknown
@@ -326,27 +328,27 @@ type ConfiguredOmitRecordKeys<O> = O extends unknown
 
 type ConfiguredOmitModelKeys<C extends VibORMConfig> = Extract<
   ConfiguredOmitRecordKeys<NamedOnly<ConfigOmit<C>>>,
-  keyof C["schema"]
+  keyof ClientSchema<C>
 >;
 
 type ModelsWithResultSurface<
   C extends VibORMConfig,
-  K extends keyof C["schema"],
+  K extends keyof ClientSchema<C>,
 > = {
-  [Candidate in keyof C["schema"]]: SameModelResultSurface<
-    ModelResultSurface<C["schema"][K]>,
-    ModelResultSurface<C["schema"][Candidate]>
+  [Candidate in keyof ClientSchema<C>]: SameModelResultSurface<
+    ModelResultSurface<ClientSchema<C>[K]>,
+    ModelResultSurface<ClientSchema<C>[Candidate]>
   > extends true
     ? Candidate
     : never;
-}[keyof C["schema"]];
+}[keyof ClientSchema<C>];
 
 type HasUniqueResultSurface<
   C extends VibORMConfig,
-  K extends keyof C["schema"],
+  K extends keyof ClientSchema<C>,
 > = SameModelResultSurface<
-  ModelResultSurface<C["schema"][K]>,
-  ModelResultSurface<C["schema"][K]>
+  ModelResultSurface<ClientSchema<C>[K]>,
+  ModelResultSurface<ClientSchema<C>[K]>
 > extends true
   ? [Exclude<ModelsWithResultSurface<C, K>, K>] extends [never]
     ? true
@@ -355,7 +357,7 @@ type HasUniqueResultSurface<
 
 type ClientRelationOmitEntries<C extends VibORMConfig> = {
   [K in ConfiguredOmitModelKeys<C>]: ClientResultOmitEntry<
-    ModelResultSurface<C["schema"][K]>,
+    ModelResultSurface<ClientSchema<C>[K]>,
     ClientDefaultOmit<C, K>,
     HasUniqueResultSurface<C, K>
   >;
@@ -380,10 +382,10 @@ export type ClientRowsContext<C extends VibORMConfig, Models extends string> =
       ? never
       : ClientHiddenContext<
           {
-            [K in Extract<keyof C["schema"], Models>]: ModelResultSurface<
-              C["schema"][K]
+            [K in Extract<keyof ClientSchema<C>, Models>]: ModelResultSurface<
+              ClientSchema<C>[K]
             >;
-          }[Extract<keyof C["schema"], Models>]
+          }[Extract<keyof ClientSchema<C>, Models>]
         >);
 
 declare const defaultOperationResultArgs: unique symbol;
@@ -492,13 +494,13 @@ export type OperationResult<
  */
 export type ContextualOperationResult<
   C extends VibORMConfig,
-  ModelName extends keyof C["schema"],
+  ModelName extends keyof ClientSchema<C>,
   O extends Operations,
   Args,
   ClientDefaults,
 > = OperationResultWithClientDefaults<
   O,
-  C["schema"][ModelName],
+  ClientSchema<C>[ModelName],
   Args,
   ClientDefaultOmit<C, ModelName>,
   ClientDefaults
@@ -513,10 +515,10 @@ export type Client<
   ClientDefaults = ClientRelationOmitContext<C>,
   Controls extends object = NoControls,
 > = {
-  [K in keyof C["schema"]]: {
+  [K in keyof ClientSchema<C>]: {
     [O in Operations]: Operation<
       O,
-      C["schema"][K],
+      ClientSchema<C>[K],
       ClientDefaultOmit<C, K>,
       ClientDefaults,
       PlacedOperationControls<Controls, K, O>
@@ -556,20 +558,20 @@ export type StampedOperations<
   ClientDefaults,
   Controls,
   Data,
-  K extends keyof C["schema"],
+  K extends keyof ClientSchema<C>,
 > = {
   [O in StampedOperation]: Operation<
     O,
-    C["schema"][K],
+    ClientSchema<C>[K],
     ClientDefaultOmit<C, K>,
     ClientDefaults,
     PlacedOperationControls<Controls, K, O>,
     StampedPayload<
       O,
-      OperationPayload<O, C["schema"][K]>,
-      C["schema"][K],
+      OperationPayload<O, ClientSchema<C>[K]>,
+      ClientSchema<C>[K],
       StampedFieldNames<Data, K>,
-      Stamps<Data, C["schema"]>
+      Stamps<Data, ClientSchema<C>>
     >
   >;
 };
@@ -873,10 +875,11 @@ type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
  *  - `cursor` / `having` / `cache` — NOT guarded. Three more TS2589 sites, on
  *    compound-unique and aggregate payloads.
  *
- * Depth 3 is out of reach for the same reason: `where.title.contians` or
- * `select.books.select` means walking INTO a relation, which resolves the target
- * model mid-inference — exactly what `RelationState.getter: any` exists to
- * prevent. Every unguarded level is pinned as a compiling misspelling in
+ * Scalar operator bags and nested projections remain out of this guard:
+ * `where.title.contians` and `select.books.select` stay pinned. The separate
+ * NestedWhereClauseGuard visits only caller-spelled logical/ordinary relation
+ * filters and checks their model field names, including held values.
+ * Every remaining unguarded level is pinned as a compiling misspelling in
  * `tests/client/contextual-typing-gate.test.ts`, so the boundary is a measured
  * fact rather than an assumption, and a future TypeScript that can carry more
  * turns those pins red.
@@ -884,6 +887,125 @@ type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
  * depth: `RecursiveProjectionRootGuard` walks the literal the caller wrote, not
  * the model, so it never resolves a target mid-inference (see there).
  */
+// SCRATCH ONLY: insert near ClauseGuard in src/client/types.ts; import AnyRelation.
+// This visits the caller's filter, not every field in a model payload. The
+// existing where clause stays authoritative for root allowed keys/operators.
+type SameWhereValue<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+    ? true
+    : false;
+type SeenWhereValue<Given, M, Seen> = true extends (
+  Seen extends unknown
+    ? SameWhereValue<readonly [Given, M], Seen>
+    : never
+)
+  ? true
+  : false;
+type WhereLogicalKey = "AND" | "OR" | "NOT";
+// Declared fields replace the logical entries in the authoritative WhereSchema.
+type WhereLogicalKeys<M extends Model<any>> = Exclude<
+  WhereLogicalKey,
+  keyof M["~"]["state"]["shape"]
+>;
+
+type WhereModelKeys<M extends Model<any>> =
+  | keyof M["~"]["state"]["shape"]
+  | WhereLogicalKey;
+
+type RelationWhereUnknownKeys<
+  Given,
+  R extends AnyRelation,
+  Seen,
+> = TargetKind<R> extends "model"
+  ? Cardinality<R> extends "one"
+    ? [Extract<SpelledClauseKeys<Given>, "is" | "isNot">] extends [never]
+      ? WhereUnknownKeys<Given, GetTargetModel<R>, Seen>
+      : {
+          [Q in Extract<
+            SpelledClauseKeys<Given>,
+            "is" | "isNot"
+          >]: WhereUnknownKeys<ValueAt<Given, Q>, GetTargetModel<R>, Seen>;
+        }[Extract<SpelledClauseKeys<Given>, "is" | "isNot">]
+    : {
+        [Q in Extract<
+          SpelledClauseKeys<Given>,
+          "some" | "every" | "none"
+        >]: WhereUnknownKeys<ValueAt<Given, Q>, GetTargetModel<R>, Seen>;
+      }[Extract<SpelledClauseKeys<Given>, "some" | "every" | "none">]
+  : never; // Variant tagged filters require their existing entry discrimination.
+
+type WhereUnknownKeys<
+  Given,
+  M extends Model<any>,
+  Seen = never,
+  Allowed extends PropertyKey = WhereModelKeys<M>,
+> = Given extends readonly unknown[]
+  ? WhereUnknownKeys<Given[number], M, Seen, Allowed>
+  : Given extends object
+    ? string extends keyof Given
+      ? never
+      :
+          | Exclude<keyof Given, Allowed>
+          | (SeenWhereValue<Given, M, Seen> extends true
+              ? never
+              : {
+                  [K in Extract<
+                    keyof Given,
+                    WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
+                  >]: K extends WhereLogicalKeys<M>
+                    ? WhereUnknownKeys<
+                        NonNullable<Given[K]>,
+                        M,
+                        Seen | readonly [Given, M]
+                      >
+                    : K extends keyof M["~"]["state"]["relations"]
+                      ? RelationWhereUnknownKeys<
+                          NonNullable<Given[K]>,
+                          M["~"]["state"]["relations"][K],
+                          Seen | readonly [Given, M]
+                        >
+                      : never;
+                }[Extract<
+                  keyof Given,
+                  WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
+                >])
+    : never;
+
+type NestedWhereClauseGuard<
+  Arg,
+  Payload,
+  M extends Model<any>,
+> = "where" extends keyof Arg
+  ? "where" extends keyof Payload
+    ? // Scalar-only clauses have no nested model keys to inspect. Existing
+      // ClauseGuard remains the root-key owner, without deep payload comparison.
+      [
+        Extract<
+          SpelledClauseKeys<NonNullable<Arg["where"]>>,
+          WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
+        >,
+      ] extends [never]
+      ? unknown
+      : // Omitted/generically forwarded arguments fall back to the payload itself.
+        // Do not expand that recursive schema as though every optional key was spelled.
+        SameWhereValue<
+            NonNullable<Arg["where"]>,
+            NonNullable<Payload["where"]>
+          > extends true
+        ? unknown
+        : WhereUnknownKeys<
+              NonNullable<Arg["where"]>,
+              M,
+              never,
+              ClauseKeys<NonNullable<Payload["where"]>>
+            > extends infer Extra
+          ? [Extra] extends [never]
+            ? unknown
+            : { where?: UnknownClauseKey<Extra> }
+          : unknown
+    : unknown
+  : unknown;
+
 type ClauseGuard<Arg, Payload, K extends string> = K extends keyof Arg
   ? K extends keyof Payload
     ? { [P in K]?: NoExtraClauseKeys<NonNullable<Arg[K]>, Payload[K]> }
@@ -1390,6 +1512,7 @@ type NoExtraOperationKeys<
   ExclusiveSelection<Arg> &
   Record<Exclude<keyof Arg, keyof Payload | keyof Controls>, never> &
   ClauseGuard<Arg, Payload, "where"> &
+  NestedWhereClauseGuard<Arg, Payload, M> &
   ClauseGuard<Arg, Payload, "select"> &
   ClauseGuard<Arg, Payload, "include"> &
   ClauseGuard<Arg, Payload, "orderBy"> &
@@ -1487,10 +1610,10 @@ export type CachedClient<
   ClientDefaults = ClientRelationOmitContext<C>,
   Controls extends object = NoControls,
 > = {
-  [K in keyof C["schema"]]: {
+  [K in keyof ClientSchema<C>]: {
     [O in CacheableOperations]: CachedOperation<
       O,
-      C["schema"][K],
+      ClientSchema<C>[K],
       ClientDefaultOmit<C, K>,
       ClientDefaults,
       PlacedOperationControls<Controls, K, O>

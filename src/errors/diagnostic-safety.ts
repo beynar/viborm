@@ -72,6 +72,7 @@ const SQL_STATE_CLASSES = new Set([
   "XX",
 ]);
 const STABLE_PROVIDER_CODES = new Set([
+  "CONNECTION_CLOSED",
   "ABORTED",
   "ALREADY_EXISTS",
   "CANCELLED",

@@ -45,7 +45,10 @@ export function codecWorldSchema() {
       moments: s.dateTime().array().map("moment_list"),
       days: s.date().array().map("day_list"),
       clocks: s.time().array().map("clock_list"),
-      statuses: s.enum([...SPECIMEN_STATUSES]).array().map("status_list"),
+      statuses: s
+        .enum([...SPECIMEN_STATUSES])
+        .array()
+        .map("status_list"),
     })
     .map(SPECIMEN_TABLE);
   return { specimen };
@@ -64,9 +67,8 @@ export function spatialWorldSchema() {
 }
 
 /**
- * Vector is its own world: the SQLite adapter declares no vector tier, so this
- * schema witnesses the capability REFUSAL locally and the round trip only on a
- * capable native provider (`tests/raptor3/g4/native/`).
+ * Vector is its own world: SQLite stores its values in JSON. Native distance
+ * operations require a capable provider (`tests/raptor3/g4/native/`).
  */
 export function vectorWorldSchema() {
   const embedded = s

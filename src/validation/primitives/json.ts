@@ -72,7 +72,6 @@ const INVALID_JSON = Symbol("invalid JSON");
 
 function normalizeJson(
   value: unknown,
-  omitUndefined = true,
   seen = new WeakMap<object, JsonValue | typeof INVALID_JSON>()
 ): JsonValue | typeof INVALID_JSON {
   if (value === null || isString(value) || isBoolean(value)) return value;
@@ -85,11 +84,8 @@ function normalizeJson(
   if (Array.isArray(value)) {
     const result: JsonValue[] = [];
     for (const original of value) {
-      if (original === undefined && !omitUndefined) return INVALID_JSON;
       const member =
-        original === undefined
-          ? null
-          : normalizeJson(original, omitUndefined, seen);
+        original === undefined ? null : normalizeJson(original, seen);
       if (member === INVALID_JSON) return INVALID_JSON;
       result.push(member);
     }
@@ -102,10 +98,9 @@ function normalizeJson(
   for (const key of Object.keys(value)) {
     const original = value[key];
     if (original === undefined) {
-      if (!omitUndefined) return INVALID_JSON;
       continue;
     }
-    const member = normalizeJson(original, omitUndefined, seen);
+    const member = normalizeJson(original, seen);
     if (member === INVALID_JSON) return INVALID_JSON;
     Object.defineProperty(result, key, {
       value: member,
@@ -116,10 +111,6 @@ function normalizeJson(
   }
   seen.set(value, result);
   return result;
-}
-
-function isJsonValue(value: unknown): boolean {
-  return normalizeJson(value, false) !== INVALID_JSON;
 }
 
 /**
@@ -157,4 +148,4 @@ export function json<
 }
 
 // Export for reuse
-export { validateJson, isJsonValue };
+export { validateJson };

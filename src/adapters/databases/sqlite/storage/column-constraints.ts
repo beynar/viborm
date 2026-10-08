@@ -100,13 +100,11 @@ export function sqliteConstraintClauses(
       cursor = skipped;
       continue;
     }
-    const char = definition[cursor] ?? "";
-    if (isSqliteBareIdentifierCharacter(char)) {
-      const word = readSqliteIdentifier(definition, cursor);
-      if (word === undefined) {
-        cursor++;
-        continue;
-      }
+    const char = definition.charAt(cursor);
+    const word = isSqliteBareIdentifierCharacter(char)
+      ? readSqliteIdentifier(definition, cursor)
+      : undefined;
+    if (word !== undefined) {
       if (depth === 0 && word.value.toUpperCase() === "CONSTRAINT") {
         const name = readSqliteIdentifier(definition, word.end);
         if (name) {

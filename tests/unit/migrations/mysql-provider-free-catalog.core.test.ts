@@ -1,5 +1,6 @@
 import { VibORMErrorCode } from "@src/errors";
 import { getMigrationDriver } from "@src/migrations/drivers";
+import { introspect } from "@src/migrations/drivers/mysql/introspect";
 import { describe, expect, test } from "vitest";
 import { mysqlEstateDriver } from "./_estate";
 
@@ -79,6 +80,108 @@ function catalogDriver(rows: {
 }
 
 describe("provider-free MySQL catalog reconstruction", () => {
+  test.each([
+    "contained",
+    "outbound",
+    "inbound",
+    "unselected",
+  ])("managed scope authenticates %s foreign keys", async (direction) => {
+    const row = {
+      ...foreignKey("boundary_fk", "parent_id", "NO ACTION", "NO ACTION"),
+      TABLE_SCHEMA: direction === "inbound" ? "external" : "billing",
+      REFERENCED_TABLE_SCHEMA:
+        direction === "outbound" ? "external" : "billing",
+      TABLE_NAME: direction === "unselected" ? "external_table" : "order$lines",
+      REFERENCED_TABLE_NAME:
+        direction === "inbound" ? "order$lines" : "parents",
+    };
+    const execution = catalogDriver({
+      columns: [column("parent_id", "int")],
+      foreignKeys: [row],
+    });
+    const read = introspect(
+      (sql, params) => execution._executeRaw(sql, params),
+      "billing",
+      ["order$lines"]
+    );
+    if (direction === "outbound" || direction === "inbound")
+      await expect(read).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+        message: expect.stringContaining("boundary"),
+      });
+    else
+      await expect(read).resolves.toMatchObject({
+        tables: [{ name: "order$lines" }],
+      });
+    expect(
+      execution.statements.some(
+        (sql) => sql.startsWith("ALTER") || sql.startsWith("DROP")
+      )
+    ).toBe(false);
+  });
+
+  test("selected stored generated columns refuse before effects", async () => {
+    const execution = catalogDriver({
+      columns: [{ ...column("derived", "int"), EXTRA: "STORED GENERATED" }],
+    });
+    await expect(
+      getMigrationDriver(execution).introspect((sql, params) =>
+        execution._executeRaw(sql, params)
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      meta: { feature: "generated column" },
+    });
+    expect(
+      execution.statements.some(
+        (sql) => sql.startsWith("ALTER") || sql.startsWith("DROP")
+      )
+    ).toBe(false);
+  });
+  test("unselected generated and foreign-decimal columns retain physical facts without adoption", async () => {
+    const execution = catalogDriver({
+      columns: [
+        {
+          ...column("generated", "decimal", "decimal(65,30)"),
+          EXTRA: "VIRTUAL GENERATED",
+          NUMERIC_PRECISION: 5000,
+          NUMERIC_SCALE: 1000,
+          COLUMN_DEFAULT: "foreign_expression()",
+        },
+        column("choice", "enum", "enum('one','two')"),
+        column("other_choice", "enum", "enum('one','two')"),
+      ],
+      foreignKeys: [
+        {
+          ...foreignKey(
+            "unselected_crossing",
+            "generated",
+            "NO ACTION",
+            "NO ACTION"
+          ),
+          TABLE_SCHEMA: "other",
+          REFERENCED_TABLE_SCHEMA: "third",
+        },
+      ],
+    });
+    const observed = await introspect(
+      (sql, params) => execution._executeRaw(sql, params),
+      "billing",
+      ["managed"]
+    );
+    expect(observed.tables[0]?.columns[0]).toMatchObject({
+      type: "decimal(65,30)",
+      decimal: undefined,
+      default: undefined,
+    });
+    expect(observed.enums).toHaveLength(1);
+    expect(
+      execution.statements.some(
+        (sql) => sql.startsWith("ALTER") || sql.startsWith("DROP")
+      )
+    ).toBe(false);
+    await execution.disconnect();
+  });
   test("reconstructs catalog-only type, enum, key, and action vocabulary", async () => {
     const execution = catalogDriver({
       columns: [

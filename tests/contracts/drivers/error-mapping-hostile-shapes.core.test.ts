@@ -274,6 +274,16 @@ describe("record-series progress survives normalization", () => {
 describe("validation failures keep their source through re-contextualization", () => {
   test.each([
     {
+      label: "a registry source without optional names",
+      source: { kind: "registry" } as const,
+      expected: { kind: "registry" },
+    },
+    {
+      label: "a JSON-schema source without optional names",
+      source: { kind: "json-schema" } as const,
+      expected: { kind: "json-schema" },
+    },
+    {
       label: "a registry source",
       source: { kind: "registry", model: "entry", property: "title" } as const,
       expected: { kind: "registry", model: "entry", property: "title" },
@@ -347,6 +357,31 @@ describe("validation failures keep their source through re-contextualization", (
       operation: "createMany",
     });
     expect(failure.meta).toMatchObject({ driver: "provider" });
+  });
+
+  test("retains validation cause and opted-in call origin without replacing authoritative context", () => {
+    const original = new ValidationError(
+      { kind: "registry" },
+      [{ path: "title", message: "invalid" }],
+      {
+        cause: new Error("validation source refused"),
+        meta: { model: "origin" },
+      }
+    );
+    const failure = attachExecutionContext(original, {
+      driverName: "provider",
+      model: "replacement",
+      forceContext: false,
+      callsite: "fixture.ts:12:1",
+      diagnostics: { includeCallsite: true },
+    });
+    expect(failure).toBeInstanceOf(ValidationError);
+    expect(failure.meta).toMatchObject({
+      model: "origin",
+      callsite: "fixture.ts:12:1",
+    });
+    expect(failure.cause).toBe(failure.originalCause);
+    expect(failure.toJSON().cause).toEqual(original.toJSON().cause);
   });
 
   test("preserves the trusted operation when a caller replaces it with an invalid operation", () => {

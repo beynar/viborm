@@ -141,17 +141,15 @@ export function readSqliteDecimalConstraint(
           }
         );
       }
-      if (definition.columnName === column.name) {
-        if (found !== undefined) {
-          throw new MigrationError(
-            `The stored definition carries more than one fixed-decimal descriptor for column "${column.name}": ${describeDecimalDomain(found)} and ${describeDecimalDomain(descriptor)}. ` +
-              "One physical column can have only one logical decimal domain, so introspection refuses the ambiguous reserved carriers instead of choosing one by order.",
-            VibORMErrorCode.INVALID_INPUT,
-            { meta: { column: column.name } }
-          );
-        }
-        found = descriptor;
+      if (found !== undefined) {
+        throw new MigrationError(
+          `The stored definition carries more than one fixed-decimal descriptor for column "${column.name}": ${describeDecimalDomain(found)} and ${describeDecimalDomain(descriptor)}. ` +
+            "One physical column can have only one logical decimal domain, so introspection refuses the ambiguous reserved carriers instead of choosing one by order.",
+          VibORMErrorCode.INVALID_INPUT,
+          { meta: { column: column.name } }
+        );
       }
+      found = descriptor;
     }
   }
   return found;
@@ -174,7 +172,7 @@ function ownedDescriptor(
   escapeIdentifier: (name: string) => string
 ): DecimalDescriptor | undefined {
   const column = definition.columnName;
-  if (column === undefined || column !== physicalColumn.name) return undefined;
+  if (column === undefined) return undefined;
   const prefix = `${RESERVED_CONSTRAINT_PREFIX}${column}_`;
   if (!clause.name.startsWith(prefix)) return undefined;
   const match = RESERVED_CONSTRAINT_TAIL.exec(clause.name.slice(prefix.length));

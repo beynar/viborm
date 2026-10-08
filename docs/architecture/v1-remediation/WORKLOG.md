@@ -68,47 +68,231 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
-- Draft PR #84 is at `f64f5030d03312b86684581f72c3a319c640ddf0`.
-  CI3 run `37793992180` passed real PostgreSQL/MySQL and Bun/D1 jobs. Coverage,
-  package, core, local and quality jobs failed; the exact failures are being
-  repaired. No merge, publication or deployment has occurred.
-- The actual changed-file Biome check now checks 504 files instead of zero in
-  a shallow checkout. The next checkpoint must check its added files too.
-- Schema coverage passed all four 100% thresholds across 2,319 test executions
-  in 78 files. New cases exercise invalid generation descriptors, JSON null
-  default boundaries and hostile serialized schema input. No floor or source
-  denominator changed (`/tmp/viborm-v1-coverage-schema-2.log`).
-- Collection verb order is now refused once during relation admission, before
-  any DML. Captured time binding uses the existing canonical codec. The final
-  focused repair batch passed 135/135; subsequent L3/OwnWrite/conditional
-  fixtures passed 283/283. D1 passed 40/40. The composed assertion failure
-  regression preserves exact primary identity and refuses unindexed guesses.
-- Actual SQLite public operator and query-plan checks passed 14/14, including
-  exact bigint-list membership above 2^53 and junction-first indexed lookup.
-  PGlite named-zone and further numeric edge witnesses are next.
-- Node 22.12's type stripper turned a multiline generic `return` into an early
-  return in the soft-delete helper. Returning a named local factory fixes the
-  source contract; an actual Node 22 before/after probe passed. Full package
-  qualification still repeats this on the integrated artifact.
-- Immutable artifact10 passed the 27-subpath public-surface golden. The narrow
-  declaration-export correction now matches emitted entry filenames and
-  preserves explicit type-only exports. Artifact12 emits a 30-model chain on
-  strict TS5.8 and native TS7, but emitted cyclic backreference soundness is
-  still under investigation. Ten dependent extensions also remain a type
-  blocker; failed representation experiments are removed before replacement.
-- Native17 stayed within the unchanged 8192 MiB ceiling: 15.73 s, 6560.3 MiB.
-  A Go 6 GiB soft GC limit prevents the native compiler racing its hard RSS
-  ceiling. That run failed 31 extension/soft-delete type diagnostics from an
-  experimental conditional representation; its replacement awaits native18.
-- Real isolated MySQL 8.4.11 passed all 10 final enum/namespace/spatial-index
-  cases. Actual better-sqlite3 13.0.3 / SQLite 3.53.4 packed-consumer behavior
-  passed alongside the installed 12.11.1 / SQLite 3.53.2 branch. Peer minimums
-  are ^12.11.1 or ^13.0.3; frozen dependency resolution passed.
-- The report ledger now explicitly answers 75 previously blank product-gap
-  and contract rows. A stale cross-package Decimal claim was withdrawn:
-  ordinary cloning preserves canonical text, but private Decimal/error brands
-  remain local to an installed package copy. The docs explain conversion and
-  deduplication instead of claiming structural authentication.
+- Full package qualification of artifact21 reaches20 passing cases, then the
+  existing TS5.9 chain100 probe exhausts its unchanged768MiB heap. The runner
+  completes teardown at57.13s and1226.5MiB sampled RSS. This is a blocking
+  regression under investigation, not a passing package gate. Query owns the
+  focused cost repair. Log:`/tmp/viborm-v1-package21-full.log`.
+- Artifact21 now passes the permanent backreference and accepted lossy-model
+  control cases on both TS5.8 and native7. The exported client retains exact
+  input/result types; constructing a new client from already-emitted raw cyclic
+  models still fails the expected semantic probes. Native7 uses exit status1
+  for diagnostics, unlike JS TypeScript's status2; the control now recognizes
+  that installed compiler convention without changing its diagnostic whitelist.
+  SHA256:`4cf484c449016e49dbc8ab75f1f2af301e139374531967308b151dda6d79c226`.
+  The full51-case package gate and independent backend/scaling matrix are next.
+  Changed-perimeter Biome passes572 supported files. Two final edits only remove
+  an unused type import and sort type exports; runtime behavior is unchanged.
+- CI now retains its exact Linux documentation build and checks the generated
+  Worker with a bounded Wrangler dry-run. This adds verification and a renderable
+  artifact; it does not deploy. Linux qualification is still pending.
+- The integrated ordinary nested-WHERE field guard passes the complete ordinary
+  source gate:40.63s/6102.9MiB, zero diagnostics and verified teardown. It walks
+  caller-spelled filters with exact value/model cycle detection; model fields
+  named AND/OR/NOT retain their existing precedence. TS5.8/7 packed source and
+  emitted probes pass fresh/held/optional/logical/shorthand/isNot cases,
+  including empty/undefined values and named-combinator fields. Only the newly
+  refused deliberate AND typo pin was strengthened. Scalar operators, variants,
+  nested projections and nested mutation key exactness remain separately scoped.
+  Evidence:`/tmp/viborm-v1-where-guard-estate-2.log` and
+  `/tmp/viborm-v1-where-guard-packed11-combinators.log`. Final archive and
+  permanent backreference/raw-model controls are being qualified before CI.
+- Native37 passes the ordinary `pnpm test:types` command with zero diagnostics:
+  44.32s and6012.3MiB, unchanged8192MiB/300s limits and complete root program.
+  Public factories anonymously materialize the homomorphic config, preserving
+  source compatibility while preventing emitted original-schema aliases.
+  The optional empty link marker may infer `undefined`; the shared model view
+  treats it as the same empty graph as `never`, without parallel normalizations.
+  All11 driver wrappers and internal construction seams use the same view.
+  Evidence:`/tmp/viborm-v1-native-37.log`. Exact integrated carrier archive,
+  nested-WHERE key admission, broader declaration/scaling and package gates
+  are the next qualification steps; this is not release completion.
+- The compatibility experiment now passes unchanged generic client factories,
+  legacy `VibORMClient<originalConfig>` annotations, driver covariance and cyclic
+  domain/result negatives on both TS5.8 and7 (4.36s/886.6MiB and
+  1.88s/1043.3MiB). Schema/config maps must expose their original key sets;
+  conditional projection belongs in each mapped value. Emission and the full
+  source program still need qualification on that exact integrated candidate.
+  Evidence:`/tmp/viborm-v1-compound-links-repair/generic-all-keymaps/`.
+  The full single-threaded native compiler previously completed under the
+  unchanged ceiling (47.60s/6776.4MiB), exposing source compatibility errors
+  instead of exhausting memory. That diagnostic run is not a passing gate.
+- Candidate6 repairs the TS5.8 compound-selector regression by naming the
+  already-flat linked model state. Named, private-symbol-keyed extension
+  capability interfaces also repair modifier declaration nameability. Chain5
+  and compound/omit/cache/transaction declarations pass JS5.9 and native7
+  emission and all eight separate strict TS5.8/7 consumers. Artifact SHA256:
+  `cc60a6cbace10727eb2c2b1f9d3254b17786a96557adc3a0f15af892e3448903`.
+  Evidence:`/tmp/viborm-v1-linked-client-20261008/candidate-6/receipts-modifiers-5-direct.json`.
+  Root's whole-estate native29 fails the unchanged8192MiB ceiling at8519.3MiB
+  after16.03s; baseline28 passed at6672.4MiB. Query owns the bounded overhead
+  correction; no resource limit or source scope changes are permitted.
+- Root's actual construction checks pass all four new factory/self/variant/
+  modifier fixtures in0.50s at51.4MiB with database initialization prohibited.
+  The first variant fixture violated the existing shared-primary-key domain
+  rule; it now uses compatible string IDs while retaining distinct variant
+  fields and negative numeric-ID probes. The corrected variant needs its
+  compiler matrix rerun. New cases are registered in the permanent package
+  gate; passing a scratch probe alone is not package qualification.
+- Broader carrier qualification found a new TS5.8 regression: the combined
+  compound-key/model-omit/default-omit/extension/cache fixture passes on immutable
+  baseline20 (TS5.8:6.37s; native7:1.55s), but candidate2 and candidate3 report
+  TS2589 at the valid compound `findUnique` selector. Native7 remains green.
+  The same failure occurs with the bare core client, excluding extensions as
+  its cause. Candidate3's inline compound-state materialization did not repair
+  it. Candidate6's named linked state subsequently fixes the exact probe and
+  its direct emitted-consumer matrix; whole-estate resource qualification is
+  the current blocker.
+- macOS docs builds still exceed the unchanged1536MiB RSS ceiling intermittently.
+  A scoped collection experiment proves native-output release in isolation,
+  but does not qualify the full build. It was removed from the production
+  configuration. A credential-free Linux snapshot is ready; the local Docker
+  engine is unavailable after a bounded startup/status attempt. The next exact
+  checkpoint's Linux CI must qualify the real docs build, validation and dry-run
+  under the same ceiling. No cap increase or engine reset is authorized.
+- Schema-key carrier candidate2 now passes the original five-model cyclic
+  backreference after direct JS5.9 and native7 emission, each consumed separately
+  by strict TS5.8 and7: all four combinations pass positive/negative/no-any
+  probes. Both emitters produce the same29,347-byte client type argument with
+  zero elisions, zero getter functions and literal model-key links. Exported
+  models still have40/24 elisions; all four complete rebuilt-client controls
+  fail with semantic TS2322/2344/2578, confirming the accepted limitation.
+  Artifact SHA256:`f5a27fc2f2515c91ee9e3fa50bbef9582ee4a0a5472889fd8761a5d8d615dc53`.
+  Evidence:`/tmp/viborm-v1-linked-client-20261008/candidate-2/receipts-5-direct.json`.
+  This is focused proof; extended cases, all tsdown paths, scaling, whole-source
+  typechecking and final package/release qualification remain outstanding.
+- Arnaud supplied the external type investigation and explicitly requested the
+  schema-key link carrier implementation. Type work resumes here: query_engine
+  owns the core flat/relinked client representation; drivers owns all driver
+  factory signatures and declaration-consumer probes; root owns independent
+  review, backend/performance comparisons and integration. Migrations continues
+  the isolated docs qualification. Compiler/build runners remain serialized.
+  The refined acceptance gate requires unannotated exported clients and client
+  factories to retain exact types. Rebuilding a client from already-emitted
+  models remains an explicitly accepted, tested and documented limitation.
+  The immutable artifact20 baseline passes chain5 and dense12 source/domain
+  probes on TS5.8 and7. The independent typo-beside-real nested-filter probe
+  produces only unused-expect-error diagnostics on both: a pre-existing gap,
+  tracked separately from declaration fidelity. Comparison fixtures and receipts
+  are in `/tmp/viborm-v1-linked-client-20261008/`. The11 driver wrappers now
+  share `LinkedClientConfig`; core/extension integration and permanent factory,
+  self/junction, variant and modifier probes are awaiting compilation.
+- Draft PR #84's preceding checkpoint was `8a7f4474c17ae523f565b657a13b2fe0f2905a8f`.
+  CI4 run `37801092076` passed core, PostgreSQL/MySQL and types/format/docs.
+  Coverage, local, Bun/D1 and both package jobs failed. No merge, publication
+  or deployment has occurred. Local followthrough is not final CI proof.
+- Schema, validation, errors, extensions, CLI, instrumentation and adapters pass
+  all four 100% floors. SQL, client and cache also pass their unchanged floors.
+  Adapter final11 executed399 tests across25 files in11.04s, peak763MiB;
+  instrumentation final8 passed its complete registered projects.
+- Migration final12 passes2075/2075 tests across129 files, including all
+  unchanged coverage floors:98.48 statements/lines,97.31 branches and99.57
+  functions. Targeted admitted catalog/default/DDL cases closed the missing
+  outcomes; no threshold, source denominator or refusal was weakened.
+- Query's current SDK descriptor/transaction-array fixture passes13/13. Actual
+  SQLite1000-ID update/delete qualification passes6/6 with exact row counts,
+  readback and unrelated-row preservation. The final focused coverage-fixture
+  corrections pass154/154 focused tests in6.47s at770MiB. The subsequent full
+  query run stays within the1536MiB ceiling but finds20 stale fixture failures.
+  The seven affected files now pass76/76 focused tests in6.37s at738.1MiB,
+  verifying public error codes, null ordering, clear-before-supply writes and
+  physical decimal storage. Full query coverage final6 subsequently passes all
+  3176 tests across242 files:94.23 statements/lines,94.33 branches and95.37
+  functions, above every unchanged floor. Four sequential project receipts total
+  107.49s, peak1356.9MiB; every teardown is verified.
+  All62 current driver chunks pass2017 tests, with680 explicit conditional skips.
+  Every unchanged driver coverage floor passes:96.65 statements/lines,92.76
+  branches and96.16 functions. Successful chunk receipts total346.66s, peak
+  692.8MiB, within the established600s per-child coverage policy.
+- Actual D1 full suite41/41 passes. Borrowed PGlite timezone, Bun SQLite FK and
+  surrogate ownership, and capacity/integer/WAL/local-libSQL63/63 pass. Actual
+  Bun SQL TEMP-only unique/not-null/FK failures preserve a healthy session.
+- Final safe Neon qualification passes12/12. The failed-BEGIN recovery repairs
+  the existing pool without replaying callback or caller SQL. Controlled recovery
+  and error-mapping80/80 pass, including deadlines, late-lease release and
+  original/secondary error preservation. Final driver coverage is green.
+- Actual libSQL HTTP qualification passes3/3 against isolated official sqld0.23.0
+  and installed @libsql/client0.18.0: callback rollback, array-prefix rollback,
+  committed suffix and borrowed-client lifetime. Hosted Turso and newer server
+  versions remain unqualified; this is explicitly local network evidence.
+- Native28 passes the whole estate in11.62s at6672.4MiB, with no diagnostics.
+  The changed-file Biome gate checks657 paths (567 supported files) with no
+  errors or edits. These checks include the final declaration export-kind fix.
+  Current build20 passes2.62s at1042.3MiB. Its immutable tarball SHA256 is
+  `fa5d434d4bb5688891dc4aee607605a2ccea37ff6a6c6f11715afc0f5f6eae40`.
+- Immutable artifact17 passes ten dependent extensions through runtime, TS5.8
+  source, declaration emission and downstream positive/negative checks, plus
+  native and all27 export-kind goldens. Cyclic emitted backreference soundness
+  remains open. At Arnaud's request, one Sol6.1 agent compared installed
+  JS/native7/OXC declaration backends in isolated scratch directories. Every
+  successful emitter loses the same downstream backreference contract under
+  both TS5.8 and7; OXC requires explicit model annotations. The current backend
+  is retained. `declaration-backends.md` records exact versions, timings and
+  failures. Shared dist and runtime bundling were untouched. Getter-only return
+  annotations passed all3 emitters and6 downstream checks, with
+  no elisions and preserved inference. Arnaud explicitly chose to HOLD V1
+  until fully unannotated cyclic emission is fixed. Keep the original gate and
+  public guarantee; the annotation mitigation is evidence only. The goal stays
+  active: continue the type correction and independent release checks. A
+  two-model public reduction passes source checks but fails both emitted
+  consumers; removing the client and driver preserves the failure in the
+  Model/Relation state itself. Five-model size and client assembly are therefore
+  unnecessary to reproduce it. Simpler dependency-free examples fail source
+  inference and do not establish a compiler-only emission defect.
+- Arnaud has assigned the remaining recursive traversal/declaration correction
+  to a separate agent. This fleet stopped its type experiments and shared type
+  edits immediately. The last isolated named-ModelTarget factory experiment
+  retained source correctness but failed all emitted consumers and was rejected.
+  Root continues runtime/docs/release qualification and will integrate the
+  separate agent's verified correction. The unannotated release hold remains.
+  Arnaud confirmed that the external agent uses a separate checkout.
+- Package runner repair packs once and awaits asynchronous children, allowing
+  the existing owner to tear down the original process group after per-case
+  timeout. Controlled18/18 runner tests pass. Full package qualification under
+  unchanged768MiB heap,1536MiB RSS and300s aggregate limits remains required.
+- Real MySQL8.4.11 enum/namespace/index10/10 and wide-geographic84-point proofs
+  pass; CI4 PostgreSQL/MySQL passes. Both supported better-sqlite3 branches
+  12.11.1/13.0.3 have actual proof. Installed Blume Card components ignored73
+  description props; those descriptions now use the supported content slot,
+  with text and links preserved. Heap-only trials did not complete under the
+  unchanged RSS ceiling. The installed docs Rolldown native pool has separate
+  worker controls; serializing its real worker and blocking pools completes all
+  120 pages in22.27s at1519.0MiB. Validation, Wrangler dry-run and an actual local
+  Worker render pass. The exact command is now the normal docs build and a CI
+  step. Final authored-callout/D1 documentation followthrough then exposed an
+  RSS failure at1550.9MiB; the352MiB heap trial failed with a real V8 OOM at
+  1409.4MiB RSS. The current docs build is therefore unqualified despite the
+  earlier success. Later GC/turn and exact-version immediate-purge trials
+  still failed at1564.4/1564.1MiB, with verified teardown. The small native
+  lifetime proof passes, but the unqualified GC decorator/flag and all
+  diagnostics/allocator settings were removed. Linux CI must qualify the exact
+  saved build after frozen-lockfile install under the same1536MiB bound.
+  Docker Desktop's engine remained unavailable after ordinary startup; no
+  container/DB fixture or restart was attempted. No deployment has occurred.
+- Immutable artifact19's Node22 public golden, absent-OTel and optional-peer
+  checks pass. The CommonJS runtime then encountered a local better-sqlite3
+  ABI137 versus Node22's127 mismatch. An isolated fixture now uses the same
+  declared native peer built for22; shared node_modules and package helpers
+  remain unchanged. The corrected Node22 fixture passes seven of eight checks;
+  the extension recipe exposes a separate real declaration-bundler defect:
+  defineExtension's shared-chunk alias V is incorrectly marked type-only because
+  another module exports a type V. The old golden followed symbol identity but
+  missed this intermediate type-only restriction. The driver agent is correcting
+  that existing plugin and adding actual value-use probes. Build20 corrects
+  the export using its actual local function declaration, while preserving
+  explicit public type-only exports and external reexports. The strengthened
+  golden fails19 and passes20 across all27 public subpaths. All16 targeted
+  installed-package checks pass on Node22.12 and24.14 in47.37s, peak952.5MiB.
+  Every88 packed runtime .mjs file is byte-identical between19 and20. Recursive
+  model representation remains exclusively with Arnaud's separate agent; the
+  original unannotated gate remains unchanged and red.
+- Whole-perimeter counts use the same LF newline method as the archived base:
+  src146602 versus141375 (+5227,+3.697%); tests458078 (+12622,+2.834%);
+  scripts31835 (+141,+0.445%); docs content23184 (+55,+0.238%); benchmarks
+  unchanged. Root build configuration and workflows are separate from src.
+  Registry metadata still reports latest0.1.0 and next1.0.0-rc.5.
+- `FINDINGS.md` renders all555 ledger entries. Publication fields and final LOC
+  remain pending. The full response and fresh roast are in `RESPONSE.md`.
 
 The entries below describe earlier checkpoints and are superseded where noted.
 

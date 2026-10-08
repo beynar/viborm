@@ -3238,7 +3238,7 @@ export class Queries {
       const to = specification.to as number[];
       const { dimension } = state;
       if (dimension !== undefined && to.length !== dimension)
-        throw new QueryEngineError(
+        throw new UnsupportedOperationError(
           `Vector distance ${usage} dimension mismatch for '${field}': expected ${dimension} values, received ${to.length}.`
         );
       const metric = specification.metric === "cosine" ? "cosine" : "l2";

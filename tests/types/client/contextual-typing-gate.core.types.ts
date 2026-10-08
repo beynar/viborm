@@ -1074,8 +1074,8 @@ describe("the array spelling of orderBy is keyed at its elements", () => {
 });
 
 /**
- * THE MEASURED BOUNDARY. Everything below compiles WITH THE TYPO, and each line
- * is a pin on a limit that was measured, not assumed. See `NoExtraOperationKeys`
+ * THE MEASURED BOUNDARY. Remaining compiling typo probes below pin measured
+ * limits; direct writes and logical WHERE fields now have negative probes. See `NoExtraOperationKeys`
  * in `src/client/types.ts` for the numbers:
  *
  *  - guarding every clause by mapping over `keyof Arg` CRASHES tsc 5.8.3
@@ -1086,9 +1086,8 @@ describe("the array spelling of orderBy is keyed at its elements", () => {
  *  - naming `cursor` / `having` adds two more TS2589 sites;
  *  - the cache extension now owns its shallow finite cache clause, so that
  *    clause is guarded without resolving a model or relation payload;
- *  - depth 3 (`where.title.contians`, `select.books.select`) walks INTO a
- *    relation, resolving the target model mid-inference — the thing
- *    `RelationState.getter: any` exists to prevent.
+ *  - scalar operator and nested projection keys remain pinned; ordinary
+ *    relation/logical WHERE model field keys are guarded without a depth cap.
  *
  * These are refused at RUNTIME: validation is the single home for payload
  * normalization, and an unknown key fails the parse. What is missing is only the
@@ -1177,9 +1176,8 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
       where: { title: { contains: "x", contians: "x" } },
     });
 
-  const _booleanGroupTypoCompiles = () =>
-    // depth 3 again: `AND` is a real `where` key, so the guard stops there and
-    // the objects INSIDE the array are unchecked.
+  const _booleanGroupTypoRefused = () =>
+    // @ts-expect-error logical filters retain model field keys beside a real title
     client.book.findMany({ where: { AND: [{ title: "x", ttitle: "x" }] } });
 
   const _nestedRelationTypoCompiles = () =>
@@ -1194,7 +1192,7 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
     expectTypeOf(_cursorTypoCompiles).toBeFunction();
     expectTypeOf(_havingTypoCompiles).toBeFunction();
     expectTypeOf(_operatorLevelTypoCompiles).toBeFunction();
-    expectTypeOf(_booleanGroupTypoCompiles).toBeFunction();
+    expectTypeOf(_booleanGroupTypoRefused).toBeFunction();
     expectTypeOf(_nestedRelationTypoCompiles).toBeFunction();
   });
 });

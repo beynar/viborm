@@ -11,6 +11,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -215,7 +216,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: PlanetScaleClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, PlanetScaleDriverOptions, S>
-): VibORMClient<C & { driver: PlanetScaleDriver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: PlanetScaleDriver }
+  >]: LinkedClientConfig<C & { driver: PlanetScaleDriver }>[P];
+}> {
   const { client, databaseUrl, options } = config;
   const namespace = resolveNamespaceOption(config);
 
@@ -226,7 +231,5 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     namespace,
   });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: PlanetScaleDriver }
-  >;
+  return createClientFromDriverConfig<S, C, PlanetScaleDriver>(config, driver);
 }

@@ -1,5 +1,7 @@
+import { sqliteDecimalCheck } from "@adapters/databases/sqlite/storage/decimal";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
+import { createIdentifierQuoter } from "@src/sql/identifiers";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 
@@ -62,13 +64,14 @@ export interface World {
 
 export function createWorld(): World {
   const database = new Database(":memory:");
+  database.pragma("foreign_keys = ON");
   database.exec(`
     CREATE TABLE rv_people(
       id INTEGER PRIMARY KEY,
       person_name TEXT NOT NULL,
       tier TEXT,
       score REAL,
-      balance INTEGER NOT NULL,
+      balance INTEGER NOT NULL ${sqliteDecimalCheck({ name: "balance", nullable: false }, { precision: 12, scale: 2 }, "scalar", createIdentifierQuoter('"'))},
       joined_at TEXT NOT NULL,
       birthday TEXT,
       avatar BLOB,

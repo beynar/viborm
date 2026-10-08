@@ -785,16 +785,24 @@ export async function diff(
         const matchingColumns = droppedTable.columns.filter((column) =>
           addedTable.columns.some((other) => columnsEqual(column, other, true))
         ).length;
+        const matchingNames = droppedTable.columns.filter((column) =>
+          addedTable.columns.some((other) => column.name === other.name)
+        ).length;
         return {
           droppedName,
           addedName,
           droppedTable,
           addedTable,
           matchingColumns,
+          matchingNames,
         };
       });
     })
-    .sort((a, b) => b.matchingColumns - a.matchingColumns);
+    .sort(
+      (a, b) =>
+        b.matchingNames - a.matchingNames ||
+        b.matchingColumns - a.matchingColumns
+    );
   for (const candidate of candidates) {
     const { droppedName, addedName, droppedTable, addedTable } = candidate;
     if (usedDropped.has(droppedName) || usedAdded.has(addedName)) continue;

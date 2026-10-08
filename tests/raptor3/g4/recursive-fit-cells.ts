@@ -18,6 +18,7 @@
  */
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
+import type { QueryExecutionContext } from "@drivers/exports";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { Input } from "@query-engine/raptor3/shared/schema";
 import { DbNull, s } from "@schema";
@@ -110,15 +111,20 @@ function createRecursiveClient(driver: SQLite3Driver) {
 }
 
 class RecursiveWitnessDriver extends SQLite3Driver {
-  readonly statements: { sql: string; binds: number }[] = [];
+  readonly statements: { sql: string; binds: number; model?: string }[] = [];
 
   protected override async execute<T>(
     client: Database.Database,
     statement: string,
-    parameters: unknown[]
+    parameters: unknown[],
+    context?: QueryExecutionContext
   ) {
-    this.statements.push({ sql: statement, binds: parameters.length });
-    return super.execute<T>(client, statement, parameters);
+    this.statements.push({
+      sql: statement,
+      binds: parameters.length,
+      model: context?.model,
+    });
+    return super.execute<T>(client, statement, parameters, context);
   }
 }
 
@@ -146,7 +152,7 @@ export function describeRecursiveFit(
 
     beforeEach(async () => {
       database = new Database(":memory:");
-      database.pragma("foreign_keys = OFF");
+      database.pragma("foreign_keys = ON");
       driver = new RecursiveWitnessDriver({ client: database });
       client = createRecursiveClient(driver);
       const migration = await syncLiveSchema(client);
@@ -170,12 +176,15 @@ export function describeRecursiveFit(
 
     /** One `findMany` through the entry: the projection is one statement. */
     async function read(args: Input): Promise<Input[]> {
-      const before = driver.statements.length;
+      const before = driver.statements.filter(
+        (statement) => statement.model !== "$schema"
+      ).length;
       const rows = await entry({ client, driver }, args);
       assert.equal(
-        driver.statements.length,
+        driver.statements.filter((statement) => statement.model !== "$schema")
+          .length,
         before + 1,
-        "one recursive read must execute exactly one provider statement"
+        "one recursive read must execute exactly one typed model statement beside protected storage guards"
       );
       assert(Array.isArray(rows));
       return rows as Input[];
@@ -306,7 +315,11 @@ export function describeRecursiveFit(
         ],
         "roots follow the operation's order, not the physical row order"
       );
-      assert.equal(driver.statements.length, 1);
+      assert.equal(
+        driver.statements.filter((statement) => statement.model !== "$schema")
+          .length,
+        1
+      );
     });
   });
 }

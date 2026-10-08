@@ -2,6 +2,7 @@
 
 import type { OperationPayload } from "../client/exports"; // public today
 import type {
+  ClientSchema,
   ExtendedOperationResult,
   ExtensionState,
   PendingOperation,
@@ -38,7 +39,10 @@ type RestoreArgs<
   C extends VibORMConfig,
   K,
   O extends "update" | "updateMany",
-> = Omit<OperationPayload<O, C["schema"][K & keyof C["schema"]]>, "data">;
+> = Omit<
+  OperationPayload<O, ClientSchema<C>[K & keyof ClientSchema<C>]>,
+  "data"
+>;
 type NoExtra<A, R> = A & Record<Exclude<keyof A, keyof R>, never>; // flags data and typos
 type RestoreModels<
   M,

@@ -78,7 +78,7 @@ const REJECTED_MODE_SPELLINGS = [
 ];
 
 const FLOAT_TRANSPORT_EXEMPTION_SPELLINGS = [
-  "src/migrations/decimal.ts readStoredDecimalInteger Number(value)",
+  "src/validation/primitives/decimal-codec.ts readStoredDecimalInteger Number(value)",
   // `toNumber()` is the value type's documented float boundary: an application
   // asking for a double gets the double its canonical text names, and nothing
   // in VibORM calls it. The conversion is the method's entire purpose, so the
@@ -93,6 +93,11 @@ const FLOAT_TRANSPORT_EXEMPTION_SPELLINGS = [
   // is deliberately aggressive about mixed-purpose modules. Exempted by exact
   // spelling, so any OTHER Number() in that file still fails.
   "src/migrations/drivers/mysql/introspect.ts readSrid Number(col.SRS_ID)",
+  // SQLite catalog flags describe nullability and primary-key position, not
+  // decimal values. Each exact call is permitted once in the storage owner;
+  // an amount conversion or a duplicate flag conversion still fails.
+  "src/adapters/databases/sqlite/storage/runtime-check.ts sqliteStorageCheck Number(row.notnull)",
+  "src/adapters/databases/sqlite/storage/runtime-check.ts sqliteStorageCheck Number(row.pk)",
 ];
 
 const REJECTED_FLOAT_TRANSPORT_SPELLINGS = [
@@ -437,7 +442,7 @@ function decodeProviderValue(value: string) {
     ).toEqual(["src/validation/primitives/decimal-value.ts Number 1"]);
     expect(
       decimalFloatTransportEntries(
-        "src/migrations/decimal.ts",
+        "src/validation/primitives/decimal-codec.ts",
         `function readStoredDecimalInteger(value: unknown) {
   return Number(value);
 }`
@@ -446,13 +451,57 @@ function decodeProviderValue(value: string) {
     // The exemption is one spelling, once: a second use of it still counts.
     expect(
       decimalFloatTransportEntries(
-        "src/migrations/decimal.ts",
+        "src/validation/primitives/decimal-codec.ts",
         `function readStoredDecimalInteger(value: unknown) {
   const stored = Number(value);
   return stored + Number(value);
 }`
       )
+    ).toEqual(["src/validation/primitives/decimal-codec.ts Number 1"]);
+    // The relocated reader has one owner; the old module gets no waiver.
+    expect(
+      decimalFloatTransportEntries(
+        "src/migrations/decimal.ts",
+        `function readStoredDecimalInteger(value: unknown) {
+  return Number(value);
+}`
+      )
     ).toEqual(["src/migrations/decimal.ts Number 1"]);
+  });
+
+  it("exempts only the two SQLite catalog flags once in their storage owner", () => {
+    const file = "src/adapters/databases/sqlite/storage/runtime-check.ts";
+    const witness = `import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
+function sqliteStorageCheck() {
+  return { validate(row) {
+    return Number(row.notnull) === 0 && Number(row.pk) === 0;
+  } };
+}`;
+    expect(decimalFloatTransportEntries(file, witness)).toEqual([]);
+    expect(
+      decimalFloatTransportEntries(
+        file,
+        witness.replace(
+          "Number(row.pk) === 0",
+          "Number(row.pk) === 0 && Number(row.notnull) === 0 && Number(row.pk) === 0"
+        )
+      )
+    ).toEqual([`${file} Number 2`]);
+    expect(
+      decimalFloatTransportEntries(
+        file,
+        witness.replace("Number(row.pk)", "Number(row.amount)")
+      )
+    ).toEqual([`${file} Number 1`]);
+    expect(
+      decimalFloatTransportEntries(
+        file,
+        witness.replace(
+          "function sqliteStorageCheck()",
+          "function decodeDecimal()"
+        )
+      )
+    ).toEqual([`${file} Number 2`]);
   });
 });
 

@@ -80,11 +80,33 @@ jobs:
       - name: Check documentation
         run: pnpm --dir docs validate
 
+      - name: Build documentation under the project resource ceiling
+        run: pnpm --dir docs build
+
+      - name: Preserve the exact documentation build for render verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: viborm-docs-${{ github.sha }}
+          path: docs/dist/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+
+      - name: Verify the documentation worker without deploying
+        working-directory: docs
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: >-
+          node ../scripts/run-node-safe.mjs 512 60000
+          node_modules/wrangler/bin/wrangler.js deploy
+          --dry-run --config wrangler.deploy.jsonc
+          --outdir "${RUNNER_TEMP}/viborm-docs-worker"
+
       - name: Check whitespace
         run: git diff --check "${QUALITY_BASE_SHA}" HEAD
 
       # The complete lane: every file the root tsconfig intends, checked as
-      # ONE native TypeScript 7 program by scripts/run-typecheck.mjs (~6 s,
+      # ONE native TypeScript 7 program by scripts/run-typecheck.mjs (serial,
       # 8192 MiB allowlisted ceiling). It is the same check `pnpm test` runs.
       - name: Check public types
         run: pnpm test:types

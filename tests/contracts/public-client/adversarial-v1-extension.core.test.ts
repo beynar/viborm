@@ -17,6 +17,75 @@ const post = s.model({
 });
 const schema = { post };
 describe("named extension policy admission", () => {
+  it("rejects malformed policy containers and scalar assignments", () => {
+    const cases: readonly (readonly [Record<string, unknown>, string])[] = [
+      [{ rows: 42 }, "rows must be an object"],
+      [{ data: { models: 42 } }, "data.models must be an object"],
+      [{ data: { models: { post: 42 } } }, "data.post must be an object"],
+      [
+        { data: { models: { post: { create: 42 } } } },
+        "fields must be an object",
+      ],
+      [{ deletion: { models: { post: { at: 42 } } } }, "names unknown scalar"],
+      [
+        { rows: { default: "tenant", models: { post: { tenant: 42 } } } },
+        "row mode must be an object",
+      ],
+      [
+        {
+          rows: {
+            default: "tenant",
+            models: { post: { tenant: {}, [Symbol("mode")]: {} } },
+          },
+        },
+        "row mode must be a string",
+      ],
+    ];
+    for (const [component, message] of cases)
+      expect(() =>
+        Reflect.apply(normalizeExtensionDefinition, undefined, [
+          { name: "hostile-policy", ...component },
+          schema,
+        ])
+      ).toThrow(message);
+  });
+
+  it("rejects excessive predicates and different mode counts before binding", () => {
+    let predicate: Record<string, unknown> = { tenantId: "acme" };
+    for (let depth = 0; depth < 17; depth++) predicate = { AND: [predicate] };
+    expect(() =>
+      normalizeExtensionDefinition(
+        {
+          name: "deep-policy",
+          rows: {
+            control: "scope",
+            default: "tenant",
+            models: {
+              post: { tenant: { root: predicate } },
+            },
+          },
+        },
+        schema
+      )
+    ).toThrow("exceeds nesting limit");
+    expect(() =>
+      normalizeExtensionDefinition(
+        {
+          name: "different-mode-counts",
+          rows: {
+            control: "scope",
+            default: "tenant",
+            models: {
+              post: { tenant: {} },
+              other: { tenant: {}, all: {} },
+            },
+          },
+        },
+        { post, other: post }
+      )
+    ).toThrow(SHARE_MODE_NAMES_PATTERN);
+  });
+
   it("refuses config-sourced unknown models and fields before binding", () => {
     const components: ExtensionDefinitionInput[] = [
       {

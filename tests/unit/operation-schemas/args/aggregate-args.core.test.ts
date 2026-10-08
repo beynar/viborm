@@ -596,6 +596,25 @@ describe("GroupBy Args - aggregate name collisions", () => {
 describe("GroupBy Args - having AND/OR/NOT", () => {
   const schema = simpleSchemas.args.groupBy;
 
+  test("HAVING refuses a callback without executing caller code", () => {
+    let invocations = 0;
+    const result = parse(schema, {
+      by: "active",
+      having: {
+        age: {
+          _avg: {
+            gte: () => {
+              invocations++;
+              return 18;
+            },
+          },
+        },
+      },
+    });
+    expect(result.issues?.[0]?.message).toContain("A filter callback");
+    expect(invocations).toBe(0);
+  });
+
   test("type: accepts OR of aggregate conditions", () => {
     type Input = InferInput<typeof simpleSchemas.args.groupBy>;
     expectTypeOf<{

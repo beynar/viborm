@@ -35,6 +35,7 @@ This works because:
 | `types.ts` | Operation routing, Payload/Result types | ~230 |
 | `client.ts` | ORM client with recursive proxies | ~700 |
 | `result-types.ts` | InferSelectInclude, result adaptation | ~375 |
+| `schema-links.ts` | Declaration-only flat schema, literal relation links and linked client view | — |
 | `schema-introspection.ts` | Public payload-schema access, validation, and TypeScript rendering boundaries | ~200 |
 | `typescript-type-renderer.ts` | Runtime model/result metadata to TypeScript source | ~450 |
 
@@ -87,6 +88,44 @@ OperationPayload<"findMany", Model>  (args type for this operation)
         ↓
 InferSelectInclude<Model, Args>  (result type based on args)
 ```
+
+### Exported cyclic clients
+
+`schema-links.ts` owns the declaration-only schema-key link carrier.
+`RelationLinks<S>` resolves relation getters against the exact producer schema;
+`FlatSchema<S,L>` materializes the model state while erasing linked target
+getters. `Linked<S,L,K>` restores getters through literal schema keys and a
+named flat state, allowing recursive type instantiations to reuse that state.
+The optional `Links<L>` property is type-only: never install it on runtime
+configs, models or relations.
+
+Every per-model client and extension value type reads `ClientSchema<C>`.
+Guards that need only model names read `keyof C["schema"]` without constructing
+linked models. Scalar-only and open schemas keep their original model state
+with `Links<never>` because they have no finite recursive graph to flatten.
+`LinkedClientConfig<C,L>` preserves other config facts. Keep schema/config maps
+homomorphic: conditions belong inside their values so generic client annotations
+and driver covariance retain the original key relationships. Public factories
+materialize that config with an anonymous mapped return type; returning the
+named helper directly makes the emitter retain its original recursive argument.
+Export clients or client
+factories from declaration-producing packages without caller annotations.
+Plain emitted cyclic models can still contain compiler elisions; a downstream
+client cannot recover facts already lost from those model declarations.
+
+Exact structural model comparison resolves declaration links once. It does not
+replace the separate shallow omission carrier, whose ambiguity and early
+no-omit rules remain unchanged. Keep relation getters unconstrained and flatten
+both `shape` and `relations`; helper aliases taking original recursive state
+would reintroduce the emitted graph. Export the type names required by inferred
+declarations, including nominal extension capability interfaces; their unique
+symbol keys remain private and have no runtime representation.
+
+`NoExtraOperationKeys` checks ordinary nested WHERE model-field names by walking
+the caller's spelled relation and logical clauses. Declared model fields shadow
+`AND`, `OR` and `NOT`, matching `WhereSchema`. Cycle detection uses the exact
+caller-value/model pair, never a numeric depth cap. This guard does not claim
+scalar-operator, variant-filter or nested-projection/mutation key exactness.
 
 ### Select/Include Aware Results
 
@@ -174,8 +213,8 @@ same surface, widen the candidate omission flags so affected result fields are
 optional. Never guess one model identity from an ambiguous structural match.
 
 Do not put client defaults or schema-key brands into `Model`, `ModelState`, or
-relation state. Do not compare full model types, inspect relation getters
-recursively, or include scalar schema values in the carrier. Those forms reopen
+relation state. In the omission carrier, do not compare full model types,
+inspect relation getters recursively, or include scalar schema values. Those forms reopen
 the mutually-recursive `any` collapse and make custom-schema types part of the
 completion hot path. A client with no configured omit must take the early
 no-carrier path.

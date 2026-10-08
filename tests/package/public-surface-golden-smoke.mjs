@@ -77,26 +77,24 @@ function expectedDeclarations(contract) {
   return sortedPairs(declarations);
 }
 
-function containingExportDeclaration(node) {
-  let current = node.parent;
-  while (current && !ts.isSourceFile(current)) {
-    if (ts.isExportDeclaration(current)) return current;
-    current = current.parent;
-  }
-  return undefined;
-}
-
-function isTypeOnlyExportAlias(symbol) {
-  const exportDeclarations = (symbol.declarations ?? []).filter(
-    (declaration) => containingExportDeclaration(declaration) !== undefined
-  );
+function isTypeOnlyAlias(symbol) {
+  const declarations = symbol.declarations ?? [];
   return (
-    exportDeclarations.length > 0 &&
-    exportDeclarations.every((declaration) => {
-      if (ts.isExportSpecifier(declaration) && declaration.isTypeOnly) {
-        return true;
+    declarations.length > 0 &&
+    declarations.every((declaration) => {
+      let current = declaration;
+      while (current && !ts.isSourceFile(current)) {
+        if (
+          (ts.isExportSpecifier(current) ||
+            ts.isExportDeclaration(current) ||
+            ts.isImportSpecifier(current) ||
+            ts.isImportClause(current)) &&
+          current.isTypeOnly
+        )
+          return true;
+        current = current.parent;
       }
-      return containingExportDeclaration(declaration)?.isTypeOnly === true;
+      return false;
     })
   );
 }
@@ -107,10 +105,15 @@ function hasSymbolFlag(symbol, flag) {
 }
 
 function classifyDeclaration(checker, symbol) {
-  if (isTypeOnlyExportAlias(symbol)) return "type";
   let target = symbol;
-  if (hasSymbolFlag(symbol, ts.SymbolFlags.Alias)) {
-    target = checker.getAliasedSymbol(symbol);
+  const visited = new Set();
+  while (!visited.has(target)) {
+    visited.add(target);
+    if (isTypeOnlyAlias(target)) return "type";
+    if (!hasSymbolFlag(target, ts.SymbolFlags.Alias)) break;
+    const next = checker.getImmediateAliasedSymbol(target);
+    if (!next) break;
+    target = next;
   }
   const isValue = hasSymbolFlag(target, ts.SymbolFlags.Value);
   const isType = hasSymbolFlag(target, ts.SymbolFlags.Type);
@@ -236,9 +239,20 @@ try {
   );
 
   const consumerTypeFile = join(consumerRoot, "surface-consumer.ts");
+  let valueIndex = 0;
+  const valueUseProbes = Object.entries(PACKAGE_SURFACE_GOLDEN)
+    .flatMap(([subpath, contract]) =>
+      [...contract.runtime, ...contract.both].map((name) => {
+        const local = `reviewedValue${valueIndex++}`;
+        const entry = subpath === "." ? "viborm" : `viborm/${subpath.slice(2)}`;
+        return `import { ${name} as ${local} } from ${JSON.stringify(entry)}; void ${local};`;
+      })
+    )
+    .join("\n");
   writeFileSync(
     consumerTypeFile,
     `
+${valueUseProbes}
 import type { VibORMClient } from "viborm";
 import type { AnyDriver } from "viborm/driver";
 import { PostgresAdapter } from "viborm/adapters";
@@ -298,8 +312,17 @@ s.model({ id: s.string().id(), _distance: s.number() });
     "export-kind-fixture.d.ts"
   );
   writeFileSync(
+    join(consumerRoot, "export-kind-origin.d.ts"),
+    `
+declare class ExportKindOrigin {}
+export type { ExportKindOrigin as TypeOnlyOrigin };
+export { ExportKindOrigin as ValueOrigin };
+`
+  );
+  writeFileSync(
     declarationKindFixtureFile,
     `
+export { TypeOnlyOrigin as IndirectTypeOnly, ValueOrigin as IndirectValue } from "./export-kind-origin.js";
 declare class ExportKindFixture {}
 export type { ExportKindFixture as DeclarationTypeOnly };
 export { type ExportKindFixture as SpecifierTypeOnly };
@@ -405,6 +428,8 @@ export { ExportKindFixture as ValueAndType };
     ),
     [
       ["DeclarationTypeOnly", "type"],
+      ["IndirectTypeOnly", "type"],
+      ["IndirectValue", "both"],
       ["SpecifierTypeOnly", "type"],
       ["ValueAndType", "both"],
     ],

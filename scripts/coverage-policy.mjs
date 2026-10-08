@@ -31,6 +31,7 @@ export const cacheCoverageTests = Object.freeze([
 ]);
 export const driverCoverageTests = DRIVER_COVERAGE_TESTS;
 export const extensionCoverageTests = Object.freeze([
+  "tests/contracts/public-client/adversarial-v1-extension.core.test.ts",
   "tests/contracts/architecture/extension-system-census.core.test.ts",
   "tests/contracts/public-client/default-omit-extension.core.test.ts",
   "tests/contracts/public-client/extension-controls.core.test.ts",
@@ -96,7 +97,7 @@ const definitions = [
     label: "instrumentation",
     target: 100,
     root: "src/instrumentation/",
-    projects: ["layer-instrumentation"],
+    projects: ["layer-instrumentation", "coverage-provider-diagnostics"],
   },
   {
     id: "extensions",
@@ -122,7 +123,7 @@ const definitions = [
     label: "adapters",
     target: 100,
     root: "src/adapters/",
-    projects: ["layer-adapters"],
+    projects: ["layer-adapters", "coverage-adapter-storage"],
   },
   {
     id: "cli",

@@ -26,13 +26,12 @@ export type SchemaGetter<S extends RelationState> = ReturnType<
   CreateSchemaGetter<S>
 >;
 
-/** A collection clears its existing membership before adding new members. */
+/** Partial collection admission discarded undefined keys; clearing precedes supply. */
 export function refuseCollectionVerbOrder(
   value: Record<string, unknown>
 ): string | undefined {
   let adding: string | undefined;
   for (const verb of Object.keys(value)) {
-    if (value[verb] === undefined) continue;
     if (
       ["upsert", "connectOrCreate", "connect", "create", "createMany"].includes(
         verb

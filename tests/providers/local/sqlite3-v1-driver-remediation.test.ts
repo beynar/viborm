@@ -76,6 +76,50 @@ describe("V1 driver data integrity regressions", () => {
     }
   });
 
+  it("owned WAL transactions acquire the writer before a read-first update", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "viborm-v1-wal-"));
+    const path = join(directory, "evidence.sqlite");
+    const peer = new Database(path);
+    const client = createClient({
+      schema: { evidence: s.model({ id: s.int().id(), value: s.int() }) },
+      driver: new SQLite3Driver({ dataDir: path }),
+    });
+    try {
+      peer.pragma("journal_mode = WAL");
+      peer.pragma("busy_timeout = 0");
+      peer.exec(
+        "CREATE TABLE evidence (id INTEGER PRIMARY KEY, value INTEGER NOT NULL)"
+      );
+      peer.prepare("INSERT INTO evidence VALUES (?, ?)").run(1, 10);
+      await client.$transaction(async (tx) => {
+        expect(await tx.evidence.findUnique({ where: { id: 1 } })).toEqual({
+          id: 1,
+          value: 10,
+        });
+        // A different native connection cannot invalidate the read snapshot:
+        // the owned transaction already acquired the reserved writer lock.
+        expect(() =>
+          peer.prepare("INSERT INTO evidence VALUES (?, ?)").run(2, 20)
+        ).toThrow(expect.objectContaining({ code: "SQLITE_BUSY" }));
+        expect(
+          await tx.evidence.update({ where: { id: 1 }, data: { value: 11 } })
+        ).toEqual({ id: 1, value: 11 });
+      });
+      expect(peer.prepare("SELECT * FROM evidence").all()).toEqual([
+        { id: 1, value: 11 },
+      ]);
+      peer.prepare("INSERT INTO evidence VALUES (?, ?)").run(2, 20);
+      expect(await client.evidence.count()).toBe(2);
+    } finally {
+      try {
+        await client.$disconnect();
+      } finally {
+        peer.close();
+        rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  });
+
   it("queues independent wrappers behind the actual SQLite handle and refuses reentry", async () => {
     const handle = new Database(":memory:");
     const a = new SQLite3Driver({ client: handle });

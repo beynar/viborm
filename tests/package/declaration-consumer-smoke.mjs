@@ -8,6 +8,20 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import {
+  backreferenceSource,
+  chainSource,
+  constructionSource,
+  factoryProbe,
+  factorySource,
+  lossyModelsControl,
+  modifierProbe,
+  modifierSource,
+  selfJunctionProbe,
+  selfJunctionSource,
+  variantProbe,
+  variantSource,
+} from "./declaration-fixtures.mjs";
 import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
 
 const db = `import { createClient, defineExtension, s } from "viborm";
@@ -98,32 +112,16 @@ void ten.$eleven();
 void [one, two, three, four, five, six, seven, eight, nine, last];
 `;
 
-function chainSource(count, ring = false) {
-  const models = Array.from({ length: count }, (_, i) => {
-    const previous =
-      i > 0 || ring
-        ? `parentId: s.string(), parent: s.toOne(() => m${(i + count - 1) % count}).fields("parentId").references("id"),`
-        : "";
-    const next =
-      i < count - 1 || ring
-        ? `children: s.toMany(() => m${(i + 1) % count}),`
-        : "";
-    return `export const m${i} = s.model({ id: s.string().id(), active: s.boolean(), rank: s.int(), ${previous} ${next} });`;
-  });
-  return `import { createClient, s } from "viborm";
-import { SQLite3Driver } from "viborm/sqlite3";
-${models.join("\n")}
-export const schema = { ${models.map((_, i) => `m${i}`).join(", ")} };
-export const db = createClient({ schema, driver: new SQLite3Driver() });
-export const load = () => db.m0.findUnique({ where: { id: "first" }, include: { children: { where: { active: true }, orderBy: { rank: "asc" }, take: 5 } } });
-`;
-}
 const compilers = [
   ["TS5.8", join(repositoryRoot, "node_modules/typescript-5-8/bin/tsc")],
   ["TS5.9", join(repositoryRoot, "node_modules/typescript/bin/tsc")],
   ["native", join(repositoryRoot, "node_modules/typescript-native/bin/tsc")],
 ];
 
+const TYPESCRIPT_DIAGNOSTIC_CODE = /\bTS(\d+):/g;
+const LOSSY_REBUILD_DIAGNOSTICS = new Set([
+  2322, 2339, 2344, 2345, 2353, 2578, 18_047, 18_048,
+]);
 const compilerChoice = process.env.VIBORM_DECLARATION_COMPILER;
 const caseChoice = process.env.VIBORM_DECLARATION_CASE;
 const cases = [
@@ -131,6 +129,12 @@ const cases = [
   "extends10",
   "chain2",
   "chain5",
+  "backreference",
+  "factories",
+  "self-junction",
+  "variants",
+  "modifiers",
+  "lossy-models",
   "chain30",
   "chain100",
   "chain200",
@@ -174,6 +178,33 @@ withPackedConsumer(
       run("runtime.ts", "declaration topology");
       writeFileSync(join(root, "use-source.ts"), downstream);
     }
+    const checkFile = (compiler, file) =>
+      execFileSync(
+        process.execPath,
+        [
+          compiler,
+          "--strict",
+          "--noEmit",
+          "--target",
+          "ES2022",
+          "--module",
+          "ESNext",
+          "--moduleResolution",
+          "Bundler",
+          "--types",
+          "node",
+          "--typeRoots",
+          join(repositoryRoot, "node_modules/@types"),
+          file,
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          stdio: "pipe",
+          timeout: 30_000,
+          killSignal: "SIGKILL",
+        }
+      );
     for (const [label, compiler] of compilers) {
       if (compilerChoice && compilerChoice !== label) continue;
       const output = join(root, label);
@@ -308,7 +339,14 @@ withPackedConsumer(
           );
         }
         for (const count of [2, 5, 30]) {
-          if (!includesCase(`chain${count}`)) continue;
+          if (
+            !(
+              includesCase(`chain${count}`) ||
+              (count === 5 &&
+                (includesCase("backreference") || includesCase("lossy-models")))
+            )
+          )
+            continue;
           const file = `chain${count}.ts`;
           writeFileSync(join(root, file), chainSource(count));
           const chainProject = join(
@@ -335,6 +373,14 @@ withPackedConsumer(
               files: [`./${file}`],
             })
           );
+          if (
+            count === 5 &&
+            (includesCase("backreference") || includesCase("lossy-models"))
+          ) {
+            const sourceProbe = join(root, "backreference.ts");
+            writeFileSync(sourceProbe, backreferenceSource());
+            checkFile(compiler, sourceProbe);
+          }
           execFileSync(
             process.execPath,
             [compiler, "--project", chainProject],
@@ -344,8 +390,97 @@ withPackedConsumer(
             join(chainOutput, `chain${count}.d.ts`),
             "utf8"
           );
+          if (
+            count === 5 &&
+            (includesCase("backreference") || includesCase("lossy-models"))
+          ) {
+            const backreference = backreferenceSource();
+            const emittedProbe = join(chainOutput, "backreference.ts");
+            writeFileSync(emittedProbe, backreference);
+            checkFile(compiler, emittedProbe);
+            console.log(
+              `${label}: source and emitted backreference domains passed`
+            );
+          }
           console.log(
             `${label}: unannotated related chain${count} emitted ${Buffer.byteLength(emitted)} bytes`
+          );
+        }
+        for (const [fixture, source, probe] of [
+          ["factories", factorySource(), factoryProbe()],
+          ["self-junction", selfJunctionSource, selfJunctionProbe],
+          ["variants", variantSource, variantProbe],
+          ["modifiers", modifierSource, modifierProbe],
+        ]) {
+          if (!includesCase(fixture)) continue;
+          writeFileSync(join(root, `${fixture}.ts`), source);
+          const sourceProbe = join(root, `${fixture}-probe.ts`);
+          writeFileSync(sourceProbe, probe);
+          // Construction invokes the actual topology owner without database I/O.
+          writeFileSync(
+            join(root, `${fixture}-runtime.ts`),
+            constructionSource(fixture)
+          );
+          run(`${fixture}-runtime.ts`, `${fixture} topology`);
+          checkFile(compiler, sourceProbe);
+          const fixtureOutput = join(root, `${label}-${fixture}`);
+          const fixtureProject = join(
+            root,
+            `tsconfig-${label}-${fixture}.json`
+          );
+          const options = JSON.parse(readFileSync(project, "utf8"));
+          options.compilerOptions.outDir = fixtureOutput;
+          options.files = [`./${fixture}.ts`];
+          writeFileSync(fixtureProject, JSON.stringify(options));
+          execFileSync(
+            process.execPath,
+            [compiler, "--project", fixtureProject],
+            {
+              cwd: root,
+              encoding: "utf8",
+              stdio: "pipe",
+              timeout: 30_000,
+              killSignal: "SIGKILL",
+            }
+          );
+          const consumerProbe = join(fixtureOutput, "consumer.ts");
+          writeFileSync(consumerProbe, probe);
+          checkFile(compiler, consumerProbe);
+          console.log(
+            `${label}: ${fixture} source/emission/declaration-only consumer passed`
+          );
+        }
+        if (includesCase("lossy-models")) {
+          const sourceControl = join(root, "lossy-control.ts");
+          writeFileSync(sourceControl, lossyModelsControl);
+          checkFile(compiler, sourceControl);
+          const emittedControl = join(
+            root,
+            `${label}-chain5`,
+            "lossy-control.ts"
+          );
+          writeFileSync(emittedControl, lossyModelsControl);
+          let rejected = false;
+          try {
+            checkFile(compiler, emittedControl);
+          } catch (error) {
+            const codes = [
+              ...(error.stdout ?? "").matchAll(TYPESCRIPT_DIAGNOSTIC_CODE),
+            ].map((match) => Number(match[1]));
+            if (
+              error.status !== (label === "native" ? 1 : 2) ||
+              codes.length === 0 ||
+              codes.some((code) => !LOSSY_REBUILD_DIAGNOSTICS.has(code))
+            )
+              throw error;
+            rejected = true;
+          }
+          if (!rejected)
+            throw new Error(
+              "Lossy emitted-model rebuild control no longer reproduces; reassess its documented limitation"
+            );
+          console.log(
+            `${label}: source-valid emitted-model rebuild control retains the explicit limitation`
           );
         }
         for (const [count, ring] of [

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { SQLite3Driver } from "@src/drivers/sqlite3";
 import {
   CANCEL,
   getClackLog,
@@ -6,6 +8,7 @@ import {
 } from "@tests/contracts/public-client/cli/_clack";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeTempProject } from "./_harness";
 
 const PLAN_HASH = "a".repeat(64);
 const TARGET = {
@@ -160,6 +163,54 @@ describe("push command", () => {
       "--accept-data-loss",
       "--json",
     ]);
+  });
+
+  it("warns from the actual SQLite PRAGMA only for a human in-memory target", async () => {
+    const project = makeTempProject();
+    try {
+      for (const dataDir of [
+        ":memory:",
+        join(project.dir, "persistent.sqlite"),
+      ]) {
+        const driver = new SQLite3Driver({ dataDir });
+        const execute = vi.spyOn(driver, "_executeRaw");
+        try {
+          boundary.loadConfig.mockResolvedValue({
+            client: boundary.client,
+            driver,
+          });
+          boundary.push.mockReset();
+          route();
+          const result = await invoke(["--dry-run"]);
+          expect(result.thrown).toBeUndefined();
+          expect(execute).toHaveBeenCalledWith("PRAGMA database_list");
+          expect(result.stderr.includes("in-memory main database")).toBe(
+            dataDir === ":memory:"
+          );
+          boundary.push.mockReset();
+          route();
+          execute.mockClear();
+          expect(
+            (await invoke(["--dry-run", "--json"])).thrown
+          ).toBeUndefined();
+          expect(execute).not.toHaveBeenCalled();
+        } finally {
+          execute.mockRestore();
+          await driver.disconnect();
+        }
+      }
+    } finally {
+      project.cleanup();
+    }
+    const execute = vi.fn();
+    boundary.loadConfig.mockResolvedValue({
+      client: boundary.client,
+      driver: { dialect: "sqlite", driverName: "libsql", _executeRaw: execute },
+    });
+    boundary.push.mockReset();
+    route();
+    await invoke(["--dry-run"]);
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("prints an inert human-readable preview without requesting consent", async () => {

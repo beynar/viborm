@@ -1,25 +1,7 @@
 /**
- * G4-02 author check (repair round 4) — WHERE the row key's portability
- * contract applies, measured against the shipped engine on `upsert`.
- *
- * Round 3 stated the contract at `EngineSchema.admit` for `update`,
- * `updateMany` AND `upsert`. The shipped engine reaches
- * `assertPortablePrimaryKeyUpdateInput` for an upsert's update payload only
- * through the RELATION-bearing arm (`write-engine/UpsertOperation.ts:496-504`,
- * inside `updateHasRelations ? … : undefined`), so a scalar-only upsert was
- * refused by the candidate and performed by the shipped engine — four public
- * shapes, one of which CREATES a row the arithmetic never touches (the second
- * independent review of phase 2, finding A).
- *
- * Every cell below is differential: it runs the identical request on the
- * client's shipped engine and on the candidate, in a world of its own, and
- * compares the answer AND the rows the provider holds afterwards. The first
- * four are the review's four divergent shapes. The last three are the other
- * half of the same gate — a relation-bearing update payload, where the shipped
- * engine DOES assert, on a row that exists, on a row that does not, and ahead
- * of a conditional that would skip — so neither half of the shipped placement
- * (`updateHasRelations`, and `compileFoundArm`'s deferral) can be dropped
- * without this file going red (note §R3.1).
+ * Upsert key arithmetic and both input arms share the admitted scalar domain.
+ * Division by zero is refused before branch choice and before root/nested DML;
+ * supported arithmetic still exercises found and missing-key behavior.
  */
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
@@ -121,6 +103,8 @@ const SEED = `
 interface Outcome {
   readonly answer: string;
   readonly rows: unknown[];
+  readonly effectBefore: unknown[][];
+  readonly effectAfter: unknown[][];
 }
 
 async function upsert(
@@ -135,6 +119,11 @@ async function upsert(
   // biome-ignore lint/suspicious/noMisplacedAssertion: this helper is only ever called from inside a Vitest cell.
   assert.equal((await syncLiveSchema(client)).applied, true);
   database.exec(SEED);
+  const snapshot = () =>
+    Object.values(upsertSchema).map((model) =>
+      database.prepare(`SELECT * FROM "${model["~"].names.sql}"`).all()
+    );
+  const effectBefore = snapshot();
   const candidate = createTestCommandEngine({ schema: upsertSchema, driver });
   let answer: string;
   try {
@@ -152,9 +141,10 @@ async function upsert(
     answer = `${(error as Error).constructor.name}: ${(error as Error).message}`;
   }
   const rows = database.prepare(`SELECT * FROM ${table}`).all();
+  const effectAfter = snapshot();
   await client.$disconnect();
   database.close();
-  return { answer, rows };
+  return { answer, rows, effectBefore, effectAfter };
 }
 
 async function bothEngines(
@@ -193,18 +183,21 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion", 
     assert.equal(outcome.answer, 'ok:{"id":"12","label":"a"}');
   });
 
-  it("carries an int key divide-by-zero to the provider, identically on both seams", async () => {
+  it("refuses int key divide-by-zero before provider work on both seams", async () => {
     const outcome = await bothEngines("intKey", "g4u2u_int_keys", {
       where: { id: 3 },
       create: { id: 3, label: "a" },
       update: { id: { divide: 0 } },
     });
-    // The statement IS issued: the refusal identity is the provider's, not the
-    // engine's `Cannot divide primary key field 'id' by zero.`
+
     assert.equal(
-      outcome.answer.startsWith("QueryError:"),
-      true,
-      outcome.answer
+      outcome.answer,
+      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
     );
   });
 
@@ -273,15 +266,21 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
 });
 
 describe("G4-02 — the THIRD owner the deleted engine had: the key transition at analysis", () => {
-  it("refuses a divide-by-zero beside a relation write with the analysis sentence", async () => {
+  it("refuses divide-by-zero beside a relation write at input admission", async () => {
     const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
       where: { id: 6 },
       create: { id: 6, label: "o", code: "c6" },
       update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
     });
+
     assert.equal(
       outcome.answer,
-      "UnsupportedOperationError: Cannot divide a primary key by zero."
+      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
     );
   });
 
@@ -291,11 +290,16 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
       create: { id: 99, label: "fresh", code: "c99" },
       update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
     });
+
     assert.equal(
       outcome.answer,
-      "UnsupportedOperationError: Cannot divide a primary key by zero."
+      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
     );
-    assert.deepEqual(outcome.rows, [{ id: 6, label: "o", code: "c6" }]);
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
+    );
   });
 
   it("answers a PARENT-held relation beside the same divide", async () => {
@@ -304,11 +308,15 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
       create: { id: 4 },
       update: { id: { divide: 0 }, owner: { connect: { id: 6 } } },
     });
-    // A parent-held relation builds no referenced-key transition, so the third
-    // owner never runs and the validator's sentence is the answer on both.
+
     assert.equal(
       outcome.answer,
-      "UnsupportedOperationError: Cannot divide primary key field 'id' by zero."
+      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
     );
   });
 
@@ -318,8 +326,16 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
       create: { id: 6, label: "o", code: "c6" },
       update: { id: { divide: 0 } },
     });
-    // No relation at all: neither gate applies and the provider answers.
-    assert.equal(outcome.answer, "QueryError: Query execution failed");
+
+    assert.equal(
+      outcome.answer,
+      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
+    );
   });
 
   it("R-D2 (c) PARITY: answers the transition's OWN sentence for an upsert with relations", async () => {
@@ -382,11 +398,15 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
       create: { id: 6, label: "o", code: "c6" },
       update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
     });
-    // The locator pins no key literal, so the transition is not nameable at
-    // analysis and the found arm's validator answers on both engines.
+
     assert.equal(
       outcome.answer,
-      "UnsupportedOperationError: Cannot divide primary key field 'id' by zero."
+      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
     );
   });
 
@@ -402,54 +422,69 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
       create: { id: 6, label: "o", code: "c6" },
       update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
     });
-    // `code` is the discriminator; `id` is pinned only inside an `AND` arm,
-    // which `partitionWhereUnique` files under `filters` and
-    // `pinnedTargetValues` never reads — so there is no analysis-time
-    // pre-value and the found arm's validator answers on both engines.
+
     assert.equal(
       outcome.answer,
-      "UnsupportedOperationError: Cannot divide primary key field 'id' by zero."
+      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
     );
   });
 
-  it("CREATES the absent row whose key is pinned only in an AND arm", async () => {
+  it("refuses an invalid update arm even when an AND selector finds no row", async () => {
     const outcome = await bothEngines("intOwner", "g4u2u_int_owners", {
       where: { code: "nope", AND: [{ id: 6 }] },
       create: { id: 99, label: "fresh", code: "nope" },
       update: { id: { divide: 0 }, items: { create: [{ id: 1 }] } },
     });
-    assert.equal(outcome.answer, 'ok:{"id":99,"label":"fresh","code":"nope"}');
-    assert.deepEqual(outcome.rows, [
-      { id: 6, label: "o", code: "c6" },
-      { id: 99, label: "fresh", code: "nope" },
-    ]);
+
+    assert.equal(
+      outcome.answer,
+      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
+    );
   });
 
-  it("does not raise the transition sentence for a COMPOUND reference key", async () => {
+  it("refuses zero division in a compound reference key update", async () => {
     const outcome = await bothEngines("pairOwner", "g4u2u_pair_owners", {
       where: { a_b: { a: 2, b: 3 } },
       create: { a: 2, b: 3, label: "p" },
       update: { a: { divide: 0 }, parts: { create: [{ id: 1 }] } },
     });
-    // `referencedFields.length === 1` is the shipped condition
-    // (`RecordUpdateCompiler.ts:3310`): a compound reference key falls through
-    // to the per-member compile-time source, so the validator answers.
+
     assert.equal(
       outcome.answer,
-      "UnsupportedOperationError: Cannot divide primary key field 'a' by zero."
+      "ValidationError: Validation failed for upsert: update.a: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
     );
   });
 
-  it("CREATES the absent row of a COMPOUND reference key", async () => {
+  it("refuses an invalid update arm before creating an absent compound key", async () => {
     const outcome = await bothEngines("pairOwner", "g4u2u_pair_owners", {
       where: { a_b: { a: 7, b: 8 } },
       create: { a: 7, b: 8, label: "fresh" },
       update: { a: { divide: 0 }, parts: { create: [{ id: 1 }] } },
     });
-    assert.equal(outcome.answer, 'ok:{"a":7,"b":8,"label":"fresh"}');
-    assert.deepEqual(outcome.rows, [
-      { a: 2, b: 3, label: "p" },
-      { a: 7, b: 8, label: "fresh" },
-    ]);
+
+    assert.equal(
+      outcome.answer,
+      "ValidationError: Validation failed for upsert: update.a: Value did not match any union member: Expected integer, Division by zero is not allowed"
+    );
+    assert.deepEqual(
+      outcome.effectAfter,
+      outcome.effectBefore,
+      "Invalid upsert update arms publish no root or nested write"
+    );
   });
 });

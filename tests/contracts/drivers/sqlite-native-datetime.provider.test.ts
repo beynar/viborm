@@ -21,7 +21,7 @@
 
 import { createClient } from "@client/client";
 import type { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError } from "@errors";
+import { QueryError, VibORMErrorCode } from "@errors";
 import { s, TYPES } from "@schema";
 import { validateSchema } from "@schema/validation";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -534,9 +534,14 @@ describe("SQLite declared datetime storage", () => {
            VALUES (?, ?, ?, ?)`,
           [id, AT.toISOString(), physical, AT.toISOString()]
         );
-        await expect(
-          client.event.findUnique({ where: { id } })
-        ).rejects.toBeInstanceOf(QueryEngineError);
+        const read = client.event.findUnique({ where: { id } });
+        await expect(read).rejects.toBeInstanceOf(QueryError);
+        await expect(read).rejects.toMatchObject({
+          code: VibORMErrorCode.QUERY_RESULT_INVALID,
+        });
+        const failure = await read.catch((error: unknown) => error);
+        if (!(failure instanceof QueryError)) throw failure;
+        expect(failure.isRetryable()).toBe(false);
       }
     } finally {
       await client.$disconnect();

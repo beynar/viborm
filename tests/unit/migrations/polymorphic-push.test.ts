@@ -115,11 +115,11 @@ describe("polymorphic migration push convergence", () => {
       const toOne = await syncLiveSchema(one);
       const toMany = await syncLiveSchema(many);
 
-      expect(toOne.operations.map((operation) => operation.label)).toEqual([
+      expect(toOne.operations.map((operation) => operation.type)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
-      expect(toMany.operations.map((operation) => operation.label)).toEqual([
+      expect(toMany.operations.map((operation) => operation.type)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
@@ -302,9 +302,7 @@ describe("polymorphic collection push convergence", () => {
         "poly_coll_shelves_items_note",
       ]);
       expect(
-        added.operations.filter(
-          (operation) => operation.label !== "createTable"
-        )
+        added.operations.filter((operation) => operation.type !== "createTable")
       ).toEqual([]);
       expect((await syncLiveSchema(after)).operations).toEqual([]);
     } finally {

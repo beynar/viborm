@@ -5,7 +5,7 @@ import { closeWorld, createWorld, seedAuthor } from "./world";
 const INVALID_BOOLEAN_RESULT =
   /The "findMany" result is incompatible with the boolean scalar domain: the value is not true, false, zero, or one\./;
 const UNSAFE_INTEGER_RESULT =
-  /malformed int scalar .*: the integer is outside the safe range\./;
+  /The "findMany" result is incompatible with the int scalar domain: the integer is outside the safe range\./;
 
 describe("G4-01 scalar codec crossings (SC-01..SC-14, SL-01..SL-10, Q-R01)", () => {
   it("decodes every admitted scalar domain from its physical spelling", async () => {

@@ -20,7 +20,9 @@ function nullResult(changes = 0, lastRowId = 0): NullD1Result {
 }
 
 function createSingleResultDriver(
-  result: NullD1Result,
+  result: Omit<NullD1Result, "results"> & {
+    results: Record<string, unknown>[] | null;
+  },
   onBind?: (values: unknown[]) => void
 ): D1Driver {
   const statement = {
@@ -114,14 +116,30 @@ describe("D1 binding null-result statement contracts", () => {
 
   test.each([
     1.5,
-    Number.MAX_SAFE_INTEGER + 1,
     Number.NaN,
-  ])("rejects a non-safe D1 last_row_id (%s)", async (lastRowId) => {
+    Number.POSITIVE_INFINITY,
+  ])("rejects invalid D1 last_row_id metadata (%s)", async (lastRowId) => {
     await expect(
       createSingleResultDriver(nullResult(1, lastRowId))._executeRaw(
         "INSERT INTO events DEFAULT VALUES"
       )
-    ).rejects.toThrow("a safe-integer last_row_id");
+    ).rejects.toThrow("an integer last_row_id");
+  });
+
+  test.each([
+    "INSERT INTO events DEFAULT VALUES",
+    "SELECT id FROM events",
+  ])("preserves exact rows and discards unsafe sticky row-id metadata for %s", async (statement) => {
+    const result = {
+      ...nullResult(1, Number.MAX_SAFE_INTEGER + 1),
+      results: [{ id: "9007199254740993" }],
+    };
+    await expect(
+      createSingleResultDriver(result)._executeRaw(statement)
+    ).resolves.toEqual({
+      rows: [{ id: "9007199254740993" }],
+      rowCount: 1,
+    });
   });
 
   test.each([

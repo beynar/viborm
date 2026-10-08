@@ -429,3 +429,140 @@ fixture passes **40/40**, **6.47s / 675.0 MiB**, teardown verified
 (`/tmp/viborm-v1-query-d1-final.log`), including the query owner's disjoint
 skipDuplicates/cache corrections. Documentation validate/build remain queued
 behind package qualification.
+
+## Public ten-extension declaration follow-through
+
+The exact public ten-`$extends` chain now retains incoming method, control,
+row and data facts instead of each factory's contextual client. The existing
+nominal result-consumer bit is derived inside a named contribution state;
+the lazy accumulated state carries the same seven facts. The public
+`MergeExtensionState<X, Definition>` contract remains definition-taking, and
+the cache/default-omit admission branches are unchanged. The two inferred
+state interfaces and existing `NoControls` type have intentional type-only
+root exports; no runtime token or caller annotation was added.
+
+Whole-estate native checking passes **13.99s / 6,636 MiB** (native22), and the
+final package build passes **2.88s / 1,018 MiB** (build17). The immutable
+artifact's exact ten-extension fixture passes runtime construction, source
+typing, unannotated declaration emission and emitted downstream positive and
+unknown-method negative probes under strict TS5.8 **12.54s / 898 MiB** and
+the native compiler **5.46s / 726 MiB**. Public export golden **27/27** passes
+**2.72s / 424 MiB**. The type source is frozen at this qualified artifact.
+Logs: `/tmp/viborm-v1-packed-TS5.8-extends10-17.log`,
+`/tmp/viborm-v1-packed-native-extends10-17.log`, and
+`/tmp/viborm-v1-package-golden-17.log`.
+This proof does not claim that the separately owned recursive model
+backreference declaration issue is resolved. Docs validate/build/dry-run
+remain queued behind the release's package and coverage gates.
+
+## Final coverage integration follow-through
+
+The wider migration coverage selection exposed a real rename-order defect:
+altering a column's type erased the similarity advantage over unrelated
+id-only drops and creates. Candidate ordering now prioritizes shared physical
+column names, with equal definitions as a tie-breaker. It still requires every
+author decision. The disposable SQLite witness explicitly accepts only
+`old_kept → new_kept`, preserves `{ id: "k", size: 7 }` through the rename and
+rebuild, and leaves the unrelated fresh table empty.
+
+Nine stale operation-label oracles now read the existing stable operation
+`type`. The equivalent standalone-unique fixture now proves the physical
+index is preserved, enforces duplicates and converges without reconstruction.
+The noncanonical timestamp fixture proves typed access refuses first, then
+uses the public manual repair expression and verifies the preserved instant
+and canonical stored spelling. These focused migration and extension checks
+pass **117/117 across eight files**, **5.67s / 714.0 MiB**, teardown verified
+(`/tmp/viborm-v1-migrations-extensions-focused-final.log`).
+
+The existing adversarial extension fixture is now included in its coverage
+selection, with added malformed named-policy containers, nesting/mode checks,
+a tampered native Sql renderer and committed post-proceed non-Error failure.
+Query rejection handling removes a redundant wrapper-identity check and a
+second Error classification, and narrows the existing failure selector so a
+rejected handler cannot take an unreachable successful-value fallback. No
+diagnostic redaction or public lifecycle contract changes. Full extension
+coverage passes **436/436 in 21 files**, **15.81s / 987.4 MiB**, verified
+teardown: **100% statements, branches, functions and lines**, against unchanged
+100% floors (`/tmp/viborm-v1-coverage-extensions-final-4.log`).
+
+CLI coverage is now **81/81 across five files**, **5.93s / 734.1 MiB**,
+verified teardown, **100% statements, branches, functions and lines** at the
+unchanged 100% floors (`/tmp/viborm-v1-coverage-cli-final-6.log`). Tests render
+a real authenticated generated estate's SQL into a real review file, refuse
+an absent selected state, execute SQLite's actual in-memory/persistent PRAGMA,
+and cover typed exit/cleanup and custom-author parent routing. A real named
+configuration fixture exposed Jiti's synthetic default hiding its migrations
+options. The loader now requests authored exports with its supported
+`interopDefault: false` option; real SQLite queries through the loaded named
+and module-level configurations prove CommonJS dependency execution remains
+intact, and a real named TypeScript author is selected correctly.
+
+The complete wider migration runtime and coverage gate passes **2,075/2,075
+in 129 files**, **22.95s / 1,004.3 MiB**, verified teardown
+(`/tmp/viborm-v1-coverage-migrations-final-12.log`), against
+unchanged floors: **98.48% statements/lines** against 98%, **99.57% functions**
+against 98%, and **97.31% branches** against 97.3%. The final selected namespace,
+physical-name and native-default batch passes **86/86**, **3.69s / 530.0 MiB**,
+verified teardown (`/tmp/viborm-v1-migrations-focused-final-11.log`). Its final
+spatial-index contract also passes **59/59**, **3.49s / 490.9 MiB**, verified
+teardown (`/tmp/viborm-v1-migrations-focused-final-12.log`). The witnesses prove
+contained references converge, selected inbound/outbound references refuse,
+excluded objects remain intact, equivalent physical names avoid churn and
+unrepresentable physical semantics refuse before effects.
+
+Documentation link validation passes with no broken links, **3.72s / 353.0
+MiB**, verified teardown (`/tmp/viborm-v1-docs-validate-final-2.log`). The upgraded
+Blume Card component accepts children rather than a `description` prop: **73
+authored descriptions** now occupy its rendered slot, with every description
+and ordered link preserved. A multiline generic in inline code is now one
+line so it is not scanned as an unknown component. An earlier 120-page build
+completed **22.27s / 1,519.0 MiB**, but it had insufficient margin: later actual
+saved-command runs hit the unchanged 1536 MiB ceiling. Final documentation is
+**not qualified**. The supported Rolldown worker controls serialize its
+separate Tokio pools; limiting Rayon alone did not do that. The
+[installed-version native owner](https://github.com/rolldown/rolldown/blob/v1.2.13/crates/rolldown_binding/src/lib.rs#L111)
+defines those settings. A temporary diagnostic proves the actual child receives
+the intended 396 MiB total V8 heap limit and the final resolved prerender
+concurrency is one. The latest exact allocator trial still hits **1,543.5 MiB**
+in **18.20s**, with verified teardown; its observed group contains the primary
+Node process and a roughly 25 MiB esbuild child
+(`/tmp/viborm-v1-docs-build-final-13.log`, `/tmp/viborm-v1-docs-memory-13.log`).
+The subsequent normal saved command also fails, **12.95s / 1,560.8 MiB**
+(`/tmp/viborm-v1-docs-build-final-15.log`). A diagnostic-only run completes,
+but its timer can change collection scheduling and is not a build fix. The
+remaining investigation therefore targets the native output lifetime between
+Astro's sequential environment builds; no ceiling has been raised and no
+diagnostic preload ships in the command.
+The installed Rolldown native owner retains its last bundle handle after
+`close()`. A scoped native fixture proves that one exposed GC followed by one
+event-loop turn releases those other native references while preserving warm
+and independently cold output identities, lazy metadata/modules, sourcemaps,
+binary bytes and emitted files. The actual Astro wrapper runs for all three
+environments, but the final Mac build still exceeds the bound: **13.31s /
+1,564.4 MiB** with that mitigation, and **12.45s / 1,564.1 MiB** with the
+exact-supported immediate allocator purge added as a temporary trial
+(`/tmp/viborm-v1-docs-output-gc-turn-proof.log`,
+`/tmp/viborm-v1-docs-build-hook-baseline-17.log`,
+`/tmp/viborm-v1-docs-build-purge-gc-18.log`). The unqualified GC decorator and
+flag, temporary numeric diagnostics and allocator setting have all been
+removed. The saved command retains the measured worker/page concurrency and
+heap controls. Docker Desktop's engine remains unavailable after ordinary
+startup; no container or database fixture was started and no restart was
+attempted. Linux CI qualification of the exact source under the same ceiling
+remains pending; final documentation is still unqualified.
+
+On the earlier completed build, Wrangler's actual deployment dry run passes **0.97s / 430.3 MiB**, verified
+teardown: 19 modules and 1,055 assets, 771.15 KiB compressed
+(`/tmp/viborm-v1-docs-deploy-dry-run-final.log`). A local Worker also serves the
+compiled site successfully; browser inspection confirms all eight filtering
+Cards show their descriptions and links. The temporary Worker exits normally,
+**53.35s / 660.4 MiB**, teardown verified. No deployment was executed.
+
+That inspection exposed one misplaced authored admonition closer in the
+filtering page. Its two-line relocation now closes the info block before the
+warning and removes the literal trailing `:::`. All 65 authored containers are
+balanced, with no nested same-delimiter blocks or headings inside a block. The
+affected final-source build, validation and render rerun is pending. The D1
+options table also now names the shipped `D1Database | D1DatabaseSession` union
+and demonstrates `withSession("first-primary")` inside the current request,
+matching the installed Workers types and the real public driver consumer.

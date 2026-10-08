@@ -17,7 +17,7 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
-import { ForeignKeyError } from "@errors";
+import { ClientInitializationError, ForeignKeyError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { Decimal } from "@src/index";
@@ -647,6 +647,25 @@ class NativeHandleDriver extends BunSQLiteDriver {
 }
 const handleOwner = new NativeHandleDriver();
 const suppliedHandle = await handleOwner.borrow();
+suppliedHandle.exec("PRAGMA foreign_keys = OFF");
+let uncheckedFailure: unknown;
+try {
+  new BunSQLiteDriver({ client: suppliedHandle });
+} catch (error) {
+  uncheckedFailure = error;
+}
+assert(
+  uncheckedFailure instanceof ClientInitializationError &&
+    uncheckedFailure.code === "V1004",
+  "a supplied handle with disabled foreign keys was not refused during initialization"
+);
+assert(
+  suppliedHandle.query<{ foreign_keys: number }>("PRAGMA foreign_keys").get()
+    ?.foreign_keys === 0,
+  "refusing a supplied handle changed its owner's foreign-key setting or closed it"
+);
+suppliedHandle.exec("PRAGMA foreign_keys = ON");
+console.log("supplied foreign-key refusal evidence passed");
 suppliedHandle.exec("CREATE TABLE borrowed_control (value INTEGER NOT NULL)");
 suppliedHandle.exec("BEGIN");
 suppliedHandle.exec("INSERT INTO borrowed_control VALUES (7)");

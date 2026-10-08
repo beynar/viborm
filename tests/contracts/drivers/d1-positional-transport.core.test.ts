@@ -1,5 +1,6 @@
 import { createClient } from "@client/client";
 import { D1Driver } from "@drivers/d1";
+import { QueryError } from "@errors";
 import { s } from "@schema";
 import { defineExtension } from "@src/index";
 import { describe, expect, test, vi } from "vitest";
@@ -21,12 +22,14 @@ const renumberFirst: ParseResult = (rawResult, operation, next) => {
 };
 
 /** A binding answering every statement with the same two rows. */
-function fakeDatabase() {
-  const raw = vi.fn(async () => [
+function fakeDatabase(
+  payload: unknown = [
     ["id", "title"],
     [1, "first"],
     [2, "second"],
-  ]);
+  ]
+) {
+  const raw = vi.fn(async () => payload);
   const run = vi.fn(async () => ({
     success: true,
     results: [
@@ -41,6 +44,40 @@ function fakeDatabase() {
 }
 
 describe("D1 positional transport", () => {
+  test.each([
+    ["missing envelope", null],
+    ["object envelope", { id: 1 }],
+    ["non-string header", [[1], [1]]],
+    ["ragged row", [["id", "title"], [1]]],
+  ])("refuses %s and remains usable for the next valid read", async (_label, payload) => {
+    const { database, raw, run } = fakeDatabase(payload);
+    const client = createClient({
+      schema: { entry },
+      driver: new D1Driver({ database }),
+    });
+    await expect(client.entry.findMany()).rejects.toBeInstanceOf(QueryError);
+    raw.mockResolvedValueOnce([
+      ["id", "title"],
+      [1, "recovered"],
+    ]);
+    await expect(client.entry.findMany()).resolves.toEqual([
+      { id: 1, title: "recovered" },
+    ]);
+    expect(raw).toHaveBeenCalledTimes(2);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  test("accepts a headerless empty positional result without inventing a row", async () => {
+    const { database, raw, run } = fakeDatabase([]);
+    const client = createClient({
+      schema: { entry },
+      driver: new D1Driver({ database }),
+    });
+    await expect(client.entry.findMany()).resolves.toEqual([]);
+    expect(raw).toHaveBeenCalledOnce();
+    expect(run).not.toHaveBeenCalled();
+  });
+
   test("a stock driver reads a collection as positional rows", async () => {
     const { database, raw, run } = fakeDatabase();
     const client = createClient({
@@ -73,7 +110,6 @@ describe("D1 positional transport", () => {
   test("a driver whose provider execute was wrapped keeps the wrapper's rows", async () => {
     const { database, raw } = fakeDatabase();
     const driver = new D1Driver({ database });
-    // biome-ignore lint/suspicious/noExplicitAny: wrapping the protected provider hook is the point.
     const wrapped = driver as any;
     const execute = wrapped.execute.bind(driver);
     wrapped.execute = async (...args: unknown[]) => {
@@ -176,7 +212,6 @@ describe("D1 positional transport", () => {
   test("an execute wrapper installed while the statement is processed still runs", async () => {
     const { database, raw } = fakeDatabase();
     const driver = new D1Driver({ database });
-    // biome-ignore lint/suspicious/noExplicitAny: wrapping the protected provider hook is the point.
     const wrapped = driver as any;
     const execute = wrapped.execute.bind(driver);
     const client = createClient({ schema: { entry }, driver }).$extends(

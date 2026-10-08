@@ -9,6 +9,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -345,7 +346,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: BunSQLClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, BunSQLDriverOptions, S>
-): VibORMClient<C & { driver: BunSQLDriver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: BunSQLDriver }
+  >]: LinkedClientConfig<C & { driver: BunSQLDriver }>[P];
+}> {
   const { client, databaseUrl, options, pgvector, postgis } = config;
   const namespace = resolveNamespaceOption(config);
 
@@ -358,7 +363,5 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     namespace,
   });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: BunSQLDriver }
-  >;
+  return createClientFromDriverConfig<S, C, BunSQLDriver>(config, driver);
 }

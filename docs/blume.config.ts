@@ -75,6 +75,20 @@ export default defineConfig({
     output: "server",
     site: "https://viborm.dev",
   }),
+  integrations: [
+    {
+      name: "viborm:prerender",
+      hooks: {
+        "astro:config:setup": ({ updateConfig }) => {
+          // Parallel page/OG rendering overlaps native allocations after bundling.
+          updateConfig({ build: { concurrency: 1 } });
+        },
+        "astro:config:done": ({ config, logger }) => {
+          logger.info(`Prerender concurrency: ${config.build.concurrency}`);
+        },
+      },
+    },
+  ],
   agents: {
     agentReadability: true,
     llmsTxt: true,

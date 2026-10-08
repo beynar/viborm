@@ -461,6 +461,18 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
   });
 
   // Combined operations
+  test("undefined clearing verbs are omitted before phase admission", () => {
+    const result = parse(schema, {
+      posts: {
+        create: { id: "new-post", title: "New" },
+        set: undefined,
+      },
+    });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues)
+      expect(Object.hasOwn(result.value.posts!, "set")).toBe(false);
+  });
+
   test("accepts combined operations in single update", () => {
     const result = parse(schema, {
       posts: {

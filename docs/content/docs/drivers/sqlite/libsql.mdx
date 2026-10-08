@@ -94,6 +94,14 @@ LibSQL supports transactions with savepoints for nested transactions — see
 [Transactions](/docs/client/transactions). Callback transactions use the provider's dedicated write transaction;
 standalone typed and raw statements keep native provider execution.
 
+V1 qualification covers local libSQL 0.18 rollback and supplied-client ownership,
+and actual HTTP/Hrana rollback with `@libsql/client` 0.18 against isolated official
+libSQL server `sqld` 0.23.0. Callback and array failures roll back their prefixes;
+committed callbacks remain visible, and disconnect leaves a supplied HTTP client
+usable. Controlled lifecycle tests additionally cover commit and cleanup failures.
+Hosted Turso rollback and newer server versions remain unqualified in this release
+campaign; the localhost network proof does not establish those guarantees.
+
 Raw SQL keeps physical SQLite behavior, including `PRAGMA` and `VACUUM`. A
 local `SQLITE_BUSY` quarantines that exact native client because libSQL can
 retain an uncommitted write after the failure. Further VibORM work refuses with
@@ -124,7 +132,7 @@ migration support. See [LibSQL migration limits](/docs/migration/drivers/sqlite#
 
 ## GeoPoint storage tier
 
-LibSQL uses the checked SQLite GeoPoint JSON carrier. Typed CRUD, equality,
+Local LibSQL uses the checked SQLite GeoPoint JSON carrier. Typed CRUD, equality,
 inclusive bounds, nullability, transactions, relations, and cache are
 qualified. Polygon, distance, `_distance`, and spatial indexes are refused
 before provider execution. See [GeoPoint](/docs/schema/scalars/point).

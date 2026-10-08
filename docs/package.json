@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "blume dev --port 3001",
-    "build": "blume build",
+    "build": "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--max-semi-space-size=4\" RAYON_NUM_THREADS=1 ROLLDOWN_WORKER_THREADS=1 ROLLDOWN_MAX_BLOCKING_THREADS=1 node ../scripts/run-node-safe.mjs 384 300000 node_modules/blume/bin/blume.mjs build",
     "deploy:cloudflare": "pnpm build && wrangler deploy --config wrangler.deploy.jsonc && wrangler triggers deploy --config wrangler.deploy.jsonc",
     "preview": "blume preview",
     "check": "blume check",

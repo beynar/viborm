@@ -135,6 +135,57 @@ function namedExports(source: ts.SourceFile) {
   );
 }
 
+// rolldown-plugin-dts restores type markers by final export name across modules.
+// A renamed function can collide with an unrelated type export (defineExtension
+// becomes V, also the validation namespace type). Its own declaration proves
+// that the shared binding is a value; public entries retain explicit type intent.
+function restoreSharedFunctionValues(source: ts.SourceFile, code: string) {
+  const functions = new Set(
+    source.statements.flatMap((statement) =>
+      ts.isFunctionDeclaration(statement) && statement.name
+        ? [statement.name.text]
+        : []
+    )
+  );
+  const printer = ts.createPrinter();
+  let repaired = code;
+  for (const statement of [...source.statements].reverse()) {
+    if (
+      !(
+        ts.isExportDeclaration(statement) &&
+        !statement.moduleSpecifier &&
+        statement.exportClause &&
+        ts.isNamedExports(statement.exportClause) &&
+        statement.exportClause.elements.some(
+          (member) =>
+            (statement.isTypeOnly || member.isTypeOnly) &&
+            functions.has((member.propertyName ?? member.name).text)
+        )
+      )
+    )
+      continue;
+    const members = statement.exportClause.elements.map((member) =>
+      ts.factory.updateExportSpecifier(
+        member,
+        (statement.isTypeOnly || member.isTypeOnly) &&
+          !functions.has((member.propertyName ?? member.name).text),
+        member.propertyName,
+        member.name
+      )
+    );
+    const replacement = ts.factory.updateExportDeclaration(
+      statement,
+      statement.modifiers,
+      false,
+      ts.factory.updateNamedExports(statement.exportClause, members),
+      statement.moduleSpecifier,
+      statement.attributes
+    );
+    repaired = `${repaired.slice(0, statement.getStart(source))}${printer.printNode(ts.EmitHint.Unspecified, replacement, source)}${repaired.slice(statement.end)}`;
+  }
+  return repaired;
+}
+
 // Shared declaration chunking loses explicit type-only class reexports.
 // Recover only each public entry's own source declarations, including aliases.
 const declarationExportKinds: Rolldown.Plugin = {
@@ -146,7 +197,16 @@ const declarationExportKinds: Rolldown.Plugin = {
       const entry = Object.entries(runtime.entry).find(
         ([name]) => chunk.fileName === `${name}.d.mts`
       );
-      if (!entry) continue;
+      const declaration = ts.createSourceFile(
+        chunk.fileName,
+        chunk.code,
+        ts.ScriptTarget.Latest,
+        true
+      );
+      if (!entry) {
+        chunk.code = restoreSharedFunctionValues(declaration, chunk.code);
+        continue;
+      }
       const source = ts.createSourceFile(
         entry[1],
         readFileSync(entry[1], "utf8"),
@@ -157,12 +217,6 @@ const declarationExportKinds: Rolldown.Plugin = {
         namedExports(source)
           .filter((member) => member.typeOnly)
           .map((member) => member.name)
-      );
-      const declaration = ts.createSourceFile(
-        chunk.fileName,
-        chunk.code,
-        ts.ScriptTarget.Latest,
-        true
       );
       const positions = namedExports(declaration)
         .filter((member) => !member.typeOnly && names.has(member.name))

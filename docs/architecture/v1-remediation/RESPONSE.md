@@ -5,7 +5,13 @@ This report accompanies the V1 remediation branch based on `origin/main`
 pre-existing changes were preserved. Three GPT-6.1 Sol agents own the driver,
 query and migration work; the root agent integrates, reviews and releases it.
 
-**Release checkpoint: not published.** Version 1.0.0 is prepared, but npm latest
+**Release checkpoint: held, not published.** Arnaud requires fully unannotated
+exported clients and client factories to preserve cyclic relation typing through
+declaration emission. The schema-key carrier passes the focused emitted-client
+checks on TypeScript5.8 and7; broader package and scaling qualification is in
+progress. Caller getter annotations are unnecessary. Rebuilding a client from
+already-emitted cyclic models is an explicitly accepted remaining limitation.
+Version 1.0.0 is prepared, but npm latest
 still points to 0.1.0. Package, integration and protected CI qualification must
 finish before the Release workflow can publish. This document will be updated
 with the actual release evidence. Passing tests below describe their recorded
@@ -16,6 +22,7 @@ gaps. It does not include SQL Server, Studio, cross-schema relationships, replic
 new auth adapters, arbitrary geometry, or a general SQL query-builder product.
 The [555-item ledger](findings.json) accounts for every indexed finding and PB-1–8
 with its original title, severity, review classification, disposition and evidence.
+A [readable finding-by-finding response](FINDINGS.md) is generated from that ledger.
 A product gap is not a fixed defect; implemented-unverified means work remains.
 
 **What changed.**
@@ -63,17 +70,23 @@ A product gap is not a fixed defect; implemented-unverified means work remains.
 
 | Check | Observed result | Remaining qualification |
 |---|---|---|
-| Whole-estate native typecheck | Earlier full pass; native17 stayed below 8192 MiB but exposed a failed extension-type experiment | Replacement must pass before release |
+| Whole-estate native typecheck | The carrier and ordinary nested-WHERE guard pass the ordinary command: zero diagnostics,40.63s,6102.9MiB, unchanged8192MiB/300s limits. Serial scheduling replaces the over-budget parallel runs | Final CI revision |
 | Core7, four sequential shards | All9624 tests passed; unchanged resource budgets | Final CI revision |
 | Focused driver/instrumentation integration |132/132 passed, including actual OTel, Neon SDK mocks and poisoned-row taxonomy | Final CI revision |
 | Root SQLite storage and scalar behavior |20/20 passed; physical storage races and transformed JSON null included | Full provider CI |
 | Root client/schema followthrough |48/48 passed; diagnostics and executable docs144/144 passed | Final CI revision |
-| Migration core and live precision |1973/1973 core;66 Time6;3/3 real PGlite;67 transformed-default and78 SQL-contract checks | Full provider CI |
-| Native PostgreSQL and geospatial behavior |8/8 real PGlite passed, including480 distance points | Full provider CI |
-| Neon concurrency and row-lock schedule |5/5 passed | Final affected-driver rerun |
-| Exported declarations and cyclic models | Golden export surface passes; TS5.8 can emit chain30 | Emitted backreference soundness and ten-extension inference remain open |
-| Schema coverage | 2,319 test executions; all four coverage metrics 100% | Remaining subsystem coverage gates |
-| Remote provider CI3 | PostgreSQL/MySQL and Bun/D1 jobs passed | New provider witnesses and final revision |
+| Migration coverage and live precision |2075/2075 tests pass all coverage floors; real PGlite precision and MySQL catalog contracts pass | Final CI revision |
+| Native PostgreSQL and geospatial behavior |9/9 real PGlite passed, including480 distance points and historical second-offset timezones | Full provider CI |
+| Neon TCP/HTTP and concurrency |12/12 live checks passed, including recovery after failed BEGIN | Final CI revision |
+| libSQL HTTP rollback |3/3 passed over real HTTP against official sqld0.23.0 | Hosted Turso and newer servers remain unqualified |
+| Installed Node22.12/24.14 consumers | All16 targeted checks pass, including actual value use across27 public subpaths, CommonJS/SQLite, extension recipes, absent peers and CLI configuration | Full package gate after cyclic correction |
+| Exported declarations and cyclic models | Artifact21 passes both permanent TS5.8/native7 backreference and lossy-model controls. Earlier direct JS5.9/native7 and tsdown JS experiments also preserve the client's types; raw-model reconstruction remains lossy | Final broader compiler/backend matrix, scaling and full package gate; [backend-only comparison](declaration-backends.md) |
+| Full package qualification |20 cases pass before the existing TS5.9 chain100 probe exhausts the unchanged768MiB heap | Repair and rerun; the package gate is not green |
+| Coverage gates | Every subsystem passes its unchanged floors; schema, validation, errors, extensions, CLI, instrumentation and adapters have all four metrics100% | Final CI revision |
+| Driver coverage |2017 passed,680 explicit conditional skips across62 current chunks;96.65% statements/lines,92.76% branches,96.16% functions | Final CI revision |
+| Query coverage |3176 tests across242 files pass;94.23% statements/lines,94.33% branches,95.37% functions; peak1356.9MiB | Final CI revision |
+| Remote CI4 | Core, PostgreSQL/MySQL and types/format/docs passed | Local, Bun/D1, package and coverage followthrough |
+| Actual D1 |41/41 passed after exact bigint metadata repair | Final CI revision |
 | Production dependency audit |0 critical,0 high;2 moderate,1 low | Lower advisories remain disclosed |
 | Patched dependency behavior | Real Prisma loader/merge, HTTP cache and Drizzle witnesses passed | CI repeats the same gate |
 
@@ -85,10 +98,11 @@ The audit is unfiltered. Remaining lower advisories concern sprintf-js,
 postcss-selector-parser and KaTeX; they are not hidden by ignore rules.
 
 **Size and complexity.** The latest provisional whole-perimeter count is
-146,497 production-source lines versus 141,375 at the reviewed upstream revision:
-+5,122, or 3.62%. Tests grew 2.21%, scripts 0.12%, live documentation 0.10%, and
+146,602 production-source lines versus 141,375 at the reviewed upstream revision:
++5,227, or 3.70%. Tests grew 2.83%, scripts 0.45%, live documentation 0.24%, and
 benchmarks were unchanged. Counts include new files and moves. They will be
-recomputed after the final batch. This is controlled growth, not LOC parity.
+recomputed after the final batch. Root build configuration and workflows are
+separate from production source. This is controlled growth, not LOC parity.
 New behavior remains with existing semantic owners, but the architecture has
 not become small.
 

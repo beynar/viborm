@@ -1,7 +1,14 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
-import { describe, it } from "vitest";
+import { afterAll, beforeAll, describe, it } from "vitest";
+import { packedArchive } from "./packed-consumer.mjs";
+
+const execute = promisify(execFile);
 
 const scripts = [
   [
@@ -84,6 +91,12 @@ const scripts = [
         "extends10",
         "chain2",
         "chain5",
+        "backreference",
+        "factories",
+        "self-junction",
+        "variants",
+        "modifiers",
+        "lossy-models",
         "chain30",
         "chain100",
         "chain200",
@@ -104,17 +117,31 @@ const scripts = [
 ] as const;
 
 describe("built package", () => {
+  let archive: string;
+  let archiveRoot: string | undefined;
+  beforeAll(() => {
+    // Every isolated consumer reads the same artifact; packing per compiler
+    // repeats identical work and consumes the aggregate qualification budget.
+    archiveRoot = mkdtempSync(join(tmpdir(), "viborm-package-suite-"));
+    archive = packedArchive(archiveRoot);
+  });
+  afterAll(() => {
+    if (archiveRoot) rmSync(archiveRoot, { recursive: true, force: true });
+  });
   for (const [name, relativeScript, scriptEnv] of scripts) {
-    it(name, () => {
+    it(name, async () => {
       const script = fileURLToPath(new URL(relativeScript, import.meta.url));
-      execFileSync(process.execPath, [script], {
+      // Keep descendants in the launcher's monitored group. Package bail:1
+      // ends qualification on any timeout; the existing bounded launcher then
+      // tears down that complete group before another run can start.
+      await execute(process.execPath, [script], {
         cwd: REPOSITORY_ROOT,
         env: {
           ...process.env,
           NODE_OPTIONS: "--max-old-space-size=768",
+          VIBORM_PACKAGE_TARBALL: archive,
           ...scriptEnv,
         },
-        stdio: "pipe",
         timeout: 30_000,
         killSignal: "SIGKILL",
       });

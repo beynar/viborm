@@ -6,6 +6,7 @@ import { getMigrationDriver } from "@migrations/drivers";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
+import { parseMySqlEnumValues } from "@migrations/drivers/type-mapping";
 import { generateV1 } from "@migrations/generate-v1";
 import { inlineEnumValues } from "@migrations/push/enum-removals";
 import {
@@ -31,7 +32,7 @@ import {
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { DbNull, JsonNull } from "@schema/json-null";
-import { PG } from "@schema/scalars/native-types";
+import { MYSQL, PG } from "@schema/scalars/native-types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, test } from "vitest";
@@ -51,6 +52,459 @@ const table = (name: string): TableDef => ({
 const snapshot = (item: TableDef): SchemaSnapshot => ({ tables: [item] });
 
 describe("adversarial migration regressions", () => {
+  test("PostgreSQL spatial index rendering uses the native GiST method", () => {
+    expect(
+      postgresMigrationDriver.generateCreateIndex(
+        {
+          type: "createIndex",
+          tableName: "places",
+          index: {
+            name: "places_location_idx",
+            columns: ["location"],
+            unique: false,
+            type: "spatial",
+          },
+        },
+        ddlContext("artifact")
+      )
+    ).toBe(
+      'CREATE INDEX "places_location_idx" ON "places" USING gist ("location")'
+    );
+  });
+  test("PostgreSQL generated clocks retain UTC and millisecond physical domains", () => {
+    const cases = [
+      [s.date().now(), "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"],
+      [s.dateTime(PG.DATETIME.TIMESTAMPTZ(3)).now(), "CURRENT_TIMESTAMP"],
+      [
+        s.dateTime(PG.DATETIME.TIMESTAMP(3)).withoutTimezone().now(),
+        "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')",
+      ],
+      [
+        s.dateTime(PG.DATETIME.TIMESTAMPTZ(6)).now(),
+        "date_trunc('milliseconds', CURRENT_TIMESTAMP)",
+      ],
+      [
+        s.dateTime(PG.DATETIME.TIMESTAMP(6)).withoutTimezone().now(),
+        "date_trunc('milliseconds', (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))",
+      ],
+      [s.time(PG.DATETIME.TIMETZ(3)).now(), "timezone('UTC', CURRENT_TIME)"],
+      [
+        s.time(PG.DATETIME.TIME(3)).now(),
+        "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')",
+      ],
+    ] as const;
+    for (const [field, sql] of cases)
+      expect(
+        postgresMigrationDriver.getDefaultExpression(field, field["~"].state)
+      ).toBe(sql);
+    const birth = s.dateTime().default("0000-01-01T00:00:00.000Z");
+    expect(
+      postgresMigrationDriver.getDefaultExpression(birth, birth["~"].state)
+    ).toContain("0001-01-01T00:00:00.000Z BC");
+  });
+
+  test("inline enum edits retain their values and accompanying nullability edits", async () => {
+    const previous = {
+      ...table("users"),
+      columns: [{ name: "role", type: "ENUM('old','keep')", nullable: false }],
+    };
+    for (const nullable of [false, true]) {
+      const next = {
+        ...previous,
+        columns: [{ name: "role", type: "ENUM('keep','new')", nullable }],
+      };
+      const result = await diff(snapshot(previous), snapshot(next));
+      expect(result.ambiguousChanges).toEqual([]);
+      expect(result.operations).toContainEqual(
+        expect.objectContaining({
+          type: "alterEnum",
+          newValues: ["keep", "new"],
+          addValues: ["new"],
+          removeValues: ["old"],
+          dependentColumns: [{ tableName: "users", columnName: "role" }],
+        })
+      );
+      expect(
+        result.operations.some((operation) => operation.type === "alterColumn")
+      ).toBe(nullable);
+    }
+  });
+
+  test("authored polymorphic history refuses changed meaning and permits member removal", async () => {
+    const member = {
+      publicType: "post",
+      storedType: "post",
+      targetTable: "posts",
+    };
+    const history = {
+      ownerTable: "comments",
+      relation: "subject",
+      kind: "toOne",
+      storageRef: "subject_type",
+      members: [member],
+    } as const;
+    const before: SchemaSnapshot = {
+      tables: [],
+      polymorphicStorage: [history],
+    };
+    await expect(diff(before, before)).resolves.toMatchObject({
+      operations: [],
+    });
+    for (const change of [
+      { storedType: "article" },
+      { targetTable: "articles" },
+    ])
+      await expect(
+        diff(before, {
+          tables: [],
+          polymorphicStorage: [
+            { ...history, members: [{ ...member, ...change }] },
+          ],
+        })
+      ).rejects.toThrow("explicit manual data transition");
+    await expect(
+      diff(before, {
+        tables: [],
+        polymorphicStorage: [{ ...history, members: [] }],
+      })
+    ).resolves.toMatchObject({ operations: [] });
+    await expect(diff(before, { tables: [] })).resolves.toMatchObject({
+      operations: [],
+    });
+  });
+
+  test("enum-array removal preserves ordinal positions and nullable replacements", () => {
+    const schema = snapshot({
+      ...table("users"),
+      columns: [
+        {
+          name: "roles",
+          type: "Role[]",
+          nullable: true,
+          default: "ARRAY['keep']::Role[]",
+        },
+      ],
+    });
+    const sql = postgresMigrationDriver.compileAlterEnum(
+      {
+        type: "alterEnum",
+        enumName: "Role",
+        removeValues: ["old", "obsolete", "unmapped"],
+        newValues: ["keep", "new"],
+        valueReplacements: { old: "new", obsolete: null },
+        dependentColumns: [{ tableName: "users", columnName: "roles" }],
+      },
+      ddlContext("artifact", { currentSchema: schema })
+    );
+    expect(sql.join("\n")).toContain("WITH ORDINALITY");
+    expect(sql.join("\n")).toContain("ORDER BY position");
+    expect(sql.join("\n")).toContain("WHEN 'old' THEN 'new'");
+    expect(sql.join("\n")).toContain("WHEN 'obsolete' THEN NULL");
+    expect(sql.join("\n")).not.toContain("WHEN 'unmapped'");
+    expect(sql[0]).toContain("DROP DEFAULT");
+    expect(sql.at(-1)).toContain("SET DEFAULT");
+  });
+
+  test("managed table membership rejects malformed names and shared enum escapes", () => {
+    for (const value of [42, [""], ["bad\0name"], ["users", "users"]])
+      expect(() => normalizeManagedTables(value)).toThrow();
+    const managed = {
+      ...table("users"),
+      columns: [{ name: "role", type: "Role[]", nullable: false }],
+    };
+    const foreign = {
+      ...table("foreign"),
+      columns: [{ name: "role", type: "Role", nullable: false }],
+    };
+    expect(() =>
+      selectManagedSnapshot(
+        {
+          tables: [managed, foreign],
+          enums: [{ name: "Role", values: ["one"] }],
+        },
+        { dialect: "postgresql", namespace: "public", tables: ["users"] }
+      )
+    ).toThrow("shares a managed enum");
+    expect(() =>
+      selectManagedSnapshot(
+        snapshot(foreign),
+        { dialect: "sqlite", tables: ["users"] },
+        true
+      )
+    ).toThrow("outside");
+  });
+
+  test("catalog default normalization retains boolean, array and expression distinctions", () => {
+    for (const value of ["false", "'f'", "0"])
+      expect(normalizeDefault(value, "boolean")).toBe("false");
+    expect(normalizeDefault("'CaseSensitive'")).toBe("'CaseSensitive'");
+    expect(normalizeDefault("UUID_GENERATE_V4()", "uuid")).toBe(
+      "uuid_generate_v4()"
+    );
+    expect(normalizeDefault("(1)+(2)", "integer")).toBe("(1)+(2)");
+    expect(normalizeDefault("'{t,f,NULL}'", "boolean[]")).toBe(
+      normalizeDefault("'{true,false,NULL}'", "boolean[]")
+    );
+    expect(normalizeDefault("'{NULL}'", "text[]")).not.toBe(
+      normalizeDefault("'{\"NULL\"}'", "text[]")
+    );
+    expect(normalizeDefault("'{1,-2}'", "integer[]")).toBe(
+      normalizeDefault('\'{"1","-2"}\'', "integer[]")
+    );
+  });
+
+  test("PostgreSQL literal date and timestamp arrays preserve historical years", () => {
+    const dates = s.date().array().default(["0000-01-01", "2024-02-29"]);
+    const stamps = s.dateTime().array().default(["0000-01-01T00:00:00.000Z"]);
+    expect(
+      postgresMigrationDriver.getDefaultExpression(dates, dates["~"].state)
+    ).toContain("0001-01-01 BC");
+    expect(
+      postgresMigrationDriver.getDefaultExpression(stamps, stamps["~"].state)
+    ).toContain("0001-01-01T00:00:00.000Z BC");
+  });
+
+  test("nullable temporal defaults, native clocks, and ordinary type names retain their meaning", () => {
+    const birth = s.date().default("0000-01-01");
+    expect(
+      postgresMigrationDriver.getDefaultExpression(birth, birth["~"].state)
+    ).toBe("'0001-01-01 BC'");
+    const absent = s.dateTime().nullable().default(null);
+    expect(
+      postgresMigrationDriver.getDefaultExpression(absent, absent["~"].state)
+    ).toBeUndefined();
+    const clock = s.dateTime(MYSQL.DATETIME.DATETIME()).now();
+    expect(
+      mysqlMigrationDriver.getDefaultExpression(clock, clock["~"].state)
+    ).toBe("CURRENT_TIMESTAMP");
+    expect(mysqlMigrationDriver.escapeValue(null)).toBe("NULL");
+    expect(parseMySqlEnumValues("varchar(30)")).toBeNull();
+  });
+
+  test("optional primary-key names converge but foreign unique names refuse churn", async () => {
+    const unnamed = { ...table("users"), primaryKey: { columns: ["id"] } };
+    const named = {
+      ...unnamed,
+      primaryKey: { name: "users_pkey", columns: ["id"] },
+    };
+    const options = { refuseConstraintNameChurn: true };
+    expect(
+      (await diff(snapshot(unnamed), snapshot(named), options)).operations
+    ).toEqual([]);
+    expect(
+      (await diff(snapshot(named), snapshot(unnamed), options)).operations
+    ).toEqual([]);
+    const source = {
+      ...unnamed,
+      uniqueConstraints: [{ name: "foreign_key", columns: ["id"] }],
+    };
+    const desired = {
+      ...source,
+      uniqueConstraints: [{ name: "desired_key", columns: ["id"] }],
+    };
+    await expect(
+      diff(snapshot(source), snapshot(desired), options)
+    ).rejects.toThrow("physical name");
+    expect(
+      (await diff(snapshot(source), snapshot(source), options)).operations
+    ).toEqual([]);
+  });
+
+  test("managed enum arrays cannot leak into an excluded table", () => {
+    const owned = {
+      ...table("users"),
+      columns: [{ name: "role", type: "Role[]", nullable: false }],
+    };
+    const foreign = { ...owned, name: "external" };
+    expect(() =>
+      selectManagedSnapshot(
+        {
+          tables: [owned, foreign],
+          enums: [{ name: "Role", values: ["one"] }],
+        },
+        { dialect: "postgresql", namespace: "public", tables: ["users"] }
+      )
+    ).toThrow("shares a managed enum");
+  });
+
+  test("an enum addition without a requested ordering appends its value", () => {
+    const statements = postgresMigrationDriver.compileAlterEnum(
+      { type: "alterEnum", enumName: "Role", addValues: ["new"] },
+      ddlContext("artifact", {
+        currentSchema: {
+          tables: [],
+          enums: [{ name: "Role", values: ["old"] }],
+        },
+      })
+    );
+    expect(statements).toEqual(["ALTER TYPE \"Role\" ADD VALUE 'new'"]);
+  });
+
+  test("literal defaults refuse failed schema admission and nonfinite transformed output", () => {
+    const refused = s
+      .string()
+      .schema({
+        "~standard": {
+          version: 1,
+          vendor: "fixture",
+          validate: () => ({ issues: [{ message: "refused" }] }),
+        },
+      })
+      .default("bad");
+    const infinite = s
+      .number()
+      .schema({
+        "~standard": {
+          version: 1,
+          vendor: "fixture",
+          validate: () => ({ value: Number.POSITIVE_INFINITY }),
+        },
+      })
+      .default(1);
+    const bytes = s.blob().default(new Uint8Array([1, 2]));
+    for (const driver of [
+      postgresMigrationDriver,
+      mysqlMigrationDriver,
+      sqlite3MigrationDriver,
+    ]) {
+      expect(() =>
+        driver.getDefaultExpression(refused, refused["~"].state)
+      ).toThrow("declared scalar schema refused");
+      expect(() =>
+        driver.getDefaultExpression(infinite, infinite["~"].state)
+      ).toThrow("not a finite number");
+      expect(
+        driver.getDefaultExpression(bytes, bytes["~"].state)
+      ).toBeUndefined();
+    }
+  });
+
+  test("one PostgreSQL enum name cannot carry two declared value vocabularies", () => {
+    const schema = {
+      entry: s.model({
+        id: s.int().id(),
+        first: s.enum(["one", "two"]).name("Shared"),
+        second: s.enum(["one", "three"]).name("Shared"),
+      }),
+    };
+    expect(() =>
+      serializeModels(schema, { migrationDriver: postgresMigrationDriver })
+    ).toThrow("incompatible values");
+  });
+
+  test("named foreign constraints converge or refuse only an equivalent-name churn", async () => {
+    const foreignKey = {
+      name: "legacy_fk",
+      columns: ["id"],
+      referencedTable: "parent",
+      referencedColumns: ["id"],
+      onDelete: "cascade",
+    } as const;
+    const declaration = {
+      ...foreignKey,
+      columns: ["id"],
+      referencedColumns: ["id"],
+    };
+    const source = {
+      ...table("entry"),
+      foreignKeys: [declaration],
+    };
+    const current: SchemaSnapshot = { tables: [source, table("parent")] };
+    await expect(
+      diff(current, current, { refuseConstraintNameChurn: true })
+    ).resolves.toMatchObject({ operations: [] });
+    const sameShape = {
+      ...source,
+      foreignKeys: [{ ...declaration, name: "desired_fk" }],
+    };
+    await expect(
+      diff(
+        current,
+        { tables: [sameShape, table("parent")] },
+        { refuseConstraintNameChurn: true }
+      )
+    ).rejects.toThrow("different physical name");
+    const changedShape = {
+      ...source,
+      foreignKeys: [
+        {
+          ...declaration,
+          name: "desired_fk",
+          onDelete: "restrict" as const,
+        },
+      ],
+    };
+    const changed = await diff(
+      current,
+      { tables: [changedShape, table("parent")] },
+      { refuseConstraintNameChurn: true }
+    );
+    expect(changed.operations.map((operation) => operation.type)).toEqual([
+      "dropForeignKey",
+      "addForeignKey",
+    ]);
+  });
+
+  test("renamed PostgreSQL enum arrays cross text arrays before adopting the new type", () => {
+    const schema = {
+      ...snapshot({
+        ...table("users"),
+        columns: [{ name: "roles", type: "Role[]", nullable: true }],
+      }),
+      enums: [{ name: "Role", values: ["one"] }],
+    };
+    const sql = postgresMigrationDriver.compileAlterColumn(
+      {
+        type: "alterColumn",
+        tableName: "users",
+        columnName: "roles",
+        from: { name: "roles", type: "Role[]", nullable: true },
+        to: { name: "roles", type: "RenamedRole[]", nullable: true },
+      },
+      ddlContext("artifact", {
+        currentSchema: schema,
+        precedingOperations: [
+          {
+            type: "createEnum",
+            enumDef: { name: "RenamedRole", values: ["one"] },
+          },
+        ],
+      })
+    );
+    expect(sql.join("\n")).toContain('::text[]::"RenamedRole"[]');
+    expect(
+      isDestructiveOperation({
+        type: "alterEnum",
+        enumName: "Role",
+        newValues: ["one"],
+        removeValues: [],
+      })
+    ).toBe(false);
+  });
+  test("enum-only reorder records the full order without inventing additions or removals", async () => {
+    const before: SchemaSnapshot = {
+      tables: [],
+      enums: [{ name: "Role", values: ["one", "two"] }],
+    };
+    const after: SchemaSnapshot = {
+      tables: [],
+      enums: [{ name: "Role", values: ["two", "one"] }],
+    };
+    const result = await diff(before, after);
+    expect(result.operations).toEqual([
+      {
+        type: "alterEnum",
+        enumName: "Role",
+        addValues: undefined,
+        removeValues: undefined,
+        newValues: ["two", "one"],
+        dependentColumns: undefined,
+      },
+    ]);
+    for (const operation of result.operations)
+      expect(isDestructiveOperation(operation)).toBe(false);
+  });
+
   test("native precision-six Time clocks generate logical milliseconds", () => {
     for (const type of [PG.DATETIME.TIME(6), PG.DATETIME.TIMETZ(6)]) {
       const field = s.time(type).now();

@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
-import { closeWorld, createWorld, seedNote, seedPerson, type World } from "./world";
+import {
+  closeWorld,
+  createWorld,
+  seedNote,
+  seedPerson,
+  type World,
+} from "./world";
+
+const UNSUPPORTED_RELATION_CURSOR =
+  /Cursor pagination supports direct scalar sort directions only/;
 
 /** Q-O01..Q-O04 / Q-P01..Q-P02 probes at the boundaries the author did not take. */
 function world(): World {
@@ -38,15 +47,24 @@ describe("G4-01 review — ordering and cursor boundaries", () => {
     const created = world();
     try {
       // weight ascending, nulls last by default: 3(1), 5(2), 1(3), 2(null), 4(null)
-      assert.deepEqual(await ids(created, { orderBy: { weight: "asc" }, take: 5 }), [
-        3, 5, 1, 2, 4,
-      ]);
       assert.deepEqual(
-        await ids(created, { orderBy: { weight: "asc" }, cursor: { id: 1 }, take: 3 }),
+        await ids(created, { orderBy: { weight: "asc" }, take: 5 }),
+        [3, 5, 1, 2, 4]
+      );
+      assert.deepEqual(
+        await ids(created, {
+          orderBy: { weight: "asc" },
+          cursor: { id: 1 },
+          take: 3,
+        }),
         [1, 2, 4]
       );
       assert.deepEqual(
-        await ids(created, { orderBy: { weight: "asc" }, cursor: { id: 2 }, take: 3 }),
+        await ids(created, {
+          orderBy: { weight: "asc" },
+          cursor: { id: 2 },
+          take: 3,
+        }),
         [2, 4]
       );
       assert.deepEqual(
@@ -66,19 +84,35 @@ describe("G4-01 review — ordering and cursor boundaries", () => {
     const created = world();
     try {
       assert.deepEqual(
-        await ids(created, { orderBy: { rank: "asc" }, cursor: { id: 1 }, take: 2 }),
+        await ids(created, {
+          orderBy: { rank: "asc" },
+          cursor: { id: 1 },
+          take: 2,
+        }),
         [1, 2]
       );
       assert.deepEqual(
-        await ids(created, { orderBy: { rank: "asc" }, cursor: { id: 5 }, take: 2 }),
+        await ids(created, {
+          orderBy: { rank: "asc" },
+          cursor: { id: 5 },
+          take: 2,
+        }),
         [5]
       );
       assert.deepEqual(
-        await ids(created, { orderBy: { rank: "asc" }, cursor: { id: 5 }, take: -2 }),
+        await ids(created, {
+          orderBy: { rank: "asc" },
+          cursor: { id: 5 },
+          take: -2,
+        }),
         [4, 5]
       );
       assert.deepEqual(
-        await ids(created, { orderBy: { rank: "asc" }, cursor: { id: 1 }, take: -2 }),
+        await ids(created, {
+          orderBy: { rank: "asc" },
+          cursor: { id: 1 },
+          take: -2,
+        }),
         [1]
       );
     } finally {
@@ -90,7 +124,11 @@ describe("G4-01 review — ordering and cursor boundaries", () => {
     const created = world();
     try {
       assert.deepEqual(
-        await ids(created, { orderBy: { rank: "asc" }, cursor: { id: 99 }, take: 3 }),
+        await ids(created, {
+          orderBy: { rank: "asc" },
+          cursor: { id: 99 },
+          take: 3,
+        }),
         []
       );
     } finally {
@@ -106,20 +144,15 @@ describe("G4-01 review — ordering and cursor boundaries", () => {
       seedNote(created, { id: 1, person_id: 1, rank: 1 });
       seedNote(created, { id: 2, person_id: 2, rank: 2 });
       seedNote(created, { id: 3, person_id: null, rank: 3 });
-      // CORRECTED after the repair pass. This expectation originally pinned
-      // NULLS LAST, which was the pre-repair candidate's own answer and
-      // contradicted this review's `shipped-parity.test.ts`. The shipped engine
-      // emits the BARE direction for an unwindowed order, so on SQLite an
-      // absent to-one relation sorts first ascending and last descending; the
-      // oracle was re-asked differentially in
-      // `tests/raptor3/g4/review/unit01-followup/order-oracle.test.ts`.
+      // An absent relation follows the public default in both windowed and
+      // unwindowed reads: ASC NULLS LAST and DESC NULLS FIRST.
       assert.deepEqual(
         await ids(created, { orderBy: { person: { name: "asc" } } }),
-        [3, 2, 1]
+        [2, 1, 3]
       );
       assert.deepEqual(
         await ids(created, { orderBy: { person: { name: "desc" } } }),
-        [1, 2, 3]
+        [3, 1, 2]
       );
     } finally {
       await closeWorld(created);
@@ -160,7 +193,7 @@ describe("G4-01 review — ordering and cursor boundaries", () => {
             cursor: { id: 1 },
             take: 1,
           }),
-        /Cursor pagination supports direct scalar sort directions only/
+        UNSUPPORTED_RELATION_CURSOR
       );
     } finally {
       await closeWorld(created);

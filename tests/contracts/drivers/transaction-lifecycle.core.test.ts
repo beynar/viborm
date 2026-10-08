@@ -590,6 +590,11 @@ describe("provider transaction cleanup", () => {
 
       if (path === "success") await expect(invocation).resolves.toBe("ok");
       else await expect(invocation).rejects.toBeInstanceOf(Error);
+      expect(client.transaction).toHaveBeenCalledExactlyOnceWith("write");
+      expect(tx.commit).toHaveBeenCalledTimes(
+        path === "success" || path === "commit-failure" ? 1 : 0
+      );
+      expect(tx.rollback).toHaveBeenCalledTimes(path === "success" ? 0 : 1);
       expect(tx.close).toHaveBeenCalledOnce();
     }
   });

@@ -10,6 +10,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -116,11 +117,11 @@ function assertD1BindingResult<T>(
     result.meta.changes < 0 ||
     typeof result.meta.last_row_id !== "number" ||
     !Number.isFinite(result.meta.last_row_id) ||
-    !Number.isSafeInteger(result.meta.last_row_id)
+    !Number.isInteger(result.meta.last_row_id)
   ) {
     throw malformedD1Result(
       context,
-      "expected explicit object rows (or null), non-negative changes, and a safe-integer last_row_id"
+      "expected explicit object rows (or null), non-negative changes, and an integer last_row_id"
     );
   }
 }
@@ -152,9 +153,13 @@ function normalizeD1Result<T>(
   }
   // D1 reports the connection's most recent row id on later statements too.
   // Publish it only for the INSERT/REPLACE statement that owns that identity.
-  const insertId = isSQLiteInsertStatement(sql)
-    ? result.meta.last_row_id
-    : undefined;
+  // D1 rounds 64-bit row ids in this numeric metadata. Exact RETURNING rows
+  // remain authoritative; unusable optional metadata must never become a key.
+  const insertId =
+    isSQLiteInsertStatement(sql) &&
+    Number.isSafeInteger(result.meta.last_row_id)
+      ? result.meta.last_row_id
+      : undefined;
   return {
     rows,
     rowCount: result.meta.changes === 0 ? rows.length : result.meta.changes,
@@ -444,12 +449,14 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: D1ClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, D1DriverOptions, S>
-): VibORMClient<C & { driver: D1Driver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<C & { driver: D1Driver }>]: LinkedClientConfig<
+    C & { driver: D1Driver }
+  >[P];
+}> {
   const { database } = config;
 
   const driver = new D1Driver({ database });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: D1Driver }
-  >;
+  return createClientFromDriverConfig<S, C, D1Driver>(config, driver);
 }

@@ -40,6 +40,7 @@ where: {
 
 :::info
 An explicit `undefined` value is treated as if the key were absent, matching Prisma. `where: { role: role ?? undefined }` behaves the same as omitting `role` entirely — useful for building filters conditionally without stripping keys yourself.
+:::
 
 :::warning
 Validate required filters before calling a mutation. For example,
@@ -57,7 +58,6 @@ secret fields: `{ password: { not: "" } }` is a valid query operator. Validate
 each external value as the primitive your application expects, allowlist
 queryable fields, and construct the query on the server. Parameter binding
 prevents SQL injection; it does not authorize query operators.
-:::
 
 ## Logical Operators
 
@@ -110,42 +110,42 @@ where: {
 <CardGroup>
   <Card
     title="String Filters"
-    description="contains, startsWith, endsWith, mode"
-    href="/docs/client/filtering/string"
-  />
+    href="/docs/client/filtering/string">
+    contains, startsWith, endsWith, mode
+  </Card>
   <Card
     title="Number Filters"
-    description="lt, lte, gt, gte comparisons"
-    href="/docs/client/filtering/number"
-  />
+    href="/docs/client/filtering/number">
+    lt, lte, gt, gte comparisons
+  </Card>
   <Card
     title="Boolean Filters"
-    description="equals, not operators"
-    href="/docs/client/filtering/boolean"
-  />
+    href="/docs/client/filtering/boolean">
+    equals, not operators
+  </Card>
   <Card
     title="DateTime Filters"
-    description="Date comparisons and ranges"
-    href="/docs/client/filtering/datetime"
-  />
+    href="/docs/client/filtering/datetime">
+    Date comparisons and ranges
+  </Card>
   <Card
     title="JSON Filters"
-    description="Path queries and operations"
-    href="/docs/client/filtering/json"
-  />
+    href="/docs/client/filtering/json">
+    Path queries and operations
+  </Card>
   <Card
     title="Array Filters"
-    description="has, hasEvery, hasSome, isEmpty"
-    href="/docs/client/filtering/arrays"
-  />
+    href="/docs/client/filtering/arrays">
+    has, hasEvery, hasSome, isEmpty
+  </Card>
   <Card
     title="GeoPoint Filters"
-    description="Exact coordinates, bounds, polygons, and distance"
-    href="/docs/schema/scalars/point"
-  />
+    href="/docs/schema/scalars/point">
+    Exact coordinates, bounds, polygons, and distance
+  </Card>
   <Card
     title="Field references and SQL fragments"
-    description="Compare a column against another column of the same row, or against SQL you write"
-    href="/docs/client/filtering/field-references"
-  />
+    href="/docs/client/filtering/field-references">
+    Compare a column against another column of the same row, or against SQL you write
+  </Card>
 </CardGroup>

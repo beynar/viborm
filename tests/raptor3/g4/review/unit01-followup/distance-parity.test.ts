@@ -2,15 +2,19 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { type Dialect, Driver } from "@drivers";
+import { Queries } from "@query-engine/raptor3/shared/query";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { s } from "@schema";
 import {
   createModelRegistry,
   TestQueryEngine,
 } from "@tests/fixtures/query-engine";
-import { Queries } from "@query-engine/raptor3/shared/query";
-import { EngineSchema } from "@query-engine/raptor3/shared/schema";
-import { s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, it } from "vitest";
+
+const DISTANCE_PATTERN_1 =
+  /Distance select supports only one _distance field per select\./;
+const DISTANCE_PATTERN_2 = /(ASC|DESC)(\s+NULLS\s+(FIRST|LAST))?/g;
 
 /**
  * Finding 3 follow-up. No distance-tier provider can execute here, so the
@@ -58,22 +62,33 @@ class MockDriver extends Driver<null, null> {
   }
 }
 
+function vectorAdapter(postgis: boolean, pgvector: boolean) {
+  const adapter = new PostgresAdapter("public", postgis);
+  adapter.capabilities.supportsVector = pgvector;
+  return adapter;
+}
+
 function routedStatement(
   args: Record<string, unknown>,
-  postgis = true
+  postgis = true,
+  pgvector = false
 ): string {
   const registry = createModelRegistry(models, createSchemaRegistry(models));
   const engine = new TestQueryEngine(
-    new MockDriver(new PostgresAdapter("public", postgis), "postgresql"),
+    new MockDriver(vectorAdapter(postgis, pgvector), "postgresql"),
     registry
   );
   return engine.build(spot, "findMany", args).toStatement("$n");
 }
 
-function candidate(args: Record<string, unknown>, postgis = true) {
+function candidate(
+  args: Record<string, unknown>,
+  postgis = true,
+  pgvector = false
+) {
   const queries = new Queries(
     new EngineSchema(models),
-    new PostgresAdapter("public", postgis)
+    vectorAdapter(postgis, pgvector)
   );
   const query = queries.select(spot, args as never);
   return {
@@ -106,7 +121,9 @@ describe("G4-01 follow-up — distance projection across the routed seam and the
       select: { id: true, at: { _distance: { to: paris } } },
     });
     assert.deepEqual(
-      optional.queries.decodeQuery(optional.query, [{ id: 1, _distance: null }]),
+      optional.queries.decodeQuery(optional.query, [
+        { id: 1, _distance: null },
+      ]),
       [{ id: 1, _distance: null }]
     );
   });
@@ -120,7 +137,7 @@ describe("G4-01 follow-up — distance projection across the routed seam and the
             fixed: { _distance: { to: paris } },
           },
         }),
-      /Distance select supports only one _distance field per select\./
+      DISTANCE_PATTERN_1
     );
   });
 
@@ -155,7 +172,9 @@ describe("G4-01 follow-up — distance projection across the routed seam and the
     const args = {
       select: { id: true },
       orderBy: {
-        embedding: { _distance: { to: [1, 2, 3], metric: "cosine", sort: "asc" } },
+        embedding: {
+          _distance: { to: [1, 2, 3], metric: "cosine", sort: "asc" },
+        },
       },
     };
     let routedMessage = "";
@@ -178,33 +197,22 @@ describe("G4-01 follow-up — distance projection across the routed seam and the
     );
   });
 
-  it("keeps one refusal on both seams for a nullable vector distance selection", () => {
+  it("nullable vector distance selection preserves null results across both seams", () => {
     const args = {
       select: {
         id: true,
         maybeEmbedding: { _distance: { to: [1, 2, 3], metric: "cosine" } },
       },
     };
-    let routedMessage = "";
-    let candidateMessage = "";
-    try {
-      routedStatement(args);
-    } catch (error) {
-      routedMessage = (error as Error).message;
-    }
-    try {
-      candidate(args);
-    } catch (error) {
-      candidateMessage = (error as Error).message;
-    }
-    assert.match(
-      routedMessage,
-      /Vector distance select does not support nullable vector field/
+    const lowered = candidate(args, true, true);
+    assert.equal(lowered.statement, routedStatement(args, true, true));
+    assert.deepEqual(
+      lowered.queries.decodeQuery(lowered.query, [{ id: 1, _distance: null }]),
+      [{ id: 1, _distance: null }]
     );
-    assert.equal(
-      candidateMessage,
-      routedMessage,
-      `nullable vector refusal\n  candidate ${candidateMessage}\n  routed    ${routedMessage}`
+    assert.deepEqual(
+      lowered.queries.decodeQuery(lowered.query, [{ id: 1, _distance: 0.5 }]),
+      [{ id: 1, _distance: 0.5 }]
     );
   });
 
@@ -242,9 +250,11 @@ describe("G4-01 follow-up — distance projection across the routed seam and the
     const routed = routedStatement(args);
     const mine = candidate(args);
     const placement = (statement: string) =>
-      /(ASC|DESC)(\s+NULLS\s+(FIRST|LAST))?/g.exec(
-        statement.slice(statement.indexOf("ORDER BY"))
-      )?.[0];
+      [
+        ...statement
+          .slice(statement.indexOf("ORDER BY"))
+          .matchAll(DISTANCE_PATTERN_2),
+      ][0]?.[0];
     assert.equal(
       placement(mine.statement),
       placement(routed),

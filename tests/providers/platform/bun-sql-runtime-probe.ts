@@ -381,7 +381,10 @@ try {
     () =>
       client.$transaction(async (tx) => {
         await tx.$executeRawUnsafe(
-          `CREATE TEMP TABLE bun_sql_constraint_fk (owner_id TEXT NOT NULL REFERENCES "${PROBE_NAMESPACE}"."bun_sql_runtime_decimals"(id))`
+          "CREATE TEMP TABLE bun_sql_constraint_owner (id TEXT PRIMARY KEY)"
+        );
+        await tx.$executeRawUnsafe(
+          "CREATE TEMP TABLE bun_sql_constraint_fk (owner_id TEXT NOT NULL REFERENCES bun_sql_constraint_owner(id))"
         );
         await tx.$executeRawUnsafe(
           "INSERT INTO bun_sql_constraint_fk VALUES ($1)",

@@ -1,4 +1,5 @@
 import type { VibORMConfig } from "@client/client";
+import type { ClientSchema } from "@client/schema-links";
 import type { Operations, Schema } from "@client/types";
 import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
@@ -506,7 +507,7 @@ type ModelFactoryTable<
   C extends VibORMConfig,
   X extends ExtensionStateConstraint,
 > = {
-  readonly [ModelName in keyof C["schema"]]: ModelMethodFactory<
+  readonly [ModelName in keyof ClientSchema<C>]: ModelMethodFactory<
     ExtensionModelDelegate<C, X, ModelName>
   >;
 };
@@ -529,7 +530,7 @@ export type ContextualExtensionDefinition<
 > = ExtensionMembers<C, X> & {
   readonly model?: unknown extends Self
     ? {
-        readonly [ModelName in keyof C["schema"]]?: ModelMethodFactory<
+        readonly [ModelName in keyof ClientSchema<C>]?: ModelMethodFactory<
           ExtensionModelDelegate<C, X, ModelName>
         >;
       }
@@ -537,7 +538,7 @@ export type ContextualExtensionDefinition<
         readonly [ModelName in DefinitionModelKeys<Self>]?: ModelFactoryTable<
           C,
           X
-        >[ModelName & keyof C["schema"]];
+        >[ModelName & keyof ClientSchema<C>];
       };
 };
 
@@ -546,7 +547,7 @@ type ExtensionMembers<
   X extends ExtensionStateConstraint,
 > = {
   readonly name: string;
-  readonly request?: GenericRequestHandler | RequestHandlerMap<C["schema"]>;
+  readonly request?: GenericRequestHandler | RequestHandlerMap<ClientSchema<C>>;
   readonly query?: GenericQueryHandler | QueryHandlerMap<C, X["rows"]>;
   readonly statement?: StatementHandler;
   readonly observe?: ObserveHandler;

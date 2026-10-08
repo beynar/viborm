@@ -24,9 +24,7 @@ export function readArrayLiteralText(
     while (cursor < text.length - 1) {
       const character = text[cursor++];
       if (character === "\\") {
-        const escaped = text[cursor++];
-        if (escaped === undefined) return;
-        value += escaped;
+        value += text.charAt(cursor++);
       } else if (quoted && character === '"') {
         closed = true;
         break;

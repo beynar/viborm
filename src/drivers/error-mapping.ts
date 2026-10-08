@@ -31,7 +31,7 @@ import type { Dialect } from "./types";
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
 const BUN_SQL_STATE_PATTERN = /^[0-9A-Z]{5}$/;
 const PROVIDER_CONNECTION_CODE_PATTERN =
-  /^(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ERR_POSTGRES_CONNECTION_|08[0-9A-Z]{3}$|57P0[123]$)/;
+  /^(?:CONNECTION_CLOSED$|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ERR_POSTGRES_CONNECTION_|08[0-9A-Z]{3}$|57P0[123]$)/;
 const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
 // Symbolic BUSY/LOCKED codes are the exact base name or an underscore-delimited
 // extended family member. The delimiter is load-bearing: startsWith accepted

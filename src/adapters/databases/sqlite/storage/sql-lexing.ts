@@ -32,7 +32,7 @@ export function readSqliteIdentifier(
 ): SqliteIdentifierToken | undefined {
   let cursor = index;
   while (cursor < text.length) {
-    while (cursor < text.length && WHITESPACE.test(text[cursor] ?? "")) {
+    while (cursor < text.length && WHITESPACE.test(text.charAt(cursor))) {
       cursor++;
     }
     const isComment =
@@ -66,7 +66,7 @@ export function readSqliteIdentifier(
   const start = cursor;
   while (
     cursor < text.length &&
-    isSqliteBareIdentifierCharacter(text[cursor] ?? "")
+    isSqliteBareIdentifierCharacter(text.charAt(cursor))
   ) {
     cursor++;
   }

@@ -36,6 +36,27 @@ const REDACTED_ERROR_CONTENT_PATTERN =
 const context = { driverName: "test" };
 
 describe("normalizeDriverError fixtures", () => {
+  test("a postgres.js physical socket closure remains transient", () => {
+    const error = normalizeDriverError(
+      Object.assign(new Error("Socket closed"), { code: "CONNECTION_CLOSED" }),
+      {
+        driverName: "postgres",
+        dialect: "postgresql",
+      }
+    );
+    expect(error).toMatchObject({
+      name: "ConnectionError",
+      code: "V1001",
+      meta: { providerCode: "CONNECTION_CLOSED" },
+    });
+    expect(error.isRetryable()).toBe(true);
+    const clone = attachExecutionContext(error, {
+      driverName: "postgres",
+      operation: "transaction",
+    });
+    expect(clone.code).toBe("V1001");
+    expect(clone.isRetryable()).toBe(true);
+  });
   test.each([
     [{ code: "42P01" }, "postgresql", "missing relation", "V2004", false],
     [{ code: "42703" }, "postgresql", "missing column", "V2004", false],

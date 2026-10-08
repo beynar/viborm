@@ -46,7 +46,7 @@ function seedAbsentRelation(world: World): void {
 }
 
 describe("G4-01 repair — default null placement (Q-O01, Q-P01)", () => {
-  it("leaves an unqualified order at the provider's own placement", async () => {
+  it("defaults to nulls last ascending and nulls first descending", async () => {
     for (const direction of ["asc", "desc"] as const) {
       const { shipped, candidate } = await differential(
         seedRatings,
@@ -55,10 +55,16 @@ describe("G4-01 repair — default null placement (Q-O01, Q-P01)", () => {
         { orderBy: { rating: direction }, select: { id: true } }
       );
       assert.deepEqual(candidate, shipped, `orderBy rating ${direction}`);
+      assert.deepEqual(
+        candidate,
+        direction === "asc"
+          ? [{ id: 3 }, { id: 5 }, { id: 1 }, { id: 2 }, { id: 4 }]
+          : [{ id: 2 }, { id: 4 }, { id: 1 }, { id: 5 }, { id: 3 }]
+      );
     }
   });
 
-  it("states the placement only where a cursor predicate must read it", async () => {
+  it("uses the same total order for windows and cursor predicates", async () => {
     for (const direction of ["asc", "desc"] as const) {
       const { shipped, candidate } = await differential(
         seedRatings,
@@ -97,6 +103,12 @@ describe("G4-01 repair — default null placement (Q-O01, Q-P01)", () => {
         }
       );
       assert.deepEqual(candidate, shipped, `nulls ${nulls}`);
+      assert.deepEqual(
+        candidate,
+        nulls === "first"
+          ? [{ id: 2 }, { id: 4 }, { id: 3 }, { id: 5 }, { id: 1 }]
+          : [{ id: 3 }, { id: 5 }, { id: 1 }, { id: 2 }, { id: 4 }]
+      );
     }
     for (const direction of ["asc", "desc"] as const) {
       const { shipped, candidate } = await differential(
@@ -109,8 +121,8 @@ describe("G4-01 repair — default null placement (Q-O01, Q-P01)", () => {
         }
       );
       assert.deepEqual(candidate, shipped, `relation path ${direction}`);
-      // The same key with no tie-break, which is the shape the review's
-      // `order-cursor.test.ts` pins to the pre-repair (normalized) answer.
+      // An absent relation contributes NULL and follows the same default as
+      // a nullable scalar, with model identity completing the total order.
       const bare = await differential(seedAbsentRelation, "post", "findMany", {
         orderBy: { author: { name: direction } },
         select: { id: true },
@@ -123,8 +135,8 @@ describe("G4-01 repair — default null placement (Q-O01, Q-P01)", () => {
       assert.deepEqual(
         bare.candidate,
         direction === "asc"
-          ? [{ id: 3 }, { id: 2 }, { id: 1 }]
-          : [{ id: 1 }, { id: 2 }, { id: 3 }],
+          ? [{ id: 2 }, { id: 1 }, { id: 3 }]
+          : [{ id: 3 }, { id: 1 }, { id: 2 }],
         `bare relation path ${direction}`
       );
     }

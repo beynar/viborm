@@ -3,6 +3,7 @@ import { createClient } from "@client/client";
 import { NeonHTTPDriver } from "@drivers/neon-http";
 import { PgDriver } from "@drivers/pg";
 import { PostgresDriver, vibormTypes } from "@drivers/postgres";
+import { VibORMError } from "@errors";
 import { Decimal, s } from "@src/index";
 import { Pool } from "pg";
 import postgres from "postgres";
@@ -63,9 +64,20 @@ describe.skipIf(!databaseUrl)("V1 real Neon HTTP and TCP contracts", () => {
     // The direct endpoint keeps this isolated session attached to its own PID.
     const directUrl = new URL(databaseUrl ?? "");
     directUrl.hostname = directUrl.hostname.replace(POOLER_PATTERN, "");
+    const lifecycle: string[] = [];
     const driver = new PostgresDriver({
       databaseUrl: directUrl.toString(),
-      options: { max: 1, connect_timeout: 5 },
+      options: {
+        max: 1,
+        connect_timeout: 5,
+        debug: (id, statement) => {
+          // Only a fixed category and provider-local connection ID are recorded.
+          lifecycle.push(
+            `${id}:${statement.startsWith("begin") ? "begin" : statement === "SELECT 1" ? "callback" : statement === "SELECT 1 AS n" ? "suffix" : "other"}`
+          );
+        },
+        onclose: (id) => lifecycle.push(`${id}:closed`),
+      },
     });
     const killer = new Pool({
       connectionString: directUrl.toString(),
@@ -90,12 +102,18 @@ describe.skipIf(!databaseUrl)("V1 real Neon HTTP and TCP contracts", () => {
       expect(killed.rows[0]?.terminated).toBe(true);
       const transaction = driver
         ._transaction(async (tx) => {
+          lifecycle.push("callback-entered");
           await tx.unsafe("SELECT 1");
           return "committed";
         })
         .then(
           () => "committed",
-          () => "rejected"
+          (error: unknown) => {
+            lifecycle.push(
+              `transaction-failure:${error instanceof VibORMError ? error.code : "native"}`
+            );
+            return "rejected";
+          }
         );
       const outcome = await Promise.race([
         transaction,
@@ -106,6 +124,10 @@ describe.skipIf(!databaseUrl)("V1 real Neon HTTP and TCP contracts", () => {
           );
         }),
       ]);
+      lifecycle.push(`transaction:${outcome}`);
+      expect(
+        lifecycle.filter((event) => event === "callback-entered").length
+      ).toBeLessThanOrEqual(1);
       expect(["committed", "rejected"]).toContain(outcome);
       expect(
         (await driver._executeRaw<{ n: number }>("SELECT 1 AS n")).rows
@@ -115,7 +137,9 @@ describe.skipIf(!databaseUrl)("V1 real Neon HTTP and TCP contracts", () => {
     } finally {
       if (deadline) clearTimeout(deadline);
       await killer.end();
+      lifecycle.push("disconnect");
       await driver._disconnect();
+      console.info(`Warm-dead lifecycle: ${JSON.stringify(lifecycle)}`);
     }
   });
 
