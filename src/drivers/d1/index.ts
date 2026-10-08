@@ -14,7 +14,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import type { D1Database } from "@cloudflare/workers-types";
+import type { D1Database, D1DatabaseSession } from "@cloudflare/workers-types";
 import { QueryError } from "@errors";
 import type { Sql } from "@sql";
 import {
@@ -52,7 +52,7 @@ import type {
 // ============================================================
 
 export interface D1DriverOptions {
-  database: D1Database;
+  database: D1Database | D1DatabaseSession;
 }
 
 export type D1ClientConfig<C extends DriverConfig> = D1DriverOptions & C;
@@ -61,6 +61,12 @@ interface D1BindingResult<T> {
   success: true;
   results: T[] | null;
   meta: { changes: number; last_row_id: number };
+}
+
+function convertD1Parameters(values: unknown[]): unknown[] {
+  return convertValuesForSQLite(values).map((value) =>
+    typeof value === "bigint" ? value.toString() : value
+  );
 }
 
 const ROW_PRODUCING_OPERATIONS = new Set([
@@ -160,7 +166,10 @@ function normalizeD1Result<T>(
 // DRIVER IMPLEMENTATION
 // ============================================================
 
-export class D1Driver extends Driver<D1Database, D1Database> {
+export class D1Driver extends Driver<
+  D1Database | D1DatabaseSession,
+  D1Database | D1DatabaseSession
+> {
   private static readonly canonicalExecuteEntry = D1Driver.prototype._execute;
   private static readonly canonicalExecute = D1Driver.prototype.execute;
   private static readonly canonicalTypedStatement =
@@ -234,7 +243,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
           });
           return { kind: "borrowed", result };
         }
-        const values = convertValuesForSQLite(params);
+        const values = convertD1Parameters(params);
         const raw: unknown = await client
           .prepare(sql)
           .bind(...values)
@@ -288,17 +297,19 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     );
   }
 
-  protected async initClient(): Promise<D1Database> {
+  protected async initClient(): Promise<D1Database | D1DatabaseSession> {
     // D1 database binding is passed in constructor
     return this.driverOptions.database;
   }
 
-  protected async closeClient(_db: D1Database): Promise<void> {
+  protected async closeClient(
+    _db: D1Database | D1DatabaseSession
+  ): Promise<void> {
     // D1 bindings don't need to be closed
   }
 
   protected async execute<T>(
-    client: D1Database,
+    client: D1Database | D1DatabaseSession,
     sql: string,
     params: unknown[],
     context?: QueryExecutionContext
@@ -312,19 +323,19 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   }
 
   private async executeStatement<T>(
-    client: D1Database,
+    client: D1Database | D1DatabaseSession,
     sql: string,
     params: unknown[],
     context: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const values = convertValuesForSQLite(params);
+    const values = convertD1Parameters(params);
     const stmt = client.prepare(sql).bind(...values);
     const result: unknown = await stmt.run<T>();
     return normalizeD1Result<T>(result, sql, context, true);
   }
 
   protected async executeRaw<T>(
-    client: D1Database,
+    client: D1Database | D1DatabaseSession,
     sql: string,
     params: unknown[] | undefined,
     context?: QueryExecutionContext
@@ -357,8 +368,8 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   }
 
   protected transaction<T>(
-    _client: D1Database,
-    _fn: (tx: D1Database) => Promise<T>
+    _client: D1Database | D1DatabaseSession,
+    _fn: (tx: D1Database | D1DatabaseSession) => Promise<T>
   ): Promise<T> {
     return Promise.reject(unsupportedCallbackTransactionError(this.driverName));
   }
@@ -368,7 +379,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
    * All queries succeed or all fail together.
    */
   protected async executeBatch<T>(
-    client: D1Database,
+    client: D1Database | D1DatabaseSession,
     queries: BatchQuery[],
     context?: QueryExecutionContext,
     committed?: CommittedBatchNotification
@@ -378,7 +389,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     for (const query of queries) {
       const statementContext = query.context ?? batchContext;
       try {
-        const values = query.params ? convertValuesForSQLite(query.params) : [];
+        const values = query.params ? convertD1Parameters(query.params) : [];
         statements.push(client.prepare(query.sql).bind(...values));
       } catch (error) {
         throw this.normalizeStatementFailure(

@@ -6,6 +6,7 @@ import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
+  nullableDefault,
   type ScalarState,
   updateState,
 } from "../common";
@@ -33,14 +34,16 @@ export class BigIntScalar<State extends ScalarState<"bigint">> {
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         base: v.bigint<{
           nullable: true;
           array: State["array"];
+          schema: State["schema"];
         }>({
           nullable: true,
           array: this.state.array,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType
@@ -54,9 +57,11 @@ export class BigIntScalar<State extends ScalarState<"bigint">> {
         base: v.bigint<{
           nullable: State["nullable"];
           array: true;
+          schema: State["schema"];
         }>({
           nullable: this.state.nullable,
           array: true,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType

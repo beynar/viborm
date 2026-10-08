@@ -56,6 +56,7 @@ export interface BatchTransactionOptions {
 /** Where a driver must emit `SET TRANSACTION ISOLATION LEVEL`, if anywhere. */
 export type IsolationLevelPlacement =
   /** PostgreSQL family: first statement *inside* the open transaction. */
+  | "provider"
   | "post-begin"
   /** MySQL family: on the transaction's own connection *before* BEGIN. */
   | "pre-begin"
@@ -273,6 +274,8 @@ function resolveIsolationLevel(
   context: TransactionOptionContext
 ): { placement: IsolationLevelPlacement; statement?: string } {
   switch (support.isolationLevel) {
+    case "provider":
+      return { placement: "provider" };
     case "post-begin":
     case "pre-begin":
       return {

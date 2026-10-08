@@ -133,3 +133,18 @@ const _privateOfficialSurface = instrumentation({ tracing: true });
 _privateOfficialSurface.instrumentationCapability;
 // @ts-expect-error - lifecycle facts stay behind the protected runner
 _privateOfficialSurface.lifecycleFacts;
+
+const _providerDiagnostics = () =>
+  instrumentation({
+    diagnostics: { includeProviderDetails: true, includeCallsite: true },
+  });
+const _providerDiagnosticTypo = () =>
+  instrumentation({
+    // @ts-expect-error - typo beside real diagnostics key is refused
+    diagnostics: { includeProviderDetails: true, includeCallsit: true },
+  });
+const heldDiagnosticTypo = {
+  diagnostics: { includeCallsite: true, includeProviderDetail: true },
+} as const;
+// @ts-expect-error - held diagnostics bag remains structurally exact
+const _heldProviderDiagnosticTypo = instrumentation(heldDiagnosticTypo);

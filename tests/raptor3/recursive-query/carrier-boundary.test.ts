@@ -1,10 +1,40 @@
 import assert from "node:assert/strict";
+import { UnsupportedOperationError } from "@errors";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
 import { describe, it } from "vitest";
+
+const INVALID_PROVIDER_RECURSIVE_IDENTITY_PATTERN =
+  /Invalid provider recursive identity/;
+const INVALID_PROVIDER_STRING_PATTERN = /Invalid provider string/;
+const INVALID_PROVIDER_DUPLICATE_RECURSIVE_NODE_PATTERN =
+  /Invalid provider duplicate recursive node/;
+const INVALID_PROVIDER_RECURSIVE_EDGE_ENDPOINT_PATTERN =
+  /Invalid provider recursive edge endpoint/;
+const INVALID_PROVIDER_UNREACHABLE_RECURSIVE_NODE_PATTERN =
+  /Invalid provider unreachable recursive node/;
+const INVALID_PROVIDER_DUPLICATE_RECURSIVE_EDGE_PATTERN =
+  /Invalid provider duplicate recursive edge/;
+const INVALID_PROVIDER_RECURSIVE_DEPTH_PATTERN =
+  /Invalid provider recursive depth/;
+const INVALID_PROVIDER_EXHAUSTIVE_RECURSIVE_DEPTH_PATTERN =
+  /Invalid provider exhaustive recursive depth/;
+const RECURSIVE_RELATION_CHILDREN_CONTAINS_CYCLE_PATTERN =
+  /Recursive relation 'children' contains a cycle/;
+const INVALID_PROVIDER_RECURSIVE_NODE_PATTERN =
+  /Invalid provider recursive node/;
+const INVALID_PROVIDER_RECURSIVE_EDGE_PATTERN =
+  /Invalid provider recursive edge/;
+const INVALID_PROVIDER_RECURSIVE_ROW_PATTERN = /Invalid provider recursive row/;
+const INVALID_PROVIDER_RECURSIVE_CARRIER_PATTERN =
+  /Invalid provider recursive carrier/;
+const INVALID_PROVIDER_JSON_PATTERN = /Invalid provider json/;
+const INVALID_PROVIDER_RECURSIVE_SINGULAR_RELATION_PATTERN =
+  /Invalid provider recursive singular relation/;
+const OCCURRENCE_BUDGET_PATTERN = /10000 occurrence budget/;
 
 const treeNode = (() => {
   const node = s.model({
@@ -145,13 +175,13 @@ describe("recursive carrier boundary", () => {
     const decode = treeDecoder({ depth: 2, cycles: "reject" });
     assert.throws(
       () => decode(carrier(["root", "extra"], [], [])),
-      /Invalid provider recursive identity/
+      INVALID_PROVIDER_RECURSIVE_IDENTITY_PATTERN
     );
 
-    const sparse = Array(1);
+    const sparse = new Array(1);
     assert.throws(
       () => decode(carrier(sparse, [], [])),
-      /Invalid provider string/
+      INVALID_PROVIDER_STRING_PATTERN
     );
   });
 
@@ -166,18 +196,14 @@ describe("recursive carrier boundary", () => {
             [edge("root", "child", 1)]
           )
         ),
-      /Invalid provider duplicate recursive node/
+      INVALID_PROVIDER_DUPLICATE_RECURSIVE_NODE_PATTERN
     );
     assert.throws(
       () =>
         decode(
-          carrier(
-            ["root"],
-            [{ __rq_row: { id: "child", mutable: {} } }],
-            []
-          )
+          carrier(["root"], [{ __rq_row: { id: "child", mutable: {} } }], [])
         ),
-      /Invalid provider recursive identity/
+      INVALID_PROVIDER_RECURSIVE_IDENTITY_PATTERN
     );
   });
 
@@ -186,17 +212,13 @@ describe("recursive carrier boundary", () => {
     assert.throws(
       () =>
         decode(
-          carrier(
-            ["root"],
-            [node("child")],
-            [edge("root", "missing", 1)]
-          )
+          carrier(["root"], [node("child")], [edge("root", "missing", 1)])
         ),
-      /Invalid provider recursive edge endpoint/
+      INVALID_PROVIDER_RECURSIVE_EDGE_ENDPOINT_PATTERN
     );
     assert.throws(
       () => decode(carrier(["root"], [node("orphan")], [])),
-      /Invalid provider unreachable recursive node/
+      INVALID_PROVIDER_UNREACHABLE_RECURSIVE_NODE_PATTERN
     );
     assert.throws(
       () =>
@@ -207,7 +229,7 @@ describe("recursive carrier boundary", () => {
             [edge("root", "child", 1), edge("root", "child", 1)]
           )
         ),
-      /Invalid provider duplicate recursive edge/
+      INVALID_PROVIDER_DUPLICATE_RECURSIVE_EDGE_PATTERN
     );
 
     // An exhaustive carrier states no depth, so an edge nothing consumes can
@@ -222,63 +244,49 @@ describe("recursive carrier boundary", () => {
             [edge("root", "reached"), edge("stranded", "reached")]
           )
         ),
-      /Invalid provider unreachable recursive node/
+      INVALID_PROVIDER_UNREACHABLE_RECURSIVE_NODE_PATTERN
     );
   });
 
   it("requires bounded depth facts and forbids them on exhaustive carriers", () => {
     const bounded = treeDecoder({ depth: 2, cycles: "reject" });
     assert.deepEqual(
-      bounded(
-        carrier(
-          ["root"],
-          [node("child")],
-          [edge("root", "child", 1)]
-        )
-      ),
+      bounded(carrier(["root"], [node("child")], [edge("root", "child", 1)])),
       [{ id: "child", mutable: {}, children: [] }]
     );
     assert.throws(
       () =>
-        bounded(
-          carrier(["root"], [node("child")], [edge("root", "child")])
-        ),
-      /Invalid provider recursive depth/
+        bounded(carrier(["root"], [node("child")], [edge("root", "child")])),
+      INVALID_PROVIDER_RECURSIVE_DEPTH_PATTERN
     );
 
     const exhaustive = treeDecoder({ depth: false, cycles: "reject" });
     assert.deepEqual(
-      exhaustive(
-        carrier(["root"], [node("child")], [edge("root", "child")])
-      ),
+      exhaustive(carrier(["root"], [node("child")], [edge("root", "child")])),
       [{ id: "child", mutable: {}, children: [] }]
     );
     assert.throws(
       () =>
         exhaustive(
-          carrier(
-            ["root"],
-            [node("child")],
-            [edge("root", "child", 1)]
-          )
+          carrier(["root"], [node("child")], [edge("root", "child", 1)])
         ),
-      /Invalid provider exhaustive recursive depth/
+      INVALID_PROVIDER_EXHAUSTIVE_RECURSIVE_DEPTH_PATTERN
     );
   });
 
   it("applies cycle policy to a direct root self-loop", () => {
-    const selfLoop = carrier(
-      ["root"],
-      [node("root")],
-      [edge("root", "root")]
-    );
+    const selfLoop = carrier(["root"], [node("root")], [edge("root", "root")]);
     const prevent = graphDecoder({ depth: false, cycles: "prevent" });
     assert.deepEqual(prevent(selfLoop), []);
 
     const reject = treeDecoder({ depth: false, cycles: "reject" });
     assert.throws(
       () => reject(selfLoop),
-      /Recursive relation 'children' contains a cycle/
+      (error: unknown) =>
+        error instanceof UnsupportedOperationError &&
+        error.code === "V8003" &&
+        error.meta.relation === "children" &&
+        RECURSIVE_RELATION_CHILDREN_CONTAINS_CYCLE_PATTERN.test(error.message)
     );
 
     // The same admission, with prevention disabled: the root seeding prunes
@@ -309,7 +317,7 @@ describe("recursive carrier boundary", () => {
               [edge("root", "child", invalidDepth)]
             )
           ),
-        /Invalid provider recursive depth/
+        INVALID_PROVIDER_RECURSIVE_DEPTH_PATTERN
       );
     }
     assert.throws(
@@ -318,13 +326,10 @@ describe("recursive carrier boundary", () => {
           carrier(
             ["root"],
             [node("child"), node("grandchild")],
-            [
-              edge("root", "child", 2),
-              edge("child", "grandchild", 1),
-            ]
+            [edge("root", "child", 2), edge("child", "grandchild", 1)]
           )
         ),
-      /Invalid provider recursive depth/
+      INVALID_PROVIDER_RECURSIVE_DEPTH_PATTERN
     );
     // A fact attributed to a level its parent never occupies, beside the same
     // hop at the level it does: 'P' is reached only at level 1, so 'P' → 'C'
@@ -340,7 +345,7 @@ describe("recursive carrier boundary", () => {
             [edge("root", "P", 1), edge("P", "C", 2), edge("P", "C", 3)]
           )
         ),
-      /Invalid provider recursive depth/
+      INVALID_PROVIDER_RECURSIVE_DEPTH_PATTERN
     );
 
     // The same rule must ACCEPT the legitimate shape it resembles: 'near' is
@@ -402,22 +407,22 @@ describe("recursive carrier boundary", () => {
             ]
           )
         ),
-      /Invalid provider recursive depth/
+      INVALID_PROVIDER_RECURSIVE_DEPTH_PATTERN
     );
   });
 
   it("rejects sparse node and edge containers and a cyclic JavaScript carrier", () => {
     const decode = treeDecoder({ depth: 2, cycles: "reject" });
-    const sparseNodes = Array<CarrierNode>(1);
+    const sparseNodes = new Array<CarrierNode>(1);
     assert.throws(
       () => decode(carrier(["root"], sparseNodes, [])),
-      /Invalid provider recursive node/
+      INVALID_PROVIDER_RECURSIVE_NODE_PATTERN
     );
 
-    const sparseEdges = Array<CarrierEdge>(1);
+    const sparseEdges = new Array<CarrierEdge>(1);
     assert.throws(
       () => decode(carrier(["root"], [node("child")], sparseEdges)),
-      /Invalid provider recursive edge/
+      INVALID_PROVIDER_RECURSIVE_EDGE_PATTERN
     );
 
     assert.throws(
@@ -429,12 +434,12 @@ describe("recursive carrier boundary", () => {
             [edge("root", "child", 1)]
           )
         ),
-      /Invalid provider recursive row/
+      INVALID_PROVIDER_RECURSIVE_ROW_PATTERN
     );
 
     assert.throws(
       () => decode({ __rq_root: ["root"], __rq_nodes: [] }),
-      /Invalid provider recursive carrier/
+      INVALID_PROVIDER_RECURSIVE_CARRIER_PATTERN
     );
 
     const cyclic: Record<string, unknown> = {};
@@ -442,13 +447,9 @@ describe("recursive carrier boundary", () => {
     assert.throws(
       () =>
         decode(
-          carrier(
-            ["root"],
-            [node("child", cyclic)],
-            [edge("root", "child", 1)]
-          )
+          carrier(["root"], [node("child", cyclic)], [edge("root", "child", 1)])
         ),
-      /Invalid provider json/
+      INVALID_PROVIDER_JSON_PATTERN
     );
 
     const cyclicList: unknown[] = [];
@@ -462,7 +463,7 @@ describe("recursive carrier boundary", () => {
             [edge("root", "child", 1)]
           )
         ),
-      /Invalid provider json/
+      INVALID_PROVIDER_JSON_PATTERN
     );
   });
 
@@ -484,7 +485,7 @@ describe("recursive carrier boundary", () => {
             [edge("root", "left"), edge("root", "right")]
           )
         ),
-      /Invalid provider recursive singular relation/
+      INVALID_PROVIDER_RECURSIVE_SINGULAR_RELATION_PATTERN
     );
   });
 
@@ -586,7 +587,10 @@ describe("recursive carrier boundary", () => {
     assert(twice && typeof twice === "object");
     const members = Reflect.get(twice, "mutable");
     assert(members && typeof members === "object");
-    assert.notEqual(Reflect.get(members, "first"), Reflect.get(members, "second"));
+    assert.notEqual(
+      Reflect.get(members, "first"),
+      Reflect.get(members, "second")
+    );
   });
 
   it("decodes a synthetic exhaustive chain beyond the public depth ceiling", () => {
@@ -594,14 +598,14 @@ describe("recursive carrier boundary", () => {
     const nodes: CarrierNode[] = [];
     const edges: CarrierEdge[] = [];
     let parent = "root";
-    for (let index = 0; index < 1_101; index += 1) {
+    for (let index = 0; index < 1101; index += 1) {
       const child = `n${index}`;
       nodes.push(node(child, { index }));
       edges.push(edge(parent, child));
       parent = child;
     }
     let level = decode(carrier(["root"], nodes, edges));
-    for (let index = 0; index < 1_101; index += 1) {
+    for (let index = 0; index < 1101; index += 1) {
       assert(Array.isArray(level));
       assert.equal(level.length, 1);
       const occurrence = level[0];
@@ -612,13 +616,13 @@ describe("recursive carrier boundary", () => {
     assert.deepEqual(level, []);
   });
 
-  it("decodes a synthetic chain far beyond a copied ancestry", () => {
+  it("decodes a synthetic chain at the output occurrence budget", () => {
     // One active path, entered and left, costs a chain its own depth instead
-    // of its depth squared. 12,000 levels decode inside this run's ordinary
+    // of its depth squared. 10,000 levels decode inside this run's ordinary
     // heap/RSS ceilings; the 1,101-level cell above pins the public depth
     // ceiling, which is a different fact.
     const decode = treeDecoder({ depth: false, cycles: "reject" });
-    const levels = 12_000;
+    const levels = 10_000;
     const nodes: CarrierNode[] = [];
     const edges: CarrierEdge[] = [];
     let parent = "root";
@@ -638,5 +642,27 @@ describe("recursive carrier boundary", () => {
       level = Reflect.get(occurrence, "children");
     }
     assert.deepEqual(level, []);
+  });
+  it("refuses factorial path amplification before exceeding the occurrence budget", () => {
+    const decode = graphDecoder({ depth: false, cycles: "prevent" });
+    const keys = [
+      "root",
+      ...Array.from({ length: 8 }, (_, index) => `n${index}`),
+    ];
+    assert.throws(
+      () =>
+        decode(
+          carrier(
+            ["root"],
+            keys.map((key) => node(key)),
+            keys.flatMap((parent) =>
+              keys
+                .filter((child) => child !== parent)
+                .map((child) => edge(parent, child))
+            )
+          )
+        ),
+      OCCURRENCE_BUDGET_PATTERN
+    );
   });
 });

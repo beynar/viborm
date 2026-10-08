@@ -590,3 +590,42 @@ function decodeDecimalListContainerAtPrecision(
   }
   return members;
 }
+
+/** Domain diagnostics and catalog admission share the value descriptor owner. */
+export function describeDecimalDomain(descriptor: DecimalDescriptor): string {
+  return `precision ${descriptor.precision}, scale ${descriptor.scale}`;
+}
+
+const STORED_DECIMAL_INTEGER = /^-?\d+$/;
+export function readStoredDecimalDescriptor(
+  precisionValue: unknown,
+  scaleValue: unknown,
+  dialect: DecimalDialect
+): DecimalDescriptor | undefined {
+  const precision = readStoredDecimalInteger(precisionValue);
+  const scale = readStoredDecimalInteger(scaleValue);
+  if (
+    precision === undefined ||
+    scale === undefined ||
+    precision <= 0 ||
+    scale < 0 ||
+    scale > precision
+  ) {
+    return undefined;
+  }
+  const descriptor = { precision, scale };
+  return describeProviderLimitRefusal(dialect, descriptor) === undefined
+    ? descriptor
+    : undefined;
+}
+
+function readStoredDecimalInteger(value: unknown): number | undefined {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) ? value : undefined;
+  }
+  if (typeof value !== "string" || !STORED_DECIMAL_INTEGER.test(value)) {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}

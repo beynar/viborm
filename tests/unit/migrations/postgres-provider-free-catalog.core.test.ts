@@ -1,5 +1,6 @@
 import { VibORMErrorCode } from "@src/errors";
 import { getMigrationDriver } from "@src/migrations/drivers";
+import { introspectPostgresSchema } from "@src/migrations/drivers/postgres/introspect";
 import { describe, expect, test } from "vitest";
 import { pgEstateDriver } from "./_estate";
 
@@ -85,6 +86,54 @@ function foreignKey(
 }
 
 describe("provider-free PostgreSQL catalog reconstruction", () => {
+  test.each([
+    "btree",
+    "hnsw",
+  ])("refuses unrepresentable %s index metadata in owned scope and leaves external scope alone", async (method) => {
+    const execution = catalogDriver({
+      tables: [{ table_name: "account" }],
+      columns: [column("id", "integer", "int4")],
+      indexes: [
+        {
+          table_name: "account",
+          index_name: "foreign_semantics",
+          column_name: "id",
+          is_unique: false,
+          index_type: method,
+          unsupported_structure: true,
+          filter_condition: null,
+          ordinal_position: 1,
+        },
+      ],
+    });
+    await expect(
+      getMigrationDriver(execution).introspect((query, params) =>
+        execution._executeRaw(query, params)
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      message: expect.stringContaining("account.foreign_semantics"),
+    });
+    await expect(
+      introspectPostgresSchema(
+        (query, params) => execution._executeRaw(query, params),
+        {
+          namespace: "billing",
+          tables: ["other"],
+          admittedExtensionTypes: new Set(),
+        }
+      )
+    ).resolves.toBeDefined();
+    expect(
+      execution.statements.every(
+        (statement) =>
+          statement === "<connect>" ||
+          statement.startsWith("SELECT") ||
+          statement.trimStart().startsWith("SELECT")
+      )
+    ).toBe(true);
+  });
+
   // `push` reads the catalog on its ONE pinned session: node-postgres queues
   // overlapping queries on a connection and warns it will refuse them in
   // pg@9, so the reads go one at a time.
@@ -120,22 +169,27 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
           column_default: "nextval('billing.account_id_seq'::regclass)",
         },
         {
-          ...column("label", "character varying", "varchar"),
+          ...column(
+            "label",
+            "character varying",
+            "varchar",
+            "character varying(40)"
+          ),
           character_maximum_length: 40,
           is_nullable: "YES",
         },
         {
-          ...column("code", "character", "bpchar"),
+          ...column("code", "character", "bpchar", "character(3)"),
           character_maximum_length: 3,
         },
         {
-          ...column("amount", "numeric", "numeric"),
+          ...column("amount", "numeric", "numeric", "numeric(10,2)"),
           numeric_precision: 10,
           numeric_scale: 2,
           column_default: "'-1.2'::numeric",
         },
         {
-          ...column("sequence", "numeric", "numeric"),
+          ...column("sequence", "numeric", "numeric", "numeric(8,0)"),
           numeric_precision: 8,
           numeric_scale: null,
           column_default: "next_value()",
@@ -172,6 +226,7 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
           column_name: "label",
           is_unique: false,
           index_type: "gin",
+          unsupported_structure: false,
           filter_condition: "(label IS NOT NULL)",
           ordinal_position: 2,
         },
@@ -181,6 +236,7 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
           column_name: "code",
           is_unique: false,
           index_type: "gin",
+          unsupported_structure: false,
           filter_condition: "(label IS NOT NULL)",
           ordinal_position: 1,
         },
@@ -219,12 +275,15 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
       expect.arrayContaining([
         expect.objectContaining({
           name: "id",
-          type: "int4",
+          type: "integer",
           default: undefined,
           autoIncrement: true,
         }),
-        expect.objectContaining({ name: "label", type: "varchar(40)" }),
-        expect.objectContaining({ name: "code", type: "char(3)" }),
+        expect.objectContaining({
+          name: "label",
+          type: "character varying(40)",
+        }),
+        expect.objectContaining({ name: "code", type: "character(3)" }),
         expect.objectContaining({
           name: "amount",
           type: "numeric(10,2)",
@@ -233,7 +292,7 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
         }),
         expect.objectContaining({
           name: "sequence",
-          type: "numeric(8)",
+          type: "numeric(8,0)",
           default: "next_value()",
           decimal: { precision: 8, scale: 0 },
         }),

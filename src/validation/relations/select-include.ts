@@ -230,6 +230,8 @@ type ToOneRecursiveNodeSchema<
   V.Object<
     {
       recurse: RecurrenceFor<Source, Key, S>;
+      where: ReturnType<typeof unavailableRecursiveClause>;
+      orderBy: ReturnType<typeof unavailableRecursiveClause>;
       select: () => RecursiveProjectionSchemas<S, Key>["select"];
       include: () => RecursiveProjectionSchemas<S, Key>["include"];
       omit: () => GetTargetSchemas<S>["core"]["omit"];

@@ -2,6 +2,7 @@ import type {
   ComputeInput,
   ComputeOutput,
   ScalarOptions,
+  ValidationResult,
   VibSchema,
 } from "../types";
 import { isBoolean, isNumber, isRecord, isString } from "../value-guards";
@@ -23,6 +24,15 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+/** JSON serialization omits undefined object members and nulls array holes. */
+export type JsonInput =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly (JsonInput | undefined)[]
+  | { [key: string]: JsonInput | undefined };
+
 /**
  * A JSON value in WRITE position: everything `JsonValue` allows EXCEPT a bare
  * top-level `null`.
@@ -32,16 +42,16 @@ export type JsonValue =
  * Prisma draws with its own `InputJsonValue`. Nested nulls are untouched:
  * `{ a: null }` is an ordinary document.
  */
-export type InputJsonValue = Exclude<JsonValue, null>;
+export type InputJsonValue = Exclude<JsonInput, null>;
 
 export interface BaseJsonSchema<
-  Opts extends ScalarOptions<JsonValue, any> | undefined = undefined,
+  Opts extends ScalarOptions<JsonInput, any> | undefined = undefined,
 > extends VibSchema<
-    ComputeInput<JsonValue, Opts>,
+    ComputeInput<JsonInput, Opts>,
     ComputeOutput<JsonValue, Opts>
   > {}
 
-export interface JsonSchema<TInput = JsonValue, TOutput = JsonValue>
+export interface JsonSchema<TInput = JsonInput, TOutput = JsonValue>
   extends VibSchema<TInput, TOutput> {
   readonly type: "json";
 }
@@ -57,48 +67,65 @@ const NOT_JSON_ERROR = Object.freeze({
  * Check if a value is JSON-compatible (can be serialized without loss).
  * Rejects: undefined, functions, symbols, bigint, circular references.
  */
-function isJsonValue(value: unknown, seen = new WeakSet<object>()): boolean {
-  // Primitives
-  if (value === null) return true;
-  if (isString(value)) return true;
-  if (isNumber(value)) return Number.isFinite(value); // Reject NaN, Infinity
-  if (isBoolean(value)) return true;
+const INVALID_JSON = Symbol("invalid JSON");
 
-  // Arrays
+function normalizeJson(
+  value: unknown,
+  omitUndefined = true,
+  seen = new WeakMap<object, JsonValue | typeof INVALID_JSON>()
+): JsonValue | typeof INVALID_JSON {
+  if (value === null || isString(value) || isBoolean(value)) return value;
+  if (isNumber(value)) return Number.isFinite(value) ? value : INVALID_JSON;
+  if (!(isRecord(value) || Array.isArray(value))) return INVALID_JSON;
+  const previous = seen.get(value);
+  if (previous !== undefined) return previous;
+  seen.set(value, INVALID_JSON); // A back-edge is a cycle; completed aliases are reusable.
   if (Array.isArray(value)) {
-    // Check for circular reference
-    if (seen.has(value)) return false;
-    seen.add(value);
-    for (let i = 0; i < value.length; i++) {
-      if (!isJsonValue(value[i], seen)) return false;
+    const result: JsonValue[] = [];
+    for (const original of value) {
+      if (original === undefined && !omitUndefined) return INVALID_JSON;
+      const member =
+        original === undefined
+          ? null
+          : normalizeJson(original, omitUndefined, seen);
+      if (member === INVALID_JSON) return INVALID_JSON;
+      result.push(member);
     }
-    return true;
+    seen.set(value, result);
+    return result;
   }
-
-  // Objects
-  if (isRecord(value)) {
-    // Check for circular reference
-    if (seen.has(value)) return false;
-    seen.add(value);
-
-    // Must be a plain object (not Date, RegExp, etc.)
-    const proto = Object.getPrototypeOf(value);
-    if (proto !== null && proto !== Object.prototype) return false;
-
-    for (const key of Object.keys(value)) {
-      if (!isJsonValue(value[key], seen)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== null && prototype !== Object.prototype) return INVALID_JSON;
+  const result: Record<string, JsonValue> = {};
+  for (const key of Object.keys(value)) {
+    const original = value[key];
+    if (original === undefined) {
+      if (!omitUndefined) return INVALID_JSON;
+      continue;
     }
-    return true;
+    const member = normalizeJson(original, omitUndefined, seen);
+    if (member === INVALID_JSON) return INVALID_JSON;
+    Object.defineProperty(result, key, {
+      value: member,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
   }
+  seen.set(value, result);
+  return result;
+}
 
-  return false;
+function isJsonValue(value: unknown): boolean {
+  return normalizeJson(value, false) !== INVALID_JSON;
 }
 
 /**
  * Validate that a value is JSON-compatible.
  */
-function validateJson(value: unknown) {
-  return isJsonValue(value) ? ok(value as JsonValue) : NOT_JSON_ERROR;
+function validateJson(value: unknown): ValidationResult<JsonValue> {
+  const normalized = normalizeJson(value);
+  return normalized === INVALID_JSON ? NOT_JSON_ERROR : ok(normalized);
 }
 
 /**
@@ -113,12 +140,16 @@ function validateJson(value: unknown) {
  */
 // @__NO_SIDE_EFFECTS__
 export function json<
-  const Opts extends ScalarOptions<JsonValue, any> | undefined = undefined,
+  const Opts extends ScalarOptions<JsonInput, any> | undefined = undefined,
 >(
   options?: Opts
-): JsonSchema<ComputeInput<JsonValue, Opts>, ComputeOutput<JsonValue, Opts>> {
-  return buildSchema("json", validateJson, options) as JsonSchema<
-    ComputeInput<JsonValue, Opts>,
+): JsonSchema<ComputeInput<JsonInput, Opts>, ComputeOutput<JsonValue, Opts>> {
+  return buildSchema<JsonInput, Opts | undefined>(
+    "json",
+    validateJson,
+    options
+  ) as JsonSchema<
+    ComputeInput<JsonInput, Opts>,
     ComputeOutput<JsonValue, Opts>
   >;
 }

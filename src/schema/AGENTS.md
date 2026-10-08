@@ -97,8 +97,8 @@ owns the modifier apply order and the JSON→builder-value conversions, and
 one owner each, consulted by BOTH directions: `scalars/native-catalog.ts`
 decides `native.type` and every `nativeByDialect` entry by membership of the
 declared dialect's closed catalog (derived from the shipped `PG`/`MYSQL`/`SQLITE`
-constants — a document may not spell a type they cannot produce; the scalar
-factories consult the same catalog for a native-type map), and `issues.ts` owns every guarded inspection of
+constants — a document may not spell a type they cannot produce; coded native
+maps and tagged declarations instead admit structurally valid custom types), and `issues.ts` owns every guarded inspection of
 caller input, property reads and prototype/key traps alike. Semantics stay with the subsystems: which
 modifiers a scalar type has is the class surface, a foreign key's completeness is
 the relation factory's, and a graph's topology is `validation/`'s — each is

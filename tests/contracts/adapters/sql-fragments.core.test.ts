@@ -58,11 +58,13 @@ describe("SQL fragment contracts", () => {
     expect(statement.toStatement(":n")).toBe("SELECT 1");
   });
 
-  test("keeps raw interpolation verbatim instead of binding it", () => {
-    const fragment = raw`ORDER BY ${"name"} ${"DESC"}`;
-
-    expect(fragment.strings).toEqual(["ORDER BY name DESC"]);
-    expect(fragment.values).toEqual([]);
+  test("raw tagged templates refuse interpolations instead of silently splicing", () => {
+    // @ts-expect-error Raw templates cannot interpolate even trusted values.
+    expect(() => raw`ORDER BY ${"name"} ${"DESC"}`).toThrow(
+      "cannot interpolate"
+    );
+    expect(raw`ORDER BY name DESC`.strings).toEqual(["ORDER BY name DESC"]);
+    expect(raw("ORDER BY name DESC").values).toEqual([]);
     expect(sql.raw).toBe(raw);
   });
 
@@ -97,7 +99,14 @@ describe("SQL fragment contracts", () => {
 
   test("recognizes local and structurally compatible SQL fragments", () => {
     expect(isSql(sql`SELECT ${1}`)).toBe(true);
-    expect(isSql({ strings: ["SELECT ", ""], values: [1] })).toBe(true);
+    expect(isSql({ strings: ["SELECT ", ""], values: [1] })).toBe(false);
+    expect(
+      isSql({
+        strings: ["SELECT ", ""],
+        values: [1],
+        toStatement: () => "SELECT ?",
+      })
+    ).toBe(true);
 
     expect(isSql(null)).toBe(false);
     expect(isSql(1)).toBe(false);

@@ -48,6 +48,11 @@ export {
   type StatementContext,
   type StatementHandler,
 } from "./extensions/index.js";
+export type {
+  ClientExtensionState,
+  EmptyClientExtensionState,
+  MergeExtensionState,
+} from "./extensions/methods";
 // Pending operations (for transaction batching)
 export {
   isPendingOperation,
@@ -55,6 +60,50 @@ export {
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./query-engine/pending-operation.js";
+// Inferred exported schemas must name these types through a public entry.
+export type {
+  AnyModel,
+  AutoGenerate,
+  BigIntScalar,
+  BigIntSchema,
+  BlobScalar,
+  BlobSchema,
+  BooleanScalar,
+  BooleanSchema,
+  DateScalar,
+  DateTimeScalar,
+  DecimalDescriptor,
+  DecimalScalar,
+  DecimalSchema,
+  EnumScalar,
+  EnumSchema,
+  GeneratorDefaultBrand,
+  IntegerSchema,
+  IntScalar,
+  IsoDateSchema,
+  IsoTimeSchema,
+  IsoTimestampSchema,
+  JsonScalar,
+  JsonValueSchema,
+  Model,
+  ModelInternal,
+  ModelShape,
+  ModelState,
+  ModelUpdateState,
+  NumberScalar,
+  NumberSchema,
+  NumericScalar,
+  PointScalar,
+  PointSchema,
+  Scalar,
+  ScalarState,
+  ScalarUpdateState,
+  StringScalar,
+  StringSchema,
+  TimeScalar,
+  VectorScalar,
+  VectorSchema,
+} from "./schema/exports.js";
 // Field references (`{ gt: (ctx) => ctx.fields.likes }`) — column-to-column filters.
 // `createModelFieldRefs` is the token factory the callback uses internally, and with
 // `client.$fields` gone (D-8) it is the only way to hold a token WITHOUT a callback —

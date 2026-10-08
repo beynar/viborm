@@ -29,6 +29,15 @@ describe("vector schema", () => {
       expect(result.issues?.[0]?.message).toContain("number");
     });
 
+    test("refuses non-finite components", () => {
+      for (const value of [
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+        Number.NaN,
+      ])
+        expect(parse(schema, [0, value]).issues).toBeDefined();
+    });
+
     test("type inference", () => {
       type Output = StandardSchemaV1.InferOutput<typeof schema>;
       expectTypeOf<Output>().toMatchTypeOf<number[]>();

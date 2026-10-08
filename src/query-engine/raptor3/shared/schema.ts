@@ -1,5 +1,5 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import type { AnyDriver } from "@drivers";
+import type { AnyDriver } from "@drivers/exports";
 import { QueryEngineError } from "@errors";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
 import { type AnyModel, getModelKeyCatalog } from "@schema/model";

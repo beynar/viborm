@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /**
  * Shared migration helpers that do not own a V1 command.
  */
@@ -7,6 +8,17 @@ import { MigrationError, VibORMErrorCode } from "../errors";
 import type { MigrationDriver } from "./drivers";
 import { orderTableDrops } from "./drop-order";
 import type { Dialect, DiffOperation, SchemaSnapshot } from "./types";
+
+/** PostgreSQL/MySQL derived identifiers keep their uniqueness under byte caps. */
+export function derivedMigrationName(name: string): string {
+  if (Buffer.byteLength(name) <= 63) return name;
+  let prefix = "";
+  for (const character of name) {
+    if (Buffer.byteLength(prefix + character) > 54) break;
+    prefix += character;
+  }
+  return `${prefix}_${createHash("sha256").update(name).digest("hex").slice(0, 8)}`;
+}
 
 // DIALECT UTILITIES
 // =============================================================================
@@ -83,7 +95,7 @@ const OPERATION_PRIORITY: Record<DiffOperation["type"], number> = {
   addUniqueConstraint: 14,
   createIndex: 15,
   addForeignKey: 16,
-  alterEnum: 17,
+  alterEnum: 1.5,
   dropEnum: 18,
 };
 
@@ -122,6 +134,10 @@ function supersededIndexDrops(operations: DiffOperation[]): Set<DiffOperation> {
   for (const op of operations) {
     if (op.type === "createIndex") {
       createdIndexNames.add(op.index.name);
+    } else if (op.type === "addUniqueConstraint") {
+      createdIndexNames.add(op.constraint.name);
+    } else if (op.type === "addPrimaryKey" && op.primaryKey.name) {
+      createdIndexNames.add(op.primaryKey.name);
     } else if (op.type === "dropColumn") {
       tablesLosingColumns.add(op.tableName);
     }

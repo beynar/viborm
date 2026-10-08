@@ -17,7 +17,6 @@ export {
   TransactionError,
   UniqueConstraintError,
 } from "../errors";
-
 // Types
 export type {
   AnyDriver,
@@ -26,6 +25,8 @@ export type {
 } from "./driver";
 // Base driver for custom implementations
 export { Driver } from "./driver";
+// SQLite provider decoding for custom drivers.
+export { sqliteResultParser } from "./shared/sqlite-utils";
 export type {
   BatchQuery,
   Dialect,

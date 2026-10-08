@@ -1,0 +1,45 @@
+---
+title: CLI
+description: Validate schemas, preview changes, and manage migrations
+icon: terminal
+---
+
+Run the installed CLI with `pnpm exec viborm` or `npx viborm`. Node 22 or newer
+is required. TypeScript configuration loading is bundled; no separate loader
+or Bun runtime is needed. The CLI loads `.env` from the working directory and
+then discovers `viborm.config.ts` (also `.mts`, `.js`, or `.mjs`). See
+[configuration](/docs/getting-started/configuration).
+
+| Command | Purpose |
+| --- | --- |
+| `viborm check` | Validate the configured schema, including advisory checks |
+| `viborm push --dry-run` | Preview direct synchronization without applying it |
+| `viborm push --yes` | Apply a non-destructive synchronization without a prompt |
+| `viborm migrate generate --name change` | Generate the next migration state |
+| `viborm migrate check` | Validate migration artifacts without querying the database |
+| `viborm migrate list` / `show <state>` / `graph` | Inspect recorded states and paths |
+| `viborm migrate status` | Inspect the live marker and unfinished work |
+| `viborm migrate verify` | Compare the live schema with its recorded state under a lock |
+| `viborm migrate apply --dry-run` | Preview the migration path |
+| `viborm migrate apply` | Apply pending migration states |
+| `viborm migrate down --dry-run` | Preview rollback along the recorded arrival path |
+| `viborm migrate baseline --to <state>` | Adopt an existing database only after exact schema verification |
+| `viborm migrate resolve` | Resolve unfinished work after proving its live state |
+
+Use `--help` on a command for all options. `--config <path>` selects a config;
+for migration commands put it on `migrate`, before the subcommand. Migration
+commands accept `--dir <path>` to select their artifact directory. Inspection
+and execution commands expose `--json` for machine-readable output.
+
+`--yes` does not authorize destructive changes. Review `push --dry-run`, then
+supply `--accept-data-loss` only for a plan you intend to apply. A non-interactive
+invocation requiring confirmation fails with actionable guidance. `--force-reset`
+requests a destructive rebuild and is not a remedy for an unexplained failure.
+
+Failures produce a nonzero exit code. JSON mode writes structured errors;
+cleanup finishes before the process reports success or failure. Provider SQL
+messages and values follow the same disclosure rules as application errors.
+
+See [push](/docs/migration/push) and [migrations](/docs/migration/migrate) for the
+state, rollback, and interrupted-operation contracts. No CLI command replaces
+review of a destructive plan or an independently verified backup.

@@ -86,7 +86,7 @@ const enumReplacementCases: readonly EnumReplacementCase[] = [
       dependentColumns: statusDependency,
       defaultReplacement: null,
     },
-    update: `UPDATE "account" SET "status" = NULL WHERE "status" = 'retired'`,
+    update: `CASE "status" WHEN 'retired' THEN NULL ELSE "status" END`,
   },
   {
     name: "a removed value mapped per column to a surviving value",
@@ -98,7 +98,7 @@ const enumReplacementCases: readonly EnumReplacementCase[] = [
       dependentColumns: statusDependency,
       columnValueReplacements: { "account.status": { retired: "active" } },
     },
-    update: `UPDATE "account" SET "status" = 'active' WHERE "status" = 'retired'`,
+    update: `CASE "status" WHEN 'retired' THEN 'active' ELSE "status" END`,
   },
 ];
 
@@ -166,8 +166,8 @@ describe("SQLite enum compilation edges", () => {
     const updates = statements.filter((statement) =>
       statement.startsWith("UPDATE ")
     );
-
-    expect(updates).toEqual(update === undefined ? [] : [update]);
+    expect(updates).toEqual([]);
+    if (update !== undefined) expect(statements.join("\n")).toContain(update);
     expect(statements).toContain('DROP TABLE "account"');
   });
 });

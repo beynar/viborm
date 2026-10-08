@@ -42,7 +42,7 @@ await publicClient.user.findMany({
 A default does not change a bulk operation from `{ count }` to returned rows.
 Only a projection written on that bulk call requests rows.
 
-For model-level hard exclusions and one-query `omit`, see
+For model row exclusions and one-query `omit`, see
 [Omitting fields](/docs/client/omit).
 
 ## Ordering
@@ -63,6 +63,6 @@ applied.
 ## Not authorization
 
 `defaultOmit()` is an overridable presentation default. It does not authorize
-rows, relations, filters, writes, or raw SQL. Use model `.omit()` when a field
-must be absent from the model's public surface, and use database or application
-authorization for access control.
+rows, relations, filters, writes, or raw SQL. Model `.omit()` excludes a field
+from returned model rows, but aggregates can still expose it and filters can
+still use it. Use database or application authorization for access control.

@@ -69,11 +69,11 @@ describe("scalar schema interning", () => {
   });
 
   test("builds create, update, and filter variants independently", () => {
+    const customValidation = vi.fn((value: string) => value);
     const isolated = s.model({
-      value: s.string().schema(z.string()),
+      value: s.string().schema(z.string().transform(customValidation)),
     });
     const isolatedRegistry = createSchemaRegistry({ isolated });
-    const createSpy = vi.spyOn(v, "string");
     const updateSpy = vi.spyOn(v, "shorthandUpdate");
 
     try {
@@ -87,17 +87,23 @@ describe("scalar schema interning", () => {
         "filter",
       ]);
       expect(value.filter).toBeDefined();
-      expect(createSpy).not.toHaveBeenCalled();
+      expect(customValidation).not.toHaveBeenCalled();
       expect(updateSpy).not.toHaveBeenCalled();
 
       expect(value.create).toBeDefined();
-      expect(createSpy).toHaveBeenCalledOnce();
+      expect(customValidation).not.toHaveBeenCalled();
+      expect(parse(value.create, "first")).toMatchObject({ value: "first" });
+      expect(customValidation).toHaveBeenCalledOnce();
       expect(updateSpy).not.toHaveBeenCalled();
 
       expect(value.update).toBeDefined();
+      if (!value.update) throw new Error("Expected an update schema");
       expect(updateSpy).toHaveBeenCalledOnce();
+      expect(parse(value.update, { set: "second" })).toMatchObject({
+        value: { set: "second" },
+      });
+      expect(customValidation).toHaveBeenCalledTimes(2);
     } finally {
-      createSpy.mockRestore();
       updateSpy.mockRestore();
     }
   });
@@ -146,9 +152,11 @@ describe("scalar schema interning", () => {
     expect(badB.issues?.[0]?.path?.[0]).toBe("title");
   });
 
-  test("custom schema still enforced through its filter", () => {
+  test("filters accept the stored physical domain independently of write refinement", () => {
     const whereC = registry.getModelSchemas(C).core.where as any;
     expect(parse(whereC, { email: "a@x.com" }).issues).toBeUndefined();
-    expect(parse(whereC, { email: "not-an-email" }).issues).toBeDefined();
+    expect(parse(whereC, { email: "not-an-email" }).issues).toBeUndefined();
+    expect(parse(whereC, { email: 42 }).issues).toBeDefined();
+    expect(parse(c.scalars.email.create, "not-an-email").issues).toBeDefined();
   });
 });

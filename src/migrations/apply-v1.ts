@@ -21,6 +21,7 @@ import {
   refusePartialControl,
   unfinishedAttempts,
 } from "./control";
+import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { evaluateAllChecks, executeOperations } from "./execute-dispatch";
@@ -521,7 +522,7 @@ async function assertFingerprint(
       (await fingerprintLive(expected, command, producer))
   ) {
     throw new MigrationError(
-      "Live managed schema drifted from the authenticated snapshot",
+      `Live managed schema drifted from the authenticated snapshot. Differences: ${expected ? JSON.stringify(await diff(live, expected)) : "authenticated snapshot is missing"}`,
       VibORMErrorCode.MIGRATION_DRIFT
     );
   }

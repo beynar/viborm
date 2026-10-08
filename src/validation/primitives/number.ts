@@ -72,12 +72,16 @@ export interface IntegerSchema<TInput = number, TOutput = number>
 const INTEGER_ERROR = Object.freeze({
   issues: Object.freeze([Object.freeze({ message: "Expected integer" })]),
 });
+const UNSAFE_INTEGER_ERROR = Object.freeze({
+  issues: Object.freeze([Object.freeze({ message: "Expected safe integer" })]),
+});
 
 /**
  * Validate that a value is an integer.
  */
 function validateInteger(value: unknown) {
-  return isNumber(value) && Number.isInteger(value) ? ok(value) : INTEGER_ERROR;
+  if (!(isNumber(value) && Number.isInteger(value))) return INTEGER_ERROR;
+  return Number.isSafeInteger(value) ? ok(value) : UNSAFE_INTEGER_ERROR;
 }
 
 /**

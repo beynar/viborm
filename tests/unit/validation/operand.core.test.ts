@@ -19,6 +19,11 @@ const fieldRef = (type: "int" | "string" = "int", list = false): AnyFieldRef =>
   });
 
 describe("comparison operands", () => {
+  test("refuses JSON documents masquerading as executable SQL", () => {
+    expect(
+      parse(operand, { strings: ["1 OR 1=1"], values: [] })
+    ).toHaveProperty("issues");
+  });
   test("accepts literal values, references, and SQL fragments", () => {
     expect(parse(operand, 3)).toEqual({ value: 3 });
     expect(parse(operand, fieldRef()).issues).toBeUndefined();

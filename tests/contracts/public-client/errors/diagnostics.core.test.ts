@@ -56,10 +56,17 @@ describe("diagnostic disclosure contracts", () => {
     expect(resolveDiagnosticDisclosure()).toEqual({
       includeParams: false,
       includeSql: false,
+      includeProviderDetails: false,
+      includeCallsite: false,
     });
     expect(
       resolveDiagnosticDisclosure({ includeParams: true, includeSql: true })
-    ).toEqual({ includeParams: true, includeSql: true });
+    ).toEqual({
+      includeParams: true,
+      includeSql: true,
+      includeProviderDetails: false,
+      includeCallsite: false,
+    });
 
     const hostile = new Proxy(
       {},
@@ -72,6 +79,8 @@ describe("diagnostic disclosure contracts", () => {
     expect(resolveDiagnosticDisclosure(hostile)).toEqual({
       includeParams: false,
       includeSql: false,
+      includeProviderDetails: false,
+      includeCallsite: false,
     });
   });
 

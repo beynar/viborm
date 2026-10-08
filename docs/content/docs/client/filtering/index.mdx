@@ -40,6 +40,23 @@ where: {
 
 :::info
 An explicit `undefined` value is treated as if the key were absent, matching Prisma. `where: { role: role ?? undefined }` behaves the same as omitting `role` entirely — useful for building filters conditionally without stripping keys yourself.
+
+:::warning
+Validate required filters before calling a mutation. For example,
+`deleteMany({ where: { id: undefined } })` has no ID restriction and can delete
+every row. VibORM has no strict-undefined mode. An empty `AND` or `NOT` is true;
+an empty `OR`, or an `OR` containing only empty objects after undefined keys
+are removed, is false. Build optional alternatives before constructing `OR`.
+:::
+
+## Untrusted filter values
+
+The object query API is a query language, not a values-only interface. Never
+forward a request body directly into `where`, especially on authentication or
+secret fields: `{ password: { not: "" } }` is a valid query operator. Validate
+each external value as the primitive your application expects, allowlist
+queryable fields, and construct the query on the server. Parameter binding
+prevents SQL injection; it does not authorize query operators.
 :::
 
 ## Logical Operators

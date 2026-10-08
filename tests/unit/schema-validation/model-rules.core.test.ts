@@ -317,9 +317,20 @@ describe("model definition rules", () => {
   });
 
   it("warns when generation is configured without an ID", () => {
-    const model = s.model({ id: s.string().id(), token: s.string().uuid() });
+    const model = s.model({
+      id: s.string().id(),
+      token: s.string().uuid({ generate: true }),
+    });
 
     expect(warningCodes({ model })).toContain("F008");
+  });
+
+  it("does not warn about a domain-only format or an opted-out key", () => {
+    const model = s.model({
+      id: s.string().id({ generate: false }),
+      token: s.string().uuid(),
+    });
+    expect(warningCodes({ model })).not.toContain("F008");
   });
 
   it("rejects an index field supplied by an untyped caller", () => {

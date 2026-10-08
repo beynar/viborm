@@ -237,3 +237,8 @@ where: {
 ```
 
 `array_contains` only matches when the value at the path is an array.
+
+JSON equality ignores object property order and preserves array order and value
+types. SQLite compares array members structurally, including nested objects;
+PostgreSQL and MySQL additionally support their native partial-object containment
+semantics. Use complete member values when the same filter must run on all three.

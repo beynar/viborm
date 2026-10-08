@@ -28,6 +28,7 @@ import type { ScalarType } from "@schema/scalars/common";
 import { isSql, type Sql, sql } from "@sql";
 import type { InferInput, InferOutput, VibSchema } from "../types";
 import { isFunction, isRecord } from "../value-guards";
+import { limitFilterDepth } from "./filter-depth";
 import { createSchema, fail, ok, validateSchema } from "./helpers";
 
 // =============================================================================
@@ -127,7 +128,7 @@ export function scopeOperands<S extends VibSchema<any, any>>(
   const inner = standard.validate;
   standard.validate = (value: unknown) =>
     runInOperandScope(model, () => inner(value));
-  return schema;
+  return limitFilterDepth(schema);
 }
 
 /** The context for the model in scope, or `undefined` outside any filter. */

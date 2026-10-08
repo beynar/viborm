@@ -1548,7 +1548,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     },
   },
   {
-    id: "scalars/string.mdx#3",
+    id: "scalars/string.mdx#4",
     coded: () => {
       const user = s.model({ id: s.string().id().uuid("usr") });
       return { user };

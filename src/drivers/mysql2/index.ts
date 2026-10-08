@@ -230,10 +230,13 @@ function resolveMySQL2Configuration(
 ): MySQL2Configuration {
   const explicit = resolveNamespaceOption(options);
   const databaseUrl = options.databaseUrl;
+  const urlOptions = databaseUrl
+    ? parseMySQL2ConfiguredUrl(databaseUrl)
+    : undefined;
   const captured = {
-    urlOptions: databaseUrl ? parseMySQL2ConfiguredUrl(databaseUrl) : undefined,
+    urlOptions,
     suppliedPool: options.pool,
-    connectionOptions: { ...options.options },
+    connectionOptions: { ...options.options, ...urlOptions },
   };
   return {
     namespace: explicit ?? deriveMySQL2Namespace(captured),
@@ -377,10 +380,18 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
-    const [result, fields] = await client.execute(
+    const [result, fields] = await client.query({
       sql,
-      convertValuesForMySQL(params)
-    );
+      values: convertValuesForMySQL(params),
+      // Per-statement decoding also covers borrowed pools without mutating
+      // their connection options. Text protocol avoids a statement per IN size.
+      typeCast: (field, next) =>
+        ["DATE", "DATETIME", "TIMESTAMP", "LONGLONG", "NEWDECIMAL"].includes(
+          field.type
+        )
+          ? field.string()
+          : next(),
+    });
     return toQueryResult<T>(result, fields, operation);
   }
 

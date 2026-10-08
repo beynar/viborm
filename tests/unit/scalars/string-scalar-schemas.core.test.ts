@@ -816,7 +816,7 @@ describe("Default Value Behavior", () => {
 
   describe("auto-generated scalars", () => {
     test("uuid: type is optional, runtime uses generator", () => {
-      const scalar = string().uuid();
+      const scalar = string().uuid({ generate: true });
       type State = (typeof scalar)["~"]["state"];
       type Create = InferStringInput<State, "create">;
       expectTypeOf<string | undefined>().toExtend<Create>();
@@ -829,7 +829,7 @@ describe("Default Value Behavior", () => {
     });
 
     test("ulid: type is optional, runtime uses generator", () => {
-      const scalar = string().ulid();
+      const scalar = string().ulid({ generate: true });
       type State = (typeof scalar)["~"]["state"];
       type Create = InferStringInput<State, "create">;
       expectTypeOf<string | undefined>().toExtend<Create>();
@@ -842,7 +842,7 @@ describe("Default Value Behavior", () => {
     });
 
     test("nanoid: type is optional, runtime uses generator", () => {
-      const scalar = string().nanoid();
+      const scalar = string().nanoid({ generate: true });
       type State = (typeof scalar)["~"]["state"];
       type Create = InferStringInput<State, "create">;
       expectTypeOf<string | undefined>().toExtend<Create>();
@@ -855,7 +855,7 @@ describe("Default Value Behavior", () => {
     });
 
     test("cuid: type is optional, runtime uses generator", () => {
-      const scalar = string().cuid();
+      const scalar = string().cuid({ generate: true });
       type State = (typeof scalar)["~"]["state"];
       type Create = InferStringInput<State, "create">;
       expectTypeOf<string | undefined>().toExtend<Create>();
@@ -1032,9 +1032,10 @@ describe("a declared identifier domain", () => {
       expect(result.issues?.[0]?.message).toBe(
         "Expected a uuid value prefixed 'usr-'"
       );
-      expect(
-        admitted(schemas.filter, { equals: `usr-${UUID}` })
-      ).toBeUndefined();
+      expect(admitted(schemas.filter, { equals: `usr-${UUID}` })).toEqual({
+        equals: `usr-${UUID}`,
+      });
+      expect(admitted(schemas.filter, { equals: "garbage" })).toBeUndefined();
 
       const user = s.model({
         id: s.string().uuid("usr").schema(schema).id(),
@@ -1066,16 +1067,18 @@ describe("a declared identifier domain", () => {
         `usr-${UUID}`
       );
       expect(seen).toEqual([`usr-${UUID}`]);
-      // ... and what it returns leaves canonical, operand and value alike.
+      // Filters canonicalize the stored domain without running the write schema.
       expect(admitted(schemas.filter, { equals: `usr-${UUID}` })).toEqual({
         equals: `usr-${UUID}`,
       });
+      expect(seen).toEqual([`usr-${UUID}`]);
     });
   });
 
-  test("a LIST of strings has no domain, whatever it declares", () => {
+  test("a formatted string list validates and canonicalizes every member", () => {
     const list = getScalarSchemas(string().uuid().array()["~"].state);
-    expect(admitted(list.create, ["anything"])).toEqual(["anything"]);
+    expect(admitted(list.create, ["anything"])).toBeUndefined();
+    expect(admitted(list.create, [UUID.toUpperCase()])).toEqual([UUID]);
   });
 
   test("a DERIVED domain admits on a field that declares nothing", () => {

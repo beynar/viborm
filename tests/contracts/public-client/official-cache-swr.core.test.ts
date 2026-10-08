@@ -547,7 +547,7 @@ describe("official cache stale-while-revalidate", () => {
       await expect(state.settle()).resolves.toBeUndefined();
       expect(state.scheduled).toEqual([]);
       if (scenario === "snapshot") {
-        expect(hostileJsonReadsAtCoreBoundary).toBe(1);
+        expect(hostileJsonReadsAtCoreBoundary).toBe(0);
         expect(hostileJsonGetterReads).toBe(hostileJsonReadsAtCoreBoundary);
         publishHostileJson = false;
         hostileJsonGetterReads = 0;

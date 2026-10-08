@@ -133,7 +133,7 @@ export function withPackedConsumer(name, files, use) {
         throw new Error(`The ${label} did not finish:\n${output}`);
       }
     };
-    use({ typeCheck, run });
+    use({ typeCheck, run, root: consumerRoot });
   } finally {
     rmSync(fixtureRoot, { force: true, recursive: true });
   }

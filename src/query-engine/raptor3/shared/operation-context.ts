@@ -2,13 +2,16 @@ import {
   assembleAdapterSelect,
   getAdapterInternals,
 } from "@adapters/adapter-internals";
-import type { AnyDriver } from "@drivers";
-import { attachCommitCertainty } from "@drivers/driver-error-context";
+import type { PhysicalSchemaCheck } from "@client/physical-schema";
+import type { AnyDriver } from "@drivers/exports";
+import {
+  attachCommitCertainty,
+  remapStatementIndex,
+} from "@drivers/driver-error-context";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   bindExecutionTransactionPhases,
   deriveStatementExecutionContext,
-  getExecutionExtensionChain,
 } from "@drivers/execution-context";
 import {
   borrowPositionalResult,
@@ -31,11 +34,12 @@ import {
   retainWriteOutcomeFailure,
   TransactionError,
   UniqueConstraintError,
+  UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
-import { getOfficialInstrumentationChainCapability } from "@extensions/observation";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
+import { attributeOperationBatchError } from "../../batch-error-attribution";
 import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
@@ -220,56 +224,9 @@ export interface ObservationPremise {
   readonly present: boolean;
   readonly failure: () => Error;
 }
-/**
- * The one sentence a dropped `skipDuplicates` states
- * ({@link OperationContext.admitsSuppression}).
- */
-function droppedSkipMessage(
-  driver: string,
-  model: string,
-  operation: string,
-  rows: string
-): string {
-  return `createMany skipDuplicates cannot skip ${rows} on driver "${driver}" (no savepoint in this scope to undo a duplicate) in ${model}.${operation}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
-}
-
-/**
- * Client lineages and the models already warned. A lineage is one
- * `createClient`: its derived and transaction views share it. Neither the
- * engine schema nor the driver is one — independent clients may share both.
- */
-const droppedSkipWarnings = new WeakMap<object, Set<string>>();
-
-/**
- * Warn ONCE per client lineage and model — not per row, not per call. The
- * official instrumentation extension presents it when it routes warnings;
- * otherwise `console.warn` does, so the dropped skip is loud even with logging
- * off.
- */
-function warnDroppedSkip(
-  lineage: object,
-  model: string,
-  operation: Operation,
-  message: string,
-  attribution: QueryExecutionContext | undefined
-): void {
-  let warned = droppedSkipWarnings.get(lineage);
-  if (!warned) droppedSkipWarnings.set(lineage, (warned = new Set()));
-  if (warned.has(model)) return;
-  warned.add(model);
-  const presented = getOfficialInstrumentationChainCapability(
-    getExecutionExtensionChain(attribution)
-  )?.warn({
-    model,
-    operation,
-    correlationId: attribution?.correlationId,
-    message,
-  });
-  if (presented !== true) console.warn(`[viborm] ${message}`);
-}
-
 export class OperationContext {
   readonly queries: Queries;
+  readonly modelDependencies = new Set<AnyModel>();
   readonly driver: AnyDriver;
   readonly usesBatch: boolean;
   readonly #ownership: ExecutionOwnership;
@@ -451,8 +408,7 @@ export class OperationContext {
    * attribution (g4/unit03/note.md B-4).
    */
   readonly #callerAttribution: QueryExecutionContext | undefined;
-  /** The client lineage this operation belongs to (see `warnDroppedSkip`). */
-  readonly #lineage: object;
+  readonly checkStorage: PhysicalSchemaCheck | undefined;
   constructor(
     schema: EngineSchema,
     factoryDriver: AnyDriver,
@@ -462,14 +418,15 @@ export class OperationContext {
     prepareBatch = false,
     callerAttribution?: QueryExecutionContext,
     scope?: CallScope,
-    lineage: object = factoryDriver
+    _lineage: object = factoryDriver,
+    checkStorage?: PhysicalSchemaCheck
   ) {
+    this.checkStorage = checkStorage;
     this.scope = scope;
     this.schema = schema;
     this.modelName = modelName;
     this.operation = operation;
     this.#callerAttribution = callerAttribution;
-    this.#lineage = lineage;
     this.#ownership = prepareBatch
       ? "batch-preparation"
       : (binding?.kind ?? "standalone");
@@ -492,7 +449,8 @@ export class OperationContext {
       schema,
       this.driver.adapter,
       this.driver.result,
-      scope?.domain
+      scope?.domain,
+      this.modelDependencies
     );
   }
   get attribution(): QueryExecutionContext {
@@ -641,10 +599,7 @@ export class OperationContext {
     rootProducer: object,
     member: Member
   ): Promise<boolean> {
-    if (!this.admitsSuppression("rows involving nested writes")) {
-      await this.executeMember(execute, member);
-      return true;
-    }
+    this.admitsSuppression("rows involving nested writes");
     return this.executeMember(async () => {
       try {
         await this.#withMemberRollback(async () => execute());
@@ -680,38 +635,17 @@ export class OperationContext {
       ? this.#memberRollback(withinRollback, this.attribution)
       : outer.withTransaction(withinRollback, undefined, this.attribution);
   }
-  /**
-   * Whether this operation can skip a duplicate `createMany` member: only
-   * inside a member rollback region it owns. A transport with no such region
-   * (a batch-only driver standalone, an array-transaction batch, or an
-   * array-transaction fallback that grants none) cannot undo a member's
-   * partial effects, so the skip is DROPPED rather than refused (Arnaud,
-   * 2026-09-24, "Warn, drop skipDuplicates"): the operation warns once and
-   * runs every member as a plain member, so a duplicate fails with the
-   * ordinary `UniqueConstraintError` and, on a segmented transport, earlier
-   * members stay committed exactly as for a `createMany` without the flag.
-   */
-  admitsSuppression(rows: string): boolean {
+  /** Member suppression requires rollback ownership before any provider effects. */
+  admitsSuppression(rows: string): true {
     if (
-      !(
-        (this.#ownership === "borrowed-transaction" && !this.#memberRollback) ||
-        this.usesBatch
-      )
+      (this.#ownership === "borrowed-transaction" && !this.#memberRollback) ||
+      this.usesBatch
     )
-      return true;
-    warnDroppedSkip(
-      this.#lineage,
-      this.modelName,
-      this.operation,
-      droppedSkipMessage(
-        this.driver.driverName,
-        this.modelName,
-        this.operation,
-        rows
-      ),
-      this.#callerAttribution
-    );
-    return false;
+      throw new UnsupportedOperationError(
+        `skipDuplicates cannot skip ${rows} on driver '${this.driver.driverName}' in this scope; a member savepoint is required.`,
+        { meta: { model: this.modelName, operation: this.operation } }
+      );
+    return true;
   }
   failure(
     error: unknown,
@@ -1008,6 +942,147 @@ export class OperationContext {
       return Promise.reject(error);
     }
   }
+  /** Catalog observations plan premises; the same atomic unit enforces them. */
+  private async storageGuards(): Promise<{
+    statements: BatchQuery[];
+    guards: PreparedBatchGuard[];
+  }> {
+    const premises = await this.checkStorage?.(
+      this.#transport,
+      this.attribution,
+      this.modelDependencies
+    );
+    const context = deriveStatementExecutionContext(
+      this.attribution,
+      "$schema",
+      "verifyStorage"
+    );
+    const guards: PreparedBatchGuard[] = [];
+    const statements = (premises ?? []).map(
+      ({ query, failure }, queryIndex) => {
+        guards.push({
+          queryIndex,
+          probe: query,
+          premise: "exists",
+          failure: {
+            kind: "unsupported",
+            message: failure.message,
+            raceable: false,
+          },
+          model:
+            typeof failure.meta.model === "string"
+              ? failure.meta.model
+              : this.modelName,
+          operation: this.operation,
+        });
+        const prepared = this.#transport._prepare(
+          this.driver.adapter.assertions.exists(query),
+          context
+        );
+        return transferPreparedStatement(prepared, { ...prepared, context });
+      }
+    );
+    return { statements, guards };
+  }
+  async #executePhysical<T>(
+    statement: Sql,
+    context: QueryExecutionContext,
+    physical?: { statements: BatchQuery[]; guards: PreparedBatchGuard[] }
+  ): Promise<QueryResult<T>> {
+    if (!this.checkStorage)
+      return this.#transport._execute<T>(statement, context);
+    const guards = physical ?? (await this.storageGuards());
+    if (guards.statements.length === 0)
+      return this.#transport._execute<T>(statement, context);
+    const prepared = this.#transport._prepare(statement, context);
+    const results = await this.#executePhysicalBatch<T>(
+      [transferPreparedStatement(prepared, { ...prepared, context })],
+      undefined,
+      context,
+      undefined,
+      guards
+    );
+    const result = results[0];
+    if (!result)
+      throw new TransactionError(
+        `Driver '${this.driver.driverName}' omitted the result for operation '${this.operation}'.`,
+        { meta: this.#errorMeta }
+      );
+    return result;
+  }
+  async #executePhysicalBatch<T>(
+    statements: readonly BatchQuery[],
+    options?: Parameters<AnyDriver["_executeBatch"]>[1],
+    context?: QueryExecutionContext,
+    acknowledged?: () => Promise<void>,
+    physical?: { statements: BatchQuery[]; guards: PreparedBatchGuard[] }
+  ): Promise<QueryResult<T>[]> {
+    if (!this.checkStorage)
+      return this.#transport._executeBatch<T>(
+        [...statements],
+        options,
+        context,
+        acknowledged
+      );
+    const guards = physical ?? (await this.storageGuards());
+    const combined = [...guards.statements, ...statements];
+    try {
+      const results = await this.#transport._executeBatch<T>(
+        combined,
+        options,
+        context,
+        acknowledged
+      );
+      return results.slice(guards.statements.length);
+    } catch (error) {
+      const attributed = await attributeOperationBatchError(
+        error,
+        guards.guards,
+        this.#transport,
+        combined
+      );
+      // Existing mutation attribution reads indices in its own result window.
+      if (
+        attributed === error &&
+        isVibORMError(error) &&
+        typeof error.meta.statementIndex === "number"
+      )
+        throw remapStatementIndex(
+          error,
+          error.meta.statementIndex - guards.statements.length
+        );
+      throw attributed;
+    }
+  }
+  async prepareStorageBatch(): Promise<
+    PreparedBatchOperation<unknown> | undefined
+  > {
+    const operation = this.preparedBatch();
+    if (!(operation && this.checkStorage)) return operation;
+    const physical = await this.storageGuards();
+    if (physical.statements.length === 0) return operation;
+    const offset = physical.statements.length;
+    return {
+      queries: [
+        ...physical.statements.map((statement) =>
+          transferPreparedStatement(statement, {
+            sql: statement.sql,
+            params: statement.params ?? [],
+            context: statement.context ?? this.attribution,
+          })
+        ),
+        ...operation.queries,
+      ],
+      guards: [
+        ...physical.guards,
+        ...(operation.guards ?? []).map((guard) => ({
+          ...guard,
+          queryIndex: guard.queryIndex + offset,
+        })),
+      ],
+      parseResult: (results) => operation.parseResult(results.slice(offset)),
+    };
+  }
   /** Discard the un-executed plan so the body can be constructed again. */
   #restart(attempt = new TransportAttempt()): void {
     this.#attemptStore = attempt;
@@ -1022,10 +1097,15 @@ export class OperationContext {
    * without knowing how a command attempt is built. It answers the replacement
    * transport region once, and `undefined` ever after.
    */
-  attachRecovery(replace: () => TransportAttempt | undefined): void {
+  attachRecovery(
+    replace: () => TransportAttempt | undefined,
+    acceptsInsert: (error: unknown) => boolean
+  ): void {
     this.#replaceAttempt = replace;
+    this.#acceptInsertRecovery = acceptsInsert;
   }
   #replaceAttempt: (() => TransportAttempt | undefined) | undefined;
+  #acceptInsertRecovery: ((error: unknown) => boolean) | undefined;
   #recoverySpent = false;
   /**
    * The ONE recovery allowance, spent here and nowhere else.
@@ -1051,7 +1131,7 @@ export class OperationContext {
    * {@link run}'s — a FRESH region — and never a replay inside the failed one.
    */
   get replaysInPlace(): boolean {
-    return !this.#ownRegionOpen;
+    return this.#ownership === "standalone" && !this.#ownRegionOpen;
   }
   /**
    * The operation's region, and the ONE recovery allowance that belongs to the
@@ -1075,7 +1155,11 @@ export class OperationContext {
     try {
       return await this.#withinRegion(region, body);
     } catch (error) {
-      if (this.recoveryRejection(error)?.kind !== "insert") throw error;
+      if (
+        this.recoveryRejection(error)?.kind !== "insert" ||
+        !this.#acceptInsertRecovery?.(error)
+      )
+        throw error;
       const replacement = this.spendRecovery();
       if (!replacement) throw error;
       this.#restart(replacement);
@@ -1158,7 +1242,8 @@ export class OperationContext {
   private async answer(
     query: Query,
     terminal: boolean,
-    model?: AnyModel
+    model?: AnyModel,
+    physical?: { statements: BatchQuery[]; guards: PreparedBatchGuard[] }
   ): Promise<QueryResult<Input>> {
     const observer = this.#executingMember;
     if (observer && this.#attemptStore?.holdsOtherMemberWrite(observer))
@@ -1167,7 +1252,7 @@ export class OperationContext {
       ? this.statementContext(model, this.operation)
       : this.attribution;
     return this.dispatch(1, terminal, () =>
-      this.#transport._execute<Input>(query.sql, context)
+      this.#executePhysical<Input>(query.sql, context, physical)
     );
   }
   /**
@@ -1224,12 +1309,15 @@ export class OperationContext {
   async publish(read: Read, missing?: () => Error): Promise<unknown> {
     if (this.#ownership === "batch-preparation")
       return this.publishPrepared(read, missing);
+    const physical = this.checkStorage ? await this.storageGuards() : undefined;
     const positional =
-      this.#ownership === "standalone" && read.value.kind === "collection"
+      (!physical || physical.statements.length === 0) &&
+      this.#ownership === "standalone" &&
+      read.value.kind === "collection"
         ? resolvePositionalResultDriver(this.#transport)
         : undefined;
     if (positional) return this.#publishPositional(read, missing, positional);
-    const response = await this.answer(read.query, true);
+    const response = await this.answer(read.query, true, undefined, physical);
     return this.#decideRead(
       read,
       missing,
@@ -1508,7 +1596,7 @@ export class OperationContext {
     let responses: QueryResult<Input>[];
     try {
       responses = await this.dispatch(statements.length, false, () =>
-        this.#transport._executeBatch<Input>(
+        this.#executePhysicalBatch<Input>(
           statements,
           undefined,
           this.attribution,
@@ -1808,7 +1896,11 @@ export class OperationContext {
     // the producer is RECORDED — bounded by member admission on the route whose
     // recovery REPLAYS in place ({@link submit}), unbounded on the route that
     // RE-PLANS ({@link insert}), which is what D-25 allows.
-    if (this.#ownership !== "standalone") return undefined;
+    if (
+      this.#ownership !== "standalone" &&
+      !(this.#ownership === "borrowed-transaction" && this.#operationRegion)
+    )
+      return undefined;
     if (this.#committedProgress) return undefined;
     // An ATOMIC ASSERTION is answered by a fresh PLAN over the same admitted
     // arguments, which re-reads committed state (D-25), so dynamic member
@@ -2148,7 +2240,7 @@ export class OperationContext {
       try {
         for (const statement of statements)
           results.push(
-            await this.#transport._execute(statement.sql, statement.context)
+            await this.#executePhysical(statement.sql, statement.context)
           );
       } catch (error) {
         // The same sentence {@link submit}'s catch states about its batch: a
@@ -2274,6 +2366,28 @@ export class OperationContext {
           : { count: result.rowCount }
     );
   }
+  /** Child-free inserts may share a statement inside this operation's own region. */
+  async insertMany(
+    model: AnyModel,
+    rows: () => Input[]
+  ): Promise<number | undefined> {
+    if (!this.#ownRegionOpen || this.usesBatch) return undefined;
+    return (await this.createMany(model, rows())).count;
+  }
+  createMany(
+    model: AnyModel,
+    rows: Input[],
+    projection?: undefined,
+    skipDuplicates?: boolean,
+    single?: () => Error
+  ): Promise<{ count: number }>;
+  createMany(
+    model: AnyModel,
+    rows: Input[],
+    projection?: PreparedProjection,
+    skipDuplicates?: boolean,
+    single?: () => Error
+  ): Promise<unknown>;
   async createMany(
     model: AnyModel,
     rows: Input[],
@@ -2332,8 +2446,8 @@ export class OperationContext {
           response = await this.executeMember(async () => {
             try {
               return await this.dispatch(1, false, () =>
-                this.#withMemberRollback((driver) =>
-                  driver._execute(statement, context)
+                this.#withMemberRollback(() =>
+                  this.#executePhysical(statement, context)
                 )
               );
             } catch (error) {
@@ -2345,7 +2459,7 @@ export class OperationContext {
           response = await this.executeMember(
             () =>
               this.dispatch(1, false, () =>
-                this.#transport._execute(statement, context)
+                this.#executePhysical(statement, context)
               ),
             row
           );
@@ -2429,21 +2543,8 @@ export class OperationContext {
         (count, result) => count + result.rowCount,
         0
       );
-      // An affected-row count is EXECUTION semantics, not a provider opinion
-      // this operation forwards: a driver that acknowledges FEWER rows than
-      // were submitted has not written the request, and the operation says so
-      // instead of publishing the shortfall as its answer. `skipDuplicates` is
-      // the one admitted shape whose shortfall IS the answer. A count ABOVE the
-      // submitted rows is not this owner's to refuse — MySQL's duplicate clause
-      // counts two per replaced row and a trigger inflates the same number —
-      // and the estate pins that a driver's own window survives unchanged
-      // (`query-interceptors-array.core.test.ts` "preserves single,
-      // multi-statement, guard, and raw result windows").
-      if (!skipDuplicates && written < rows.length)
-        throw new TransactionError(
-          `Driver '${this.driver.driverName}' reported ${written} of ${rows.length} inserted rows for operation '${this.operation}'.`,
-          { meta: this.#errorMeta }
-        );
+      // Triggers may legitimately suppress rows. The provider's affected count
+      // is the completed write's answer, never a reason to fail after commit.
       if (!projection) return { count: written };
       const raw: Input[] = [];
       for (const result of results) raw.push(...result.rows.map(record));
@@ -2753,7 +2854,7 @@ export class OperationContext {
     if (!this.usesBatch) {
       answered(
         await this.dispatch(1, false, () =>
-          this.#transport._execute(statement, context)
+          this.#executePhysical(statement, context)
         )
       );
       return;
@@ -2970,7 +3071,7 @@ export class OperationContext {
       let response: QueryResult<Input>;
       try {
         response = await this.dispatch(1, false, () =>
-          this.#transport._execute<Input>(statement, context)
+          this.#executePhysical<Input>(statement, context)
         );
       } catch (error) {
         if (producer && error instanceof UniqueConstraintError)
@@ -3231,7 +3332,7 @@ export class OperationContext {
       const projection = q.prepareProjection(model, { select });
       if (!adapter.capabilities.supportsReturning) {
         await this.dispatch(1, false, () =>
-          this.#transport._execute(statement, context)
+          this.#executePhysical(statement, context)
         );
         // This read answers "which row did the UPDATE just write?", and only a
         // CURRENT read can: under REPEATABLE READ a consistent read answers
@@ -3259,7 +3360,7 @@ export class OperationContext {
         return { ...published, ...rows[0] };
       }
       const response = await this.dispatch(1, false, () =>
-        this.#transport._execute<Input>(
+        this.#executePhysical<Input>(
           sql`${statement} ${adapter.mutations.returning(
             sql.join(q.lowerProjection(projection), ", ")
           )}`,
@@ -3367,7 +3468,7 @@ export class OperationContext {
         if (this.usesBatch) this.#queue(remove, context, member);
         else {
           const response = await this.dispatch(1, false, () =>
-            this.#transport._execute(remove, context)
+            this.#executePhysical(remove, context)
           );
           if (response.rowCount !== 1) {
             const failure = new TransactionError(
@@ -3655,7 +3756,7 @@ export class OperationContext {
     if (this.usesBatch) this.#queue(statement, context, member);
     else
       await this.dispatch(1, false, () =>
-        this.#transport._execute(statement, context)
+        this.#executePhysical(statement, context)
       );
   }
 }

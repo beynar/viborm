@@ -5,6 +5,7 @@ import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
+  nullableDefault,
   type ScalarState,
   updateState,
 } from "../common";
@@ -32,7 +33,7 @@ export class BlobScalar<State extends ScalarState<"blob">> {
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         base: v.blob<{
           nullable: true;

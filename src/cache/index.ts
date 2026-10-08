@@ -10,7 +10,7 @@ export {
   type WaitUntilFn,
 } from "./driver";
 export { CloudflareKVCache } from "./drivers/cloudflare-kv";
-export { MemoryCache } from "./drivers/memory";
+export { MemoryCache, type MemoryCacheOptions } from "./drivers/memory";
 export { type CacheExtensionConfig, cache } from "./extension";
 export { CACHE_PREFIX, generateCacheKey, generateCachePrefix } from "./key";
 export {

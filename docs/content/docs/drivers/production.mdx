@@ -1,0 +1,73 @@
+---
+title: Production connections
+description: Pool ownership, readiness, transaction deadlines and driver recovery
+---
+
+Reuse a driver and its pool for the application's lifetime. Creating one per
+request multiplies database connections. Size the pool against the total number
+of processes or concurrent serverless instances, the database connection budget
+and the work each request actually performs. VibORM passes native pool options
+through; use the provider's `max` and connection acquisition timeout settings.
+A callback transaction holds its connection while it awaits application I/O.
+
+## Supplied clients
+
+Your application owns a supplied client or pool, including listeners, unrelated
+users and shutdown. `$disconnect()` does not close it. Follow the parser setup in
+[pg](/docs/drivers/postgresql/pg),
+[postgres.js](/docs/drivers/postgresql/postgres),
+[PGlite](/docs/drivers/postgresql/pglite),
+[mysql2](/docs/drivers/mysql/mysql2) or
+[libSQL](/docs/drivers/sqlite/libsql). A supplied pg pool needs its own idle-error
+listener installed before use; an unhandled pool error is a process failure.
+
+A database URL retains its native TLS and provider options. Configure certificate
+verification according to your database provider; the ORM does not turn an
+unsupported TLS option into a successful plaintext connection.
+
+## Readiness and shutdown
+
+`$connect()` initializes the driver's handle. A lazily connected pool may not
+contact the database until its first query, so readiness must execute a small
+query such as a trusted `sql` fragment containing `SELECT 1`. Readiness proves
+that request's connection and authentication, not future availability.
+
+Stop accepting new work before shutdown and await in-flight operations before
+`$disconnect()`. A supplied pool is closed by its owner after all its users stop.
+VibORM has no universal shutdown deadline; native pool/client settings and the
+application shutdown policy determine the bound. A rejected owned-client close
+quarantines that handle until a later `$disconnect()` succeeds.
+
+## Transactions and recovery
+
+Use the documented per-call `timeout` and `maxWait` options when the selected
+[transaction form](/docs/client/transactions) supports them. Batch HTTP
+transactions have no application callback window. Single-handle drivers queue
+independent callers; runtimes without async-context tracking detect reentry by a
+finite queue wait rather than immediate context detection. Keep callbacks short.
+
+A retryable error class does not prove that a write was not committed. Retry only
+when the operation's idempotency and the error's commit certainty make it safe;
+transaction callbacks can include effects outside the database. Authentication,
+configuration and closed-handle refusals require correcting that condition.
+
+Local libSQL `SQLITE_BUSY` quarantines the exact native handle because the SDK can
+retain an uncommitted write after the failure. Further VibORM work on that handle
+is refused. An owned driver can disconnect and create a fresh client; the owner
+of a supplied client must replace it. VibORM does not close or repair unrelated
+users of a supplied handle.
+
+## Poolers and edge runtimes
+
+A PostgreSQL pooler endpoint is still a PostgreSQL URL. Its session/transaction
+pooling mode and prepared-statement policy belong to the pooler. The postgres.js
+driver defaults to `prepare: false`; opt in only when the endpoint supports that
+provider contract. Namespace qualification does not depend on session search_path.
+
+Use [Neon HTTP](/docs/drivers/postgresql/neon-http) for stateless HTTP requests.
+Its ordered batch/isolation support does not provide interactive callbacks.
+A Neon WebSocket Pool is not a pg Pool and is not accepted as one. pg/postgres.js
+on Workers, Hyperdrive, Deno and other TCP/runtime combinations need qualification
+for their native client/runtime pairing; the Node.js driver qualification does
+not establish those combinations. Unsupported runtime or provider combinations
+are not implied by an HTTP or WASM label.

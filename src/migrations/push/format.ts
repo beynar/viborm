@@ -69,6 +69,8 @@ export function formatDestructiveOperation(op: DiffOperation): string {
       return `[destructive] Drop table "${op.tableName}"`;
     case "dropColumn":
       return `[destructive] Drop column "${op.columnName}" from "${op.tableName}"`;
+    case "addColumn":
+      return `[destructive] Add required column "${op.tableName}.${op.column.name}" without a backfill default`;
     case "alterColumn":
       return `[destructive] Alter column "${op.columnName}" in "${op.tableName}"`;
     default:

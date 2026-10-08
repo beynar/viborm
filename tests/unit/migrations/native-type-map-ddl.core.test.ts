@@ -177,7 +177,7 @@ describe("the tagged shorthand is unchanged", () => {
   const SHORTHAND_PINNED: Record<Dialect, string[]> = {
     pg: [
       "CREATE TYPE \"ntm_short_owners_kind_enum\" AS ENUM ('a', 'b')",
-      'CREATE TABLE "ntm_short_owners" (\n  "id" bytea NOT NULL,\n  "code" bytea NOT NULL,\n  "handle" text NOT NULL,\n  "small" smallint NOT NULL,\n  "tiny" integer NOT NULL,\n  "big" bigint NOT NULL,\n  "ratio" real NOT NULL,\n  "flag" boolean NOT NULL,\n  "doc" json NOT NULL,\n  "bytes" bytea NOT NULL,\n  "embedding" text NOT NULL,\n  "kind" ntm_short_owners_kind_enum NOT NULL,\n  "seenAt" timestamptz NOT NULL DEFAULT \'2026-01-01T00:00:00.000Z\',\n  "stampedAt" timestamptz DEFAULT NULL,\n  "at" timestamp(3) NOT NULL,\n  "day" date NOT NULL,\n  "clock" timetz NOT NULL,\n  "tags" varchar(20)[] NOT NULL,\n  CONSTRAINT "ntm_short_owners_pkey" PRIMARY KEY ("id"),\n  CONSTRAINT "ntm_short_owners_code_key" UNIQUE ("code")\n)',
+      'CREATE TABLE "ntm_short_owners" (\n  "id" bytea NOT NULL,\n  "code" bytea NOT NULL,\n  "handle" text NOT NULL,\n  "small" smallint NOT NULL,\n  "tiny" integer NOT NULL,\n  "big" bigint NOT NULL,\n  "ratio" real NOT NULL,\n  "flag" boolean NOT NULL,\n  "doc" json NOT NULL,\n  "bytes" bytea NOT NULL,\n  "embedding" text NOT NULL,\n  "kind" ntm_short_owners_kind_enum NOT NULL,\n  "seenAt" timestamptz(3) NOT NULL DEFAULT \'2026-01-01T00:00:00.000Z\',\n  "stampedAt" timestamptz(3),\n  "at" timestamp(3) NOT NULL,\n  "day" date NOT NULL,\n  "clock" time(3) NOT NULL,\n  "tags" varchar(20)[] NOT NULL,\n  CONSTRAINT "ntm_short_owners_pkey" PRIMARY KEY ("id"),\n  CONSTRAINT "ntm_short_owners_code_key" UNIQUE ("code")\n)',
       'CREATE TABLE "ntm_short_pets" (\n  "id" text NOT NULL,\n  "ownerId" bytea NOT NULL,\n  CONSTRAINT "ntm_short_pets_pkey" PRIMARY KEY ("id")\n);\nCREATE INDEX "ntm_short_pets_ownerId_idx" ON "ntm_short_pets" ("ownerId");\nALTER TABLE "ntm_short_pets" ADD CONSTRAINT "ntm_short_pets_ownerId_fkey" FOREIGN KEY ("ownerId") REFERENCES "ntm_short_owners" ("id") ON DELETE RESTRICT ON UPDATE NO ACTION',
     ],
     mysql: [
@@ -193,7 +193,7 @@ describe("the tagged shorthand is unchanged", () => {
 
   test.each(
     DIALECTS
-  )("%s: every factory's shorthand keeps origin/main's DDL", async (dialect) => {
+  )("%s: every factory's shorthand preserves physical types with millisecond temporal defaults", async (dialect) => {
     expect(await createDDL(shorthandSchema(), dialect)).toEqual(
       SHORTHAND_PINNED[dialect]
     );
@@ -240,7 +240,7 @@ describe("representatives", () => {
     );
     const julian = event(s.dateTime({ sqlite: SQLITE.DATETIME.REAL }));
     expect(typesOf(julian, "ntm_events", "at")).toEqual({
-      pg: "timestamptz",
+      pg: "timestamptz(3)",
       mysql: "DATETIME(3)",
       sqlite: "REAL",
     });

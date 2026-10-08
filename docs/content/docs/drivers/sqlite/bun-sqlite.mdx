@@ -58,6 +58,24 @@ const client = createClient({
 });
 ```
 
+### Using an existing database
+
+```typescript
+import { Database } from "bun:sqlite";
+import { createClient } from "viborm/bun-sqlite";
+
+const database = new Database("./database.sqlite");
+database.exec("PRAGMA foreign_keys = ON");
+const client = createClient({ schema, client: database });
+```
+
+VibORM checks supplied foreign-key enforcement without changing it, and
+`$disconnect()` leaves the supplied database open. Its owner calls
+`database.close()`. Wrappers sharing one database use the same transaction
+queue. Transactions begin with `BEGIN IMMEDIATE`; owned databases use a
+5-second busy timeout. Strings with unpaired UTF-16 surrogates are refused
+before dispatch because Bun SQLite cannot preserve them.
+
 ## Large integers
 
 SQLite's `INTEGER` is 64-bit, so a value past `2^53` cannot survive as a JS
@@ -100,3 +118,8 @@ Bun SQLite supports full transactions with savepoints for nested transactions â€
 - JSON columns are parsed automatically
 - Boolean values stored as integers (0/1)
 - Synchronous API internally (async wrapper)
+
+Raw INTEGER results use `number` within JavaScriptâ€™s safe integer range and
+`bigint` outside it. Safe Sql fragments, unsafe SQL, array transactions and
+callback transactions share this rule; values are read losslessly once.
+Typed model fields continue to use their declared scalar result domain.

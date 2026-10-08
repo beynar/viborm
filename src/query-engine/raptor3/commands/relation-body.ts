@@ -53,12 +53,12 @@ const mutationOrder = [
 const collectionMutationOrder = [
   "disconnect",
   "delete",
-  "update",
-  "upsert",
-  "connectOrCreate",
   "set",
   "updateMany",
   "deleteMany",
+  "update",
+  "upsert",
+  "connectOrCreate",
   "connect",
   "create",
   "createMany",
@@ -166,6 +166,36 @@ export class RelationBody {
       parent.model["~"].state.relations[name]!["~"].state.cardinality === "many"
         ? collectionMutationOrder
         : mutationOrder;
+    if (order === collectionMutationOrder) {
+      let adding: string | undefined;
+      for (const verb of Object.keys(rawMutation)) {
+        if (rawMutation[verb] === undefined) continue;
+        if (
+          [
+            "upsert",
+            "connectOrCreate",
+            "connect",
+            "create",
+            "createMany",
+          ].includes(verb)
+        )
+          adding ??= verb;
+        else if (
+          adding &&
+          ["disconnect", "delete", "set", "updateMany", "deleteMany"].includes(
+            verb
+          )
+        ) {
+          parent.fields.reject(
+            new NestedWriteError(
+              `Relation '${name}' must spell clearing verb '${verb}' before adding verb '${adding}'.`,
+              name
+            )
+          );
+          return;
+        }
+      }
+    }
     const bound = new Map<string | undefined, Membership>();
     const membership = (variant?: string) => {
       let edge = bound.get(variant);
@@ -428,6 +458,8 @@ export class RelationBody {
         break;
       case "createMany": {
         const body = record(payload);
+        if (body.skipDuplicates)
+          this.#commands.context.admitsSuppression("nested createMany rows");
         const rawBody = record(rawPayload);
         const rawRows = entries(rawBody.data);
         const records = entries(body.data).map((child, index) => {
@@ -453,6 +485,7 @@ export class RelationBody {
         // duplicate": the rows this body's earlier `connectOrCreate` entries
         // PROVABLY create.
         const createdTargets: ReadonlyMap<string, unknown>[] = [];
+        const connectedTargets: ReadonlyMap<string, unknown>[] = [];
         for (const [index, supplied] of entries(payload).entries()) {
           const origin = entryOrigin();
           const source = entries(rawPayload)[index]!;
@@ -522,6 +555,27 @@ export class RelationBody {
           // producer is inside this operation. The two facts are the ones
           // `CommandExecution.matchesSelectedConstraint` already reads together.
           const addressed = ownSelector.uniqueValues;
+          // A first connect may rewrite an FK that belongs to the target's
+          // compound key. Repeating its original selector must not look it up again.
+          if (verb === "connect") {
+            const facts = queries.selectorFacts(ownSelector);
+            if (
+              facts.exact &&
+              Object.keys(record(conditional.where)).every(
+                (field) =>
+                  facts.fields.has(field) ||
+                  ownSelector.uniqueKey?.name === field
+              )
+            ) {
+              if (
+                connectedTargets.some((target) =>
+                  sameTarget(target, facts.equals)
+                )
+              )
+                continue;
+              connectedTargets.push(facts.equals);
+            }
+          }
           if (verb === "connectOrCreate" && addressed) {
             if (
               createdTargets.some((earlier) => sameTarget(earlier, addressed))
@@ -702,7 +756,8 @@ export class RelationBody {
                           ? source.update
                           : (source.data ?? source)
                       ),
-                      true
+                      true,
+                      verb === "upsert" ? "upsert" : "update"
                     ),
                     "after"
                   )

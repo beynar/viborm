@@ -4,9 +4,9 @@
 // A native type's `type` is the ONE declaration string a migration driver emits
 // into DDL verbatim — the three drivers write it as a column's type with no
 // escaping, because a coded schema takes it from a typed constant. A schema
-// document is written by whoever hands you one, and a native-type MAP is new
-// surface with no legacy to keep, so both decide what may occupy that position
-// here. The round-1 answer was a word grammar; the reviewer proved it cannot
+// document is written by whoever hands you one, so it decides what may occupy
+// that position here. Coded maps and tagged declarations share the historical
+// trusted schema-author escape hatch for custom type spellings. The round-1 answer was a word grammar; the reviewer proved it cannot
 // work: `TEXT REFERENCES victims(id)`, `TEXT UNIQUE` and `TEXT CHECK(0)` are
 // letters and spaces with an optional parenthesized group, indistinguishable
 // from a multi-word type name, yet each appends a CONSTRAINT to a column in DDL.
@@ -26,8 +26,7 @@
 // is a string leaf, matched exactly — so there is no word-argument rule, which
 // is the narrowest rule the trees justify. A coded schema's constants are
 // catalog members by construction. The schema-document reader and serializer
-// consult this owner for the tagged `native` form; `admitNativeType` consults it
-// for every map entry. A TAGGED declaration written in code keeps its historical
+// consult this owner for the tagged `native` form; `admitNativeType` validates coded maps structurally. A TAGGED declaration written in code keeps its historical
 // open contract (a custom `{ db, type }` still reaches DDL as written) — only a
 // document refuses one outside the catalog. Nothing downstream sanitizes native
 // types, and nothing can.
@@ -235,13 +234,6 @@ function admitEntry<Entry extends Dialect>(
       builder,
       `nativeType.${dialect}`,
       `The '${dialect}' entry must be a ${CONSTANT_NAMES[dialect]} native type (\`{ db: "${dialect}", type }\`)`
-    );
-  }
-  if (!isNativeTypeInCatalog(dialect, type)) {
-    refuse(
-      builder,
-      `nativeType.${dialect}.type`,
-      `'${type}' is not in the '${dialect}' native-type catalog: a map entry must be a value the ${CONSTANT_NAMES[dialect]} native-type constants produce. See the native types documentation (docs/schema/native-types).`
     );
   }
   return Object.freeze({ db: dialect, type });

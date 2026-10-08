@@ -117,9 +117,16 @@ function userMessage(error: ConstraintFailure): string {
 
 ## Retrying
 
-`error.isRetryable()` answers whether re-running the identical operation could succeed. It
-is true for exactly four codes — `V1002` connection timeout, `V2002` query timeout, `V5003`
-deadlock and `V5004` serialization failure — on every database. Everything else repeats.
+`error.isRetryable()` identifies failures that may clear on a later attempt: `V1001`
+connection failure, `V1002` connection timeout, `V2002` query timeout, `V5003` deadlock,
+`V5004` serialization failure and `V5006` lock contention. SQLite `SQLITE_BUSY`/`SQLITE_LOCKED`
+and PostgreSQL `55P03` are contention, distinct from a detected deadlock. MySQL lock-wait
+timeouts (`1205`) remain query timeouts.
+
+Retryability does not prove whether a write committed. Retry a write only when its
+acknowledgment and idempotency contract make another attempt safe; a rollback-only callback
+transaction must end before retrying. The helper below assumes the supplied operation is safe
+to repeat.
 
 ```ts
 import { isRetryableError } from "viborm";
@@ -174,7 +181,8 @@ payload said no, the driver cannot do it, or the record was not there.
 | `ValueTooLongError` | `V3005` | A value exceeded the column's declared length (PostgreSQL and MySQL only) |
 | `ValidationError` | `V4001` | The payload failed validation before any I/O |
 | `SchemaValidationError` | `V4002` | The model graph failed schema validation before the client, migration, or query could run |
-| `TransactionError` | `V5001`, `V5002`, `V5003`, `V5004`, `V5005` | A transaction failed, timed out, deadlocked, lost serialization, or was given an option this driver refuses |
+| `ProviderTransactionContractError` | `V5001` | An internal TransactionError subclass reports a provider that violated callback/finalization ordering; catch the public TransactionError family |
+| `TransactionError` | `V5001`, `V5002`, `V5003`, `V5004`, `V5005`, `V5006` | A transaction failed, timed out, deadlocked, lost serialization, was given an option this driver refuses, or encountered lock contention |
 | `InvalidTransactionInputError` | `V5005` | `$transaction([...])` was handed something that is not a pending operation |
 | `NotFoundError` | `V6001` | An `…OrThrow` read, or a targeted write, matched no record |
 | `NestedWriteError` | `V7001`, `V7002`, `V7003`, `V7004`, `V7005`, `V7006` | A nested write's precondition did not hold |

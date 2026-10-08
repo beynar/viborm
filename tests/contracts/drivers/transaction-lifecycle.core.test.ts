@@ -6,9 +6,10 @@ import { LibSQLDriver } from "@drivers/libsql";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { createClient as createPgClient, PgDriver } from "@drivers/pg";
 import { PlanetScaleDriver } from "@drivers/planetscale";
-import { readSuppressedFailures } from "@drivers/shared";
+import { readSuppressedFailures, withSuppressedFailure } from "@drivers/shared";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { QueryResult } from "@drivers/types";
+import { UniqueConstraintError } from "@errors";
 import {
   Client as PlanetScaleClient,
   type Config as PlanetScaleConfig,
@@ -188,6 +189,44 @@ describe("transaction structured scope", () => {
     expect(driver.statements).not.toContain("COMMIT");
   });
 
+  test("later work reports rollback-only without replaying the caught statement error", async () => {
+    const driver = new StructuredTransactionDriver();
+    const primary = new UniqueConstraintError("duplicate");
+    const secondary = new Error("secondary evidence");
+    withSuppressedFailure(primary, secondary);
+    const held = driver.holdQuery(primary);
+    let caught: unknown;
+    const transaction = driver.withTransaction(async (tx) => {
+      const failed = tx._executeRaw("HELD").catch((error: unknown) => error);
+      await held.started;
+      held.release();
+      caught = await failed;
+      expect(caught).toMatchObject({
+        name: "UniqueConstraintError",
+        code: "V3001",
+      });
+      const executions = driver.providerExecutions;
+      const later = await tx
+        ._executeRaw("SELECT 1")
+        .catch((error: unknown) => error);
+      expect(later).not.toBe(caught);
+      expect(later).toMatchObject({
+        name: "TransactionError",
+        code: "V5001",
+        message: expect.stringContaining("rollback-only"),
+      });
+      expect(readSuppressedFailures(later)).toEqual([secondary, caught]);
+      expect(driver.providerExecutions).toBe(executions);
+      await expect(
+        tx.withTransaction(async () => "unreachable")
+      ).rejects.toThrow("rollback-only");
+    });
+    const outcome = await transaction.catch((error: unknown) => error);
+    expect(outcome).toBe(caught);
+    expect(driver.statements).toContain("ROLLBACK");
+    expect(driver.statements).not.toContain("COMMIT");
+  });
+
   test("callback failure stays primary when an unawaited query also fails", async () => {
     const driver = new StructuredTransactionDriver();
     const held = driver.holdQuery(new Error("provider query failed"));
@@ -201,10 +240,10 @@ describe("transaction structured scope", () => {
     await held.started;
     held.release();
     const thrown = await transaction.catch((error) => error);
-    expect(thrown).toBeInstanceOf(AggregateError);
-    expect(thrown).toMatchObject({ cause: primaryError });
-    expect(thrown.errors[0]).toBe(primaryError);
-    expect(thrown.errors[1]).toMatchObject({ name: "QueryError" });
+    expect(thrown).toBe(primaryError);
+    expect(readSuppressedFailures(thrown)).toEqual([
+      expect.objectContaining({ name: "QueryError" }),
+    ]);
     expect(driver.statements).not.toContain("COMMIT");
   });
 
@@ -303,8 +342,8 @@ describe("transaction entry gates and poison", () => {
     expect(driver.providerExecutions).toBe(executions);
     await driver.disconnect();
     expect(driver.closeCount).toBe(1);
-    await expect(driver._executeRaw("SELECT 1")).rejects.toMatchObject({
-      name: "TransactionError",
+    await expect(driver._executeRaw("SELECT 1")).resolves.toMatchObject({
+      rows: [],
     });
   });
 });
@@ -676,7 +715,7 @@ describe("pg owns the error channel of a client it checked out", () => {
     // Normalized like any failed transaction statement: the client's own
     // report is its (redacted) original cause, with its SQLSTATE kept.
     await expect(outcome).rejects.toMatchObject({
-      name: "QueryError",
+      name: "ConnectionError",
       originalCause: { code: "57P01" },
     });
     expect(listenersInside).toBe(1);

@@ -1,6 +1,7 @@
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import type { IdDomain } from "@validation/primitives/id-codec";
+import { isDestructiveOperation } from "../../differ";
 /**
  * SQLite Migration Driver
  *
@@ -12,6 +13,21 @@ import type { Scalar, ScalarState } from "@schema/scalars";
 import { sqliteDateTimePhysicalForm } from "@schema/scalars/datetime/physical";
 import { encodePhysicalDateTime } from "@validation/primitives/datetime-physical-codec";
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
+import { validateIsoTime } from "@validation/primitives/iso";
+import {
+  sqliteDateTimeCopyExpression,
+  sqliteDateTimeTargetRequiresRecreation,
+} from "../../../adapters/databases/sqlite/storage/datetime";
+import {
+  sqliteDecimalCheck,
+  sqliteDecimalCopyExpression,
+} from "../../../adapters/databases/sqlite/storage/decimal";
+import {
+  SQLITE_GEO_POINT_TYPE,
+  sqliteGeoPointCarrier,
+  sqliteGeoPointCheck,
+  sqliteGeoPointEncoding,
+} from "../../../adapters/databases/sqlite/storage/geo-point";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import {
   decimalConversionRequired,
@@ -20,7 +36,12 @@ import {
 } from "../../decimal";
 import { foreignKeyPragmasCannotBeLifted } from "../../foreign-keys";
 import { applyNativeRename } from "../../native-rename";
-import type { ColumnDef, DiffOperation, TableDef } from "../../types";
+import type {
+  ColumnDef,
+  DiffOperation,
+  SchemaSnapshot,
+  TableDef,
+} from "../../types";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -45,13 +66,9 @@ import {
 } from "../base";
 import { getSQLiteType } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
-import {
-  sqliteDateTimeCopyExpression,
-  sqliteDateTimeTargetRequiresRecreation,
-} from "./datetime";
-import { sqliteDecimalCheck, sqliteDecimalCopyExpression } from "./decimal";
-import { SQLITE_GEO_POINT_TYPE, sqliteGeoPointCheck } from "./geo-point";
 import { introspect } from "./introspect";
+
+const COMPUTED_DEFAULT_PREFIX = /^(?:CURRENT_(?:TIME|DATE|TIMESTAMP)|\()/i;
 
 /**
  * One preceding operation of the batch, applied to the table definition a later
@@ -185,6 +202,38 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   readonly dialect = "sqlite" as const;
   readonly driverName: string = "sqlite3";
 
+  override finalizeTable(table: TableDef): TableDef {
+    const increments = table.columns.filter((column) => column.autoIncrement);
+    if (
+      increments.length > 0 &&
+      (increments.length !== 1 ||
+        table.primaryKey?.columns.length !== 1 ||
+        table.primaryKey.columns[0] !== increments[0]!.name ||
+        increments[0]!.type.toUpperCase() !== "INTEGER" ||
+        increments[0]!.nullable)
+    ) {
+      throw new MigrationError(
+        `SQLite table "${table.name}" requires its AUTOINCREMENT column to be the sole non-null INTEGER primary key. Declare .id().autoIncrement() on that column.`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { table: table.name } }
+      );
+    }
+    return table;
+  }
+
+  override getIrreversibleRollbackReason(
+    operation: DiffOperation
+  ): string | undefined {
+    if (
+      operation.type === "alterColumn" &&
+      sqliteGeoPointEncoding(operation.from) === "binary64" &&
+      sqliteGeoPointEncoding(operation.to) === "legacy"
+    ) {
+      return `Rollback cannot downgrade GeoPoint column "${operation.tableName}.${operation.columnName}" to its legacy CHECK without rounding coordinates. Author an explicit manual data transition.`;
+    }
+    return super.getIrreversibleRollbackReason(operation);
+  }
+
   readonly capabilities: MigrationCapabilities = {
     supportsNativeEnums: false,
     supportsAddEnumValueInTransaction: true, // N/A but doesn't matter
@@ -203,7 +252,35 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // INTROSPECTION
   // ===========================================================================
 
-  introspect = introspect;
+  override async preflightSchemaRequirements(
+    snapshots: readonly SchemaSnapshot[],
+    executeRaw: Parameters<typeof introspect>[0]
+  ): Promise<void> {
+    const names = [
+      ...new Set(
+        snapshots.flatMap((snapshot) =>
+          snapshot.tables.map((table) => table.name)
+        )
+      ),
+    ];
+    if (names.length === 0) return;
+    const views = await executeRaw<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'view'"
+    );
+    const collision = views.rows.find((row) => names.includes(row.name));
+    if (collision)
+      throw new MigrationError(
+        `SQLite relation "${collision.name}" is a view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { table: collision.name, feature: "view" } }
+      );
+  }
+
+  introspect(
+    executeRaw: Parameters<typeof introspect>[0]
+  ): Promise<SchemaSnapshot> {
+    return introspect(executeRaw, this.target?.tables);
+  }
 
   // ===========================================================================
   // TYPE MAPPING
@@ -242,6 +319,20 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     scalar: Scalar,
     scalarState: ScalarState
   ): string | undefined {
+    if (
+      scalarState.type === "datetime" &&
+      scalarState.autoGenerate?.kind === "now"
+    ) {
+      const form = sqliteDateTimePhysicalForm(scalar["~"].nativeType);
+      if (form === "julianDay") return "(julianday('now'))";
+      if (form === "epochMillis")
+        return "(CAST(strftime('%s','now') AS INTEGER) * 1000 + CAST(substr(strftime('%f','now'),4,3) AS INTEGER))";
+      return "(strftime('%Y-%m-%dT%H:%M:%fZ','now'))";
+    }
+    if (scalarState.autoGenerate?.kind === "now") {
+      if (scalarState.type === "date") return "(strftime('%Y-%m-%d','now'))";
+      if (scalarState.type === "time") return "(strftime('%H:%M:%f','now'))";
+    }
     const defaultValue = scalarState.default;
     if (
       scalarState.type === "datetime" &&
@@ -255,6 +346,21 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       return typeof physical === "string"
         ? this.escapeValue(physical)
         : String(physical);
+    }
+    if (
+      scalarState.type === "time" &&
+      !scalarState.array &&
+      !scalarState.autoGenerate &&
+      scalarState.hasDefault &&
+      typeof defaultValue === "string"
+    ) {
+      const canonical = validateIsoTime(defaultValue);
+      if (!("value" in canonical))
+        throw new MigrationError(
+          "Invalid Time literal default",
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      return this.escapeValue(canonical.value);
     }
     return super.getDefaultExpression(scalar, scalarState);
   }
@@ -315,7 +421,11 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
     if (column.type.toUpperCase() === SQLITE_GEO_POINT_TYPE) {
       parts.push(
-        sqliteGeoPointCheck(column, (name) => this.escapeIdentifier(name))
+        sqliteGeoPointCheck(
+          column,
+          (name) => this.escapeIdentifier(name),
+          sqliteGeoPointEncoding(column)
+        )
       );
     }
 
@@ -367,7 +477,8 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     newTable: TableDef,
     currentTable: TableDef,
     context: DDLContext,
-    columnRenames?: Map<string, string>
+    columnRenames?: Map<string, string>,
+    valueExpressions?: ReadonlyMap<string, string>
   ): string[] {
     const statements: string[] = [];
     const tempName = `__new_${tableName}`;
@@ -418,13 +529,15 @@ export class SQLite3MigrationDriver extends MigrationDriver {
           ? `${this.escapeIdentifier(sourceAlias)}.${this.escapeIdentifier(sourceName)}`
           : this.escapeIdentifier(sourceName);
         copyColumns.push({
-          source: this.copySourceExpression(
-            tableName,
-            sourceName,
-            currentColumn,
-            col,
-            source
-          ),
+          source:
+            valueExpressions?.get(col.name) ??
+            this.copySourceExpression(
+              tableName,
+              sourceName,
+              currentColumn,
+              col,
+              source
+            ),
           target: col.name,
         });
       } else if (!col.nullable && col.default === undefined) {
@@ -508,6 +621,13 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     targetColumn: ColumnDef,
     source: string
   ): string {
+    if (
+      targetColumn.geoPointEncoding === "binary64" &&
+      currentColumn !== undefined &&
+      sqliteGeoPointEncoding(currentColumn) === "legacy"
+    ) {
+      return `CASE WHEN ${source} IS NULL THEN NULL ELSE ${sqliteGeoPointCarrier(source)} END`;
+    }
     const dateTime = targetColumn.dateTime;
     if (dateTime !== undefined) {
       const sourceForm = this.sqliteDateTimeSourceForm(currentColumn);
@@ -866,6 +986,30 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} ADD COLUMN ${colDef}`;
   }
 
+  override compileAddColumn(
+    op: AddColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    if (
+      op.column.default !== undefined &&
+      COMPUTED_DEFAULT_PREFIX.test(op.column.default)
+    ) {
+      const current = this.getCurrentTable(op.tableName, context);
+      if (!current)
+        throw new MigrationError(
+          `Cannot add computed default: table "${op.tableName}" is absent`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      return this.compileTableRecreation(
+        op.tableName,
+        { ...current, columns: [...current.columns, op.column] },
+        current,
+        context
+      );
+    }
+    return super.compileAddColumn(op, context);
+  }
+
   generateDropColumn(op: DropColumnOperation, _context: DDLContext): string {
     // SQLite 3.35.0+ supports DROP COLUMN
     return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} DROP COLUMN ${this.escapeIdentifier(op.columnName)}`;
@@ -965,46 +1109,81 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     op: AlterColumnOperation,
     context: DDLContext
   ): readonly string[] {
+    const group = [op];
+    if (
+      context.followingOperations &&
+      this.generateAlterColumn ===
+        SQLite3MigrationDriver.prototype.generateAlterColumn
+    ) {
+      const compatible = (
+        candidate: DiffOperation | undefined
+      ): candidate is AlterColumnOperation =>
+        candidate?.type === "alterColumn" &&
+        candidate.tableName === op.tableName &&
+        isDestructiveOperation(candidate) === isDestructiveOperation(op);
+      const previous: AlterColumnOperation[] = [];
+      for (const candidate of [
+        ...(context.precedingOperations ?? []),
+      ].reverse()) {
+        if (!compatible(candidate)) break;
+        previous.unshift(candidate);
+      }
+      const following: AlterColumnOperation[] = [];
+      for (const candidate of context.followingOperations) {
+        if (!compatible(candidate)) break;
+        following.push(candidate);
+      }
+      const run = [...previous, op, ...following];
+      // Repeated changes to the same column are sequential semantics, not one projection.
+      if (new Set(run.map((change) => change.columnName)).size === run.length) {
+        if (previous.length > 0) return [];
+        group.push(...following);
+      }
+    }
     // SQLite doesn't support ALTER COLUMN - need table recreation
     const currentTable = this.getCurrentTable(op.tableName, context);
     if (!currentTable) {
       throw new Error(
         `Cannot alter column: table "${op.tableName}" not found in current schema. ` +
-          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+          "Supply the current schema when compiling this operation."
       );
     }
 
-    // Build new table definition with the altered column
-    const newColumns = currentTable.columns.map((col) => {
-      if (col.name === op.columnName) {
-        return op.to;
-      }
-      return col;
-    });
+    const targets = new Map(
+      group.map((change) => [change.columnName, change.to])
+    );
+    const newColumns = currentTable.columns.map(
+      (column) => targets.get(column.name) ?? column
+    );
 
     const newTable: TableDef = {
       ...currentTable,
       columns: newColumns,
     };
 
-    if (decimalConversionRequired(op.from, op.to)) {
-      this.assertDomainReconstructionAdmitted(
-        op.tableName,
-        op.to,
-        newTable,
-        context,
-        "decimal"
-      );
-    } else if (
-      sqliteDateTimeTargetRequiresRecreation(op.from.dateTime, op.to.dateTime)
-    ) {
-      this.assertDomainReconstructionAdmitted(
-        op.tableName,
-        op.to,
-        newTable,
-        context,
-        "dateTime"
-      );
+    for (const change of group) {
+      if (decimalConversionRequired(change.from, change.to)) {
+        this.assertDomainReconstructionAdmitted(
+          op.tableName,
+          change.to,
+          newTable,
+          context,
+          "decimal"
+        );
+      } else if (
+        sqliteDateTimeTargetRequiresRecreation(
+          change.from.dateTime,
+          change.to.dateTime
+        )
+      ) {
+        this.assertDomainReconstructionAdmitted(
+          op.tableName,
+          change.to,
+          newTable,
+          context,
+          "dateTime"
+        );
+      }
     }
 
     return this.compileTableRecreation(
@@ -1069,7 +1248,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     if (!currentTable) {
       throw new Error(
         `Cannot add foreign key: table "${op.tableName}" not found in current schema. ` +
-          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+          "Supply the current schema when compiling this operation."
       );
     }
 
@@ -1101,7 +1280,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     if (!currentTable) {
       throw new Error(
         `Cannot drop foreign key: table "${op.tableName}" not found in current schema. ` +
-          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+          "Supply the current schema when compiling this operation."
       );
     }
 
@@ -1190,7 +1369,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     if (!currentTable) {
       throw new Error(
         `Cannot add unique constraint: table "${op.tableName}" not found in current schema. ` +
-          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+          "Supply the current schema when compiling this operation."
       );
     }
 
@@ -1222,7 +1401,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     if (!currentTable) {
       throw new Error(
         `Cannot drop unique constraint: table "${op.tableName}" not found in current schema. ` +
-          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+          "Supply the current schema when compiling this operation."
       );
     }
 
@@ -1260,7 +1439,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     if (!currentTable) {
       throw new Error(
         `Cannot add primary key: table "${op.tableName}" not found in current schema. ` +
-          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+          "Supply the current schema when compiling this operation."
       );
     }
 
@@ -1292,7 +1471,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     if (!currentTable) {
       throw new Error(
         `Cannot drop primary key: table "${op.tableName}" not found in current schema. ` +
-          "Pass currentSchema in DDLContext or call setCurrentSchema() before generating DDL."
+          "Supply the current schema when compiling this operation."
       );
     }
 
@@ -1395,11 +1574,8 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       ]);
     }
 
-    // Migrate rows off removed values before recreating the table — copying
-    // a row that still holds a removed value would violate the new CHECK.
-    // Replacement targets must satisfy the OLD check (surviving values or
-    // NULL); mapping to a value added in the same alter is not supported.
-    statements.push(...this.buildEnumReplacementUpdates(op));
+    // Apply mappings in the reconstruction SELECT. A replacement belongs to
+    // the destination CHECK, including a value introduced in this change.
 
     // Generate new CHECK constraint
     const escapedValues = newValues
@@ -1425,12 +1601,37 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       });
 
       const newTable: TableDef = { ...currentTable, columns: newColumns };
+      const source = this.escapeIdentifier(dep.columnName);
+      const cases = (op.removeValues ?? []).flatMap((value) => {
+        const replacement = this.getEnumValueReplacement(
+          op,
+          dep.tableName,
+          dep.columnName,
+          value
+        );
+        return replacement === undefined
+          ? []
+          : [
+              `WHEN ${this.escapeValue(value)} THEN ${replacement === null ? "NULL" : this.escapeValue(replacement)}`,
+            ];
+      });
+      const expressions =
+        cases.length === 0
+          ? undefined
+          : new Map([
+              [
+                dep.columnName,
+                `CASE ${source} ${cases.join(" ")} ELSE ${source} END`,
+              ],
+            ]);
       statements.push(
         ...this.compileTableRecreation(
           dep.tableName,
           newTable,
           currentTable,
-          context
+          context,
+          undefined,
+          expressions
         )
       );
     }

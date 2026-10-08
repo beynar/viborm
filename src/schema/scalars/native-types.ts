@@ -205,7 +205,6 @@ export const PG = {
     DATE: pg("date"),
     TIME: opt("pg", "time"),
     TIMETZ: opt("pg", "timetz"),
-    INTERVAL: pg("interval"),
   },
 
   // JSON types

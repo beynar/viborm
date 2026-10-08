@@ -14,6 +14,7 @@
 // both punish a reused declaration, so every parse is a fresh object graph.
 
 import type { Schema } from "@schema/hydration";
+import { jsonNullKindOf } from "@schema/json-null";
 import type { AnyModel } from "@schema/model";
 import type { ModelShape } from "@schema/model/helper";
 import { model as modelFactory } from "@schema/model/model";
@@ -220,9 +221,16 @@ function buildScalar(
     // compact column — so the generate node below stands down for it.
     const implicit = document.generate?.implicit === true;
     const args =
-      implicit && document.generate?.prefix !== undefined
-        ? [document.generate.prefix]
-        : [];
+      document.generate?.generate === false
+        ? [
+            {
+              generate: false,
+              prefix: implicit ? document.generate.prefix : undefined,
+            },
+          ]
+        : implicit && document.generate?.prefix !== undefined
+          ? [document.generate.prefix]
+          : [];
     scalar = modify(scalar, "id", args, type, pointer(path, "id"));
   }
   if (document.unique) {
@@ -374,10 +382,12 @@ function applyGenerate(
   path: string
 ): Scalar {
   const generatePath = pointer(path, "generate");
-  const args =
-    generate.kind === "nanoid"
-      ? [generate.length, generate.prefix]
-      : [generate.prefix];
+  const identifier = !["now", "updatedAt", "increment"].includes(generate.kind);
+  const configuration =
+    generate.generate === false
+      ? { prefix: generate.prefix, length: generate.length }
+      : { prefix: generate.prefix, length: generate.length, generate: true };
+  const args = identifier ? [configuration] : [generate.prefix];
   const generated = modify(scalar, generate.kind, args, type, generatePath);
   const applied = generated["~"].state.autoGenerate;
   if (
@@ -414,6 +424,9 @@ function applyDefault(
 ): Scalar {
   const defaultPath = pointer(path, "default");
   const value = decodeDefault(literal, defaultPath);
+  if (document.type === "json" && jsonNullKindOf(value) !== undefined) {
+    return modify(scalar, "default", [value], document.type, defaultPath);
+  }
   const verdict = scalar["~"].state.base["~standard"].validate(value);
   if (verdict.issues) {
     const issues: DocumentIssues = [];

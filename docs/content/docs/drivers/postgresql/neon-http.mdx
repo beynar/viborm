@@ -27,6 +27,7 @@ const client = createClient({
 | `databaseUrl` | `string` | PostgreSQL connection URL |
 | `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `options.fetchOptions` | `RequestInit` | Custom fetch options |
+| `options.authToken` | `string` or token callback | JWT authentication passed to the Neon SDK |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
 
@@ -119,7 +120,7 @@ Use the array API for atomic operations - VibORM uses Neon's `transaction()` fun
 const [user, post] = await client.$transaction([
   client.user.create({ data: { name: "Alice", email: "alice@example.com" } }),
   client.post.create({ data: { title: "Hello", authorId: "preset-id" } }),
-]);
+], { isolationLevel: "Serializable" });
 ```
 
 ### Dynamic Transactions
@@ -165,4 +166,4 @@ Dynamic transactions reject; batch mode is fully supported via Neon's `transacti
 - Batch operations cannot read each other's results — use a single nested write for dependent mutations
 - HTTP-based: slightly higher latency than traditional connections
 - Best suited for serverless environments with simple queries
-- For full transaction support, use `@neondatabase/serverless` Pool with WebSockets
+- For callback transactions on Neon, use `viborm/pg` or `viborm/postgres` with the Neon PostgreSQL TCP URL. A Neon WebSocket Pool is not an accepted VibORM transport.

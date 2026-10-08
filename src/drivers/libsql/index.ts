@@ -13,7 +13,20 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import type { Client, Config, InValue, Transaction } from "@libsql/client";
+import {
+  ClientInitializationError,
+  ConnectionError,
+  VibORMErrorCode,
+} from "@errors";
+import type {
+  Client,
+  Config,
+  InStatement,
+  InValue,
+  ResultSet,
+  Transaction,
+} from "@libsql/client";
+import { physicalConnectionQueue } from "../connection-scope";
 import {
   Driver,
   type DriverResultParser,
@@ -38,6 +51,10 @@ import type { QueryResult } from "../types";
 // EXPORTED OPTIONS
 // ============================================================
 
+// A native autocommit BUSY can leave libSQL's private pooled connection open.
+// The Client API cannot recover that exact handle without affecting borrowers.
+const unsafeLocalClients = new WeakSet<Client>();
+
 export type LibSQLOptions = Omit<Config, "url">;
 
 export interface LibSQLDriverOptions {
@@ -54,6 +71,11 @@ export type LibSQLClientConfig<C extends DriverConfig> = LibSQLDriverOptions &
 function convertValuesForLibSQL(values: unknown[]): InValue[] {
   return values.map((parameter) => {
     const value = convertValueForSQLite(parameter);
+    if (typeof value === "string" && value.includes("\0")) {
+      throw new TypeError(
+        "libSQL cannot preserve strings containing NUL bytes"
+      );
+    }
     if (isSQLiteBinaryValue(value)) {
       return value instanceof ArrayBuffer
         ? value
@@ -97,23 +119,33 @@ const libsqlRowCount = (
 
 export class LibSQLDriver extends Driver<Client, Client | Transaction> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
-  readonly maxBindParametersPerStatement: number | undefined = 999;
+  readonly maxBindParametersPerStatement: number | undefined = 32_766;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions: boolean;
 
   private readonly driverOptions: LibSQLDriverOptions;
+  private readonly suppliedClient: Client | undefined;
+  private integerAdmission: Promise<void> | undefined;
 
   constructor(options: LibSQLDriverOptions = {}) {
     super("sqlite", "libsql");
     this.driverOptions = options;
-    this.serializeTransactions = this.usesInMemoryDatabase();
+    this.suppliedClient = options.client;
+    this.serializeTransactions = this.suppliedClient
+      ? this.suppliedClient.protocol === "file"
+      : this.getDatabaseUrl().startsWith("file:");
 
-    if (options.client) {
-      this.client = options.client;
+    if (this.suppliedClient) {
+      this.client = this.suppliedClient;
+      if (this.serializeTransactions)
+        Object.defineProperty(this, "connectionQueue", {
+          value: physicalConnectionQueue(this.suppliedClient),
+        });
     }
   }
 
   protected async initClient(): Promise<Client> {
+    if (this.suppliedClient) return this.suppliedClient;
     const { createClient } = await import("@libsql/client");
     const url = this.getDatabaseUrl();
 
@@ -132,14 +164,16 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
       // INTEGER columns come back as BigInt so values >2^53 survive (the
       // default 'number' mode throws on them); the result parser converts
       // int columns back to number
-      intMode: "bigint",
+      timeout: 5000,
       ...options,
+      intMode: "bigint",
     });
   }
 
   protected async closeClient(client: Client | Transaction): Promise<void> {
-    if ("close" in client) {
+    if (client !== this.suppliedClient && "close" in client) {
       client.close();
+      if (!("commit" in client)) unsafeLocalClients.delete(client);
     }
   }
 
@@ -150,8 +184,9 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
+    await this.ensureSuppliedIntegerPrecision(client);
     const values = convertValuesForLibSQL(params);
-    const result = await client.execute({ sql, args: values });
+    const result = await this.executeStatement(client, { sql, args: values });
     return {
       rows: result.rows as T[],
       rowCount: libsqlRowCount(result, operation),
@@ -166,7 +201,7 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "executeRaw";
     const values = params ? convertValuesForLibSQL(params) : [];
-    const result = await client.execute({ sql, args: values });
+    const result = await this.executeStatement(client, { sql, args: values });
     return {
       rows: result.rows as T[],
       rowCount: libsqlRowCount(result, operation),
@@ -186,7 +221,7 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
       isolationLevelReason:
         "libSQL serializes writers the way SQLite does and has no statement to weaken isolation, so only Serializable can be honored truthfully",
       timeout: true,
-      maxWait: this.usesInMemoryDatabase() ? "queue" : "acquisition",
+      maxWait: this.serializeTransactions ? "queue" : "acquisition",
     };
   }
 
@@ -200,31 +235,7 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
       throw nestedTransactionDispatchError(this.driverName);
     }
 
-    if (this.usesInMemoryDatabase()) {
-      let shouldClose = false;
-      const executeOrClose = async (statement: string) => {
-        try {
-          await client.execute(statement);
-        } catch (error) {
-          shouldClose = true;
-          throw error;
-        }
-      };
-      return runTransactionLifecycle({
-        begin: () => executeOrClose("BEGIN"),
-        callback: () => fn(client),
-        commit: () => executeOrClose("COMMIT"),
-        rollback: () => executeOrClose("ROLLBACK"),
-        phases: getExecutionTransactionPhases(context),
-        close: () => {
-          if (shouldClose) {
-            client.close();
-            this.client = null;
-          }
-        },
-      });
-    }
-
+    await this.ensureSuppliedIntegerPrecision(client);
     const tx = await acquireWithMaxWait(
       () => client.transaction("write"),
       (acquired) => acquired.close(),
@@ -241,10 +252,86 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
     });
   }
 
-  protected override transactionCleanupFailed(error: Error): void {
-    if (this.usesInMemoryDatabase()) {
-      super.transactionCleanupFailed(error);
+  protected override transactionCleanupFailed(_error: Error): void {
+    // Transactions own dedicated provider connections, including :memory:.
+  }
+
+  private async executeStatement(
+    client: Client | Transaction,
+    statement: InStatement
+  ): Promise<ResultSet> {
+    try {
+      const result = await client.execute(statement);
+      return result;
+    } catch (error) {
+      if (
+        this.serializeTransactions &&
+        !("commit" in client) &&
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        typeof error.code === "string" &&
+        (error.code === "SQLITE_BUSY" || error.code.startsWith("SQLITE_BUSY_"))
+      ) {
+        unsafeLocalClients.add(client);
+        // The normal disconnect owner retains this exact handle for cleanup.
+        this.closeRetryClient = client;
+        this.client = null;
+        this.initPromise = null;
+      }
+      throw error;
     }
+  }
+
+  protected override async getClient(
+    context?: QueryExecutionContext
+  ): Promise<Client | Transaction> {
+    const client = await super.getClient(context);
+    this.assertLocalClientUsable(client);
+    return client;
+  }
+
+  private assertLocalClientUsable(client: Client | Transaction): void {
+    if (!("commit" in client) && unsafeLocalClients.has(client)) {
+      throw new ConnectionError(
+        "Local libSQL execution encountered SQLITE_BUSY; disconnect an owned driver, or close and replace the supplied native client, before reuse.",
+        { code: VibORMErrorCode.CONNECTION_CLOSED, meta: { driver: "libsql" } }
+      );
+    }
+  }
+
+  private ensureSuppliedIntegerPrecision(
+    client: Client | Transaction
+  ): Promise<void> {
+    if (client !== this.suppliedClient) return Promise.resolve();
+    this.integerAdmission ??= (async () => {
+      try {
+        const probe = await this.executeStatement(client, {
+          sql: "SELECT 9007199254740993 AS viborm_integer_precision",
+        });
+        const value = probe.rows[0]?.viborm_integer_precision;
+        if (value === 9007199254740993n || value === "9007199254740993") return;
+      } catch (error) {
+        if (
+          !(
+            error instanceof RangeError &&
+            error.message.includes("integer") &&
+            error.message.includes("JavaScript number")
+          )
+        ) {
+          throw error;
+        }
+      }
+      throw new ClientInitializationError(
+        'A supplied libSQL client must use intMode: "bigint" or "string"; number mode cannot preserve VibORM integers.',
+        { meta: { driver: "libsql", operation: "configuration" } }
+      );
+    })().catch((error: unknown) => {
+      if (!(error instanceof ClientInitializationError))
+        this.integerAdmission = undefined;
+      throw error;
+    });
+    return this.integerAdmission;
   }
 
   private getDatabaseUrl(): string {
@@ -255,10 +342,6 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
       return `file:${this.driverOptions.dataDir}`;
     }
     return "file::memory:";
-  }
-
-  private usesInMemoryDatabase(): boolean {
-    return this.getDatabaseUrl().includes(":memory:");
   }
 }
 

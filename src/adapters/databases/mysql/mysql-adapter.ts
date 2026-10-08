@@ -1,4 +1,5 @@
 import { unsupportedVector } from "@errors";
+import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { type Sql, sql } from "@sql";
 import {
@@ -350,8 +351,8 @@ const ASCII_LOWERCASE = "abcdefghijklmnopqrstuvwxyz";
 const asciiCaseFold = (expr: Sql): Sql => {
   let folded = expr;
   for (let index = 0; index < ASCII_UPPERCASE.length; index++) {
-    const upper = sql.raw`'${ASCII_UPPERCASE[index]}'`;
-    const lower = sql.raw`'${ASCII_LOWERCASE[index]}'`;
+    const upper = sql.raw(`'${ASCII_UPPERCASE[index]}'`);
+    const lower = sql.raw(`'${ASCII_LOWERCASE[index]}'`);
     folded = sql`REPLACE(${folded}, ${upper}, ${lower})`;
   }
   return folded;
@@ -379,7 +380,7 @@ const naiveDateTimeToIso = (value: string): string | undefined => {
 const inlineIntegerLiteral = (fragment: Sql): Sql => {
   const value = fragment.values.length === 1 ? fragment.values[0] : undefined;
   return typeof value === "number" && Number.isInteger(value)
-    ? sql.raw`${String(value)}`
+    ? sql.raw(String(value))
     : fragment;
 };
 
@@ -453,7 +454,11 @@ export class MySQLAdapter implements DatabaseAdapter {
     // MySQL requires JSON values to be stringified
     json: (v: unknown): Sql => sql`${JSON.stringify(v)}`,
 
-    dateTime: (iso: string): Sql => sql`${toMySqlDateTime(iso)}`,
+    dateTime: (
+      iso: string,
+      _nativeType?: NativeTypeDeclaration,
+      member?: boolean
+    ): Sql => sql`${member || iso.length === 10 ? iso : toMySqlDateTime(iso)}`,
 
     // The cast is load-bearing, not decoration. MySQL's comparison rules say
     // that when one side is a number and the other a string, BOTH are converted
@@ -634,6 +639,8 @@ export class MySQLAdapter implements DatabaseAdapter {
   // ============================================================
 
   json = {
+    equals: (left: Sql, right: Sql): Sql => sql`${left} = ${right}`,
+    number: (expression: Sql): Sql => expression,
     boolean: (condition: Sql): Sql =>
       sql`JSON_EXTRACT(CASE WHEN ${condition} THEN 'true' ELSE 'false' END, '$')`,
     document: (expression: Sql): Sql => expression,
@@ -731,7 +738,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     // codec wrote: uncast, mysql2 parses a JSON column into a JavaScript
     // document and JSON_OBJECT nests it as a live array, and the coefficient
     // grammar would then be read off values a JSON parser already interpreted.
-    decimalProjection: (column: Sql): Sql => sql`CAST(${column} AS CHAR)`,
+    exactNumericProjection: (column: Sql): Sql => sql`CAST(${column} AS CHAR)`,
 
     length: (column: Sql): Sql => sql`JSON_LENGTH(${column})`,
 
@@ -904,7 +911,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     // swallow; the seam for that case is documented at `junctionDuplicateSkip`
     // in `query-engine/builders/many-to-many-utils.ts`.
     skipDuplicates: (duplicateNoopColumn: string) => {
-      const column = sql.raw`${quoteIdent(duplicateNoopColumn)}`;
+      const column = sql.raw(quoteIdent(duplicateNoopColumn));
       return {
         prefix: sql.empty,
         suffix: sql`ON DUPLICATE KEY UPDATE ${column} = ${column}`,

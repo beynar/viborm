@@ -72,8 +72,10 @@ When push detects **destructive changes** (dropping tables/columns), **ambiguous
 <Tabs>
   <Tab title="CLI">
 ```bash
-# CLI prompts interactively for each change
-npx viborm push
+# Configure migrations.resolve in viborm.config.ts for rename/enum decisions
+npx viborm push --dry-run
+# Review the plan before authorizing destructive execution
+npx viborm push --accept-data-loss
 ```
   </Tab>
   <Tab title="Migration Client">
@@ -114,10 +116,10 @@ await migrations.push({ consent: preview.consent });
 Each change type has specific methods available:
 
 ```ts
-// Destructive changes (dropTable, dropColumn, alterColumn)
+// Destructive changes (dropTable, dropColumn, alterColumn, required addColumn)
 interface DestructiveResolveChange {
   type: "destructive";
-  operation: "dropTable" | "dropColumn" | "alterColumn";
+  operation: "dropTable" | "dropColumn" | "alterColumn" | "addColumn";
   table: string;
   column?: string;
   description: string;
@@ -201,6 +203,40 @@ valid only when every affected column is nullable; otherwise the migration is
 refused. Prefer an explicit callback when the mapping depends on the column or
 the old value.
 
+## Managed tables and CLI decisions
+
+`migrations.tables` selects exact physical table names, including junction tables.
+An omitted list manages the whole namespace. An explicit list is frozen into the
+estate identity; include both old and new names before publishing a rename.
+A foreign key or PostgreSQL enum shared across the selected boundary is refused.
+
+```ts title="viborm.config.ts"
+import { defineConfig } from "viborm/config";
+import { client } from "./src/db";
+
+export default defineConfig({
+  client,
+  migrations: {
+    tables: ["users", "posts", "users_posts"],
+    resolve: async (change) => {
+      if (change.type === "ambiguous") return change.rename();
+      return change.reject();
+    },
+  },
+});
+```
+
+The same callback resolves `migrate generate` decisions. A missing decision
+refuses the plan. Nullable enum removals still require `mapValues()` or
+`useNull()` explicitly. The CLI confirms the completed plan; it does not infer
+per-column rename or enum mappings. Non-interactive additive plans run without
+a prompt. `--yes` alone never authorizes a destructive plan.
+
+The programmatic live client accepts the same scope without a storage writer:
+`createMigrationClient(client, { tables: ["users", "posts"] })`.
+For file-backed SQLite drivers, the CLI warns when `PRAGMA database_list`
+reports an in-memory main database.
+
 ## Force Reset
 
 Reset the database before pushing (drops all tables and pushes fresh schema):
@@ -239,8 +275,9 @@ Force reset drops all tables and data. Use with extreme caution and never in pro
 |--------|-------------|
 | `--dry-run` | Preview SQL without executing |
 | `--force-reset` | Plan a rebuild from empty; requires exact preview consent |
-| `-y`, `--yes` | Apply the displayed preview without an interactive prompt |
-| `--json` | Print machine-readable preview or result JSON; applying a non-empty plan also requires `--yes` |
+| `-y`, `--yes` | Skip the confirmation prompt for a non-destructive preview |
+| `--accept-data-loss` | Explicitly authorize destructive execution of the exact displayed preview |
+| `--json` | Print machine-readable preview or result JSON; destructive apply requires `--accept-data-loss` |
 | `--config <path>` | Path to config file |
 
 ## API Options

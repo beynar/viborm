@@ -52,7 +52,7 @@ export const buildVectorSchema = <F extends ScalarState<"vector">>(
 ): VectorSchemas<F> => {
   return lazyScalarSchemas<VectorSchemas<F>>({
     base: state.base,
-    create: () => v.vector(undefined, state),
+    create: () => v.vector(state.dimension, state),
     update: () => buildSetUpdate<F["base"]>(state.base),
     filter: () => buildVectorFilterSchema<F["base"]>(state.base),
   });

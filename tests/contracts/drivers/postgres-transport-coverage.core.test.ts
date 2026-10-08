@@ -12,7 +12,7 @@
  * `supplied-pool-ownership.core.test.ts`; neither is restated here.
  */
 
-import { PostgresDriver } from "@drivers/postgres";
+import { PostgresDriver, vibormTypes } from "@drivers/postgres";
 import { sql } from "@sql";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -60,7 +60,12 @@ const postgresProvider = vi.hoisted(() => {
   );
   const end = vi.fn(async () => undefined);
   const client = { end, unsafe };
-  const create = vi.fn((_options: CapturedPostgresOptions) => client);
+  const create = vi.fn(
+    (
+      _urlOrOptions: string | CapturedPostgresOptions,
+      _options?: CapturedPostgresOptions
+    ) => client
+  );
 
   return { client, create, end, state, unsafe };
 });
@@ -98,15 +103,11 @@ describe("postgres.js controlled transport execution", () => {
     expect(result.rowCount).toBe(1);
 
     expect(postgresProvider.create).toHaveBeenCalledTimes(1);
-    const options = postgresProvider.create.mock.calls[0]?.[0];
-    expect(options).toMatchObject({
-      database: "viborm",
-      host: "local.test",
-      max: 3,
-      password: "pass",
-      port: 6543,
-      user: "user",
-    });
+    expect(postgresProvider.create.mock.calls[0]?.[0]).toBe(
+      "postgres://user:pass@local.test:6543/viborm"
+    );
+    const options = postgresProvider.create.mock.calls[0]?.[1];
+    expect(options).toMatchObject({ max: 3 });
     expect(options?.types.int4).toBe(customType);
     expect(options?.types.timestamp.serialize("2026-08-31 11:12:13")).toBe(
       "2026-08-31 11:12:13"
@@ -132,7 +133,15 @@ describe("postgres.js controlled transport execution", () => {
     postgresProvider.state.command = "UPDATE";
     postgresProvider.state.count = 4;
     const driver = new PostgresDriver({
-      client: postgresProvider.client as never,
+      client: Object.assign(postgresProvider.client, {
+        options: {
+          parsers: {
+            1082: vibormTypes.timestamp?.parse,
+            1114: vibormTypes.timestamp?.parse,
+            1184: vibormTypes.timestamp?.parse,
+          },
+        },
+      }) as never,
     });
 
     const result = await driver._executeRaw(
@@ -146,11 +155,25 @@ describe("postgres.js controlled transport execution", () => {
     expect(result.rowCount).toBe(4);
     expect(postgresProvider.unsafe).toHaveBeenCalledWith(
       "UPDATE events SET active = $1",
-      [false]
+      [false],
+      { prepare: false }
     );
     // `initClient` short-circuits on the supplied transport, so the provider
     // module is never asked for a second one.
     expect(postgresProvider.create).not.toHaveBeenCalled();
+  });
+
+  test("forwards explicit prepared-statement opt-in on typed and raw paths", async () => {
+    const driver = new PostgresDriver({ options: { prepare: true } });
+    await driver._execute(sql`SELECT ${9}`);
+    expect(postgresProvider.unsafe).toHaveBeenLastCalledWith("SELECT $1", [9], {
+      prepare: true,
+    });
+    await driver._executeRaw("SELECT $1", [8]);
+    expect(postgresProvider.unsafe).toHaveBeenLastCalledWith("SELECT $1", [8], {
+      prepare: true,
+    });
+    await driver._disconnect();
   });
 
   test("installs only the codecs when no URL is configured", async () => {

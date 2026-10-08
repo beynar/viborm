@@ -1,235 +1,160 @@
 ---
 title: SQLite Driver
-description: SQLite migration driver with automatic table recreation for limited ALTER TABLE support
+description: SQLite migration storage, table reconstruction, and provider limits
 icon: file-box
 ---
 
-## Capabilities
+SQLite migrations use transactional table reconstruction when a requested change
+cannot be expressed safely by native `ALTER TABLE`. Introspection reads declared
+types, writer-owned checks, indexes, and foreign keys from SQLite's catalog.
 
-| Feature | Supported |
-|---------|-----------|
-| Native enums | No (CHECK constraint) |
-| Native arrays | No (JSON) |
-| Index types | btree only |
-| Locking | File-based |
-| Transactions | Full support |
+## Physical types
 
-## Type Mappings
+| Declaration | Physical storage |
+| --- | --- |
+| `s.string()` | `TEXT` |
+| `s.int()` / `s.bigInt()` | `INTEGER` |
+| `s.number()` | `REAL` |
+| `s.decimal({ precision, scale })` | Checked scaled `INTEGER` coefficient |
+| `s.decimal({ precision, scale }).array()` | Checked `TEXT` coefficient-string JSON |
+| `s.boolean()` | `INTEGER` (0/1) |
+| `s.dateTime()` | Canonical UTC timestamp `TEXT` |
+| `s.dateTime(SQLITE.DATETIME.INTEGER)` | Epoch-millisecond `INTEGER` |
+| `s.dateTime(SQLITE.DATETIME.REAL)` | Julian-day `REAL` |
+| `s.json()` / supported scalar lists | JSON storage |
+| `s.blob()` | `BLOB` |
+| `s.enum(["active", "inactive"])` | `TEXT` plus value `CHECK` |
+| `s.point()` | Reserved `VIBORM_GEO_TEXT` plus exact carrier `CHECK` |
 
-| VibORM Scalar | SQLite Type |
-|-------------|-------------|
-| `string()` | `TEXT` |
-| `int()` | `INTEGER` |
-| `bigint()` | `INTEGER` |
-| `number()` | `REAL` |
-| `decimal({ precision, scale })` | checked scaled `INTEGER` coefficient |
-| `decimal({ precision, scale }).array()` | `TEXT` containing coefficient-string JSON |
-| `boolean()` | `INTEGER` (1/0) |
-| `datetime()` | `TEXT` (ISO 8601) |
-| `json()` | `JSON` |
-| `blob()` | `BLOB` |
-| `uuid()` | `TEXT` |
-| `enumScalar()` | `TEXT` + CHECK constraint |
-| Other array scalars | `JSON` |
+Decimal checks prove integer storage and the declared coefficient range. Lists
+store coefficient strings so large values remain exact. An unmarked TEXT or REAL
+decimal is refused during adoption; values do not establish a column's scale.
+Typed queries apply logical codecs; raw SQL exposes physical storage.
 
-The decimal check requires integer storage and enforces the declared
-coefficient range. Decimal-list members are JSON strings rather than numeric
-tokens, so coefficients above JavaScript's safe-integer range remain exact.
-Typed operations apply the descriptor; raw SQLite reads expose the physical
-coefficient or container.
-
-## Auto-Increment
-
-SQLite uses `INTEGER PRIMARY KEY` for auto-increment:
+## Defaults and reconstruction
 
 ```ts
-const User = model("users", {
-  id: int().primaryKey().autoIncrement(),
-});
+import { s } from "viborm";
+
+const user = s.model({
+  id: s.int().id().autoIncrement(),
+  status: s.enum(["active", "inactive"]).default("active"),
+  createdAt: s.dateTime().now(),
+}).map("users");
 ```
 
-Generates:
+Date `.now()` uses UTC `YYYY-MM-DD` text and Time `.now()` uses UTC
+`HH:mm:ss.sss` text. DateTime text `.now()` uses `strftime('%Y-%m-%dT%H:%M:%fZ','now')`. Numeric DateTime forms
+use their own physical default expressions. Adding a computed default to a
+populated table reconstructs and backfills the table rather than issuing an
+unsupported `ADD COLUMN ... DEFAULT`.
 
-```sql
-CREATE TABLE "users" (
-  "id" INTEGER PRIMARY KEY AUTOINCREMENT
-);
-```
+Reconstruction creates the destination table, copies admitted values, replaces
+the source, and restores indexes. Renames preserve source-column identity;
+new columns receive their defaults. A required new column without a default
+refuses reconstruction. Foreign-key, primary-key, type, nullability, and enum
+CHECK changes use this same owner.
 
-## Boolean Handling
+Contiguous alterations of distinct columns on the same table and with the same
+risk class share one reconstruction, including their inverse. Other operations
+retain their original order; native libSQL paths keep their provider semantics.
 
-SQLite stores booleans as integers:
+Enum removal mappings run in the copy SELECT, under the destination CHECK. A
+mapping may target a newly added value; nullable removal still requires explicit
+`useNull()` or `mapValues()`. DateTime storage conversions validate and convert
+source values rather than reinterpreting physical bytes.
 
-```ts
-const User = model("users", {
-  isActive: boolean().default(true),
-});
-```
+## Scope and providers
 
-Generates:
-
-```sql
-CREATE TABLE "users" (
-  "isActive" INTEGER NOT NULL DEFAULT 1
-);
-```
-
-Values: `1` for `true`, `0` for `false`.
-
-## Enum Handling
-
-SQLite doesn't have native enums, so VibORM uses TEXT columns with CHECK constraints for validation:
-
-```ts
-const User = model("users", {
-  status: enumScalar(["active", "inactive", "pending"]),
-});
-```
-
-Generates:
-
-```sql
-CREATE TABLE "users" (
-  "status" TEXT CHECK("status" IN ('active', 'inactive', 'pending')) NOT NULL
-);
-```
-
-### Enum Operations
-
-**Adding enum values:**
-Requires table recreation to update the CHECK constraint.
-
-**Removing enum values:**
-Requires table recreation to update the CHECK constraint. You must also handle existing data with the removed values.
-
-**Dropping an enum:**
-Converts the column to plain TEXT (removes CHECK constraint) via table recreation.
-
-## Array Handling
-
-Arrays are stored as JSON:
-
-```ts
-const User = model("users", {
-  tags: string().array(),
-  scores: int().array(),
-});
-```
-
-Generates:
-
-```sql
-CREATE TABLE "users" (
-  "tags" JSON NOT NULL,
-  "scores" JSON NOT NULL
-);
-```
-
-Values are JSON-encoded: `["tag1", "tag2"]` or `[100, 200, 300]`.
-
-## Supported Direct Operations
-
-These operations work directly in SQLite:
-
-| Operation | SQLite Version | DDL |
-|-----------|----------------|-----|
-| Add column | 3.0+ | `ALTER TABLE ... ADD COLUMN` |
-| Drop column | 3.35.0+ | `ALTER TABLE ... DROP COLUMN` |
-| Rename column | 3.25.0+ | `ALTER TABLE ... RENAME COLUMN` |
-| Rename table | All | `ALTER TABLE ... RENAME TO` |
-| Create index | All | `CREATE INDEX` |
-| Drop index | All | `DROP INDEX` |
-
-## Table Recreation
-
-For operations SQLite doesn't support natively, VibORM uses table recreation:
-
-### Operations Requiring Recreation
-
-- **Alter column** (type, nullability, default changes)
-- **Add/drop foreign key**
-- **Add/drop primary key**
-- **Alter/drop enum** (updating CHECK constraints)
-
-These operations rewrite the whole table (create a new table, copy the data across, drop the old one, rename, recreate indexes) — slow on large tables. Renamed columns are mapped to their new names during the copy, new columns get their defaults, and dropped columns are excluded.
-
-## DDL Examples
-
-### Create Table with Enum
-
-```sql
-CREATE TABLE "users" (
-  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-  "email" TEXT NOT NULL,
-  "role" TEXT CHECK("role" IN ('admin', 'user', 'guest')) NOT NULL,
-  "tags" JSON,
-  "created_at" TEXT DEFAULT (datetime('now'))
-);
-```
-
-### Add Column
-
-```sql
-ALTER TABLE "users" ADD COLUMN "bio" TEXT;
-```
-
-### Rename Column
-
-```sql
-ALTER TABLE "users" RENAME COLUMN "name" TO "full_name";
-```
-
-### Drop Column
-
-```sql
-ALTER TABLE "users" DROP COLUMN "bio";
-```
-
-## Limitations
-
-| Limitation | Workaround |
-|------------|------------|
-| No native enums | CHECK constraints |
-| No native arrays | JSON storage |
-| Single index type | Only btree available |
-| Limited ALTER TABLE | Table recreation |
-| No concurrent writes | File-level locking |
-
-## Querying JSON Arrays
-
-Querying JSON arrays requires SQLite's JSON functions:
-
-```sql
--- Check if array contains value
-SELECT users.*
-FROM users, json_each(users.tags)
-WHERE json_each.value = 'admin';
-```
+An explicit `migrations.tables` list selects exact physical tables and refuses
+cross-boundary foreign keys. Reset previews list the tables actually selected.
+SQLite's transaction owns its write lock; there is no advisory-lock statement.
 
 ## LibSQL / Turso
 
-LibSQL uses the SQLite-family snapshot, type mapping, introspection, and DDL
-renderer. That does **not** make its live execution guarantee equivalent to
-SQLite3 or Bun SQLite.
+LibSQL and D1 share parts of SQLite's DDL vocabulary, but do not inherit its
+migration guarantees. V1 refuses effectful migration commands on transports
+whose lock, constraint validation, execution boundary, and final proof are not
+proven. Offline generation/check and supported read-only previews remain
+available. Consult [driver capabilities](/docs/migration/drivers).
 
-V1 refuses effectful `apply`, `down`, `reset`, `verify`, and `push` on LibSQL.
-Its native constraint alteration does not validate existing rows, and safe
-table reconstruction has not been proven together with the migration lock,
-marker compare-and-swap, and final schema proof. Offline `generate` and
-`check`, database `status` and `log`, and `push({ dryRun: true })` remain
-available.
+## GeoPoint carrier upgrades
 
-## Next Steps
+The writer uses SQLite's 17-digit alternate printf spelling to preserve each
+finite binary64 coordinate. Introspection recognizes exactly the previous
+15-digit writer CHECK and the current CHECK. Pushing the current declaration
+reconstructs a legacy carrier once and records the new encoding in schema
+proofs. The conversion preserves the double still stored in the legacy table;
+it cannot recover digits that an earlier writer already rounded away.
 
-<CardGroup>
-  <Card
-    title="PostgreSQL Driver"
-    description="PostgreSQL-specific features"
-    href="/docs/migration/drivers/postgresql"
-  />
-  <Card
-    title="Migration Drivers"
-    description="Driver overview"
-    href="/docs/migration/drivers"
-  />
-</CardGroup>
+## Repairing foreign timestamp and Time text
+
+Typed queries refuse noncanonical stored temporal text before comparing or
+writing it. Canonical DateTime storage is `YYYY-MM-DDTHH:mm:ss.sssZ`; Time is
+`HH:mm:ss.sss`. Merely decoding a `+00:00` timestamp on read does not repair
+lexical filters against that physical value.
+
+The manual migration helpers quote a physical column name and return a SQLite
+expression. DateTime conversion uses the same calendar, instant range and
+wide-offset rules as the migration converter, including year zero and offsets
+up to ±23:59. NULL remains NULL; malformed or out-of-range values abort the
+statement. Time padding preserves its clock value and refuses an invalid clock.
+
+```ts title="repair-temporal.ts"
+import { sql } from "viborm";
+import {
+  sqliteCanonicalDateTimeExpression,
+  sqliteCanonicalTimeExpression,
+  type ManualMigrationInput,
+} from "viborm/migrations";
+
+const stamp = sqliteCanonicalDateTimeExpression("created_at");
+const clock = sqliteCanonicalTimeExpression("start_time");
+
+export default (parents: readonly (string | null)[]): ManualMigrationInput => ({
+  transitions: parents.map((from) => ({
+    from,
+    execution: "transactional",
+    // These reads validate every non-NULL value before the update.
+    originChecks: [{
+      kind: "trusted-read",
+      query: sql.raw(`SELECT NOT EXISTS (
+        SELECT 1 FROM "events"
+        WHERE ("created_at" IS NOT NULL AND ${stamp} IS NULL)
+           OR ("start_time" IS NOT NULL AND ${clock} IS NULL)
+      )`),
+      equals: true,
+    }],
+    up: [sql.raw(`UPDATE "events"
+      SET "created_at" = ${stamp}, "start_time" = ${clock}`)],
+    rollback: {
+      kind: "irreversible",
+      reason: "Original text offsets and fractional spellings are not retained",
+    },
+  })),
+  destinationChecks: [{
+    kind: "trusted-read",
+    query: sql.raw(`SELECT NOT EXISTS (
+      SELECT 1 FROM "events"
+      WHERE "created_at" <> ${stamp} OR "start_time" <> ${clock}
+    )`),
+    equals: true,
+  }],
+});
+```
+
+Review the resulting checked transition with
+`viborm migrate generate --custom ./repair-temporal.ts --dry-run --review ./repair.sql`.
+The helper generates SQL only. It does not inspect, update, or automatically
+repair an application database. Back up and authorize the intended data update
+before applying the reviewed migration.
+
+
+## Native indexes
+
+Introspection uses `index_xinfo` to observe expressions, key order and collation.
+An expression, descending or non-BINARY key refuses synchronization before
+effects because the current index declaration cannot recreate it faithfully.
+This includes primary/unique backing indexes. The existing index and rows remain
+untouched. An explicitly excluded table does not block a closed managed-table
+scope. Native expression/collation declarations remain a product gap.

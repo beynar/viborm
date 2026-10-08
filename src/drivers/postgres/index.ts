@@ -3,19 +3,9 @@
  *
  * Driver implementation for postgres.js - a modern, fast PostgreSQL client.
  *
- * No statement pipelining, measured rather than assumed. postgres.js can
- * pipeline, but it gates that on `!q.describeFirst`, and it sets `describeFirst`
- * for every parameterized query that is not already a cached prepared
- * statement. `sql.unsafe()` — the only entry point that accepts a generated SQL
- * string, which is all this driver ever has — hard-sets `prepare: false`, so no
- * statement is ever cached and the gate never opens. Issuing a transaction's
- * statements without intermediate awaits therefore costs exactly what issuing
- * them one at a time costs, and each parameterized statement costs two round
- * trips rather than one.
- *
- * `tests/drivers/postgres-pipelining.test.ts` pins that measurement, and the
- * Phase 9 section of `docs/architecture/query-performance-plan.md` records the
- * numbers and the door that stays shut.
+ * Generated statements use unsafe(query, values, queryOptions). Preparation
+ * defaults to false for pooler compatibility; options.prepare: true opts into
+ * the provider's prepared-statement reuse on compatible sessions.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -27,7 +17,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { unsupportedVector } from "@errors";
+import { ClientInitializationError, unsupportedVector } from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
@@ -62,26 +52,16 @@ export interface PostgresDriverOptions {
   namespace?: string;
 }
 
-const parseDatabaseUrl = (url: string): PostgresOptions => {
-  const parsed = new URL(url);
-  return {
-    host: parsed.hostname,
-    port: parsed.port ? Number.parseInt(parsed.port, 10) : 5432,
-    database: parsed.pathname.slice(1), // Remove leading "/"
-    user: parsed.username || undefined,
-    password: parsed.password || undefined,
-  };
-};
-
-const vibormTypes: Record<string, postgres.PostgresType> = {
+export const vibormTypes: Record<string, postgres.PostgresType> = {
   // TIMESTAMP WITHOUT TIME ZONE (1114): postgres.js builds process-local
   // Dates, shifting the stored UTC wall clock by the process timezone. Keep
   // the raw string — the shared result parser builds a UTC Date from it,
   // matching every other driver. (DATE already arrives as a string.)
   timestamp: {
     to: 1114,
-    from: [1114],
-    serialize: (value: unknown) => value as string,
+    from: [1082, 1114, 1184],
+    serialize: (value: unknown) =>
+      value instanceof Date ? value.toISOString() : String(value),
     parse: (value: string) => value,
   },
   // The adapter binds a `JsonParameter` carrier (src/sql/json-parameter.ts),
@@ -97,6 +77,16 @@ const vibormTypes: Record<string, postgres.PostgresType> = {
     parse: (value: string) => JSON.parse(value),
   },
 };
+
+/** Bind validated one-dimensional lists as PostgreSQL text, letting SQL infer
+ * the column type; postgres.js otherwise guesses bigint[]/boolean[] wrongly. */
+function encodeListParameters(params: unknown[]): unknown[] {
+  return params.map((value) =>
+    Array.isArray(value)
+      ? `{${value.map((member) => (member === null ? "NULL" : `"${String(member).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)).join(",")}}`
+      : value
+  );
+}
 
 const withVibormTypes = (options: PostgresOptions = {}): PostgresOptions => ({
   ...options,
@@ -123,7 +113,7 @@ export class PostgresDriver extends Driver<
   PostgresTransaction
 > {
   declare readonly adapter: DatabaseAdapter;
-  readonly maxBindParametersPerStatement: number | undefined = 65_535;
+  readonly maxBindParametersPerStatement: number | undefined = 65_533;
 
   private readonly driverOptions: PostgresDriverOptions;
   /**
@@ -138,10 +128,24 @@ export class PostgresDriver extends Driver<
   constructor(options: PostgresDriverOptions = {}) {
     super("postgresql", "postgres");
     const namespace = resolveNamespaceOption(options);
-    this.driverOptions = options;
+    this.driverOptions = {
+      databaseUrl: options.databaseUrl,
+      options: { ...options.options },
+    };
     this.suppliedClient = options.client;
 
     if (this.suppliedClient) {
+      for (const oid of [1082, 1114, 1184]) {
+        if (
+          this.suppliedClient.options?.parsers[oid] !==
+          vibormTypes.timestamp?.parse
+        ) {
+          throw new ClientInitializationError(
+            "A supplied postgres.js client must use VibORM temporal parsers; construct postgres(url, { types: vibormTypes }).",
+            { meta: { driver: "postgres", operation: "configuration" } }
+          );
+        }
+      }
       this.client = this.suppliedClient;
     }
 
@@ -166,9 +170,19 @@ export class PostgresDriver extends Driver<
     }
     const { databaseUrl, options } = this.driverOptions;
     if (databaseUrl) {
-      return postgres(
-        withVibormTypes({ ...parseDatabaseUrl(databaseUrl), ...options })
-      );
+      const {
+        host: _host,
+        hostname: _hostname,
+        port: _port,
+        user: _user,
+        username: _username,
+        pass: _pass,
+        password: _password,
+        database: _database,
+        db: _db,
+        ...transportOptions
+      } = options ?? {};
+      return postgres(databaseUrl, withVibormTypes(transportOptions));
     }
     return postgres(withVibormTypes(options));
   }
@@ -200,7 +214,11 @@ export class PostgresDriver extends Driver<
     const operation = context?.operation ?? "execute";
     // postgres.js unsafe() takes (query, parameters?, queryOptions?)
     // parameters must be cast as postgres expects specific types
-    const result = await client.unsafe<T[]>(sqlStr, params);
+    const result = await client.unsafe<T[]>(
+      sqlStr,
+      encodeListParameters(params),
+      { prepare: this.driverOptions.options?.prepare === true }
+    );
     return {
       rows: result,
       rowCount: normalizePostgresRowCount(
@@ -222,7 +240,9 @@ export class PostgresDriver extends Driver<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "executeRaw";
-    const result = await client.unsafe<T[]>(sqlStr, params);
+    const result = await client.unsafe<T[]>(sqlStr, params, {
+      prepare: this.driverOptions.options?.prepare === true,
+    });
     return {
       rows: result,
       rowCount: normalizePostgresRowCount(
@@ -266,14 +286,9 @@ export class PostgresDriver extends Driver<
       run: (callback) => client.begin(callback),
       callback: fn,
       phases: getExecutionTransactionPhases(context),
-      // Containment for a transaction the provider broke, through the one place
-      // that decides whether a transport may be closed at all: ending the
-      // caller's transport to contain VibORM's transaction would be a far
-      // larger effect than the one being contained.
-      close: async () => {
-        await this.closeClient(client);
-        this.client = null;
-      },
+      // The provider transaction primitive already rolls back/discards its
+      // failed session. A transaction does not own this shared pool/database.
+      close: async () => undefined,
     });
   }
 
@@ -341,15 +356,10 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   const { client, options = {}, pgvector, postgis, databaseUrl } = config;
   const namespace = resolveNamespaceOption(config);
 
-  // The URL still wins over the caller's option keys, on a copy this wrapper
-  // owns rather than in the caller's record.
-  const mergedOptions = databaseUrl
-    ? { ...options, ...parseDatabaseUrl(databaseUrl) }
-    : options;
-
   const driver = new PostgresDriver({
     client,
-    options: mergedOptions,
+    options,
+    databaseUrl,
     pgvector,
     postgis,
     namespace,

@@ -124,3 +124,27 @@ export function sqliteConstraintClauses(
   }
   return clauses;
 }
+
+/** Structural keywords outside expression bodies, quoted tokens and comments. */
+export function sqliteDefinitionKeywords(definition: string): string[] {
+  const words: string[] = [];
+  let depth = 0;
+  let cursor = 0;
+  while (cursor < definition.length) {
+    const skipped = skipSqlNonStructuralRegion(definition, cursor);
+    if (skipped !== cursor) {
+      cursor = skipped;
+      continue;
+    }
+    const word = readSqliteIdentifier(definition, cursor);
+    if (word && !word.quoted) {
+      if (depth === 0) words.push(word.value.toUpperCase());
+      cursor = word.end;
+      continue;
+    }
+    if (definition[cursor] === "(") depth++;
+    else if (definition[cursor] === ")") depth--;
+    cursor++;
+  }
+  return words;
+}

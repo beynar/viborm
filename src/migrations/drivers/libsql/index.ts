@@ -10,6 +10,13 @@
  * are validated against all existing rows.
  */
 
+import { sqliteDateTimeTargetRequiresRecreation } from "../../../adapters/databases/sqlite/storage/datetime";
+import { sqliteDecimalCheck } from "../../../adapters/databases/sqlite/storage/decimal";
+import {
+  SQLITE_GEO_POINT_TYPE,
+  sqliteGeoPointCheck,
+  sqliteGeoPointEncoding,
+} from "../../../adapters/databases/sqlite/storage/geo-point";
 import {
   decimalConversionRequired,
   sqliteDecimalStorageKind,
@@ -22,12 +29,6 @@ import type {
   DropForeignKeyOperation,
 } from "../base";
 import { SQLite3MigrationDriver } from "../sqlite";
-import { sqliteDateTimeTargetRequiresRecreation } from "../sqlite/datetime";
-import { sqliteDecimalCheck } from "../sqlite/decimal";
-import {
-  SQLITE_GEO_POINT_TYPE,
-  sqliteGeoPointCheck,
-} from "../sqlite/geo-point";
 import type { MigrationCapabilities } from "../types";
 
 export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
@@ -138,7 +139,11 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
 
     if (column.type.toUpperCase() === SQLITE_GEO_POINT_TYPE) {
       parts.push(
-        sqliteGeoPointCheck(column, (name) => this.escapeIdentifier(name))
+        sqliteGeoPointCheck(
+          column,
+          (name) => this.escapeIdentifier(name),
+          sqliteGeoPointEncoding(column)
+        )
       );
     }
 

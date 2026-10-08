@@ -52,7 +52,10 @@ const TIMESTAMP_OID = 1114;
 const identityParser = (value: string) => value;
 const utcSafeTypes: PoolConfig["types"] = {
   getTypeParser: (oid: number, format?: string) => {
-    if ((oid === DATE_OID || oid === TIMESTAMP_OID) && format !== "binary") {
+    if (
+      [DATE_OID, TIMESTAMP_OID, 1184, 1115, 1182, 1185].includes(oid) &&
+      format !== "binary"
+    ) {
       return identityParser;
     }
     return pgTypes.getTypeParser(oid as never, format as never);
@@ -383,7 +386,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     const operation = context?.operation ?? "execute";
     const observed = this.readBackgroundPoolFailure(client);
     const result = await client
-      .query(sql, params)
+      .query({ text: sql, values: params, types: utcSafeTypes })
       .catch((error: unknown) =>
         this.throwPoolQueryFailure(
           client,
@@ -417,7 +420,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     const operation = context?.operation ?? "executeRaw";
     const observed = this.readBackgroundPoolFailure(client);
     const result = await client
-      .query(sql, params)
+      .query({ text: sql, values: params, types: utcSafeTypes })
       .catch((error: unknown) =>
         this.throwPoolQueryFailure(
           client,

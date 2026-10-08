@@ -126,7 +126,7 @@ describeIf("MySQL2 Driver", () => {
       getAggregateResultKey("_max"),
     ];
     const projections = aliases.map((alias, index) =>
-      driver.adapter.identifiers.aliased(sql.raw`${index + 1}`, alias)
+      driver.adapter.identifiers.aliased(sql.raw(String(index + 1)), alias)
     );
 
     try {

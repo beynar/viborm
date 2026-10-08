@@ -450,7 +450,7 @@ describe("sanitizeEvent — sql/params gating", () => {
 // ---------------------------------------------------------------------------
 
 describe("prettyLog — query branch", () => {
-  it("with model → colored model.operation and sql/params lines", () => {
+  it("with model → model.operation and sql/params lines", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({
       query: true,
@@ -581,6 +581,27 @@ describe("prettyLog — error branch", () => {
   });
 });
 
+it("adds no ANSI codes and preserves fractional durations in captured logs", () => {
+  const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  const logger = createLogger({ all: true });
+  logger.query({
+    timestamp: ts,
+    model: "user",
+    operation: "findMany",
+    duration: 0.125,
+  });
+  logger.cache({ timestamp: ts, meta: { event: "hit" } });
+  logger.warn({ timestamp: ts });
+  logger.error({ timestamp: ts });
+  const output = [...log.mock.calls, ...warn.mock.calls, ...error.mock.calls]
+    .flat()
+    .join(" ");
+  expect(output).not.toContain("\x1b[");
+  expect(output).toContain("0.125ms");
+});
+
 describe("formatDuration — via query pretty output", () => {
   it("undefined duration yields no duration segment", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -591,7 +612,7 @@ describe("formatDuration — via query pretty output", () => {
     expect(spy.mock.calls[0]?.join(" ")).not.toContain("ms");
   });
 
-  it("renders the ms value across green/yellow/red thresholds", () => {
+  it("renders the original millisecond value", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const logger = createLogger({ query: true });
 

@@ -6,15 +6,29 @@
  * exact table-rebuild expressions that rescale scalar and list coefficients.
  */
 
-import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
-import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { MigrationError, VibORMErrorCode } from "../../../../errors";
 import {
-  type DecimalStorageKind,
+  type DecimalDescriptor,
+  decimalColumnType,
   describeDecimalDomain,
   readStoredDecimalDescriptor,
-  sqliteDecimalStorageKind,
-} from "../../decimal";
-import type { ColumnDef } from "../../types";
+} from "../../../../validation/primitives/decimal-codec";
+export type DecimalStorageKind = "scalar" | "list";
+interface PhysicalColumn {
+  readonly name: string;
+  readonly type: string;
+  readonly nullable: boolean;
+  readonly decimal?: DecimalDescriptor | undefined;
+}
+export function sqliteDecimalStorageKind(
+  column: Pick<PhysicalColumn, "type" | "decimal">
+): DecimalStorageKind | undefined {
+  if (column.decimal === undefined) return undefined;
+  const type = column.type.toUpperCase();
+  if (type === decimalColumnType("sqlite", column.decimal)) return "scalar";
+  return type === "TEXT" ? "list" : undefined;
+}
+
 import {
   type SqliteConstraintClause,
   type SqliteTableDefinition,
@@ -80,7 +94,7 @@ const RESERVED_CONSTRAINT_TAIL = /^(\d+)_(\d+)$/;
  */
 export function readSqliteDecimalConstraint(
   tableSql: string | null | undefined,
-  column: Pick<ColumnDef, "name" | "type" | "nullable">,
+  column: Pick<PhysicalColumn, "name" | "type" | "nullable">,
   escapeIdentifier: (name: string) => string
 ): DecimalDescriptor | undefined {
   if (!tableSql) return undefined;
@@ -156,7 +170,7 @@ export function readSqliteDecimalConstraint(
 function ownedDescriptor(
   definition: SqliteTableDefinition,
   clause: SqliteConstraintClause,
-  physicalColumn: Pick<ColumnDef, "name" | "type" | "nullable">,
+  physicalColumn: Pick<PhysicalColumn, "name" | "type" | "nullable">,
   escapeIdentifier: (name: string) => string
 ): DecimalDescriptor | undefined {
   const column = definition.columnName;

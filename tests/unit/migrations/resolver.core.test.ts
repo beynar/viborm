@@ -25,6 +25,8 @@ import {
 } from "@src/migrations/types";
 import { describe, expect, it } from "vitest";
 
+const MISSING_RESOLUTION_PATTERN = /Missing resolution/;
+
 const AMBIGUOUS_CHANGES_DETECTED = /Ambiguous changes detected/;
 
 // =============================================================================
@@ -189,17 +191,12 @@ describe("applyResolutions", () => {
     });
   });
 
-  it("should default to addAndDrop when no resolution provided", () => {
+  it("refuses when no resolution is provided", () => {
     const change = makeColumnChange("users", "username", "name");
     const resolutions = new Map<AmbiguousChange, ChangeResolution>();
-
-    const ops = applyResolutions([change], resolutions);
-
-    expect(ops).toContainEqual({
-      type: "dropColumn",
-      tableName: "users",
-      columnName: "username",
-    });
+    expect(() => applyResolutions([change], resolutions)).toThrow(
+      MISSING_RESOLUTION_PATTERN
+    );
   });
 });
 

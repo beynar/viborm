@@ -141,12 +141,12 @@ describe("refusal witnesses", () => {
 
   it("names an overridden generator default on every generator kind", () => {
     const overridden = [
-      s.string().uuid().default(overrideString),
-      s.string().uuidv7().default(overrideString),
-      s.string().ulid().default(overrideString),
-      s.string().ksuid().default(overrideString),
-      s.string().nanoid().default(overrideString),
-      s.string().cuid().default(overrideString),
+      s.string().uuid({ generate: true }).default(overrideString),
+      s.string().uuidv7({ generate: true }).default(overrideString),
+      s.string().ulid({ generate: true }).default(overrideString),
+      s.string().ksuid({ generate: true }).default(overrideString),
+      s.string().nanoid({ generate: true }).default(overrideString),
+      s.string().cuid({ generate: true }).default(overrideString),
       s.string().id().default(overrideString),
       s.dateTime().now().default(overrideDate),
       s.dateTime().updatedAt().default(overrideDate),
@@ -169,12 +169,12 @@ describe("refusal witnesses", () => {
   it("still writes `generate` for every generator the builders install", () => {
     const user = s.model({
       id: s.string().id("u"),
-      uid: s.string().uuid(),
-      uid7: s.string().uuidv7("v"),
-      ulid: s.string().ulid("p"),
-      ksuid: s.string().ksuid(),
-      nano: s.string().nanoid(8),
-      cuid: s.string().cuid(),
+      uid: s.string().uuid({ generate: true }),
+      uid7: s.string().uuidv7({ generate: true, prefix: "v" }),
+      ulid: s.string().ulid({ generate: true, prefix: "p" }),
+      ksuid: s.string().ksuid({ generate: true }),
+      nano: s.string().nanoid({ generate: true, length: 8 }),
+      cuid: s.string().cuid({ generate: true }),
       seq: s.int().increment(),
       big: s.bigInt().increment(),
       at: s.dateTime().now(),

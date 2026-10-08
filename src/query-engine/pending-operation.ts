@@ -5,7 +5,7 @@
  */
 
 import { isCacheManagedExecution } from "@cache/capability";
-import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import {
   InvalidTransactionInputError,
   retainWriteOutcomeFailure,
@@ -31,6 +31,7 @@ import {
   createPendingOperationInstrumentationFacts,
   type OperationExecutionContext,
   observeTransactionBatchPhase,
+  withOperationErrorContext,
 } from "./execution-context";
 import { PendingExecution } from "./pending-execution";
 import type { QueryEngine } from "./query-engine";
@@ -79,6 +80,7 @@ interface PendingCacheResultAccess {
   readonly controls: AdmittedControls | undefined;
   readonly codec: CacheResultCodec;
   readonly executionContext: QueryExecutionContext;
+  readonly checkStorage: (driver: AnyDriver) => Promise<void>;
 }
 
 type ReadPendingCacheResult = (
@@ -178,7 +180,10 @@ let pendingOperationTransactionOwner: TransactionOperationOwner<
 >;
 
 /** One user operation, from lazy creation through execution and parsing. */
-export class PendingOperation<T> implements TransactionOperation<T> {
+export class PendingOperation<T>
+  implements Promise<T>, TransactionOperation<T>
+{
+  readonly [Symbol.toStringTag] = "Promise";
   readonly [PENDING_OPERATION_SYMBOL] = true;
   readonly #context: OperationExecutionContext;
   readonly #engine: QueryEngine;
@@ -239,6 +244,10 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       controls: operation.#inputPreparation?.controls,
       codec: operation.#cacheResultCodec(),
       executionContext: operation.#context.attribution,
+      checkStorage: (driver) =>
+        operation
+          .#resolveRouted()
+          .checkStorage(driver, operation.#context.attribution),
     });
     pendingOperationTransactionOwner = Object.freeze({
       clientId: (operation) => operation.#context.clientId,
@@ -271,8 +280,9 @@ export class PendingOperation<T> implements TransactionOperation<T> {
           operation.#prepareWriteOutcomeRegistration !== undefined
         );
       },
-      prepareAdmission: (operation) => {
+      prepareAdmission: (operation, phase = "input") => {
         operation.#preparedInput();
+        if (phase === "plan") operation.#resolveSinglePackage();
       },
       stagePackageWriteOutcomes: (operation, outcomes) => {
         const registration = operation.#resolveWriteOutcomeRegistration();
@@ -364,8 +374,13 @@ export class PendingOperation<T> implements TransactionOperation<T> {
       // result. A verb that needs the asynchronous fold publishes no single
       // query, and the array owner asks it for the package instead.
       prepare: (operation) => operation.#resolveSinglePackage()?.queries[0],
-      prepareBatch: (operation) =>
-        operation.#resolveRouted().prepareBatch(operation.#context.attribution),
+      prepareBatch: (operation, driver) =>
+        operation
+          .#resolveRouted()
+          .prepareBatch(
+            operation.#context.attribution,
+            driver ?? operation.#engine.driver
+          ),
       parseResult: (operation, raw) => {
         const single = operation.#resolveSinglePackage();
         if (!single) {
@@ -606,6 +621,20 @@ export class PendingOperation<T> implements TransactionOperation<T> {
   }
 
   #runExecution(
+    driverOverride?: AnyDriver,
+    committedWriteSegment?: CommittedWriteSegmentNotification,
+    writeMayBeVisible?: WriteMayBeVisibleNotification
+  ): Promise<T> {
+    return withOperationErrorContext(this.#context.attribution, () =>
+      this.#runAttributedExecution(
+        driverOverride,
+        committedWriteSegment,
+        writeMayBeVisible
+      )
+    );
+  }
+
+  #runAttributedExecution(
     driverOverride?: AnyDriver,
     committedWriteSegment?: CommittedWriteSegmentNotification,
     writeMayBeVisible?: WriteMayBeVisibleNotification

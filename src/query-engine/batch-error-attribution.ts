@@ -1,4 +1,4 @@
-import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   ForeignKeyError,
@@ -7,6 +7,7 @@ import {
   NestedWriteError,
   NotFoundError,
   TransactionError,
+  UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
 import type { PreparedBatchGuard, PreparedGuardFailure } from "./types";
@@ -25,6 +26,10 @@ export function createFailureError(
   model: string,
   operation: string
 ): Error {
+  if (failure.kind === "unsupported")
+    return new UnsupportedOperationError(failure.message, {
+      meta: { model, operation },
+    });
   if (failure.kind === "foreignKey") {
     return new ForeignKeyError(failure.message, { meta: { model, operation } });
   }

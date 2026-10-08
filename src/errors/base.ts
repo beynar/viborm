@@ -40,6 +40,7 @@ export enum VibORMErrorCode {
   DEADLOCK = "V5003",
   SERIALIZATION_FAILURE = "V5004",
   INVALID_TRANSACTION_INPUT = "V5005",
+  TRANSACTION_CONTENTION = "V5006",
 
   // Not found errors (6xxx)
   RECORD_NOT_FOUND = "V6001",
@@ -237,6 +238,8 @@ export class VibORMError extends Error {
       cause?: Error | undefined;
       meta?: VibORMErrorMeta | undefined;
       diagnostics?: DiagnosticDisclosure | undefined;
+      /** Internal validation boundary evidence, snapshotted with the error. */
+      validation?: { source: unknown; issues: unknown };
     }
   ) {
     super(message);
@@ -244,7 +247,7 @@ export class VibORMError extends Error {
     this.name = diagnosticName;
     this.code = code;
     this.originalCause = options?.cause
-      ? sanitizeErrorCause(options.cause)
+      ? sanitizeErrorCause(options.cause, options?.diagnostics)
       : undefined;
     this.meta = sanitizeErrorMetadata(
       options?.meta ?? {},
@@ -260,6 +263,7 @@ export class VibORMError extends Error {
       name: diagnosticName,
       prismaCode: toPrismaErrorCode(code),
       timestamp: this.timestamp,
+      validation: options?.validation,
     });
 
     // Maintain proper stack trace
@@ -389,10 +393,10 @@ const DEFECT: CodeVerdict = { expected: false, retryable: false };
  */
 interface CodeDisposition {
   // Connection (1xxx). The server said no, or the client could not be built from the given
-  // configuration — all outside the engine. A timeout may clear on its own; a refused or
-  // closed connection will not, and a retry loop on it is a hot spin.
+  // configuration — all outside the engine. Refused connections and timeouts can
+  // recover with backoff; closed clients and invalid configuration cannot.
   [VibORMErrorCode.CONNECTION_TIMEOUT]: "retryable";
-  [VibORMErrorCode.CONNECTION_FAILED]: "expected";
+  [VibORMErrorCode.CONNECTION_FAILED]: "retryable";
   [VibORMErrorCode.CONNECTION_CLOSED]: "expected";
   [VibORMErrorCode.CLIENT_INITIALIZATION]: "expected";
 
@@ -415,11 +419,12 @@ interface CodeDisposition {
   [VibORMErrorCode.INVALID_INPUT]: "expected";
   [VibORMErrorCode.MISSING_REQUIRED]: "expected";
 
-  // Transaction (5xxx). Deadlock and serialization failure are the two the database itself
-  // tells you to re-run — they are the whole reason a retry policy exists. A timeout, a plain
-  // failure, and a refused transaction OPTION are not: re-running repeats them.
+  // Transaction (5xxx). Lock contention, deadlock and serialization failure may clear
+  // on a later attempt. Retryability does not prove a write was uncommitted or idempotent.
+  // A local transaction timeout, plain failure or invalid option is not transient.
   [VibORMErrorCode.DEADLOCK]: "retryable";
   [VibORMErrorCode.SERIALIZATION_FAILURE]: "retryable";
+  [VibORMErrorCode.TRANSACTION_CONTENTION]: "retryable";
   [VibORMErrorCode.TRANSACTION_FAILED]: "expected";
   [VibORMErrorCode.TRANSACTION_TIMEOUT]: "expected";
   [VibORMErrorCode.INVALID_TRANSACTION_INPUT]: "expected";
@@ -511,10 +516,12 @@ const DEFECT_CODES: Partial<Record<VibORMErrorCode, true>> = {
   [VibORMErrorCode.SCHEMA_ERROR]: true,
 } satisfies Record<CodesWith<"defect">, true>;
 const RETRYABLE_CODES: Partial<Record<VibORMErrorCode, true>> = {
+  [VibORMErrorCode.CONNECTION_FAILED]: true,
   [VibORMErrorCode.CONNECTION_TIMEOUT]: true,
   [VibORMErrorCode.QUERY_TIMEOUT]: true,
   [VibORMErrorCode.DEADLOCK]: true,
   [VibORMErrorCode.SERIALIZATION_FAILURE]: true,
+  [VibORMErrorCode.TRANSACTION_CONTENTION]: true,
 } satisfies Record<CodesWith<"retryable">, true>;
 
 function verdictFor(code: keyof CodeDisposition): CodeVerdict {

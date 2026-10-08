@@ -26,22 +26,28 @@ type Equal<Left, Right> =
     ? true
     : false;
 
+type PublicShape<Value> = { [Key in keyof Value]: Value[Key] };
+
 type _postgresArm = Expect<
   Equal<
-    Extract<MigrationTarget, { dialect: "postgresql" }>,
-    { readonly dialect: "postgresql"; readonly namespace: string }
+    PublicShape<Extract<MigrationTarget, { dialect: "postgresql" }>>,
+    {
+      readonly dialect: "postgresql";
+      readonly namespace: string;
+      readonly tables?: readonly string[];
+    }
   >
 >;
 type _mysqlArm = Expect<
   Equal<
-    Extract<MigrationTarget, { dialect: "mysql" }>,
-    { readonly dialect: "mysql" }
+    PublicShape<Extract<MigrationTarget, { dialect: "mysql" }>>,
+    { readonly dialect: "mysql"; readonly tables?: readonly string[] }
   >
 >;
 type _sqliteArm = Expect<
   Equal<
-    Extract<MigrationTarget, { dialect: "sqlite" }>,
-    { readonly dialect: "sqlite" }
+    PublicShape<Extract<MigrationTarget, { dialect: "sqlite" }>>,
+    { readonly dialect: "sqlite"; readonly tables?: readonly string[] }
   >
 >;
 
@@ -91,3 +97,13 @@ export const selectorByName: StateSelector = { name: "add-users" };
 export const selectorByPrefix: StateSelector = { prefix: "a1b2c3d4" };
 // @ts-expect-error - numeric indexes are not state selectors
 export const selectorByIndex: StateSelector = { index: 0 };
+
+const scopedEstate: MigrationEstateDescriptorV1 = {
+  format: "1",
+  hash: "sha256",
+  target: { dialect: "sqlite", tables: ["users"] },
+};
+// @ts-expect-error - the public target scope cannot be reassigned
+scopedEstate.target.tables = ["posts"];
+// @ts-expect-error - the public scope list cannot be mutated
+scopedEstate.target.tables?.push("posts");

@@ -369,12 +369,13 @@ describe("decimal value boundary", () => {
     }
   });
 
-  test("carries no own property for an application to overwrite", () => {
+  test("keeps canonical text immutable and ignores unrelated own properties", () => {
     // The two fields are private, so a caller that assigns over the internals
     // a decimal library used to expose writes ordinary own properties that no
     // reader of this value ever consults.
     const value = toDecimal("1.234");
-    expect(Object.keys(value)).toEqual([]);
+    expect(Object.keys(value)).toEqual(["value"]);
+    expect(Reflect.set(value, "value", "999")).toBe(false);
     Object.assign(value, { s: -1, e: 9, c: [9] });
     expect(canonicalizeMaterializedDecimal(value)).toBe("1.234");
     expect(value.toString()).toBe("1.234");

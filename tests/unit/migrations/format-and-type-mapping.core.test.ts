@@ -268,13 +268,13 @@ describe("migration scalar type mapping", () => {
     },
     {
       context: { type: "datetime" },
-      postgres: "timestamp",
+      postgres: "timestamp(3)",
       sqlite: "TEXT",
       mysql: "DATETIME(3)",
     },
     {
       context: { type: "datetime", withTimezone: true },
-      postgres: "timestamptz",
+      postgres: "timestamptz(3)",
       sqlite: "TEXT",
       mysql: "DATETIME(3)",
     },
@@ -286,13 +286,13 @@ describe("migration scalar type mapping", () => {
     },
     {
       context: { type: "time" },
-      postgres: "time",
+      postgres: "time(3)",
       sqlite: "TEXT",
       mysql: "TIME(3)",
     },
     {
       context: { type: "time", withTimezone: true },
-      postgres: "timetz",
+      postgres: "timetz(3)",
       sqlite: "TEXT",
       mysql: "TIME(3)",
     },

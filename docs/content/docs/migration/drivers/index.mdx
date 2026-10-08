@@ -22,7 +22,7 @@ icon: cpu
 
 ## Driver Capabilities
 
-Each driver declares what its database can do: whether enums and arrays are native, which index types exist, and whether enum values can be added inside a transaction. PostgreSQL has native enum types and arrays but can't run `ALTER TYPE ... ADD VALUE` inside a transaction. MySQL defines enums inline on the column (changing one is a `MODIFY COLUMN`, which implicitly commits) and stores arrays as JSON. SQLite emulates enums with CHECK constraints and stores arrays as JSON.
+Each driver declares what its database can do: whether enums and arrays are native, which index types exist, and whether enum values can be added inside a transaction. PostgreSQL has native enum types and arrays. On PostgreSQL 12+, adding a value is transactional, but using that value before commit is forbidden; full-schema generated transitions use one transactional type replacement. MySQL defines enums inline on the column (changing one is a `MODIFY COLUMN`, which implicitly commits) and stores arrays as JSON. SQLite emulates enums with CHECK constraints and stores arrays as JSON.
 
 ## Supported Operations
 
@@ -45,7 +45,7 @@ Migration drivers generate DDL for these operations:
 | `dropPrimaryKey` | Direct | Direct | Table recreation |
 | `createEnum` | `CREATE TYPE` | No-op (inline in column) | No-op (TEXT) |
 | `dropEnum` | `DROP TYPE` | No-op | No-op |
-| `alterEnum` | `ALTER TYPE` | `MODIFY COLUMN` per column | No-op |
+| `alterEnum` | Transactional type replacement | `MODIFY COLUMN` per column | Table recreation |
 
 ## Automatic Driver Selection
 
@@ -53,6 +53,7 @@ VibORM automatically selects the migration driver based on your database driver:
 
 ```ts
 import { createClient } from "viborm/postgres";
+import { createMigrationClient } from "viborm/migrations";
 
 const client = createClient({
   databaseUrl: "...",
@@ -60,7 +61,7 @@ const client = createClient({
 });
 
 // PostgreSQL migration driver is automatically used
-await push(client);
+await createMigrationClient(client).push();
 ```
 
 ## Type Mapping
@@ -77,7 +78,7 @@ Each driver maps VibORM scalar types to database-specific types:
 | `number()` | `double precision` | `DOUBLE` | `REAL` |
 | `decimal({ precision, scale })` | `NUMERIC(p,s)` | `DECIMAL(p,s)` | checked scaled `INTEGER` |
 | `boolean()` | `boolean` | `TINYINT(1)` | `INTEGER` |
-| `datetime()` | `timestamp` | `DATETIME(3)` | `TEXT` |
+| `s.dateTime()` | `timestamptz(3)` | `DATETIME(3)` | Canonical UTC `TEXT` |
 | `json()` | `jsonb` | `JSON` | `TEXT` |
 | `blob()` | `bytea` | `BLOB` | `BLOB` |
 

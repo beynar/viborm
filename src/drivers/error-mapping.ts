@@ -1,6 +1,7 @@
 import {
   attachRecordSeriesProgress,
   CheckConstraintError,
+  ClientInitializationError,
   ConnectionError,
   type DiagnosticDisclosure,
   ForeignKeyError,
@@ -28,6 +29,9 @@ import {
 import type { Dialect } from "./types";
 
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
+const BUN_SQL_STATE_PATTERN = /^[0-9A-Z]{5}$/;
+const PROVIDER_CONNECTION_CODE_PATTERN =
+  /^(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ERR_POSTGRES_CONNECTION_|08[0-9A-Z]{3}$|57P0[123]$)/;
 const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
 // Symbolic BUSY/LOCKED codes are the exact base name or an underscore-delimited
 // extended family member. The delimiter is load-bearing: startsWith accepted
@@ -178,11 +182,11 @@ const ASSERTION_FAILURE: FailureConstruction = [
   NestedWriteAssertionError,
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
 ];
-// DEADLOCK code so the write-race retry logic treats it as retryable
+// SQLite lock refusal is contention, not proof of a deadlock.
 const SQLITE_CONTENTION_FAILURE: FailureConstruction = [
   TransactionError,
   "Database is locked",
-  VibORMErrorCode.DEADLOCK,
+  VibORMErrorCode.TRANSACTION_CONTENTION,
 ];
 
 /**
@@ -257,12 +261,19 @@ const PROVIDER_FAILURES: readonly ProviderFailure[] = [
   ],
   [
     TransactionError,
+    "Database lock is unavailable",
+    VibORMErrorCode.TRANSACTION_CONTENTION,
+    ["55P03"],
+    [],
+    [],
+  ],
+  [
+    TransactionError,
     "Transaction deadlock detected",
     VibORMErrorCode.DEADLOCK,
-    // 1205 is ER_LOCK_WAIT_TIMEOUT, classified with the deadlock.
     ["40P01"],
-    [1213, 1205],
-    ["ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"],
+    [1213],
+    ["ER_LOCK_DEADLOCK"],
   ],
 ];
 
@@ -278,7 +289,9 @@ const PROVIDER_FAILURES: readonly ProviderFailure[] = [
  * mapper without adding it here is a compile error, not a silently widened return.
  */
 export type DriverFailure =
+  | ClientInitializationError
   | CheckConstraintError
+  | ConnectionError
   | ForeignKeyError
   | NestedWriteAssertionError
   | NotNullConstraintError
@@ -286,6 +299,42 @@ export type DriverFailure =
   | TransactionError
   | UniqueConstraintError
   | ValueTooLongError;
+
+function isConfigurationFailure(
+  code: string | number | undefined,
+  errno?: number
+): boolean {
+  return (
+    [
+      "28P01",
+      "28000",
+      "3D000",
+      "ER_ACCESS_DENIED_ERROR",
+      "ER_BAD_DB_ERROR",
+    ].includes(String(code)) ||
+    errno === 1045 ||
+    errno === 1049
+  );
+}
+
+function configurationFailure(
+  cause: Error,
+  context: DriverErrorContext,
+  meta: VibORMErrorMeta
+): ClientInitializationError {
+  return new ClientInitializationError(
+    "Database authentication or configuration failed",
+    { cause, meta, diagnostics: context.diagnostics }
+  );
+}
+
+function withProviderFailureEvidence<T extends DriverFailure>(
+  error: unknown,
+  failure: T
+): T {
+  transferSuppressedFailureEvidence(error, failure);
+  return failure;
+}
 
 /**
  * What {@link normalizeDriverError} can hand back.
@@ -329,13 +378,52 @@ function mapProviderError(
   const rawMessage = getErrorMessage(cause);
   const dbError = readDriverErrorShape(error);
   const meta = buildMeta(dbError, context, rawMessage);
-  const code = dbError.code;
+  const stringErrno = dbError.stringErrno;
+  const bunSqlState =
+    context.driverName === "bun-sql" &&
+    typeof dbError.code === "string" &&
+    dbError.code.startsWith("ERR_POSTGRES") &&
+    BUN_SQL_STATE_PATTERN.test(stringErrno ?? "")
+      ? stringErrno
+      : undefined;
+  const code = bunSqlState ?? dbError.sqlstate ?? dbError.code;
+  if (bunSqlState) meta.providerCode = bunSqlState;
+  if (isConfigurationFailure(code, dbError.errno))
+    return withProviderFailureEvidence(
+      error,
+      configurationFailure(cause, context, meta)
+    );
+  if (typeof code === "string" && PROVIDER_CONNECTION_CODE_PATTERN.test(code)) {
+    return withProviderFailureEvidence(
+      error,
+      new ConnectionError("Database connection failed", {
+        cause,
+        diagnostics: context.diagnostics,
+        meta,
+        code:
+          code === "ETIMEDOUT"
+            ? VibORMErrorCode.CONNECTION_TIMEOUT
+            : VibORMErrorCode.CONNECTION_FAILED,
+      })
+    );
+  }
   const errno = dbError.errno ?? parseMessageErrno(rawMessage);
   if (errno !== undefined && meta.providerErrno === undefined) {
     meta.providerErrno = errno;
   }
 
   const diagnostics = context.diagnostics;
+  if (code === "57014" || code === "ER_LOCK_WAIT_TIMEOUT" || errno === 1205) {
+    return withProviderFailureEvidence(
+      error,
+      new QueryError("Query timed out", {
+        cause,
+        diagnostics,
+        meta,
+        code: VibORMErrorCode.QUERY_TIMEOUT,
+      })
+    );
+  }
   const recognized = recognizeProviderFailure(
     code,
     errno,
@@ -387,7 +475,11 @@ function recognizeProviderFailure(
     PROVIDER_FAILURES.find(
       (row) => row[4].includes(errno) || row[5].includes(code)
     );
-  if (recognized) return recognized;
+  if (recognized) {
+    if (recognized[7] && typeof code === "string" && code.startsWith("SQLITE_"))
+      attachSQLiteColumns(message, meta);
+    return recognized;
+  }
   if (isSQLiteContention(code, errno, message, context.dialect)) {
     return SQLITE_CONTENTION_FAILURE;
   }
@@ -418,11 +510,20 @@ export function normalizeDriverConnectionError(
   if (errno !== undefined && meta.providerErrno === undefined) {
     meta.providerErrno = errno;
   }
-  return new ConnectionError(message, {
-    cause,
-    diagnostics: context.diagnostics,
-    meta,
-  });
+  const code = dbError.sqlstate ?? dbError.code;
+  if (isConfigurationFailure(code, errno))
+    return withProviderFailureEvidence(
+      error,
+      configurationFailure(cause, context, meta)
+    );
+  return withProviderFailureEvidence(
+    error,
+    new ConnectionError(message, {
+      cause,
+      diagnostics: context.diagnostics,
+      meta,
+    })
+  );
 }
 
 function isKnownVibORMError(error: unknown): error is VibORMError {
@@ -456,13 +557,15 @@ function readDriverErrorShape(error: unknown): DriverErrorShape {
     return {};
   }
   const body = readProperty(error, "body");
+  const errno = readProperty(error, "errno");
   return {
     code: readStringOrNumber(error, "code"),
     bodyCode:
       body && (typeof body === "object" || typeof body === "function")
         ? readStringOrNumber(body, "code")
         : undefined,
-    errno: readNumber(error, "errno"),
+    errno: typeof errno === "number" ? errno : undefined,
+    stringErrno: typeof errno === "string" ? errno : undefined,
     constraint: readString(error, "constraint"),
     table: readString(error, "table"),
     column: readString(error, "column"),
@@ -479,11 +582,6 @@ function readDriverErrorShape(error: unknown): DriverErrorShape {
 function readString(value: object, key: string): string | undefined {
   const member = readProperty(value, key);
   return typeof member === "string" ? member : undefined;
-}
-
-function readNumber(value: object, key: string): number | undefined {
-  const member = readProperty(value, key);
-  return typeof member === "number" ? member : undefined;
 }
 
 function readStringOrNumber(
@@ -520,23 +618,37 @@ function findSQLiteMessageFailure(
   const row = PROVIDER_FAILURES.find(
     (candidate) => candidate[6] && message.includes(candidate[6])
   );
-  if (row?.[7]) meta.columns = parseSQLiteColumns(message);
+  if (row?.[7]) attachSQLiteColumns(message, meta);
   return row;
 }
 
-function parseSQLiteColumns(message: string): string[] | undefined {
+function attachSQLiteColumns(message: string, meta: VibORMErrorMeta): void {
   const match = SQLITE_CONSTRAINT_COLUMNS_PATTERN.exec(message);
-  if (!match) {
-    return undefined;
+  if (!match?.[1]) return;
+  // Accept only an unambiguous identifier list. Quoted dots/commas are leaves,
+  // not separators; arbitrary constraint expressions never become column names.
+  const identifier = String.raw`(?:"(?:[^"]|"")*"|\`(?:[^\`]|\`\`)*\`|\[[^\]]+\]|[A-Za-z_][A-Za-z0-9_$]*)`;
+  const path = `${identifier}(?:\\s*\\.\\s*${identifier})*`;
+  if (!new RegExp(`^\\s*${path}(?:\\s*,\\s*${path})*\\s*$`).test(match[1]))
+    return;
+  const paths = match[1].match(new RegExp(path, "g"));
+  if (!paths) return;
+  const columns: string[] = [];
+  const tables = new Set<string>();
+  for (const qualified of paths) {
+    const parts = qualified.match(new RegExp(identifier, "g"));
+    if (!parts?.length) return;
+    const names = parts.map((part) => {
+      if (part.startsWith('"')) return part.slice(1, -1).replaceAll('""', '"');
+      if (part.startsWith("`")) return part.slice(1, -1).replaceAll("``", "`");
+      if (part.startsWith("[")) return part.slice(1, -1);
+      return part;
+    });
+    const column = names.pop();
+    if (column === undefined) return;
+    columns.push(column);
+    if (names.length) tables.add(names.join("."));
   }
-
-  const columns = match[1];
-  if (!columns) {
-    return undefined;
-  }
-
-  return columns
-    .split(",")
-    .map((column) => column.trim())
-    .filter((column) => column.length > 0);
+  meta.columns = columns;
+  if (tables.size === 1) meta.table = tables.values().next().value;
 }

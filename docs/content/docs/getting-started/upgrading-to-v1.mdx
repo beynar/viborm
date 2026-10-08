@@ -8,17 +8,15 @@ V1 changes schema declarations, physical storage, migration history, extensions,
 and raw SQL. Treat this as an application and database upgrade, not only a
 package-version change.
 
-:::info[Release candidate preparation]
-This guide describes `1.0.0-rc.5`, currently being prepared. It does not announce
-an npm publication or a stable V1 release. After that exact candidate is
-published, install it explicitly with `npm install viborm@1.0.0-rc.5` for a
-rehearsal. Until then, test the candidate tarball supplied by the release build.
-The preceding `1.0.0-rc.4` is published; RC5 adds the `controls`, `rows`,
-`deletion` and `data` extension capabilities with the `viborm/soft-delete`
-extension, makes a client created per request cheap, and adds `viborm check`.
+:::info[V1 upgrade]
+This guide covers `1.0.0`. Install the stable release with
+`npm install viborm@1.0.0`. V1 includes the six-capability extension system,
+`viborm/soft-delete`, schema validation through `viborm check`, and the storage
+and transaction corrections listed in the changelog. Rehearse against a database
+copy before deploying an upgrade.
 :::
 
-The published baseline is `0.1.0`, the initial development package. The
+The pre-V1 baseline was `0.1.0`, the initial development package. The
 repository also contained intermediate development APIs that changed before
 V1. The retired spellings below identify code to review if you use them; they
 are not a claim that every spelling shipped in `0.1.0`.

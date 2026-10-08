@@ -19,6 +19,7 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
+import { vi } from "vitest";
 
 const user = s.model({
   id: s.string().id(),
@@ -69,47 +70,48 @@ describe("client construction errors", () => {
     expect(caught.originalCause?.name).toBe("Error");
   });
 
-  test("unknown model access is typed on both the plain and cached surfaces", async () => {
+  test("model reflection and optional access agree on plain and cached clients", async () => {
     const client = createClient({
       schema: { user },
       driver: makeDriver(),
     }).$extends(cache({ driver: new MemoryCache() }));
-
-    let caught: unknown;
-    try {
-      (
-        client as unknown as { ghost: { findMany: () => unknown } }
-      ).ghost.findMany();
-    } catch (error) {
-      caught = error;
+    for (const view of [client, client.$withCache()]) {
+      expect(Object.keys(view)).toEqual(["user"]);
+      expect("user" in view).toBe(true);
+      expect("ghost" in view).toBe(false);
+      expect(Reflect.get(view, "ghost")).toBeUndefined();
+      expect(Reflect.get(view, "then")).toBeUndefined();
+      expect(Object.getOwnPropertyDescriptor(view, "user")?.value).toBe(
+        view.user
+      );
+      expect(Object.keys(view.user)).toContain("findMany");
+      expect("findMany" in view.user).toBe(true);
+      expect(Reflect.get(view.user, "typo")).toBeUndefined();
+      expect(view.user.findMany).toBe(view.user.findMany);
     }
-
-    expect(caught).toBeInstanceOf(ClientInitializationError);
-    if (!(caught instanceof VibORMError)) throw new Error("expected VibORM");
-    expect(caught.message).toBe('Model "ghost" not found in schema');
-    expect(caught.prismaCode).toBe("P1012");
-    expect(caught.meta).toMatchObject({
-      model: "ghost",
-      operation: "findMany",
-    });
-
-    // The cached surface returns a rejected promise instead of throwing, and must be typed
-    // the same way.
-    const cachedCaught = await (
-      client.$withCache() as unknown as {
-        ghost: { findMany: () => Promise<unknown> };
-      }
-    ).ghost
-      .findMany()
-      .catch((error: unknown) => error);
-
-    expect(cachedCaught).toBeInstanceOf(ClientInitializationError);
-    if (!(cachedCaught instanceof VibORMError)) {
-      throw new Error("expected VibORM");
-    }
-    expect(cachedCaught.prismaCode).toBe("P1012");
-
     await client.$disconnect();
+  });
+
+  test("model delegates honor spies, direct stubs, and restoration without dispatch", async () => {
+    const client = createClient({ schema: { user }, driver: makeDriver() });
+    const original = client.user.findMany;
+    const rows = [{ id: "stub-id", email: "stub@example.test" }];
+    const spy = vi.spyOn(client.user, "findMany").mockResolvedValue(rows);
+    expect(await client.user.findMany()).toEqual(rows);
+    expect(spy).toHaveBeenCalledOnce();
+    spy.mockRestore();
+    expect(client.user.findMany).toBe(original);
+    const stub = vi.fn(async () => rows);
+    expect(Reflect.set(client.user, "findMany", stub)).toBe(true);
+    expect(await client.user.findMany()).toEqual(rows);
+    expect(stub).toHaveBeenCalledOnce();
+    const independent = createClient({
+      schema: { user },
+      driver: makeDriver(),
+    });
+    expect(independent.user.findMany).not.toBe(stub);
+    await client.$disconnect();
+    await independent.$disconnect();
   });
 
   test("serialized construction errors carry both codes", () => {

@@ -19,9 +19,13 @@ function nullResult(changes = 0, lastRowId = 0): NullD1Result {
   };
 }
 
-function createSingleResultDriver(result: NullD1Result): D1Driver {
+function createSingleResultDriver(
+  result: NullD1Result,
+  onBind?: (values: unknown[]) => void
+): D1Driver {
   const statement = {
-    bind() {
+    bind(...values: unknown[]) {
+      onBind?.(values);
       return statement;
     },
     run: vi.fn(async () => result),
@@ -72,6 +76,18 @@ async function captureMalformedResult(
 }
 
 describe("D1 binding null-result statement contracts", () => {
+  test("binds a raw Date cutoff as ISO text through D1's native statement boundary", async () => {
+    const bind = vi.fn();
+    const driver = createSingleResultDriver(nullResult(1), bind);
+    const cutoff = new Date("2026-10-08T00:00:00.000Z");
+    await driver._executeRaw(
+      "UPDATE events SET active = 0 WHERE last_seen < ?",
+      [cutoff],
+      { model: "$raw" }
+    );
+    expect(bind).toHaveBeenCalledExactlyOnceWith(["2026-10-08T00:00:00.000Z"]);
+  });
+
   test("publishes the concrete generated row id reported by D1", async () => {
     await expect(
       createSingleResultDriver(nullResult(1, 42))._executeRaw(

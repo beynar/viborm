@@ -32,7 +32,8 @@ export const OFFICIAL_CACHE_NAMESPACE_ROOT = `${CACHE_PREFIX}:cache`;
  * client a string where every other read gives it a value object. Same rule as
  * before: the bump is the invalidation.
  */
-const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r3";
+// r4 entries carry their full canonical identity, checked before materialization.
+const OFFICIAL_CACHE_SNAPSHOT_REVISION = "r4";
 
 /**
  * The facts one official cache scope partitions on.
@@ -127,6 +128,22 @@ export function generateUnprefixedCacheKey(
 ): string {
   const argsHash = hashArgs(args);
   return `${modelName}:${operation}:${argsHash}`;
+}
+
+/** Hash for storage lookup, exact identity for collision verification. */
+export function cacheLookupOf(
+  model: string,
+  operation: string,
+  args: unknown
+): {
+  readonly key: string;
+  readonly identity: string;
+} {
+  const serialized = stableStringify(args);
+  return {
+    key: `${model}:${operation}:${fastHash(serialized)}`,
+    identity: JSON.stringify([model, operation, serialized]),
+  };
 }
 
 /**

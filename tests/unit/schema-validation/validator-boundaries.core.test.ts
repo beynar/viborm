@@ -291,6 +291,23 @@ describe("SchemaValidator boundaries", () => {
     );
   });
 
+  it("includes the schema owner's repair and competing candidates in the error text", () => {
+    const error = new SchemaValidationError([
+      {
+        code: "R009",
+        severity: "error",
+        model: "user",
+        relation: "authored",
+        message: "Competing inverse candidates",
+        candidates: ["post.author", "post.editor"],
+        repair: "Give each pair a matching explicit name.",
+      },
+    ]);
+    expect(error.message).toContain("Candidates: post.author, post.editor");
+    expect(error.message).toContain("Give each pair a matching explicit name.");
+    expect(error.toJSON().issues).toEqual(error.issues);
+  });
+
   it("throws an immutable typed error for invalid schema definitions", () => {
     const user = s.model({ email: s.string() });
 

@@ -383,6 +383,22 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test("runtime: min/max HAVING uses the field domain; sum/avg require numbers", () => {
+    for (const having of [
+      { name: { _min: { gte: "Alice" }, _max: { equals: "Zoe" } } },
+      { active: { _min: { equals: false }, _max: { equals: true } } },
+    ]) {
+      expect(parse(schema, { by: "active", having }).issues).toBeUndefined();
+    }
+    for (const having of [
+      { name: { _min: { equals: 12 } } },
+      { name: { _sum: { gt: 1 } } },
+      { active: { _avg: { gt: 0 } } },
+    ]) {
+      expect(parse(schema, { by: "active", having }).issues).toBeDefined();
+    }
+  });
+
   test("runtime: accepts with orderBy", () => {
     const result = parse(schema, {
       by: "active",

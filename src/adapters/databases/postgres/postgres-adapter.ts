@@ -1,5 +1,15 @@
+import {
+  QueryError,
+  UnsupportedOperationError,
+  VibORMErrorCode,
+} from "@errors";
+import {
+  type NativeTypeDeclaration,
+  nativeTypeFor,
+} from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { type Sql, sql } from "@sql";
+import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
   decimalColumnType,
@@ -69,6 +79,27 @@ import {
 } from "../../shared/standard-sql";
 
 const quoteIdent = createIdentifierQuoter('"');
+function postgresLikeLiteral(value: Sql): Sql {
+  return sql`REPLACE(REPLACE(REPLACE(${value}, CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')`;
+}
+function postgresJsonObject(pairs: [string, Sql][]): Sql {
+  if (pairs.length === 0) return sql.raw`'{}'::json`;
+  const chunks: Sql[] = [];
+  const buildObject = sql.raw(
+    pairs.length > 50 ? "jsonb_build_object" : "json_build_object"
+  );
+  // PostgreSQL limits a function call to 100 arguments. Chunking preserves
+  // the surrounding aggregate scope, unlike moving values into a subquery.
+  for (let start = 0; start < pairs.length; start += 50) {
+    const args = pairs
+      .slice(start, start + 50)
+      .flatMap(([key, value]) => [sql`${key}::text`, value]);
+    chunks.push(sql`${buildObject}(${sql.join(args, ", ")})`);
+  }
+  return chunks.length === 1
+    ? chunks[0]!
+    : sql`(${sql.join(chunks, " || ")})::json`;
+}
 const POSTGRES_CONSTRAINTS = createNamedConstraintIdentities(
   (tableName) => `${tableName}_pkey`
 );
@@ -117,6 +148,9 @@ function arrayLiteralText(values: readonly unknown[]): string {
  * - NULLS FIRST/LAST ordering
  * - ON CONFLICT DO UPDATE/NOTHING
  */
+const NON_TEXT_STRING_TYPE =
+  /^(?:inet|cidr|macaddr8?|uuid|xml|tsvector|tsquery|bit|varbit)(?:\(|$)/i;
+
 export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
   // NAMESPACE
@@ -161,6 +195,8 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   literals = {
     ...createStandardLiterals(),
+
+    dateTime: (iso: string): Sql => sql`${encodePostgresTemporal(iso)}`,
 
     true: (): Sql => sql.raw`TRUE`,
 
@@ -214,11 +250,11 @@ export class PostgresAdapter implements DatabaseAdapter {
     notIlike: (column: Sql, pattern: Sql): Sql =>
       sql`TRANSLATE(${column}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') NOT LIKE TRANSLATE(${pattern}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ESCAPE '\\'`,
     containsText: (column: Sql, value: Sql): Sql =>
-      sql`POSITION(${value} IN ${column}) > 0`,
+      sql`${column} LIKE ('%' || ${postgresLikeLiteral(value)} || '%') ESCAPE '\\'`,
     startsWithText: (column: Sql, value: Sql): Sql =>
-      sql`LEFT(${column}, LENGTH(${value})) = ${value}`,
+      sql`${column} LIKE (${postgresLikeLiteral(value)} || '%') ESCAPE '\\'`,
     endsWithText: (column: Sql, value: Sql): Sql =>
-      sql`RIGHT(${column}, LENGTH(${value})) = ${value}`,
+      sql`${column} LIKE ('%' || ${postgresLikeLiteral(value)}) ESCAPE '\\'`,
     // PostgreSQL is the one dialect where the escaped LIKE spelling is both
     // exact and index-usable, so it stands alone here: `LIKE` is case- and
     // accent-sensitive natively, which is the contract `startsWithText` holds,
@@ -276,9 +312,23 @@ export class PostgresAdapter implements DatabaseAdapter {
   expressions = {
     ...createCommonExpressions(),
 
+    caseSensitiveText: (
+      expr: Sql,
+      nativeType?: NativeTypeDeclaration,
+      textOperation = false
+    ): Sql => {
+      const type = nativeTypeFor(nativeType, "pg")?.type;
+      if (!textOperation && type?.toLowerCase() === "xml")
+        throw new UnsupportedOperationError(
+          "PostgreSQL XML has no equality or ordering operator; use a text pattern filter or raw SQL.",
+          { meta: { dialect: "pg", scalarType: "string" } }
+        );
+      return textOperation && type && NON_TEXT_STRING_TYPE.test(type)
+        ? sql`CAST(${expr} AS TEXT)`
+        : expr;
+    },
     asciiCaseFold: (expr: Sql): Sql =>
       sql`TRANSLATE(${expr}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`,
-    caseSensitiveText: (expr: Sql): Sql => expr,
 
     // String concatenation via ||
     concat: (...parts: Sql[]): Sql => {
@@ -324,6 +374,11 @@ export class PostgresAdapter implements DatabaseAdapter {
   aggregates = {
     ...createAggregateFunctions(),
 
+    min: (column: Sql, boolean = false): Sql =>
+      boolean ? sql`BOOL_AND(${column})` : sql`MIN(${column})`,
+    max: (column: Sql, boolean = false): Sql =>
+      boolean ? sql`BOOL_OR(${column})` : sql`MAX(${column})`,
+
     decimalAvg: (column: Sql, descriptor: DecimalDescriptor): Sql =>
       logicalDecimalAverage(POSTGRES_INTEGERS, column, descriptor),
 
@@ -338,14 +393,13 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   json = {
+    equals: (left: Sql, right: Sql): Sql =>
+      sql`(${left})::jsonb = (${right})::jsonb`,
     boolean: (condition: Sql): Sql => condition,
     document: (expression: Sql): Sql => expression,
+    number: (expression: Sql): Sql => expression,
 
-    object: (pairs: [string, Sql][]): Sql => {
-      if (pairs.length === 0) return sql.raw`'{}'::json`;
-      const args = pairs.flatMap(([key, value]) => [sql`${key}::text`, value]);
-      return sql`json_build_object(${sql.join(args, ", ")})`;
-    },
+    object: postgresJsonObject,
 
     array: (items: Sql[]): Sql => {
       if (items.length === 0) return sql.raw`'[]'::json`;
@@ -356,39 +410,33 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     agg: (expr: Sql): Sql => sql`COALESCE(json_agg(${expr}), '[]'::json)`,
 
-    objectFromColumns: (columns: [string, Sql][]): Sql => {
-      if (columns.length === 0) return sql.raw`'{}'::json`;
-      const args = columns.flatMap(([key, value]) => [
-        sql`${key}::text`,
-        value,
-      ]);
-      return sql`json_build_object(${sql.join(args, ", ")})`;
-    },
+    objectFromColumns: postgresJsonObject,
 
     // #>/#>> with a text[] param handles every path shape uniformly:
     // '{}' returns the document root, and integer segments address array
     // elements (a single-segment `-> '0'` would only match an object key)
     extract: (column: Sql, path: string[]): Sql =>
-      sql`${column}#>${path}::text[]`,
+      sql`(${column})::jsonb#>${path}::text[]`,
 
     extractText: (column: Sql, path: string[]): Sql =>
-      sql`${column}#>>${path}::text[]`,
+      sql`(${column})::jsonb#>>${path}::text[]`,
 
     // jsonb_typeof gates the cast: a non-number (or an absent path, where
     // jsonb_typeof is NULL) short-circuits to NULL instead of raising
     // "invalid input syntax for type double precision"
     numberAtPath: (column: Sql, path: string[]): Sql =>
-      sql`(CASE WHEN jsonb_typeof(${column}#>${path}::text[]) = 'number' THEN (${column}#>>${path}::text[])::double precision END)`,
+      sql`(CASE WHEN jsonb_typeof((${column})::jsonb#>${path}::text[]) = 'number' THEN ((${column})::jsonb#>>${path}::text[])::double precision END)`,
 
     // COLLATE "C" pins byte (= code point) ordering; the database's default
     // collation (en_US.UTF-8 and friends) orders 'a' before 'B', which would
     // make < / > disagree with MySQL and SQLite
     stringAtPath: (column: Sql, path: string[]): Sql =>
-      sql`((CASE WHEN jsonb_typeof(${column}#>${path}::text[]) = 'string' THEN ${column}#>>${path}::text[] END) COLLATE "C")`,
+      sql`((CASE WHEN jsonb_typeof((${column})::jsonb#>${path}::text[]) = 'string' THEN (${column})::jsonb#>>${path}::text[] END) COLLATE "C")`,
 
-    contains: (target: Sql, value: Sql): Sql => sql`${target} @> ${value}`,
+    contains: (target: Sql, value: Sql): Sql =>
+      sql`(${target})::jsonb @> ${value}`,
 
-    lastElement: (target: Sql): Sql => sql`${target} -> -1`,
+    lastElement: (target: Sql): Sql => sql`(${target})::jsonb -> -1`,
 
     // Serialized JSON text, same format literals.json writes — PG casts the
     // param to jsonb from the comparison context
@@ -406,7 +454,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
 
     // Native array parameter; drivers serialize JS arrays to PG array format
-    value: (values: unknown[]): Sql => sql`${values}`,
+    value: (values: unknown[], temporal?: "date" | "datetime"): Sql =>
+      sql`${temporal ? values.map((value) => (typeof value === "string" ? encodePostgresTemporal(value) : value)) : values}`,
 
     // One untyped parameter holding PostgreSQL's own array literal. A managed
     // enum's array OID is created by the estate, so no driver has a serializer
@@ -427,7 +476,8 @@ export class PostgresAdapter implements DatabaseAdapter {
     // `numeric[]::text[]` casts every ELEMENT. `numeric[]::text` would produce
     // one string holding PostgreSQL's array literal, and `to_json(numeric[])`
     // JSON numbers — the two spellings a decimal list cannot survive.
-    decimalProjection: (column: Sql): Sql => sql`CAST(${column} AS TEXT[])`,
+    exactNumericProjection: (column: Sql): Sql =>
+      sql`CAST(${column} AS TEXT[])`,
 
     length: (column: Sql): Sql => sql`cardinality(${column})`,
 
@@ -649,11 +699,19 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   vector = {
-    literal: (values: number[]): Sql => sql`${`[${values.join(",")}]`}::vector`,
+    literal: (values: number[]): Sql => {
+      if (values.some((value) => !Number.isFinite(Math.fround(value))))
+        throw new QueryError(
+          "PostgreSQL vector components must fit a finite float32 value.",
+          { code: VibORMErrorCode.INVALID_INPUT }
+        );
+      return sql`${`[${values.join(",")}]`}::vector`;
+    },
 
     l2: (column: Sql, vector: Sql): Sql => sql`${column} <-> ${vector}`,
 
-    cosine: (column: Sql, vector: Sql): Sql => sql`${column} <=> ${vector}`,
+    cosine: (column: Sql, vector: Sql): Sql =>
+      sql`NULLIF(${column} <=> ${vector}, 'NaN'::double precision)`,
   };
 
   // ============================================================

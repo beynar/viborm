@@ -192,17 +192,14 @@ describe("native rename contracts", () => {
 });
 
 describe("resolution edge contracts", () => {
-  test("missing resolutions use the explicit add-and-drop fallback for both ambiguity kinds", () => {
-    expect(
-      applyResolutions([columnChange(), tableChange()], new Map())
-    ).toEqual(
-      expect.arrayContaining([
-        { type: "dropColumn", tableName: "account", columnName: "old" },
-        expect.objectContaining({ type: "addColumn", tableName: "account" }),
-        { type: "dropTable", tableName: "account" },
-        expect.objectContaining({ type: "createTable" }),
-      ])
-    );
+  test("missing resolutions refuse both ambiguity kinds", () => {
+    for (const change of [columnChange(), tableChange()]) {
+      expect(() => applyResolutions([change], new Map())).toThrowError(
+        expect.objectContaining({
+          code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
+        })
+      );
+    }
   });
 
   test("predefined and callback resolvers preserve only admitted decisions", async () => {

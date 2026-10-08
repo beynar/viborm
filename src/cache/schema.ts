@@ -23,12 +23,12 @@ export const cacheInvalidationSchema = v.object(
      */
     invalidate: v.string({ array: true, optional: true }),
     /**
-     * Automatically invalidate all cache entries for this model after mutation
-     * @default false
+     * Automatically invalidate all entries in the bound cache scope after a durable mutation
+     * @default true
      */
-    autoInvalidate: v.boolean({ optional: true, default: false }),
+    autoInvalidate: v.boolean({ optional: true, default: true }),
   },
-  { optional: true, default: { autoInvalidate: false } }
+  { optional: true, default: { autoInvalidate: true } }
 );
 
 /**
@@ -42,7 +42,8 @@ export function hasCacheInvalidationWork(
   options: CacheInvalidationOptions | undefined
 ): boolean {
   return (
-    options?.autoInvalidate === true ||
+    options === undefined ||
+    options.autoInvalidate === true ||
     (options?.invalidate !== undefined && options.invalidate.length > 0)
   );
 }

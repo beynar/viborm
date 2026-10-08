@@ -42,6 +42,7 @@ import {
   normalizeDriverError,
 } from "./error-mapping";
 import {
+  getExecutionCallsite,
   getExecutionExtensionChain,
   snapshotExecutionContext,
 } from "./execution-context";
@@ -294,7 +295,6 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
    */
   protected closeRetryClient: TClient | TTransaction | null = null;
   protected isDisconnecting = false;
-  protected isConnectionTransactionActive = false;
   protected transactionPoisonError: Error | undefined;
   private readonly boundContext: Readonly<QueryExecutionContext>;
 
@@ -394,12 +394,15 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         context,
         fallbackOperation
       );
-      transformed = applyStatementTransforms(
-        query,
-        executionContext.model,
-        executionContext.operation ?? fallbackOperation,
-        transforms
-      );
+      // Storage attestations are protected core statements, not user SQL.
+      if (executionContext.model !== "$schema") {
+        transformed = applyStatementTransforms(
+          query,
+          executionContext.model,
+          executionContext.operation ?? fallbackOperation,
+          transforms
+        );
+      }
     }
     assertStatementBindParameterCapacity(
       transformed,
@@ -781,6 +784,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         model: context.model,
         operation: context.operation,
         correlationId: context.correlationId,
+        callsite: getExecutionCallsite(context),
         diagnostics: this.getErrorDisclosure(context),
       });
     }
@@ -804,6 +808,7 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
       model: context.model,
       operation: context.operation,
       correlationId: context.correlationId,
+      callsite: getExecutionCallsite(context),
       query: sql,
       params,
       diagnostics: this.getErrorDisclosure(context),

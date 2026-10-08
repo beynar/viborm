@@ -29,6 +29,7 @@ class ConnectionScopeDriver extends Driver<object, object> {
   readonly events: string[] = [];
   closeCount = 0;
   commitFailure: Error | undefined;
+  rollbackFailure: Error | undefined;
   protected override readonly serializeTransactions = true;
 
   constructor() {
@@ -73,11 +74,16 @@ class ConnectionScopeDriver extends Driver<object, object> {
       commit: () => {
         this.events.push("COMMIT");
         if (this.commitFailure) {
-          shouldClose = true;
           throw this.commitFailure;
         }
       },
-      rollback: () => this.events.push("ROLLBACK"),
+      rollback: () => {
+        this.events.push("ROLLBACK");
+        if (this.rollbackFailure) {
+          shouldClose = true;
+          throw this.rollbackFailure;
+        }
+      },
       close: async () => {
         if (!shouldClose) return;
         await this.closeClient();
@@ -206,6 +212,7 @@ describe("single-connection transaction scheduling", () => {
   test("a pre-queued waiter rejects poison without using the closed client", async () => {
     const driver = new ConnectionScopeDriver();
     driver.commitFailure = new Error("commit failed");
+    driver.rollbackFailure = new Error("rollback failed");
     const started = createDeferred();
     const release = createDeferred();
     const first = driver.withTransaction(async () => {
@@ -217,7 +224,7 @@ describe("single-connection transaction scheduling", () => {
 
     await started.promise;
     release.resolve();
-    await expect(first).rejects.toMatchObject({ name: "QueryError" });
+    await expect(first).rejects.toMatchObject({ name: "AggregateError" });
     await expect(waiting).rejects.toMatchObject({ name: "TransactionError" });
     expect(waitingCallback).not.toHaveBeenCalled();
     expect(driver.events).toEqual(["BEGIN", "COMMIT", "ROLLBACK", "CLOSE"]);

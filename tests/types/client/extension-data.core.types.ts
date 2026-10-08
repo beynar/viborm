@@ -397,9 +397,9 @@ export async function twoExtensions() {
   });
 }
 
-// A list whose names the types cannot see (a plain `string[]`) narrows
-// nothing: a required field stays required, and a value passed stands.
+// A list whose model names cannot be proven against the schema is refused.
 declare const names: string[];
+// @ts-expect-error a schema-bound policy cannot admit arbitrary runtime model names
 const listed = base.$extends(audit(names));
 
 export async function aPlainListNarrowsNothing() {

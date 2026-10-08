@@ -27,14 +27,12 @@ function completeSurface(): Schema {
   const user = s
     .model({
       id: s.string().id(),
-      uid: s.string().uuid("u"),
-      uid7: s.string().uuidv7("v"),
-      ksuid: s.string().ksuid(),
-      nano: s.string().nanoid(8, "n"),
-      cuid: s.string().cuid("c"),
-      // Two order pins. `.nullable()` installs `default: null` as a side
-      // effect, so an explicit default must be applied AFTER it; `.id()`
-      // installs a ULID, so a declared generator must be applied AFTER that.
+      uid: s.string().uuid({ prefix: "u", generate: true }),
+      uid7: s.string().uuidv7({ prefix: "v", generate: true }),
+      ksuid: s.string().ksuid({ generate: true }),
+      nano: s.string().nanoid({ length: 8, prefix: "n", generate: true }),
+      cuid: s.string().cuid({ prefix: "c", generate: true }),
+      // Defaults survive `.nullable()`, and key/format order commutes.
       // The three tagged defaults below (`big`, `bytes`, `when`) are the
       // codec's leaves; `when` is a `Date`, which `$date` keeps apart from the
       // ISO string that spells it.
@@ -512,6 +510,7 @@ describe("a key is not a domain", () => {
     expect(idDomainOf(parsed, "user", "id")).toEqual({
       kind: "ulid",
       prefix: "usr",
+      generate: undefined,
       implicit: true,
     });
     expect(serializeSchema(parsed)).toEqual(document);
@@ -530,6 +529,8 @@ describe("a key is not a domain", () => {
     expect(idDomainOf(parsed, "user", "id")).toEqual({
       kind: "ulid",
       prefix: "usr",
+      length: undefined,
+      generate: true,
     });
     expect(serializeSchema(parsed)).toEqual(document);
   });
@@ -552,6 +553,7 @@ describe("a key is not a domain", () => {
     expect(idDomainOf(parsed, "user", "id")).toEqual({
       kind: "ulid",
       prefix: undefined,
+      generate: undefined,
       implicit: true,
     });
   });
@@ -616,6 +618,8 @@ describe("a key is not a domain", () => {
     expect(idDomainOf(parsed, "user", "id")).toEqual({
       kind: "ulid",
       prefix: undefined,
+      length: undefined,
+      generate: true,
     });
   });
 });

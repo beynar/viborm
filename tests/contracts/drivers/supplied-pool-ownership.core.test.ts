@@ -39,7 +39,7 @@ import { BunSQLDriver } from "@drivers/bun-sql";
 import { MySQL2Driver, type MySQL2DriverOptions } from "@drivers/mysql2";
 import { PgDriver, type PgDriverOptions } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
-import { PostgresDriver } from "@drivers/postgres";
+import { PostgresDriver, vibormTypes } from "@drivers/postgres";
 import { readSuppressedFailures } from "@drivers/shared";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
@@ -221,7 +221,16 @@ const suppliedClientDrivers: readonly SuppliedClientDriver[] = [
   {
     name: "postgres.js",
     build: (options) => new PostgresDriver(options as never),
-    shape: (transport) => transport,
+    shape: (transport) =>
+      Object.assign(transport, {
+        options: {
+          parsers: {
+            1082: vibormTypes.timestamp?.parse,
+            1114: vibormTypes.timestamp?.parse,
+            1184: vibormTypes.timestamp?.parse,
+          },
+        },
+      }),
   },
   {
     name: "Bun SQL",
@@ -284,6 +293,7 @@ function suppliedTransport(subject: SuppliedClientDriver) {
   const rows: unknown[] = [];
   Object.assign(rows, { count: 0, command: "SELECT" });
   const transport = subject.shape({
+    pragma: () => 1,
     end: () => {
       state.closed += 1;
       return Promise.resolve();

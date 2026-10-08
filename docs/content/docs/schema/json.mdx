@@ -109,7 +109,7 @@ order; a producer that sorts keys destroys it.
 | `nullable`, `array`, `id`, `unique` | the matching modifier |
 | `column` | `.map(columnName)` |
 | `default` | a literal default — see [Defaults](#defaults) |
-| `generate` | `{ "kind": "uuid" \| "uuidv7" \| "ulid" \| "ksuid" \| "nanoid" \| "cuid" \| "increment" \| "now" \| "updatedAt", "prefix"?, "length"? }` |
+| `generate` | `{ "kind": "uuid" \| "uuidv7" \| "ulid" \| "ksuid" \| "nanoid" \| "cuid" \| "increment" \| "now" \| "updatedAt", "prefix"?, "length"?, "generate"?: boolean }` |
 | `enum` | an `enums` reference, or the values inline — `type: "enum"` only |
 | `dimension` | `.dimension(n)` — vectors |
 | `withoutTimezone` | `.withoutTimezone()` — `datetime` and `time` |
@@ -271,6 +271,7 @@ A default is a JSON value. Values from domains JSON has no spelling for take a
 | `{ "$bigint": "9007199254740993" }` | a `bigint`, written as a decimal integer string |
 | `{ "$bytes": "AQID" }` | bytes, written as base64 |
 | `{ "$date": "2020-01-02T03:04:05.000Z" }` | a real `Date` |
+| `{ "$jsonNull": "JsonNull" }` / `{ "$jsonNull": "DbNull" }` | the existing JSON document null / SQL NULL sentinel (`DbNull` requires a nullable JSON field) |
 | `{ "$raw": <value> }` | the value itself, when its own shape looks like a tag |
 | anything else | the JSON value itself |
 
@@ -323,8 +324,12 @@ Three things, each with a named alternative.
 nine `generate` kinds, a literal default, or a database-side default through
 `native`.
 
-A generator installs a closure of its own, so `.uuid()` alone serializes as
-`"generate": { "kind": "uuid" }` with no `default`. `.uuid().default(() => …)`
+A requested generator installs a closure of its own, so `.uuid({ generate: true })` serializes as
+`"generate": { "kind": "uuid" }` with no `default`. A domain-only `.uuid()`
+serializes with `"generate": { "kind": "uuid", "generate": false }`.
+The nested boolean is available for string formats; omission preserves generation
+in existing documents. `.id({ generate: false })` retains its disabled choice too.
+`.uuid({ generate: true }).default(() => …)`
 does not: the generator declaration is still in state but the function standing
 in `default` is yours, and emitting `generate` there would publish a field that
 produces random values where the original produced a fixed one. That is refused
@@ -470,8 +475,10 @@ cannot know model names or field shapes. What survives, measured:
   so an unknown one does not silently pass;
 - **results are an empty row** — reading a field off one is a type error.
 
-Nothing crashes the compiler and nothing collapses to `never`. Runtime
-validation is unaffected: the validators are built from the real schema state,
+`UntypedClient` is not a supertype to which every concrete client can be
+assigned; it does not make field clauses `any`. Keep a literal TypeScript schema
+when application queries need static field and result types. Runtime validation
+is unaffected: the validators are built from the real schema state,
 so a bad payload is refused exactly as it would be for a typed client.
 
 ## Dialect neutrality

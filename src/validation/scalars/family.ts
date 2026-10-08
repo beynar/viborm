@@ -1,5 +1,6 @@
 import type { ScalarState, ScalarType } from "@schema/scalars/common";
 import { lazyScalarSchemas, type ScalarVariantSchemas } from "../lazy";
+import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import type { UnionSchema } from "../primitives/union";
 import v, { type V } from "../primitives/v";
 import { createScalarInterner, scalarInternKey } from "./intern";
@@ -171,6 +172,11 @@ export const listFilterFamily = <M extends V.Schema, L extends V.Schema>(
 // UPDATE SHAPES
 // =============================================================================
 
+export type ArithmeticOperand<
+  F extends ScalarState,
+  M extends V.Schema,
+> = F["schema"] extends undefined ? M : ReturnType<typeof v.refused>;
+
 /** `set` plus the four arithmetic operations, for the numeric kinds. */
 export type ArithmeticUpdateSchema<
   S extends V.Schema,
@@ -236,19 +242,58 @@ export type ListUpdateSchema<
 >;
 
 /** The arithmetic update bag of one kind, held to that kind's member schema. */
+const nonzeroDivisor = createSchema<unknown, unknown>(
+  "nonzero_divisor",
+  (value) =>
+    value === 0 || value === 0n
+      ? fail("Division by zero is not allowed")
+      : ok(value)
+);
+
 export const arithmeticUpdateFamily =
   <M extends V.Schema>(member: () => M) =>
-  <S extends V.Schema>(schema: S): ArithmeticUpdateSchema<S, M> =>
+  <S extends V.Schema>(
+    schema: S,
+    refined = false
+  ): ArithmeticUpdateSchema<S, M> =>
     v.union([
       v.shorthandUpdate(schema),
       v.object({
         set: schema,
-        increment: member(),
-        decrement: member(),
-        multiply: member(),
-        divide: member(),
+        increment: refined ? v.refused(REFINED_ARITHMETIC_REFUSAL) : member(),
+        decrement: refined ? v.refused(REFINED_ARITHMETIC_REFUSAL) : member(),
+        multiply: refined ? v.refused(REFINED_ARITHMETIC_REFUSAL) : member(),
+        divide: refined
+          ? v.refused(REFINED_ARITHMETIC_REFUSAL)
+          : withScalarOutputDomain(member(), nonzeroDivisor),
       }),
-    ]);
+    ]) as never;
+
+export const REFINED_ARITHMETIC_REFUSAL =
+  "Arithmetic on a field with .schema() cannot validate the resulting stored value; use set with a validated value.";
+
+/** ORM write output must remain in the stored domain; primitive v.* transforms stay open. */
+export function withScalarOutputDomain<S extends V.Schema>(
+  schema: S,
+  domain: V.Schema
+): S {
+  const validate = schema["~standard"].validate;
+  const result = { ...schema };
+  Object.defineProperties(result, Object.getOwnPropertyDescriptors(schema));
+  const descriptors = Object.getOwnPropertyDescriptors(schema["~standard"]);
+  Reflect.deleteProperty(descriptors, "validate");
+  const standard = Object.defineProperties({}, descriptors);
+  Object.defineProperty(standard, "validate", {
+    value: (value: unknown) => {
+      const admitted = validate(value);
+      if (admitted.issues) return admitted;
+      const physical = validateSchema(domain, admitted.value);
+      return physical;
+    },
+  });
+  Object.defineProperty(result, "~standard", { value: standard });
+  return result;
+}
 
 /**
  * The set-only update.
@@ -388,16 +433,63 @@ export const comparableScalar = <K extends ScalarType>(
   const list = once(() => primitive({ array: true }));
   const filter = comparisonFilterFamily(kind, member, list);
   const listFilter = listFilterFamily(member, list);
-  const update: (schema: V.Schema) => unknown = arithmetic
+  const update: (schema: V.Schema, refined?: boolean) => unknown = arithmetic
     ? arithmeticUpdateFamily(member)
     : buildSetUpdate;
   const listUpdate = listUpdateFamily(member, list);
   const interners = createScalarInterners();
-  return (state: ScalarState<K>): never =>
-    internedScalarSchemas(interners, scalarInternKey(state), {
-      base: state.base,
-      create: () => primitive(state),
-      update: () => (state.array ? listUpdate(state.base) : update(state.base)),
-      filter: () => (state.array ? listFilter(state.base) : filter(state.base)),
+  return (state: ScalarState<K>): never => {
+    const filterBase = () =>
+      primitive({
+        ...state,
+        schema: undefined,
+        optional: false,
+        hasDefault: false,
+        default: undefined,
+      });
+    const base =
+      state.schema === undefined
+        ? state.base
+        : withScalarOutputDomain(state.base, filterBase());
+    const refinedListUpdate = () =>
+      listUpdateFamily(
+        () =>
+          withScalarOutputDomain(
+            primitive({
+              ...state,
+              array: false,
+              nullable: false,
+              optional: false,
+              default: undefined,
+            }),
+            member()
+          ),
+        () =>
+          withScalarOutputDomain(
+            primitive({
+              ...state,
+              array: true,
+              nullable: false,
+              optional: false,
+              default: undefined,
+            }),
+            list()
+          )
+      )(base);
+    return internedScalarSchemas(interners, scalarInternKey(state), {
+      base,
+      create: () =>
+        state.schema === undefined
+          ? primitive(state)
+          : withScalarOutputDomain(primitive(state), filterBase()),
+      update: () =>
+        state.array
+          ? state.schema === undefined
+            ? listUpdate(state.base)
+            : refinedListUpdate()
+          : update(base, state.schema !== undefined),
+      filter: () =>
+        state.array ? listFilter(filterBase()) : filter(filterBase()),
     }) as never;
+  };
 };

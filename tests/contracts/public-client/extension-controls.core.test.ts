@@ -1371,15 +1371,22 @@ describe("controls: rows bound to the call", () => {
   });
 
   test("the lock's version takes room beside the tenant: each new version on one client pushes tenants out; a client of its own leaves them", () => {
+    const memoSchema = {
+      post: s.model({
+        id: s.string().id(),
+        tenantId: s.string(),
+        version: s.int(),
+      }),
+    };
     const tenanted = appendResolvedExtension(
       undefined,
       tenancyRecipe(["post"]),
-      schema
+      memoSchema
     );
     const locked = appendResolvedExtension(
       tenanted,
       optimisticLock(["post"]),
-      schema
+      memoSchema
     );
     const binding = locked.callRows!;
     // Every combination takes both default domains, which name both values.

@@ -1064,7 +1064,7 @@ describe("diff", () => {
       }
     });
 
-    it("should not include newValues or dependentColumns when only adding values", async () => {
+    it("includes full value order when adding values", async () => {
       const current: SchemaSnapshot = {
         tables: [makeTable("users", [makeColumn("status", "status_enum")])],
         enums: [{ name: "status_enum", values: ["active"] }],
@@ -1088,8 +1088,10 @@ describe("diff", () => {
 
       // Should NOT have newValues or dependentColumns when only adding
       if (alterEnumOp?.type === "alterEnum") {
-        expect(alterEnumOp.newValues).toBeUndefined();
-        expect(alterEnumOp.dependentColumns).toBeUndefined();
+        expect(alterEnumOp.newValues).toEqual(["active", "inactive"]);
+        expect(alterEnumOp.dependentColumns).toEqual([
+          { tableName: "users", columnName: "status" },
+        ]);
       }
     });
   });

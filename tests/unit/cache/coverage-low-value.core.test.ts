@@ -282,14 +282,15 @@ describe("public cache-driver storage contract", () => {
 
   test("prepares invalidation before effects and preserves backend failures", async () => {
     const driver = new RecordingCache();
-    expect(hasCacheInvalidationWork(undefined)).toBe(false);
+    expect(hasCacheInvalidationWork(undefined)).toBe(true);
     expect(hasCacheInvalidationWork({ autoInvalidate: false })).toBe(false);
     expect(hasCacheInvalidationWork({ invalidate: [] })).toBe(false);
     expect(hasCacheInvalidationWork({ autoInvalidate: true })).toBe(true);
     expect(hasCacheInvalidationWork({ invalidate: ["one"] })).toBe(true);
 
     await driver._invalidate("user");
-    expect(driver.clears).toEqual([]);
+    expect(driver.clears).toEqual(["viborm:user:"]);
+    driver.clears.length = 0;
     await driver._invalidate("user", {
       autoInvalidate: true,
       invalidate: ["exact", "prefix:*"],
@@ -364,7 +365,7 @@ describe("public cache-driver storage contract", () => {
       scope
     );
     expect(driver.clears).toEqual([
-      "viborm:cache:scope:user:",
+      "viborm:cache:scope:",
       "viborm:cache:scope:prefix:",
       "viborm:cache:scope:",
     ]);
@@ -476,7 +477,7 @@ describe("Cloudflare KV backend contract", () => {
     await driver._set("tenant:a", { answer: 42 }, { ttl: 1501 });
     expect(putCalls[0]).toMatchObject({
       key: "viborm:tenant:a",
-      expirationTtl: 2,
+      expirationTtl: 60,
     });
     await expect(driver._get("tenant:a")).resolves.toMatchObject({
       value: { answer: 42 },

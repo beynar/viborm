@@ -3,7 +3,7 @@ import type {
   BatchQuery,
   QueryExecutionContext,
   QueryResult,
-} from "@drivers";
+} from "@drivers/exports";
 import { bindExecutionTransactionPhases } from "@drivers/execution-context";
 import { assertNormalizedBatchResults } from "@drivers/normalized-result";
 import type {

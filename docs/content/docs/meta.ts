@@ -11,6 +11,7 @@ export default defineMeta({
     "schema",
     "client",
     "migration",
+    "cli",
     "extensions",
     "internals",
   ],

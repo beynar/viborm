@@ -54,7 +54,7 @@ describe("Vector Select Schema", () => {
     expect(input).toBeDefined();
   });
 
-  test("type: exposes selected vector distance as _distance number", () => {
+  test("type: exposes selected cosine distance as nullable _distance", () => {
     type Args = {
       select: {
         id: true;
@@ -75,7 +75,7 @@ describe("Vector Select Schema", () => {
 
     expectTypeOf<Result>().toHaveProperty("id");
     expectTypeOf<Result>().toHaveProperty("_distance");
-    expectTypeOf<Result["_distance"]>().toEqualTypeOf<number>();
+    expectTypeOf<Result["_distance"]>().toEqualTypeOf<number | null>();
     expectTypeOf<keyof Result>().toEqualTypeOf<"id" | "_distance">();
   });
 
@@ -114,7 +114,7 @@ describe("Vector Select Schema", () => {
 
     expectTypeOf<Result>().toEqualTypeOf<{
       id: string;
-      _distance?: number;
+      _distance?: number | null;
     }>();
   });
 

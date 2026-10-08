@@ -1079,12 +1079,10 @@ describe("JSON Schema conversion", () => {
         filter["~standard"].jsonSchema.input({ target: "draft-07" })
       ).toEqual(document);
 
-      // The list filter reaches the same primitive. A scalar's array-ness has
-      // no representation in this converter on ANY scalar — the element type is
-      // what it emits — so the list surface is pinned to the primitive it
-      // actually answers rather than to an `items` document it never had.
+      // The list's container and element domains must both be represented.
       expect(toJsonSchema(filterOf("numList")).anyOf?.[0]).toEqual({
-        type: "number",
+        type: "array",
+        items: { type: "number" },
       });
     });
 
@@ -1496,6 +1494,7 @@ describe("GeoPoint and GeoArea JSON Schema projection", () => {
             gt: { type: "number" },
             gte: { type: "number" },
           },
+          required: ["to"],
           additionalProperties: false,
         },
         within: areaDocument,

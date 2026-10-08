@@ -519,7 +519,7 @@ describe("dialect physical SQL vocabulary", () => {
         adapter.arrays.hasEvery(sql.raw`roles`, sql`${["ADMIN"]}`),
         adapter.arrays.hasSome(sql.raw`roles`, sql`${["ADMIN"]}`),
         adapter.arrays.isEmpty(sql.raw`roles`),
-        adapter.arrays.decimalProjection(sql.raw`amounts`),
+        adapter.arrays.exactNumericProjection(sql.raw`amounts`),
         adapter.set.push(sql.raw`roles`, adapter.arrays.value(["ADMIN"])),
         adapter.set.unshift(sql.raw`roles`, adapter.arrays.value(["ADMIN"])),
       ]);

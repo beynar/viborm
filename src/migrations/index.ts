@@ -4,6 +4,10 @@
  * No journal, squash, path-level storage, raw differ, or MigrationContext.
  */
 
+export {
+  sqliteCanonicalDateTimeExpression,
+  sqliteCanonicalTimeExpression,
+} from "../adapters/databases/sqlite/storage/datetime";
 export { isMigrationError, MigrationError } from "../errors";
 export type { CheckFinding, CheckResult } from "./check";
 export type {
@@ -54,7 +58,12 @@ export {
   ObjectStoreEstateStorage,
   refuseWorkersKvWritable,
 } from "./storage/object-store";
-export type { MigrationTarget, SchemaSnapshot } from "./types";
+export type {
+  MigrationTarget,
+  ResolveCallback,
+  ResolveChange,
+  SchemaSnapshot,
+} from "./types";
 export type {
   ApplyV1Options as ApplyOptions,
   BaselineOptions,

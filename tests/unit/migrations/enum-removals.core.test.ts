@@ -178,7 +178,7 @@ describe("enum value removal planning", () => {
     });
   });
 
-  test("merges resolved mappings and supplies an explicit null fallback", () => {
+  test("merges resolved mappings without inventing a null fallback", () => {
     const mapped = roleRemoval();
     const unmapped: DiffOperation = {
       type: "alterEnum",
@@ -220,7 +220,7 @@ describe("enum value removal planning", () => {
           "sessions.role": { LEGACY: null },
         },
       }),
-      { ...unmapped, defaultReplacement: null },
+      unmapped,
       preservedDefault,
     ]);
   });

@@ -1,4 +1,4 @@
-import { unsupportedVector } from "@errors";
+import { UnsupportedOperationError, unsupportedVector } from "@errors";
 import { sqliteDateTimePhysicalForm } from "@schema/scalars/datetime/physical";
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
@@ -69,6 +69,7 @@ import {
   escapeGlobLiteral,
   stringifyJson,
 } from "../../shared/standard-sql";
+import { SQLITE_BINARY64_FORMAT } from "./storage/json-number";
 
 const quoteIdent = createIdentifierQuoter('"');
 
@@ -88,9 +89,7 @@ const SQLITE_INT64_NEGATIVE_MAGNITUDE = "9223372036854775808";
 const SQLITE_INT64_MAX = "9223372036854775807";
 
 /** Admit the exact TEXT-to-INTEGER cast domain, including its 19-digit edges. */
-function sqliteDecimalSumOperandPrecision(
-  coefficient: string
-): number | undefined {
+function sqliteIntegerPrecision(coefficient: string): number | undefined {
   const precision = decimalCoefficientPrecision(coefficient);
   if (precision < 19) return precision;
   if (precision > 19) return undefined;
@@ -274,6 +273,17 @@ export interface SQLiteAdapterOptions {
 const SQLITE_LITERALS = {
   ...createStandardLiterals(),
 
+  value: (value: unknown): Sql => {
+    if (
+      typeof value === "bigint" &&
+      sqliteIntegerPrecision(String(value)) === undefined
+    )
+      throw new UnsupportedOperationError(
+        "SQLite bigint values must fit signed 64-bit integers."
+      );
+    return sql`${value}`;
+  },
+
   // SQLite uses 1/0 for booleans
   true: (): Sql => sql.raw("1"),
 
@@ -330,7 +340,7 @@ const SQLITE_OPERATORS = {
   startsWithText: (column: Sql, value: Sql): Sql =>
     sql`substr(${column}, 1, length(${value})) COLLATE BINARY = ${value}`,
   endsWithText: (column: Sql, value: Sql): Sql =>
-    sql`CASE WHEN length(${value}) = 0 THEN 1 ELSE substr(${column}, -length(${value})) COLLATE BINARY = ${value} END`,
+    sql`substr(${column}, length(${column}) - length(${value}) + 1) COLLATE BINARY = ${value}`,
   // GLOB, not LIKE — and this is the one place the "portable escaped LIKE"
   // premise of Decision 7.3 does not survive contact with SQLite. Both of
   // SQLite's LIKE-optimization preconditions fail here: an ESCAPE clause
@@ -445,10 +455,22 @@ const SQLITE_AGGREGATES = {
   // 19-digit values fit, while the next value past either endpoint would make
   // `CAST(... AS INTEGER)` saturate. SUM results are not capped here; SQLite
   // raises on actual overflow.
-  decimalSumOperandPrecision: sqliteDecimalSumOperandPrecision,
+  decimalSumOperandPrecision: sqliteIntegerPrecision,
 };
 
+// Compare every node, including empty containers. Array indices remain part
+// of the path; object property insertion order does not. JSON numbers share
+// one domain, while booleans, strings and JSON null retain their distinct type.
+function sqliteJsonEquals(left: Sql, right: Sql): Sql {
+  const nodes = (value: Sql) =>
+    sql`SELECT fullkey, CASE WHEN type IN ('integer', 'real') THEN 'number' ELSE type END, atom FROM json_tree(${value})`;
+  return sql`(CASE WHEN ${left} IS NULL OR ${right} IS NULL THEN NULL ELSE NOT EXISTS (${nodes(left)} EXCEPT ${nodes(right)}) AND NOT EXISTS (${nodes(right)} EXCEPT ${nodes(left)}) END)`;
+}
+
 const SQLITE_JSON = {
+  equals: sqliteJsonEquals,
+  number: (expression: Sql): Sql =>
+    sql`CASE WHEN ${expression} IS NULL THEN NULL ELSE printf(${sql.raw(`'${SQLITE_BINARY64_FORMAT}'`)}, ${expression}) END`,
   boolean: (condition: Sql): Sql =>
     sql`json(CASE WHEN ${condition} THEN 'true' ELSE 'false' END)`,
   // SQLite drops the JSON subtype across scalar-subquery boundaries. Restore it
@@ -499,15 +521,11 @@ const SQLITE_JSON = {
   stringAtPath: (column: Sql, path: string[]): Sql =>
     sql`((CASE WHEN json_type(${jsonExtract(column, path)}) = 'text' THEN ${jsonExtractText(column, path)} END) COLLATE BINARY)`,
 
-  // json_each pairs match hasEvery; the json_type guard keeps scalar
-  // targets and NULLs from matching (mirrors PG @> / MySQL JSON_CONTAINS)
   contains: (target: Sql, value: Sql): Sql =>
-    sql`(json_type(${target}) = 'array' AND (SELECT COUNT(*) FROM json_each(${value}) WHERE value IN (SELECT value FROM json_each(${target}))) = json_array_length(${value}))`,
+    sql`(json_type(${target}) = 'array' AND NOT EXISTS (SELECT 1 FROM json_each(${value}) AS required WHERE NOT EXISTS (SELECT 1 FROM json_each(${target}) AS candidate WHERE ${sqliteJsonEquals(sql`${target} -> candidate.fullkey`, sql`${value} -> required.fullkey`)})))`,
 
   lastElement: (target: Sql): Sql => sql`${target} -> '$[#-1]'`,
 
-  // Stored JSON is canonical (written via stringifyJson / SQLite json
-  // functions), so text equality against a canonical param is JSON equality
   value: (v: unknown): Sql => sql`${stringifyJson(v)}`,
 };
 
@@ -543,7 +561,7 @@ const SQLITE_ARRAYS = {
   // TEXT, not JSON, precisely so the descriptor's CHECK can hold it). The
   // cast is what stops a JSON carrier from embedding it as a document and a
   // driver from handing back anything but the stored bytes.
-  decimalProjection: (column: Sql): Sql => sql`CAST(${column} AS TEXT)`,
+  exactNumericProjection: (column: Sql): Sql => sql`CAST(${column} AS TEXT)`,
 
   length: (column: Sql): Sql => sql`json_array_length(${column})`,
 
@@ -965,7 +983,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
       this.json.numberAtPath(point, ["latitude"]);
     return {
       value: (pointLongitude, pointLatitude) =>
-        sql`json_object('longitude', ${pointLongitude}, 'latitude', ${pointLatitude})`,
+        sql`json_object('longitude', ${this.json.document(this.json.number(pointLongitude))}, 'latitude', ${this.json.document(this.json.number(pointLatitude))})`,
       longitude,
       latitude,
       ...createGeoPointCoordinatePredicates(

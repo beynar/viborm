@@ -76,11 +76,13 @@ expect(row.total.eq(new Decimal("1.2"))).toBe(true);
 expect(row.total.constructor).toBe(Decimal);
 ```
 
-`Decimal#toJSON()` returns a string for ordinary application JSON. VibORM does
-not depend on JSON or structured cloning to preserve a Decimal prototype — and
-a `Decimal` is not structured-cloneable, because its state is private: send
-`value.toString()` across a worker or a `structuredClone`-based boundary and
-rebuild the value on the other side.
+Each instance exposes immutable canonical text as `.value`, so ordinary deep
+equality distinguishes amounts. `Decimal#toJSON()` returns that text as a JSON
+string. `structuredClone`, worker messages and Node's V8 serialization preserve
+`{ value: "1.2" }` as a plain object; they do not preserve Decimal methods.
+Reconstruct it explicitly with `new Decimal(cloned.value)`. A cloned object
+does not acquire the private Decimal brand and is not accepted as a typed
+decimal write by itself.
 
 ## Custom validation
 

@@ -60,12 +60,14 @@ The map is exact:
   purpose, and `s.string({ pg: PG.INT.INTEGER })` is accepted just the same and
   gives that string an `integer` column.
 
-The same rules hold at runtime for untyped callers, where every entry must also
-be a value the constants produce. A single constant keeps its historical
-behavior, custom `type` spellings included; at runtime it must name `pg`,
+The same structural rules hold at runtime for untyped callers. A map and a
+single tagged declaration both accept custom `type` spellings; each must name `pg`,
 `mysql` or `sqlite` as its `db` and carry a string `type`. The factory keeps a
 frozen copy of the map, so later changes to the object you passed do not reach
 the schema.
+
+Custom types are trusted SQL declarations in coded schemas. JSON schema
+documents accept only types produced by the shipped constants.
 
 A variable typed `NativeType | NativeTypeMap`, or a helper parameter of that
 type, is accepted as it is. A union of two maps that share no dialect key is
@@ -195,7 +197,6 @@ create a second provider-specific precision or representation. See
 | `PG.DATETIME.TIMESTAMPTZ(p?)` | `timestamptz(p)` |
 | `PG.DATETIME.DATE` | `date` |
 | `PG.DATETIME.TIME(p?)` / `TIMETZ(p?)` | `time(p)` / `timetz(p)` |
-| `PG.DATETIME.INTERVAL` | `interval` |
 | `MYSQL.DATETIME.DATETIME(p?)` | `DATETIME(p)` |
 | `MYSQL.DATETIME.TIMESTAMP(p?)` | `TIMESTAMP(p)` |
 | `MYSQL.DATETIME.DATE` / `TIME(p?)` | `DATE` / `TIME(p)` |

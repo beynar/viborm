@@ -38,7 +38,7 @@ export async function syncLiveSchema(
     applied: outcome.outcome === "applied",
     operations: outcome.operations.map((operation) => ({
       ...operation,
-      type: operation.label,
+      type: operation.id.slice(0, operation.id.indexOf(":")),
     })),
     sql: outcome.statements.map((statement) => statement.sql),
   };

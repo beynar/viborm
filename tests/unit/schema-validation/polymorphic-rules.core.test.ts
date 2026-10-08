@@ -265,7 +265,9 @@ describe("polymorphic definition rules", () => {
   it("rejects incompatible and array primary-key storage", () => {
     const stringTarget = s.model({ id: s.string().id() });
     const intTarget = s.model({ id: s.int().id() });
-    const arrayTarget = s.model({ id: s.string().array().id() });
+    const arrayTarget = s.model({
+      id: s.string().array().id({ generate: false }),
+    });
     const owner = s.model({
       id: s.string().id(),
       mixed: s.toOne(

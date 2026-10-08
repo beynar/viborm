@@ -206,8 +206,10 @@ looked up from them (`src/extensions/rows.ts`) and reach Raptor 3 as neutral
 domains, tombstones and one instant (`raptor3/shared/row-scope.ts`), never as
 a control, mode or extension name. Request transforms run before core
 validation. Query interceptors run
-around the prepared logical operation and must preserve the authoritative child
-once `proceed()` starts. Statement transforms run once at the common typed
+around the prepared logical operation and preserve child execution/failure
+once `proceed()` starts. After child success, the handler's returned transformation
+is published. Ordinary handler Error objects retain identity; protocol failures
+remain engine-owned. Statement transforms run once at the common typed
 `Sql` boundary after statement observation and before rendering; verbatim unsafe
 raw excludes transforms. Protected observers receive public completion facts
 only, while official instrumentation reads private facts keyed by the exact

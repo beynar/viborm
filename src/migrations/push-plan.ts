@@ -1,3 +1,5 @@
+import { isDestructiveOperation } from "./differ";
+import { formatOperation } from "./push/format";
 /**
  * History-free push plan: live diff or force-reset rebuild, compiled
  * statements, and plan hash. This module does not execute SQL.
@@ -55,18 +57,6 @@ import type {
   PushStatementPreview,
   PushTargetIdentity,
 } from "./v1-types";
-
-const DESTRUCTIVE_OPERATIONS = new Set<DiffOperation["type"]>([
-  "dropTable",
-  "dropColumn",
-  "alterColumn",
-  "dropIndex",
-  "dropForeignKey",
-  "dropUniqueConstraint",
-  "dropPrimaryKey",
-  "dropEnum",
-  "alterEnum",
-]);
 
 export interface PlannedStatement {
   readonly kind: "clear" | "effect";
@@ -174,8 +164,8 @@ export async function buildPushPlan(
   const reportedOperations: PushOperation[] = operations.map(
     (operation, index) => ({
       id: `${operation.type}:${index}`,
-      label: operation.type,
-      risk: DESTRUCTIVE_OPERATIONS.has(operation.type) ? "destructive" : "safe",
+      label: formatOperation(operation),
+      risk: isDestructiveOperation(operation) ? "destructive" : "safe",
     })
   );
   const atomicity = classifyPlanAtomicity(command, operations);
@@ -257,6 +247,7 @@ export function compilePlanStatements(
       destination: "live",
       currentSchema,
       precedingOperations: operations.slice(0, operationIndex),
+      followingOperations: operations.slice(operationIndex + 1),
     };
     const statements = driver.compileStatements(operation, context);
     for (const [statementIndex, sql] of statements.entries()) {

@@ -10,14 +10,14 @@
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import type {
-  VibORMConfig as ClientConfig,
-  VibORMClient,
-} from "../client/client";
+import { loadEnvFile } from "node:process";
+import { createJiti } from "jiti";
 import type { AnyDriver } from "../drivers/driver";
+import { withSuppressedFailure } from "../drivers/shared/suppressed-failure";
 import { isVibORMError } from "../errors";
+import type { MigrationClient } from "../migrations/push/planner";
 import type { MigrationStorageWriter } from "../migrations/storage/contract";
+import type { ResolveCallback } from "../migrations/types";
 import type { AnyModel } from "../schema/model";
 import { validateSchemaOrThrow } from "../schema/validation";
 
@@ -31,6 +31,10 @@ import { validateSchemaOrThrow } from "../schema/validation";
 export interface MigrationConfig {
   /** Estate directory (default: "./migrations") */
   dir?: string;
+  /** Immutable exact physical table scope; include junctions and rename destinations. */
+  tables?: readonly string[];
+  /** Explicit rename, destructive-change and enum-value decisions for CLI planning. */
+  resolve?: ResolveCallback;
   /**
    * Estate storage writer. Defaults to filesystem storage at `dir`.
    *
@@ -61,7 +65,7 @@ export interface MigrationConfig {
  */
 export interface VibORMConfig {
   /** VibORM client instance */
-  client: VibORMClient<any>;
+  client: MigrationClient & { $disconnect(): Promise<void> };
   /** Optional: Migration configuration */
   migrations?: MigrationConfig;
 }
@@ -74,7 +78,7 @@ export interface LoadConfigOptions {
 }
 
 export interface LoadedConfig {
-  client: VibORMClient<ClientConfig>;
+  client: VibORMConfig["client"];
   driver: AnyDriver;
   models: Record<string, AnyModel>;
   migrations?: MigrationConfig;
@@ -114,16 +118,54 @@ function findFile(cwd: string, candidates: string[]): string | null {
  * The config file should export a default configuration object with:
  * - client: VibORM client instance created with createClient()
  */
-export function failCli(error: unknown): never {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
+export function failCli(error: unknown, json = false): never {
+  const trusted = isVibORMError(error);
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "CLI operation failed";
+  const code = trusted ? error.code : undefined;
+  const exitCode = code?.startsWith("V11")
+    ? Number(code.slice(1)) - 11_000 + 10
+    : trusted
+      ? 2
+      : 1;
+  process.stderr.write(
+    json
+      ? `${JSON.stringify({ error: trusted ? error.toJSON() : { name: error instanceof Error ? error.name : "Error", message }, exitCode })}\n`
+      : `${code ? `[${code}] ` : ""}${message}\n`
+  );
+  process.exit(exitCode);
+}
+
+/** Await owned CLI cleanup before reporting either the primary or cleanup failure. */
+export async function finishCli(
+  client: { $disconnect(): Promise<void> } | undefined,
+  failure: { value: unknown } | undefined,
+  json = false
+): Promise<void> {
+  let outcome = failure;
+  try {
+    await client?.$disconnect();
+  } catch (cleanup) {
+    outcome = {
+      value: failure ? withSuppressedFailure(failure.value, cleanup) : cleanup,
+    };
+  }
+  if (outcome) {
+    if (json) failCli(outcome.value, true);
+    else failCli(outcome.value);
+  }
 }
 
 export async function loadConfig(
   options: LoadConfigOptions = {}
 ): Promise<LoadedConfig> {
   const cwd = process.cwd();
+  const envPath = resolve(cwd, ".env");
+  if (existsSync(envPath)) loadEnvFile(envPath);
 
   // Find config file
   const configPath = options.config
@@ -146,7 +188,9 @@ export async function loadConfig(
   }
 
   // Load the config file
-  const configModule = await importModule(configPath);
+  const configModule = await loadCliModule<
+    VibORMConfig & { default?: VibORMConfig; config?: VibORMConfig }
+  >(configPath);
 
   // Extract config (handle both default export and named export)
   const config: VibORMConfig =
@@ -184,10 +228,10 @@ export async function loadConfig(
       `No models found in client schema from ${configPath}.\n\n` +
         "Make sure your client was created with schema models:\n\n" +
         "  // src/schema.ts\n" +
-        `  import { model, string, int } from "viborm";\n\n` +
-        "  export const user = model({\n" +
-        "    id: string().id(),\n" +
-        "    name: string(),\n" +
+        `  import { s } from "viborm";\n\n` +
+        "  export const user = s.model({\n" +
+        "    id: s.string().id(),\n" +
+        "    name: s.string(),\n" +
         "  });\n"
     );
   }
@@ -206,26 +250,8 @@ export async function loadConfig(
 /**
  * Dynamically imports a TypeScript/JavaScript module.
  */
-async function importModule(filePath: string): Promise<any> {
-  try {
-    const module = await import(pathToFileURL(filePath).href);
-    return module;
-  } catch (e) {
-    if (isVibORMError(e)) throw e;
-    if (filePath.endsWith(".ts") || filePath.endsWith(".mts")) {
-      throw new Error(
-        `Failed to load ${filePath}.\n\n` +
-          `Make sure you're running with a TypeScript loader:\n\n` +
-          "  # Using bun (recommended)\n" +
-          "  bun --bun viborm push\n\n" +
-          "  # Using tsx\n" +
-          "  npx tsx node_modules/.bin/viborm push\n\n" +
-          "  # Using ts-node\n" +
-          "  npx ts-node --esm node_modules/.bin/viborm push\n"
-      );
-    }
-    throw e;
-  }
+export function loadCliModule<T>(filePath: string): Promise<T> {
+  return createJiti(filePath, { tsconfigPaths: true }).import<T>(filePath);
 }
 
 /**
@@ -297,6 +323,15 @@ function isValidClient(value: unknown): boolean {
  * });
  * ```
  */
-export function defineConfig(config: VibORMConfig): VibORMConfig {
+export function defineConfig<const C extends VibORMConfig>(
+  config: C &
+    Record<Exclude<keyof C, keyof VibORMConfig>, never> &
+    (C extends { migrations: infer M }
+      ? {
+          migrations: M &
+            Record<Exclude<keyof M, keyof MigrationConfig>, never>;
+        }
+      : unknown)
+): C {
   return config;
 }

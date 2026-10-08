@@ -22,8 +22,10 @@ Enums support `.nullable()`, `.array()`, `.default()`, and `.map()` — but **no
 By default, VibORM generates enum type names based on the table and column (e.g., `user_status_enum`). Use `.name()` to create a shared enum type that can be reused across multiple tables:
 
 ```ts
-// Define a named enum at the top level
-const Status = s.enum(["PENDING", "ACTIVE", "INACTIVE"]).name("status");
+// Reuse the same values in forms, validators, and the schema.
+const statusValues = ["PENDING", "ACTIVE", "INACTIVE"] as const;
+type StatusValue = (typeof statusValues)[number];
+const Status = s.enum(statusValues).name("status");
 
 // Use it in multiple models - same PostgreSQL enum type
 const user = s.model({

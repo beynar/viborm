@@ -440,6 +440,7 @@ describe("client-level omit reaches the result types", () => {
   });
 
   const sameNodeSelectIncludeOmit = () =>
+    // @ts-expect-error Omit does not permit two active projections.
     client().user.findMany({
       select: { id: true },
       include: { posts: true },
@@ -450,8 +451,11 @@ describe("client-level omit reaches the result types", () => {
     client().user.findMany({
       select: {
         posts: {
+          // @ts-expect-error Nested select and include are mutually exclusive.
           select: { id: true },
+          // @ts-expect-error Nested select and include are mutually exclusive.
           include: { author: true },
+          // @ts-expect-error The whole conflicting node is refused.
           omit: { title: true },
         },
       },

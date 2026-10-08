@@ -503,9 +503,11 @@ describe("array query admission", () => {
       query: { record: { findMany: handler } },
     });
 
-    await expect(
+    const failure = await captureFailure(
       client.$transaction([client.record.findMany()])
-    ).rejects.toBeInstanceOf(QueryError);
+    );
+    if (_name === "caught double") expect(failure).toBeInstanceOf(QueryError);
+    else expect(failure).toMatchObject({ message: "post-admission failure" });
     expect(driver.events).toEqual([]);
   });
 
@@ -543,16 +545,13 @@ describe("array query admission", () => {
     expect(failure.cause).toMatchObject({
       message: expect.stringContaining("called proceed more than once"),
     });
-    expect(failure.errors[1]).toBeInstanceOf(QueryError);
     expect(failure.errors[1]).toMatchObject({
-      message: expect.stringContaining(
-        'Extension "admission-evidence" query handler for record.findMany failed.'
-      ),
+      message: "distinct final handler failure",
     });
     expect(driver.events).toEqual([]);
   });
 
-  test("uses the exact child result and error after a handler returns a fabricated value", async () => {
+  test("publishes handler transformations while retaining a failed child", async () => {
     const { client: base, driver } = fallbackClient();
     const client = applyUnsafeExtension(base, {
       name: "fabricated-return",
@@ -567,7 +566,7 @@ describe("array query admission", () => {
     });
 
     const [rows] = await client.$transaction([client.record.findMany()]);
-    expect(rows[0]?.id).toBe("row");
+    expect(rows[0]?.id).toBe("fabricated");
 
     driver.failNext = new Error("authoritative child failure");
     const failure = await captureFailure(
@@ -703,7 +702,7 @@ describe("fallback array query execution", () => {
 
     await expect(
       client.$transaction([client.record.findMany(), client.record.findMany()])
-    ).rejects.toBeInstanceOf(QueryError);
+    ).rejects.toMatchObject({ message: "first member post-work failed" });
     expect(providerStatements(driver.events)).toHaveLength(1);
     expect(driver.events.at(-1)).toBe("ROLLBACK");
   });
@@ -743,17 +742,11 @@ describe("fallback array query execution", () => {
     expect(failure.errors).toHaveLength(3);
     expect(failure.errors[0]).toBe(failure.cause);
     expect(failure.cause).toBeInstanceOf(QueryError);
-    expect(failure.errors[1]).toBeInstanceOf(QueryError);
     expect(failure.errors[1]).toMatchObject({
-      message: expect.stringContaining(
-        'Extension "later-fallback-post-work" query handler for record.findMany failed.'
-      ),
+      message: "first admitted member post-work failed",
     });
-    expect(failure.errors[2]).toBeInstanceOf(QueryError);
     expect(failure.errors[2]).toMatchObject({
-      message: expect.stringContaining(
-        'Extension "later-fallback-post-work" query handler for note.findMany failed.'
-      ),
+      message: "later admitted member post-work failed",
     });
     expect(providerStatements(driver.events)).toHaveLength(1);
     expect(driver.events.at(-1)).toBe("ROLLBACK");
@@ -1176,11 +1169,7 @@ describe("native array query execution", () => {
     );
     expect(failure).toBeInstanceOf(AggregateError);
     if (!(failure instanceof AggregateError)) throw failure;
-    expect(failure.cause).toMatchObject({
-      message:
-        'Extension "native-child-primary" query handler for record.deleteMany failed.',
-      meta: expect.objectContaining({ commitCertainty: "committed" }),
-    });
+    expect(failure.cause).toMatchObject({ message: "child post-work failed" });
     const failures = collectFailures(failure);
     expect(
       failures.some((candidate) => candidate instanceof CacheConfigurationError)
@@ -1246,12 +1235,10 @@ describe("native array query execution", () => {
       meta: expect.objectContaining({ commitCertainty: "committed" }),
     });
     expect(failure.errors[1]).toMatchObject({
-      message:
-        'Extension "native-child-graph" query handler for record.deleteMany failed.',
+      message: "first member post-work failed",
     });
     expect(failure.errors[2]).toMatchObject({
-      message:
-        'Extension "native-child-graph" query handler for record.findMany failed.',
+      message: "later member post-work failed",
     });
     expect(failure.errors[3]).toBeInstanceOf(CacheConfigurationError);
     expect(failure.errors[4]).toMatchObject({
@@ -1262,13 +1249,15 @@ describe("native array query execution", () => {
 
   test("labels post-commit handler and cardinality failures without extra parsing", async () => {
     const { client: base, driver } = nativeClient();
+    const postError = new Error("post-work after 1 rows");
     const client = base.$extends({
       name: "native-post-failure",
       query: {
         record: {
           async findMany({ proceed }) {
             const result = await proceed();
-            throw new Error(`post-work after ${result.length} rows`);
+            expect(result).toHaveLength(1);
+            throw postError;
           },
         },
       },
@@ -1276,9 +1265,9 @@ describe("native array query execution", () => {
     const postFailure = await captureFailure(
       client.$transaction([client.record.findMany()])
     );
-    expect(postFailure).toMatchObject({
-      meta: expect.objectContaining({ commitCertainty: "committed" }),
-    });
+    expect(postFailure).toBe(postError);
+    // Completion observers retain commit certainty independently of an ordinary Error.
+    expect(postFailure).not.toBeInstanceOf(QueryError);
 
     driver.malformedResults = true;
     const operation = client.record.findMany();

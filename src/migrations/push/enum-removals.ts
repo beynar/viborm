@@ -8,6 +8,18 @@ import {
   type SchemaSnapshot,
 } from "../types";
 
+const INLINE_ENUM_TOKEN =
+  /^(?:enum\(|text check\("(?:[^"]|"")*"\s+in\s+\()(\s*'(?:[^']|'')*'(?:\s*,\s*'(?:[^']|'')*')*\s*)\)\)?$/i;
+
+/** The closed inline enum carriers emitted by MySQL and SQLite drivers. */
+export function inlineEnumValues(type: string): string[] | undefined {
+  const match = INLINE_ENUM_TOKEN.exec(type.trim());
+  if (!match?.[1]) return;
+  return Array.from(match[1].matchAll(/'((?:[^']|'')*)'/g), (item) =>
+    item[1]!.replaceAll("''", "'")
+  );
+}
+
 export interface EnumRemoval {
   enumName: string;
   tableName: string;
@@ -24,7 +36,7 @@ export type EnumColumnMappings = Map<string, Map<string, ColumnMappings>>;
 /**
  * Detects enum value removals that need resolution.
  * Returns one removal per column that uses the enum.
- * Nullable columns can be auto-resolved to NULL.
+ * Nullability never supplies a data-mapping decision.
  */
 export function detectEnumValueRemovals(
   operations: DiffOperation[],
@@ -236,10 +248,7 @@ export function applyResolvedEnumMappings(
           columnValueReplacements,
         });
       } else {
-        enumOperations.push({
-          ...op,
-          defaultReplacement: op.defaultReplacement ?? null,
-        });
+        enumOperations.push(op);
       }
     }
   }

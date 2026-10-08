@@ -140,10 +140,13 @@ their closure and validate once per invocation.
 
 `s.string()` declares six identifier formats — `.uuid()`, `.uuidv7()`,
 `.ulid()`, `.ksuid()`, `.nanoid(length?)`, `.cuid()` — plus `.id()`, which is a
-KEY declaration that installs a ULID only when no generator was declared and
-never overrides one. Every modifier writes the same two facts: the declaration
-in `ScalarState.autoGenerate` (`{ kind, prefix?, length? }`) and the closure in
-`default`, marked through `generatorDefault`. There is no second registry: a
+KEY declaration that installs a ULID only when no format was declared.
+Formats declare domains and require caller values unless `.id()` or explicit
+`{ generate: true }` requests a default. `.id({ generate: false })` preserves a
+natural key without generation, in either format/key order. The one declaration
+in `ScalarState.autoGenerate` (`{ kind, prefix?, length?, generate? }`) derives
+whether a closure is installed in `default`, marked through `generatorDefault`;
+an explicit caller default wins. There is no second registry: a
 `generate` kind IS the method name, which is why a new format costs the method,
 the type union, and the reader's token table and nothing else.
 
@@ -205,7 +208,9 @@ tightened) once its `db` is one of the three dialects and its `type` a string �
 exactly what every reader relies on — and a dialect key beside its `db` is
 refused; a map is held to its whole contract
 there — exact keys, at least one, each an own entry of its own key's dialect
-and in that dialect's catalog — and stored as a frozen snapshot. The class keeps
+with a string `type` — and stored as a frozen snapshot. Coded maps admit custom
+types like tagged shorthand; untrusted schema documents remain catalog-closed.
+The class keeps
 the declaration in `_nativeType`, outside `State`, and every modifier carries
 it by identity.
 

@@ -59,7 +59,7 @@ deliberately small so the query protocol is visible.
 | Accept a new call argument | `controls` | Declared values, checked once; only your handlers see them |
 | Hide rows from every query | `rows` | Filters per model, chosen per call, with the call's values |
 | Change what a delete does | `deletion` | An update with fixed data and the call's time |
-| Write fields on every create and update | `data` | Fixed values or the call's values, never the caller's |
+| Supply defaults on creates and updates | `data` | Fixed values or control values; explicit caller data wins |
 
 Do not put every concern into `query`. Each capability exposes only the facts
 and authority appropriate to its boundary.
@@ -176,8 +176,10 @@ const aroundPosts = defineExtension<typeof schema>()({
 Direct and callback-transaction model reads may return without `proceed()` to
 implement a deliberate short circuit. Mutations, raw operations, and every
 member admitted to `$transaction([...])` must call it exactly once. Once
-`proceed()` starts, its value or error is authoritative; detached work cannot
-replace a failed child or fabricate success.
+`proceed()` starts, the child execution and any failure remain authoritative.
+After a successful child, the handler's returned value is published, so a
+handler can map or mask those rows. A caught child failure cannot become
+success. An ordinary Error thrown by your handler is rethrown unchanged.
 
 For mutation-side effects that must follow the real durability boundary,
 register a listener before calling `proceed()`:
@@ -338,8 +340,10 @@ await db.project.findMany({ archived: "only" }); // archived projects
   `aggregate`, `groupBy`, updates, `upsert`, deletes) of every model;
   `create` and `createMany` do not take it.
 - Filters are `where` data on scalar fields: constants, or a value the call
-  passes (below). TypeScript does not check their field names in your
-  editor.
+  passes (below). TypeScript checks schema-bound model names, including
+  non-fresh definitions; arbitrary string-indexed model maps are refused.
+  `$extends()` checks model and top-level field names at runtime, including
+  fields inside logical AND/OR/NOT predicates.
 - Core applies them everywhere a query selects rows: root reads and writes,
   aggregates, cursors, `include`/`select` of every relation,
   `some`/`none`/`every` and `is`/`isNot`, relation counts and ordering,
@@ -401,7 +405,7 @@ await db.post.findMany(); // ValidationError: control "tenant" is required
 ```
 
 The [tenancy recipe](/docs/extensions/recipes#tenancy) is the complete
-version: every model you name, and `tenantId` written on every create.
+version: every model you name, and `tenantId` supplied on creates that omit it.
 
 - The reference can sit anywhere a filter takes a value, at any depth:
   `{ tenantId: { in: { control: "tenants" } } }`, or on a field inside `AND`,
@@ -437,8 +441,24 @@ version: every model you name, and `tenantId` written on every create.
   for its call alone and skips the cache.
 - Pass the tenant from your own server's session, never from the request:
   the extension keeps a call inside the tenant it names, it does not check
-  that the caller may name it. The recipe's `data` member writes `tenantId`
-  on every create, so a caller cannot create a row in another tenant.
+  that the caller may name it. The recipe's `data` member supplies `tenantId`
+  only when the caller omits it. Explicit caller data wins, so this is a
+  default stamp rather than write authorization.
+
+With the complete recipe applied, these creates differ:
+
+```ts
+await db.post.create({ tenant: "acme", data: { title: "Default tenant" } });
+// tenantId = "acme"
+await db.post.create({
+  tenant: "acme",
+  data: { title: "Explicit tenant", tenantId: "globex" },
+});
+// tenantId = "globex": the caller's explicit value overrides the stamp.
+```
+
+Apply authorization in your server before admitting caller-supplied tenant
+fields or relation writes.
 
 ## Change what a delete does with `deletion`
 

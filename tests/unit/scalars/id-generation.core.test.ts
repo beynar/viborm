@@ -48,12 +48,16 @@ afterEach(() => {
 
 describe("declared generators", () => {
   const CASES = [
-    ["uuid", () => string().uuid(), () => string().uuid("usr")],
-    ["uuidv7", () => string().uuidv7(), () => string().uuidv7("usr")],
-    ["ulid", () => string().ulid(), () => string().ulid("usr")],
-    ["ksuid", () => string().ksuid(), () => string().ksuid("usr")],
-    ["nanoid", () => string().nanoid(), () => string().nanoid(12, "usr")],
-    ["cuid", () => string().cuid(), () => string().cuid("usr")],
+    ["uuid", () => string().uuid().id(), () => string().uuid("usr").id()],
+    ["uuidv7", () => string().uuidv7().id(), () => string().uuidv7("usr").id()],
+    ["ulid", () => string().ulid().id(), () => string().ulid("usr").id()],
+    ["ksuid", () => string().ksuid().id(), () => string().ksuid("usr").id()],
+    [
+      "nanoid",
+      () => string().nanoid().id(),
+      () => string().nanoid(12, "usr").id(),
+    ],
+    ["cuid", () => string().cuid().id(), () => string().cuid("usr").id()],
   ] as const;
 
   test.each(
@@ -75,28 +79,30 @@ describe("declared generators", () => {
   });
 
   test("each format generates its own canonical value", () => {
-    expect(generate(string().uuid())).toMatch(UUID_V4);
-    expect(generate(string().uuidv7())).toMatch(UUID_V7);
-    expect(ulidToBytes(generate(string().ulid()))).toBeDefined();
-    expect(ksuidToBytes(generate(string().ksuid()))).toBeDefined();
-    expect(generate(string().cuid())).toMatch(CUID_PATTERN);
-    expect(generate(string().nanoid())).toHaveLength(21);
+    expect(generate(string().uuid().id())).toMatch(UUID_V4);
+    expect(generate(string().uuidv7().id())).toMatch(UUID_V7);
+    expect(ulidToBytes(generate(string().ulid().id()))).toBeDefined();
+    expect(ksuidToBytes(generate(string().ksuid().id()))).toBeDefined();
+    expect(generate(string().cuid().id())).toMatch(CUID_PATTERN);
+    expect(generate(string().nanoid().id())).toHaveLength(21);
   });
 
   test("a prefixed value is the prefix, a hyphen, and the bare payload", () => {
-    const [prefix, payload] = generate(string().ulid("usr")).split("-");
+    const [prefix, payload] = generate(string().ulid("usr").id()).split("-");
     expect(prefix).toBe("usr");
     expect(payload && ulidToBytes(payload)).toBeDefined();
-    expect(uuidToBytes(generate(string().uuid("u")).slice(2))).toBeDefined();
+    expect(
+      uuidToBytes(generate(string().uuid("u").id()).slice(2))
+    ).toBeDefined();
   });
 
   test("an empty prefix is no prefix", () => {
-    expect(generate(string().ulid(""))).toHaveLength(26);
-    expect(string().ulid("")["~"].state.autoGenerate?.prefix).toBe("");
+    expect(generate(string().ulid("").id())).toHaveLength(26);
+    expect(string().ulid("").id()["~"].state.autoGenerate?.prefix).toBe("");
   });
 
   test("a later generator wins and a custom default replaces only the closure", () => {
-    const switched = string().uuid().ulid();
+    const switched = string().uuid().id().ulid();
     expect(switched["~"].state.autoGenerate?.kind).toBe("ulid");
     expect(generate(switched)).toHaveLength(26);
 
@@ -111,15 +117,15 @@ describe("declared generators", () => {
 
 describe("nanoid", () => {
   test("every character comes from the url alphabet", () => {
-    for (const character of generate(string().nanoid(64))) {
+    for (const character of generate(string().nanoid(64).id())) {
       expect(NANOID_ALPHABET).toContain(character);
     }
   });
 
   test("the declared length is the payload length, not the value length", () => {
-    expect(generate(string().nanoid(8))).toHaveLength(8);
-    expect(generate(string().nanoid(8, "usr"))).toHaveLength(12);
-    expect(string().nanoid(8)["~"].state.autoGenerate?.length).toBe(8);
+    expect(generate(string().nanoid(8).id())).toHaveLength(8);
+    expect(generate(string().nanoid(8, "usr").id())).toHaveLength(12);
+    expect(string().nanoid(8).id()["~"].state.autoGenerate?.length).toBe(8);
   });
 
   /**
@@ -137,13 +143,15 @@ describe("nanoid", () => {
       65_537,
       2 ** 40,
     ]) {
-      expect(() => string().nanoid(length)).toThrowError(ValidationError);
-      expect(() => string().nanoid(length)).toThrowError(NANOID_LENGTH_BOUND);
+      expect(() => string().nanoid(length).id()).toThrowError(ValidationError);
+      expect(() => string().nanoid(length).id()).toThrowError(
+        NANOID_LENGTH_BOUND
+      );
     }
   });
 
   test("the longest length the entropy source serves still mints an id", () => {
-    expect(generate(string().nanoid(65_536))).toHaveLength(65_536);
+    expect(generate(string().nanoid(65_536).id())).toHaveLength(65_536);
   });
 });
 
@@ -161,6 +169,7 @@ describe("id", () => {
       kind: "ulid",
       prefix: undefined,
       implicit: true,
+      generate: undefined,
     });
   });
 
@@ -173,6 +182,7 @@ describe("id", () => {
     expect(after["~"].state.autoGenerate).toEqual({
       kind: "uuid",
       prefix: "a",
+      generate: undefined,
     });
     for (const scalar of [after, before]) {
       expect(scalar["~"].state.isId).toBe(true);
@@ -198,14 +208,16 @@ describe("id", () => {
     expect(prefixed["~"].state.autoGenerate).toEqual({
       kind: "uuid",
       prefix: "a",
+      generate: undefined,
     });
     expect(prefixed["~"].state.isId).toBe(true);
     expect(generate(prefixed)).toMatch(A_PREFIX);
     expect(string().uuid().id("")["~"].state.autoGenerate).toEqual({
       kind: "uuid",
       prefix: undefined,
+      generate: undefined,
     });
-    expect(generate(string().id().id(""))).not.toContain("-");
+    expect(generate(string().id(""))).not.toContain("-");
   });
 
   test(".id(prefix) with no generator declared prefixes the ULID", () => {
@@ -214,6 +226,7 @@ describe("id", () => {
       kind: "ulid",
       prefix: "usr",
       implicit: true,
+      generate: undefined,
     });
   });
 });
@@ -290,7 +303,7 @@ describe("ulid monotonicity", () => {
   });
 
   test("one sequence is shared by every ulid field in the process", () => {
-    const first = generate(string().ulid());
+    const first = generate(string().ulid().id());
     const second = generate(string().id());
     expect(second > first).toBe(true);
   });
@@ -340,22 +353,22 @@ describe("cuid2", () => {
   });
 
   test("the shape the format promises", () => {
-    const id = generate(string().cuid());
+    const id = generate(string().cuid().id());
     expect(id).toHaveLength(24);
     expect(id).toMatch(CUID_PATTERN);
-    expect(generate(string().cuid())).not.toBe(id);
+    expect(generate(string().cuid().id())).not.toBe(id);
   });
 });
 
 describe("secure randomness", () => {
   test("a runtime without crypto.getRandomValues refuses every generator", () => {
     const scalars = [
-      string().uuid(),
-      string().uuidv7(),
-      string().ulid(),
-      string().ksuid(),
-      string().nanoid(),
-      string().cuid(),
+      string().uuid().id(),
+      string().uuidv7().id(),
+      string().ulid().id(),
+      string().ksuid().id(),
+      string().nanoid().id(),
+      string().cuid().id(),
     ];
     const original = globalThis.crypto;
     Object.defineProperty(globalThis, "crypto", {
@@ -380,9 +393,11 @@ describe("secure randomness", () => {
     const schema = await import("@schema");
     expect(spy).not.toHaveBeenCalled();
     // Declaring a field installs a closure; the closure is what draws.
-    expect(schema.s.string().ksuid()["~"].state.default).toBeTypeOf("function");
+    expect(schema.s.string().ksuid().id()["~"].state.default).toBeTypeOf(
+      "function"
+    );
     expect(spy).not.toHaveBeenCalled();
-    generate(schema.s.string().ksuid());
+    generate(schema.s.string().ksuid().id());
     expect(spy).toHaveBeenCalled();
   });
 });
@@ -391,7 +406,7 @@ describe("ksuid", () => {
   test("the timestamp is the current second in the ksuid epoch", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-12T10:11:12.345Z"));
-    const bytes = ksuidToBytes(generate(string().ksuid()));
+    const bytes = ksuidToBytes(generate(string().ksuid().id()));
     const seconds = Math.floor(Date.parse("2026-09-12T10:11:12.345Z") / 1000);
     expect(bytes?.slice(0, 4)).toEqual(
       Uint8Array.from([
@@ -409,7 +424,7 @@ describe("uuidv7", () => {
     vi.useFakeTimers();
     const instant = Date.parse("2026-09-12T10:11:12.345Z");
     vi.setSystemTime(new Date(instant));
-    const bytes = uuidToBytes(generate(string().uuidv7()));
+    const bytes = uuidToBytes(generate(string().uuidv7().id()));
     expect(bytes?.slice(0, 6)).toEqual(
       Uint8Array.from([
         Math.floor(instant / 2 ** 40) % 256,
@@ -425,6 +440,8 @@ describe("uuidv7", () => {
   test("two values minted in one millisecond still differ", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-12T10:11:12.345Z"));
-    expect(generate(string().uuidv7())).not.toBe(generate(string().uuidv7()));
+    expect(generate(string().uuidv7().id())).not.toBe(
+      generate(string().uuidv7().id())
+    );
   });
 });

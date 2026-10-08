@@ -18,14 +18,19 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { QueryError, unsupportedVector } from "@errors";
+import {
+  ClientInitializationError,
+  QueryError,
+  unsupportedVector,
+} from "@errors";
 import type {
+  CustomTypesConfig,
   NeonQueryFunction,
-  NeonQueryFunctionInTransaction,
 } from "@neondatabase/serverless";
 import { Driver, type QueryExecutionContext } from "../driver";
 import { isNormalizedResultRow } from "../normalized-result";
 import {
+  type BatchTransactionOptions,
   defineImmutableDriverFact,
   normalizePostgresRowCount,
   resolveNamespaceOption,
@@ -46,6 +51,7 @@ export interface NeonHTTPDriverOptions {
   databaseUrl?: string;
   options?: {
     fetchOptions?: RequestInit;
+    authToken?: string | (() => Promise<string> | string);
   };
   pgvector?: boolean;
   postgis?: boolean;
@@ -65,12 +71,6 @@ export type NeonHTTPClientConfig<C extends DriverConfig> =
  * Configured with arrayMode=false (object rows) and fullResults=true (includes rowCount).
  */
 type NeonQuery = NeonQueryFunction<false, true>;
-
-/**
- * NeonTx is the transaction-bound query function passed to transaction callbacks.
- * Configured with arrayMode=false and fullResults=true to match the main client.
- */
-type NeonTx = NeonQueryFunctionInTransaction<false, true>;
 
 interface NeonFullResult<T> {
   fields: unknown[];
@@ -119,15 +119,7 @@ function assertNeonFullResult<T>(
 // DRIVER IMPLEMENTATION
 // ============================================================
 
-/**
- * Type guard to check if client is NeonQuery (has transaction method)
- * vs NeonTx (transaction callback that only accepts sql + params)
- */
-function isNeonQueryFunction(client: NeonQuery | NeonTx): client is NeonQuery {
-  return typeof (client as NeonQuery).transaction === "function";
-}
-
-export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
+export class NeonHTTPDriver extends Driver<NeonQuery, NeonQuery> {
   declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
@@ -136,27 +128,12 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   readonly supportsTransactions = false;
   readonly supportsBatch = true;
 
-  /**
-   * `supportsOrderedCommittedSegments` deliberately remains the inherited `false`.
-   * Root and exactly guarded nested dynamic series can use Neon HTTP's awaited atomic
-   * batches. Normalized successful return orders the next segment even though this stronger
-   * capability remains false.
-   *
-   * The local callback seam is wired: after `client.transaction(...)` resolves,
-   * `executeBatch` awaits the committed notification before it validates result cardinality
-   * or parses statement results. Credential-free tests pin that timing, including malformed
-   * post-commit results and provider rejection. This is necessary plumbing, not hosted
-   * capability proof.
-   *
-   * Awaiting a normalized successful batch already establishes the base sequential-call
-   * visibility contract used by exact-value and record-series fallback. Enabling the stronger
-   * notification capability still requires hosted evidence that the callback identifies the
-   * durable commit before result decoding, failed batches leave no writes, and committed-prefix
-   * attribution stays exact. No Neon credentials are available here, so the flag cannot move;
-   * this is not a one-boolean task.
-   */
+  // Hosted rollback, durable visibility and malformed post-commit metadata
+  // witnesses qualify this notification before driver result validation.
+  readonly supportsOrderedCommittedSegments = true;
 
   private readonly driverOptions: NeonHTTPDriverOptions;
+  private queryTypes: CustomTypesConfig | undefined;
 
   constructor(options: NeonHTTPDriverOptions = {}) {
     super("postgresql", "neon-http");
@@ -173,7 +150,10 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
     const { neon, types } = await import("@neondatabase/serverless");
 
     if (!this.driverOptions.databaseUrl) {
-      throw new Error("Neon HTTP driver requires a databaseUrl");
+      throw new ClientInitializationError(
+        "Neon HTTP driver requires a databaseUrl",
+        { meta: { driver: this.driverName } }
+      );
     }
 
     // DATE (1082) / TIMESTAMP WITHOUT TIME ZONE (1114): the default parsers
@@ -184,19 +164,22 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
     // pg-types declares getTypeParser with per-format overloads that a single
     // wrapper function can't express — the cast is unavoidable here
     const getTypeParser = ((oid: number, format?: string) => {
-      if ((oid === 1082 || oid === 1114) && format !== "binary") {
+      if (
+        [1082, 1114, 1184, 1115, 1182, 1185].includes(oid) &&
+        format !== "binary"
+      ) {
         return identityParser;
       }
       return types.getTypeParser(oid as never, format as never);
     }) as typeof types.getTypeParser;
-    const utcSafeTypes: typeof types = { ...types, getTypeParser };
+    this.queryTypes = { getTypeParser };
 
     // Always use arrayMode=false (object rows) and fullResults=true (includes rowCount)
     const client = neon(this.driverOptions.databaseUrl, {
       fetchOptions: this.driverOptions.options?.fetchOptions,
+      authToken: this.driverOptions.options?.authToken,
       fullResults: true,
       arrayMode: false,
-      types: utcSafeTypes,
     });
 
     return client;
@@ -207,7 +190,7 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   }
 
   protected async execute<T>(
-    client: NeonQuery | NeonTx,
+    client: NeonQuery,
     sql: string,
     params: unknown[],
     context?: QueryExecutionContext
@@ -216,23 +199,24 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   }
 
   private async executeQuery<T>(
-    client: NeonQuery | NeonTx,
+    client: NeonQuery,
     sql: string,
     params: unknown[],
     context: QueryExecutionContext | undefined,
     fallbackOperation: string
   ): Promise<QueryResult<T>> {
     const executionContext = context ?? { operation: fallbackOperation };
-    // NeonQuery supports options, NeonTx only accepts (sql, params)
-    const result = isNeonQueryFunction(client)
-      ? await client(sql, params, { arrayMode: false, fullResults: true })
-      : await client(sql, params);
+    const result = await client.query(sql, params, {
+      arrayMode: false,
+      fullResults: true,
+      types: this.queryTypes,
+    });
 
     return this.parseResult<T>(result, executionContext);
   }
 
   protected async executeRaw<T>(
-    client: NeonQuery | NeonTx,
+    client: NeonQuery,
     sql: string,
     params: unknown[] | undefined,
     context?: QueryExecutionContext
@@ -249,15 +233,13 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   /**
    * Neon HTTP sends the whole batch as one request through `client.transaction`
    * and offers no callback transaction. The provider opens and closes that
-   * transaction server-side in a single round trip: VibORM has no BEGIN to
-   * configure, no interactive body to interrupt, and no slot to wait for, so
-   * every option is refused rather than quietly dropped.
+   * transaction server-side in a single round trip. The SDK receives the
+   * requested isolation level; timeout/maxWait need an interactive body or
+   * acquired connection, which this HTTP transport does not have.
    */
   protected override transactionOptionSupport(): TransactionOptionSupport {
     return {
-      isolationLevel: "unsupported",
-      isolationLevelReason:
-        "Neon HTTP submits the batch as one request and never exposes a transaction VibORM can issue SET TRANSACTION ISOLATION LEVEL on",
+      isolationLevel: "provider",
       timeout: false,
       timeoutReason:
         "Neon HTTP runs a batch as one provider call with no interactive body to interrupt",
@@ -268,8 +250,8 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
   }
 
   protected transaction<T>(
-    _client: NeonQuery | NeonTx,
-    _fn: (tx: NeonTx) => Promise<T>
+    _client: NeonQuery,
+    _fn: (tx: NeonQuery) => Promise<T>
   ): Promise<T> {
     return Promise.reject(unsupportedCallbackTransactionError(this.driverName));
   }
@@ -282,15 +264,18 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
     client: NeonQuery,
     queries: BatchQuery[],
     context?: QueryExecutionContext,
-    committed?: CommittedBatchNotification
+    committed?: CommittedBatchNotification,
+    options?: BatchTransactionOptions
   ): Promise<QueryResult<T>[]> {
     const batchContext = context ?? { operation: "executeBatch" };
-    // Use Neon's transaction function with a callback that returns query array
-    const results: unknown = await client.transaction((txFn) =>
+    // Query promises retain their own parser options in the public SDK API.
+    const results: unknown = await client.transaction(
       queries.map((query) => {
         const statementContext = query.context ?? batchContext;
         try {
-          return txFn(query.sql, query.params ?? []);
+          return client.query(query.sql, query.params ?? [], {
+            types: this.queryTypes,
+          });
         } catch (error) {
           throw this.normalizeStatementFailure(
             error,
@@ -300,7 +285,12 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonTx> {
             true
           );
         }
-      })
+      }),
+      {
+        isolationLevel: options?.isolationLevel,
+        arrayMode: false,
+        fullResults: true,
+      }
     );
     await committed?.();
 

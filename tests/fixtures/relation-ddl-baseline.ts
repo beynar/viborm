@@ -12,6 +12,10 @@
  * the preservation theorem and only a deliberate, plan-sanctioned verdict change
  * may edit them — with the reason recorded on the corpus case.
  *
+ * V1 adversarial remediation deliberately removes three implicit PostgreSQL
+ * DEFAULT NULL spellings: the live catalog reports no default. Nullable values,
+ * relation topology, constraints and order remain identical. No corpus regeneration.
+ *
  * Array order is significant everywhere: table order (model tables, then member
  * junctions, then ordinary junctions), column order, index order, foreign-key
  * order, and history member order are all part of what is pinned. Object KEY
@@ -237,7 +241,6 @@ export const relationDdlBaseline: Readonly<
               name: "authorId",
               type: "text",
               nullable: true,
-              default: "NULL",
               autoIncrement: false,
             },
           ],
@@ -639,7 +642,6 @@ export const relationDdlBaseline: Readonly<
               name: "parentId",
               type: "text",
               nullable: true,
-              default: "NULL",
               autoIncrement: false,
             },
           ],
@@ -733,7 +735,6 @@ export const relationDdlBaseline: Readonly<
               name: "parentId",
               type: "text",
               nullable: true,
-              default: "NULL",
               autoIncrement: false,
             },
           ],

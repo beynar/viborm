@@ -180,12 +180,12 @@ function idDomainAdmission(domain: IdDomain): ValidatorFn<string> {
  *
  * @param baseValidate - The base type validator
  * @param options - Schema options
- * @param typeName - Type name for error messages (unused but kept for API consistency)
+ * @param typeName - The scalar representation that must survive transforms
  */
 export function buildValidator<T, TOut, TSchemaOut = T>(
   baseValidate: ValidatorFn<T>,
   options: ScalarOptions<T, TOut, TSchemaOut> | undefined,
-  _typeName: string
+  typeName: string
 ): ValidatorFn<TOut> {
   // Fast path: no options at all
   if (!options) {
@@ -235,6 +235,10 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 
   // Chain transform (if any)
   if (hasTransform) validate = withTransform(validate, transform!);
+  // A custom JSON schema may transform its input, but the persisted result
+  // must still be JSON. Validate the new representation before any write.
+  if (typeName === "json" && (hasTransform || schema !== undefined))
+    validate = thenValidate(validate, baseValidate);
 
   // Compose the complete field validator before the default trigger. A
   // resolved literal or factory value is an ordinary untrusted field value:

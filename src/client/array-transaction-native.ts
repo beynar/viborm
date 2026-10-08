@@ -3,7 +3,7 @@ import type {
   BatchQuery,
   QueryExecutionContext,
   QueryResult,
-} from "@drivers";
+} from "@drivers/exports";
 import type {
   BatchTransactionOptions,
   TransactionOptions,

@@ -1,5 +1,8 @@
 import type { ScalarState } from "@schema/scalars/common";
-import { idDomainOfState } from "@schema/scalars/string/id-domain";
+import {
+  idDomainOfState,
+  idMemberDomainOfState,
+} from "@schema/scalars/string/id-domain";
 import { type IdDomain, isCompactIdFormat } from "../primitives/id-codec";
 import v, { type V } from "../primitives/v";
 import {
@@ -12,6 +15,7 @@ import {
   listUpdateFamily,
   once,
   type SetUpdateSchema,
+  withScalarOutputDomain,
 } from "./family";
 import { scalarInternKey } from "./intern";
 import {
@@ -183,9 +187,9 @@ const buildCompactIdFilterSchema = <
 };
 
 /**
- * A string LIST has no identifier domain — `idDomainOfState` answers `undefined`
- * for an array field — so its three variants are the shared family with no
- * narrowing and no second base.
+ * An unformatted string list uses the shared family. A named member domain
+ * supplies the same family with canonicalizing primitives, keeping plain string
+ * physical storage and the ordinary list operator language.
  */
 const buildStringListFilterSchema = listFilterFamily(stringBase, stringList);
 const buildStringListUpdateSchema = listUpdateFamily(stringBase, stringList);
@@ -273,22 +277,65 @@ export const buildStringSchema = <
   derived?: IdDomain
 ): StringSchemas<F, C> => {
   const idDomain =
-    state.array === true ? undefined : (idDomainOfState(state) ?? derived);
-  const base = domainBaseOf(state, idDomain);
+    state.array === true
+      ? idMemberDomainOfState(state)
+      : (idDomainOfState(state) ?? derived);
+  const filterBase = () =>
+    v.string({ nullable: state.nullable, array: state.array, idDomain });
+  const declaredBase = domainBaseOf(state, idDomain);
+  const base =
+    state.schema === undefined || idDomain !== undefined
+      ? declaredBase
+      : withScalarOutputDomain(declaredBase, filterBase());
+  const refinedListUpdate = () =>
+    listUpdateFamily(
+      () =>
+        idDomain === undefined
+          ? withScalarOutputDomain(
+              v.string({ schema: state.schema }),
+              stringBase()
+            )
+          : v.string({ schema: state.schema, idDomain }),
+      () =>
+        idDomain === undefined
+          ? withScalarOutputDomain(
+              v.string({ array: true, schema: state.schema }),
+              stringList()
+            )
+          : v.string({ array: true, schema: state.schema, idDomain })
+    )(base);
   return internedScalarSchemas<StringSchemas<F, C>>(
     interners,
     scalarInternKey(state, idDomain),
     {
       base,
-      create: () => v.string(domainStateOf(state, idDomain)),
+      create: () =>
+        state.schema === undefined || idDomain !== undefined
+          ? v.string(domainStateOf(state, idDomain))
+          : withScalarOutputDomain(
+              v.string(domainStateOf(state, idDomain)),
+              filterBase()
+            ),
       update: () =>
-        state.array ? buildStringListUpdateSchema(base) : buildSetUpdate(base),
+        state.array
+          ? state.schema === undefined && idDomain === undefined
+            ? buildStringListUpdateSchema(base)
+            : refinedListUpdate()
+          : buildSetUpdate(base),
       filter: () =>
         state.array
-          ? buildStringListFilterSchema(base)
+          ? idDomain === undefined
+            ? buildStringListFilterSchema(filterBase())
+            : listFilterFamily(
+                () => v.string({ idDomain }),
+                () => domainMembersOf(idDomain)
+              )(filterBase())
           : idDomain !== undefined && isCompactIdFormat(idDomain.format)
-            ? buildCompactIdFilterSchema(base, domainMembersOf(idDomain))
-            : buildStringFilterSchema(base, domainMembersOf(idDomain)),
+            ? buildCompactIdFilterSchema(
+                filterBase(),
+                domainMembersOf(idDomain)
+              )
+            : buildStringFilterSchema(filterBase(), domainMembersOf(idDomain)),
     }
   );
 };

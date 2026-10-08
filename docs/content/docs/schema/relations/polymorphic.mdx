@@ -104,7 +104,7 @@ keys on both sides.
 ```ts
 const shelf = s.model({
   id: s.string().id(),
-  items: s.toMany({ book: () => book, video: () => video }),
+  items: s.toMany({ book: () => book, video: () => video }).name("items"),
 });
 // migrates to: shelf_items_book, shelf_items_video
 ```
@@ -440,8 +440,9 @@ const shelves = await client.shelf.findMany({
 
 `only` is an exact allow-list over the public variant names. It narrows the
 result union — with `only: ["book"]` the element type has no `video` arm — and
-it also narrows the SQL: no member table outside the list is read. Duplicates
-are rejected, and the list is canonicalized into declaration order, so
+it narrows the returned projection: excluded member rows are not returned.
+Integrity probes still cover every declared variant, including when `only: []`
+returns no members. Duplicates are rejected, and the list is canonicalized into declaration order, so
 `["video", "book"]` and `["book", "video"]` are one query and one cache entry.
 `only: []` is legal and returns a fresh empty array.
 

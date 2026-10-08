@@ -1,19 +1,47 @@
+import { sqliteGeoPointCheck } from "@adapters/databases/sqlite/storage/geo-point";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
-import { VibORMErrorCode } from "@src/errors";
+import {
+  sqliteCanonicalDateTimePredicate,
+  sqliteCanonicalTimePredicate,
+} from "@src/adapters/databases/sqlite/storage/datetime";
+import { isVibORMError, VibORMErrorCode } from "@src/errors";
+import {
+  sqliteCanonicalDateTimeExpression,
+  sqliteCanonicalTimeExpression,
+} from "@src/migrations";
 import { createMigrationClient } from "@src/migrations/client";
+import {
+  compileGeneratedTransition,
+  hashParent,
+  rebindChecks,
+  rebindDispatches,
+  rebindRollback,
+  sealParent,
+} from "@src/migrations/compile";
+import { getMigrationDriver } from "@src/migrations/drivers";
 import {
   type PushOptionsV1,
   previewPush,
   pushV1,
 } from "@src/migrations/push-v1";
+import { SqlAssembly } from "@src/migrations/sql-assembly";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
-import type { ResolveCallback } from "@src/migrations/types";
+import type { ResolveCallback, SchemaSnapshot } from "@src/migrations/types";
+import {
+  encodeEstateDescriptor,
+  encodeSnapshot,
+  encodeStateManifest,
+} from "@src/migrations/v1-parse";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import { sqliteEstateDriver } from "./_estate";
+
+const EXPECTED_ERROR_PATTERN = /^[a-f0-9]{64}$/;
+const DROP_FOREIGN_LEDGER_PATTERN = /DROP.*foreign_ledger/;
+const EXPECTED_ERROR_PATTERN_2 = /^\d{2}:\d{2}:\d{2}\.\d{3}$/;
 
 const SCHEMA_WRITE = /^(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/i;
 
@@ -28,6 +56,317 @@ const counter = s.model({
 });
 
 describe("migration v1 authenticated push", () => {
+  test.each([
+    "lower(label)",
+    "label DESC",
+    "label COLLATE NOCASE",
+  ])("refuses native SQLite index %s without affecting its table, while selected external scope remains usable", async (expression) => {
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({
+      schema: { native: s.model({ id: s.int().id(), label: s.string() }) },
+      driver,
+    });
+    try {
+      await pushV1(client);
+      await driver._executeRaw(
+        `CREATE INDEX native_semantics ON native (${expression})`
+      );
+      await driver._executeRaw("INSERT INTO native VALUES (1, ?)", [
+        "preserved",
+      ]);
+      await expect(
+        createMigrationClient(client).push({ dryRun: true })
+      ).rejects.toMatchObject({
+        code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+        message: expect.stringContaining("native.native_semantics"),
+      });
+      expect(
+        (
+          await driver._executeRaw<{ label: string }>(
+            "SELECT label FROM native"
+          )
+        ).rows
+      ).toEqual([{ label: "preserved" }]);
+      expect(
+        (
+          await driver._executeRaw<{ sql: string }>(
+            "SELECT sql FROM sqlite_master WHERE name='native_semantics'"
+          )
+        ).rows[0]?.sql
+      ).toContain(expression);
+      const external = createClient({
+        schema: { selected: s.model({ id: s.int().id() }) },
+        driver,
+      });
+      const migrations = createMigrationClient(external, {
+        tables: ["selected"],
+      });
+      await migrations.push();
+      expect((await migrations.push({ dryRun: true })).outcome).toBe("noop");
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("contiguous column changes rebuild once, preserve data, and inverse rebuilds once", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const model = (nullable: boolean) =>
+      s
+        .model({
+          id: s.int().id(),
+          a: nullable ? s.string().nullable() : s.string(),
+          b: nullable ? s.int().nullable() : s.int(),
+        })
+        .map("entry");
+    const client = createClient({ schema: { entry: model(false) }, driver });
+    const changed = createClient({ schema: { entry: model(true) }, driver });
+    try {
+      const storage = new MemoryEstateStorage();
+      const original = createMigrationClient(client, { storage });
+      await original.generate({ name: "required" });
+      await original.apply();
+      await client.entry.create({ data: { id: 1, a: "keep", b: 23 } });
+      const migrations = createMigrationClient(changed, { storage });
+      const generated = await migrations.generate({ name: "nullable" });
+      const forward = generated.reviewSql.split("-- ROLLBACK")[0]!;
+      // CREATE TEMP + copy/drop/rename is one recreation program for both columns.
+      expect(forward.match(/CREATE TABLE "__new_entry"/g)).toHaveLength(1);
+      expect(
+        generated.reviewSql
+          .slice(generated.reviewSql.indexOf("-- ROLLBACK"))
+          .match(/CREATE TABLE "__new_entry"/g)
+      ).toHaveLength(1);
+      await migrations.apply();
+      expect(
+        await changed.entry.findUniqueOrThrow({ where: { id: 1 } })
+      ).toEqual({ id: 1, a: "keep", b: 23 });
+      await migrations.down();
+      expect(await original.verify()).toEqual({ ok: true });
+      expect(
+        await client.entry.findUniqueOrThrow({ where: { id: 1 } })
+      ).toEqual({ id: 1, a: "keep", b: 23 });
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("manual temporal repair preserves wide-offset instants, year zero and NULL", async () => {
+    const driver = createInMemorySQLite3Driver();
+    try {
+      await driver._executeRaw(
+        `CREATE TABLE "repair" ("stamp" TEXT, "clock" TEXT)`
+      );
+      const values = [
+        "2024-01-15T10:30:00+00:00",
+        "2024-01-15T23:59:59.9+23:59",
+        "0000-01-01T00:00:00Z",
+        "9999-12-31T23:59:59.999Z",
+        null,
+      ];
+      for (const stamp of values)
+        await driver._executeRaw("INSERT INTO repair VALUES (?,?)", [
+          stamp,
+          stamp === null ? null : "12:30:00.1",
+        ]);
+      const stampExpression = sqliteCanonicalDateTimeExpression("stamp");
+      const clockExpression = sqliteCanonicalTimeExpression("clock");
+      const before = await driver._executeRaw<{
+        stamp: string | null;
+        clock: string | null;
+      }>(
+        `SELECT ${stampExpression} AS stamp, ${clockExpression} AS clock FROM repair ORDER BY rowid`
+      );
+      expect(before.rows.map((row) => row.stamp)).toEqual(
+        values.map((value) =>
+          value === null ? null : new Date(value).toISOString()
+        )
+      );
+      expect(before.rows.map((row) => row.clock)).toEqual([
+        "12:30:00.100",
+        "12:30:00.100",
+        "12:30:00.100",
+        "12:30:00.100",
+        null,
+      ]);
+      await driver._executeRaw(
+        `UPDATE repair SET stamp=${stampExpression}, clock=${clockExpression}`
+      );
+      expect(
+        (
+          await driver._executeRaw<{ valid: number }>(
+            `SELECT ${sqliteCanonicalDateTimePredicate("stamp")} AND ${sqliteCanonicalTimePredicate("clock")} AS valid FROM repair`
+          )
+        ).rows.map((row) => row.valid)
+      ).toEqual([1, 1, 1, 1, 1]);
+      expect(
+        (
+          await driver._executeRaw(
+            "SELECT stamp,clock FROM repair ORDER BY rowid"
+          )
+        ).rows
+      ).toEqual(before.rows);
+      await driver._executeRaw("INSERT INTO repair VALUES (?,?)", [
+        "2024-02-30T00:00:00Z",
+        "24:00:00",
+      ]);
+      expect(
+        (
+          await driver._executeRaw<{ valid: number }>(
+            `SELECT ${sqliteCanonicalDateTimePredicate("stamp")} OR ${sqliteCanonicalTimePredicate("clock")} AS valid FROM repair ORDER BY rowid DESC LIMIT 1`
+          )
+        ).rows[0]!.valid
+      ).toBe(0);
+      await expect(
+        driver._executeRaw(`UPDATE repair SET stamp=${stampExpression}`)
+      ).rejects.toThrow();
+      await expect(
+        driver._executeRaw(`UPDATE repair SET clock=${clockExpression}`)
+      ).rejects.toThrow();
+      await driver._executeRaw('CREATE TABLE "quoted" ("a""b" TEXT)');
+      await driver._executeRaw('INSERT INTO "quoted" VALUES (?)', [
+        "2024-01-15T10:30:00Z",
+      ]);
+      expect(
+        (
+          await driver._executeRaw<{ value: string }>(
+            `SELECT ${sqliteCanonicalDateTimeExpression('a"b')} AS value FROM quoted`
+          )
+        ).rows[0]!.value
+      ).toBe("2024-01-15T10:30:00.000Z");
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  test("authenticated pre-annotation GeoPoint estate replays, verifies, and upgrades without silent precision rollback", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const entry = s
+      .model({ id: s.int().id(), location: s.point().nullable() })
+      .map("entry");
+    const client = createClient({ schema: { entry }, driver });
+    const storage = new MemoryEstateStorage();
+    try {
+      const bound = getMigrationDriver(driver);
+      const legacy: SchemaSnapshot = {
+        tables: [
+          {
+            name: "entry",
+            columns: [
+              { name: "id", type: "INTEGER", nullable: false },
+              { name: "location", type: "VIBORM_GEO_TEXT", nullable: true },
+            ],
+            primaryKey: { columns: ["id"] },
+            indexes: [],
+            foreignKeys: [],
+            uniqueConstraints: [],
+          },
+        ],
+      };
+      const assembly = new SqlAssembly();
+      const compiled = compileGeneratedTransition(
+        [{ type: "createTable", table: legacy.tables[0]! }],
+        bound,
+        "artifact",
+        { tables: [] },
+        legacy,
+        assembly
+      );
+      const sealed = assembly.seal();
+      const estate = encodeEstateDescriptor(bound.target);
+      const snapshot = encodeSnapshot(legacy);
+      const parent = hashParent({
+        ...sealParent(null, compiled),
+        originChecks: rebindChecks(compiled.originChecks, sealed.dispatches),
+        operations: rebindDispatches(compiled.operations, sealed.dispatches),
+        rollback: rebindRollback(compiled.rollback, sealed.dispatches),
+      });
+      const state = encodeStateManifest({
+        format: "1",
+        estateHash: estate.estateHash,
+        name: "pre-annotation",
+        snapshotHash: snapshot.snapshotHash,
+        sqlHash: sealed.sqlHash,
+        destinationChecks: [],
+        parents: [parent],
+      });
+      await storage.publishEstate(estate.bytes);
+      await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+      await storage.publishSql(sealed.sqlHash, sealed.bytes);
+      await storage.publishState(state.stateId, state.bytes);
+      const migrations = createMigrationClient(client, { storage });
+      await migrations.apply();
+      expect(await migrations.verify()).toEqual({ ok: true });
+      expect(new TextDecoder().decode(sealed.bytes)).not.toContain("%!.17g");
+      await driver._executeRaw(
+        `INSERT INTO entry VALUES (1,json_object('longitude',?, 'latitude',?))`,
+        [Math.PI, 48.123_456_789_123_45]
+      );
+      const upgrade = await migrations.generate({ name: "binary64" });
+      expect(upgrade.operations).toHaveLength(1);
+      expect(upgrade.warnings.join(" ")).toContain(
+        "without rounding coordinates"
+      );
+      await migrations.apply();
+      expect(await migrations.verify()).toEqual({ ok: true });
+      expect((await migrations.generate()).outcome).toBe("noop");
+      expect(await storage.readState(state.stateId)).toEqual(state.bytes);
+      await expect(migrations.down()).rejects.toThrow(
+        "without rounding coordinates"
+      );
+      const location = { longitude: Math.PI, latitude: 48.123_456_789_123_45 };
+      expect(
+        (await client.entry.create({ data: { id: 2, location } })).location
+      ).toEqual(location);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
+  test("legacy GeoPoint CHECK upgrades once while preserving stored doubles and NULL", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const entry = s
+      .model({ id: s.int().id(), location: s.point().nullable() })
+      .map("entry");
+    const client = createClient({ schema: { entry }, driver });
+    try {
+      const check = sqliteGeoPointCheck(
+        { name: "location", nullable: true },
+        (name) => `"${name}"`,
+        "legacy"
+      );
+      await driver._executeRaw(
+        `CREATE TABLE "entry" ("id" INTEGER NOT NULL PRIMARY KEY, "location" VIBORM_GEO_TEXT ${check})`
+      );
+      await driver._executeRaw(
+        `INSERT INTO "entry" VALUES (1, json_object('longitude', ?, 'latitude', ?)), (2, NULL)`,
+        [Math.PI, 48.123_456_789_123_45]
+      );
+      const before = await driver._executeRaw<{
+        longitude: number;
+        latitude: number;
+      }>(
+        `SELECT json_extract(location,'$.longitude') AS longitude, json_extract(location,'$.latitude') AS latitude FROM entry WHERE id=1`
+      );
+      expect((await pushV1(client)).outcome).toBe("applied");
+      expect((await pushV1(client)).outcome).toBe("noop");
+      expect(
+        (await client.entry.findUniqueOrThrow({ where: { id: 1 } })).location
+      ).toEqual(before.rows[0]);
+      expect(
+        (await client.entry.findUniqueOrThrow({ where: { id: 2 } })).location
+      ).toBeNull();
+      const location = { longitude: Math.PI, latitude: 48.123_456_789_123_45 };
+      expect(
+        (await client.entry.create({ data: { id: 3, location } })).location
+      ).toEqual(location);
+      expect(
+        (await client.entry.findUniqueOrThrow({ where: { id: 3 } })).location
+      ).toEqual(location);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+
   test("dry-run is effect-free and force-reset dry-run does not write", async () => {
     const driver = sqliteEstateDriver();
     const client = { $driver: driver, $schema: { user } };
@@ -179,9 +518,23 @@ describe("migration v1 authenticated push", () => {
     const resolve: ResolveCallback = (change) =>
       change.type === "destructive" ? change.proceed() : undefined;
 
-    await expect(pushV1(reduced, { resolve })).rejects.toMatchObject({
+    const refusal: unknown = await pushV1(reduced, { resolve }).catch(
+      (error: unknown) => error
+    );
+    if (!isVibORMError(refusal))
+      throw new Error("Expected a typed destructive-consent refusal");
+    expect(refusal.toJSON()).toMatchObject({
       code: VibORMErrorCode.MIGRATION_CONSENT_REQUIRED,
+      message: expect.stringContaining("push({ dryRun: true })"),
+      meta: {
+        command: "push",
+        dialect: "sqlite",
+        expectedChecksum: expect.stringMatching(EXPECTED_ERROR_PATTERN),
+        expectedStatementCount: expect.any(Number),
+        hint: expect.stringContaining("consent"),
+      },
     });
+    expect(refusal.toJSON().meta).not.toHaveProperty("preview");
     const preview = await previewPush(reduced, { resolve });
     expect(preview.destructive).toBe(true);
     await expect(
@@ -202,5 +555,96 @@ describe("migration v1 authenticated push", () => {
     expect(
       driver.statements.some((statement) => statement.startsWith("CREATE"))
     ).toBe(true);
+  });
+  test("managed scope preserves a foreign ledger across push, baseline and reset", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({ schema: { user }, driver });
+    try {
+      await driver._executeRaw(
+        'CREATE TABLE "foreign_ledger" (id TEXT PRIMARY KEY, stamp DATETIME, amount DECIMAL)'
+      );
+      await driver._executeRaw('INSERT INTO "foreign_ledger" (id) VALUES (?)', [
+        "keep",
+      ]);
+      const live = createMigrationClient(client, { tables: ["user"] });
+      const preview = await live.push({ dryRun: true });
+      expect(
+        preview.statements.some((statement) =>
+          DROP_FOREIGN_LEDGER_PATTERN.test(statement.sql)
+        )
+      ).toBe(false);
+      await live.push({ consent: preview.consent });
+      await client.user.create({
+        data: { id: "one", email: "one@example.test" },
+      });
+      const storage = new MemoryEstateStorage();
+      const migrations = createMigrationClient(client, {
+        storage,
+        tables: ["user"],
+      });
+      const generated = await migrations.generate({ name: "adopt" });
+      if (generated.stateId === null)
+        throw new Error("Initial estate must publish a state");
+      await migrations.baseline({ to: { id: generated.stateId } });
+      expect(await migrations.verify()).toEqual({ ok: true });
+      expect((await migrations.reset({ dryRun: true })).tables).toEqual([
+        "user",
+      ]);
+      await migrations.reset();
+      expect(await migrations.verify()).toEqual({ ok: true });
+      expect(
+        (
+          await driver._executeRaw<{ id: string }>(
+            'SELECT id FROM "foreign_ledger"'
+          )
+        ).rows
+      ).toEqual([{ id: "keep" }]);
+      expect(await client.user.count()).toBe(0);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+  test("adding a SQLite now default backfills existing rows and converges", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const before = createClient({ schema: { user }, driver });
+    try {
+      await pushV1(before);
+      await before.user.create({
+        data: { id: "one", email: "one@example.test" },
+      });
+      const expanded = s.model({
+        id: s.string().id(),
+        email: s.string().unique(),
+        createdAt: s.dateTime().now(),
+        day: s.date().now(),
+        clock: s.time().now(),
+        clockLiteral: s.time().default("12:30:00"),
+      });
+      const after = createClient({ schema: { user: expanded }, driver });
+      const migrations = createMigrationClient(after);
+      const preview = await migrations.push({ dryRun: true });
+      expect(
+        preview.statements.some((statement) =>
+          statement.sql.includes('CREATE TABLE "__new_user"')
+        )
+      ).toBe(true);
+      await migrations.push({ consent: preview.consent });
+      expect(
+        (await after.user.findUnique({ where: { id: "one" } }))?.createdAt
+      ).toBeInstanceOf(Date);
+      const row = await after.user.findUniqueOrThrow({ where: { id: "one" } });
+      expect(row.day).toBeInstanceOf(Date);
+      expect(row.clockLiteral).toBe("12:30:00.000");
+      expect(row.clock).toMatch(EXPECTED_ERROR_PATTERN_2);
+      const physical = await driver._executeRaw<{ day: string; clock: string }>(
+        'SELECT "day", "clock" FROM "user"'
+      );
+      expect(physical.rows).toEqual([
+        { day: row.day.toISOString().slice(0, 10), clock: row.clock },
+      ]);
+      expect((await migrations.push({ dryRun: true })).outcome).toBe("noop");
+    } finally {
+      await before.$disconnect();
+    }
   });
 });

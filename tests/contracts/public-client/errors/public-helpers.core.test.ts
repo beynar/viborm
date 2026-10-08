@@ -220,7 +220,7 @@ describe("concrete error contracts", () => {
       ]
     );
     expect(operation.message).toBe(
-      "Validation failed for createMany: 2 validation errors"
+      "Validation failed for user.createMany: 2 validation errors"
     );
     expect(operation.source).toEqual({
       kind: "operation",
@@ -233,18 +233,18 @@ describe("concrete error contracts", () => {
       new ValidationError({ kind: "registry", property: "user" }, [
         { path: "user", message: "invalid" },
       ]).message
-    ).toBe("Validation failed for schema registry: invalid");
+    ).toBe("Validation failed for schema registry: user: invalid");
     expect(
       new ValidationError(
         { kind: "schema-builder", builder: "model", path: "user" },
         [{ path: "user", message: "invalid" }]
       ).message
-    ).toBe("Validation failed for model: invalid");
+    ).toBe("Validation failed for model: user: invalid");
     expect(
       new ValidationError({ kind: "json-schema", target: "user" }, [
         { path: "$", message: "invalid" },
       ]).message
-    ).toBe("Validation failed for JSON Schema: invalid");
+    ).toBe("Validation failed for JSON Schema: $: invalid");
   });
 
   it("carries validation options into the source, the meta and the cause", () => {
@@ -261,6 +261,9 @@ describe("concrete error contracts", () => {
         diagnostics: { includeParams: true, includeSql: true },
         meta: { model: "user" },
       }
+    );
+    expect(withModel.message).toBe(
+      "Validation failed for user.createMany: data.0.id: required"
     );
     expect(withModel.source).toEqual({
       kind: "operation",

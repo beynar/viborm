@@ -13,11 +13,9 @@ import { afterAll, describe } from "vitest";
  * Package K on the live servers.
  *
  * MySQL is the leg that matters, for two reasons that are specific to `updateMany`.
- * First, the COUNT: mysql2 reports `affectedRows` as CHANGED rows (nothing sets
- * `CLIENT_FOUND_ROWS`), so an assignment that changes nothing answers zero there and
- * N everywhere else — the divergence §5.2 cites when it makes `count` the captured
- * root count, and the only substrate on which "captured, not provider" is a visible
- * claim rather than a restatement. Second, there is no RETURNING: a member's read of
+ * First, the COUNT: stock mysql2 enables `CLIENT_FOUND_ROWS`, so no-op
+ * assignments still count matches. The relation-bearing series owns its captured
+ * root count independently of that provider configuration. Second, there is no RETURNING: a member's read of
  * its own final row key is a second statement, and the series' whole promise — that
  * each member is an ORDINARY update, so whatever a single `update` does on a
  * substrate is what a bulk ROOT does — stays a claim until this leg runs it.

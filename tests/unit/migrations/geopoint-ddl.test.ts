@@ -1,3 +1,7 @@
+import {
+  SQLITE_GEO_POINT_TYPE,
+  sqliteGeoPointCheck,
+} from "@adapters/databases/sqlite/storage/geo-point";
 import { createClient } from "@client/client";
 import type { Schema } from "@client/types";
 import { PGliteDriver } from "@drivers/pglite";
@@ -6,10 +10,6 @@ import { createMigrationClient } from "@migrations/client";
 import { getMigrationDriver, type MigrationDriver } from "@migrations/drivers";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
-import {
-  SQLITE_GEO_POINT_TYPE,
-  sqliteGeoPointCheck,
-} from "@migrations/drivers/sqlite/geo-point";
 import { serializeModels } from "@migrations/serializer";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import type { SchemaSnapshot } from "@migrations/types";

@@ -118,7 +118,7 @@ describe("pinned migration session", () => {
     );
     expect(result).toBe("ok");
     expect(
-      driver.statements.some((sql) => sql.includes("pg_advisory_lock"))
+      driver.statements.some((sql) => sql.includes("pg_try_advisory_lock"))
     ).toBe(true);
     expect(
       driver.statements.some((sql) => sql.includes("pg_advisory_unlock"))
@@ -177,7 +177,7 @@ describe("pinned migration session", () => {
       name: "init",
     });
     expect(
-      driver.statements.some((sql) => sql.includes("pg_advisory_lock"))
+      driver.statements.some((sql) => sql.includes("pg_try_advisory_lock"))
     ).toBe(false);
     await client.$disconnect();
   });

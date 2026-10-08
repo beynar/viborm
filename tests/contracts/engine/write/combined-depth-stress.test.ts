@@ -1,5 +1,5 @@
 import { PGliteDriver } from "@drivers/pglite";
-import { UniqueConstraintError } from "@errors";
+import { UniqueConstraintError, UnsupportedOperationError } from "@errors";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
@@ -7,7 +7,6 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { droppedSkipWarning } from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test, vi } from "vitest";
 
 /**
@@ -258,7 +257,7 @@ describe("X1b combined depth stress — four mechanisms in one >=6-level tree", 
   // 2026-09-24, "Warn, drop skipDuplicates") and answers exactly as the same
   // update without skipDuplicates: the duplicate fails with the ordinary
   // unique-constraint error.
-  test("batch drops mechanism 3's skip with one warning; the duplicate fails the tree", async () => {
+  test("batch refuses mechanism 3 before changing the tree", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       const { state, engines, rejection } = await runObserved(
@@ -268,16 +267,14 @@ describe("X1b combined depth stress — four mechanisms in one >=6-level tree", 
         snap
       );
       expect(engines).toEqual(new Set(["production"]));
-      expect(rejection).toBeInstanceOf(UniqueConstraintError);
-      expect(warn.mock.calls).toEqual([
-        [droppedSkipWarning("pglite", "node.update")],
-      ]);
+      expect(rejection).toBeInstanceOf(UnsupportedOperationError);
+      expect(warn.mock.calls).toEqual([]);
       expect(state).toEqual(seeded);
       await getFamily().reset();
       const plain = await runObserved("batch", seed, update(false), snap);
       expect(plain.rejection).toBeInstanceOf(UniqueConstraintError);
       expect(plain.state).toEqual(state);
-      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }

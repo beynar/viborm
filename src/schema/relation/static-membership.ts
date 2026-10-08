@@ -206,7 +206,9 @@ type Equal<Left, Right> =
     ? true
     : false;
 
-type IsSameModel<Left, Right> = Equal<Left, Right>;
+// Declaration identity belongs to state. Comparing the full fluent Model surface
+// recursively expands methods and operation schemas in cyclic graphs.
+type IsSameModel<Left, Right> = Equal<ModelStateOf<Left>, ModelStateOf<Right>>;
 
 /**
  * Does `R`'s target domain NAME `Source`? A model target names one getter; a
@@ -222,7 +224,9 @@ type PointsAt<R, Source> =
     ? NamesModel<TargetGetter<R>, Source>
     : VariantPointsAt<VariantEntries<R>, Source>;
 
-type NamesModel<G, Source> = G extends () => infer M ? Equal<M, Source> : false;
+type NamesModel<G, Source> = G extends () => infer M
+  ? IsSameModel<M, Source>
+  : false;
 
 /**
  * ANY member, deliberately — not "exactly one".

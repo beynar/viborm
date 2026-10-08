@@ -7,6 +7,8 @@ import {
   createDefaultState,
   type DefaultValueInput,
   generatorDefault,
+  nullableDefault,
+  refuseListGenerator,
   type ScalarState,
   updateState,
 } from "../common";
@@ -37,14 +39,16 @@ export class TimeScalar<State extends ScalarState<"time">> {
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         base: v.isoTime<{
           nullable: true;
           array: State["array"];
+          schema: State["schema"];
         }>({
           nullable: true,
           array: this.state.array,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType
@@ -52,15 +56,22 @@ export class TimeScalar<State extends ScalarState<"time">> {
   }
 
   array() {
+    if (
+      this.state.autoGenerate?.kind === "now" ||
+      this.state.autoGenerate?.kind === "updatedAt"
+    )
+      refuseListGenerator("s.time");
     return new TimeScalar(
       updateState(this, {
         array: true,
         base: v.isoTime<{
           nullable: State["nullable"];
           array: true;
+          schema: State["schema"];
         }>({
           nullable: this.state.nullable,
           array: true,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType
@@ -118,6 +129,7 @@ export class TimeScalar<State extends ScalarState<"time">> {
   }
 
   now() {
+    if (this.state.array) refuseListGenerator("s.time");
     return new TimeScalar(
       updateState(this, {
         hasDefault: true,
@@ -130,6 +142,7 @@ export class TimeScalar<State extends ScalarState<"time">> {
   }
 
   updatedAt() {
+    if (this.state.array) refuseListGenerator("s.time");
     return new TimeScalar(
       updateState(this, {
         hasDefault: true,
@@ -142,8 +155,8 @@ export class TimeScalar<State extends ScalarState<"time">> {
   }
 
   /**
-   * Stores time without timezone information.
-   * Maps to PostgreSQL TIME (without time zone) instead of TIMETZ.
+   * Stores time without timezone information (the default).
+   * Use an explicit native type for an existing TIMETZ column.
    *
    * Use this when:
    * - You want to store local times (e.g., "store opens at 9:00 AM")
@@ -171,6 +184,6 @@ export const time = <
   nativeType?: NativeTypeArgument<Db, Given>
 ) =>
   new TimeScalar(
-    { ...createDefaultState("time", timeBase), withTimezone: true },
+    { ...createDefaultState("time", timeBase), withTimezone: false },
     admitNativeType("s.time", nativeType)
   );

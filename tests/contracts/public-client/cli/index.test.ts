@@ -20,7 +20,9 @@ describe("CLI entrypoint", () => {
         stdout.push(String(chunk));
         return true;
       });
+    let exitedCode: number | undefined;
     const exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+      exitedCode = Number(code ?? 0);
       throw new ProcessExitError(Number(code ?? 0));
     });
 
@@ -35,11 +37,9 @@ describe("CLI entrypoint", () => {
       process.argv = originalArgv;
     }
 
-    expect(thrown).toBeInstanceOf(ProcessExitError);
-    if (!(thrown instanceof ProcessExitError)) {
-      throw new Error("expected the CLI help path to exit cleanly");
-    }
-    expect(thrown.code).toBe(0);
+    expect(thrown).toBeUndefined();
+    expect(exitedCode).toBe(0);
+    process.exitCode = undefined;
     const output = stdout.join("");
     expect(output).toContain(
       "VibORM - Type-safe ORM for PostgreSQL, MySQL and SQLite"

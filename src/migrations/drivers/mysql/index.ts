@@ -42,6 +42,8 @@ const SPATIAL_TYPE_PATTERNS = [
 
 // Regex pattern for extracting base type from column type string
 // e.g., "INT UNSIGNED" -> "int", "BIGINT(20)" -> "bigint"
+const UNINDEXABLE_ORDINARY_TYPE =
+  /^(?:(?:TINY|MEDIUM|LONG)?(?:TEXT|BLOB)|JSON|GEOMETRY|POINT|LINESTRING|POLYGON|MULTI(?:POINT|LINESTRING|POLYGON)|GEOMETRYCOLLECTION)\b/i;
 const BASE_TYPE_PATTERN = /[\s(]/;
 
 function classifyDecimalListDescriptorChange(
@@ -238,7 +240,7 @@ export class MySQLMigrationDriver
    * URL path nobody re-read — can never decide which estate is introspected.
    */
   introspect(executeRaw: CatalogReader): Promise<SchemaSnapshot> {
-    return introspectMySQL(executeRaw, this.namespace);
+    return introspectMySQL(executeRaw, this.namespace, this.target?.tables);
   }
 
   // ===========================================================================
@@ -399,7 +401,7 @@ export class MySQLMigrationDriver
         unique: true,
       }));
 
-    return {
+    const finalized: TableDef = {
       ...table,
       columns: table.columns.map((column) =>
         finalizeMySQLColumn(column, keyedColumns.has(column.name))
@@ -407,6 +409,55 @@ export class MySQLMigrationDriver
       indexes: [...table.indexes, ...uniquesAsIndexes],
       uniqueConstraints: [],
     };
+    const ordinary = finalized.indexes.filter(
+      (index) => !index.type || index.type === "btree"
+    );
+    const keys = [
+      { name: "PRIMARY", columns: finalized.primaryKey?.columns ?? [] },
+      ...ordinary.map((index) => ({
+        name: index.name,
+        columns: index.columns,
+      })),
+      ...finalized.foreignKeys.map((key) => ({
+        name: key.name,
+        columns: key.columns,
+      })),
+    ];
+    for (const { name, columns } of keys) {
+      for (const nameOfColumn of columns) {
+        const column = finalized.columns.find(
+          (column) => column.name === nameOfColumn
+        );
+        if (column && UNINDEXABLE_ORDINARY_TYPE.test(column.type)) {
+          throw new MigrationError(
+            `MySQL key "${table.name}.${name}" cannot directly index ${column.type} column "${column.name}". Use an indexable native type such as VARCHAR, or manage a reviewed prefix/expression index outside this declaration.`,
+            VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+            { meta: { table: table.name, column: column.name } }
+          );
+        }
+      }
+    }
+    const increments = finalized.columns.filter(
+      (column) => column.autoIncrement
+    );
+    if (
+      increments.length > 1 ||
+      increments.some(
+        (column) =>
+          finalized.primaryKey?.columns[0] !== column.name &&
+          !ordinary.some(
+            (index) => index.columns[0] === column.name && !index.where
+          ) &&
+          !finalized.foreignKeys.some((key) => key.columns[0] === column.name)
+      )
+    ) {
+      throw new MigrationError(
+        `MySQL table "${table.name}" requires at most one AUTO_INCREMENT column, first in an ordinary key. Declare its primary key or leading index explicitly.`,
+        VibORMErrorCode.INVALID_INPUT,
+        { meta: { table: table.name } }
+      );
+    }
+    return finalized;
   }
 
   /**
@@ -539,6 +590,21 @@ export class MySQLMigrationDriver
       this.generateColumnDef(col, context)
     );
 
+    const increment = table.columns.find((column) => column.autoIncrement);
+    const inlineIndex =
+      increment && table.primaryKey?.columns[0] !== increment.name
+        ? table.indexes.find(
+            (index) =>
+              (!index.type || index.type === "btree") &&
+              !index.where &&
+              index.columns[0] === increment.name
+          )
+        : undefined;
+    if (inlineIndex)
+      columnDefs.push(
+        `${inlineIndex.unique ? "UNIQUE " : ""}KEY ${this.escapeIdentifier(inlineIndex.name)} (${inlineIndex.columns.map((column) => this.escapeIdentifier(column)).join(", ")})`
+      );
+
     // Primary key
     if (table.primaryKey) {
       const pkCols = table.primaryKey.columns
@@ -579,6 +645,7 @@ export class MySQLMigrationDriver
 
     // Indexes are created separately
     for (const idx of table.indexes) {
+      if (idx === inlineIndex) continue;
       statements.push(
         this.generateCreateIndex(
           {

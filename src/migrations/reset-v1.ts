@@ -42,6 +42,7 @@ import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { planLiveNamespaceReset } from "./live-reset";
 import {
   mayWrapTransaction,
+  resolveCommandDriver,
   runSequentialProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
@@ -66,7 +67,11 @@ export async function resetV1(
   client: MigrationClient,
   storage: MigrationStorageWriter,
   options: ResetV1Options = {}
-): Promise<{ readonly preview: boolean; readonly path: readonly Sha256[] }> {
+): Promise<{
+  readonly preview: boolean;
+  readonly path: readonly Sha256[];
+  readonly tables?: readonly string[];
+}> {
   const graph = await loadMigrationGraph(storage);
   const target = resolveStateSelector(graph, options.to);
   const path = selectRoute(graph, null, target, options.via);
@@ -78,7 +83,24 @@ export async function resetV1(
     dryRun ? "read-only" : "effectful",
     "reset()"
   );
-  if (dryRun) return { preview: true, path };
+  if (dryRun) {
+    const command = await resolveCommandDriver(client.$driver, driver);
+    await command.preflightSchemaRequirements(
+      path.map((stateId) => requireStateSnapshot(graph, stateId)),
+      (sql, params) => client.$driver._executeRaw(sql, params)
+    );
+    const names = controlTableNames(DEFAULT_CONTROL_BASE);
+    const plan = await planLiveNamespaceReset(client.$driver, command, {
+      trackingTable: "preserve",
+      trackingTableName: names.state,
+      preserveTables: [names.log],
+    });
+    return {
+      preview: true,
+      path,
+      tables: plan.dropTables.map((table) => table.name),
+    };
+  }
   return withLockedMigrationProducer(
     client.$driver,
     driver,

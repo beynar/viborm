@@ -42,7 +42,8 @@ import type {
 } from "./types";
 
 // Regex for cleaning up PostgreSQL type casting (e.g., 'value'::text -> 'value')
-const TYPE_CAST_REGEX = /::\w+(\[\])?$/;
+const TYPE_CAST_REGEX =
+  /::(?:"(?:[^"]|"")+"|[a-zA-Z_][\w$]*)(?:\.(?:"(?:[^"]|"")+"|[a-zA-Z_][\w$]*))?(?:\s+(?:varying|precision|with time zone|without time zone))?(?:\(\d+(?:,\s*\d+)?\))?(?:\[\])?$/;
 
 /** The schemas PostgreSQL's own types live in; never estate-owned. */
 const BUILT_IN_TYPE_SCHEMAS = new Set(["pg_catalog", "information_schema"]);
@@ -58,6 +59,7 @@ const BUILT_IN_TYPE_SCHEMAS = new Set(["pg_catalog", "information_schema"]);
  */
 export interface PostgresIntrospectionScope {
   readonly namespace: string;
+  readonly tables?: readonly string[];
   readonly admittedExtensionTypes: ReadonlySet<string>;
 }
 
@@ -71,7 +73,7 @@ type RawExecutor = <T>(
 // =============================================================================
 
 export const POSTGRES_MANAGED_TABLE_NAMES_QUERY = `
-SELECT tables.table_name, tables.table_name AS name
+SELECT tables.table_name, tables.table_name AS name, relation.relkind AS relation_kind, relation.relispartition AS is_partition
 FROM information_schema.tables tables
 JOIN pg_catalog.pg_class relation
   ON relation.relname = tables.table_name
@@ -112,6 +114,7 @@ SELECT
   c.udt_name,
   c.is_nullable,
   c.column_default,
+  a.attgenerated AS generated_kind,
   c.character_maximum_length,
   c.numeric_precision,
   c.numeric_scale,
@@ -186,6 +189,10 @@ SELECT
   i.relname AS index_name,
   a.attname AS column_name,
   ix.indisunique AS is_unique,
+  (ix.indexprs IS NOT NULL OR ix.indnkeyatts <> ix.indnatts OR NOT ix.indisvalid OR NOT ix.indisready OR COALESCE((to_jsonb(ix)->>'indnullsnotdistinct')::boolean,false)
+   OR EXISTS (SELECT 1 FROM unnest(ix.indoption) AS flags(value) WHERE flags.value <> 0)
+   OR EXISTS (SELECT 1 FROM unnest(ix.indclass) AS classes(oid) JOIN pg_opclass AS opc ON opc.oid=classes.oid WHERE NOT opc.opcdefault)
+   OR EXISTS (SELECT 1 FROM generate_series(0,ix.indnkeyatts-1) AS key(position) LEFT JOIN pg_attribute AS attr ON attr.attrelid=t.oid AND attr.attnum=ix.indkey[key.position] WHERE ix.indcollation[key.position] <> COALESCE(attr.attcollation,0))) AS unsupported_structure,
   am.amname AS index_type,
   pg_get_expr(ix.indpred, ix.indrelid) AS filter_condition,
   array_position(ix.indkey, a.attnum) AS ordinal_position
@@ -194,7 +201,7 @@ JOIN pg_class t ON t.oid = ix.indrelid
 JOIN pg_class i ON i.oid = ix.indexrelid
 JOIN pg_am am ON am.oid = i.relam
 JOIN pg_namespace n ON n.oid = t.relnamespace
-JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
+LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
 LEFT JOIN pg_constraint c
   ON c.conindid = ix.indexrelid
  AND c.contype IN ('u', 'p')
@@ -452,34 +459,9 @@ function formatColumnType(
     ? `${elementType}[]`
     : elementType;
 
-  // Handle special types with precision
-  if (col.data_type === "character varying" && col.character_maximum_length) {
-    return `varchar(${col.character_maximum_length})`;
-  }
-  if (col.data_type === "character" && col.character_maximum_length) {
-    return `char(${col.character_maximum_length})`;
-  }
-  if (col.data_type === "numeric" && col.numeric_precision) {
-    if (col.numeric_scale !== null && col.numeric_scale !== undefined) {
-      return `numeric(${col.numeric_precision},${col.numeric_scale})`;
-    }
-    return `numeric(${col.numeric_precision})`;
-  }
-
-  // An ARRAY of numeric is the one type whose modifier `information_schema`
-  // does not report: `data_type` is `ARRAY`, `udt_name` is `_numeric`, and both
-  // `numeric_precision` and `numeric_scale` are NULL — so the arm above is
-  // never reached and the snapshot would say `numeric[]` against a desired
-  // `NUMERIC(10,5)[]`, planning an alterColumn on every push forever.
-  // `format_type` carries the element typmod, which is where PostgreSQL keeps
-  // a decimal LIST's declared domain (§6.2).
-  //
-  // A separate, NARROW arm rather than a widening of the extension-type gate
-  // above: that gate strips a proven extension schema from the formatted type,
-  // and `numeric` is a `pg_catalog` built-in that is never schema-qualified, so
-  // it needs none of those assumptions — and reusing them would change how
-  // `citext` and `vector` read back.
-  if (col.udt_name === NUMERIC_ARRAY_UDT) {
+  // The server's formatted built-in type retains every typmod, including
+  // precision on timestamp/time, bit widths and array element modifiers.
+  if (BUILT_IN_TYPE_SCHEMAS.has(col.udt_schema)) {
     return col.formatted_type;
   }
 
@@ -669,7 +651,14 @@ function assertNoCrossSchemaForeignKeys(
   crossing: readonly PgCrossSchemaForeignKey[],
   scope: PostgresIntrospectionScope
 ): void {
-  const first = crossing[0];
+  const first = crossing.find(
+    (fk) =>
+      scope.tables === undefined ||
+      (fk.owning_schema === scope.namespace &&
+        scope.tables.includes(fk.owning_table)) ||
+      (fk.referenced_schema === scope.namespace &&
+        scope.tables.includes(fk.referenced_table))
+  );
   if (!first) return;
 
   const direction = first.owning_schema === scope.namespace ? "out of" : "into";
@@ -761,14 +750,53 @@ export async function introspectPostgresSchema(
   for (const table of tablesResult.rows) {
     const tableName = table.table_name;
 
+    const selected =
+      scope.tables === undefined || scope.tables.includes(tableName);
+    if (
+      selected &&
+      (table.relation_kind === "p" || table.is_partition === true)
+    )
+      throw new MigrationError(
+        `PostgreSQL table "${tableName}" is partitioned or a partition. Synchronization refuses before effects because its physical definition cannot be represented.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { table: tableName, feature: "partitioned table" } }
+      );
+    const generated = (columnsByTable.get(tableName) ?? []).find(
+      (column) =>
+        column.generated_kind !== undefined && column.generated_kind !== ""
+    );
+    if (selected && generated)
+      throw new MigrationError(
+        `PostgreSQL column "${tableName}.${generated.column_name}" is generated. Synchronization refuses before effects because its expression cannot be represented.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        {
+          meta: {
+            table: tableName,
+            column: generated.column_name,
+            feature: "generated column",
+          },
+        }
+      );
+
     // Build columns
     const columns = (columnsByTable.get(tableName) || []).map((col) => ({
       name: col.column_name,
-      type: formatColumnType(col, scope),
+      type:
+        scope.tables !== undefined && !scope.tables.includes(tableName)
+          ? col.udt_name.startsWith("_")
+            ? `${baseTypeName(col.udt_name)}[]`
+            : col.udt_name
+          : formatColumnType(col, scope),
       nullable: col.is_nullable === "YES",
-      default: cleanDefault(col, scope, managedEnums),
+      default:
+        scope.tables !== undefined && !scope.tables.includes(tableName)
+          ? undefined
+          : cleanDefault(col, scope, managedEnums),
       autoIncrement: isAutoIncrement(col.column_default),
-      decimal: readDecimalDomain(col),
+      decimal:
+        scope.tables !== undefined && !scope.tables.includes(tableName)
+          ? undefined
+          : readDecimalDomain(col),
     }));
 
     // Build primary key
@@ -793,11 +821,38 @@ export async function introspectPostgresSchema(
         indexCols.sort((a, b) => a.ordinal_position - b.ordinal_position);
         const firstCol = indexCols[0];
         if (firstCol) {
+          const method = firstCol.index_type;
+          const managed =
+            scope.tables === undefined || scope.tables.includes(tableName);
+          if (
+            managed &&
+            (firstCol.unsupported_structure !== false ||
+              (method !== "btree" &&
+                method !== "hash" &&
+                method !== "gin" &&
+                method !== "gist"))
+          ) {
+            throw new MigrationError(
+              `PostgreSQL index "${tableName}.${indexName}" has physical method/order/expression/include/opclass/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves the index. Manage its table outside this synchronization scope until a faithful declaration is available.`,
+              VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+              { meta: { table: tableName, indexName } }
+            );
+          }
+          if (
+            method !== "btree" &&
+            method !== "hash" &&
+            method !== "gin" &&
+            method !== "gist"
+          )
+            continue;
+          if (indexCols.some((column) => column.column_name === null)) continue;
           indexes.push({
             name: indexName,
-            columns: indexCols.map((idx) => idx.column_name),
+            columns: indexCols.flatMap((idx) =>
+              idx.column_name === null ? [] : [idx.column_name]
+            ),
             unique: firstCol.is_unique,
-            type: firstCol.index_type as "btree" | "hash" | "gin" | "gist",
+            type: method,
             where: firstCol.filter_condition || undefined,
           });
         }

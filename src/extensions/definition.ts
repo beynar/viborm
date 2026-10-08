@@ -1,6 +1,6 @@
 import type { VibORMConfig } from "@client/client";
 import type { Operations, Schema } from "@client/types";
-import type { AnyDriver } from "@drivers";
+import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
@@ -32,6 +32,7 @@ import type {
   RequestHandlerMap,
   RuntimeRequestContribution,
 } from "./request";
+import { undeclaredControlReferencesOf } from "./rows";
 import type { StatementHandler } from "./statement";
 
 type RuntimeExtensionFunction = (...args: never[]) => unknown;
@@ -58,10 +59,9 @@ export interface RuntimeExtensionDefinition {
 export type ControlLiteral = string | number | boolean;
 
 /**
- * What `$extends` hands the chain. `controls`, `rows`, `deletion` and `data`
- * are trusted as their types state them: TypeScript checks them where the
- * definition is written, and nothing checks them at runtime (owner decision,
- * 2026-09-30). Every other member is read behind the boundary below.
+ * What `$extends` hands the chain. Schema-bound row/data/deletion model and
+ * field names are checked before they can silently bind to no policy.
+ * Handler members retain the hostile-definition boundary below.
  */
 export type ExtensionDefinitionInput = Readonly<Record<string, unknown>> & {
   readonly controls?: ControlsContribution;
@@ -251,6 +251,139 @@ function snapshotModelFactories(
   return Object.freeze(factories);
 }
 
+/** Refuse named policy facts that could otherwise silently bind to nothing. */
+function validateNamedPolicies(
+  value: ExtensionDefinitionInput,
+  schema: Schema | undefined,
+  name: string
+): void {
+  if (!schema) return;
+  const components: ("rows" | "data" | "deletion")[] = [
+    "rows",
+    "data",
+    "deletion",
+  ];
+  for (const component of components) {
+    const declaration = readOwn(value, component, name);
+    if (declaration === undefined) continue;
+    if (!isRecord(declaration))
+      extensionError(
+        `Extension "${name}" ${component} must be an object.`,
+        name
+      );
+    const models = readOwn(declaration, "models", name);
+    if (!isRecord(models))
+      extensionError(
+        `Extension "${name}" ${component}.models must be an object.`,
+        name
+      );
+    let expectedModes: readonly string[] | undefined;
+    const defaultMode =
+      component === "rows" ? readOwn(declaration, "default", name) : undefined;
+    for (const modelName of readOwnKeys(models, name)) {
+      if (typeof modelName !== "string" || !Object.hasOwn(schema, modelName))
+        extensionError(
+          `Extension "${name}" ${component} names unknown model "${String(modelName)}".`,
+          name
+        );
+      const model = schema[modelName]!;
+      const entry = readOwn(models, modelName, name);
+      if (!isRecord(entry))
+        extensionError(
+          `Extension "${name}" ${component}.${modelName} must be an object.`,
+          name
+        );
+      const fields = (input: unknown, where = false, depth = 0): void => {
+        if (depth > 16)
+          extensionError(
+            `Extension "${name}" row predicate exceeds nesting limit.`,
+            name
+          );
+        if (input === undefined) return;
+        if (Array.isArray(input) && where) {
+          for (const member of input) fields(member, true, depth + 1);
+          return;
+        }
+        if (!isRecord(input))
+          extensionError(
+            `Extension "${name}" ${component}.${modelName} fields must be an object.`,
+            name
+          );
+        for (const key of readOwnKeys(input, name)) {
+          if (
+            where &&
+            typeof key === "string" &&
+            !Object.hasOwn(model["~"].state.shape, key) &&
+            (key === "AND" || key === "OR" || key === "NOT")
+          ) {
+            fields(readOwn(input, key, name), true, depth + 1);
+            continue;
+          }
+          if (
+            typeof key !== "string" ||
+            !Object.hasOwn(
+              where ? model["~"].state.shape : model["~"].state.scalars,
+              key
+            )
+          )
+            extensionError(
+              `Extension "${name}" ${component}.${modelName} names unknown field "${String(key)}".`,
+              name
+            );
+        }
+      };
+      if (component === "rows") {
+        const modes = readOwnKeys(entry, name).filter(
+          (key): key is string => typeof key === "string"
+        );
+        const priorModes = expectedModes;
+        if (
+          typeof defaultMode !== "string" ||
+          !modes.includes(defaultMode) ||
+          (priorModes &&
+            (priorModes.length !== modes.length ||
+              modes.some((mode) => !priorModes.includes(mode))))
+        )
+          extensionError(
+            `Extension "${name}" row models must share mode names and include the default mode.`,
+            name
+          );
+        expectedModes ??= modes;
+        for (const modeName of readOwnKeys(entry, name)) {
+          if (typeof modeName !== "string")
+            extensionError(
+              `Extension "${name}" row mode must be a string.`,
+              name
+            );
+          const mode = readOwn(entry, modeName, name);
+          if (!isRecord(mode))
+            extensionError(
+              `Extension "${name}" row mode must be an object.`,
+              name
+            );
+          fields(readOwn(mode, "root", name), true);
+          fields(readOwn(mode, "related", name), true);
+        }
+      } else if (component === "data") {
+        fields(readOwn(entry, "create", name));
+        fields(readOwn(entry, "update", name));
+      } else {
+        const at = readOwn(entry, "at", name);
+        if (
+          at !== undefined &&
+          (typeof at !== "string" ||
+            !Object.hasOwn(model["~"].state.scalars, at))
+        )
+          extensionError(
+            `Extension "${name}" deletion.${modelName}.at names unknown scalar.`,
+            name
+          );
+        fields(readOwn(entry, "assign", name));
+      }
+    }
+  }
+}
+
 /**
  * Read a caller-owned definition once. The six handler members are validated
  * and frozen as host-owned snapshots, so a failed application cannot mutate
@@ -325,8 +458,9 @@ export function normalizeExtensionDefinition(
       ? undefined
       : snapshotModelFactories(rawModel, name, schema);
   const { controls, rows, deletion, data } = value;
+  validateNamedPolicies({ rows, deletion, data }, schema, name);
 
-  return Object.freeze({
+  const normalized = Object.freeze({
     name,
     ...(request ? { request } : {}),
     ...(query ? { query } : {}),
@@ -339,6 +473,12 @@ export function normalizeExtensionDefinition(
     ...(deletion ? { deletion } : {}),
     ...(data ? { data } : {}),
   });
+  for (const control of undeclaredControlReferencesOf(normalized, schema))
+    extensionError(
+      `Extension "${name}" references undeclared control "${control}".`,
+      name
+    );
+  return normalized;
 }
 
 type ExtensionConfig<S extends Schema> = {
@@ -508,25 +648,22 @@ type ComponentMapGuard<
   ? { readonly [K in Key]: OperationMapGuard<Component, S> }
   : unknown;
 
-/**
- * A `data` entry names a model of the schema: a misspelt model reads `never`
- * where it is written. Model names a definition did not keep
- * (`{ [model: string]: ... }`) cannot be checked, and a definition that knows
- * no schema yet is checked where it is applied.
- */
-type DataModelsGuard<Definition, S extends Schema> = string extends keyof S
-  ? unknown
-  : Definition extends {
-        readonly data: { readonly models: infer Models };
-      }
-    ? string extends keyof Models
+/** Policy model keys must be a subset of a concrete bound schema. */
+type PolicyModelsGuard<
+  Definition,
+  S extends Schema,
+  Key extends "data" | "rows" | "deletion",
+> = Definition extends {
+  readonly [K in Key]: { readonly models: infer Models };
+}
+  ? string extends keyof S
+    ? unknown
+    : [keyof Models] extends [keyof S]
       ? unknown
       : {
-          readonly data: {
-            readonly models: Record<Exclude<keyof Models, keyof S>, never>;
-          };
+          readonly [K in Key]: { readonly models: Record<keyof Models, never> };
         }
-    : unknown;
+  : unknown;
 
 /** Structural refusal for non-fresh extension definitions and contributions. */
 export type ExactExtensionDefinition<
@@ -536,7 +673,9 @@ export type ExactExtensionDefinition<
 > = UnknownDefinitionKeys<Definition> &
   ComponentMapGuard<Definition, "request", C["schema"]> &
   ComponentMapGuard<Definition, "query", C["schema"]> &
-  DataModelsGuard<Definition, C["schema"]> &
+  PolicyModelsGuard<Definition, C["schema"], "data"> &
+  PolicyModelsGuard<Definition, C["schema"], "rows"> &
+  PolicyModelsGuard<Definition, C["schema"], "deletion"> &
   ExtensionMethodDefinitionGuard<Definition, C, X>;
 
 export type DefineExtensionBinder<S extends Schema> = <const Definition>(

@@ -1,13 +1,10 @@
-import { UniqueConstraintError } from "@errors";
+import { UnsupportedOperationError } from "@errors";
 import { s } from "@schema";
 import {
   type PGliteSchemaFamily,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import {
-  captureDroppedSkipWarnings,
-  droppedSkipWarning,
-} from "@tests/fixtures/dropped-skip-warning";
+import { captureDroppedSkipWarnings } from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -908,21 +905,12 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       // the first segment, then the duplicate row fails with the ordinary
       // unique-constraint error and reports that committed segment.
       if (mode === "atomicBatch") {
+        const membershipBefore = await bookMembers(family);
         const failure = await coalesce().catch((error: unknown) => error);
-        expect(failure).toBeInstanceOf(UniqueConstraintError);
-        expect(failure).toMatchObject({
-          meta: {
-            recordSeriesProgress: {
-              atomicity: "segment",
-              phase: "member",
-              committedSegments: 1,
-            },
-          },
-        });
-        expect(droppedSkipWarnings("shelf")).toEqual([
-          droppedSkipWarning("pglite", "shelf.update"),
-        ]);
-        expect(await bookMembers(family)).toEqual(["t1/right/eu/111"]);
+        expect(failure).toBeInstanceOf(UnsupportedOperationError);
+        expect(failure).not.toHaveProperty("meta.recordSeriesProgress");
+        expect(droppedSkipWarnings("shelf")).toEqual([]);
+        expect(await bookMembers(family)).toEqual(membershipBefore);
         expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);
         return;
       }
@@ -970,10 +958,8 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       // whole atomic update - the sibling `video` group that carries no
       // skipDuplicates does not write either.
       if (mode === "atomicBatch") {
-        await expect(join()).rejects.toBeInstanceOf(UniqueConstraintError);
-        expect(droppedSkipWarnings("shelf")).toEqual([
-          droppedSkipWarning("pglite", "shelf.update"),
-        ]);
+        await expect(join()).rejects.toBeInstanceOf(UnsupportedOperationError);
+        expect(droppedSkipWarnings("shelf")).toEqual([]);
         expect(await bookMembers(family)).toEqual([]);
         expect(await videoMembers(family)).toEqual([]);
         expect(await bookTitles(family)).toEqual(["Book one", "Book two"]);

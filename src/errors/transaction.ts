@@ -5,7 +5,7 @@ import type { DiagnosticDisclosure } from "./diagnostics";
  * Every code {@link TransactionError} can carry.
  *
  * A family, not a single literal: the driver error mapping raises the same class for a plain
- * failure, a timeout, a deadlock and a serialization failure, and the retry policy reads the
+ * failure, a timeout, lock contention, a deadlock and a serialization failure, and the retry policy reads the
  * code to tell them apart. `INVALID_TRANSACTION_INPUT` is in the union too — the transaction
  * OPTION refusals (`drivers/shared/transaction-options.ts`) raise it through this class, while
  * {@link InvalidTransactionInputError} owns the `$transaction([...])` array-form refusal.
@@ -16,7 +16,8 @@ export type TransactionErrorCode =
   | typeof VibORMErrorCode.TRANSACTION_TIMEOUT
   | typeof VibORMErrorCode.DEADLOCK
   | typeof VibORMErrorCode.SERIALIZATION_FAILURE
-  | typeof VibORMErrorCode.INVALID_TRANSACTION_INPUT;
+  | typeof VibORMErrorCode.INVALID_TRANSACTION_INPUT
+  | typeof VibORMErrorCode.TRANSACTION_CONTENTION;
 
 /**
  * Transaction errors

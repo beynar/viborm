@@ -1,3 +1,4 @@
+import { physicalConnectionQueue } from "../connection-scope";
 /**
  * PGlite Driver
  *
@@ -37,6 +38,13 @@ import {
 } from "../shared/pinned-session";
 import type { QueryResult } from "../types";
 
+const temporalParsers = Object.fromEntries(
+  [1082, 1114, 1184, 1115, 1182, 1185].map((oid) => [
+    oid,
+    (value: string) => value,
+  ])
+);
+
 // ============================================================
 // EXPORTED OPTIONS
 // ============================================================
@@ -61,7 +69,7 @@ export type PGliteConfig<C extends DriverConfig> = PGliteDriverOptions & C;
 
 export class PGliteDriver extends Driver<PGlite, Transaction> {
   declare readonly adapter: DatabaseAdapter;
-  readonly maxBindParametersPerStatement: number | undefined = 65_535;
+  readonly maxBindParametersPerStatement: number | undefined = 32_767;
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: PGliteDriverOptions;
@@ -82,6 +90,9 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
 
     if (this.suppliedClient) {
       this.client = this.suppliedClient;
+      Object.defineProperty(this, "connectionQueue", {
+        value: physicalConnectionQueue(this.suppliedClient),
+      });
     }
 
     const adapter = new PostgresAdapter(namespace, options.postgis === true);
@@ -145,7 +156,9 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
-    const result = await client.query<T>(sql, params);
+    const result = await client.query<T>(sql, params, {
+      parsers: temporalParsers,
+    });
     const affectedRows = normalizeProviderRowCount(result.affectedRows, {
       provider: "pglite",
       operation,
@@ -163,7 +176,9 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "executeRaw";
-    const result = await client.query<T>(sql, params);
+    const result = await client.query<T>(sql, params, {
+      parsers: temporalParsers,
+    });
     const affectedRows = normalizeProviderRowCount(result.affectedRows, {
       provider: "pglite",
       operation,
@@ -199,17 +214,9 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
       run: (callback) => client.transaction(callback),
       callback: fn,
       phases: getExecutionTransactionPhases(context),
-      // Containment for a transaction the provider broke, through the one place
-      // that decides whether a transport may be closed at all: destroying the
-      // caller's database to contain VibORM's transaction would be a far larger
-      // effect than the one being contained.
-      close: async () => {
-        try {
-          await this.closeClient(client);
-        } finally {
-          this.client = null;
-        }
-      },
+      // The provider transaction primitive already rolls back/discards its
+      // failed session. A transaction does not own this shared pool/database.
+      close: async () => undefined,
     });
   }
 

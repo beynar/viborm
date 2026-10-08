@@ -175,6 +175,7 @@ export function runOptionalRelationParityBehavior({
       await expect(
         c.user.findMany({
           include: {
+            // @ts-expect-error The runtime boundary also refuses untyped callers.
             posts: { select: { id: true }, include: { author: true } },
           },
         })

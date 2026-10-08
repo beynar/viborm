@@ -9,6 +9,7 @@ import type { IdDomain } from "@validation/primitives/id-codec";
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import { hasIdPrefix } from "@validation/primitives/id-formats";
 import { errorCause } from "../../../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
@@ -23,6 +24,7 @@ import {
   postgresTextToUuidGuard,
 } from "../../identifier-conversion";
 import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
+import { derivedMigrationName } from "../../utils";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -67,6 +69,9 @@ type RawExecutor = <T>(
  * it surfaces as the provider's own error from the statement that needed the
  * privilege.
  */
+const VECTOR_TYPE_TOKEN = /^(vector|halfvec|sparsevec)(?:\(\d+\))?(?:\[\])?$/i;
+const TEMPORAL_PRECISION_TOKEN = /\((\d+)\)/;
+
 const NAMESPACE_EXISTS_QUERY =
   "SELECT 1 AS present FROM pg_catalog.pg_namespace WHERE nspname = $1";
 
@@ -82,7 +87,7 @@ const NAMESPACE_EXISTS_QUERY =
  * which is the spelling this driver's own renderer emits for it.
  */
 const EXTENSION_TYPES_BY_CAPABILITY = {
-  supportsVector: ["vector"],
+  supportsVector: ["vector", "halfvec", "sparsevec"],
   geoPoint: ["geometry", "geography"],
 } as const;
 
@@ -139,7 +144,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   readonly capabilities: MigrationCapabilities = {
     supportsNativeEnums: true,
-    supportsAddEnumValueInTransaction: false,
+    supportsAddEnumValueInTransaction: true,
     supportsIndexTypes: ["btree", "hash", "gin", "gist"],
     supportsNativeArrays: true,
     supportsAddForeignKeyViaAlter: true,
@@ -230,15 +235,9 @@ export class PostgresMigrationDriver extends MigrationDriver {
    * and the subtraction would silently UNqualify the very statements that run
    * before the drop.
    *
-   * `createEnum` is the only operation type read, because it is the only one
-   * that can add a name this set does not already hold. An `alterEnum` cannot,
-   * twice over: `sortOperations` (`src/migrations/utils.ts:149`) runs it at
-   * priority 17, after every arm that renders a column type (`createTable` 8,
-   * `addColumn` 9, `alterColumn` 10), so it is never IN `precedingOperations`
-   * when one of them asks; and both producers of an `alterEnum` — the differ
-   * (`differ.ts:742`) and its inversion (`generate/down.ts:249`) — emit one
-   * only for an enum the context's own snapshot already holds, which the loop
-   * above contributes.
+   * A createEnum introduces a name; alterEnum keeps an existing name from the
+   * snapshot. Enum replacement runs before dependent columns, so its full
+   * ordered value set and defaults are ready for those subsequent changes.
    */
   private managedEnumNames(context: DDLContext): ReadonlySet<string> {
     const names = new Set<string>();
@@ -307,6 +306,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     await this.proveNamespaceExists(executeRaw);
     return await introspectPostgresSchema(executeRaw, {
       namespace: this.requireEstateNamespace(),
+      tables: this.target?.tables,
       admittedExtensionTypes: this.admittedExtensionTypes(),
     });
   }
@@ -315,6 +315,67 @@ export class PostgresMigrationDriver extends MigrationDriver {
     snapshots: readonly SchemaSnapshot[],
     executeRaw: RawExecutor
   ): Promise<void> {
+    const desiredNames = [
+      ...new Set(
+        snapshots.flatMap((snapshot) =>
+          snapshot.tables.map((table) => table.name)
+        )
+      ),
+    ];
+    if (desiredNames.length > 0) {
+      const views = await executeRaw<{ name: string }>(
+        `SELECT relation.relname AS name FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('v','m') AND relation.relname=ANY($2::text[])`,
+        [this.requireEstateNamespace(), desiredNames]
+      );
+      const collision = views.rows.find((row) =>
+        desiredNames.includes(row.name)
+      );
+      if (collision)
+        throw new MigrationError(
+          `PostgreSQL relation "${collision.name}" is a view or materialized view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          { meta: { table: collision.name, feature: "view" } }
+        );
+    }
+    const vectors = new Set(
+      snapshots.flatMap((snapshot) =>
+        snapshot.tables.flatMap((table) =>
+          table.columns.flatMap(
+            (column) =>
+              VECTOR_TYPE_TOKEN.exec(column.type)?.[1]?.toLowerCase() ?? []
+          )
+        )
+      )
+    );
+    if (vectors.size > 0) {
+      if (!this.executionDriver?.adapter.capabilities.supportsVector)
+        throw new MigrationError(
+          "This migration requires pgvector support. Construct the PostgreSQL driver with pgvector: true and install the vector extension before applying it. VibORM never installs it.",
+          VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+          { meta: { dialect: this.dialect, feature: "vector" } }
+        );
+      const proof = await executeRaw<{ ready: boolean }>(
+        `SELECT NOT EXISTS (SELECT 1 FROM unnest($1::text[]) AS required(name) WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension AS e JOIN pg_catalog.pg_depend AS d ON d.refobjid=e.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.deptype='e' JOIN pg_catalog.pg_type AS t ON t.oid=d.objid AND d.classid='pg_catalog.pg_type'::regclass WHERE e.extname='vector' AND t.typname=required.name AND pg_catalog.pg_type_is_visible(t.oid))) AS ready`,
+        [[...vectors]]
+      );
+      if (proof.rows.length !== 1 || proof.rows[0]?.ready !== true)
+        throw new MigrationError(
+          "pgvector preflight did not prove every required visible extension-owned vector type. Install the vector extension before migration effects; VibORM never installs it.",
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          { meta: { dialect: this.dialect, feature: "vector" } }
+        );
+    }
+    if (snapshots.some((snapshot) => (snapshot.enums?.length ?? 0) > 0)) {
+      const version = await executeRaw<{ version: string }>(
+        "SELECT current_setting('server_version_num') AS version"
+      );
+      const number = Number(version.rows[0]?.version);
+      if (!Number.isInteger(number) || number < 120_000)
+        throw new MigrationError(
+          "PostgreSQL enum migrations require server_version_num >= 120000 for transactional enum safety",
+          VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
+        );
+    }
     if (!snapshots.some(snapshotUsesGeoPoint)) return;
     if (!this.executionDriver?.adapter.geoPoint) {
       throw new MigrationError(
@@ -428,14 +489,29 @@ export class PostgresMigrationDriver extends MigrationDriver {
   override finalizeTable(table: TableDef): TableDef {
     return {
       ...table,
-      indexes: table.indexes.map((index) =>
-        index.type === "spatial" ? { ...index, type: "gist" as const } : index
-      ),
+      ...(table.primaryKey?.name
+        ? {
+            primaryKey: {
+              ...table.primaryKey,
+              name: derivedMigrationName(table.primaryKey.name),
+            },
+          }
+        : {}),
+      uniqueConstraints: table.uniqueConstraints.map((item) => ({
+        ...item,
+        name: derivedMigrationName(item.name),
+      })),
+      foreignKeys: table.foreignKeys.map((item) => ({
+        ...item,
+        name: derivedMigrationName(item.name),
+      })),
+      indexes: table.indexes.map((index) => ({
+        ...index,
+        name: derivedMigrationName(index.name),
+        ...(index.type === "spatial" ? { type: "gist" as const } : {}),
+      })),
     };
   }
-
-  // getDefaultExpression is inherited from base class
-  // PostgreSQL uses "true"/"false" for booleans which is the base default
 
   /**
    * The only generator PostgreSQL can run itself.
@@ -456,6 +532,42 @@ export class PostgresMigrationDriver extends MigrationDriver {
     // cannot take it as a default. A `.uuid()` field whose native type override
     // makes it `bytea` is exactly that column: the value would be a type error
     // at DDL time, and the application generator is already its single owner.
+    if (scalarState.hasDefault && scalarState.default === null)
+      return undefined;
+    if (
+      scalarState.type === "datetime" &&
+      scalarState.autoGenerate?.kind === "now"
+    ) {
+      const physical = this.mapScalarType(scalar, scalarState).toLowerCase();
+      const clock =
+        physical.includes("timestamptz") || physical.includes("with time zone")
+          ? "CURRENT_TIMESTAMP"
+          : "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')";
+      // PostgreSQL's omitted precision is six. Our generated logical DateTime
+      // must remain a millisecond value even when native storage is wider.
+      const precision = Number(
+        TEMPORAL_PRECISION_TOKEN.exec(physical)?.[1] ?? 6
+      );
+      return precision > 3 ? `date_trunc('milliseconds', ${clock})` : clock;
+    }
+    if (
+      (scalarState.type === "datetime" || scalarState.type === "date") &&
+      scalarState.autoGenerate === undefined &&
+      scalarState.hasDefault &&
+      typeof scalarState.default === "string"
+    )
+      return this.escapeValue(encodePostgresTemporal(scalarState.default));
+    if (scalarState.autoGenerate?.kind === "now") {
+      if (scalarState.type === "date")
+        return "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')";
+      if (scalarState.type === "time") {
+        const physical = this.mapScalarType(scalar, scalarState).toLowerCase();
+        return physical.includes("timetz") ||
+          physical.includes("with time zone")
+          ? "timezone('UTC', CURRENT_TIME)"
+          : "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')";
+      }
+    }
     const idDomain = idDomainOfState(scalarState);
     if (
       idDomain !== undefined &&
@@ -490,7 +602,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     columnName: string,
     _values: string[]
   ): string {
-    return `${tableName}_${columnName}_enum`;
+    return derivedMigrationName(`${tableName}_${columnName}_enum`);
   }
 
   // ===========================================================================
@@ -646,9 +758,9 @@ export class PostgresMigrationDriver extends MigrationDriver {
       (table) => table.name === op.from
     );
     const primaryKeyName = source?.primaryKey?.name;
-    if (primaryKeyName === `${op.from}_pkey`) {
+    if (primaryKeyName === derivedMigrationName(`${op.from}_pkey`)) {
       statements.push(
-        `ALTER TABLE ${this.qualify(op.to)} RENAME CONSTRAINT ${this.escapeIdentifier(primaryKeyName)} TO ${this.escapeIdentifier(`${op.to}_pkey`)}`
+        `ALTER TABLE ${this.qualify(op.to)} RENAME CONSTRAINT ${this.escapeIdentifier(primaryKeyName)} TO ${this.escapeIdentifier(derivedMigrationName(`${op.to}_pkey`))}`
       );
     }
     return this.filterStatements(statements);
@@ -723,6 +835,11 @@ export class PostgresMigrationDriver extends MigrationDriver {
     }
 
     if (from.type !== to.type) {
+      if (from.default !== undefined) {
+        statements.push(
+          `ALTER TABLE ${table} ALTER COLUMN ${col} DROP DEFAULT`
+        );
+      }
       // The new type is a column type token like any other, so a managed enum
       // is qualified here too — in BOTH positions, since the `USING` cast names
       // the same type the column is being changed to.
@@ -735,8 +852,14 @@ export class PostgresMigrationDriver extends MigrationDriver {
       if (isPostgresTextToUuid(from.type, newType)) {
         statements.push(postgresTextToUuidGuard(table, col));
       }
+      const fromBase = from.type.endsWith("[]")
+        ? from.type.slice(0, -2)
+        : from.type;
+      const throughText = this.managedEnumNames(context).has(fromBase)
+        ? `::text${from.type.endsWith("[]") ? "[]" : ""}`
+        : "";
       statements.push(
-        `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE ${newType} USING ${col}::${newType}`
+        `ALTER TABLE ${table} ALTER COLUMN ${col} TYPE ${newType} USING ${col}${throughText}::${newType}`
       );
     }
 
@@ -752,7 +875,10 @@ export class PostgresMigrationDriver extends MigrationDriver {
       }
     }
 
-    if (from.default !== to.default) {
+    if (
+      from.default !== to.default ||
+      (from.type !== to.type && from.default !== undefined)
+    ) {
       if (to.default === undefined) {
         statements.push(
           `ALTER TABLE ${table} ALTER COLUMN ${col} DROP DEFAULT`
@@ -906,22 +1032,29 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   generateAcquireLock(lockId: number): string | null {
-    return `SELECT pg_advisory_lock(${lockId}) AS acquired`;
+    return `WITH RECURSIVE lock_attempt AS (
+      SELECT pg_try_advisory_lock(${lockId}) AS acquired, clock_timestamp() + interval '10 seconds' AS deadline
+      UNION ALL
+      SELECT pg_try_advisory_lock(${lockId}), previous.deadline
+      FROM lock_attempt previous
+      CROSS JOIN LATERAL (SELECT pg_sleep(CASE WHEN previous.acquired THEN 0 ELSE 0.05 END)) waiting
+      WHERE NOT previous.acquired AND clock_timestamp() < previous.deadline
+    ) SELECT acquired FROM lock_attempt ORDER BY acquired DESC LIMIT 1`;
   }
 
   generateReleaseLock(lockId: number): string | null {
     return `SELECT pg_advisory_unlock(${lockId}) AS released`;
   }
 
-  /**
-   * `pg_advisory_lock` returns `void` and BLOCKS until the lock is held, so the
-   * proof is that the statement answered at all — exactly one row, produced
-   * after the wait. There is no truthy value to read: a `void` column arrives
-   * as an empty string or null on every admitted transport, which is why the
-   * arm tests the row's presence rather than its content.
-   */
+  /** One bounded provider-side retry loop; only boolean true proves ownership. */
   override provesLockAcquired(rows: readonly unknown[]): boolean {
-    return rows.length === 1;
+    const row = rows[0];
+    return (
+      rows.length === 1 &&
+      typeof row === "object" &&
+      row !== null &&
+      Reflect.get(row, "acquired") === true
+    );
   }
 
   /**
@@ -992,75 +1125,87 @@ export class PostgresMigrationDriver extends MigrationDriver {
       op;
     const statements: string[] = [];
     const enumType = this.qualify(enumName);
-
-    // Simple case: only adding values
-    if (addValues && (!removeValues || removeValues.length === 0)) {
+    const before =
+      _context.currentSchema?.enums?.find((item) => item.name === enumName)
+        ?.values ?? [];
+    const reordered =
+      newValues !== undefined &&
+      before.filter((value) => newValues.includes(value)).join("\0") !==
+        newValues.filter((value) => before.includes(value)).join("\0");
+    const usedByDefault = (_context.precedingOperations ?? []).some(
+      (operation) =>
+        "column" in operation &&
+        operation.column.type === enumName &&
+        operation.column.default !== undefined
+    );
+    // Newly added enum values cannot be USED until commit, even on PG12+.
+    // Recreating the type lets a later column/default use it in this transaction.
+    const dependentDefault = (_context.currentSchema?.tables ?? []).some(
+      (table) =>
+        table.columns.some(
+          (column) => column.type === enumName && column.default !== undefined
+        )
+    );
+    const recreate =
+      (_context.currentSchema !== undefined && newValues !== undefined) ||
+      (removeValues?.length ?? 0) > 0 ||
+      reordered ||
+      usedByDefault ||
+      dependentDefault;
+    if (addValues?.length && !recreate) {
+      const available = new Set(before);
       for (const value of addValues) {
+        const following = newValues
+          ?.slice(newValues.indexOf(value) + 1)
+          .find((candidate) => available.has(candidate));
         statements.push(
-          `ALTER TYPE ${enumType} ADD VALUE ${this.escapeValue(value)}`
+          `ALTER TYPE ${enumType} ADD VALUE ${this.escapeValue(value)}${following === undefined ? "" : ` BEFORE ${this.escapeValue(following)}`}`
         );
+        available.add(value);
       }
       return this.filterStatements(statements);
     }
-
-    // Complex case: removing values requires enum recreation
-    if (removeValues && removeValues.length > 0) {
-      if (!newValues || newValues.length === 0) {
-        throw new Error(
-          `Cannot alter enum "${enumName}": newValues required when removing values`
-        );
-      }
-
-      // Step 1: Convert dependent columns to text
-      if (dependentColumns && dependentColumns.length > 0) {
-        for (const { tableName, columnName } of dependentColumns) {
-          statements.push(
-            `ALTER TABLE ${this.qualify(tableName)} ALTER COLUMN ${this.escapeIdentifier(columnName)} TYPE text`
-          );
-        }
-      }
-
-      // Step 2: Migrate data for removed values (per-column mappings from
-      // interactive resolution take precedence over the flat map/default)
-      statements.push(...this.buildEnumReplacementUpdates(op));
-
-      // Step 3: Drop old enum
-      statements.push(`DROP TYPE ${enumType}`);
-
-      // Step 4: Create new enum
-      const values = newValues.map((v) => this.escapeValue(v)).join(", ");
-      statements.push(`CREATE TYPE ${enumType} AS ENUM (${values})`);
-
-      // Step 5: Convert columns back to enum
-      const unreplacedValues = removeValues.filter((v) =>
-        (dependentColumns ?? []).some(
-          ({ tableName, columnName }) =>
-            this.getEnumValueReplacement(op, tableName, columnName, v) ===
-            undefined
-        )
+    if (!newValues?.length)
+      throw new MigrationError(
+        `Cannot alter enum "${enumName}" without its full destination values`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
       );
-
-      if (unreplacedValues.length > 0 && dependentColumns?.length) {
-        const valuesList = unreplacedValues.map((v) => `'${v}'`).join(", ");
-        statements.push(
-          `-- WARNING: The following removed values have no replacement: ${valuesList}\n` +
-            "-- If rows exist with these values, the migration will fail.\n" +
-            "-- To fix this, do one of the following:\n" +
-            `--   1. Add valueReplacements: { "${unreplacedValues[0]}": "newValue" }\n` +
-            "--   2. Set defaultReplacement to your column's default value"
-        );
-      }
-
-      if (dependentColumns && dependentColumns.length > 0) {
-        for (const { tableName, columnName } of dependentColumns) {
-          const column = this.escapeIdentifier(columnName);
-          statements.push(
-            `ALTER TABLE ${this.qualify(tableName)} ALTER COLUMN ${column} TYPE ${enumType} USING ${column}::${enumType}`
-          );
-        }
-      }
+    for (const { tableName, columnName } of dependentColumns ?? []) {
+      const column = _context.currentSchema?.tables
+        .find((table) => table.name === tableName)
+        ?.columns.find((item) => item.name === columnName);
+      const reference = `${this.qualify(tableName)} ALTER COLUMN ${this.escapeIdentifier(columnName)}`;
+      if (column?.default !== undefined)
+        statements.push(`ALTER TABLE ${reference} DROP DEFAULT`);
+      const carrier = column?.type.endsWith("[]") ? "text[]" : "text";
+      statements.push(
+        `ALTER TABLE ${reference} TYPE ${carrier} USING ${this.escapeIdentifier(columnName)}::${carrier}`
+      );
     }
-
+    statements.push(...this.buildEnumReplacementUpdates(op, _context));
+    statements.push(`DROP TYPE ${enumType}`);
+    statements.push(
+      `CREATE TYPE ${enumType} AS ENUM (${newValues.map((value) => this.escapeValue(value)).join(", ")})`
+    );
+    for (const { tableName, columnName } of dependentColumns ?? []) {
+      const column = _context.currentSchema?.tables
+        .find((table) => table.name === tableName)
+        ?.columns.find((item) => item.name === columnName);
+      const reference = `${this.qualify(tableName)} ALTER COLUMN ${this.escapeIdentifier(columnName)}`;
+      const target = column?.type.endsWith("[]") ? `${enumType}[]` : enumType;
+      statements.push(
+        `ALTER TABLE ${reference} TYPE ${target} USING ${this.escapeIdentifier(columnName)}::${target}`
+      );
+      if (
+        column?.default !== undefined &&
+        !(removeValues ?? []).some(
+          (value) => column.default === this.escapeValue(value)
+        )
+      )
+        statements.push(
+          `ALTER TABLE ${reference} SET DEFAULT ${column.default}`
+        );
+    }
     return this.filterStatements(statements);
   }
 
@@ -1074,7 +1219,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
    * `search_path` resolves.
    */
   protected override buildEnumReplacementUpdates(
-    op: AlterEnumOperation
+    op: AlterEnumOperation,
+    context?: DDLContext
   ): string[] {
     const { removeValues, dependentColumns } = op;
     if (!(removeValues?.length && dependentColumns?.length)) {
@@ -1083,6 +1229,31 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
     const statements: string[] = [];
     for (const { tableName, columnName } of dependentColumns) {
+      const columnType = context?.currentSchema?.tables
+        .find((table) => table.name === tableName)
+        ?.columns.find((column) => column.name === columnName)?.type;
+      if (columnType?.endsWith("[]")) {
+        const cases = removeValues.flatMap((value) => {
+          const replacement = this.getEnumValueReplacement(
+            op,
+            tableName,
+            columnName,
+            value
+          );
+          return replacement === undefined
+            ? []
+            : [
+                `WHEN ${this.escapeValue(value)} THEN ${replacement === null ? "NULL" : this.escapeValue(replacement)}`,
+              ];
+        });
+        if (cases.length > 0) {
+          const column = this.escapeIdentifier(columnName);
+          statements.push(
+            `UPDATE ${this.qualify(tableName)} SET ${column} = ARRAY(SELECT CASE value ${cases.join(" ")} ELSE value END FROM unnest(${column}) WITH ORDINALITY AS member(value, position) ORDER BY position) WHERE ${column} IS NOT NULL`
+          );
+        }
+        continue;
+      }
       for (const removedValue of removeValues) {
         const replacement = this.getEnumValueReplacement(
           op,

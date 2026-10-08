@@ -81,14 +81,21 @@ function shapeCodec(
       const fields = new Map<string, ValueCodec>();
       for (const [name, field] of Object.entries(shape.fields))
         fields.set(name, shapeCodec(field, requestedOperation));
-      return recordCodec(fields);
+      const record = recordCodec(fields);
+      return shape.nullable === false ? record : nullableCodec(record);
     }
     case "collection":
       return arrayCodec(shapeCodec(shape.row, requestedOperation));
     case "variants": {
       const arms = new Map<string, ValueCodec>();
       for (const [type, arm] of Object.entries(shape.arms))
-        arms.set(type, shapeCodec(arm, requestedOperation));
+        arms.set(
+          type,
+          shapeCodec(
+            shape.many && arm.kind === "collection" ? arm.row : arm,
+            requestedOperation
+          )
+        );
       const tagged = taggedRelationCodec(arms);
       return shape.many ? arrayCodec(tagged) : nullableCodec(tagged);
     }

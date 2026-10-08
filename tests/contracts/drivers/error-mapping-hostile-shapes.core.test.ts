@@ -100,7 +100,7 @@ describe("SQLite constraint families recognised from the message", () => {
     {
       expected: NotNullConstraintError,
       label: "not null",
-      columns: ["entry.title"],
+      columns: ["title"],
       message: "SQLITE_CONSTRAINT: NOT NULL constraint failed: entry.title",
     },
     {
@@ -112,7 +112,7 @@ describe("SQLite constraint families recognised from the message", () => {
     {
       expected: UniqueConstraintError,
       label: "unique with two columns",
-      columns: ["entry.a", "entry.b"],
+      columns: ["a", "b"],
       message: "UNIQUE constraint failed: entry.a, entry.b",
     },
   ])("maps a $label failure", ({ message, expected, columns }) => {
@@ -325,7 +325,7 @@ describe("validation failures keep their source through re-contextualization", (
     expect(failure.meta).toMatchObject({ driver: "provider", model: "entry" });
   });
 
-  test("falls back to a plain clone when the source names no known kind", () => {
+  test("preserves the trusted source when a caller replaces it with an unknown kind", () => {
     const original = new ValidationError(
       { kind: "operation", operation: "createMany" },
       [{ path: "title", message: "must be a string" }]
@@ -339,14 +339,17 @@ describe("validation failures keep their source through re-contextualization", (
       driverName: "provider",
     });
 
-    // An unrecognised source cannot be reconstructed honestly, so the clone
-    // degrades to the base failure rather than inventing one.
+    // Public mutation cannot replace the construction-time boundary evidence.
     expect(failure).toBeInstanceOf(VibORMError);
-    expect(failure).not.toBeInstanceOf(ValidationError);
+    expect(failure).toBeInstanceOf(ValidationError);
+    expect((failure as ValidationError).source).toEqual({
+      kind: "operation",
+      operation: "createMany",
+    });
     expect(failure.meta).toMatchObject({ driver: "provider" });
   });
 
-  test("falls back when the declared operation is not a real operation", () => {
+  test("preserves the trusted operation when a caller replaces it with an invalid operation", () => {
     const original = new ValidationError(
       { kind: "operation", operation: "createMany" },
       []
@@ -360,7 +363,11 @@ describe("validation failures keep their source through re-contextualization", (
       driverName: "provider",
     });
 
-    expect(failure).not.toBeInstanceOf(ValidationError);
+    expect(failure).toBeInstanceOf(ValidationError);
+    expect((failure as ValidationError).source).toEqual({
+      kind: "operation",
+      operation: "createMany",
+    });
   });
 
   test("keeps only the issue entries that carry a readable path and message", () => {

@@ -1095,19 +1095,70 @@ describe("the array spelling of orderBy is keyed at its elements", () => {
  * editor-time refusal. When a future TypeScript can carry the deeper form, these
  * lines turn red — delete them, move them up, and correct the numbers above.
  */
-describe("the unguarded query levels are pinned as compiling", () => {
+describe("direct write keys are guarded; deeper query levels remain pinned", () => {
   const _writeClauseTypoCompiles = () =>
     client.book.create({
-      // "ttitle" is NOT a compile error — `data` is unguarded (TS2589)
+      // @ts-expect-error direct write names are keyed from State without expanding payloads
       data: { id: "1", title: "x", ttitle: "x", pages: 1, authorId: "a" },
     });
 
   const _updateClauseTypoCompiles = () =>
     client.book.updateMany({
       where: {},
-      // "ttitle" is NOT a compile error — `data` is unguarded (TS2589)
+      // @ts-expect-error direct write names are keyed from State without expanding payloads
       data: { title: "x", ttitle: "x" },
     });
+
+  const heldCreateTypo = {
+    data: { id: "1", title: "x", ttitle: "x", pages: 1, authorId: "a" },
+  };
+  const _heldCreateTypoRefused = () =>
+    // @ts-expect-error held create field typo beside real fields
+    client.book.create(heldCreateTypo);
+  const heldUpdateTypo = {
+    where: { id: "1" },
+    data: { title: "x", ttitle: "x" },
+  };
+  const _heldUpdateTypoRefused = () =>
+    // @ts-expect-error held update field typo beside the valid title
+    client.book.update(heldUpdateTypo);
+  const _manyCreateTypoRefused = () =>
+    // @ts-expect-error every createMany member is keyed without inspecting nested data
+    client.book.createMany({
+      data: [
+        { id: "1", title: "x", pages: 1, authorId: "a" },
+        { id: "2", title: "x", ttitle: "x", pages: 1, authorId: "a" },
+      ],
+    });
+  const heldUpsertTypo = {
+    where: { id: "1" },
+    create: { id: "1", title: "x", pages: 1, authorId: "a" },
+    update: { title: "x", ttitle: "x" },
+  };
+  const _heldUpsertTypoRefused = () =>
+    // @ts-expect-error held upsert update typo is keyed
+    client.book.upsert(heldUpsertTypo);
+  const _upsertCreateTypoRefused = () =>
+    client.book.upsert({
+      where: { id: "1" },
+      // @ts-expect-error fresh upsert create typo beside real fields
+      create: { id: "1", title: "x", ttitle: "x", pages: 1, authorId: "a" },
+      update: {},
+    });
+  const _directWritesRemainValid = () => {
+    client.book.create({
+      data: { id: "1", title: "x", pages: 1, authorId: "a" },
+    });
+    client.book.update({ where: { id: "1" }, data: { title: "x" } });
+    client.book.createMany({
+      data: [{ id: "1", title: "x", pages: 1, authorId: "a" }],
+    });
+    client.book.upsert({
+      where: { id: "1" },
+      create: { id: "1", title: "x", pages: 1, authorId: "a" },
+      update: {},
+    });
+  };
 
   const _cursorTypoCompiles = () =>
     // "idd" is NOT a compile error — `cursor` is unguarded (TS2589)
@@ -1576,6 +1627,40 @@ describe("polymorphic projection nodes are keyed to their cardinality's shape", 
     boardClient.board.findMany({
       include: { items: { only: ["note"], variants: { note: true } } },
     });
+  const _includedVariantMustBelongToOnly = () =>
+    boardClient.board.findMany({
+      // @ts-expect-error image is excluded beside the valid note arm
+      include: {
+        items: { only: ["note"], variants: { note: true, image: true } },
+      },
+    });
+  const heldExcludedVariant = {
+    include: {
+      items: { only: ["note"], variants: { note: true, image: true } },
+    },
+  } as const;
+  const _heldIncludedVariantMustBelongToOnly = () =>
+    // @ts-expect-error an excluded arm is refused in a held envelope too
+    boardClient.board.findMany(heldExcludedVariant);
+  const _selectedVariantMustBelongToOnly = () =>
+    boardClient.board.findMany({
+      // @ts-expect-error image is excluded in select as well as include
+      select: {
+        items: { only: ["note"], variants: { note: true, image: true } },
+      },
+    });
+  const heldAllowedVariants = {
+    include: {
+      items: { only: ["note", "image"], variants: { note: true, image: true } },
+    },
+  } as const;
+  const _heldAllowedVariants = () =>
+    boardClient.board.findMany(heldAllowedVariants);
+  const _emptyAllowedVariants = () =>
+    boardClient.board.findMany({
+      include: { items: { only: [], variants: {} } },
+    });
+
   const _collectionEnvelopeTypo = () =>
     boardClient.board.findMany({
       // @ts-expect-error - "variantss" is not an envelope key

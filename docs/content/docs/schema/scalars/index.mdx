@@ -70,6 +70,16 @@ Not every modifier exists on every scalar:
 
 `.nullable()`, `.default()`, and `.map()` are available on every scalar. The scalar pages below only document their scalar-specific methods.
 
+`.nullable()` preserves an existing literal or generated default; it supplies
+`null` only when no default was declared. `.schema()` remains attached through
+`.nullable()` and `.array()`. On lists, the custom schema validates each member,
+including values supplied to `push` and `unshift`.
+
+Custom schemas apply to writes. Filters validate the stored value domain and
+do not repeat write transformations. Arithmetic updates on a field with
+`.schema()` are refused because checking the delta cannot prove the resulting
+stored value satisfies that schema. Use `set` with a validated value instead.
+
 A fixed-decimal list cannot be an ID, unique field, index member, compound-key
 member, foreign-key member, or relation identity member. Its scalar form can
 use key positions normally.

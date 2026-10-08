@@ -132,7 +132,9 @@ describe("sequential program scoping", () => {
 
 describe("coverage low value", () => {
   test("a non-Error rejection of the lock statement still fails the command", async () => {
-    const driver = rejectingPostgres((sql) => sql.includes("pg_advisory_lock"));
+    const driver = rejectingPostgres((sql) =>
+      sql.includes("pg_try_advisory_lock")
+    );
 
     await expect(
       withLockedMigrationProducer(driver, getMigrationDriver(driver), () =>

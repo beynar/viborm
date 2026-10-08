@@ -1,4 +1,4 @@
-import type { AnyDriver } from "@drivers";
+import type { AnyDriver } from "@drivers/exports";
 import { PendingOperationError } from "@errors";
 
 function captureExecution<T>(run: () => Promise<T>): Promise<T> {

@@ -2,16 +2,27 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { type Dialect, Driver } from "@drivers";
+import { Queries } from "@query-engine/raptor3/shared/query";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { s } from "@schema";
 import {
   createModelRegistry,
   TestQueryEngine,
 } from "@tests/fixtures/query-engine";
-import { Queries } from "@query-engine/raptor3/shared/query";
-import { EngineSchema } from "@query-engine/raptor3/shared/schema";
-import { s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, it } from "vitest";
 import { differential, seedPost, type World } from "./world";
+
+const EXPECTED_ERROR_PATTERN = /<=>/;
+const PGVECTOR_ENABLED_POSTGRESQL_PATTERN = /pgvector-enabled PostgreSQL/;
+const VECTOR_DISTANCE_SELECT_REQUIRES_PGVECTOR_ENABLED_PATTERN =
+  /vector distance select requires a pgvector-enabled PostgreSQL driver/;
+const VECTOR_ORDERING_REQUIRES_PGVECTOR_ENABLED_POSTGRESQL_PATTERN =
+  /vector ordering requires a pgvector-enabled PostgreSQL driver/;
+const DIMENSION_MISMATCH_FOR_EMBEDDING_EXPECTED_VALUES_PATTERN =
+  /dimension mismatch for 'embedding': expected 3 values, received 2\./;
+const GEOPOINT_REQUIRES_PROVIDER_WITH_ITS_PHYSICAL_PATTERN =
+  /GeoPoint requires a provider with its physical point tier enabled\./;
 
 /**
  * Repair-2 witnesses (review follow-up findings B, C and D). Every observable
@@ -155,7 +166,10 @@ function shipped(
   postgis = true,
   pgvector = false
 ): string {
-  const registry = createModelRegistry(spotSchema, createSchemaRegistry(spotSchema));
+  const registry = createModelRegistry(
+    spotSchema,
+    createSchemaRegistry(spotSchema)
+  );
   const engine = new TestQueryEngine(
     new LoweringDriver(postgres(postgis, pgvector), "postgresql"),
     registry
@@ -209,7 +223,7 @@ describe("G4-01 repair 2 — a reversed window and the distance placement (findi
       orderBy: { at: { _distance: { to: paris, sort: "asc" } } },
       take: -2,
     };
-    assert.deepEqual(placements(candidate(args)), ["DESC NULLS LAST"]);
+    assert.deepEqual(placements(candidate(args)), ["DESC NULLS LAST", "DESC"]);
     assert.deepEqual(placements(candidate(args)), placements(shipped(args)));
   });
 
@@ -255,23 +269,18 @@ describe("G4-01 repair 2 — a reversed window and the distance placement (findi
 });
 
 describe("G4-01 repair 2 — the registered distance refusals (finding D, Q-W07, RF)", () => {
-  it("refuses a nullable vector distance selection before consulting the provider", () => {
+  it("permits nullable vector distance on the capable provider", () => {
     const args = {
       select: {
         id: true,
         maybeEmbedding: { _distance: { to: [1, 2, 3], metric: "cosine" } },
       },
     };
-    // Refused on a provider WITH pgvector and on one without: it is a property
-    // of the field, not of the tier.
-    for (const pgvector of [false, true]) {
-      const seen = refusals(args, true, pgvector);
-      assert.match(
-        seen.shipped,
-        /Vector distance select does not support nullable vector field 'maybeEmbedding'\./
-      );
-      assert.equal(seen.candidate, seen.shipped, `pgvector ${pgvector}`);
-    }
+    assert.match(candidate(args, true, true), EXPECTED_ERROR_PATTERN);
+    assert.match(
+      refusals(args, true, false).candidate,
+      PGVECTOR_ENABLED_POSTGRESQL_PATTERN
+    );
   });
 
   it("names pgvector in the vector select and vector ordering refusals", () => {
@@ -283,19 +292,21 @@ describe("G4-01 repair 2 — the registered distance refusals (finding D, Q-W07,
     });
     assert.match(
       select.shipped,
-      /vector distance select requires a pgvector-enabled PostgreSQL driver/
+      VECTOR_DISTANCE_SELECT_REQUIRES_PGVECTOR_ENABLED_PATTERN
     );
     assert.equal(select.candidate, select.shipped);
 
     const order = refusals({
       select: { id: true },
       orderBy: {
-        embedding: { _distance: { to: [1, 2, 3], metric: "cosine", sort: "asc" } },
+        embedding: {
+          _distance: { to: [1, 2, 3], metric: "cosine", sort: "asc" },
+        },
       },
     });
     assert.match(
       order.shipped,
-      /vector ordering requires a pgvector-enabled PostgreSQL driver/
+      VECTOR_ORDERING_REQUIRES_PGVECTOR_ENABLED_POSTGRESQL_PATTERN
     );
     assert.equal(order.candidate, order.shipped);
   });
@@ -308,12 +319,14 @@ describe("G4-01 repair 2 — the registered distance refusals (finding D, Q-W07,
           ? { select: { id: true, embedding: { _distance: distance } } }
           : {
               select: { id: true },
-              orderBy: { embedding: { _distance: { ...distance, sort: "asc" } } },
+              orderBy: {
+                embedding: { _distance: { ...distance, sort: "asc" } },
+              },
             };
       const seen = refusals(args, true, true);
       assert.match(
         seen.shipped,
-        /dimension mismatch for 'embedding': expected 3 values, received 2\./
+        DIMENSION_MISMATCH_FOR_EMBEDDING_EXPECTED_VALUES_PATTERN
       );
       assert.equal(seen.candidate, seen.shipped, usage);
     }
@@ -329,7 +342,7 @@ describe("G4-01 repair 2 — the registered distance refusals (finding D, Q-W07,
     );
     assert.match(
       order.shipped,
-      /GeoPoint requires a provider with its physical point tier enabled\./
+      GEOPOINT_REQUIRES_PROVIDER_WITH_ITS_PHYSICAL_PATTERN
     );
     assert.equal(order.candidate, order.shipped);
 
@@ -339,7 +352,7 @@ describe("G4-01 repair 2 — the registered distance refusals (finding D, Q-W07,
     );
     assert.match(
       equality.shipped,
-      /GeoPoint requires a provider with its physical point tier enabled\./
+      GEOPOINT_REQUIRES_PROVIDER_WITH_ITS_PHYSICAL_PATTERN
     );
     assert.equal(equality.candidate, equality.shipped);
   });

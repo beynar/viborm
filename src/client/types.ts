@@ -928,7 +928,9 @@ type PolymorphicVariantMapGuard<Projection, Relation> = Record<
  * set to seal against is `only` / `variants` — sealing against the VARIANT
  * names would resolve both of them to `never` and refuse every legal payload.
  *
- * The guard stops HERE, at depth two. Descending into `variants` to seal one
+ * A supplied `only` list also bounds the keys of the supplied `variants` bag
+ * using their own literals; that does not inspect any target model.
+ * The model-aware guard stops HERE, at depth two. Descending into `variants` to seal one
  * arm's key set is depth three, the measured cost frontier documented above:
  * it walks INTO a target model mid-inference, which is exactly what
  * `RelationState.getter: any` exists to prevent. A misspelling inside
@@ -942,7 +944,13 @@ type PolymorphicCollectionEnvelopeGuard<Projection> = Record<
     "only" | "variants"
   >,
   never
->;
+> &
+  (Projection extends {
+    only: readonly (infer Name)[];
+    variants: infer Variants;
+  }
+    ? { variants?: Record<Exclude<keyof Variants, Name>, never> }
+    : unknown);
 
 /** ONE dispatch on cardinality, through the shared reader. */
 type PolymorphicProjectionNodeGuard<Projection, Relation> =
@@ -1071,9 +1079,17 @@ type RecursiveNodeGuard<Node> = [Exclude<Node, null | undefined>] extends [
   ? RecursiveNodeObjectGuard<Exclude<Node, null | undefined>>
   : unknown;
 
-type RecursiveNodeObjectGuard<Node> = ("recurse" extends keyof Node
-  ? { recurse?: RecurrenceBagGuard<Node["recurse"]> }
-  : unknown) &
+type ExclusiveSelection<Node> = Node extends {
+  select: object;
+  include: object;
+}
+  ? { select?: undefined } | { include?: undefined }
+  : unknown;
+
+type RecursiveNodeObjectGuard<Node> = ExclusiveSelection<Node> &
+  ("recurse" extends keyof Node
+    ? { recurse?: RecurrenceBagGuard<Node["recurse"]> }
+    : unknown) &
   ("select" extends keyof Node
     ? { select?: RecursiveProjectionGuard<Node["select"]> }
     : unknown) &
@@ -1351,6 +1367,21 @@ type DirectGeoPointGuard<
               DirectGeoPointClauseGuard<Arg, "update", PointKeys, "write">
           : unknown);
 
+/** Direct write names come from State, never the recursive write payload. */
+type DirectWriteKeysGuard<
+  O extends Operations,
+  Arg,
+  M extends Model<any>,
+  Keys extends PropertyKey =
+    | keyof M["~"]["state"]["scalars"]
+    | keyof M["~"]["state"]["relations"],
+> = O extends "create" | "createMany" | "update" | "updateMany"
+  ? ClauseGuard<Arg, { data: Record<Keys, unknown> }, "data">
+  : O extends "upsert"
+    ? ClauseGuard<Arg, { create: Record<Keys, unknown> }, "create"> &
+        ClauseGuard<Arg, { update: Record<Keys, unknown> }, "update">
+    : unknown;
+
 type NoExtraOperationKeys<
   O extends Operations,
   Arg,
@@ -1358,6 +1389,7 @@ type NoExtraOperationKeys<
   M extends Model<any>,
   Controls = NoControls,
 > = Arg &
+  ExclusiveSelection<Arg> &
   Record<Exclude<keyof Arg, keyof Payload | keyof Controls>, never> &
   ClauseGuard<Arg, Payload, "where"> &
   ClauseGuard<Arg, Payload, "select"> &
@@ -1368,6 +1400,7 @@ type NoExtraOperationKeys<
   DirectPolymorphicProjectionGuard<Arg, M, "select"> &
   DirectPolymorphicProjectionGuard<Arg, M, "include"> &
   RecursiveProjectionRootGuard<Arg> &
+  DirectWriteKeysGuard<O, Arg, M> &
   DirectDecimalUpdateGuard<O, Arg, M> &
   DirectGeoPointGuard<O, Arg, M>;
 

@@ -180,8 +180,12 @@ describe("literal decimal-list default serialization", () => {
     for (const driver of [postgresMigrationDriver, sqlite3MigrationDriver]) {
       const columns = columnsFor(driver);
       expect(columns.get("generated")?.default).toBeUndefined();
-      expect(columns.get("nullable")?.default).toBe("NULL");
-      expect(columns.get("nullableScalar")?.default).toBe("NULL");
+      expect(columns.get("nullable")?.default).toBe(
+        driver === postgresMigrationDriver ? undefined : "NULL"
+      );
+      expect(columns.get("nullableScalar")?.default).toBe(
+        driver === postgresMigrationDriver ? undefined : "NULL"
+      );
     }
 
     const mysqlColumns = columnsFor(mysqlMigrationDriver);

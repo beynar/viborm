@@ -1,0 +1,30 @@
+{
+  "revision": "a4a5b8dc607a9a8db506bd60ddb5125519d8ab0b",
+  "perimeters": {
+    "src/": {
+      "files": 462,
+      "lines": 141375,
+      "bytes": 5066888
+    },
+    "tests/": {
+      "files": 1455,
+      "lines": 445456,
+      "bytes": 14937019
+    },
+    "scripts/": {
+      "files": 60,
+      "lines": 31694,
+      "bytes": 1117904
+    },
+    "docs/content/": {
+      "files": 142,
+      "lines": 23129,
+      "bytes": 843614
+    },
+    "benchmarks/": {
+      "files": 57,
+      "lines": 19415,
+      "bytes": 647858
+    }
+  }
+}

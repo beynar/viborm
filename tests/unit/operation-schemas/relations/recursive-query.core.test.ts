@@ -5,7 +5,7 @@ import { ValidationError } from "@errors";
 import { s } from "@schema";
 import { CountingMemoryCache } from "@tests/fixtures/counting-memory-cache";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
-import { createSchemaRegistry, parse } from "@validation";
+import { createSchemaRegistry, parse, toJsonSchema } from "@validation";
 import { carriesRepeatedKey } from "@validation/relations/recurrence";
 import { describe, expect, test } from "vitest";
 
@@ -253,6 +253,13 @@ function issueOf(result: { issues?: readonly { message: string }[] }) {
 }
 
 describe("recursive relation admission — depth, cycle and clause rules", () => {
+  test("exports the runtime recurrence depth bounds", () => {
+    const document = JSON.stringify(
+      toJsonSchema(schemas.node.relations.children.include)
+    );
+    expect(document).toContain('"minimum":1');
+    expect(document).toContain('"maximum":1000');
+  });
   test("admits both numeric depth bounds and exhaustive traversal in every eligible direction", () => {
     for (const depth of [1, 1000]) {
       expect(

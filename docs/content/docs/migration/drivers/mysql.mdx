@@ -23,12 +23,12 @@ icon: server
 | `number()` | `DOUBLE` |
 | `decimal({ precision, scale })` | `DECIMAL(precision,scale)` |
 | `boolean()` | `TINYINT(1)` |
-| `datetime()` | `DATETIME(3)` |
+| `s.dateTime()` | `DATETIME(3)` |
 | `date()` | `DATE` |
 | `time()` | `TIME(3)` |
 | `json()` | `JSON` |
 | `blob()` | `BLOB` |
-| `enumScalar()` | Inline `ENUM('a', 'b', ...)` |
+| `s.enum()` | Inline `ENUM('a', 'b', ...)` |
 | Array scalars | `JSON` |
 
 `DATETIME(3)` and `TIME(3)` preserve JavaScript `Date` millisecond precision.
@@ -109,9 +109,9 @@ deliberately; a code upgrade alone does not change existing schema semantics.
 `AUTO_INCREMENT` requires an integer column type (`TINYINT`, `SMALLINT`, `MEDIUMINT`, `INT`, `BIGINT`); the driver rejects it on anything else:
 
 ```ts
-const User = model("users", {
-  id: int().primaryKey().autoIncrement(),
-});
+const user = s.model({
+  id: s.int().id().autoIncrement(),
+}).map("users");
 ```
 
 Generates:
@@ -127,9 +127,9 @@ CREATE TABLE `users` (
 MySQL has no standalone enum type — the `ENUM` is part of the column definition:
 
 ```ts
-const User = model("users", {
-  status: enumScalar(["active", "inactive", "pending"]),
-});
+const user = s.model({
+  status: s.enum(["active", "inactive", "pending"]),
+}).map("users");
 ```
 
 Generates:
@@ -139,6 +139,10 @@ CREATE TABLE `users` (
   `status` ENUM('active', 'inactive', 'pending') NOT NULL
 );
 ```
+
+An explicit enum `.name()` affects PostgreSQL type identity only; MySQL always
+keeps the inline `ENUM(...)`. Removing values requires explicit mappings, including
+nullable columns.
 
 Changing an enum's values therefore issues a `MODIFY COLUMN` for every column using it.
 

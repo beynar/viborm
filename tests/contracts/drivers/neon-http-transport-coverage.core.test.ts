@@ -56,7 +56,11 @@ const neonProvider = vi.hoisted(() => {
   );
   const transaction = vi.fn(
     async (
-      build: (submit: (sql: string, params: unknown[]) => unknown) => unknown[]
+      build:
+        | ((submit: {
+            query: (sql: string, params: unknown[]) => unknown;
+          }) => unknown[])
+        | { queryData: { query: string; params: unknown[] } }[]
     ) => {
       const submit = (statement: string, params: unknown[]) => {
         state.submitted.push({ params, sql: statement });
@@ -65,16 +69,29 @@ const neonProvider = vi.hoisted(() => {
         }
         return Promise.resolve(state.batchResults[state.submitted.length - 1]);
       };
-      const results = await Promise.all(build(submit));
+      const results = await Promise.all(
+        typeof build === "function"
+          ? build({ query: submit })
+          : build.map((query) =>
+              submit(query.queryData.query, query.queryData.params)
+            )
+      );
       return state.providerResultCount === undefined
         ? results
         : results.slice(0, state.providerResultCount);
     }
   );
-  const query = Object.assign(
-    vi.fn(async () => state.singleResult),
-    { transaction }
+  const query = vi.fn(
+    (_sql: string, _params: unknown[], _options?: CapturedNeonOptions) => {
+      if (_sql === state.synchronousFailureSql)
+        throw new Error("provider rejected statement synchronously");
+      return Object.assign(Promise.resolve(state.singleResult), {
+        queryData: { query: _sql, params: _params },
+        opts: _options,
+      });
+    }
   );
+  Object.assign(query, { query, transaction });
   const neon = vi.fn((_url: string, _options: CapturedNeonOptions) => query);
 
   return { fallbackParser, getTypeParser, neon, query, state, transaction };
@@ -148,15 +165,20 @@ describe("Neon HTTP controlled transport execution", () => {
     expect(neonProvider.query).toHaveBeenNthCalledWith(1, "SELECT $1", [7], {
       arrayMode: false,
       fullResults: true,
+      types: expect.objectContaining({ getTypeParser: expect.any(Function) }),
     });
     expect(neonProvider.query).toHaveBeenNthCalledWith(
       2,
       "SELECT id FROM events",
       [],
-      { arrayMode: false, fullResults: true }
+      {
+        arrayMode: false,
+        fullResults: true,
+        types: expect.objectContaining({ getTypeParser: expect.any(Function) }),
+      }
     );
 
-    const options = neonProvider.neon.mock.calls[0]?.[1];
+    const options = neonProvider.query.mock.calls[0]?.[2];
     const types = options?.types;
     if (!types) throw new Error("Expected Neon type parser options.");
     const timestampParser = types.getTypeParser(1114);
@@ -292,12 +314,10 @@ describe("Neon HTTP controlled transport execution", () => {
   });
 
   test("refuses to connect without the required URL, before it builds an HTTP query", async () => {
-    // `initClient` throws a plain Error, so the generic connection lifecycle
-    // wraps it (`error-mapping.ts:415`) and `sanitizeErrorCause` redacts the
-    // driver's own wording: "Database connection failed" IS the public answer.
-    await expect(new NeonHTTPDriver()._connect()).rejects.toThrow(
-      "Database connection failed"
-    );
+    await expect(new NeonHTTPDriver()._connect()).rejects.toMatchObject({
+      name: "ClientInitializationError",
+      message: "Neon HTTP driver requires a databaseUrl",
+    });
 
     expect(neonProvider.neon).not.toHaveBeenCalled();
   });

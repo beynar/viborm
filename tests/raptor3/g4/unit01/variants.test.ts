@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
+
+const UNKNOWN_DISCRIMINATOR_PATTERN = /unknown discriminator/;
+const INCOMPLETE_STORED_PAIR_PATTERN = /incomplete stored pair/;
 
 const post = s
   .model({
@@ -54,7 +57,11 @@ function createWorld() {
     INSERT INTO g4_vr_comments VALUES (3, 'unattached', NULL, NULL);
   `);
   const driver = new SQLite3Driver({ client: database });
-  return { database, driver, engine: createTestCommandEngine({ schema, driver }) };
+  return {
+    database,
+    driver,
+    engine: createTestCommandEngine({ schema, driver }),
+  };
 }
 
 async function ids(
@@ -100,16 +107,28 @@ describe("G4-01 variant slots (Q-W10, Q-S03)", () => {
       assert.deepEqual(await ids(world, { subject: { type: "post" } }), [1]);
       assert.deepEqual(await ids(world, { subject: { type: "video" } }), [2]);
       assert.deepEqual(
-        await ids(world, { subject: { type: "post", is: { title: "Post one" } } }),
+        await ids(world, {
+          subject: { type: "post", is: { title: "Post one" } },
+        }),
         [1]
       );
       assert.deepEqual(
-        await ids(world, { subject: { type: "post", is: { title: "absent" } } }),
+        await ids(world, {
+          subject: { type: "post", is: { title: "absent" } },
+        }),
         []
       );
       assert.deepEqual(
-        await ids(world, { subject: { type: "post", isNot: { title: "Post one" } } }),
-        [2, 3]
+        await ids(world, {
+          subject: { type: "post", isNot: { title: "Post one" } },
+        }),
+        []
+      );
+      assert.deepEqual(
+        await ids(world, {
+          subject: { type: "post", isNot: { title: "absent" } },
+        }),
+        [1]
       );
       assert.deepEqual(await ids(world, { subject: { is: null } }), [3]);
       assert.deepEqual(await ids(world, { subject: { isNot: null } }), [1, 2]);
@@ -130,6 +149,40 @@ describe("G4-01 variant slots (Q-W10, Q-S03)", () => {
         select: { id: true, _count: { select: { comments: true } } },
       })) as Record<string, unknown>[];
       assert.deepEqual(counted, [{ id: 1, _count: { comments: 1 } }]);
+    } finally {
+      await world.driver.disconnect();
+      world.database.close();
+    }
+  });
+  it("refuses unknown and half-null stored pairs, while presence reads stored columns", async () => {
+    const world = createWorld();
+    try {
+      world.database.exec(
+        "INSERT INTO g4_vr_comments VALUES (4,'orphan','content.post.v1',99)"
+      );
+      assert.deepEqual(await ids(world, { subject: { is: null } }), [3]);
+      assert.deepEqual(
+        await ids(world, { subject: { isNot: null } }),
+        [1, 2, 4]
+      );
+      world.database.exec(
+        "DELETE FROM g4_vr_comments WHERE id=4; INSERT INTO g4_vr_comments VALUES (4,'bad','unknown',1)"
+      );
+      await assert.rejects(
+        world.engine.execute("comment", "findMany", {
+          include: { subject: true },
+        }),
+        UNKNOWN_DISCRIMINATOR_PATTERN
+      );
+      world.database.exec(
+        "UPDATE g4_vr_comments SET subject_type=NULL WHERE id=4"
+      );
+      await assert.rejects(
+        world.engine.execute("comment", "findMany", {
+          include: { subject: true },
+        }),
+        INCOMPLETE_STORED_PAIR_PATTERN
+      );
     } finally {
       await world.driver.disconnect();
       world.database.close();

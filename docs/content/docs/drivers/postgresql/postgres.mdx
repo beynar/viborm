@@ -53,15 +53,22 @@ const client = createClient({
 
 ```typescript
 import postgres from "postgres";
-import { createClient } from "viborm/postgres";
+import { createClient, vibormTypes } from "viborm/postgres";
 
-const sql = postgres(process.env.DATABASE_URL);
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error("DATABASE_URL is required");
+const sql = postgres(databaseUrl, { types: vibormTypes });
 
 const client = createClient({
   client: sql,
   schema,
 });
 ```
+
+VibORM checks supplied temporal parser configuration before using the client.
+`vibormTypes` keeps PostgreSQL dates and timestamps as text so typed queries
+decode them consistently, including years before 100 and timezone offsets.
+`$disconnect()` leaves this supplied client open; its owner calls `sql.end()`.
 
 ### With pgvector
 
@@ -124,3 +131,11 @@ Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
 ## Transactions
 
 postgres.js supports full transactions with automatic savepoints for nested transactions — see [Transactions](/docs/client/transactions).
+
+## Prepared statements
+
+Generated and raw statements default to `prepare: false`, which avoids session
+prepared statements on transaction poolers. On a direct or session-pooled
+connection that supports prepared statements, set `options: { prepare: true }`
+to opt into postgres.js statement reuse. This forwards the provider's supported
+query option; it does not promise preparation for every statement shape.

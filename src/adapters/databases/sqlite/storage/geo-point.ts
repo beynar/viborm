@@ -1,11 +1,18 @@
-import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { MigrationError, VibORMErrorCode } from "../../../../errors";
 import {
   GEO_LATITUDE_MAX,
   GEO_LATITUDE_MIN,
   GEO_LONGITUDE_MAX,
   GEO_LONGITUDE_MIN,
-} from "../../../validation/primitives/geo-values";
-import type { ColumnDef } from "../../types";
+} from "../../../../validation/primitives/geo-values";
+import { sqliteBinary64JsonNumber } from "./json-number";
+
+interface PhysicalColumn {
+  readonly name: string;
+  readonly type: string;
+  readonly nullable: boolean;
+}
+
 import {
   sqliteConstraintClauses,
   sqliteTableDefinitions,
@@ -19,8 +26,9 @@ const SQLITE_GEO_POINT_CONSTRAINT = "viborm_geo";
 
 /** The complete writer-owned column constraint for one GeoPoint carrier. */
 export function sqliteGeoPointCheck(
-  column: Pick<ColumnDef, "name" | "nullable">,
-  escapeIdentifier: (name: string) => string
+  column: Pick<PhysicalColumn, "name" | "nullable">,
+  escapeIdentifier: (name: string) => string,
+  encoding: "legacy" | "binary64" = "binary64"
 ): string {
   const col = escapeIdentifier(column.name);
   const longitude = `json_extract(${col}, '$.longitude')`;
@@ -32,7 +40,7 @@ export function sqliteGeoPointCheck(
     `json_type(${col}, '$.latitude') IN ('integer', 'real') AND ` +
     `${longitude} > ${GEO_LONGITUDE_MIN} AND ${longitude} <= ${GEO_LONGITUDE_MAX} AND ` +
     `${latitude} >= ${GEO_LATITUDE_MIN} AND ${latitude} <= ${GEO_LATITUDE_MAX} AND ` +
-    `${col} = json_object('longitude', ${longitude}, 'latitude', ${latitude})` +
+    `${col} = ${sqliteGeoPointCarrier(col, encoding)}` +
     ") ELSE 0 END";
   const body = column.nullable ? `${col} IS NULL OR (${valid})` : valid;
   return `CONSTRAINT ${escapeIdentifier(SQLITE_GEO_POINT_CONSTRAINT)} CHECK (${body})`;
@@ -45,28 +53,32 @@ export function sqliteGeoPointCheck(
  */
 export function readSqliteGeoPointColumn(
   tableSql: string | null | undefined,
-  column: Pick<ColumnDef, "name" | "type" | "nullable">,
+  column: Pick<PhysicalColumn, "name" | "type" | "nullable">,
   escapeIdentifier: (name: string) => string
-): boolean {
-  if (column.type.toUpperCase() !== SQLITE_GEO_POINT_TYPE) return false;
+): "legacy" | "binary64" | undefined {
+  if (column.type.toUpperCase() !== SQLITE_GEO_POINT_TYPE) return undefined;
   const expected = sqliteGeoPointCheck(column, escapeIdentifier);
+  const legacy = sqliteGeoPointCheck(column, escapeIdentifier, "legacy");
+  let encoding: "legacy" | "binary64" = "binary64";
   let matching = 0;
   for (const definition of sqliteTableDefinitions(tableSql ?? "")) {
     if (definition.columnName !== column.name) continue;
     for (const clause of sqliteConstraintClauses(definition.text)) {
       if (clause.name !== SQLITE_GEO_POINT_CONSTRAINT) continue;
-      if (!definition.text.startsWith(expected, clause.offset)) {
-        refuseUnprovenGeoPoint(column);
-      }
+      if (definition.text.startsWith(expected, clause.offset))
+        encoding = "binary64";
+      else if (definition.text.startsWith(legacy, clause.offset))
+        encoding = "legacy";
+      else refuseUnprovenGeoPoint(column);
       matching++;
     }
   }
   if (matching !== 1) refuseUnprovenGeoPoint(column);
-  return true;
+  return encoding;
 }
 
 function refuseUnprovenGeoPoint(
-  column: Pick<ColumnDef, "name" | "type">
+  column: Pick<PhysicalColumn, "name" | "type">
 ): never {
   throw new MigrationError(
     `SQLite column "${column.name}" uses VibORM's reserved GeoPoint type "${column.type}" without the exact canonical GeoPoint CHECK constraint. ` +
@@ -80,4 +92,24 @@ function refuseUnprovenGeoPoint(
       },
     }
   );
+}
+
+/** Copying legacy storage preserves the double still present, not earlier lost digits. */
+export function sqliteGeoPointCarrier(
+  source: string,
+  encoding: "legacy" | "binary64" = "binary64"
+): string {
+  const longitude = `json_extract(${source}, '$.longitude')`;
+  const latitude = `json_extract(${source}, '$.latitude')`;
+  return `json_object('longitude', ${encoding === "legacy" ? longitude : sqliteBinary64JsonNumber(longitude)}, 'latitude', ${encoding === "legacy" ? latitude : sqliteBinary64JsonNumber(latitude)})`;
+}
+
+/** Format-1 snapshots predating the precision annotation describe the legacy CHECK. */
+export function sqliteGeoPointEncoding(column: {
+  readonly type: string;
+  readonly geoPointEncoding?: "legacy" | "binary64" | undefined;
+}): "legacy" | "binary64" | undefined {
+  return column.type.toUpperCase() === SQLITE_GEO_POINT_TYPE
+    ? (column.geoPointEncoding ?? "legacy")
+    : undefined;
 }

@@ -112,6 +112,10 @@ function snapshotDisclosure(value: unknown): ResolvedDiagnosticDisclosure {
   return Object.freeze({
     includeParams: isRecord(value) && safeRead(value, "includeParams") === true,
     includeSql: isRecord(value) && safeRead(value, "includeSql") === true,
+    includeProviderDetails:
+      isRecord(value) && safeRead(value, "includeProviderDetails") === true,
+    includeCallsite:
+      isRecord(value) && safeRead(value, "includeCallsite") === true,
   });
 }
 

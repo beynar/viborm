@@ -1,3 +1,4 @@
+import { selectManagedSnapshot } from "./target";
 /**
  * Model-to-SchemaSnapshot Serializer
  *
@@ -244,14 +245,24 @@ export function serializeResolvedModels(
 
         if (migrationDriver.capabilities.supportsNativeEnums && enumValues) {
           // Use explicit enum name if provided, otherwise auto-generate
-          const enumName = scalarState.enumName
-            ? scalarState.enumName
-            : migrationDriver.getEnumColumnType(
-                tableName,
-                columnName,
-                enumValues
-              );
+          const enumName =
+            scalarState.enumName && migrationDriver.dialect === "postgresql"
+              ? scalarState.enumName
+              : migrationDriver.getEnumColumnType(
+                  tableName,
+                  columnName,
+                  enumValues
+                );
 
+          const previousEnum = enums.find((item) => item.name === enumName);
+          if (
+            previousEnum &&
+            JSON.stringify(previousEnum.values) !== JSON.stringify(enumValues)
+          )
+            throw new MigrationError(
+              `Enum type "${enumName}" is declared with incompatible values`,
+              VibORMErrorCode.MIGRATION_INVALID_STATE
+            );
           if (!enumsSet.has(enumName)) {
             enums.push({
               name: enumName,
@@ -291,6 +302,10 @@ export function serializeResolvedModels(
         // whatever the domain is, so without this the differ would see no
         // change when the domain moved.
         decimal: scalarState.decimal,
+        geoPointEncoding:
+          migrationDriver.dialect === "sqlite" && scalarState.type === "point"
+            ? "binary64"
+            : undefined,
         dateTime:
           migrationDriver.dialect === "sqlite" &&
           scalarState.type === "datetime" &&
@@ -809,11 +824,14 @@ export function serializeResolvedModels(
     tables.push(def);
   }
 
-  return {
+  const snapshot: SchemaSnapshot = {
     tables: tables.map((table) => migrationDriver.finalizeTable(table)),
     enums: enums.length > 0 ? enums : undefined,
     ...(polymorphicStorage.length > 0 ? { polymorphicStorage } : {}),
   };
+  return migrationDriver.target
+    ? selectManagedSnapshot(snapshot, migrationDriver.target, true)
+    : snapshot;
 }
 
 // =============================================================================

@@ -6,6 +6,17 @@
  */
 
 import { BATCH_REFS_TABLE } from "@adapters/shared/batch-refs";
+import {
+  sqliteDefinitionKeywords,
+  sqliteTableDefinitions,
+} from "../../../adapters/databases/sqlite/storage/column-constraints";
+import { readSqliteDecimalConstraint } from "../../../adapters/databases/sqlite/storage/decimal";
+import {
+  readSqliteGeoPointColumn,
+  SQLITE_GEO_POINT_TYPE,
+} from "../../../adapters/databases/sqlite/storage/geo-point";
+import { skipSqlNonStructuralRegion } from "../../../adapters/databases/sqlite/storage/sql-lexing";
+import { MigrationError, VibORMErrorCode } from "../../../errors";
 import type {
   ColumnDef,
   ForeignKeyDef,
@@ -16,9 +27,6 @@ import type {
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
-import { readSqliteDecimalConstraint } from "./decimal";
-import { readSqliteGeoPointColumn, SQLITE_GEO_POINT_TYPE } from "./geo-point";
-import { skipSqlNonStructuralRegion } from "./sql-lexing";
 import type {
   SqliteColumn,
   SqliteForeignKey,
@@ -170,7 +178,8 @@ function mapReferentialAction(rule: string): ReferentialAction {
 // =============================================================================
 
 export async function introspect(
-  executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
+  managedTables?: readonly string[]
 ): Promise<SchemaSnapshot> {
   // Get all tables. `sql` rides along on the query that was already being made
   // — the reserved decimal constraints are read out of it, and a second live
@@ -195,6 +204,32 @@ export async function introspect(
 
   for (const tableRow of tablesResult.rows) {
     const tableName = tableRow.name;
+
+    const selected =
+      managedTables === undefined || managedTables.includes(tableName);
+    const definitions = sqliteTableDefinitions(tableRow.sql ?? "");
+    if (
+      selected &&
+      definitions.some((definition) =>
+        sqliteDefinitionKeywords(definition.text).includes("AS")
+      )
+    )
+      throw new MigrationError(
+        `SQLite table "${tableName}" has generated columns that this schema cannot represent. Synchronization refuses before effects and preserves them.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { table: tableName, feature: "generated columns" } }
+      );
+    if (
+      selected &&
+      sqliteDefinitionKeywords(
+        (tableRow.sql ?? "").split("(")[0] ?? ""
+      ).includes("VIRTUAL")
+    )
+      throw new MigrationError(
+        `SQLite virtual table "${tableName}" cannot be faithfully reconstructed. Synchronization refuses before effects.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { table: tableName, feature: "virtual table" } }
+      );
 
     // Get columns using PRAGMA
     const columnsResult = await executeRaw<SqliteColumn>(
@@ -234,14 +269,15 @@ export async function introspect(
       const pk = int(col.pk);
       const type = col.type || "TEXT";
       const nullable = int(col.notnull) === 0 && pk === 0;
-      const isGeoPoint = readSqliteGeoPointColumn(
+      const geoPointEncoding = readSqliteGeoPointColumn(
         tableSql,
         { name: col.name, type, nullable },
         escapeIdentifier
       );
       columns.push({
         name: col.name,
-        type: isGeoPoint
+        geoPointEncoding,
+        type: geoPointEncoding
           ? SQLITE_GEO_POINT_TYPE
           : `${type}${sqliteEnumCheckSuffix(tableSql, col.name) ?? ""}`,
         nullable,
@@ -268,6 +304,31 @@ export async function introspect(
       }
     }
 
+    if (selected) {
+      const checks = definitions.reduce(
+        (count, definition) =>
+          count +
+          sqliteDefinitionKeywords(definition.text).filter(
+            (word) => word === "CHECK"
+          ).length,
+        0
+      );
+      const represented = columns.reduce(
+        (count, column) =>
+          count +
+          Number(column.decimal !== undefined) +
+          Number(column.geoPointEncoding !== undefined) +
+          Number(sqliteEnumCheckSuffix(tableSql, column.name) !== undefined),
+        0
+      );
+      if (checks !== represented)
+        throw new MigrationError(
+          `SQLite table "${tableName}" has CHECK constraints that this schema cannot faithfully represent. Synchronization refuses before effects and preserves them.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          { meta: { table: tableName, feature: "CHECK constraints" } }
+        );
+    }
+
     // Build primary key (sort by pk position)
     let primaryKey: PrimaryKeyDef | undefined;
     if (pkColumns.length > 0) {
@@ -283,17 +344,39 @@ export async function introspect(
     const uniqueConstraints: UniqueConstraintDef[] = [];
 
     for (const idx of indexesResult.rows) {
-      // Skip auto-created indexes for primary keys
-      if (idx.origin === "pk") continue;
-
-      // Get index columns
+      // xinfo exposes the physical key semantics that index_info erases.
+      // Auxiliary rowid columns are not key members; user expressions, DESC
+      // and collations cannot be faithfully recreated by this declaration DSL.
       const indexColsResult = await executeRaw<SqliteIndexColumn>(
-        `PRAGMA index_info(${escapeIdentifier(idx.name)})`
+        `PRAGMA index_xinfo(${escapeIdentifier(idx.name)})`
       );
-
-      const indexColumns = indexColsResult.rows
+      const keys = indexColsResult.rows.filter(
+        (column) => int(column.key) === 1
+      );
+      const unsupported =
+        keys.length === 0 ||
+        keys.some(
+          (column) =>
+            int(column.cid) < 0 ||
+            column.name === null ||
+            int(column.desc) !== 0 ||
+            column.coll !== "BINARY"
+        );
+      if (unsupported) {
+        if (managedTables === undefined || managedTables.includes(tableName)) {
+          throw new MigrationError(
+            `SQLite index "${tableName}.${idx.name}" has expression/order/collation semantics that this index declaration cannot represent. Synchronization refuses before effects and preserves it. Manage its table outside this synchronization scope until a faithful declaration is available.`,
+            VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+            { meta: { table: tableName, indexName: idx.name } }
+          );
+        }
+        continue;
+      }
+      // PK membership is already represented by the table's primary key.
+      if (idx.origin === "pk") continue;
+      const indexColumns = keys
         .sort((a, b) => int(a.seqno) - int(b.seqno))
-        .map((c) => c.name);
+        .flatMap((column) => (column.name === null ? [] : [column.name]));
 
       const unique = int(idx.unique) === 1;
       if (unique && idx.origin === "u") {

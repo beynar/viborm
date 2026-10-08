@@ -415,10 +415,10 @@ describe("generator default identity", () => {
   it("distinguishes a generator's installed closure from a caller's own function default", () => {
     // The serializer relies on this to refuse a custom function default
     // beside a generator instead of silently emitting `generate` alone.
-    const generated = string().uuid()["~"].state.default;
+    const generated = string().uuid({ generate: true })["~"].state.default;
     expect(isGeneratorDefault(generated)).toBe(true);
     const overridden = string()
-      .uuid()
+      .uuid({ generate: true })
       .default(() => "fixed")["~"].state.default;
     expect(isGeneratorDefault(overridden)).toBe(false);
     expect(isGeneratorDefault("not a function")).toBe(false);
@@ -427,10 +427,26 @@ describe("generator default identity", () => {
 
 describe("string generated defaults", () => {
   const cases = [
-    ["uuid", () => string().uuid(), () => string().uuid("usr")],
-    ["ulid", () => string().ulid(), () => string().ulid("usr")],
-    ["nanoid", () => string().nanoid(), () => string().nanoid(12, "usr")],
-    ["cuid", () => string().cuid(), () => string().cuid("usr")],
+    [
+      "uuid",
+      () => string().uuid({ generate: true }),
+      () => string().uuid({ generate: true, prefix: "usr" }),
+    ],
+    [
+      "ulid",
+      () => string().ulid({ generate: true }),
+      () => string().ulid({ generate: true, prefix: "usr" }),
+    ],
+    [
+      "nanoid",
+      () => string().nanoid({ generate: true }),
+      () => string().nanoid({ generate: true, length: 12, prefix: "usr" }),
+    ],
+    [
+      "cuid",
+      () => string().cuid({ generate: true }),
+      () => string().cuid({ generate: true, prefix: "usr" }),
+    ],
   ] as const;
 
   it.each(

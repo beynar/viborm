@@ -2,6 +2,11 @@
 
 import { TransactionError } from "@errors";
 import { Sql } from "@sql";
+import {
+  connectionQueueWait,
+  isConnectionScope,
+  withConnectionScope,
+} from "./connection-scope";
 import type { Driver } from "./driver";
 import { prepareAtomicBatch } from "./driver-batch-preparation";
 import { isVerbatimBatchQuery } from "./driver-batch-query-kind";
@@ -21,6 +26,7 @@ import {
 } from "./normalized-result";
 import { registerPreparedStatement } from "./prepared-statement-provenance";
 import { snapshotProviderParameters } from "./provider-parameter-snapshot";
+import { withSuppressedFailure } from "./shared/suppressed-failure";
 import {
   type BatchTransactionOptions,
   parseTransactionOptions,
@@ -30,10 +36,10 @@ import {
   type TransactionOptionContext,
   type TransactionOptions,
   type TransactionPlan,
-  transactionMaxWaitError,
 } from "./shared/transaction-options";
 import {
   createTransactionCleanupError,
+  ProviderTransactionContractError,
   readTransactionCleanupFailures,
   unsupportedCallbackTransactionError,
 } from "./shared/transactions";
@@ -56,7 +62,7 @@ function withoutTimeout(
 
 interface TransactionScopeDriver<TClient, TTransaction>
   extends Driver<TClient, TTransaction> {
-  closeTransactionScope(): void;
+  closeTransactionScope(error?: unknown): void;
   waitForActiveOperations(): Promise<void>;
   assertTransactionCommittable(): void;
   getTransactionFailure(): Error | undefined;
@@ -66,6 +72,10 @@ export abstract class DriverTransactionBase<
   TClient,
   TTransaction,
 > extends DriverInstrumentationBase<TClient, TTransaction> {
+  protected runTransactionBody<T>(body: () => Promise<T>): Promise<T> {
+    return body();
+  }
+
   protected abstract createTransactionBoundDriver(
     tx: TTransaction,
     context: QueryExecutionContext
@@ -73,7 +83,7 @@ export abstract class DriverTransactionBase<
   protected assertBaseOperationAllowedDuringTransaction(
     context: QueryExecutionContext
   ): void {
-    if (this.isConnectionTransactionActive)
+    if (isConnectionScope(this.connectionQueue))
       throw this.transactionBoundError(context);
   }
 
@@ -96,12 +106,7 @@ export abstract class DriverTransactionBase<
   private async runConnectionTransactionLease<T>(
     operation: () => Promise<T>
   ): Promise<T> {
-    this.isConnectionTransactionActive = true;
-    try {
-      return await operation();
-    } finally {
-      this.isConnectionTransactionActive = false;
-    }
+    return withConnectionScope(this.connectionQueue, operation);
   }
 
   /**
@@ -257,7 +262,13 @@ export abstract class DriverTransactionBase<
       : executeQuery;
     if (this.serializeTransactions && !this.inTransaction) {
       this.assertBaseOperationAllowedDuringTransaction(executionContext);
-      return this.connectionQueue.run(run);
+      return this.connectionQueue.run(
+        run,
+        connectionQueueWait(undefined, {
+          driverName: this.driverName,
+          form: "callback",
+        })
+      );
     }
     return run();
   }
@@ -447,7 +458,14 @@ export abstract class DriverTransactionBase<
           error,
           normalizeTransactionFailure
         );
-        this.transactionCleanupFailed(normalizedError);
+        if (
+          this.inTransaction ||
+          error instanceof ProviderTransactionContractError ||
+          (error instanceof AggregateError &&
+            error.errors[0] === error.cause &&
+            error.errors.length > 1)
+        )
+          this.transactionCleanupFailed(normalizedError);
         throw normalizedError;
       }
     };
@@ -534,17 +552,10 @@ export abstract class DriverTransactionBase<
     // a bounded-out transaction never reaches BEGIN, so nothing to roll back.
     const maxWaitMs =
       plan?.maxWaitMode === "queue" ? plan.maxWaitMs : undefined;
-    const wait =
-      maxWaitMs === undefined
-        ? undefined
-        : {
-            maxWaitMs,
-            onMaxWaitExceeded: () =>
-              transactionMaxWaitError(maxWaitMs, {
-                driverName: this.driverName,
-                form: "callback",
-              }),
-          };
+    const wait = connectionQueueWait(maxWaitMs, {
+      driverName: this.driverName,
+      form: "callback",
+    });
     const executeTransaction = (
       transactionContext: QueryExecutionContext,
       gate?: OfficialDriverLifecycleExecutionGate
@@ -610,10 +621,11 @@ export abstract class DriverTransactionBase<
       async (tx) => {
         txDriver = this.createTransactionBoundDriver(tx, executionContext);
         const boundDriver = txDriver;
+        const scopedBody = () => this.runTransactionBody(() => fn(boundDriver));
         const runBody = () =>
           timeoutMs === undefined
-            ? fn(boundDriver)
-            : runWithTransactionTimeout(() => fn(boundDriver), timeoutMs, {
+            ? scopedBody()
+            : runWithTransactionTimeout(scopedBody, timeoutMs, {
                 driverName: this.driverName,
                 form: "callback",
               });
@@ -624,13 +636,12 @@ export abstract class DriverTransactionBase<
           txDriver.assertTransactionCommittable();
           return result;
         } catch (error) {
-          txDriver.closeTransactionScope();
+          txDriver.closeTransactionScope(error);
           await txDriver.waitForActiveOperations();
           const scopeFailure = txDriver.getTransactionFailure();
-          if (scopeFailure && scopeFailure !== error) {
-            throw createTransactionCleanupError(error, [scopeFailure]);
-          }
-          throw error;
+          throw scopeFailure && scopeFailure !== error
+            ? withSuppressedFailure(error, scopeFailure)
+            : error;
         }
       },
       forwardedOptions,
@@ -652,7 +663,8 @@ export abstract class DriverTransactionBase<
     client: TClient | TTransaction,
     queries: BatchQuery[],
     context?: QueryExecutionContext,
-    _committed?: CommittedBatchNotification
+    _committed?: CommittedBatchNotification,
+    _options?: BatchTransactionOptions
   ): Promise<QueryResult<T>[]> {
     const batchContext = context ?? { operation: "executeBatch" };
     const results: QueryResult<T>[] = [];
@@ -808,7 +820,8 @@ export abstract class DriverTransactionBase<
               client,
               batchQueries,
               executionContext,
-              committed
+              committed,
+              options
             );
             assertNormalizedBatchResults(
               results,
@@ -867,7 +880,13 @@ export abstract class DriverTransactionBase<
         : () => executeNativeBatch();
       if (this.serializeTransactions && !this.inTransaction) {
         this.assertBaseOperationAllowedDuringTransaction(executionContext);
-        return this.connectionQueue.enqueue(submitNativeBatch);
+        return this.connectionQueue.enqueue(
+          submitNativeBatch,
+          connectionQueueWait(undefined, {
+            driverName: this.driverName,
+            form: "batch",
+          })
+        );
       }
       return submitNativeBatch();
     }

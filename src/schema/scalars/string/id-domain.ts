@@ -45,10 +45,9 @@ const DOMAINS = new WeakMap<ScalarState, IdDomain>();
  * domain: nothing admits its values and nothing narrows its storage.
  *
  * A LIST answers `undefined` deliberately, exactly as the decimal descriptor
- * lookup does: every path that asks this question — admission, parameter
- * encoding, projection, decode, DDL — is a path a list of strings does not
- * have, and answering with the member's domain would bind a whole container as
- * one identifier.
+ * lookup does: physical parameter encoding, projection, decode and DDL must
+ * not bind a whole container as one compact identifier. List admission reads
+ * the same declaration through idMemberDomainOfState instead.
  *
  * The projection is memoized per state so the hot write path compares and
  * encodes against one object instead of allocating a domain per value.
@@ -56,9 +55,14 @@ const DOMAINS = new WeakMap<ScalarState, IdDomain>();
 export function idDomainOfState(
   state: ScalarState | undefined
 ): IdDomain | undefined {
-  if (state === undefined || state.type !== "string" || state.array === true) {
-    return undefined;
-  }
+  return state?.array === true ? undefined : idMemberDomainOfState(state);
+}
+
+/** The named member domain, also used by lists with plain string storage. */
+export function idMemberDomainOfState(
+  state: ScalarState | undefined
+): IdDomain | undefined {
+  if (state === undefined || state.type !== "string") return undefined;
   const existing = DOMAINS.get(state);
   if (existing) return existing;
   const generate = state.autoGenerate;

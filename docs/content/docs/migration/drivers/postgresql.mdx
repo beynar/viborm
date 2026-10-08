@@ -1,161 +1,98 @@
 ---
 title: PostgreSQL Driver
-description: Full PostgreSQL migration support including native enums, arrays, and advanced index types
-icon: server
+description: PostgreSQL migration types, enum transitions, and transaction guarantees
+icon: database
 ---
 
-## Capabilities
+The migration client selects this renderer for PostgreSQL drivers. SQL targets
+the driver's immutable `namespace` (default `public`), including catalog reads,
+DDL, locks, and control tables. It never relies on `search_path`.
 
-| Feature | Supported |
-|---------|-----------|
-| Native enums | Yes |
-| Native arrays | Yes |
-| Index types | btree, hash, gin, gist |
-| Advisory locks | Yes |
-| Transactions | Full support |
+## Physical types
 
-## Type Mappings
+| Declaration | Default physical type |
+| --- | --- |
+| `s.string()` | `TEXT` |
+| `s.int()` | `INTEGER` |
+| `s.bigInt()` | `BIGINT` |
+| `s.number()` | `DOUBLE PRECISION` |
+| `s.decimal({ precision, scale })` | `NUMERIC(precision,scale)` |
+| `s.boolean()` | `BOOLEAN` |
+| `s.dateTime()` | `TIMESTAMPTZ(3)` |
+| `s.dateTime().withoutTimezone()` | `TIMESTAMP(3)` |
+| `s.date()` | `DATE` |
+| `s.time()` | `TIME(3)` |
+| `s.json()` | `JSONB` |
+| `s.blob()` | `BYTEA` |
+| `s.point()` | PostGIS `geography(Point,4326)` |
+| `s.enum(["active", "inactive"])` | A native named enum |
+| A supported `.array()` | The scalar's native type followed by `[]` |
 
-| VibORM Scalar | PostgreSQL Type |
-|-------------|-----------------|
-| `string()` | `text` |
-| `string().max(n)` | `varchar(n)` |
-| `int()` | `integer` |
-| `bigint()` | `bigint` |
-| `number()` | `double precision` |
-| `decimal({ precision, scale })` | `NUMERIC(precision,scale)` |
-| `decimal({ precision, scale }).array()` | `NUMERIC(precision,scale)[]` |
-| `boolean()` | `boolean` |
-| `datetime()` | `timestamp` |
-| `datetime().withTimezone()` | `timestamptz` |
-| `json()` | `jsonb` |
-| `blob()` | `bytea` |
-| `uuid()` | `uuid` |
-| `enumScalar()` | Native enum type |
-| Other array scalars | Native arrays (`text[]`, etc.) |
+Native overrides retain their typmods during introspection through
+`format_type()`: precision, scale, length, temporal precision, and array member
+types participate in comparison. Explicit `TIMETZ` remains a native declaration;
+public `s.time()` values have no offset component.
 
-## Auto-Increment
+DateTime defaults retain milliseconds. Zoned `.now()` uses
+`CURRENT_TIMESTAMP`; naive `.now()` explicitly converts the current instant to
+UTC. Date and Time `.now()` defaults also use UTC, and an explicitly zoned
+Time declaration receives a zero-offset current time. Literal dates and timestamps preserve proleptic year zero using PostgreSQL's
+BC spelling rather than asking the server to parse unsupported ISO year `0000`.
 
-PostgreSQL uses `SERIAL` and `BIGSERIAL` types for auto-increment:
-
-```ts
-const User = model("users", {
-  id: int().primaryKey().autoIncrement(),
-});
-```
-
-Generates:
-
-```sql
-CREATE TABLE "users" (
-  "id" serial PRIMARY KEY
-);
-```
-
-## UUID Generation
+## Enums
 
 ```ts
-const User = model("users", {
-  id: uuid().primaryKey().default("gen_random_uuid()"),
-});
+import { s } from "viborm";
+
+const user = s.model({
+  id: s.int().id().autoIncrement(),
+  status: s.enum(["active", "inactive"]).name("user_status"),
+}).map("users");
 ```
 
-Generates:
+Generated full-schema enum transitions use a transactional type replacement.
+This permits newly introduced values in dependent defaults and columns within
+the same transaction; PostgreSQL's `ADD VALUE` cannot use its new value before
+commit. The renderer preserves declared order, drops dependent defaults before
+casting, and restores the destination defaults afterward.
 
-```sql
-CREATE TABLE "users" (
-  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid()
-);
-```
+Removed values require explicit per-column mappings, including nullable columns.
+`useNull()` is a deliberate decision. Enum arrays preserve their order and NULL
+members. Renaming an enum casts through text to the destination enum. Reusing
+one name with incompatible value lists refuses generation. Enum migration
+preflight requires PostgreSQL 12 or later.
 
-## Native Enums
+## Guarantees and limits
 
-PostgreSQL supports native enum types:
+A bounded advisory try-lock retries for at most ten seconds. One successful
+acquisition is released once; a timeout refuses before migration effects.
+Transactional DDL, schema proof, marker compare-and-swap, and the append-only
+ledger govern effectful operations. A native type swap cannot recover data
+already deleted by an earlier migration.
 
-```ts
-const User = model("users", {
-  status: enumScalar(["active", "inactive", "pending"]),
-});
-```
+PostGIS must already be installed. VibORM proves the required extension-owned
+objects and never installs extensions. A managed-table list refuses dependencies
+crossing its boundary, including an enum shared with an unselected table.
 
-Generates:
+[Migration driver capabilities](/docs/migration/drivers) distinguish native
+PostgreSQL connections from hosted transports that lack a proven session/lock
+contract.
 
-```sql
-CREATE TYPE "users_status_enum" AS ENUM ('active', 'inactive', 'pending');
 
-CREATE TABLE "users" (
-  "status" "users_status_enum" NOT NULL
-);
-```
+## Native index and constraint fidelity
 
-### Enum Operations
+Indexes with expressions, descending keys, INCLUDE columns, nondefault opclasses
+or collations, or methods outside the declaration language refuse synchronization
+while their table is managed. VibORM preserves the existing artifact and refuses
+before effects; it does not turn a hand-authored HNSW or trigram index into an
+ordinary index. Excluding the table through `migrations.tables` requires the same
+closed dependency boundary as any selected scope.
 
-**Add value:**
+Equivalent primary, unique and foreign-key constraints whose physical names
+cannot be represented also refuse adoption before effects. Compound-key `name`
+is a query selector name; no physical constraint-name declaration is available.
+A faithful importer/native-index DSL remains a product gap.
 
-```sql
-ALTER TYPE "users_status_enum" ADD VALUE 'suspended';
-```
-
-:::warning[Transaction Limitation]
-`ALTER TYPE ... ADD VALUE` cannot run inside a transaction block. VibORM handles this by executing enum additions outside the main transaction.
-:::
-
-**Remove value:** Requires enum recreation (handled automatically).
-
-## Native Arrays
-
-PostgreSQL supports native array types:
-
-```ts
-const User = model("users", {
-  tags: string().array(),
-  scores: int().array(),
-});
-```
-
-Generates:
-
-```sql
-CREATE TABLE "users" (
-  "tags" text[] NOT NULL,
-  "scores" integer[] NOT NULL
-);
-```
-
-## Index Types
-
-The driver generates btree (default), hash, GIN, and GiST indexes, as well as partial indexes with `WHERE` clauses. See [Index Options](/docs/schema/model#index-options) for declaring them on models.
-
-## Advisory Locks
-
-The PostgreSQL driver uses advisory locks to prevent concurrent migrations:
-
-```sql
-SELECT pg_advisory_lock(123456789);
--- ... run migrations ...
-SELECT pg_advisory_unlock(123456789);
-```
-
-This ensures only one migration process runs at a time, even across multiple application instances.
-
-## Limitations
-
-| Limitation | Workaround |
-|------------|------------|
-| `ADD VALUE` in transaction | Executed outside transaction |
-| Enum value removal | Enum recreation |
-
-## Next Steps
-
-<CardGroup>
-  <Card
-    title="SQLite Driver"
-    description="SQLite-specific features"
-    href="/docs/migration/drivers/sqlite"
-  />
-  <Card
-    title="Migration Drivers"
-    description="Driver overview"
-    href="/docs/migration/drivers"
-  />
-</CardGroup>
+Vector migrations require `pgvector: true` and prove every required visible
+extension-owned vector type before effects. Install the extension yourself;
+VibORM never installs it during migration.

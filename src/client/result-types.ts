@@ -144,9 +144,27 @@ export interface BatchPayload {
  * Result type for count operations
  * Supports select for per-field counts like Prisma: count({ select: { _all: true, name: true } })
  */
-type SelectedCountResult<Selection> = Prettify<{
-  [K in keyof Selection as Selection[K] extends true ? K : never]: number;
-}>;
+/** Literal selections are required; runtime choices expose optional fields. */
+type SelectedFields<Selection, Fields> = {
+  [K in keyof Selection & keyof Fields as Selection[K] extends true | object
+    ? K
+    : never]: Fields[K];
+} & {
+  [K in keyof Selection & keyof Fields as Selection[K] extends true | object
+    ? never
+    : Extract<Selection[K], true | object> extends never
+      ? never
+      : K]?: Fields[K];
+};
+
+type SelectedCountResult<Selection> = Prettify<
+  SelectedFields<
+    Selection,
+    {
+      [K in keyof Selection]: number;
+    }
+  >
+>;
 
 export type CountResultType<
   Args,
@@ -931,21 +949,30 @@ export type InferSelectResult<
  * its own projection envelope. Splitting the map again here would put the same
  * key through two mapped types and let their guards drift apart.
  */
-type InferSelectedFields<S extends ModelState, Selection, ClientDefaults> = {
-  [K in keyof Selection & keyof S["shape"] as S["shape"][K] extends Scalar
-    ? Selection[K] extends true
-      ? K
-      : never
-    : S["shape"][K] extends AnyRelation
-      ? Selection[K] extends true | object
+type InferSelectedFields<
+  S extends ModelState,
+  Selection,
+  ClientDefaults,
+> = SelectedFields<
+  Selection,
+  {
+    [K in keyof Selection & keyof S["shape"] as S["shape"][K] extends Scalar
+      ? true extends Selection[K]
         ? K
         : never
-      : never]: S["shape"][K] extends Scalar
-    ? InferScalarOutput<S["shape"][K]>
-    : S["shape"][K] extends AnyRelation
-      ? InferSelectedRelation<S, K, S["shape"][K], Selection[K], ClientDefaults>
-      : never;
-};
+      : K]: S["shape"][K] extends Scalar
+      ? InferScalarOutput<S["shape"][K]>
+      : S["shape"][K] extends AnyRelation
+        ? InferSelectedRelation<
+            S,
+            K,
+            S["shape"][K],
+            Selection[K],
+            ClientDefaults
+          >
+        : never;
+  }
+>;
 
 /** One selected relation member, per target kind then per projection value. */
 type InferSelectedRelation<
@@ -982,13 +1009,13 @@ type PointScalarFieldKeys<S extends ModelState> = {
     : never;
 }[keyof S["shape"]];
 
-type NullablePointScalarFieldKeys<S extends ModelState> = {
-  [K in PointScalarFieldKeys<S>]: S["shape"][K] extends Scalar
+type NullableDistanceScalarFieldKeys<S extends ModelState> = {
+  [K in DistanceScalarFieldKeys<S>]: S["shape"][K] extends Scalar
     ? ExtractScalarState<S["shape"][K]>["nullable"] extends true
       ? K
       : never
     : never;
-}[PointScalarFieldKeys<S>];
+}[DistanceScalarFieldKeys<S>];
 
 type DistanceScalarFieldKeys<S extends ModelState> =
   | VectorScalarFieldKeys<S>
@@ -1016,9 +1043,23 @@ type RequiredKeys<T> = {
   [K in keyof T]-?: Record<never, never> extends Pick<T, K> ? never : K;
 }[keyof T];
 
-type DistanceValueForSources<S extends ModelState, Sources> = Extract<
+type CosineDistanceKeys<S extends ModelState, Selection> = {
+  [K in keyof Selection & VectorScalarFieldKeys<S>]: Selection[K] extends {
+    _distance: { metric: infer Metric };
+  }
+    ? "cosine" extends Metric
+      ? K
+      : never
+    : never;
+}[keyof Selection & VectorScalarFieldKeys<S>];
+
+type DistanceValueForSources<
+  S extends ModelState,
+  Sources,
+  Selection,
+> = Extract<
   keyof Sources,
-  NullablePointScalarFieldKeys<S>
+  NullableDistanceScalarFieldKeys<S> | CosineDistanceKeys<S, Selection>
 > extends never
   ? number
   : number | null;
@@ -1031,8 +1072,8 @@ type InferDistanceSelection<
 > = [keyof Remaining] extends [never]
   ? Record<never, never>
   : [RequiredKeys<Remaining>] extends [never]
-    ? { _distance?: DistanceValueForSources<S, Remaining> }
-    : { _distance: DistanceValueForSources<S, Remaining> };
+    ? { _distance?: DistanceValueForSources<S, Remaining, Selection> }
+    : { _distance: DistanceValueForSources<S, Remaining, Selection> };
 
 /**
  * To-many (list) relation keys — the exact set Prisma's `_count: true`
@@ -1187,47 +1228,63 @@ type IsDecimalScalar<F> =
  * half that is pinned behaviorally (tests/drivers/scalar-roundtrip-behavior.ts),
  * so the type follows it.
  */
-export type AggregateResultType<T extends ModelShape, Args> = Prettify<{
-  [K in keyof Args as K extends `_${string}` ? K : never]: K extends "_count"
-    ? Args[K] extends true
-      ? number
-      : Args[K] extends object
-        ? { [F in keyof Args[K]]: number }
-        : never
-    : K extends "_sum"
-      ? Args[K] extends object
-        ? {
-            // Decoded through the field's own scalar: bigint -> bigint,
-            // decimal -> Decimal, int/number -> number.
-            [F in keyof Args[K]]:
-              | (F extends ScalarKeys<T> ? InferScalarBase<T[F]> : number)
-              | null;
-          }
-        : never
-      : K extends "_avg"
-        ? Args[K] extends object
-          ? {
-              // An average OF decimals is still a decimal; every other numeric
-              // widens to a JS number, bigint included.
-              [F in keyof Args[K]]:
-                | (F extends ScalarKeys<T>
-                    ? IsDecimalScalar<T[F]> extends true
-                      ? Decimal
-                      : number
-                    : number)
-                | null;
-            }
-          : never
-        : K extends "_min" | "_max"
-          ? Args[K] extends object
-            ? {
-                [F in keyof Args[K]]: F extends ScalarKeys<T>
-                  ? InferScalarBase<T[F]> | null
-                  : never;
-              }
+export type AggregateResultType<T extends ModelShape, Args> = Prettify<
+  SelectedFields<
+    Args,
+    {
+      [K in keyof Args as K extends `_${string}`
+        ? K
+        : never]: K extends "_count"
+        ? Args[K] extends boolean
+          ? number
+          : Args[K] extends object
+            ? SelectedCountResult<Args[K]>
             : never
-          : never;
-}>;
+        : K extends "_sum"
+          ? Args[K] extends object
+            ? SelectedFields<
+                Args[K],
+                {
+                  // Decoded through the field's own scalar: bigint -> bigint,
+                  // decimal -> Decimal, int/number -> number.
+                  [F in keyof Args[K]]:
+                    | (F extends ScalarKeys<T> ? InferScalarBase<T[F]> : number)
+                    | null;
+                }
+              >
+            : never
+          : K extends "_avg"
+            ? Args[K] extends object
+              ? SelectedFields<
+                  Args[K],
+                  {
+                    // An average OF decimals is still a decimal; every other numeric
+                    // widens to a JS number, bigint included.
+                    [F in keyof Args[K]]:
+                      | (F extends ScalarKeys<T>
+                          ? IsDecimalScalar<T[F]> extends true
+                            ? Decimal
+                            : number
+                          : number)
+                      | null;
+                  }
+                >
+              : never
+            : K extends "_min" | "_max"
+              ? Args[K] extends object
+                ? SelectedFields<
+                    Args[K],
+                    {
+                      [F in keyof Args[K]]: F extends ScalarKeys<T>
+                        ? InferScalarBase<T[F]> | null
+                        : never;
+                    }
+                  >
+                : never
+              : never;
+    }
+  >
+>;
 
 // =============================================================================
 // GROUPBY RESULT TYPES
@@ -1243,9 +1300,7 @@ export type GroupByResultType<T extends ModelShape, Args> = Args extends {
   ? Prettify<
       // Grouped-by fields
       (B extends readonly (infer K)[]
-        ? K extends ScalarKeys<T> & keyof T
-          ? { [F in K]: InferScalarBase<T[F]> }
-          : never
+        ? { [F in Extract<K, ScalarKeys<T> & keyof T>]: InferScalarBase<T[F]> }
         : B extends ScalarKeys<T> & keyof T
           ? { [F in B]: InferScalarBase<T[F]> }
           : never) &

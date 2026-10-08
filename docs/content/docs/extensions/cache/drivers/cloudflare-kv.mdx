@@ -82,15 +82,17 @@ Cloudflare KV handles TTL natively. When a cache entry is stored:
 
 Cloudflare KV is eventually consistent across regions. After a write:
 
-- The same region sees the update immediately
-- Other regions typically see it within 60 seconds
-- This is acceptable for caching (stale data is expected)
+- Updates and invalidations may remain stale across locations, including cached
+  misses. The backend provides no cross-region read-after-write guarantee.
+- Use this backend only when the application accepts stale reads; do not use
+  cache invalidation as an authorization or transactional consistency boundary.
 
 ### Prefix-Based Invalidation
 
-When invalidating with patterns like `user:*`, the driver:
+For a trailing-star prefix such as `user:*` (other glob syntax is not supported),
+the driver:
 
-1. Lists all keys with the prefix
+1. Lists all pages of keys with the prefix
 2. Deletes each matching key
 
 :::warning

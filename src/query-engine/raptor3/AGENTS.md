@@ -921,21 +921,13 @@ unique failure after successful rollback. A plain `borrowed-transaction`
 binding owns no such region even when its driver supports savepoints: neither
 the payload nor transport capability grants that authority.
 
-Where the operation owns no member rollback region (a batch-only driver
-standalone, batch preparation, or a `borrowed-transaction` binding without
-`memberRollback`), the skip is DROPPED, never refused (Arnaud, 2026-09-24,
-"Warn, drop skipDuplicates"). `OperationContext.admitsSuppression` is the one
-rule and the one sentence: it answers whether the member may be skipped and, when
-it may not, warns once per client lineage and model (the official
-instrumentation extension's `warn` when it routes warnings, `console.warn`
-otherwise) and the member runs as a plain member.
-A duplicate then fails with the ordinary `UniqueConstraintError`, and members an
-earlier segment committed stay committed, exactly as for the same `createMany`
-without `skipDuplicates`. The rule is asked where the skip would be spent — at
-`executeSkippableMember` for a record series and at the MySQL
-`recoverableUniqueError` scalar path — so an arm that never runs never warns;
-there is no construction-time refusal, payload walker, public permission, or
-operation-local policy flag.
+Where the operation owns no member rollback region (a batch-only driver,
+batch preparation, or a borrowed binding without `memberRollback`), member
+suppression is refused with `UnsupportedOperationError`. Plan construction asks
+the existing `admitsSuppression` owner for root relation-bearing, nested, and
+MySQL recoverable per-row shapes before any effects; execution asks the same
+owner when spending the capability. No skip flag is dropped and no warning
+registry exists. Native root scalar conflict skipping remains supported.
 
 Failed-INSERT producer attribution is evidence, not replay authority. The scope
 is stated once, by `OperationContext.recoveryRejection`, and that statement is
@@ -1927,16 +1919,14 @@ the same operation. The two facts are `PreparedSelector.uniqueValues` and
 `Assignments.known`, the pair `CommandExecution.matchesSelectedConstraint`
 already reads together.
 
-The one-recovery allowance is an ATTRIBUTION and PROGRESS fact, never a
-transport fact. `OperationContext.recoveryRejection` asks only whether this
-standalone operation's exact failed INSERT (or its atomic assertion) is the
-error in hand and whether anything has been acknowledged — the shipped
-`hasCommittedRecordSeriesProgress` (`write-engine/routing.ts:197`), which this
-context states once as `committedProgress`: `committedSegments === 0` and
-`!mayHaveCommittedSegment`. It no longer asks `usesBatch`, and — Arnaud's
-D-25 — it asks about ATTRIBUTION and PROGRESS only. (This SUPERSEDES the earlier
-sentence "it answers `undefined` unless the ownership is standalone AND the
-route is the physical batch".)
+The one-recovery allowance requires exact failed-INSERT attribution, a conflict
+on the choice's selected constraint, and no acknowledged progress. It applies
+to a standalone operation or an interactive callback operation whose granted
+operation region has rolled back. The callback's existing savepoint owner
+re-enters the operation with the same admitted arguments; borrowed array scopes
+receive no such grant and never retry in place. `CommandExecution` owns the
+selected-constraint matcher; `OperationContext` owns the single allowance and
+region lifetime. Public error metadata is not the rollback proof.
 
 A rejected INSERT is ATTRIBUTED under the bound its OWN route's recovery needs,
 and that bound belongs to the site that RECORDS the producer, never to the
@@ -1959,8 +1949,8 @@ change.
 
 Which recovery REPLAYS and which RE-PLANS is a fact about the ROUTE, not about
 the kind of rejection. Exactly one replays: `CommandExecution.recover`, the
-in-place path, available only where this operation opened no region of its own
-(`replaysInPlace`) — its `complete` loop re-runs the SAME occurrence tree, which
+in-place path, available only on a standalone operation that opened no region
+of its own (`replaysInPlace`) — its `complete` loop re-runs the SAME occurrence tree, which
 is why a missing winner there is not permission to attempt the INSERT again. The
 other three RE-PLAN, because each re-enters the body `commands/index.ts` builds:
 the REGION re-entry (`regionAttempt` — the INSERT recovery on every

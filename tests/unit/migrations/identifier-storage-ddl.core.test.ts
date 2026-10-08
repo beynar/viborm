@@ -530,6 +530,7 @@ describe("what a differ sees", () => {
         "dateTime",
         "decimal",
         "default",
+        "geoPointEncoding",
         "name",
         "nullable",
         "type",

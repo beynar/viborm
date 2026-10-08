@@ -274,7 +274,7 @@ export const createSubqueries = (
   scalar: (query: Sql): Sql => sql`(${query})`,
 
   correlate: (query: Sql, alias: string): Sql =>
-    sql`(${query}) AS ${sql.raw`${quoteIdent(alias)}`}`,
+    sql`(${query}) AS ${sql.raw(quoteIdent(alias))}`,
 
   existsCheck: (from: Sql, where: Sql): Sql =>
     sql`SELECT 1 FROM ${from} WHERE ${where}`,
@@ -314,7 +314,7 @@ export const createInsertStatement =
     source: Sql[][] | { readonly select: Sql },
     prefix?: Sql
   ): Sql => {
-    const cols = columns.map((c) => sql.raw`${quoteIdent(c)}`);
+    const cols = columns.map((c) => sql.raw(quoteIdent(c)));
     const body = Array.isArray(source)
       ? sql`VALUES ${sql.join(
           source.map((row) => sql`(${sql.join(row, ", ")})`),
@@ -429,7 +429,7 @@ export const createCommonExpressions = (): Pick<
 export const createCastExpression =
   (typeMap: Record<CastType, string>): DatabaseAdapter["expressions"]["cast"] =>
   (expr: Sql, type: CastType): Sql =>
-    sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
+    sql`CAST(${expr} AS ${sql.raw(typeMap[type])})`;
 
 export const createCoreJoins = (): Pick<
   DatabaseAdapter["joins"],
@@ -451,10 +451,10 @@ export const createLateralJoins = (
   quoteIdent: IdentifierQuoter
 ): Pick<DatabaseAdapter["joins"], "lateral" | "lateralLeft"> => ({
   lateral: (subquery: Sql, alias: string): Sql =>
-    sql`JOIN LATERAL (${subquery}) AS ${sql.raw`${quoteIdent(alias)}`} ON TRUE`,
+    sql`JOIN LATERAL (${subquery}) AS ${sql.raw(quoteIdent(alias))} ON TRUE`,
 
   lateralLeft: (subquery: Sql, alias: string): Sql =>
-    sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw`${quoteIdent(alias)}`} ON TRUE`,
+    sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw(quoteIdent(alias))} ON TRUE`,
 });
 
 /**

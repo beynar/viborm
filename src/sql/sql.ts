@@ -148,21 +148,24 @@ export class Sql {
  * - `raw("ORDER BY name DESC")` — Prisma's unsafe string splice. The caller
  *   owns the escaping; never hand it user input.
  * - ``raw`TRUE` `` — the tagged-template form the adapters use for dialect
- *   keywords. Interpolations are concatenated into the text, not bound.
+ *   keywords. Interpolations are refused; use `sql` for bound values.
  */
-function raw(value: string): Sql;
-function raw(strings: readonly string[], ...values: readonly RawValue[]): Sql;
+function raw(value: string | readonly string[]): Sql;
 function raw(
   strings: string | readonly string[],
   ...values: readonly RawValue[]
 ): Sql {
+  if (
+    values.length !== 0 ||
+    (typeof strings !== "string" && strings.length !== 1)
+  )
+    throw new TypeError(
+      "raw templates cannot interpolate values; use sql for parameters or raw(trustedText) for explicit SQL text."
+    );
   if (typeof strings === "string") {
     return new Sql([strings], []);
   }
-  const concatenated = strings.reduce((acc, string, index) => {
-    return acc + string + (values[index] ?? "");
-  }, "");
-  return new Sql([concatenated], []);
+  return new Sql(strings, []);
 }
 
 /**
@@ -211,8 +214,8 @@ export { empty, join, raw, sqlTag as sql };
 
 /**
  * Type guard for Sql fragments. Structural check rather than instanceof so it
- * also matches fragments from a duplicated module instance (e.g. dual CJS/ESM
- * builds).
+ * also matches fragments from a duplicated module instance. A document with
+ * strings/values arrays is data; executable SQL also has the renderer method.
  */
 export function isSql(value: unknown): value is Sql {
   if (value instanceof Sql) return true;
@@ -221,5 +224,11 @@ export function isSql(value: unknown): value is Sql {
   const strings = Reflect.get(value, "strings");
   if (!Array.isArray(strings)) return false;
 
-  return Array.isArray(Reflect.get(value, "values"));
+  const values = Reflect.get(value, "values");
+  return (
+    Array.isArray(values) &&
+    strings.length === values.length + 1 &&
+    strings.every((part) => typeof part === "string") &&
+    typeof Reflect.get(value, "toStatement") === "function"
+  );
 }

@@ -855,3 +855,14 @@ const renderedCall = () =>
 type _renderedTextAgrees = Expect<
   Agree<Awaited<ReturnType<typeof renderedCall>>, VibORMOperationResult>
 >;
+
+// A singular recurrence carries one parent per hop, not a filtered collection.
+client.node.findMany({
+  // @ts-expect-error singular recursive nodes do not accept collection filters
+  include: { parent: { recurse: true, where: { label: "x" } } },
+});
+const singularOrder = {
+  include: { parent: { recurse: true, orderBy: { label: "asc" } } },
+} as const;
+// @ts-expect-error held recursive nodes also refuse collection ordering
+client.node.findMany(singularOrder);

@@ -39,16 +39,27 @@ export function compileBindBudgetChunks(
   let start = 0;
   while (start < itemCount) {
     let lower = start + 1;
-    let upper = itemCount;
+    let upper = Math.min(itemCount, start + 1);
     let largest: CompiledBindBudgetChunk | undefined;
-    while (lower <= upper) {
-      const end = lower + Math.floor((upper - lower) / 2);
-      const statement = compile(start, end);
-      if (statement.values.length <= maxBindParametersPerStatement) {
-        largest = { start, end, statement };
-        lower = end + 1;
-      } else {
-        upper = end - 1;
+    // Probe geometrically from this window, never from the entire remaining
+    // suffix. Oversized compilation stays proportional to a window's size.
+    while (true) {
+      const statement = compile(start, upper);
+      if (statement.values.length > maxBindParametersPerStatement) break;
+      largest = { start, end: upper, statement };
+      if (upper === itemCount) break;
+      lower = upper + 1;
+      upper = Math.min(itemCount, start + (upper - start) * 2);
+    }
+    if (largest?.end !== itemCount) {
+      upper -= 1;
+      while (lower <= upper) {
+        const end = lower + Math.floor((upper - lower) / 2);
+        const statement = compile(start, end);
+        if (statement.values.length <= maxBindParametersPerStatement) {
+          largest = { start, end, statement };
+          lower = end + 1;
+        } else upper = end - 1;
       }
     }
     const chunk = largest ?? {

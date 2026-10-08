@@ -70,6 +70,7 @@ function classify(failure: MappedFailure): string {
       return "assertion";
     case VibORMErrorCode.TRANSACTION_FAILED:
     case VibORMErrorCode.TRANSACTION_TIMEOUT:
+    case VibORMErrorCode.TRANSACTION_CONTENTION:
     case VibORMErrorCode.DEADLOCK:
     case VibORMErrorCode.SERIALIZATION_FAILURE:
     case VibORMErrorCode.INVALID_TRANSACTION_INPUT:

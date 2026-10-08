@@ -1,4 +1,4 @@
-import type { AnyDriver } from "@drivers";
+import type { AnyDriver } from "@drivers/exports";
 import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { TransactionWriteOutcomes } from "@extensions/query";
 import type { Model } from "@schema/model";

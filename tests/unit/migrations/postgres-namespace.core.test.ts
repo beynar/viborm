@@ -600,7 +600,7 @@ describe("introspection is relative to the estate's schema", () => {
     }
   });
 
-  it("keeps the built-in type reading every existing snapshot holds", async () => {
+  it("retains the server formatted built-in type and modifiers", async () => {
     const executor = catalogExecutor({
       tables: [{ table_name: "users" }],
       columns: [
@@ -620,28 +620,21 @@ describe("introspection is relative to the estate's schema", () => {
     });
     const snapshot = await billing.introspect(executor.execute);
 
-    // `format_type` would answer `integer` / `character varying(255)`; the
-    // udt_name path answers `int4` / `varchar(255)`, and that is what is
-    // pinned — reading the formatted spelling for a built-in would rewrite
-    // every column of every existing snapshot.
-    //
-    // The default is pinned for the same reason: the generic terminal-cast
-    // strip is UNCHANGED, including its blind spot for a multi-word type name,
-    // so `'none'::character varying` reads back exactly as it does today. The
-    // enum strip is additive beside it, never a replacement for it.
+    // Built-ins now retain server typmods, and the cast grammar removes the
+    // complete multi-word terminal cast before comparing the typed default.
     expect(snapshot.tables[0]?.columns).toEqual([
       {
         name: "id",
-        type: "int4",
+        type: "integer",
         nullable: false,
         default: undefined,
         autoIncrement: true,
       },
       {
         name: "email",
-        type: "varchar(255)",
+        type: "character varying(255)",
         nullable: false,
-        default: "'none'::character varying",
+        default: "'none'",
         autoIncrement: false,
       },
     ]);

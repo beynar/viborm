@@ -113,6 +113,51 @@ describe("normalizeDriverError fixtures", () => {
     });
   });
 
+  test.each([
+    ["SQLITE_CONSTRAINT_UNIQUE", "UNIQUE", "UniqueConstraintError"],
+    ["SQLITE_CONSTRAINT_NOTNULL", "NOT NULL", "NotNullConstraintError"],
+  ])("code-recognized %s still captures SQLite constraint columns", (code, kind, name) => {
+    const error = normalizeDriverError(
+      Object.assign(
+        new Error(
+          `${kind} constraint failed: users.email_address, users.nickname`
+        ),
+        { code }
+      ),
+      { driverName: "sqlite3", dialect: "sqlite" }
+    );
+    expect(error).toMatchObject({
+      name,
+      meta: { table: "users", columns: ["email_address", "nickname"] },
+    });
+  });
+
+  test("quoted SQLite constraint identifiers retain their literal leaves", () => {
+    const error = normalizeDriverError(
+      Object.assign(
+        new Error(
+          'UNIQUE constraint failed: "main"."a.b"."first,last", "main"."a.b"."quote""name"'
+        ),
+        { code: "SQLITE_CONSTRAINT_UNIQUE" }
+      ),
+      { driverName: "sqlite3", dialect: "sqlite" }
+    );
+    expect(error.meta).toMatchObject({
+      table: "main.a.b",
+      columns: ["first,last", 'quote"name'],
+    });
+  });
+
+  test.each([
+    [{ code: "ETIMEDOUT" }, "V1002", "ConnectionError"],
+    [{ code: "57014" }, "V2002", "QueryError"],
+    [{ code: "ER_LOCK_WAIT_TIMEOUT", errno: 1205 }, "V2002", "QueryError"],
+  ])("provider timeout %j has a retryable dedicated code", (raw, code, name) => {
+    const error = normalizeDriverError(raw, { driverName: "pg" });
+    expect(error).toMatchObject({ code, name });
+    expect(error.isRetryable()).toBe(true);
+  });
+
   test("strips D1's SQLITE_CONSTRAINT suffix from constraint columns", () => {
     const raw = new Error(
       "D1_ERROR: UNIQUE constraint failed: users.email: SQLITE_CONSTRAINT"
@@ -121,7 +166,9 @@ describe("normalizeDriverError fixtures", () => {
     const error = normalizeDriverError(raw, { driverName: "d1" });
 
     expect(error).toBeInstanceOf(UniqueConstraintError);
-    expect(error).toMatchObject({ meta: { columns: ["users.email"] } });
+    expect(error).toMatchObject({
+      meta: { table: "users", columns: ["email"] },
+    });
   });
 
   /**
@@ -230,20 +277,38 @@ describe("normalizeDriverError fixtures", () => {
     });
   });
 
+  test("distinguishes PostgreSQL lock contention from a deadlock", () => {
+    const error = normalizeDriverError(
+      Object.assign(new Error("could not obtain lock on relation"), {
+        code: "55P03",
+      }),
+      { driverName: "pg", dialect: "postgresql" }
+    );
+    expect(error).toBeInstanceOf(TransactionError);
+    if (!isVibORMError(error)) throw new Error("expected a VibORMError");
+    expect(error.code).toBe(VibORMErrorCode.TRANSACTION_CONTENTION);
+    expect(error.isRetryable()).toBe(true);
+    expect(error.meta.providerCode).toBe("55P03");
+  });
+
   test("maps SQLITE_BUSY and SQLITE_LOCKED to retryable transaction errors", () => {
     const byCode = normalizeDriverError(
       Object.assign(new Error("database is locked"), { code: "SQLITE_BUSY" }),
       { ...context, dialect: "sqlite" }
     );
     expect(byCode).toBeInstanceOf(TransactionError);
-    expect(byCode).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
+    expect(byCode).toMatchObject({
+      code: VibORMErrorCode.TRANSACTION_CONTENTION,
+    });
 
     const byMessage = normalizeDriverError(
       new Error("D1_ERROR: database is locked: SQLITE_BUSY"),
       { ...context, dialect: "sqlite" }
     );
     expect(byMessage).toBeInstanceOf(TransactionError);
-    expect(byMessage).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
+    expect(byMessage).toMatchObject({
+      code: VibORMErrorCode.TRANSACTION_CONTENTION,
+    });
 
     const locked = normalizeDriverError(
       Object.assign(new Error("database table is locked"), {
@@ -252,6 +317,9 @@ describe("normalizeDriverError fixtures", () => {
       { ...context, dialect: "sqlite" }
     );
     expect(locked).toBeInstanceOf(TransactionError);
+    if (!isVibORMError(locked)) throw new Error("expected a VibORMError");
+    expect(locked.code).toBe(VibORMErrorCode.TRANSACTION_CONTENTION);
+    expect(locked.isRetryable()).toBe(true);
   });
 
   /**
@@ -275,7 +343,7 @@ describe("normalizeDriverError fixtures", () => {
 
     expect(error).toBeInstanceOf(TransactionError);
     if (!isVibORMError(error)) throw new Error("expected a VibORMError");
-    expect(error.code).toBe(VibORMErrorCode.DEADLOCK);
+    expect(error.code).toBe(VibORMErrorCode.TRANSACTION_CONTENTION);
     // The name must also survive sanitizeProviderCode's allowlist, or the
     // caller keeps the retry and loses which family it came from.
     expect(error.meta.providerCode).toBe(code);
@@ -290,7 +358,9 @@ describe("normalizeDriverError fixtures", () => {
     );
 
     expect(error).toBeInstanceOf(TransactionError);
-    expect(error).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
+    expect(error).toMatchObject({
+      code: VibORMErrorCode.TRANSACTION_CONTENTION,
+    });
   });
 
   test.each([
@@ -312,14 +382,18 @@ describe("normalizeDriverError fixtures", () => {
       { driverName: "sqlite3", dialect: "sqlite" }
     );
     expect(byCode).toBeInstanceOf(TransactionError);
-    expect(byCode).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
+    expect(byCode).toMatchObject({
+      code: VibORMErrorCode.TRANSACTION_CONTENTION,
+    });
 
     const byErrno = normalizeDriverError(
       Object.assign(new Error("database is locked"), { errno: value }),
       { driverName: "sqlite3", dialect: "sqlite" }
     );
     expect(byErrno).toBeInstanceOf(TransactionError);
-    expect(byErrno).toMatchObject({ code: VibORMErrorCode.DEADLOCK });
+    expect(byErrno).toMatchObject({
+      code: VibORMErrorCode.TRANSACTION_CONTENTION,
+    });
   });
 
   test.each<{ label: string; dialect: Dialect | undefined }>([
@@ -780,7 +854,7 @@ describe("SQLite contention reaching the normalizer through a driver", () => {
       driver._executeRaw("INSERT INTO users DEFAULT VALUES")
     ).rejects.toMatchObject({
       name: "TransactionError",
-      code: VibORMErrorCode.DEADLOCK,
+      code: VibORMErrorCode.TRANSACTION_CONTENTION,
       meta: { driver: "numeric-busy", providerErrno: 261 },
     });
 

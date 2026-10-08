@@ -15,8 +15,12 @@
  *
  */
 
-import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
 import { markVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
+import type {
+  AnyDriver,
+  QueryExecutionContext,
+  QueryResult,
+} from "@drivers/exports";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import { validateRawParameters } from "@drivers/provider-parameter-snapshot";
 import {
@@ -39,6 +43,7 @@ import {
   createOperationExecutionContext,
   createRawOperationInstrumentationFacts,
   observeTransactionBatchPhase,
+  withOperationErrorContext,
 } from "@query-engine/execution-context";
 import { PendingExecution } from "@query-engine/pending-execution";
 import type { QueryEngine } from "@query-engine/query-engine";
@@ -489,6 +494,12 @@ class DeferredRawOperation<T>
   }
 
   #run(driver: AnyDriver): Promise<T> {
+    return withOperationErrorContext(this.#context, () =>
+      this.#runAttributed(driver)
+    );
+  }
+
+  #runAttributed(driver: AnyDriver): Promise<T> {
     const handlers = this.#queryHandlers;
     if (handlers === undefined || handlers.length === 0) {
       return this.#runResolved(

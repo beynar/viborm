@@ -368,13 +368,10 @@ type HandlerOutcome<Value> =
   | {
       readonly status: "rejected";
       readonly reason: unknown;
-      readonly failure: QueryError;
+      readonly failure: Error;
     };
 
-type ExtensionFailures =
-  | readonly [QueryError]
-  | readonly [QueryError, QueryError]
-  | undefined;
+type ExtensionFailures = readonly [Error] | readonly [Error, Error] | undefined;
 
 /**
  * Run one already-compiled interceptor chain around one prepared child.
@@ -596,7 +593,9 @@ async function runOneInterceptor<Result, Input extends object>(
     throw childOutcome.reason;
   }
   if (extensionFailures) throwExtensionFailures(extensionFailures);
-  return childOutcome.value;
+  return handlerOutcome.status === "fulfilled"
+    ? handlerOutcome.value
+    : childOutcome.value;
 }
 
 function selectExtensionFailures(
@@ -692,7 +691,8 @@ function interceptorFailure<Input extends object>(
   context: PreparedQueryContext<Input>,
   reason: unknown,
   commitCertainty?: WriteOutcome["certainty"]
-): QueryError {
+): Error {
+  if (isError(reason)) return reason;
   return interceptorError(
     extension,
     context,

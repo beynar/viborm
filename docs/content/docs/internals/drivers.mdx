@@ -28,13 +28,14 @@ Drivers abstract these differences behind a common interface.
 
 ## Driver Interface
 
-Drivers extend the abstract `Driver` base class (see `src/drivers/driver.ts`). It is generic over the underlying client and transaction handle, carries the SQL adapter for its dialect, and manages lazy connection, transaction queuing, and error mapping. Subclasses implement five methods:
+Drivers extend the abstract `Driver` base class (see `src/drivers/driver.ts`). It is generic over the underlying client and transaction handle, carries the SQL adapter for its dialect, and manages lazy connection, transaction queuing, and error mapping. Subclasses implement five methods and provide their typed result parser:
 
 ```typescript
 abstract class Driver<TClient, TTransaction> {
   readonly dialect: Dialect;                    // "postgres" | "mysql" | "sqlite"
   readonly driverName: string;
   abstract readonly adapter: DatabaseAdapter;   // SQL adapter for this dialect
+  abstract readonly result: DriverResultParser; // physical-to-logical result codecs
   readonly supportsTransactions: boolean;       // false for batch-only clients (D1 binding, Neon HTTP)
   readonly supportsBatch: boolean;              // true for atomic-batch APIs (D1, Neon HTTP)
 
@@ -46,6 +47,20 @@ abstract class Driver<TClient, TTransaction> {
   protected abstract transaction<T>(client, fn: (tx: TTransaction) => Promise<T>, context?): Promise<T>;
 }
 ```
+
+A custom SQLite driver can reuse the stock field-aware parser:
+
+```typescript
+import { Driver, sqliteResultParser } from "viborm/driver";
+
+class CustomSQLiteDriver extends Driver<CustomClient, CustomTransaction> {
+  readonly result = sqliteResultParser;
+  // Implement the adapter and provider methods shown above.
+}
+```
+
+The parser is required for typed SQLite booleans, integers, dates, JSON and
+other physical representations. Raw execution returns physical provider values.
 
 ## Available Drivers
 

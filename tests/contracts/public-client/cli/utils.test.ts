@@ -1,3 +1,5 @@
+import { readSuppressedFailures } from "@src/drivers/shared/suppressed-failure";
+import { MigrationError, VibORMErrorCode } from "@src/errors";
 /**
  * Unit tests for `src/cli/utils.ts` — the CLI's pure/config layer.
  *
@@ -13,8 +15,7 @@
 import { join } from "node:path";
 import { chdir, cwd } from "node:process";
 import { pathToFileURL } from "node:url";
-import { defineConfig, failCli, loadConfig } from "@src/cli/utils";
-import { SchemaValidationError } from "@src/schema/validation";
+import { defineConfig, failCli, finishCli, loadConfig } from "@src/cli/utils";
 import {
   makeTempProject,
   type TempProject,
@@ -24,8 +25,6 @@ import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const MISSING_CONFIG_FILE_PATTERN = /Could not find VibORM configuration file/;
-const TS_LOADER_HINT_PATTERN =
-  /Make sure you're running with a TypeScript loader/;
 const MISSING_CLIENT_PATTERN = /Missing "client"/;
 const INVALID_CLIENT_PATTERN = /Invalid "client"/;
 const NO_MODELS_PATTERN = /No models found in client schema/;
@@ -120,26 +119,24 @@ describe("loadConfig", () => {
     expect(message).toContain("viborm.config.mjs");
   });
 
-  it("re-throws the TypeScript-loader hint when a .ts config fails to import", async () => {
-    // A .ts file whose import blows up hits the endsWith(.ts) branch of
-    // importModule, which swallows the raw error and returns the loader hint.
+  it("preserves the original error from a TypeScript config", async () => {
     writeConfigFixture(project, {
       rawConfigSource: "throw new Error('boom inside config');",
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      "bun --bun viborm push"
+      "boom inside config"
     );
   });
 
-  it("re-throws the TypeScript-loader hint when a discovered .mts config fails", async () => {
+  it("preserves the original error from a discovered .mts config", async () => {
     writeConfigFixture(project, {
       configName: "viborm.config.mts",
       rawConfigSource: "throw new Error('boom inside mts config');",
     });
     chdir(project.dir);
 
-    await expect(loadConfig()).rejects.toThrow(TS_LOADER_HINT_PATTERN);
+    await expect(loadConfig()).rejects.toThrow("boom inside mts config");
   });
 
   it("preserves a JavaScript config import failure", async () => {
@@ -177,8 +174,8 @@ describe("loadConfig", () => {
       (error: unknown) => error
     );
 
-    expect(thrown).toBeInstanceOf(SchemaValidationError);
-    if (!(thrown instanceof SchemaValidationError)) {
+    expect(thrown).toMatchObject({ name: "SchemaValidationError" });
+    if (!(thrown instanceof Error && "issues" in thrown)) {
       throw new Error("expected the original SchemaValidationError");
     }
     expect(thrown.issues).toEqual(
@@ -213,8 +210,8 @@ describe("loadConfig", () => {
       (error: unknown) => error
     );
 
-    expect(thrown).toBeInstanceOf(SchemaValidationError);
-    if (!(thrown instanceof SchemaValidationError)) {
+    expect(thrown).toMatchObject({ name: "SchemaValidationError" });
+    if (!(thrown instanceof Error && "issues" in thrown)) {
       throw new Error("expected the original SchemaValidationError");
     }
     expect(thrown.issues).toContainEqual(
@@ -442,5 +439,60 @@ export default { client: { $driver: {}, $schema: schema } };
     } finally {
       project.cleanup();
     }
+  });
+});
+
+describe("CLI finalization", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("awaits disconnect before reporting the trusted primary and preserves cleanup evidence", async () => {
+    const primary = new MigrationError(
+      "Rename decision required",
+      VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+    );
+    const cleanup = new Error("close failed");
+    const order: string[] = [];
+    const client = {
+      $disconnect: async () => {
+        order.push("cleanup");
+        throw cleanup;
+      },
+    };
+    const output: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    const sentinel = new Error("exited");
+    vi.spyOn(process, "exit").mockImplementation(() => {
+      order.push("exit");
+      throw sentinel;
+    });
+    await expect(finishCli(client, { value: primary }, true)).rejects.toBe(
+      sentinel
+    );
+    expect(order).toEqual(["cleanup", "exit"]);
+    expect(JSON.parse(output.join(""))).toMatchObject({
+      error: { code: "V11010", message: "Rename decision required" },
+      exitCode: 20,
+    });
+    expect(readSuppressedFailures(primary)).toEqual([cleanup]);
+  });
+  it("reports a failed close even without an operation failure", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const sentinel = new Error("exited");
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw sentinel;
+    });
+    await expect(
+      finishCli(
+        {
+          $disconnect: async () => {
+            throw new Error("close");
+          },
+        },
+        undefined
+      )
+    ).rejects.toBe(sentinel);
+    expect(exit).toHaveBeenCalledWith(1);
   });
 });

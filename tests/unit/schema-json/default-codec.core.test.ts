@@ -20,6 +20,7 @@ import { s } from "@schema";
 import type { Schema } from "@schema/hydration";
 import type { SchemaDocument } from "@schema/json";
 import { parseSchema, serializeSchema } from "@schema/json";
+import { JsonNull } from "@schema/json-null";
 import type { Scalar } from "@schema/scalars/base";
 import type { JsonValue } from "@validation/primitives/json";
 import { describe, expect, it } from "vitest";
@@ -254,7 +255,9 @@ describe("recursion", () => {
 
   it("reads a bare `$raw` payload as the literal it wraps", () => {
     expect(boundDefault({ type: "json", default: { $raw: 1 } })).toBe(1);
-    expect(boundDefault({ type: "json", default: { $raw: null } })).toBe(null);
+    expect(boundDefault({ type: "json", default: { $raw: null } })).toBe(
+      JsonNull
+    );
     expect(boundDefault({ type: "json", default: { $raw: [1, 2] } })).toEqual([
       1, 2,
     ]);

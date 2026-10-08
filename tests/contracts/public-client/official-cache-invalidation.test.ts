@@ -54,12 +54,12 @@ function encodeNamespaceComponent(schemaName: string): string {
  * differs per suite and per run — so it alone is encoded, by the local encoder
  * above, and every other byte of the join stays spelled out.
  *
- * The revision reads `r3`: the dialect and SQL namespace entered the derivation
- * at `r2`, and a stored decimal changed meaning at `r3`. No entry of an older
+ * The revision reads `r4`: the dialect and SQL namespace entered the derivation
+ * at `r2`, a stored decimal changed meaning at `r3`, and r4 verifies exact query identity. No entry of an older
  * revision may be served to a reader holding the newer contract.
  */
 function officialNamespaces(schemaName: string) {
-  const scope = `viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:${encodeNamespaceComponent(schemaName)}`;
+  const scope = `viborm:cache:r4:d:0070006f0073007400670072006500730071006c:k:${encodeNamespaceComponent(schemaName)}`;
   return Object.freeze({
     one: `${scope}:s:006f006e0065`,
     tx: `${scope}:s:00740078`,

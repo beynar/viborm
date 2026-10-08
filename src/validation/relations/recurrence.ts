@@ -55,15 +55,22 @@ export type RecurrenceSchema =
 
 /** `true`, `{}` and an omitted or undefined nested `depth` mean this depth. */
 const DEFAULT_DEPTH = 100;
+const DEPTH_BOUNDS = Object.freeze({ minimum: 1, maximum: 1000 });
 
 // An integer inside 1..1000 is necessarily a positive safe integer.
-const depth = createSchema<number, number>("integer", (value) => {
-  const integer = validateInteger(value);
-  if (integer.issues) return integer;
-  return integer.value >= 1 && integer.value <= 1000
-    ? ok(integer.value)
-    : fail("recurse.depth must be a positive safe integer between 1 and 1000");
-});
+const depth = Object.assign(
+  createSchema<number, number>("integer", (value) => {
+    const integer = validateInteger(value);
+    if (integer.issues) return integer;
+    return integer.value >= DEPTH_BOUNDS.minimum &&
+      integer.value <= DEPTH_BOUNDS.maximum
+      ? ok(integer.value)
+      : fail(
+          "recurse.depth must be a positive safe integer between 1 and 1000"
+        );
+  }),
+  DEPTH_BOUNDS
+);
 
 const foreignKeyOptions = v.object({
   depth: v.optional(v.union([depth, v.literal(false)])),

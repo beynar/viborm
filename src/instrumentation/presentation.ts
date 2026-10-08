@@ -4,7 +4,7 @@
  * an attribute key or a log event.
  */
 
-import type { QueryExecutionContext } from "@drivers";
+import type { QueryExecutionContext } from "@drivers/exports";
 import {
   type DriverIdentity,
   type DriverIdentitySource,

@@ -22,7 +22,7 @@
  */
 
 import { BunSQLDriver } from "@drivers/bun-sql";
-import { PostgresDriver } from "@drivers/postgres";
+import { PostgresDriver, vibormTypes } from "@drivers/postgres";
 import { readSuppressedFailures } from "@drivers/shared";
 import {
   condemnPhysicalSession,
@@ -77,6 +77,11 @@ function reservingTransport(
       : Promise.resolve();
   };
   const transport = {
+    options: {
+      parsers: Object.fromEntries(
+        [1082, 1114, 1184].map((oid) => [oid, vibormTypes.timestamp?.parse])
+      ),
+    },
     unsafe: () => {
       events.push("ordinary");
       // Both providers hand back an array carrying the provider's own result

@@ -3,6 +3,7 @@ import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
+  nullableDefault,
   type ScalarState,
   updateState,
 } from "../common";
@@ -30,14 +31,16 @@ export class NumberScalar<State extends ScalarState<"number">> {
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         base: v.number<{
           nullable: true;
           array: State["array"];
+          schema: State["schema"];
         }>({
           nullable: true,
           array: this.state.array,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType
@@ -51,9 +54,11 @@ export class NumberScalar<State extends ScalarState<"number">> {
         base: v.number<{
           nullable: State["nullable"];
           array: true;
+          schema: State["schema"];
         }>({
           nullable: this.state.nullable,
           array: true,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType

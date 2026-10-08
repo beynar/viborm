@@ -165,7 +165,17 @@ Cache keys and suffixes never reach units, spans, logs, errors, or correlation.
 ## Backend rules
 
 - Backends implement asynchronous `get`, `set`, `delete`, and `clear` only.
-- Memory timers use the complete storage TTL and are `unref()`'d.
+- MemoryCache defaults to a 1024-entry LRU bound; `maxEntries` is its only
+  public construction option. One `unref()` sweep timer expires entries by
+  their absolute storage deadline, including TTLs above the host timer range.
+- KV clamps physical expiry to 60 seconds. CacheDriver enforces logical fresh
+  and stale deadlines and the revalidation marker's own age.
+- Official entries verify full canonical identity before materialization; the
+  private snapshot revision is r4. Durable mutations invalidate the complete
+  bound scope by default; `autoInvalidate: false` opts out.
+- Invalidation suppresses earlier fills on the same CacheDriver instance,
+  including fills whose backend set finishes late. Generic KV is eventual:
+  this is not a cross-process linearizability guarantee.
 - Cloudflare KV listing follows cursors until complete.
 - Backend code does not apply versioning, canonical identity, SWR policy,
   instrumentation policy, or transaction semantics.

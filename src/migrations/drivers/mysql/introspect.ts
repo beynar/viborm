@@ -568,9 +568,19 @@ function cleanDefault(col: MySQLColumn): string | undefined {
  */
 function admitContainedForeignKeys(
   rows: readonly MySQLForeignKey[],
-  namespace: string
+  namespace: string,
+  tables?: readonly string[]
 ): void {
   for (const row of rows) {
+    if (
+      tables !== undefined &&
+      !(row.TABLE_SCHEMA === namespace && tables.includes(row.TABLE_NAME)) &&
+      !(
+        row.REFERENCED_TABLE_SCHEMA === namespace &&
+        tables.includes(row.REFERENCED_TABLE_NAME)
+      )
+    )
+      continue;
     if (
       row.TABLE_SCHEMA === namespace &&
       row.REFERENCED_TABLE_SCHEMA === namespace
@@ -604,7 +614,8 @@ function admitContainedForeignKeys(
 
 export async function introspect(
   executeRaw: CatalogReader,
-  namespace: string | undefined
+  namespace: string | undefined,
+  managedTables?: readonly string[]
 ): Promise<SchemaSnapshot> {
   // The database is proven to exist BEFORE anything is read, so an absent one
   // can never be published as an empty inventory (§5.2). Its returned spelling
@@ -629,7 +640,11 @@ export async function introspect(
     [catalogNamespace, catalogNamespace]
   );
 
-  admitContainedForeignKeys(foreignKeysResult.rows, catalogNamespace);
+  admitContainedForeignKeys(
+    foreignKeysResult.rows,
+    catalogNamespace,
+    managedTables
+  );
 
   // Group results
   const columnsByTable = groupBy(columnsResult.rows, (col) => col.TABLE_NAME);
@@ -640,7 +655,7 @@ export async function introspect(
     (idx) => idx.INDEX_NAME
   );
   const fkByTable = groupByNested(
-    foreignKeysResult.rows,
+    foreignKeysResult.rows.filter((fk) => fk.TABLE_SCHEMA === catalogNamespace),
     (fk) => fk.TABLE_NAME,
     (fk) => fk.CONSTRAINT_NAME
   );
@@ -672,12 +687,14 @@ export async function introspect(
         }
       }
 
-      const decimal = readDecimalDomain(col);
+      const managed =
+        managedTables === undefined || managedTables.includes(tableName);
+      const decimal = managed ? readDecimalDomain(col) : undefined;
       columns.push({
         name: col.COLUMN_NAME,
-        type: formatColumnType(col),
+        type: managed ? formatColumnType(col) : col.COLUMN_TYPE,
         nullable: col.IS_NULLABLE === "YES",
-        default: cleanDefault(col),
+        default: managed ? cleanDefault(col) : undefined,
         autoIncrement: isAutoIncrement(col.EXTRA),
         decimal,
       });

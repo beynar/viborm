@@ -259,7 +259,7 @@ describe("isoTime schema", () => {
       const valid = "10:30:00";
       const result = parse(schema, valid);
       expect(result.issues).toBeUndefined();
-      expect((result as { value: string }).value).toBe(valid);
+      expect((result as { value: string }).value).toBe("10:30:00.000");
     });
 
     test("validates times with milliseconds", () => {

@@ -1,6 +1,6 @@
 ---
 title: Omitting Fields
-description: Control model truth, client defaults, and per-query projections
+description: Control model row projections, client defaults, and per-query projections
 icon: eye-off
 ---
 
@@ -18,13 +18,13 @@ const users = await client.user.findMany({
 
 | Layer | Spelling | Meaning | Can a query undo it? |
 |---|---|---|---|
-| Model | `s.model({...}).omit({...})` | Schema truth: the scalar is not public | No |
+| Model | `s.model({...}).omit({...})` | Exclude the scalar from model row projections | No |
 | Client default | [`defaultOmit<typeof schema>()({...})`](/docs/extensions/omit) | Default projection on one derived client | Yes |
 | Query | `findMany({ omit: {...} })` | Projection for one call | — |
 
 ### Model `.omit()`
 
-Model omit is a hard public-schema exclusion. The field has no `select` or
+Model omit excludes a field from returned model rows. The field has no `select` or
 `omit` key and is not selected from the database:
 
 ```ts
@@ -33,8 +33,10 @@ const vault = s
   .omit({ secret: true });
 ```
 
-Use this for fields that must never appear through the model API. It is still
-not a substitute for database authorization or complete RBAC.
+Aggregates and `groupBy` can still return the field's values, and filters,
+ordering, distinct and cursors can still use it. Do not use omit to protect a
+secret from callers who can choose query arguments. Enforce those permissions
+in your application or database.
 
 ### Client `defaultOmit()`
 
@@ -51,7 +53,6 @@ projection:
 
 ```ts
 await client.user.findMany({
-  select: { id: true, email: true, passwordHash: true },
   omit: { passwordHash: true },
   include: {
     posts: { omit: { draftBody: true } },
@@ -66,7 +67,7 @@ present.
 ## Security boundary
 
 Query omit and `defaultOmit()` are presentation defaults and are intentionally
-overridable. Model `.omit()` is stronger model-surface truth, but none of the
-three proves row authorization, relation authorization, or raw-SQL policy.
+overridable. Model `.omit()` makes the row projection exclusion permanent,
+but none of the three authorizes access to fields, rows, relations or raw SQL.
 VibORM's extension system is a foundation for a future graph-wide policy
 capability; it does not ship an RBAC helper today.

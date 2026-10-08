@@ -36,7 +36,7 @@ import { fromObject } from "./from-object";
 import type { GeoPoint } from "./geo-point-codec";
 import type { IsoDateSchema, IsoTimeSchema, IsoTimestampSchema } from "./iso";
 import { isoDate, isoTime, isoTimestamp } from "./iso";
-import type { JsonSchema, JsonValue } from "./json";
+import type { JsonInput, JsonSchema, JsonValue } from "./json";
 import { json } from "./json";
 import type { JsonNullOrSchema, JsonWriteSchema } from "./json-null";
 import { jsonNullOr, jsonWrite } from "./json-null";
@@ -311,8 +311,8 @@ export namespace V {
    * Type-level JSON schema.
    */
   export type Json<
-    Opts extends ScalarOptions<JsonValue, any> | undefined = undefined,
-  > = JsonSchema<ComputeInput<JsonValue, Opts>, ComputeOutput<JsonValue, Opts>>;
+    Opts extends ScalarOptions<JsonInput, any> | undefined = undefined,
+  > = JsonSchema<ComputeInput<JsonInput, Opts>, ComputeOutput<JsonValue, Opts>>;
 
   /**
    * Type-level blob schema (Uint8Array or Buffer-like).

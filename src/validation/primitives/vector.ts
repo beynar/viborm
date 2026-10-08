@@ -52,8 +52,8 @@ function createVectorValidator(dimensions?: number) {
 
     const len = value.length;
     for (let i = 0; i < len; i++) {
-      if (!isNumber(value[i]) || Number.isNaN(value[i])) {
-        return fail(`Expected number at index ${i}`);
+      if (!(isNumber(value[i]) && Number.isFinite(value[i]))) {
+        return fail(`Expected finite number at index ${i}`);
       }
     }
 

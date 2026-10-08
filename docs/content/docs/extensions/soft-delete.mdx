@@ -300,9 +300,10 @@ With the official [cache](/docs/extensions/cache), a cached read is keyed on
 its resolved `deleted` value: an absent `deleted` and `deleted: "without"`
 share one entry, `"with"` and `"only"` have their own. A soft-delete client and
 the client it was built from never share entries. A delete with
-`cache: { autoInvalidate: true }` clears its model's entries like a hard
-delete; entries of other models that include the deleted row stay until they
-expire or are invalidated, as after a hard delete. The cache works in either
+`cache: { autoInvalidate: true }` clears the complete bound cache scope after
+a durable write, including entries for other models that include the deleted row,
+as after a hard delete. Automatic invalidation is enabled by default; opting out
+requires manual invalidation. The cache works in either
 order: `softDelete(config)(client.$extends(cache(…)))` or
 `softDelete(config)(client).$extends(cache(…))`.
 

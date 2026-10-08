@@ -551,10 +551,10 @@ describe("PostgreSQL DDL Generation", () => {
 
       // Should convert columns to text first
       expect(statements[0]).toBe(
-        'ALTER TABLE "users" ALTER COLUMN "status" TYPE text'
+        'ALTER TABLE "users" ALTER COLUMN "status" TYPE text USING "status"::text'
       );
       expect(statements[1]).toBe(
-        'ALTER TABLE "orders" ALTER COLUMN "order_status" TYPE text'
+        'ALTER TABLE "orders" ALTER COLUMN "order_status" TYPE text USING "order_status"::text'
       );
 
       // Should UPDATE with default replacement
@@ -628,7 +628,7 @@ describe("PostgreSQL DDL Generation", () => {
       };
 
       expect(() => generateDDL(op)).toThrow(
-        'Cannot alter enum "status": newValues required when removing values'
+        'Cannot alter enum "status" without its full destination values'
       );
     });
 
@@ -775,34 +775,24 @@ describe("PostgreSQL DDL Generation", () => {
       );
     });
 
-    it("should add warning comment when values have no replacement", () => {
+    it("leaves an unmapped enum value visible to the provider rather than inventing NULL", () => {
       const op: DiffOperation = {
         type: "alterEnum",
         enumName: "status",
         removeValues: ["pending", "archived"],
         newValues: ["active", "inactive"],
         dependentColumns: [{ tableName: "users", columnName: "status" }],
-        valueReplacements: {
-          pending: "active", // only pending has replacement
-        },
-        // archived has no replacement
+        valueReplacements: { pending: "active" },
       };
-
       const ddl = generateDDL(op);
-
-      // Should include warning about archived
       expect(ddl).toContain(
-        "-- WARNING: The following removed values have no replacement: 'archived'"
+        `UPDATE "users" SET "status" = 'active' WHERE "status" = 'pending'`
       );
-      expect(ddl).toContain(
-        "-- If rows exist with these values, the migration will fail."
-      );
-      expect(ddl).toContain(
-        '--   1. Add valueReplacements: { "archived": "newValue" }'
-      );
-      expect(ddl).toContain(
-        "--   2. Set defaultReplacement to your column's default value"
-      );
+      expect(ddl).not.toContain(`SET "status" = NULL`);
+      expect(ddl).not.toContain(`WHERE "status" = 'archived'`);
+      // Planning requires complete per-column consent; this low-level DDL
+      // remains atomic and the final enum cast refuses an unmapped stored value.
+      expect(ddl).toContain('TYPE "status" USING "status"::"status"');
     });
 
     it("should not add warning when all values have replacements", () => {
@@ -882,7 +872,7 @@ describe("PostgreSQL DDL Generation", () => {
           createMockScalar(createScalarState("datetime")),
           createScalarState("datetime")
         )
-      ).toBe("timestamp");
+      ).toBe("timestamp(3)");
       // datetime with timezone -> timestamptz
       expect(
         postgresMigrationDriver.mapScalarType(
@@ -891,7 +881,7 @@ describe("PostgreSQL DDL Generation", () => {
           ),
           createScalarState("datetime", { withTimezone: true })
         )
-      ).toBe("timestamptz");
+      ).toBe("timestamptz(3)");
       expect(
         postgresMigrationDriver.mapScalarType(
           createMockScalar(createScalarState("json")),
@@ -961,14 +951,14 @@ describe("PostgreSQL DDL Generation", () => {
           createMockScalar(createScalarState("time")),
           createScalarState("time")
         )
-      ).toBe("time");
+      ).toBe("time(3)");
       // time with timezone -> timetz
       expect(
         postgresMigrationDriver.mapScalarType(
           createMockScalar(createScalarState("time", { withTimezone: true })),
           createScalarState("time", { withTimezone: true })
         )
-      ).toBe("timetz");
+      ).toBe("timetz(3)");
     });
   });
 });

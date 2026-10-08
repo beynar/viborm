@@ -107,7 +107,8 @@ export function taggedRelationCodec(
           else return failCacheSnapshot();
         }
         const target = type === undefined ? undefined : variants.get(type);
-        if (!target || data === undefined) return failCacheSnapshot();
+        if (!target || data === undefined || data === null)
+          return failCacheSnapshot();
         return entries.map(([key, item]) => [
           key,
           key === "type" ? type : target.snapshot(item, active),
@@ -126,7 +127,8 @@ export function taggedRelationCodec(
           else return failCacheSnapshot();
         }
         const target = type === undefined ? undefined : variants.get(type);
-        if (!target || dataSnapshot === undefined) return failCacheSnapshot();
+        if (!target || dataSnapshot === undefined || dataSnapshot === null)
+          return failCacheSnapshot();
         const result: Record<string, unknown> = {};
         for (const [key] of decoded) {
           defineSnapshotProperty(

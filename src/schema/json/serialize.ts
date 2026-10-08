@@ -330,7 +330,11 @@ function serializeScalar(
     if (document.type === "point") {
       refusePointState(path, "generate", issues);
     } else {
-      writeGenerate(document, state.autoGenerate);
+      writeGenerate(
+        document,
+        state.autoGenerate,
+        state.isId || isGeneratorDefault(state.default)
+      );
     }
   }
   if (state.schema !== undefined) {
@@ -692,11 +696,20 @@ function readTarget(getter: Getter, path: string): unknown {
  */
 function writeGenerate(
   document: { generate?: GenerateDocument },
-  autoGenerate: AutoGenerate
+  autoGenerate: AutoGenerate,
+  generated: boolean
 ): void {
   const implicit = autoGenerate.implicit === true;
-  if (implicit && autoGenerate.prefix === undefined) return;
+  const enabled = autoGenerate.generate ?? generated;
+  if (implicit && autoGenerate.prefix === undefined && enabled) return;
   const generate: GenerateDocument = { kind: autoGenerate.kind };
+  if (
+    ["uuid", "uuidv7", "ulid", "ksuid", "nanoid", "cuid"].includes(
+      autoGenerate.kind
+    ) &&
+    !enabled
+  )
+    generate.generate = false;
   if (autoGenerate.prefix !== undefined) generate.prefix = autoGenerate.prefix;
   if (autoGenerate.length !== undefined) generate.length = autoGenerate.length;
   if (implicit) generate.implicit = true;

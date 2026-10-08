@@ -195,7 +195,10 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     const { SQL } = await import("bun");
 
     if (this.driverOptions.databaseUrl) {
-      return new SQL(this.driverOptions.databaseUrl) as unknown as BunSQL;
+      return new SQL({
+        ...this.driverOptions.options,
+        url: this.driverOptions.databaseUrl,
+      }) as unknown as BunSQL;
     }
 
     return new SQL(this.driverOptions.options ?? {}) as unknown as BunSQL;
@@ -284,14 +287,9 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
       run: (callback) => client.begin(callback),
       callback: fn,
       phases: getExecutionTransactionPhases(context),
-      // Containment for a transaction the provider broke, through the one place
-      // that decides whether a transport may be closed at all: closing the
-      // caller's transport to contain VibORM's transaction would be a far
-      // larger effect than the one being contained.
-      close: async () => {
-        await this.closeClient(client);
-        this.client = null;
-      },
+      // The provider transaction primitive already rolls back/discards its
+      // failed session. A transaction does not own this shared pool/database.
+      close: async () => undefined,
     });
   }
 

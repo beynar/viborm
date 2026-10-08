@@ -133,7 +133,7 @@ const DRIVER_CONTRACTS: readonly DriverContract[] = [
   {
     name: "Neon HTTP",
     create: () => new NeonHTTPDriver(),
-    isolationLevel: "unsupported",
+    isolationLevel: "provider",
     timeout: false,
     maxWait: "unsupported",
   },

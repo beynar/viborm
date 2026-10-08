@@ -10,9 +10,9 @@ import {
   type DecimalDescriptor,
   decimalColumnType,
 } from "@validation/primitives/decimal-codec";
+import { SQLITE_GEO_POINT_TYPE } from "../../adapters/databases/sqlite/storage/geo-point";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { SQLITE_DECIMAL_LIST_TYPE } from "../decimal";
-import { SQLITE_GEO_POINT_TYPE } from "./sqlite/geo-point";
 
 // =============================================================================
 // TYPE MAPPING CONSTANTS
@@ -27,11 +27,11 @@ export const PG_TYPE_DEFAULTS = {
   int: PG.INT.INTEGER.type,
   number: PG.FLOAT.DOUBLE_PRECISION.type,
   boolean: PG.BOOLEAN.BOOLEAN.type,
-  datetime: "timestamp",
-  datetimetz: "timestamptz",
+  datetime: PG.DATETIME.TIMESTAMP(3).type,
+  datetimetz: PG.DATETIME.TIMESTAMPTZ(3).type,
   date: PG.DATETIME.DATE.type,
-  time: "time",
-  timetz: "timetz",
+  time: PG.DATETIME.TIME(3).type,
+  timetz: PG.DATETIME.TIMETZ(3).type,
   bigint: PG.BIGINT.BIGINT.type,
   json: PG.JSON.JSONB.type,
   blob: PG.BLOB.BYTEA.type,

@@ -53,7 +53,7 @@ const TTL_PATTERN = /^(\d+(?:\.\d+)?)\s*([a-z]+)$/;
 
 export function parseTTL(ttl: string | number): number {
   if (typeof ttl === "number") {
-    if (ttl <= 0) {
+    if (!Number.isFinite(ttl) || ttl <= 0 || ttl > Number.MAX_SAFE_INTEGER) {
       throw new CacheInvalidTTLError(`TTL must be positive, got: ${ttl}`);
     }
     return ttl;
@@ -83,7 +83,7 @@ export function parseTTL(ttl: string | number): number {
 
   const result = Math.floor(value * multiplier);
 
-  if (result <= 0) {
+  if (!Number.isSafeInteger(result) || result <= 0) {
     throw new CacheInvalidTTLError(
       `TTL must be positive, got: ${result}ms from "${ttl}"`
     );

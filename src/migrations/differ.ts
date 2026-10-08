@@ -1,3 +1,5 @@
+import { sqliteGeoPointEncoding } from "../adapters/databases/sqlite/storage/geo-point";
+
 /**
  * Schema Differ
  *
@@ -6,12 +8,18 @@
  */
 
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
+import { MigrationError, VibORMErrorCode } from "../errors";
 import {
   decimalChangeNarrows,
   describeDecimalDomain,
   migrationDecimalStorageKind,
 } from "./decimal";
-import { normalizeDefault, normalizeType } from "./push-fingerprint";
+import { inlineEnumValues } from "./push/enum-removals";
+import {
+  canonicalUniqueEntities,
+  normalizeDefault,
+  normalizeType,
+} from "./push-fingerprint";
 import type {
   AmbiguousChange,
   ColumnDef,
@@ -74,6 +82,9 @@ export interface DiffOptions {
    * therefore the declared one.
    */
   matchConstraintsByShape?: boolean;
+
+  /** Effectful planning admission; diagnostic diffs must retain drift evidence. */
+  refuseConstraintNameChurn?: boolean;
 }
 
 /** Canonical spellings, keyed by table and by the predicate as declared. */
@@ -149,7 +160,8 @@ function columnPropertiesEqual(
   return (
     normalizeType(a.type) === normalizeType(b.type) &&
     a.nullable === b.nullable &&
-    normalizeDefault(a.default) === normalizeDefault(b.default) &&
+    normalizeDefault(a.default, a.type) ===
+      normalizeDefault(b.default, b.type) &&
     // The declared domain is compared beside the physical type, not instead of
     // it, because the two carry different amounts of the fact per dialect: a
     // PostgreSQL `numeric(10,5)` spells its whole domain in the type, while a
@@ -157,6 +169,7 @@ function columnPropertiesEqual(
     // scale there is. Left out, a SQLite descriptor change plans NOTHING —
     // the type is byte-identical on both sides — and the column silently keeps
     // storing coefficients at the old scale.
+    sqliteGeoPointEncoding(a) === sqliteGeoPointEncoding(b) &&
     sameDecimalDescriptor(a.decimal, b.decimal) &&
     (!compareDateTimeDeclarations || a.dateTime === b.dateTime)
   );
@@ -384,16 +397,67 @@ interface TableDiffResult {
   ambiguousChanges: AmbiguousChange[];
 }
 
+function refuseConstraintNameMismatch(
+  table: string,
+  actual: string,
+  desired: string
+): never {
+  throw new MigrationError(
+    `Constraint "${table}.${actual}" already enforces the desired definition under a different physical name ("${desired}"). This declaration cannot faithfully adopt that name. Synchronization refuses before effects instead of dropping and recreating an equivalent constraint. Public key names select fields; they do not declare physical constraint names.`,
+    VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+    { meta: { table, constraint: actual } }
+  );
+}
+
 function diffTable(
   tableName: string,
   current: TableDef,
   desired: TableDef,
   canonical: CanonicalPredicates,
   matchConstraintsByShape: boolean,
-  compareDateTimeDeclarations: boolean
+  compareDateTimeDeclarations: boolean,
+  refuseConstraintNameChurn: boolean
 ): TableDiffResult {
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
+
+  if (!matchConstraintsByShape && refuseConstraintNameChurn) {
+    for (const constraint of desired.foreignKeys) {
+      if (current.foreignKeys.some((actual) => actual.name === constraint.name))
+        continue;
+      const actual = current.foreignKeys.find(
+        (actual) => foreignKeyShape(actual) === foreignKeyShape(constraint)
+      );
+      if (actual)
+        refuseConstraintNameMismatch(tableName, actual.name, constraint.name);
+    }
+    for (const constraint of desired.uniqueConstraints) {
+      if (
+        current.uniqueConstraints.some(
+          (actual) => actual.name === constraint.name
+        )
+      )
+        continue;
+      const actual = current.uniqueConstraints.find(
+        (actual) =>
+          uniqueConstraintShape(actual) === uniqueConstraintShape(constraint)
+      );
+      if (actual)
+        refuseConstraintNameMismatch(tableName, actual.name, constraint.name);
+    }
+    const currentPk = current.primaryKey,
+      desiredPk = desired.primaryKey;
+    if (
+      currentPk &&
+      desiredPk &&
+      arraysEqual(currentPk.columns, desiredPk.columns)
+    ) {
+      const actual = currentPk.name ?? `${tableName}_pkey`,
+        wanted = desiredPk.name ?? `${tableName}_pkey`;
+      if (actual !== wanted)
+        refuseConstraintNameMismatch(tableName, actual, wanted);
+    }
+  }
 
   // Build column maps
   const currentColumns = new Map(current.columns.map((c) => [c.name, c]));
@@ -467,13 +531,49 @@ function diffTable(
       currentCol &&
       !columnsEqual(currentCol, desiredCol, compareDateTimeDeclarations)
     ) {
-      operations.push({
-        type: "alterColumn",
-        tableName,
-        columnName: name,
-        from: currentCol,
-        to: desiredCol,
-      });
+      const previousValues = inlineEnumValues(currentCol.type);
+      const nextValues = inlineEnumValues(desiredCol.type);
+      if (
+        previousValues &&
+        nextValues &&
+        normalizeType(currentCol.type) !== normalizeType(desiredCol.type)
+      ) {
+        operations.push({
+          type: "alterEnum",
+          enumName: desiredCol.type,
+          newValues: nextValues,
+          addValues: nextValues.filter(
+            (value) => !previousValues.includes(value)
+          ),
+          removeValues: previousValues.filter(
+            (value) => !nextValues.includes(value)
+          ),
+          dependentColumns: [{ tableName, columnName: name }],
+        });
+        const converted = { ...currentCol, type: desiredCol.type };
+        if (
+          !columnPropertiesEqual(
+            converted,
+            desiredCol,
+            compareDateTimeDeclarations
+          )
+        )
+          operations.push({
+            type: "alterColumn",
+            tableName,
+            columnName: name,
+            from: converted,
+            to: desiredCol,
+          });
+      } else {
+        operations.push({
+          type: "alterColumn",
+          tableName,
+          columnName: name,
+          from: currentCol,
+          to: desiredCol,
+        });
+      }
     }
   }
 
@@ -608,12 +708,41 @@ function diffTable(
  * transform the current schema into the desired schema.
  */
 export async function diff(
-  current: SchemaSnapshot,
-  desired: SchemaSnapshot,
+  physicalCurrent: SchemaSnapshot,
+  physicalDesired: SchemaSnapshot,
   options: DiffOptions = {}
 ): Promise<DiffResult> {
+  const current = canonicalUniqueEntities(physicalCurrent);
+  const desired = canonicalUniqueEntities(physicalDesired);
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
+
+  // Logical polymorphic vocabulary is persisted only in authored snapshots.
+  // Never publish an empty transition which changes the meaning of stored ids.
+  for (const previous of current.polymorphicStorage ?? []) {
+    const next = desired.polymorphicStorage?.find(
+      (item) =>
+        item.ownerTable === previous.ownerTable &&
+        item.relation === previous.relation &&
+        item.kind === previous.kind
+    );
+    if (!next) continue;
+    for (const member of previous.members) {
+      const destination = next.members.find(
+        (item) => item.publicType === member.publicType
+      );
+      if (
+        destination &&
+        (destination.storedType !== member.storedType ||
+          destination.targetTable !== member.targetTable)
+      ) {
+        throw new MigrationError(
+          `Polymorphic storage "${previous.ownerTable}.${previous.relation}" changes stored meaning for "${member.publicType}"; author an explicit manual data transition`,
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        );
+      }
+    }
+  }
 
   // Build table maps
   const currentTables = new Map(current.tables.map((t) => [t.name, t]));
@@ -645,39 +774,39 @@ export async function diff(
   const usedDropped = new Set<string>();
   const usedAdded = new Set<string>();
 
-  // For table renames, we check if the structure is similar
-  for (const droppedName of droppedTables) {
-    const droppedTable = currentTables.get(droppedName)!;
-
-    for (const addedName of addedTables) {
-      if (usedDropped.has(droppedName) || usedAdded.has(addedName)) continue;
-
-      const addedTable = desiredTables.get(addedName)!;
-
-      // Check if tables have similar structure (same column names)
-      const droppedColNames = new Set(droppedTable.columns.map((c) => c.name));
-      const addedColNames = new Set(addedTable.columns.map((c) => c.name));
-
-      // Calculate similarity (Jaccard index)
-      const intersection = [...droppedColNames].filter((n) =>
-        addedColNames.has(n)
-      );
-      const union = new Set([...droppedColNames, ...addedColNames]);
-      const similarity = intersection.length / union.size;
-
-      // If tables are very similar (>= 70% column overlap), suggest rename
-      if (similarity >= 0.7) {
-        ambiguousChanges.push({
-          type: "ambiguousTable",
-          droppedTable: droppedName,
-          addedTable: addedName,
-          droppedTableDef: droppedTable,
-          addedTableDef: addedTable,
-        });
-        usedDropped.add(droppedName);
-        usedAdded.add(addedName);
-      }
-    }
+  // Similarity orders questions, never answers them: even a zero-overlap
+  // drop/create pair still requires an explicit author decision. Present the
+  // strongest matches first so an unrelated drop cannot consume a clear rename.
+  const candidates = droppedTables
+    .flatMap((droppedName) => {
+      const droppedTable = currentTables.get(droppedName)!;
+      return addedTables.map((addedName) => {
+        const addedTable = desiredTables.get(addedName)!;
+        const matchingColumns = droppedTable.columns.filter((column) =>
+          addedTable.columns.some((other) => columnsEqual(column, other, true))
+        ).length;
+        return {
+          droppedName,
+          addedName,
+          droppedTable,
+          addedTable,
+          matchingColumns,
+        };
+      });
+    })
+    .sort((a, b) => b.matchingColumns - a.matchingColumns);
+  for (const candidate of candidates) {
+    const { droppedName, addedName, droppedTable, addedTable } = candidate;
+    if (usedDropped.has(droppedName) || usedAdded.has(addedName)) continue;
+    ambiguousChanges.push({
+      type: "ambiguousTable",
+      droppedTable: droppedName,
+      addedTable: addedName,
+      droppedTableDef: droppedTable,
+      addedTableDef: addedTable,
+    });
+    usedDropped.add(droppedName);
+    usedAdded.add(addedName);
   }
 
   // Add operations for non-ambiguous table drops and creates
@@ -704,7 +833,8 @@ export async function diff(
         desiredTable,
         canonicalPredicates,
         options.matchConstraintsByShape ?? false,
-        options.compareDateTimeDeclarations ?? false
+        options.compareDateTimeDeclarations ?? false,
+        options.refuseConstraintNameChurn ?? false
       );
       operations.push(...tableDiff.operations);
       ambiguousChanges.push(...tableDiff.ambiguousChanges);
@@ -726,7 +856,7 @@ export async function diff(
         }> = [];
         for (const table of current.tables) {
           for (const column of table.columns) {
-            if (column.type === name) {
+            if (column.type === name || column.type === `${name}[]`) {
               dependentColumns.push({
                 tableName: table.name,
                 columnName: column.name,
@@ -761,24 +891,25 @@ export async function diff(
           (v) => !desiredEnum.values.includes(v)
         );
 
-        if (addValues.length > 0 || removeValues.length > 0) {
+        if (
+          addValues.length > 0 ||
+          removeValues.length > 0 ||
+          !arraysEqual(currentEnum.values, desiredEnum.values)
+        ) {
           // When removing values, we need to find all columns that use this enum
           // so we can temporarily convert them to text during the recreation
           let dependentColumns:
             | Array<{ tableName: string; columnName: string }>
             | undefined;
-
-          if (removeValues.length > 0) {
-            dependentColumns = [];
-            // Search through all tables (current schema) for columns using this enum
-            for (const table of current.tables) {
-              for (const column of table.columns) {
-                if (column.type === name) {
-                  dependentColumns.push({
-                    tableName: table.name,
-                    columnName: column.name,
-                  });
-                }
+          dependentColumns = [];
+          // Search through all tables (current schema) for columns using this enum
+          for (const table of current.tables) {
+            for (const column of table.columns) {
+              if (column.type === name || column.type === `${name}[]`) {
+                dependentColumns.push({
+                  tableName: table.name,
+                  columnName: column.name,
+                });
               }
             }
           }
@@ -788,7 +919,7 @@ export async function diff(
             enumName: name,
             addValues: addValues.length > 0 ? addValues : undefined,
             removeValues: removeValues.length > 0 ? removeValues : undefined,
-            newValues: removeValues.length > 0 ? desiredEnum.values : undefined,
+            newValues: desiredEnum.values,
             dependentColumns:
               dependentColumns && dependentColumns.length > 0
                 ? dependentColumns
@@ -801,7 +932,41 @@ export async function diff(
 
   // Sort operations for proper execution order
   return {
-    operations: sortOperations(operations),
+    operations: sortOperations(
+      operations.map((operation): DiffOperation => {
+        if (operation.type === "createTable")
+          return {
+            ...operation,
+            table:
+              physicalDesired.tables.find(
+                (table) => table.name === operation.table.name
+              ) ?? operation.table,
+          };
+        if (operation.type === "addUniqueConstraint") {
+          const index = physicalDesired.tables
+            .find((table) => table.name === operation.tableName)
+            ?.indexes.find((item) => item.name === operation.constraint.name);
+          if (index)
+            return {
+              type: "createIndex",
+              tableName: operation.tableName,
+              index,
+            };
+        }
+        if (operation.type === "dropUniqueConstraint") {
+          const index = physicalCurrent.tables
+            .find((table) => table.name === operation.tableName)
+            ?.indexes.find((item) => item.name === operation.constraintName);
+          if (index)
+            return {
+              type: "dropIndex",
+              tableName: operation.tableName,
+              indexName: index.name,
+            };
+        }
+        return operation;
+      })
+    ),
     ambiguousChanges,
   };
 }
@@ -812,6 +977,10 @@ export async function diff(
 
 /** The one destructive-operation classification used by every consumer. */
 export function isDestructiveOperation(operation: DiffOperation): boolean {
+  if (operation.type === "alterEnum")
+    return (operation.removeValues?.length ?? 0) > 0;
+  if (operation.type === "addColumn")
+    return !operation.column.nullable && operation.column.default === undefined;
   if (operation.type === "dropTable" || operation.type === "dropColumn") {
     return true;
   }

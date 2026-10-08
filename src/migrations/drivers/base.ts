@@ -5,6 +5,7 @@
  * Each driver implements DDL generation and introspection for its database.
  */
 
+import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import {
   type DecimalDialect,
@@ -58,6 +59,8 @@ export interface DDLContext {
    * see `SQLite3MigrationDriver.getCurrentTable`.
    */
   precedingOperations?: DiffOperation[];
+  /** Remaining intent in this same compilation batch, for physical coalescing. */
+  followingOperations?: readonly DiffOperation[];
 }
 
 // Extract individual operation types from the DiffOperation union
@@ -676,6 +679,21 @@ export abstract class MigrationDriver {
     // Function defaults are generated at runtime
     if (typeof defaultVal === "function") {
       return undefined;
+    }
+
+    // A JSON null document and absent SQL value are distinct physical defaults.
+    // Scalar admission already resolves bare-null ambiguity and authenticates
+    // sentinels; JSON primitives must also be quoted as documents, not SQL data.
+    if (scalarState.type === "json" && !scalarState.array) {
+      const kind = jsonNullKindOf(defaultVal);
+      if (kind === "DbNull")
+        return this.dialect === "sqlite" ? "NULL" : undefined;
+      if (kind === "JsonNull") return this.escapeValue("null");
+      if (
+        defaultVal !== null &&
+        ["string", "number", "boolean"].includes(typeof defaultVal)
+      )
+        return this.escapeValue(JSON.stringify(defaultVal));
     }
 
     // Null default

@@ -51,7 +51,7 @@ export function validateGeoPoint(value: unknown): ValidationResult<GeoPoint> {
   if (point.issues) return point;
   const { longitude, latitude } = point.value;
   // -180 and +180 are one meridian. The SQLite CHECK
-  // (migrations/drivers/sqlite/geo-point.ts) refuses -180, and the coordinate
+  // (adapters/databases/sqlite/storage/geo-point.ts) refuses -180, and the coordinate
   // predicates in adapters/shared/geo-point.ts assume the +180 spelling.
   return ok({
     longitude: longitude === GEO_LONGITUDE_MIN ? GEO_LONGITUDE_MAX : longitude,

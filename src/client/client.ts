@@ -1,4 +1,3 @@
-import type { CacheExecutionOptions, WithCacheOptions } from "@cache";
 import {
   bindOfficialCacheChain,
   getOfficialCacheChainCapability,
@@ -6,9 +5,11 @@ import {
   type OfficialCacheQueryContribution,
   officialCacheRuntime,
 } from "@cache/capability";
-import type { AnyDriver } from "@drivers";
+import type { CacheExecutionOptions } from "@cache/driver";
+import type { WithCacheOptions } from "@cache/schema";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { readDriverIdentity } from "@drivers/driver-identity";
+import type { AnyDriver } from "@drivers/exports";
 import type {
   BatchTransactionOptions,
   TransactionOptions,
@@ -20,7 +21,6 @@ import {
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
-import type { AdmittedControls } from "@extensions/controls";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
@@ -51,7 +51,10 @@ import {
 } from "@query-engine/pending-operation";
 import { QueryEngine } from "@query-engine/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
-import { isWriteOperation } from "@query-engine/routed-operations";
+import {
+  isWriteOperation,
+  ROUTED_OPERATIONS,
+} from "@query-engine/routed-operations";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
@@ -76,6 +79,7 @@ import {
   type ClientOmitResolver,
   createClientOmitResolver,
 } from "./omit";
+import { createPhysicalSchemaCheck } from "./physical-schema";
 import {
   createRawSurface,
   RAW_METHOD_NAMES,
@@ -115,32 +119,48 @@ function createModelProxy<S extends Schema, R>(
   >,
   path: string[] = []
 ): unknown {
-  // Memoize child proxies: model/operation names are a small finite set, so
-  // `client.user.findUnique` resolves to the same proxy every time instead of
-  // allocating two fresh Proxy objects (+ path arrays) per query.
+  const members = new Set(
+    path.length === 0
+      ? Object.keys(schema)
+      : path.length === 1
+        ? [...ROUTED_OPERATIONS, ...Object.keys(modelMethods?.[path[0]!] ?? {})]
+        : []
+  );
   const children = new Map<string, unknown>();
-  // biome-ignore lint: <it's ok>
-  return new Proxy(() => {}, {
-    get(_target, key) {
-      if (typeof key !== "string") return undefined;
-      // Prevent Promise-like behavior - return undefined for 'then'
-      // This allows the proxy to be returned from async functions without
-      // being treated as a thenable
-      if (key === "then") return undefined;
-      if (path.length === 1) {
-        const method = modelMethods?.[path[0]!]?.[key];
-        if (method) return method;
-      }
-      let child = children.get(key);
-      if (child === undefined) {
-        child = createModelProxy(schema, createOperation, modelMethods, [
-          ...path,
-          key,
-        ]);
-        children.set(key, child);
-      }
-      return child;
-    },
+  const readMember = (key: string | symbol): unknown => {
+    if (typeof key !== "string" || key === "then" || !members.has(key))
+      return undefined;
+    if (path.length === 1) {
+      const method = modelMethods?.[path[0]!]?.[key];
+      if (method) return method;
+    }
+    let child = children.get(key);
+    if (child === undefined) {
+      child = createModelProxy(schema, createOperation, modelMethods, [
+        ...path,
+        key,
+      ]);
+      children.set(key, child);
+    }
+    return child;
+  };
+  return new Proxy(path.length === 2 ? () => undefined : {}, {
+    get: (target, key) =>
+      Object.hasOwn(target, key) ? Reflect.get(target, key) : readMember(key),
+    has: (target, key) =>
+      Object.hasOwn(target, key) ||
+      (typeof key === "string" && members.has(key)),
+    ownKeys: (target) => [...new Set([...Reflect.ownKeys(target), ...members])],
+    getOwnPropertyDescriptor: (target, key) =>
+      Reflect.getOwnPropertyDescriptor(target, key) ??
+      (typeof key === "string" && members.has(key)
+        ? {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: readMember(key),
+          }
+        : undefined),
     apply(_target, _thisArg, [args]) {
       const modelName = path[0] as keyof S;
       const operation = path[1] as Operations;
@@ -512,10 +532,15 @@ export class VibORM<C extends VibORMConfig> {
     // validates and registers nothing a second time (B-3).
     this.#engine = new QueryEngine(
       config.driver,
-      createCandidateRoute(this.#schema, config.driver, {
-        index: relations,
-        registry: schemaRegistry,
-      })
+      createCandidateRoute(
+        this.#schema,
+        config.driver,
+        {
+          index: relations,
+          registry: schemaRegistry,
+        },
+        createPhysicalSchemaCheck(this.#schema, config.driver)
+      )
     );
   }
 
@@ -729,6 +754,7 @@ export class VibORM<C extends VibORMConfig> {
           return execute();
         }
         const cacheResult = readPendingCacheResult(pendingOperation);
+        await cacheResult.checkStorage(engine.driver);
         const runtime = officialCacheRuntime();
         const key = runtime.cacheKeyOf(
           cacheResult.args,

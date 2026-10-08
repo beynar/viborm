@@ -3,8 +3,11 @@
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { MigrationGraph } from "./graph";
 import type { Sha256 } from "./identity";
+import { sliceDispatch } from "./sql-blob";
 import type { MigrationTarget } from "./types";
 import type {
+  MigrationBooleanCheckV1,
+  MigrationDispatchV1,
   MigrationOperationV1,
   MigrationParentTransitionV1,
   MigrationStateManifestV1,
@@ -196,4 +199,54 @@ function migrationTarget(target: MigrationTarget): MigrationTarget {
   return target.dialect === "postgresql"
     ? Object.freeze({ dialect: target.dialect, namespace: target.namespace })
     : Object.freeze({ dialect: target.dialect });
+}
+
+/** A labelled read-only projection; dispatch offsets remain the execution authority. */
+export function renderMigrationReview(
+  parents: readonly MigrationParentTransitionV1[],
+  destinationChecks: readonly MigrationBooleanCheckV1[],
+  blob: Uint8Array
+): string {
+  const lines = [
+    "-- VibORM review: forward, checks and rollback are separate sections.",
+    "-- Execute authenticated states with migrate apply/down; this review is not an apply script.",
+  ];
+  const emit = (label: string, dispatch: MigrationDispatchV1) => {
+    lines.push(
+      `-- ${label.replace(/[\r\n\u2028\u2029]/g, " ")}`,
+      `${sliceDispatch(blob, dispatch)};`
+    );
+    if (dispatch.parameters.length > 0)
+      lines.push(`-- Parameters: ${JSON.stringify(dispatch.parameters)}`);
+  };
+  const operations = (
+    direction: string,
+    values: readonly MigrationOperationV1[]
+  ) => {
+    for (const operation of values)
+      for (const step of operation.steps) {
+        if (step.retry === "proven")
+          emit(`${direction} precheck ${operation.label}`, step.precheck.query);
+        emit(`${direction} execute ${operation.label}`, step.execute);
+        if (step.retry === "proven")
+          emit(
+            `${direction} postcheck ${operation.label}`,
+            step.postcheck.query
+          );
+      }
+  };
+  for (const parent of parents) {
+    lines.push(`\n-- Parent ${parent.fromState ?? "empty"}`);
+    for (const check of parent.originChecks)
+      emit(`Origin check ${check.id}`, check.query);
+    operations("FORWARD", parent.operations);
+    if (parent.rollback.kind === "irreversible")
+      lines.push(
+        `-- ROLLBACK unavailable: ${parent.rollback.reason.replace(/[\r\n\u2028\u2029]/g, " ")}`
+      );
+    else operations("ROLLBACK", parent.rollback.operations);
+  }
+  for (const check of destinationChecks)
+    emit(`Destination check ${check.id}`, check.query);
+  return `${lines.join("\n\n")}\n`;
 }

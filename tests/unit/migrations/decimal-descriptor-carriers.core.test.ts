@@ -5,12 +5,12 @@
  * lifecycle contracts live in decimal-descriptor-carriers.test.ts.
  */
 
+import { readSqliteDecimalConstraint } from "@adapters/databases/sqlite/storage/decimal";
+import { skipSqlNonStructuralRegion } from "@adapters/databases/sqlite/storage/sql-lexing";
 import { readMysqlDecimalListMarker } from "@migrations/decimal";
 import { getMigrationDriver } from "@migrations/drivers";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
-import { readSqliteDecimalConstraint } from "@migrations/drivers/sqlite/decimal";
-import { skipSqlNonStructuralRegion } from "@migrations/drivers/sqlite/sql-lexing";
 import type { DiffOperation, SchemaSnapshot } from "@migrations/types";
 import { describe, expect, it } from "vitest";
 import { d1EstateDriver, ddlContext, ddlContextFor } from "./_estate";

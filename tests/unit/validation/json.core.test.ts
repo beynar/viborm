@@ -2,6 +2,8 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { type JsonValue, parse, v } from "@validation";
 import { describe, expect, expectTypeOf, test } from "vitest";
 
+const TEST_PATTERN = /test/;
+
 describe("json schema", () => {
   const schema = v.json();
 
@@ -110,7 +112,7 @@ describe("json schema", () => {
     });
 
     test("function", () => {
-      const result = parse(schema, () => {});
+      const result = parse(schema, () => undefined);
       expect(result.issues).toBeDefined();
     });
 
@@ -145,7 +147,7 @@ describe("json schema", () => {
     });
 
     test("RegExp", () => {
-      const result = parse(schema, /test/);
+      const result = parse(schema, TEST_PATTERN);
       expect(result.issues).toBeDefined();
     });
 
@@ -155,23 +157,23 @@ describe("json schema", () => {
       expect(result.issues).toBeDefined();
     });
 
-    test("object with undefined value", () => {
+    test("omits undefined object properties", () => {
       const result = parse(schema, { a: undefined });
-      expect(result.issues).toBeDefined();
+      expect(result).toEqual({ value: {} });
     });
 
     test("object with function value", () => {
-      const result = parse(schema, { fn: () => {} });
+      const result = parse(schema, { fn: () => undefined });
       expect(result.issues).toBeDefined();
     });
 
-    test("array with undefined", () => {
+    test("normalizes undefined array entries to null", () => {
       const result = parse(schema, [1, undefined, 3]);
-      expect(result.issues).toBeDefined();
+      expect(result).toEqual({ value: [1, null, 3] });
     });
 
     test("array with function", () => {
-      const result = parse(schema, [1, () => {}, 3]);
+      const result = parse(schema, [1, () => undefined, 3]);
       expect(result.issues).toBeDefined();
     });
   });

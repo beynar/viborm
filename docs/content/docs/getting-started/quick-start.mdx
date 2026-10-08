@@ -96,21 +96,15 @@ import { client } from "./src/db/client";
 export default defineConfig({ client });
 ```
 
-The examples import TypeScript files with extensionless paths. Run the CLI
-with Bun and force its runtime so the CLI's Node shebang does not take over:
+The CLI includes a TypeScript loader and reads the project `.env`. Run it with
+Node.js so a native Node driver such as `better-sqlite3` uses its supported runtime:
 
 ```bash
-bun --bun viborm push
+pnpm exec viborm push
 ```
 
-On Node.js, use a TypeScript loader for the same config and imports:
-
-```bash
-npx tsx node_modules/.bin/viborm push
-```
-
-The package's Node.js runtime support does not by itself provide a loader for
-this TypeScript module graph.
+With npm, use `npx viborm push`. A separately installed TypeScript loader is not
+required. Use the Bun SQLite driver when the application itself runs on Bun.
 
 `push` syncs your models straight to the database without migration files — see [Push](/docs/migration/push) for details and [Configuration](/docs/getting-started/configuration) for config options.
 

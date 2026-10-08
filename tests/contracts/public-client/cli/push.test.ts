@@ -5,7 +5,7 @@ import {
   resetClackLog,
 } from "@tests/contracts/public-client/cli/_clack";
 import { Command } from "commander";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const PLAN_HASH = "a".repeat(64);
 const TARGET = {
@@ -61,6 +61,13 @@ const boundary = vi.hoisted(() => {
 
 vi.mock("@src/cli/utils", () => ({
   failCli: boundary.failCli,
+  finishCli: async (
+    client: { $disconnect(): Promise<void> } | undefined,
+    failure: { value: unknown } | undefined
+  ) => {
+    await client?.$disconnect();
+    if (failure) boundary.failCli(failure.value);
+  },
   loadConfig: boundary.loadConfig,
 }));
 
@@ -121,6 +128,18 @@ function route(preview: unknown = PLANNED, applied: unknown = APPLIED): void {
   boundary.push.mockResolvedValueOnce(preview).mockResolvedValueOnce(applied);
 }
 
+const originalTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+beforeEach(() =>
+  Object.defineProperty(process.stdin, "isTTY", {
+    configurable: true,
+    value: true,
+  })
+);
+afterEach(() => {
+  if (originalTty) Object.defineProperty(process.stdin, "isTTY", originalTty);
+  else Reflect.deleteProperty(process.stdin, "isTTY");
+});
+
 describe("push command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -138,6 +157,7 @@ describe("push command", () => {
       "--dry-run",
       "--force-reset",
       "--yes",
+      "--accept-data-loss",
       "--json",
     ]);
   });
@@ -207,15 +227,56 @@ describe("push command", () => {
     expect(result.output).not.toContain("Push applied.");
   });
 
-  it("requires --yes for a non-interactive JSON apply", async () => {
+  it("applies additive JSON plans without a prompt", async () => {
     const result = await invoke(["--json"]);
+    expect(result.thrown).toBeUndefined();
+    expect(JSON.parse(result.stdout)).toEqual(APPLIED);
+    expect(boundary.push).toHaveBeenCalledTimes(2);
+  });
 
+  it("requires explicit data-loss acceptance even with --yes", async () => {
+    boundary.push.mockReset();
+    route({ ...PLANNED, destructive: true });
+    const result = await invoke(["--yes"]);
     expect(result.thrown).toEqual(
-      new Error("Non-interactive push requires --yes to apply a plan")
+      new Error(
+        "Destructive push requires --accept-data-loss; --yes does not authorize data loss. Inspect --dry-run first."
+      )
     );
-    expect(boundary.failCli).toHaveBeenCalledOnce();
     expect(boundary.push).toHaveBeenCalledOnce();
     expect(boundary.disconnect).toHaveBeenCalledOnce();
+    boundary.push.mockReset();
+    route({ ...PLANNED, destructive: true });
+    expect(
+      (await invoke(["--accept-data-loss", "--json"])).thrown
+    ).toBeUndefined();
+    expect(boundary.push).toHaveBeenCalledTimes(2);
+  });
+
+  it("avoids terminal prompts on piped additive input and refuses destructive input", async () => {
+    Object.defineProperty(process.stdin, "isTTY", {
+      configurable: true,
+      value: false,
+    });
+    expect((await invoke([])).thrown).toBeUndefined();
+    boundary.push.mockReset();
+    route({ ...PLANNED, destructive: true });
+    expect((await invoke([])).thrown).toBeInstanceOf(Error);
+    expect(boundary.push).toHaveBeenCalledOnce();
+  });
+
+  it("passes one config resolver and exact physical scope into preview", async () => {
+    const resolve = vi.fn();
+    boundary.loadConfig.mockResolvedValue({
+      client: boundary.client,
+      migrations: { tables: ["user"], resolve },
+    });
+    expect((await invoke(["--dry-run"])).thrown).toBeUndefined();
+    expect(boundary.createMigrationClient).toHaveBeenCalledWith(
+      boundary.client,
+      { tables: ["user"] }
+    );
+    expect(boundary.push).toHaveBeenCalledWith({ dryRun: true, resolve });
   });
 
   it("uses the preview defaults for ordinary interactive acceptance", async () => {

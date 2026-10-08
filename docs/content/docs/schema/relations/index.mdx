@@ -198,6 +198,13 @@ candidates between the same two models are ambiguous and reported as `R009`.
 | `restrict` | Prevent delete/update if related records exist |
 | `noAction` | Database default behavior |
 
+Without explicit actions, a stored foreign key uses `onDelete: "setNull"` when
+**every** foreign-key scalar is nullable, and `"restrict"` otherwise. Its
+`onUpdate` default is `"noAction"`; request `"cascade"` explicitly when changing
+a referenced key should update its references. Junction foreign keys default to
+`"cascade"` for both delete and update. These defaults are physical database
+constraints, not client-side cascading behavior.
+
 Junction actions accept only `cascade`, `restrict` and `noAction`: every junction
 column carries the membership itself, so there is nothing there to null. A
 junction has two foreign keys, and `{ source, target }` gives each its own

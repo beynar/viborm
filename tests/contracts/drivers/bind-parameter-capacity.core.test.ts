@@ -18,16 +18,16 @@ class UnknownCapacityDriver extends PGliteDriver {
 
 describe("driver bind-parameter capacity", () => {
   test.each([
-    ["pglite", new PGliteDriver(), 65_535],
+    ["pglite", new PGliteDriver(), 32_767],
     ["pg", new PgDriver(), 65_535],
-    ["postgres", new PostgresDriver(), 65_535],
+    ["postgres", new PostgresDriver(), 65_533],
     ["neon-http", new NeonHTTPDriver(), 65_535],
     ["bun-sql", new BunSQLDriver(), 65_535],
     ["mysql2", new MySQL2Driver(), 65_535],
     ["planetscale", new PlanetScaleDriver(), 65_535],
-    ["sqlite3", new SQLite3Driver(), 999],
-    ["libsql", new LibSQLDriver(), 999],
-    ["bun-sqlite", new BunSQLiteDriver(), 999],
+    ["sqlite3", new SQLite3Driver(), 32_766],
+    ["libsql", new LibSQLDriver(), 32_766],
+    ["bun-sqlite", new BunSQLiteDriver(), 32_766],
     ["d1", new D1Driver({ database: Object.create(null) }), 100],
   ])("%s declares its conservative statement capacity", (_name, driver, limit) => {
     expect(driver.maxBindParametersPerStatement).toBe(limit);

@@ -35,7 +35,13 @@ GeoPoint changes only dialect-owned physical schema decisions. PostgreSQL uses
 types/functions before the first live-command effect; it never installs the
 extension. MySQL uses `POINT SRID 4326` and one-field non-null spatial indexes.
 SQLite uses the reserved `VIBORM_GEO_TEXT` type plus its exact canonical JSON
-CHECK and refuses spatial indexes. Introspection recognizes only those exact
+CHECK and refuses spatial indexes. Its physical CHECK reader/writer, fixed-decimal
+carrier, and quote-aware column parser live in the adapter-owned
+`src/adapters/databases/sqlite/storage/` leaf modules so runtime admission and
+migration introspection consume the same rule without importing migration
+execution. A GeoPoint `geoPointEncoding` annotation authenticates the legacy
+15-digit versus binary64 CHECK; upgrading reconstructs its stored doubles once,
+without claiming to recover precision already lost. Introspection recognizes only those exact
 forms. Offline artifacts carry the logical snapshot requirement; they never
 infer it by parsing SQL.
 
@@ -891,3 +897,49 @@ Every other migration core contract drives a recording driver from
 `tests/unit/migrations/_estate.ts`. A new contract joins the exception only
 when its evidence cannot exist without a database; otherwise it belongs on a
 recording driver or in the extended or provider estate.
+
+## V1 remediation contracts
+
+An optional exact physical `tables` list is normalized once at `target.ts`,
+frozen into the estate identity, and selects desired/catalog inventories.
+All authored user tables must fit the list; cross-boundary foreign keys and
+shared PostgreSQL enums refuse before effects. Control-table proofs remain
+visible. Live clients accept `{ tables }` without requiring a storage writer.
+A rename needs both names in the initial immutable scope.
+
+Generation uses the strict resolver for every parent, including merges. Missing
+rename or enum-removal decisions refuse; nullable does not imply NULL consent.
+Every parent's operations, rollback warnings, and labelled review SQL are
+returned. Raw authenticated blob bytes and dispatch slices remain execution
+owners; review text is never reparsed. Lost required columns without defaults
+are irreversible unless a manual author supplies the real data transition.
+
+PostgreSQL default DateTime/Time precision is three decimal places. Naive
+`.now()` stores UTC explicitly, and temporal literals use the shared BC codec.
+Generated full-schema enum changes replace the type transactionally, including
+arrays and dependent defaults; enum preflight requires PostgreSQL 12 or later.
+The bounded recursive advisory try-lock acquires only once and refuses after
+10 seconds. The differ owns the sole destructive classification.
+
+CLI migrations use `migrations.resolve` and `migrations.tables` from the typed
+config. `--yes` skips additive prompts; destructive push requires explicit
+TTY confirmation or `--accept-data-loss`. Clients finish disconnect before
+failure reporting. JSON failures go to stderr with their typed code and exit
+status. A TS custom author is evaluated only during generation, then closed
+into the existing manual transition format.
+
+
+### Unsupported physical artifact admission
+
+Effectful planning derives `refuseConstraintNameChurn` from the migration driver's
+readable-name capability. Equivalent unreadable SQLite constraint names match by
+shape; readable PK/FK/unique names which cannot be adopted refuse before effects.
+Generic diagnostic diffs retain differences instead of replacing a drift error
+with planning admission. No physical key-name option is shipped: compound key
+`name` remains a selector.
+
+PostgreSQL catalog index proof refuses unrepresentable expressions/order/INCLUDE/
+opclass/collation/methods in selected tables. SQLite `index_xinfo` proves key
+members, BINARY collation and ascending order, including PK/unique backing indexes.
+Unsupported artifacts in unselected tables do not widen owned scope. The refusal
+preserves artifacts; it is not a native index DSL or importer.

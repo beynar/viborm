@@ -55,6 +55,7 @@ export class ClientInitializationError extends VibORMError {
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
     }
   ) {

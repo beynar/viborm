@@ -1,6 +1,6 @@
-import { defineConfig } from "tsdown";
+import { defineConfig, type UserConfig } from "tsdown";
 
-export default defineConfig({
+const runtime: UserConfig = {
   // Multiple entry points for tree-shaking
   entry: {
     // Main entry
@@ -72,11 +72,7 @@ export default defineConfig({
   // Add "cjs" if you need CommonJS support for older tooling
   format: ["esm"],
 
-  // Generate .d.ts declaration files
-  // DISABLED: rolldown-plugin-dts can't handle complex inferred types (TS7056)
-  // VibORM's type inference relies on these complex types - using VibSchema
-  // would break the inference chain from schema → query → result types.
-  // Use tsc separately: pnpm tsc --emitDeclarationOnly --declaration --outDir dist
+  // Runtime name preservation must not inject JavaScript helpers into declarations.
 
   // Clean output directory before build
   clean: true,
@@ -117,7 +113,20 @@ export default defineConfig({
   // Shims for Node.js builtins when targeting edge runtimes
   shims: true,
   minify: true,
-  dts: true,
+  outputOptions: { keepNames: true },
+  dts: false,
   // Enable tree-shaking
   treeshake: true,
-});
+};
+
+export default defineConfig([
+  runtime,
+  {
+    ...runtime,
+    clean: false,
+    minify: false,
+    sourcemap: false,
+    outputOptions: { keepNames: false },
+    dts: { emitDtsOnly: true },
+  },
+]);

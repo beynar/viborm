@@ -21,6 +21,7 @@ import {
   refusePartialControl,
   unfinishedAttempts,
 } from "./control";
+import { diff } from "./differ";
 import { type NormalizedDownOptions, normalizeDownOptions } from "./down-input";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { evaluateAllChecks, executeOperations } from "./execute-dispatch";
@@ -229,7 +230,7 @@ export async function baselineV1(
         (await fingerprintLive(expected, command, pinned))
       ) {
         throw new MigrationError(
-          "baseline requires exact live equality with the target snapshot",
+          `baseline requires exact live equality with the target snapshot. Differences: ${JSON.stringify(await diff(live, expected))}`,
           VibORMErrorCode.MIGRATION_DRIFT
         );
       }

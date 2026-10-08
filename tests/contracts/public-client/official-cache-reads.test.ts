@@ -47,7 +47,7 @@ const schema = { author, post };
  * revision that moves reds this file with the other four.
  */
 const OFFICIAL_NAMESPACE =
-  "viborm:cache:r3:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u";
+  "viborm:cache:r4:d:0070006f0073007400670072006500730071006c:k:007000750062006c00690063:u";
 const family = usePGliteSchemaFamily(schema);
 const nativeFamily = usePGliteSchemaFamily(schema, "atomicBatch");
 

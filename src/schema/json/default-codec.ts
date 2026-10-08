@@ -29,6 +29,7 @@
 // without changing what an existing document means. `$raw` is how a literal
 // whose own shape collides with a tag says which it is.
 
+import { DbNull, JsonNull, jsonNullKindOf } from "@schema/json-null";
 import { emptyRecord, put } from "@schema/record";
 import type { JsonValue } from "@validation/primitives/json";
 import { isDate, isFunction, isUint8Array } from "@validation/value-guards";
@@ -47,14 +48,21 @@ const BIGINT_TAG = "$bigint";
 const DATE_TAG = "$date";
 const BYTES_TAG = "$bytes";
 const RAW_TAG = "$raw";
+const JSON_NULL_TAG = "$jsonNull";
 
 /** The reserved namespace this format defines; anything else `$`-prefixed is refused. */
-const KNOWN_TAGS = new Set([BIGINT_TAG, DATE_TAG, BYTES_TAG, RAW_TAG]);
+const KNOWN_TAGS = new Set([
+  BIGINT_TAG,
+  DATE_TAG,
+  BYTES_TAG,
+  RAW_TAG,
+  JSON_NULL_TAG,
+]);
 
 const RESERVED_PREFIX = "$";
 const DECIMAL_INTEGER = /^-?\d+$/;
 
-const TAGS = `'${BIGINT_TAG}' (a decimal integer string), '${DATE_TAG}' (an ISO timestamp), '${BYTES_TAG}' (base64), '${RAW_TAG}' (the literal it wraps)`;
+const TAGS = `'${BIGINT_TAG}' (a decimal integer string), '${DATE_TAG}' (an ISO timestamp), '${BYTES_TAG}' (base64), '${RAW_TAG}' (the literal it wraps), '${JSON_NULL_TAG}' ('JsonNull' or 'DbNull')`;
 
 /**
  * The tag a record spells, if it spells one.
@@ -233,6 +241,11 @@ export function decodeDefault(value: JsonValue, path: string): unknown {
   if (tag === RAW_TAG) return decodeRaw(payload, path);
   if (tag === BIGINT_TAG) return decodeBigInt(payload, path);
   if (tag === DATE_TAG) return decodeDate(payload, path);
+  if (tag === JSON_NULL_TAG) {
+    if (payload === "JsonNull") return JsonNull;
+    if (payload === "DbNull") return DbNull;
+    throw refuseTag(path, `'${JSON_NULL_TAG}' takes 'JsonNull' or 'DbNull'`);
+  }
   return decodeBytes(payload, path);
 }
 
@@ -324,6 +337,9 @@ function encodeValue(
   issues: DocumentIssues,
   seen: Set<object>
 ): JsonValue | undefined {
+  const nullKind = jsonNullKindOf(value);
+  if (nullKind === "JsonNull" || nullKind === "DbNull")
+    return tagged(JSON_NULL_TAG, nullKind);
   if (value === null || typeof value === "string") return value;
   if (typeof value === "boolean") return value;
   if (typeof value === "number") {

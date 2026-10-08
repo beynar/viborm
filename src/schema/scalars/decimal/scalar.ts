@@ -5,6 +5,7 @@ import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
+  nullableDefault,
   type ScalarState,
   updateState,
 } from "../common";
@@ -72,7 +73,7 @@ export class DecimalScalar<State extends ScalarState<"decimal">> {
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         // The custom schema travels with the rebuilt base. `create` reads
         // `state.schema` directly, but `set`, `equals` and the field's own

@@ -66,6 +66,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Cheap gates first for fast feedback.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+
       - name: Check changed formatting and lint rules
         run: >-
           pnpm exec biome check --changed --since="${QUALITY_BASE_SHA}"
@@ -86,10 +89,8 @@ jobs:
   core:
     name: Core tests
     runs-on: ubuntu-latest
-    # 10 = the 300000 ms (5 min) default wall ceiling run-vitest-safe.mjs puts
-    # on this single Vitest run, + 5 min setup. The run cannot honestly take
-    # longer, because the launcher kills it first. Measured 41s. The former 30
-    # bounded nothing the launcher was not already bounding six times tighter.
+    # Sequential Vitest shards retain the aggregate 5-minute wall ceiling and
+    # the ordinary per-process memory ceiling, plus 5 minutes for setup.
     timeout-minutes: 10
     steps:
       - name: Check out the exact revision
