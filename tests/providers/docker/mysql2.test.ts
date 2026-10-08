@@ -203,6 +203,49 @@ describeIf("MySQL2 Driver", () => {
     }
   });
 
+  test("wide geographic bounds and their negation retain coordinate membership", async () => {
+    const driver = createMySQL2Driver();
+    const geoPoint = driver.adapter.geoPoint;
+    if (!geoPoint) throw new Error("Expected MySQL GeoPoint support");
+    const bounds: readonly (readonly [number, number])[] = [
+      [-90, 90],
+      [-170, 170],
+      [-180, 180],
+      [170, -170],
+    ];
+    try {
+      for (const [west, east] of bounds) {
+        for (const longitude of [-179, -170, -90, 0, 90, 170, 179]) {
+          for (const latitude of [-11, 0, 11]) {
+            const stored = geoPoint.value(sql`${longitude}`, sql`${latitude}`);
+            const membership = geoPoint.withinBounds(stored, {
+              west,
+              east,
+              south: -10,
+              north: 10,
+            });
+            const expected =
+              latitude >= -10 &&
+              latitude <= 10 &&
+              (west <= east
+                ? longitude >= west && longitude <= east
+                : longitude >= west || longitude <= east);
+            const result = await driver._execute<{
+              inside: number | string;
+              outside: number | string;
+            }>(
+              sql`SELECT ${membership} AS inside, NOT (${membership}) AS outside`
+            );
+            expect(String(result.rows[0]?.inside)).toBe(expected ? "1" : "0");
+            expect(String(result.rows[0]?.outside)).toBe(expected ? "0" : "1");
+          }
+        }
+      }
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
   test("uses the GeoPoint spatial index only for positive indexable predicates", async () => {
     const driver = createMySQL2Driver();
     const client = createClient({ schema: geoPointPlanSchema, driver });

@@ -67,6 +67,37 @@ export async function consumer() {
 }
 `;
 
+const extensionSource = `import { createClient, s } from "viborm";
+import { SQLite3Driver } from "viborm/sqlite3";
+const model = s.model({ id: s.string().id(), name: s.string() });
+const zero = createClient({ schema: { model }, driver: new SQLite3Driver() });
+const one = zero.$extends({ name: "chain-1", client() { return { $one: () => 1 }; } });
+const two = one.$extends({ name: "chain-2", client(scope) { scope.$one(); return { $two: () => "two" }; } });
+const three = two.$extends({ name: "chain-3", client() { return { $three: () => true }; } });
+const four = three.$extends({ name: "chain-4", client() { return { $four: () => 4 }; } });
+const five = four.$extends({ name: "chain-5", client(scope) { scope.$one(); scope.$four(); return { $five: () => "five" }; } });
+const six = five.$extends({ name: "chain-6", client: () => ({ $six: () => 6 }) });
+const seven = six.$extends({ name: "chain-7", client: () => ({ $seven: () => 7 }) });
+const eight = seven.$extends({ name: "chain-8", client: () => ({ $eight: () => 8 }) });
+const nine = eight.$extends({ name: "chain-9", client: () => ({ $nine: () => 9 }) });
+export const ten = nine.$extends({ name: "chain-10", client(scope) { scope.$one(); scope.$five(); scope.$nine(); return { $ten: () => 10 }; } });
+`;
+const extensionConsumer = `import { ten } from "./extends10.js";
+const one: number = ten.$one();
+const two: string = ten.$two();
+const three: boolean = ten.$three();
+const four: number = ten.$four();
+const five: string = ten.$five();
+const six: number = ten.$six();
+const seven: number = ten.$seven();
+const eight: number = ten.$eight();
+const nine: number = ten.$nine();
+const last: number = ten.$ten();
+// @ts-expect-error - unknown extension methods remain absent after ten layers
+void ten.$eleven();
+void [one, two, three, four, five, six, seven, eight, nine, last];
+`;
+
 function chainSource(count, ring = false) {
   const models = Array.from({ length: count }, (_, i) => {
     const previous =
@@ -97,6 +128,7 @@ const compilerChoice = process.env.VIBORM_DECLARATION_COMPILER;
 const caseChoice = process.env.VIBORM_DECLARATION_CASE;
 const cases = [
   "db",
+  "extends10",
   "chain2",
   "chain5",
   "chain30",
@@ -123,6 +155,15 @@ withPackedConsumer(
         join(root, "node_modules/@types", peer),
         "dir"
       );
+    if (includesCase("extends10")) {
+      writeFileSync(join(root, "extends10.ts"), extensionSource);
+      writeFileSync(
+        join(root, "runtime-extensions.ts"),
+        'import { ten } from "./extends10.ts";\nif (ten.$one() !== 1 || ten.$five() !== "five" || ten.$nine() !== 9 || ten.$ten() !== 10) throw new Error("Extension chain failed");\nconsole.log("ten extensions: pass");\n'
+      );
+      run("runtime-extensions.ts", "ten extensions");
+      writeFileSync(join(root, "use-extensions.ts"), extensionConsumer);
+    }
     if (includesCase("db")) {
       // Construction executes the actual L5 topology gate: the required owner
       // has its inverse, rather than an invalid one-sided declaration.
@@ -157,6 +198,61 @@ withPackedConsumer(
         })
       );
       try {
+        if (includesCase("extends10")) {
+          const extensionProject = join(
+            root,
+            `tsconfig-${label}-extends10.json`
+          );
+          const extensionOutput = join(root, `${label}-extends10`);
+          const options = JSON.parse(readFileSync(project, "utf8"));
+          options.compilerOptions.outDir = extensionOutput;
+          options.files = ["./extends10.ts"];
+          writeFileSync(extensionProject, JSON.stringify(options));
+          const check = (file) =>
+            execFileSync(
+              process.execPath,
+              [
+                compiler,
+                "--strict",
+                "--noEmit",
+                "--target",
+                "ES2022",
+                "--module",
+                "ESNext",
+                "--moduleResolution",
+                "Bundler",
+                "--types",
+                "node",
+                "--typeRoots",
+                join(repositoryRoot, "node_modules/@types"),
+                file,
+              ],
+              {
+                cwd: root,
+                encoding: "utf8",
+                stdio: "pipe",
+                timeout: 30_000,
+                killSignal: "SIGKILL",
+              }
+            );
+          check(join(root, "use-extensions.ts"));
+          execFileSync(
+            process.execPath,
+            [compiler, "--project", extensionProject],
+            {
+              cwd: root,
+              encoding: "utf8",
+              stdio: "pipe",
+              timeout: 30_000,
+              killSignal: "SIGKILL",
+            }
+          );
+          writeFileSync(join(extensionOutput, "use.ts"), extensionConsumer);
+          check(join(extensionOutput, "use.ts"));
+          console.log(
+            `${label}: ten dependent $extends layers source/emission/downstream passed`
+          );
+        }
         if (includesCase("db")) {
           // Pin source inference separately from the emitted declaration's
           // downstream inference; both must preserve required-owner nullability.

@@ -8,6 +8,11 @@
 
 import { createClient } from "@client/client";
 import { BunSQLDriver } from "@drivers/bun-sql";
+import {
+  ForeignKeyError,
+  NotNullConstraintError,
+  UniqueConstraintError,
+} from "@errors";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
@@ -338,6 +343,54 @@ try {
     "verbatim raw integer[] did not retain Bun's native Int32Array"
   );
 
+  const expectConstraint = async (
+    execute: () => PromiseLike<unknown>,
+    ErrorClass:
+      | typeof UniqueConstraintError
+      | typeof NotNullConstraintError
+      | typeof ForeignKeyError
+  ) => {
+    let failure: unknown;
+    try {
+      await execute();
+    } catch (error) {
+      failure = error;
+    }
+    assert(
+      failure instanceof ErrorClass,
+      `Expected ${ErrorClass.name} from actual Bun SQL constraint`
+    );
+  };
+  await expectConstraint(
+    () =>
+      client.$executeRawUnsafe(
+        `INSERT INTO "${PROBE_NAMESPACE}"."bun_sql_runtime_decimals" SELECT * FROM "${PROBE_NAMESPACE}"."bun_sql_runtime_decimals" WHERE id = $1`,
+        "exact"
+      ),
+    UniqueConstraintError
+  );
+  await expectConstraint(
+    () =>
+      client.$executeRawUnsafe(
+        `UPDATE "${PROBE_NAMESPACE}"."bun_sql_runtime_decimals" SET amount = NULL WHERE id = $1`,
+        "exact"
+      ),
+    NotNullConstraintError
+  );
+  await expectConstraint(
+    () =>
+      client.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(
+          `CREATE TEMP TABLE bun_sql_constraint_fk (owner_id TEXT NOT NULL REFERENCES "${PROBE_NAMESPACE}"."bun_sql_runtime_decimals"(id))`
+        );
+        await tx.$executeRawUnsafe(
+          "INSERT INTO bun_sql_constraint_fk VALUES ($1)",
+          "missing-owner"
+        );
+      }),
+    ForeignKeyError
+  );
+  console.log("bun-sql constraint evidence passed");
   console.log("bun-sql fixed-decimal evidence passed");
 } finally {
   try {

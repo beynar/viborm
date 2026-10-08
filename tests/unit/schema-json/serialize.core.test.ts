@@ -47,6 +47,22 @@ const overrideDay = () => "2020-01-02";
 const overrideClock = () => "03:04:05";
 
 describe("refusal witnesses", () => {
+  it("can dump an invalid required null default, with validation refusing it", () => {
+    const scalar = s.string();
+    const schema = {
+      user: s.model({
+        id: s.int().id(),
+        value: Reflect.apply(scalar.default, scalar, [null]),
+      }),
+    };
+    expect(serializeSchema(schema).models.user?.fields.value).toMatchObject({
+      type: "string",
+      default: null,
+    });
+    expect(() => serializeSchema(schema, { validate: true })).toThrow(
+      SchemaValidationError
+    );
+  });
   it("names every impossible GeoPoint declaration in hostile scalar state", () => {
     const corruptedPoint = (
       state: Record<string, unknown>,

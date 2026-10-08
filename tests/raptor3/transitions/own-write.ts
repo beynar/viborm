@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -24,19 +25,9 @@ function collectionOwnWriteScenario(
     prepare() {
       const conditional =
         id === "g2-own-coc-set-distinct" || id === "g2-own-coc-set-same";
-      // N1 (D-51): the verbs of one relation body run in its canonical order
-      // and a later lookup whose answer an earlier verb can change is an
-      // ordered observation of the state that verb left. The veto these cells
-      // pinned ("Nested operation '<verb>' on relation 'notes' depends on an
-      // earlier '<verb2>' target write in the same nested write. Split these
-      // operations into separate queries.") is retired; what remains is the
-      // relation body's correlated not-found, where the earlier write REMOVED
-      // the row the later verb observes.
+      // V1 spells the clearing phase first. A set names existing targets;
+      // a target created only by the later supply phase is still missing.
       const notFound = id === "g2-own-delete-update-refused";
-      // N1 (D-51): `set` no longer vetoes the sibling `connectOrCreate` it
-      // retains; the set's target lookup is an ordered observation behind the
-      // create arm and lands ahead of the set's own clear, which keeps the row
-      // it names — 801, 802 and 804 leave, the adopted 905 stays.
       const setSame = id === "g2-own-coc-set-same";
       const setCreate = id === "g2-own-set-create";
       const updateConditional = id === "g2-own-update-coc-refused";
@@ -60,10 +51,9 @@ function collectionOwnWriteScenario(
         })
         .map("g2_own_notes");
       const schema = { author, note };
-      // Caller insertion order is deliberately not execution order. These public
-      // to-many siblings are admitted together; the write contract orders them.
+      // Canonical clearing-before-supply spellings remain composable.
       const mutation = setCreate
-        ? { create: [{ id: 901, body: "fresh-901" }], set: [{ id: 803 }] }
+        ? { set: [{ id: 803 }], create: [{ id: 901, body: "fresh-901" }] }
         : updateConditional
           ? {
               connectOrCreate: [
@@ -87,8 +77,8 @@ function collectionOwnWriteScenario(
                   delete: [{ id: 801 }],
                 }
               : {
-                  create: [{ id: 801, body: "reborn-801" }],
                   delete: [{ id: 801 }],
+                  create: [{ id: 801, body: "reborn-801" }],
                 };
       const args = {
         where: { id: 1 },
@@ -111,53 +101,54 @@ function collectionOwnWriteScenario(
       const publicValue = { id: 1, email: "one@x", name: "root-effect" };
       // N1 (D-51): the refusal that stays is an execution fact taken after the
       // delete it depends on, so nothing of the operation commits.
-      const final = notFound
-        ? initial
-        : {
-            authors: [publicValue, initial.authors[1]!],
-            notes: setCreate
-              ? [
-                  { ...initial.notes[0]!, authorId: null },
-                  { ...initial.notes[1]!, authorId: null },
-                  { ...initial.notes[2]!, authorId: 1 },
-                  { ...initial.notes[3]!, authorId: null },
-                  initial.notes[4]!,
-                  { id: 901, body: "fresh-901", authorId: 1 },
-                ]
-              : conditional
+      const final =
+        notFound || setSame
+          ? initial
+          : {
+              authors: [publicValue, initial.authors[1]!],
+              notes: setCreate
                 ? [
-                    setSame
-                      ? { id: 801, body: "member-801", authorId: null }
-                      : initial.notes[0]!,
-                    { id: 802, body: "member-802", authorId: null },
-                    initial.notes[2]!,
-                    { id: 804, body: "member-804", authorId: null },
+                    { ...initial.notes[0]!, authorId: null },
+                    { ...initial.notes[1]!, authorId: null },
+                    { ...initial.notes[2]!, authorId: 1 },
+                    { ...initial.notes[3]!, authorId: null },
                     initial.notes[4]!,
-                    {
-                      id: 905,
-                      body: "adopted-905",
-                      authorId: setSame ? 1 : null,
-                    },
+                    { id: 901, body: "fresh-901", authorId: 1 },
                   ]
-                : updateConditional
-                  ? // `update` runs before `connectOrCreate`: the renamed 802
-                    // is what the conditional observes, so it connects the
-                    // member it found and mints nothing.
-                    [
-                      initial.notes[0]!,
-                      { id: 802, body: "changed", authorId: 1 },
+                : conditional
+                  ? [
+                      setSame
+                        ? { id: 801, body: "member-801", authorId: null }
+                        : initial.notes[0]!,
+                      { id: 802, body: "member-802", authorId: null },
                       initial.notes[2]!,
-                      initial.notes[3]!,
+                      { id: 804, body: "member-804", authorId: null },
                       initial.notes[4]!,
+                      {
+                        id: 905,
+                        body: "adopted-905",
+                        authorId: 1,
+                      },
                     ]
-                  : [
-                      { id: 801, body: "reborn-801", authorId: 1 },
-                      initial.notes[1]!,
-                      initial.notes[2]!,
-                      initial.notes[3]!,
-                      initial.notes[4]!,
-                    ],
-          };
+                  : updateConditional
+                    ? // `update` runs before `connectOrCreate`: the renamed 802
+                      // is what the conditional observes, so it connects the
+                      // member it found and mints nothing.
+                      [
+                        initial.notes[0]!,
+                        { id: 802, body: "changed", authorId: 1 },
+                        initial.notes[2]!,
+                        initial.notes[3]!,
+                        initial.notes[4]!,
+                      ]
+                    : [
+                        { id: 801, body: "reborn-801", authorId: 1 },
+                        initial.notes[1]!,
+                        initial.notes[2]!,
+                        initial.notes[3]!,
+                        initial.notes[4]!,
+                      ],
+            };
       const inspect = (database: Database.Database) => ({
         authors: database
           .prepare("SELECT * FROM g2_own_authors ORDER BY id")
@@ -203,7 +194,7 @@ function collectionOwnWriteScenario(
           assert.deepEqual(observation.final, final);
           assert.deepEqual(observation.defaults, []);
           assert.deepEqual(observation.reachedCuts, []);
-          if (!notFound) {
+          if (!(notFound || setSame)) {
             assert.deepEqual(observation.outcome, {
               kind: "success",
               value: publicValue,
@@ -224,7 +215,9 @@ function collectionOwnWriteScenario(
           // taken at the observation the delete precedes.
           assert.equal(
             observation.outcome.failure.message,
-            "Cannot update relation 'notes': target record was not found for this parent."
+            setSame
+              ? "Cannot set relation 'notes': target record was not found."
+              : "Cannot update relation 'notes': target record was not found for this parent."
           );
         },
       };

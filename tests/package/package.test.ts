@@ -66,7 +66,7 @@ const scripts = [
     "../../scripts/consumer-type-floor.mjs",
     { VIBORM_TYPESCRIPT_BIN: "node_modules/typescript-5-8/bin/tsc" },
   ],
-  ...(["chain100", "chain200", "ring10"] as const).map(
+  ...(["extends10", "chain100", "chain200", "ring10"] as const).map(
     (fixture) =>
       [
         `retains TS5.9 public query inference for ${fixture}`,
@@ -81,6 +81,7 @@ const scripts = [
     (
       [
         "db",
+        "extends10",
         "chain2",
         "chain5",
         "chain30",

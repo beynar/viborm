@@ -67,6 +67,12 @@ class StringScalar<State extends ScalarState<"string">> {
 
 **Why:** Enables type-safe queries without code generation. The State flows into validation registry schemas automatically.
 
+`createDefaultState` returns the named `InitialScalarState` with exactly its
+initial property types. Preserve that named type and its type-only public export:
+exported recursive model graphs otherwise repeat anonymous scalar state
+objects until TypeScript declaration emission hits TS7056. This is a compiler
+representation of the existing factory state, not a second runtime state.
+
 ### Rule 2: Immutability
 Every modifier returns a NEW instance. Never mutate `this.state`.
 

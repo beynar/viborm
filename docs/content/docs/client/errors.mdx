@@ -33,6 +33,10 @@ Constraint metadata depends on the provider's structured diagnostics. `constrain
 `isVibORMError(error)` narrows to the base class when you want the code without committing
 to a specific class.
 
+This guard and `instanceof` use the class identity of your installed VibORM
+copy. Deduplicate the package across integrations; an error from a second copy
+does not pass the local guard just because it has the same name or `code`.
+
 ## `error.code` is a literal, and the compiler knows it
 
 Each class declares the exact code it carries, so a union of error types is a

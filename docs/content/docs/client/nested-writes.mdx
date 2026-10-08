@@ -468,11 +468,11 @@ const post = await client.post.update({
 ```
 
 For a junction relation, every selector supplies the complete target key,
-including every member of a compound primary key. Large `set` and `connect`
-lists are split into INSERT statements that fit the active driver's verified
-bind-parameter budget. The clear step, all insert chunks, guards, and result stay
-inside the same transaction or native atomic batch. Statement-level triggers fire
-once per chunk for such a large payload; an under-limit list remains one INSERT.
+including every member of a compound primary key. `set` and `connect` capture
+and validate target membership and can perform work per target; a list does not
+promise a single INSERT or one statement-trigger invocation. Each physical
+statement respects the driver's bind-parameter budget. The transaction and
+batch guarantees described above apply to the complete operation.
 
 ## Delete Operations
 

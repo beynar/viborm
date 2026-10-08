@@ -1,3 +1,5 @@
+import { AnyNull, DbNull, JsonNull } from "@schema/json-null";
+import { JsonScalar } from "@schema/scalars/json/scalar";
 import { s } from "@src/schema";
 import { hydrateSchemaNames } from "@src/schema/hydration";
 import { validateSchema } from "@src/schema/validation";
@@ -314,6 +316,27 @@ describe("model definition rules", () => {
     const model = s.model({ id: s.string().array().id({ generate: false }) });
 
     expect(errorCodes({ model })).toContain("F007");
+  });
+
+  it("distinguishes document null from SQL null in JSON defaults", () => {
+    const valid = s.model({
+      id: s.int().id(),
+      document: s.json().default(JsonNull),
+      nullable: s.json().nullable().default(DbNull),
+    });
+    expect(errorCodes({ valid })).not.toContain("F004");
+    for (const value of [DbNull, AnyNull]) {
+      const scalar = s.json();
+      const invalid = s.model({
+        id: s.int().id(),
+        document: new JsonScalar({
+          ...scalar["~"].state,
+          hasDefault: true,
+          default: value,
+        }),
+      });
+      expect(errorCodes({ invalid })).toContain("F004");
+    }
   });
 
   it("warns when generation is configured without an ID", () => {

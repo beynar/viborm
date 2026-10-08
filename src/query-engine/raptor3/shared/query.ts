@@ -1145,8 +1145,10 @@ export class Queries {
             )
           : a.literals.value(wire);
       }
-      case "time":
-        return a.literals.value(admittedTemporal(value, validateIsoTime));
+      case "time": {
+        const admitted = validateIsoTime(value);
+        return a.literals.value("value" in admitted ? admitted.value : value);
+      }
       case "date": {
         const wire = admittedTemporal(value, validateIsoDate);
         return typeof wire === "string"

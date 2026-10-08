@@ -81,6 +81,7 @@ export type {
   GeneratorDefaultBrand,
   Getter,
   InitialModelState,
+  InitialScalarState,
   IntegerSchema,
   IntScalar,
   IsoDateSchema,

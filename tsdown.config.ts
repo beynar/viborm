@@ -144,7 +144,7 @@ const declarationExportKinds: Rolldown.Plugin = {
       if (chunk.type !== "chunk" || !chunk.fileName.endsWith(".d.mts"))
         continue;
       const entry = Object.entries(runtime.entry).find(
-        ([name]) => name === chunk.name
+        ([name]) => chunk.fileName === `${name}.d.mts`
       );
       if (!entry) continue;
       const source = ts.createSourceFile(

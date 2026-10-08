@@ -68,39 +68,47 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
-- PR #84 is at `5f8cb08af1b4cc0200f5cab40eeede86dbe9a80f`; checkpoint 3 is
-  being qualified. CI2 `37787030484` passed Core and the type/docs checks.
-  Its formatting step checked **zero files** in the shallow checkout. CI now
-  passes explicit Git-diff paths to Biome; the actual local 500-file check
-  passed after scoped assertion-helper suppressions and safe formatting.
-- Immutable build8 passed in 2.35 s at 1015.0 MiB; tarball SHA256
-  `ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37`.
-  Named initial model state reduced the native five-model declaration from
-  4,149,140 to 284,871 bytes. Native chain30 now emits within the unchanged
-  memory ceiling (2.10 s, 823 MiB); the declaration is still 8.35 MB.
-  Unannotated 200-model queries pass strict TS5.8, JS TS5.9 and native TS7.
-  Actual paired-schema/client/$extends source and emitted downstream consumer
-  proofs also pass TS5.8/native. The declaration bundler still loses explicit
-  type-only class exports; the official metadata option did not fix it. A
-  narrow source-derived export-kind correction awaits build9 qualification.
-- The root's composed-batch attribution fix now checks competing signatures
-  **before** unindexed re-probes, following independent migration-agent review.
-  A changed premise after rollback cannot identify the statement that failed.
-  Regression cases retain both premise forms, all-owned fallback, and exact
-  provider-index authority.
-- Real isolated MySQL 8.4.11 passes all 10 final cases: escaped enum CREATE,
-  widening ALTER, raw default and no-op introspection; seven namespace cases;
-  and spatial index positive/negative plans. The enum parser now reuses the
-  existing MySQL catalog escape decoder instead of double-escaping members.
-- Query correction gate: 641/649 tests passed. The remaining real nested
-  collection-order refusal was too late and allowed an earlier write to commit.
-  That rule now lives once in relation admission, before DML; the unchanged
-  no-partial-effect witness awaits the follow-up gate. Captured time dispatch
-  now uses the existing canonical time codec.
-- Actual better-sqlite3 13.0.3 / SQLite 3.53.4 packed-consumer smoke passes
-  migration, relation-filtered pagination, nested include, rollback and borrowed
-  connection ownership. Peer minimums are now ^12.11.1 or ^13.0.3, matching the
-  qualified SQLite branches; frozen-install verification is queued.
+- Draft PR #84 is at `f64f5030d03312b86684581f72c3a319c640ddf0`.
+  CI3 run `37793992180` passed real PostgreSQL/MySQL and Bun/D1 jobs. Coverage,
+  package, core, local and quality jobs failed; the exact failures are being
+  repaired. No merge, publication or deployment has occurred.
+- The actual changed-file Biome check now checks 504 files instead of zero in
+  a shallow checkout. The next checkpoint must check its added files too.
+- Schema coverage passed all four 100% thresholds across 2,319 test executions
+  in 78 files. New cases exercise invalid generation descriptors, JSON null
+  default boundaries and hostile serialized schema input. No floor or source
+  denominator changed (`/tmp/viborm-v1-coverage-schema-2.log`).
+- Collection verb order is now refused once during relation admission, before
+  any DML. Captured time binding uses the existing canonical codec. The final
+  focused repair batch passed 135/135; subsequent L3/OwnWrite/conditional
+  fixtures passed 283/283. D1 passed 40/40. The composed assertion failure
+  regression preserves exact primary identity and refuses unindexed guesses.
+- Actual SQLite public operator and query-plan checks passed 14/14, including
+  exact bigint-list membership above 2^53 and junction-first indexed lookup.
+  PGlite named-zone and further numeric edge witnesses are next.
+- Node 22.12's type stripper turned a multiline generic `return` into an early
+  return in the soft-delete helper. Returning a named local factory fixes the
+  source contract; an actual Node 22 before/after probe passed. Full package
+  qualification still repeats this on the integrated artifact.
+- Immutable artifact10 passed the 27-subpath public-surface golden. The narrow
+  declaration-export correction now matches emitted entry filenames and
+  preserves explicit type-only exports. Artifact12 emits a 30-model chain on
+  strict TS5.8 and native TS7, but emitted cyclic backreference soundness is
+  still under investigation. Ten dependent extensions also remain a type
+  blocker; failed representation experiments are removed before replacement.
+- Native17 stayed within the unchanged 8192 MiB ceiling: 15.73 s, 6560.3 MiB.
+  A Go 6 GiB soft GC limit prevents the native compiler racing its hard RSS
+  ceiling. That run failed 31 extension/soft-delete type diagnostics from an
+  experimental conditional representation; its replacement awaits native18.
+- Real isolated MySQL 8.4.11 passed all 10 final enum/namespace/spatial-index
+  cases. Actual better-sqlite3 13.0.3 / SQLite 3.53.4 packed-consumer behavior
+  passed alongside the installed 12.11.1 / SQLite 3.53.2 branch. Peer minimums
+  are ^12.11.1 or ^13.0.3; frozen dependency resolution passed.
+- The report ledger now explicitly answers 75 previously blank product-gap
+  and contract rows. A stale cross-package Decimal claim was withdrawn:
+  ordinary cloning preserves canonical text, but private Decimal/error brands
+  remain local to an installed package copy. The docs explain conversion and
+  deduplication instead of claiming structural authentication.
 
 The entries below describe earlier checkpoints and are superseded where noted.
 

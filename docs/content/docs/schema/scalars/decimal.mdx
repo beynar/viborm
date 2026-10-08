@@ -84,6 +84,11 @@ Reconstruct it explicitly with `new Decimal(cloned.value)`. A cloned object
 does not acquire the private Decimal brand and is not accepted as a typed
 decimal write by itself.
 
+The brand belongs to one installed copy of VibORM. If a package supplies a
+`Decimal` from another copy, pass its canonical `.value` string or reconstruct
+it with your application's `new Decimal(foreign.value)`. Deduplicating VibORM
+avoids that boundary; matching class names alone do not establish identity.
+
 ## Custom validation
 
 `.schema()` observes a `Decimal`, not the private canonical text. It may refine

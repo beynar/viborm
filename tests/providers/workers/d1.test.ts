@@ -84,6 +84,25 @@ geoPointBatchContract.register({
   setup: setupD1GeoPoint,
 });
 
+const bigintParent = s
+  .model({
+    id: s.bigInt().id(),
+    value: s.bigInt(),
+    children: s.toMany(() => bigintChild),
+  })
+  .map("viborm_d1_bigint_parents");
+const bigintChild = s
+  .model({
+    id: s.string().id(),
+    parentId: s.bigInt(),
+    value: s.bigInt(),
+    parent: s
+      .toOne(() => bigintParent)
+      .fields("parentId")
+      .references("id"),
+  })
+  .map("viborm_d1_bigint_children");
+
 const decimalEvidence = s
   .model({
     id: s.string().id(),
@@ -321,6 +340,8 @@ function movePostAfterNestedMemberLocate(database: D1Database): D1Database {
 beforeAll(async () => {
   await env.DB.exec(
     `CREATE TABLE IF NOT EXISTS ${TABLE} (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS viborm_d1_bigint_parents (id INTEGER PRIMARY KEY, value INTEGER NOT NULL);
+     CREATE TABLE IF NOT EXISTS viborm_d1_bigint_children (id TEXT PRIMARY KEY, parentId INTEGER NOT NULL REFERENCES viborm_d1_bigint_parents(id), value INTEGER NOT NULL);
      CREATE TABLE IF NOT EXISTS viborm_d1_progressive_authors (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
      CREATE TABLE IF NOT EXISTS viborm_d1_progressive_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
      CREATE TABLE IF NOT EXISTS viborm_d1_progressive_posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, authorId TEXT NOT NULL REFERENCES viborm_d1_progressive_authors(id), categoryId TEXT REFERENCES viborm_d1_progressive_categories(id));
@@ -461,6 +482,43 @@ describe("D1 fixed-decimal provider evidence", () => {
           where: { id: "unsafe-list" },
         })
       ).rejects.toThrow();
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
+
+describe("D1 bigint provider evidence", () => {
+  it("preserves scalar values, bigint keys, filters and included rows beyond 2^53", async () => {
+    const client = createClient({
+      schema: { parent: bigintParent, child: bigintChild },
+      database: env.DB,
+    });
+    const id = 9_007_199_254_740_993n;
+    const value = -9_007_199_254_740_994n;
+    try {
+      const created = await client.parent.create({ data: { id, value } });
+      expect(created).toEqual({ id, value });
+      await client.child.create({
+        data: { id: "exact-child", parentId: id, value: id },
+      });
+      const found = await client.parent.findUnique({
+        where: { id },
+        include: { children: true },
+      });
+      expect(found).toEqual({
+        id,
+        value,
+        children: [{ id: "exact-child", parentId: id, value: id }],
+      });
+      expect(
+        await client.parent.findMany({ where: { value: { equals: value } } })
+      ).toEqual([{ id, value }]);
+      const child = await client.child.findUnique({
+        where: { id: "exact-child" },
+        include: { parent: true },
+      });
+      expect(child?.parent).toEqual({ id, value });
     } finally {
       await client.$disconnect();
     }

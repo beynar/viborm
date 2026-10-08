@@ -67,6 +67,39 @@ test("nested numeric and point projections preserve binary64 precision", async (
   });
 });
 
+test("extreme and subnormal binary64 carriers survive includes and aggregates", async () => {
+  try {
+    for (const amount of [
+      Number.MAX_VALUE,
+      -Number.MAX_VALUE,
+      Number.MIN_VALUE,
+    ]) {
+      await client.entry.update({ where: { id: 1 }, data: { amount } });
+      const row = await client.parent.findUniqueOrThrow({
+        where: { id: 1 },
+        include: { entries: true },
+      });
+      expect(row.entries[0]!.amount).toBe(amount);
+      expect(
+        await client.entry.aggregate({
+          where: { id: 1 },
+          _avg: { amount: true },
+          _sum: { amount: true },
+          _min: { amount: true },
+          _max: { amount: true },
+        })
+      ).toEqual({
+        _avg: { amount },
+        _sum: { amount },
+        _min: { amount },
+        _max: { amount },
+      });
+    }
+  } finally {
+    await client.entry.update({ where: { id: 1 }, data: { amount: Math.PI } });
+  }
+});
+
 test("empty suffix matches non-null text and not SQL NULL", async () => {
   expect(await client.entry.count({ where: { title: { endsWith: "" } } })).toBe(
     1

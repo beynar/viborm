@@ -145,6 +145,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "JsonValueSchema",
       "Model",
       "InitialModelState",
+      "InitialScalarState",
       "ModelInternal",
       "ModelShape",
       "ModelState",
@@ -247,6 +248,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "JsonScalar",
       "JsonValueSchema",
       "InitialModelState",
+      "InitialScalarState",
       "ModelInternal",
       "ModelShape",
       "ModelState",
@@ -406,7 +408,11 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ],
     ["CacheDriver"]
   ),
-  "./cache/memory": surface(["MemoryCache"], [], ["MemoryCache"]),
+  "./cache/memory": surface(
+    ["MemoryCache"],
+    ["MemoryCacheOptions"],
+    ["MemoryCache"]
+  ),
   "./cache/cloudflare-kv": surface(
     ["CloudflareKVCache"],
     [],
@@ -470,6 +476,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "ReadableMigrations",
       "ResetOptions",
       "ResetResult",
+      "ResolveCallback",
+      "ResolveChange",
       "ResolveOptions",
       "ResolveResult",
       "SchemaSnapshot",
@@ -487,7 +495,11 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ]
   ),
   "./migrations/storage/fs": surface(["createFsStorageWriter"], [], []),
-  "./config": surface(["defineConfig"], ["VibORMConfig"], []),
+  "./config": surface(
+    ["defineConfig"],
+    ["MigrationConfig", "VibORMConfig"],
+    []
+  ),
   "./client": surface(
     [
       "PendingOperation",
@@ -560,6 +572,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "GeoPolygon",
       "InferInput",
       "InferOutput",
+      "inferredType",
       "InputJsonValue",
       "JsonSchema",
       "JsonValue",
@@ -576,10 +589,11 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "ScalarSchemas",
       "SchemaRegistryLookup",
       "SchemaRegistryOperation",
+      "V",
       "VibSchema",
     ],
-    ["inferred", "inferredType"],
-    ["V"]
+    ["inferred"],
+    []
   ),
   "./instrumentation": surface(
     [
@@ -734,7 +748,6 @@ export const ABSENT_PUBLIC_NAMES = Object.freeze({
   ],
   "./migrations/storage/fs": ["FsEstateStorage"],
   "./schema": [
-    "ModelState",
     "RelationState",
     "getFieldSqlName",
     "getModelSqlName",

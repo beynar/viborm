@@ -18,7 +18,7 @@
 
 import { s } from "@schema";
 import type { ScalarState } from "@schema/scalars/common";
-import { string } from "@schema/scalars/string/scalar";
+import { StringScalar, string } from "@schema/scalars/string/scalar";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   createSchemaRegistry,
@@ -43,6 +43,16 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 
 const CANONICAL_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+test("a JavaScript-constructed string key refuses a non-string generator", () => {
+  const scalar = new StringScalar({
+    ...s.string()["~"].state,
+    autoGenerate: { kind: "now" },
+  });
+  expect(() => scalar.id()).toThrow(
+    "This generator is not a string identifier format"
+  );
+});
 
 type InferScalarInput<
   State extends ScalarState,

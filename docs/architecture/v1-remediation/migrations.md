@@ -424,6 +424,8 @@ review revision and owners.
 
 The D1 scalar fixtures were corrected without changing runtime admission: their
 reserved decimal checks now come from the existing exact physical writer, and
-the CUID default requests generation explicitly. Actual D1 qualification is
-queued with the query owner's remaining fixture corrections. Documentation
-validate/build also remain queued behind package qualification.
+the CUID default requests generation explicitly. The entire current D1 worker
+fixture passes **40/40**, **6.47s / 675.0 MiB**, teardown verified
+(`/tmp/viborm-v1-query-d1-final.log`), including the query owner's disjoint
+skipDuplicates/cache corrections. Documentation validate/build remain queued
+behind package qualification.

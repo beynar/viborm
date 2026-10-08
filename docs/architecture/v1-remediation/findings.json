@@ -88,7 +88,8 @@
     "title": "Soft-delete sharp edges in everyday code (documented)",
     "status": "documented-contract",
     "resolution": "Soft-delete intentionally combines selected rows visibility with deletion mode; soft-delete.mdx246-265 explicitly describes hard/live behavior and deleted:only purge. Whole-scope durable cache invalidation and runtime policy model/control typo refusal are repaired separately; no authorization enforcement claim.",
-    "owner": "query-engine/cache/extensions"
+    "owner": "query-engine/cache/extensions",
+    "evidence": "Documented contract: hard deletion retains the selected rows visibility; deleted:'only' selects tombstones for purge. The soft-delete guide explains live-row deletion versus tombstone purge. This is distinct from the separately repaired cache invalidation defects and does not provide authorization."
   },
   {
     "id": "api-dx-10",
@@ -120,7 +121,8 @@
     "title": "Tenancy recipe: a forgotten tenant compiles, writes cross tenants, and the recipe is copy-paste with a cast",
     "status": "documented-contract",
     "resolution": "Caller-wins default data stamps are the settled contract, not write authorization. create.mdx now explicitly demonstrates caller override; required tenant controls are runtime-validated (controls48 qualification), while static required-control types remain a product gap. Generic mapped recipe application now passes native8.",
-    "owner": "query-engine/cache/extensions"
+    "owner": "query-engine/cache/extensions",
+    "evidence": "Documented contract: data/tenancy stamps supply defaults, and caller assignments win on create and update. The create-extension guide now demonstrates that override. Stamps are not tenant-write authorization; required controls are runtime checks, while static required-control enforcement and graph-wide authorization remain gaps."
   },
   {
     "id": "api-dx-13",
@@ -179,7 +181,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Stale peer-dependency ranges silently pin users to old drivers or fail with ERESOLVE",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "driver/package",
+    "evidence": "Published peer ranges and installed SDK contracts updated: Neon1.2.0 official query/batch API executed in hosted uniquely namespaced fixtures; libSQL0.18.0 local client/quarantine/preparation/cache contracts qualified. SQLite range narrowed to ^12.11.1 || ^13.0.3: actual12.11.1 embedsSQLite3.53.2 optimizer8/8, actual supplied13.0.3 client/pagination/rollback smoke passed0.20s (/tmp/viborm-v1-sqlite13-peer.log). Frozen resolution --ignore-scripts passed; ordinary full CI install remains release qualification. Current PlanetScale1.x contract retained; no PlanetScale2 or hostedTurso support claim, and optional provider peers remain optional. CI3 actual PostgreSQL/MySQL/Bun/D1 lanes passed at checkpoint per root evidence; package/declaration remaining H13 is tracked separately."
   },
   {
     "id": "codebase-health-04",
@@ -636,7 +640,8 @@
     "title": "Case-insensitive and substring predicates are non-sargable on all three dialects; no index can ever serve them",
     "status": "product-gap",
     "resolution": "Portable ASCII/pattern lowering returns correct documented results but offers no indexability guarantee. Functional-index/search optimizer strategies remain performance/product work; universal no-index-can-ever claim is not used as a proof.",
-    "owner": "query-engine/cache/extensions"
+    "owner": "query-engine/cache/extensions",
+    "evidence": "Performance/product gap: portable substring and folded comparisons carry no index-use guarantee. Provider expression/search indexes and additional query strategies are not implemented here. The report's universal claim that no index can ever help is not treated as established behavior."
   },
   {
     "id": "dialect-features-06",
@@ -676,8 +681,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "On a citext column VibORM's predicates disagree about case (equals/startsWith/gt insensitive, contains/endsWith sensitive)",
-    "status": "implemented-unverified",
-    "evidence": "PG literal text predicates use escaped LIKE, preserving native citext case behavior across contains/prefix/suffix while plain text remains case-sensitive. Dedicated native citext witness added; pending provider run."
+    "status": "verified-fixed",
+    "evidence": "PostgreSQL literal text predicates now use escaped LIKE so citext preserves its native case rule across contains, startsWith, endsWith and insensitive ranges. tests/providers/local/pglite-adapter-adversarial.test.ts executes the actual extension and positive/negative query results; the integrated PGlite gate passed 8/8, then the named-zone extension passed 9/9. Plain text retains its separate case contract."
   },
   {
     "id": "dialect-features-11",
@@ -710,7 +715,8 @@
     "title": "PostgreSQL list has compiles to $1 = ANY(col) and cannot use the GIN index VibORM lets you declare",
     "status": "product-gap",
     "resolution": "Existing PostgreSQL list has uses scalar ANY; index-optimized GIN containment lowering is deferred performance work, not a returned-membership correctness bug.",
-    "owner": "query-engine/cache/extensions"
+    "owner": "query-engine/cache/extensions",
+    "evidence": "Performance gap: PostgreSQL list has uses scalar ANY membership, without a GIN-plan guarantee. A GIN-oriented containment strategy remains additional query lowering; existing membership behavior is not declared incorrect solely because of its plan."
   },
   {
     "id": "dialect-features-15",
@@ -749,8 +755,8 @@
     "kind": "gap",
     "effort": "S",
     "title": "pgvector query surface is thin: only l2/cosine, no distance filter, nullable select refused, dimension unchecked on write",
-    "status": "implemented-unverified",
-    "evidence": "Vector dimension and finite float32 admission, nullable distance projection/result types and undefined cosine results are repaired with provider regressions. The public vector API still intentionally offers l2/cosine only; distance filters and further metrics are explicit product gaps, not claimed completed features."
+    "status": "verified-fixed",
+    "evidence": "Confirmed vector defects are fixed: finite float32 components and declared dimensions are checked before provider writes; nullable distance selection and zero-cosine results preserve null. Actual PGlite provider tests cover valid and invalid writes plus nullable/zero vectors, and SQLite tests exercise JSON storage. The API still offers l2/cosine only; distance filters and other metrics remain explicit product gaps."
   },
   {
     "id": "dialect-features-14",
@@ -761,7 +767,8 @@
     "title": "JSON filters cannot use a jsonb GIN index; no containment, key-existence, jsonpath, opclass or partial-update operators",
     "status": "product-gap",
     "resolution": "JSON array containment is supported through the adapter native containment seam; casts/structural equality/string typing are repaired separately. Key existence/jsonpath/opclass/partial-write vocabulary and index-optimized plan guarantees remain absent product/performance features.",
-    "owner": "query-engine/cache/extensions"
+    "owner": "query-engine/cache/extensions",
+    "evidence": "Product/performance gap: JSON array containment has an adapter seam, but key-existence, jsonpath, opclass selection and partial-document writes remain absent. Structural equality and string-type correctness are repaired separately; no universal jsonb-GIN indexability guarantee is claimed."
   },
   {
     "id": "dialect-features-19",
@@ -772,7 +779,8 @@
     "title": "PostGIS support is Point-only and nearest-neighbour ordering cannot use GiST KNN",
     "status": "product-gap",
     "resolution": "The one documented GeoPoint vocabulary/tier remains Point-only; polygon predicate query inputs do not add stored general geometry. Native GiST KNN ordering/general geometry are additional features; conservative distance-bound correctness is root-fixed independently.",
-    "owner": "query-engine/cache/extensions"
+    "owner": "query-engine/cache/extensions",
+    "evidence": "Product/performance gap: stored spatial values use the single fixed GeoPoint vocabulary. Polygon query inputs do not add general stored geometry. Native GiST KNN nearest-neighbor ordering and broader geometry storage remain absent; conservative bounds correctness is a separate repaired defect."
   },
   {
     "id": "differential-01",
@@ -874,7 +882,8 @@
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
     "resolution": "Preserve settled Boolean filter behavior: undefined members omitted, empty AND/NOT true, empty OR including empty children false. Compatibility Filter behavior on a port now states exact semantics and safe optional-input construction concern. New strictUndefined mode remains a product feature gap.",
-    "verification": "Source existing prepared predicate semantics; tests/contracts/drivers/behaviors/prisma-parity-behavior.ts empty-OR coverage and tests/raptor3/g4/review/unit01-followup2/characterize.test.ts/combinator-depth.test.ts establish extensive intentional contract. No new runtime change or fresh full-provider run claimed."
+    "verification": "Source existing prepared predicate semantics; tests/contracts/drivers/behaviors/prisma-parity-behavior.ts empty-OR coverage and tests/raptor3/g4/review/unit01-followup2/characterize.test.ts/combinator-depth.test.ts establish extensive intentional contract. No new runtime change or fresh full-provider run claimed.",
+    "evidence": "Documented contract: undefined filter members are omitted; empty AND/NOT are true and empty OR, including empty children, is false. SQL three-valued every semantics are retained. The compatibility guide explains both edges; a new strictUndefined mode or different Boolean algebra is not implemented."
   },
   {
     "id": "differential-14",
@@ -894,7 +903,7 @@
     "reviewStatus": "confirmed",
     "kind": "gap",
     "effort": "M",
-    "title": "mode: \"insensitive\" folds ASCII only (documented): \u00e9/\u00cb/\u0130/\u00df never match case-insensitively on any database",
+    "title": "mode: \"insensitive\" folds ASCII only (documented): é/Ë/İ/ß never match case-insensitively on any database",
     "status": "documented-contract",
     "evidence": "The portable insensitive contract is ASCII folding. Unicode case equivalence and normalization are not promised across dialects; no locale-independent Unicode collation layer added.",
     "owner": "root/integration"
@@ -938,8 +947,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "mode: \"insensitive\" is silently ignored by lt/lte/gt/gte (type-accepted), producing mixed folded and unfolded filters",
-    "status": "implemented-unverified",
-    "evidence": "String range comparisons now fold both the column and operand when mode:insensitive, through the existing ASCII-fold owner. SQLite public regression added; pending run."
+    "status": "verified-fixed",
+    "evidence": "Case-insensitive lt/lte/gt/gte now fold both operands through the dialect owner consistently with equality. A real SQLite public query proves Z > a with insensitive mode and no match with the ordinary mode in tests/providers/local/sqlite3-adapter-adversarial.test.ts; the 14/14 gate passes. PostgreSQL native string/citext behavior has its separate executed PGlite witness."
   },
   {
     "id": "differential-13",
@@ -1417,7 +1426,7 @@
     "effort": "S",
     "title": "Peer ranges lag the driver ecosystem (libSQL, better-sqlite3, workers-types, PlanetScale) - with PlanetScale SDK 2.0 the driver fails every query",
     "status": "product-gap",
-    "evidence": "Neon1.2/libSQL0.18 and better-sqlite3\u226512.10/13 peer contracts were updated. PlanetScale2 parameter API support was deliberately not invented: the supported peer remains1.x. Actual modern-peer qualification is scoped to installed/tested versions; PlanetScale2 remains an expansion gap. Accepted expansion boundary; not marked fixed by documentation.",
+    "evidence": "Neon1.2/libSQL0.18 and better-sqlite3≥12.10/13 peer contracts were updated. PlanetScale2 parameter API support was deliberately not invented: the supported peer remains1.x. Actual modern-peer qualification is scoped to installed/tested versions; PlanetScale2 remains an expansion gap. Accepted expansion boundary; not marked fixed by documentation.",
     "owner": "driver/scalar"
   },
   {
@@ -1545,7 +1554,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No result capability or SQL extras in select. Query returned-value correction is verified, but adding computed/virtual fields is a separate product feature."
+    "resolution": "No result capability or SQL extras in select. Query returned-value correction is verified, but adding computed/virtual fields is a separate product feature.",
+    "evidence": "Product gap: the extension chain has no result capability, and select has no computed/virtual SQL extras. Correct handling of a query interceptor's returned value is a separate fix, not a new computed-field facility."
   },
   {
     "id": "ecosystem-06",
@@ -1635,7 +1645,8 @@
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
     "resolution": "Preserve settled caller-wins default stamps; corrected contradictory create guide and added explicitacme-control/globex-caller example. No authority/enforce API added.",
-    "verification": "Existing extension-data-behavior.ts:703and398/509pin caller override across root/nested creates andupdates; new doc example follows that contract."
+    "verification": "Existing extension-data-behavior.ts:703and398/509pin caller override across root/nested creates andupdates; new doc example follows that contract.",
+    "evidence": "Documented contract: data/tenancy stamps supply defaults, and caller assignments win on create and update. The create-extension guide now demonstrates that override. Stamps are not tenant-write authorization; required controls are runtime checks, while static required-control enforcement and graph-wide authorization remain gaps."
   },
   {
     "id": "ecosystem-13",
@@ -1657,7 +1668,8 @@
     "title": "Extension composition is order-locked: two rows-plus-methods plugins cannot be combined in any order",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Rows alter result nullability and therefore precede result-consuming mapped handlers/methods; create.mdx359-367 states this composition contract. Order-independent rebinding of previously typed contributions remains a product gap, not a silently fixed defect."
+    "resolution": "Rows alter result nullability and therefore precede result-consuming mapped handlers/methods; create.mdx359-367 states this composition contract. Order-independent rebinding of previously typed contributions remains a product gap, not a silently fixed defect.",
+    "evidence": "Documented contract: rows contributions change result context and precede handlers/methods typed to consume that context. The create-extension guide states this ordering. Rebinding already typed contributions into an arbitrary new order remains unsupported."
   },
   {
     "id": "ecosystem-16",
@@ -1670,7 +1682,8 @@
     "owner": "query-engine/cache/extensions",
     "resolution": "The documented tag-key examples were corrected to canonical-key suffix and trailing-star/manual prefix semantics; default durable invalidation clears the full bound scope. A tag registry/API is not implemented.",
     "verification": "Protocol has only exactcanonical key/prefix invalidation; customkey is canonical suffix.",
-    "disposition": "product-gap"
+    "disposition": "product-gap",
+    "evidence": "Product gap: no cache tag registry or tag-invalidation API was added. Documentation now describes canonical-key suffixes and supported prefix/manual invalidation; default durable invalidation clears the bound scope. Tag-shaped examples are not evidence of a tag implementation."
   },
   {
     "id": "ecosystem-18",
@@ -1679,10 +1692,11 @@
     "kind": "bug",
     "effort": "S",
     "title": "Model operations are thenables, not Promises: tRPC infers PendingOperation, and Promise<T> annotations fail",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "owner": "query-engine/cache/extensions",
     "resolution": "PendingOperation implements existing lazy Promise<T> methods and readonly Symbol.toStringTag Promise.",
-    "verification": "Source implemented; root owns public Promise-position type/runtime qualification; native final gate pending."
+    "verification": "Source implemented; root owns public Promise-position type/runtime qualification; native final gate pending.",
+    "evidence": "Pending model operations now implement the Promise-compatible public surface while retaining lazy operation behavior. tests/types/client/adversarial-results.core.types.ts exercises direct Promise<T> assignment and generic inference through the public client; native15 checked the full estate successfully. Runtime operation/interceptor tests remain selected in core; the next integrated type gate must still pass after unrelated extension representation work."
   },
   {
     "id": "ecosystem-19",
@@ -1725,7 +1739,8 @@
     "title": "Arguments cannot be transformed asynchronously: request is sync-only and proceed() takes no args",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "The request capability is intentionally synchronous; async query work starts after prepared validation and cannot replace arguments through proceed. create.mdx documents synchronous shallow request patches; asynchronous request transformation remains a product gap."
+    "resolution": "The request capability is intentionally synchronous; async query work starts after prepared validation and cannot replace arguments through proceed. create.mdx documents synchronous shallow request patches; asynchronous request transformation remains a product gap.",
+    "evidence": "Documented contract: request transformations are synchronous shallow argument patches. Async query interception starts after preparation, and proceed does not replace arguments. An async request-transform capability remains absent rather than being silently added."
   },
   {
     "id": "ecosystem-15",
@@ -1737,7 +1752,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No all-model method factory. Existing per-model method factories preserve typed results; a new generic all-model public capability is not implemented."
+    "resolution": "No all-model method factory. Existing per-model method factories preserve typed results; a new generic all-model public capability is not implemented.",
+    "evidence": "Product gap: model methods use existing per-model factories; there is no $allModels method factory. A generic all-model contribution API remains separate public type and composition work."
   },
   {
     "id": "ecosystem-22",
@@ -1759,7 +1775,8 @@
     "title": "Soft-delete purge footgun: mode \"hard\" keeps the live filter (deletes 0 tombstones or hard-deletes live rows)",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Hard delete retains the selected rows visibility mode by design (Laravel-style convention noted by report). soft-delete.mdx246-265 explicitly requires deleted:only for a tombstone purge and explains live-row effects without it; no permission/security promise inferred."
+    "resolution": "Hard delete retains the selected rows visibility mode by design (Laravel-style convention noted by report). soft-delete.mdx246-265 explicitly requires deleted:only for a tombstone purge and explains live-row effects without it; no permission/security promise inferred.",
+    "evidence": "Documented contract: hard deletion retains the selected rows visibility; deleted:'only' selects tombstones for purge. The soft-delete guide explains live-row deletion versus tombstone purge. This is distinct from the separately repaired cache invalidation defects and does not provide authorization."
   },
   {
     "id": "ecosystem-24",
@@ -1771,7 +1788,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Rows policies accept scalar filters only. Graph-wide authorization/relation-derived tenancy is a separate product feature; the docs explicitly do not describe rows as RBAC."
+    "resolution": "Rows policies accept scalar filters only. Graph-wide authorization/relation-derived tenancy is a separate product feature; the docs explicitly do not describe rows as RBAC.",
+    "evidence": "Product gap: rows policies use scalar filters; they do not derive tenancy or authorization through arbitrary relation graphs. The documented rows capability is not graph-wide RBAC."
   },
   {
     "id": "ecosystem-25",
@@ -1783,7 +1801,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Required controls are enforced at runtime. Statically making every managed operation require them is a separate public type feature."
+    "resolution": "Required controls are enforced at runtime. Statically making every managed operation require them is a separate public type feature.",
+    "evidence": "Product typing gap: required controls are enforced at runtime, but the public managed-operation types do not statically require every control. Runtime refusal is not presented as editor enforcement."
   },
   {
     "id": "ecosystem-26",
@@ -1794,7 +1813,8 @@
     "title": "A statement transform (e.g. sqlcommenter tagging) silently disables the official cache",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "An arbitrary trusted statement transform can change query semantics outside canonical identity, so cached reads deliberately bypass that chain. create.mdx228 and official-cache-instrumentation regressions pin the behavior; safe automatic semantic fingerprinting remains unsupported."
+    "resolution": "An arbitrary trusted statement transform can change query semantics outside canonical identity, so cached reads deliberately bypass that chain. create.mdx228 and official-cache-instrumentation regressions pin the behavior; safe automatic semantic fingerprinting remains unsupported.",
+    "evidence": "Documented contract: arbitrary statement transforms can change semantics outside cache identity, so official cached reads bypass such chains. The create-extension guide states this exclusion. Automatic safe fingerprinting of transformed SQL is unsupported."
   },
   {
     "id": "ecosystem-27",
@@ -1807,7 +1827,8 @@
     "owner": "query-engine/cache/extensions",
     "resolution": "MemoryCache is bounded by default1024 LRU entries and owns one expiry timer, verified by95/95 cache regressions. Redis/Upstash built-in drivers remain absent product features; no unbounded Memory claim remains.",
     "verification": "Memory regression passed; no new backend claim.",
-    "disposition": "product-gap"
+    "disposition": "product-gap",
+    "evidence": "Product gap: no built-in Redis or Upstash cache driver was added. The unbounded MemoryCache defect is separately repaired through bounded LRU retention and owned expiry; that repair does not fill the backend ecosystem gap."
   },
   {
     "id": "ecosystem-28",
@@ -1905,7 +1926,7 @@
     "title": "Peer ranges reject the current major of 5 of 10 drivers: npm ERESOLVE for existing projects, silent downgrades for new ones",
     "status": "product-gap",
     "owner": "driver/scalar",
-    "evidence": "Compatible supported peer ranges were updated, including libSQL0.18 and better-sqlite3\u226512.10/13. PlanetScale2 remains unsupported rather than admitted through an unproven interpolator; not every current ecosystem major is qualified. Accepted expansion boundary; not marked fixed by documentation."
+    "evidence": "Compatible supported peer ranges were updated, including libSQL0.18 and better-sqlite3 ^12.11.1 / ^13.0.3. PlanetScale2 remains unsupported rather than admitted through an unproven interpolator; not every current ecosystem major is qualified. Accepted expansion boundary; not marked fixed by documentation."
   },
   {
     "id": "edge-bundle-07",
@@ -2131,7 +2152,7 @@
     "reviewStatus": "partial",
     "kind": "gap",
     "effort": "S",
-    "title": "Every failed span says 'Operation failed' \u2014 no error.type, code or SQLSTATE",
+    "title": "Every failed span says 'Operation failed' — no error.type, code or SQLSTATE",
     "status": "verified-fixed",
     "owner": "driver/scalar",
     "evidence": "Actual OTel protected operation/statement/connection spans carry error.type, viborm.error.code and provider SQLSTATE without enabling logs or disclosing provider text. Real recorder provider-details-callsite7/7 plus docs137/137 passed root final diagnostics144; final tracer/context/official observer/golden contracts passed in drivers132/132. The earlier callback harness evidence is superseded by these actual assertions."
@@ -2198,7 +2219,7 @@
     "effort": "S",
     "title": "Migration error meta is stripped; the destructive-push refusal says nothing actionable",
     "status": "verified-fixed",
-    "evidence": "Migration1973green: destructive refusal provides dryRun\u2192review\u2192consent recovery and retains only existing allowlisted command/dialect/checksum/statement-count/hint metadata in public toJSON. SQL/params/preview disclosure unchanged; raw catalog preflight failures remain normalized, typed failure propagated."
+    "evidence": "Migration1973green: destructive refusal provides dryRun→review→consent recovery and retains only existing allowlisted command/dialect/checksum/statement-count/hint metadata in public toJSON. SQL/params/preview disclosure unchanged; raw catalog preflight failures remain normalized, typed failure propagated."
   },
   {
     "id": "errors-18",
@@ -3176,7 +3197,7 @@
     "reviewStatus": "confirmed",
     "kind": "footgun",
     "effort": "S",
-    "title": "MemoryCache has no size bound (memory = request rate \u00d7 TTL \u00d7 entry size), contrary to the docs' 'keeps memory bounded'",
+    "title": "MemoryCache has no size bound (memory = request rate × TTL × entry size), contrary to the docs' 'keeps memory bounded'",
     "status": "verified-fixed",
     "owner": "query-engine/cache/extensions",
     "resolution": "MemoryCache defaults1024LRUentries with exact maxEntries option andoneunrefsweep; longTTL uses absolute deadline.",
@@ -3260,7 +3281,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Pattern/function predicates retain their documented SQL shapes. Functional indexes, native search optimization and indexability guarantees are not provided; no portable-performance repair claimed."
+    "resolution": "Pattern/function predicates retain their documented SQL shapes. Functional indexes, native search optimization and indexability guarantees are not provided; no portable-performance repair claimed.",
+    "evidence": "Performance/product gap: portable substring and folded comparisons carry no index-use guarantee. Provider expression/search indexes and additional query strategies are not implemented here. The report's universal claim that no index can ever help is not treated as established behavior."
   },
   {
     "id": "read-api-06",
@@ -3268,10 +3290,11 @@
     "reviewStatus": "partial",
     "kind": "gap",
     "effort": "M",
-    "title": "mode: 'insensitive' folds ASCII only \u2014 no case-insensitive search for non-English text",
+    "title": "mode: 'insensitive' folds ASCII only — no case-insensitive search for non-English text",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Portable insensitive mode deliberately folds ASCII A-Z; locale-aware Unicode behavior is not promised. compatibility.mdx documents the exact domain and provider-independent code-point behavior."
+    "resolution": "Portable insensitive mode deliberately folds ASCII A-Z; locale-aware Unicode behavior is not promised. compatibility.mdx documents the exact domain and provider-independent code-point behavior.",
+    "evidence": "Documented contract: insensitive mode folds ASCII A-Z, with provider-independent spelling. Locale-aware Unicode case folding is not promised; the compatibility guide now states the exact domain."
   },
   {
     "id": "read-api-07",
@@ -3295,7 +3318,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Cursor results are correct; mixed-direction/nullable lexicographic predicates may scan. Users can specify matching scalar key directions. A new index-optimized cursor strategy is deferred performance work."
+    "resolution": "Cursor results are correct; mixed-direction/nullable lexicographic predicates may scan. Users can specify matching scalar key directions. A new index-optimized cursor strategy is deferred performance work.",
+    "evidence": "Performance gap: mixed-direction or nullable cursor orders can require scans despite correct pagination results. Matching scalar key directions remain the available schema/query choice; a new index-optimized cursor protocol was not added."
   },
   {
     "id": "read-api-09",
@@ -3307,7 +3331,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Typed SQL joins/CTEs/windows/unions/row locks remain absent. Safe raw SQL exists and is physical; adding a typed query DSL is product expansion."
+    "resolution": "Typed SQL joins/CTEs/windows/unions/row locks remain absent. Safe raw SQL exists and is physical; adding a typed query DSL is product expansion.",
+    "evidence": "Product gap: no typed joins/CTEs/windows/unions/row-lock SQL lane was added. Safe raw SQL remains available as a physical interface, without claiming inferred relational results."
   },
   {
     "id": "read-api-10",
@@ -3353,7 +3378,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "PostgreSQL list has does not promise GIN index usage. Index-optimized containment lowering remains performance work; returned membership semantics stay supported."
+    "resolution": "PostgreSQL list has does not promise GIN index usage. Index-optimized containment lowering remains performance work; returned membership semantics stay supported.",
+    "evidence": "Performance gap: PostgreSQL list has uses scalar ANY membership, without a GIN-plan guarantee. A GIN-oriented containment strategy remains additional query lowering; existing membership behavior is not declared incorrect solely because of its plan."
   },
   {
     "id": "read-api-14",
@@ -3365,7 +3391,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Scalar comparison SQL operands are supported and direct field interpolation is repaired separately. Whole predicates, select/order/group expressions, count-distinct and relation-count filters remain absent product features."
+    "resolution": "Scalar comparison SQL operands are supported and direct field interpolation is repaired separately. Whole predicates, select/order/group expressions, count-distinct and relation-count filters remain absent product features.",
+    "evidence": "Product gap: scalar comparison SQL operands are supported, but whole raw predicates, computed select/order/group expressions, count-distinct and relation-count filters remain outside the object API. Operand interpolation repairs do not supply that broader query DSL."
   },
   {
     "id": "read-api-15",
@@ -3387,7 +3414,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No findUnique batching/DataLoader registry. Avoiding resolver N+1 requires user batching or explicit relation loading; automatic dispatch batching is product expansion."
+    "resolution": "No findUnique batching/DataLoader registry. Avoiding resolver N+1 requires user batching or explicit relation loading; automatic dispatch batching is product expansion.",
+    "evidence": "Product gap: no automatic findUnique/DataLoader dispatch registry was added. Explicit relation loading or caller batching remains necessary to avoid resolver N+1 patterns."
   },
   {
     "id": "read-api-17",
@@ -3399,7 +3427,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No full-text or regex filter operators. Declaring provider index types does not add query operators; these operators remain product features."
+    "resolution": "No full-text or regex filter operators. Declaring provider index types does not add query operators; these operators remain product features.",
+    "evidence": "Product gap: FULLTEXT/GIN index declaration does not provide full-text or regex filter operators. The missing query vocabulary remains separate from legal index DDL."
   },
   {
     "id": "read-api-18",
@@ -3407,7 +3436,7 @@
     "reviewStatus": "partial",
     "kind": "footgun",
     "effort": "S",
-    "title": "Explicit undefined silently drops filters \u2014 deleteMany/updateMany hit every row; no strict mode",
+    "title": "Explicit undefined silently drops filters — deleteMany/updateMany hit every row; no strict mode",
     "status": "documented-contract",
     "evidence": "Filtering guide explicitly describes omitted undefined values, the unrestricted-mutation consequence, and empty AND/NOT versus OR semantics. Existing empty-filter parity tests pin the contract. Strict undefined mode remains a product gap; query semantics are not silently changed."
   },
@@ -3421,7 +3450,8 @@
     "status": "product-gap",
     "owner": "query-engine/cache/extensions",
     "resolution": "Relation/count/distance cursor ordering remains an explicit feature gap. Runtime attempts now fail with UnsupportedOperationError V8003 rather than internal engine-bug taxonomy.",
-    "verification": "Actual SQLite12.11.1 public relation+count cursor refusal witness in sqlite3-v1-sql-operands.test.ts, part of12/12, /tmp/viborm-v1-query-final-sqlite.log; no capability implementation claimed."
+    "verification": "Actual SQLite12.11.1 public relation+count cursor refusal witness in sqlite3-v1-sql-operands.test.ts, part of12/12, /tmp/viborm-v1-query-final-sqlite.log; no capability implementation claimed.",
+    "evidence": "Product gap: cursor ordering by relations, counts or distance remains unsupported. The existing refusal is now the actionable V8003 category; the recorded SQLite provider witness proves refusal, not implementation of those orders."
   },
   {
     "id": "read-api-20",
@@ -3453,7 +3483,8 @@
     "title": "Empty-filter algebra and every+NULL copied from Prisma invert the documented undefined idiom inside OR",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Preserved settled SQL three-valued every semantics and empty-filter algebra, with Prisma parity explicitly acknowledged by the report. compatibility.mdx239-245 now states empty OR false, undefined omission, and explicit non-null mitigation for every. No runtime semantic change claimed."
+    "resolution": "Preserved settled SQL three-valued every semantics and empty-filter algebra, with Prisma parity explicitly acknowledged by the report. compatibility.mdx239-245 now states empty OR false, undefined omission, and explicit non-null mitigation for every. No runtime semantic change claimed.",
+    "evidence": "Documented contract: undefined filter members are omitted; empty AND/NOT are true and empty OR, including empty children, is false. SQL three-valued every semantics are retained. The compatibility guide explains both edges; a new strictUndefined mode or different Boolean algebra is not implemented."
   },
   {
     "id": "read-api-23",
@@ -3465,7 +3496,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "The JSON filter vocabulary is the documented VibORM surface, including array paths and whole-column sentinels. Additional Prisma spellings/paths are compatibility feature gaps; structural equality and string-type bugs are repaired separately."
+    "resolution": "The JSON filter vocabulary is the documented VibORM surface, including array paths and whole-column sentinels. Additional Prisma spellings/paths are compatibility feature gaps; structural equality and string-type bugs are repaired separately.",
+    "evidence": "Compatibility gap: VibORM documents its own JSON path/filter vocabulary and whole-column null sentinels. Additional Prisma path/operator spellings remain absent; separately repaired structural equality and string typing do not imply full Prisma compatibility."
   },
   {
     "id": "relations-02",
@@ -3521,7 +3553,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "The one driver adapter namespace qualifies generated tables. Per-model cross-namespace relations require a new namespace contract and remain a product gap."
+    "resolution": "The one driver adapter namespace qualifies generated tables. Per-model cross-namespace relations require a new namespace contract and remain a product gap.",
+    "evidence": "Product gap: one immutable adapter namespace qualifies generated persistent objects. Per-model cross-schema relations require a different namespace contract and were not added."
   },
   {
     "id": "relations-05",
@@ -3532,7 +3565,8 @@
     "title": "Polymorphic to-one: deleting a target silently orphans owners, after which every include of the relation throws for the whole list",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Row-carrier polymorphic memberships have no database FK or automatic target cleanup. schema/relations/polymorphic.mdx1119 explicitly requires application transaction cleanup, and nonempty missing targets refuse rather than masquerade as null. FK emulation/configurable orphan policy is a separate feature gap."
+    "resolution": "Row-carrier polymorphic memberships have no database FK or automatic target cleanup. schema/relations/polymorphic.mdx1119 explicitly requires application transaction cleanup, and nonempty missing targets refuse rather than masquerade as null. FK emulation/configurable orphan policy is a separate feature gap.",
+    "evidence": "Documented contract: row-carrier polymorphic references have no database FK or automatic target cleanup. The polymorphic guide requires application transaction cleanup; a nonempty missing target is refused rather than returned as null. Automatic orphan policy/FK emulation remains unsupported."
   },
   {
     "id": "relations-06",
@@ -3566,7 +3600,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "An explicit junction payload model is queried through its declared relations. A convenience many-to-many traversal that also exposes payload is a new relation-loading feature."
+    "resolution": "An explicit junction payload model is queried through its declared relations. A convenience many-to-many traversal that also exposes payload is a new relation-loading feature.",
+    "evidence": "Product gap: explicit payload junction models are traversed through their declared relations. A many-to-many convenience projection exposing junction payload has not been added."
   },
   {
     "id": "relations-09",
@@ -3578,7 +3613,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Generated ordinary relations require database FKs. FK-less relation mode/referential emulation is absent product functionality, not implemented by this repair."
+    "resolution": "Generated ordinary relations require database FKs. FK-less relation mode/referential emulation is absent product functionality, not implemented by this repair.",
+    "evidence": "Product gap: ordinary generated relations rely on database foreign keys. An FK-less relation mode and referential-action emulation are not implemented by this repair."
   },
   {
     "id": "relations-11",
@@ -3590,7 +3626,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "To-one include where is absent from the documented projection grammar. Adding filtered singular include result/nullability semantics is a separate feature."
+    "resolution": "To-one include where is absent from the documented projection grammar. Adding filtered singular include result/nullability semantics is a separate feature.",
+    "evidence": "Product gap: the singular include grammar has no where clause. Filtered to-one projection and its result/nullability semantics remain additional API work."
   },
   {
     "id": "relations-12",
@@ -3602,7 +3639,8 @@
     "status": "product-gap",
     "owner": "query-engine/cache/extensions",
     "resolution": "Relation/count cursor ordering remains an explicit feature gap. Runtime attempts now fail with UnsupportedOperationError V8003 rather than internal engine-bug taxonomy.",
-    "verification": "Actual SQLite12.11.1 public relation+count cursor refusal witness in sqlite3-v1-sql-operands.test.ts, part of12/12, /tmp/viborm-v1-query-final-sqlite.log; no capability implementation claimed."
+    "verification": "Actual SQLite12.11.1 public relation+count cursor refusal witness in sqlite3-v1-sql-operands.test.ts, part of12/12, /tmp/viborm-v1-query-final-sqlite.log; no capability implementation claimed.",
+    "evidence": "Product gap: cursor ordering by relations, counts or distance remains unsupported. The existing refusal is now the actionable V8003 category; the recorded SQLite provider witness proves refusal, not implementation of those orders."
   },
   {
     "id": "relations-13",
@@ -3614,7 +3652,8 @@
     "status": "product-gap",
     "owner": "query-engine/cache/extensions",
     "resolution": "One payload cannot independently assign a shared physical FK column through multiple relation writes; existing assignment owner refuses V8003 before effects and does not invent precedence, partial compound ownership, or matching-value merge semantics. Supporting overlapping compound-FK relation writes requires an explicit mutation ownership contract, remains a product gap; declarations and existing nonoverlapping compound relations keep their proven behavior.",
-    "verification": "Existing Assignments relation contribution conflict owner and compound relation adoption/refusal witnesses; plain field/relation diagnostic wording root errors15 and compatibility nested conflict contract. No support expansion claimed."
+    "verification": "Existing Assignments relation contribution conflict owner and compound relation adoption/refusal witnesses; plain field/relation diagnostic wording root errors15 and compatibility nested conflict contract. No support expansion claimed.",
+    "evidence": "Product gap: multiple relation writes cannot independently assign a shared physical compound-FK column in one payload. The assignment owner refuses V8003 before effects. Supporting agreement merges or partial compound ownership needs an explicit mutation contract, not inferred precedence."
   },
   {
     "id": "relations-15",
@@ -3638,7 +3677,8 @@
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
     "resolution": "A scalar FK plus relation verb assigning the same column is an explicit V8003 refusal even for agreeing input. Diagnostic now names conflicting column/relation rather than internal engine. Static FK/relation XOR remains a product typing gap; no precedence or matching-value merge introduced.",
-    "verification": "Existing assignment owner and compound relation adoption public witnesses; root errors15 message correction and compatibility conflict documentation. Does not claim static XOR implemented."
+    "verification": "Existing assignment owner and compound relation adoption public witnesses; root errors15 message correction and compatibility conflict documentation. Does not claim static XOR implemented.",
+    "evidence": "Documented contract: a scalar FK assignment and a relation verb assigning the same column are refused with V8003, even when values agree. The diagnostic names the column/relation instead of an internal engine. A static FK/relation XOR remains unimplemented."
   },
   {
     "id": "relations-16",
@@ -3649,7 +3689,8 @@
     "title": "`every` treats NULL-valued children as satisfying the predicate",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Preserved settled SQL three-valued every semantics with Prisma parity explicitly acknowledged by the report. compatibility.mdx243-245 names nullable unknown as not a counterexample and requires explicit non-null predicate when desired."
+    "resolution": "Preserved settled SQL three-valued every semantics with Prisma parity explicitly acknowledged by the report. compatibility.mdx243-245 names nullable unknown as not a counterexample and requires explicit non-null predicate when desired.",
+    "evidence": "Documented contract: SQL every uses absence of a false counterexample, so a nullable unknown alone does not violate it. The compatibility guide requires an explicit non-null predicate when that stronger condition is intended."
   },
   {
     "id": "relations-17",
@@ -3661,7 +3702,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Both endpoints are declared and validated through one topology owner. Automatic inverse generation is absent tooling, not a runtime defect."
+    "resolution": "Both endpoints are declared and validated through one topology owner. Automatic inverse generation is absent tooling, not a runtime defect.",
+    "evidence": "Product tooling gap: both relation endpoints are declared and checked by the one topology owner. Automatic inverse generation was not added; validated pairing is not an inverse generator."
   },
   {
     "id": "relations-18",
@@ -3673,7 +3715,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "SET DEFAULT is absent from the referential action vocabulary. Implementing its provider/default applicability contract is product expansion."
+    "resolution": "SET DEFAULT is absent from the referential action vocabulary. Implementing its provider/default applicability contract is product expansion.",
+    "evidence": "Product gap: SET DEFAULT is absent from the public referential-action vocabulary. Provider/default applicability and emulation were not implemented."
   },
   {
     "id": "relations-19",
@@ -3708,7 +3751,8 @@
     "status": "product-gap",
     "owner": "query-engine/cache/extensions",
     "resolution": "Concrete runtime schema composition establishes relation target membership and actual source/reference columns once at L5 before operations. Static relation fields/references and cross-schema getter membership are not fully sealed through the getter; that public typing capability remains an explicit product gap. Shallow public model reflection now reflects actual schema membership rather than phantom delegates (root-owned distinct fix).",
-    "verification": "Runtime L5 schema validation and relation-resolution owners; existing public contextual relation key reachability pins remain visible. Getter-keying historical123 estate errors are recorded; driver packedH13 static membership refactoring/consumer proofs are separately owned, no broad compile-time column-key seal claimed."
+    "verification": "Runtime L5 schema validation and relation-resolution owners; existing public contextual relation key reachability pins remain visible. Getter-keying historical123 estate errors are recorded; driver packedH13 static membership refactoring/consumer proofs are separately owned, no broad compile-time column-key seal claimed.",
+    "evidence": "Product typing gap: L5 establishes actual target membership and source/reference columns at runtime. Getter-dependent relation field/reference key exactness is not fully sealed statically; existing public reachability pins remain. Repaired shallow client membership reflection is a separate guarantee."
   },
   {
     "id": "relations-22",
@@ -3720,7 +3764,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Named relation filter presets, expression extras and relation-count filter grammar are absent features. Existing some/none/every contracts are preserved."
+    "resolution": "Named relation filter presets, expression extras and relation-count filter grammar are absent features. Existing some/none/every contracts are preserved.",
+    "evidence": "Product gap: named relation filter presets, SQL projection extras and relation-count filters were not added. Existing some/none/every semantics remain the supported grammar."
   },
   {
     "id": "relations-23",
@@ -3732,7 +3777,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "One relation-loading strategy is implemented. User-selected joins/queries/LATERAL strategies require additional execution protocols and remain performance/product gaps."
+    "resolution": "One relation-loading strategy is implemented. User-selected joins/queries/LATERAL strategies require additional execution protocols and remain performance/product gaps.",
+    "evidence": "Product/performance gap: the current relation loader is the implemented strategy. User-selected join/query/LATERAL strategies need additional execution protocols and are not offered."
   },
   {
     "id": "relations-24",
@@ -3756,7 +3802,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No fluent relation traversal delegate API. Current include/select/nested filter/write grammar remains supported; traversal is product expansion."
+    "resolution": "No fluent relation traversal delegate API. Current include/select/nested filter/write grammar remains supported; traversal is product expansion.",
+    "evidence": "Product gap: no fluent relation traversal delegate was added. Current include/select, nested filtering and nested mutation APIs remain distinct supported surfaces."
   },
   {
     "id": "schema-dsl-01",
@@ -3919,7 +3966,7 @@
     "effort": "S",
     "title": "s.time() defaults to PostgreSQL timetz and VibORM strips the offset on read, so ordering and range filters depend on each session's TimeZone and DST",
     "status": "verified-fixed",
-    "evidence": "Default Time maps to TIME(3), with naive clock values; UTC Time.now defaults and explicit TIMETZ zero-offset default exercised under Pacific/Kiritimati in real PGlite, repeat no-op. Full migration 1,960/1,960 verifies mapping. Explicit native TIMETZ remains opt-in with documented narrower carrier semantics. Latest nativeTIME6/TIMETZ6 own .now uses UTC CURRENT_TIME(3); actualPGlitefinal7 3/3 proves\u00b5mod1000=0/UTCoffset0/naiveTime self-equality andsyncnoop. FinalClockcore66/66 current source."
+    "evidence": "Default Time maps to TIME(3), with naive clock values; UTC Time.now defaults and explicit TIMETZ zero-offset default exercised under Pacific/Kiritimati in real PGlite, repeat no-op. Full migration 1,960/1,960 verifies mapping. Explicit native TIMETZ remains opt-in with documented narrower carrier semantics. Latest nativeTIME6/TIMETZ6 own .now uses UTC CURRENT_TIME(3); actualPGlitefinal7 3/3 provesµmod1000=0/UTCoffset0/naiveTime self-equality andsyncnoop. FinalClockcore66/66 current source."
   },
   {
     "id": "schema-dsl-18",
@@ -3929,7 +3976,7 @@
     "effort": "S",
     "title": "s.dateTime() maps to microsecond timestamptz while values are millisecond Dates: a timestamp read back cannot find its own row, and .now()'s own DEFAULT NOW() creates such rows",
     "status": "verified-fixed",
-    "evidence": "PG default TIMESTAMP/TIMESTAMPTZ millis domain uses precision3. Explicit native precision>3 .now() truncates generated instant to milliseconds while preserving UTC semantics. Actual precision6 database-default rows pass EXTRACT microseconds modulo1000=0 and public returned-Date self-equality query, then syncnoop; isolatedPGlite3/3 current source. Latest nativeTIME6/TIMETZ6 own .now uses UTC CURRENT_TIME(3); actualPGlitefinal7 3/3 proves\u00b5mod1000=0/UTCoffset0/naiveTime self-equality andsyncnoop. FinalClockcore66/66 current source."
+    "evidence": "PG default TIMESTAMP/TIMESTAMPTZ millis domain uses precision3. Explicit native precision>3 .now() truncates generated instant to milliseconds while preserving UTC semantics. Actual precision6 database-default rows pass EXTRACT microseconds modulo1000=0 and public returned-Date self-equality query, then syncnoop; isolatedPGlite3/3 current source. Latest nativeTIME6/TIMETZ6 own .now uses UTC CURRENT_TIME(3); actualPGlitefinal7 3/3 provesµmod1000=0/UTCoffset0/naiveTime self-equality andsyncnoop. FinalClockcore66/66 current source."
   },
   {
     "id": "schema-dsl-19",
@@ -4042,7 +4089,7 @@
     "effort": "S",
     "title": "MySQL (code reading): a keyed s.string() is silently rewritten from TEXT to VARCHAR(191); adding an index later changes the column type; nothing validates length on write",
     "status": "documented-contract",
-    "evidence": "Settled keyed bare MySQL TEXT\u2192VARCHAR191 mapping retained. String and MySQL migration guides now state exact191character stored bound, explicit native VARCHAR(length) escape, provider compound/index-byte limits and destructive preview when adding a key narrows TEXT. Strict migration sql_mode admission + typed ValueTooLongError mitigate silent truncation; no claim early native length refinement is inferred (that static validation gap remains explicit). Physical key/refusal regressions qualified in migration1970; backend actual CI owns MySQL execution."
+    "evidence": "Settled keyed bare MySQL TEXT→VARCHAR191 mapping retained. String and MySQL migration guides now state exact191character stored bound, explicit native VARCHAR(length) escape, provider compound/index-byte limits and destructive preview when adding a key narrows TEXT. Strict migration sql_mode admission + typed ValueTooLongError mitigate silent truncation; no claim early native length refinement is inferred (that static validation gap remains explicit). Physical key/refusal regressions qualified in migration1970; backend actual CI owns MySQL execution."
   },
   {
     "id": "schema-dsl-29",
@@ -4081,7 +4128,7 @@
     "reviewStatus": "partial",
     "kind": "security",
     "effort": "M",
-    "title": "Unbounded relation-filter nesting \u2192 database query-planner DoS",
+    "title": "Unbounded relation-filter nesting → database query-planner DoS",
     "status": "verified-fixed",
     "evidence": "Shared synchronous semantic filter admission depth limit16 covers scalar NOT, boolean AND/OR/NOT and relation nesting, resets in finally and leaves JSON data depth separate. Adversarial-values13/13 passed with1000-level scalar/boolean and40-level relation inputs refused as ValidationError before SQL planning."
   },
@@ -4105,7 +4152,8 @@
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
     "resolution": "Preserve settled caller-wins default stamps; corrected contradictory create guide and added explicitacme-control/globex-caller example. No authority/enforce API added.",
-    "verification": "Existing extension-data-behavior.ts:703and398/509pin caller override across root/nested creates andupdates; new doc example follows that contract."
+    "verification": "Existing extension-data-behavior.ts:703and398/509pin caller override across root/nested creates andupdates; new doc example follows that contract.",
+    "evidence": "Documented contract: data/tenancy stamps supply defaults, and caller assignments win on create and update. The create-extension guide now demonstrates that override. Stamps are not tenant-write authorization; required controls are runtime checks, while static required-control enforcement and graph-wide authorization remain gaps."
   },
   {
     "id": "security-06",
@@ -4211,7 +4259,7 @@
     "reviewStatus": "confirmed",
     "kind": "bug",
     "effort": "S",
-    "title": "PGlite: the 'verified' 65,535-value budget hits PGlite's >32,767-parameter bug \u2014 silent empty results, poisoned session, count/exist decode a missing row as 0/false",
+    "title": "PGlite: the 'verified' 65,535-value budget hits PGlite's >32,767-parameter bug — silent empty results, poisoned session, count/exist decode a missing row as 0/false",
     "status": "verified-fixed",
     "evidence": "PGlite ceiling corrected to32767 and final statement capacity guard rejects before provider I/O. Exact32768 bind stock driver/controlled client test proves zero query dispatch;13/13 capacity tests passed full core7. This is avoidance of the reported poison trigger, not32767-scale actual provider-result qualification. No generic filter split promise."
   },
@@ -4273,7 +4321,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Junction connect/set still consume captured target identities member-by-member. No new set-based connect strategy was added; misleading batching claims must be removed, while plain nested createMany batching is implemented separately."
+    "resolution": "Junction connect/set still consume captured target identities member-by-member. No new set-based connect strategy was added; misleading batching claims must be removed, while plain nested createMany batching is implemented separately.",
+    "evidence": "Performance gap: junction connect/set still capture and consume target identities member by member; plain nested createMany batching is a different path. docs/content/docs/client/nested-writes.mdx now explicitly states that a list does not promise a single INSERT or one statement-trigger invocation, replacing the contradictory chunk/one-INSERT paragraph. No set-based connect protocol or new performance claim is represented as implemented."
   },
   {
     "id": "sql-perf-10",
@@ -4285,7 +4334,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Existing target row locks protect captured membership/reference consumption under concurrent writes. Weakening this authority without an equivalent concurrency proof is not a performance fix; shared-lock/new set-based strategies remain design/performance work."
+    "resolution": "Existing target row locks protect captured membership/reference consumption under concurrent writes. Weakening this authority without an equivalent concurrency proof is not a performance fix; shared-lock/new set-based strategies remain design/performance work.",
+    "evidence": "Performance/design gap: target row locks protect captured membership and reference consumption. They were not weakened without a replacement concurrency proof; shared-lock or set-based alternatives remain separate design work."
   },
   {
     "id": "sql-perf-11",
@@ -4309,7 +4359,8 @@
     "status": "product-gap",
     "owner": "query-engine/cache/extensions",
     "resolution": "Projection JSON member names remain safe bound parameters at existing adapter JSON object owners. Wide-object argument arity is fixed, but a D1 statement whose projection keys plus actual operands exceed its genuine100 bind ceiling still refuses before dispatch. Trusted projection-key literal inlining or another parameter-saving projection strategy is not implemented; retain explicit D1 capacity boundary and do not claim generic wide-D1 includes solved.",
-    "verification": "Source adapter json.object/objectFromColumns continues sql`${key}` binding in all dialects. Final renderer driver budget owns predispatch refusal; actual wide native PG projection8/8 and SQLite argument-width tests close function arity only, not D1 bind-key count."
+    "verification": "Source adapter json.object/objectFromColumns continues sql`${key}` binding in all dialects. Final renderer driver budget owns predispatch refusal; actual wide native PG projection8/8 and SQLite argument-width tests close function arity only, not D1 bind-key count.",
+    "evidence": "Capacity/product gap: JSON projection member names remain bound parameters. D1's 100-bind ceiling still applies to keys plus actual operands, with pre-dispatch refusal beyond it. Wide-function arity fixes do not remove this limit; literal-key/projection parameter reduction is unimplemented."
   },
   {
     "id": "sql-perf-13",
@@ -4321,7 +4372,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Portable ASCII folding remains column-side SQL and may be unindexable without a matching provider expression index. Expression-index declaration/search strategies are deferred product/performance work."
+    "resolution": "Portable ASCII folding remains column-side SQL and may be unindexable without a matching provider expression index. Expression-index declaration/search strategies are deferred product/performance work.",
+    "evidence": "Performance/product gap: portable ASCII folding remains column-side SQL. Matching expression-index/search strategies and their plan guarantees were not implemented; universal unindexability is not asserted."
   },
   {
     "id": "sql-perf-14",
@@ -4333,7 +4385,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "To-one ordering remains a correlated scalar subquery. A join/LATERAL plan is a new performance strategy; deterministic pagination results are fixed independently."
+    "resolution": "To-one ordering remains a correlated scalar subquery. A join/LATERAL plan is a new performance strategy; deterministic pagination results are fixed independently.",
+    "evidence": "Performance gap: to-one ordering retains a correlated scalar subquery. A join/LATERAL plan is additional strategy work; deterministic pagination repairs do not establish a faster ordering plan."
   },
   {
     "id": "sql-perf-15",
@@ -4345,7 +4398,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No public prepared/compiled model query API or provider statement naming. This is an additional lifetime/cache/API feature, not implemented."
+    "resolution": "No public prepared/compiled model query API or provider statement naming. This is an additional lifetime/cache/API feature, not implemented.",
+    "evidence": "Product gap: no public prepared/compiled model-query lifetime API or named-provider-statement cache was added. Existing parameterized execution does not imply either facility."
   },
   {
     "id": "sql-perf-16",
@@ -4357,7 +4411,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Quadratic bulk chunk planning and precision carriers are repaired. Remaining read CPU/allocation and comparative benchmark gaps have no universal regression/performance guarantee; no new decoding/planning strategy claimed."
+    "resolution": "Quadratic bulk chunk planning and precision carriers are repaired. Remaining read CPU/allocation and comparative benchmark gaps have no universal regression/performance guarantee; no new decoding/planning strategy claimed.",
+    "evidence": "Performance gap: quadratic bulk planning is repaired, but remaining read CPU/allocation and comparisons with Drizzle have no universal improvement guarantee. Functional checks and shorter source are not substituted for a fresh comparative benchmark."
   },
   {
     "id": "transactions-01",
@@ -4558,7 +4613,7 @@
     "title": "Models and clients cannot be declaration-emitted (TS2742/TS4023/TS7056), which blocks composite/monorepo db packages",
     "status": "pending",
     "owner": "driver/scalar",
-    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial. Actual artifact8 db exported schema/client/$extends producer+source/emitted downstream data/raw/recursion negative probes pass strictTS5.8/native at heap768/wall30s:68011/56773bytes,12.25s892MiB/5.03s729MiB; actual L5 paired-topology construction executed. Pending final public golden: declaration bundler still drops explicit type-only class reexport kinds; failed official sideEffects:true option removed, narrow source-AST export-kind correction saved for build9. No complete package/H13 closure claim before that proof."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120–150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140→284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial. Actual artifact8 db exported schema/client/$extends producer+source/emitted downstream data/raw/recursion negative probes pass strictTS5.8/native at heap768/wall30s:68011/56773bytes,12.25s892MiB/5.03s729MiB; actual L5 paired-topology construction executed. Pending final public golden: declaration bundler still drops explicit type-only class reexport kinds; failed official sideEffects:true option removed, narrow source-AST export-kind correction saved for build9. No complete package/H13 closure claim before that proof. Artifact10 actual public export-kind golden now passes27subpaths1.40s412MiB with negative class value imports retained; source-derived AST correction matches exact public entry filenames and explicit type-only named exports. Artifact12 InitialScalarState factory return names the same15 initial fields/types without runtime change; strictTS5.8 chain30 emission passes6.31s965MiB8080028bytes; native2.41s782MiB4002000bytes. No resource limit raised. Remaining exact ten dependent $extends TS2589 and an emitted child-parent backreference consumer are under diagnosis; H13 is not closed by emission success alone."
   },
   {
     "id": "type-perf-05",
@@ -4570,7 +4625,8 @@
     "status": "product-gap",
     "owner": "query-engine/cache/extensions",
     "resolution": "Direct root create/update/createMany/upsert write names are now sealed from State.shape, including ordinary and variant relations; literal-only polymorphic only/variants projection keys are sealed. Deeper nested mutation/filter/operator/AND-OR element key exactness remains an explicit static-product gap, with runtime strict admission preserving no-prefix-effects on invalid input. No claim of graph-wide editor exactness; existing public reachability pins remain visible rather than erased.",
-    "verification": "Whole native14 green8.45s5820.7MiB includes fresh+held root-write and only/variants negatives beside real keys plus valid declarations. Packed strictTS5.8/native write probes are driver-owned build6 pending. Historical full-recursive data guard cost172s/TS2589 and per-clause5.8 crash remain recorded in public contextual-typing gate; newest bounded root guard avoids recursive payload keyof and is retained only with current public compiler proof. No new successful whole-nested guard benchmark claimed."
+    "verification": "Whole native14 green8.45s5820.7MiB includes fresh+held root-write and only/variants negatives beside real keys plus valid declarations. Packed strictTS5.8/native write probes are driver-owned build6 pending. Historical full-recursive data guard cost172s/TS2589 and per-clause5.8 crash remain recorded in public contextual-typing gate; newest bounded root guard avoids recursive payload keyof and is retained only with current public compiler proof. No new successful whole-nested guard benchmark claimed.",
+    "evidence": "Product typing gap: direct root write names and selected literal polymorphic projection keys are sealed, while deeper nested mutation/filter/operator/combinator key exactness remains incomplete. Runtime strict admission and visible public compiler pins remain the boundaries; no graph-wide editor exactness or new recursive type-performance proof is claimed."
   },
   {
     "id": "type-perf-01",
@@ -4591,7 +4647,7 @@
     "effort": "XL",
     "title": "Editor latency at 100-300 models: completion 8-30x and post-edit diagnostics 5-25x slower than Prisma/Drizzle; schema edits take ~5 s to show up at 300",
     "status": "product-gap",
-    "evidence": "Editor latency at100\u2013300models remains unoptimized/unremeasured. Passing compilation does not establish completion or post-edit latency improvement.",
+    "evidence": "Editor latency at100–300models remains unoptimized/unremeasured. Passing compilation does not establish completion or post-edit latency improvement.",
     "owner": "root/integration"
   },
   {
@@ -4614,7 +4670,7 @@
     "title": "Look-alike models (shared field names) trigger TS2321 'Excessive stack depth comparing types' on plain queries (survives TS 7) and up to 3.4x slower checks",
     "status": "verified-fixed",
     "owner": "driver/scalar",
-    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120–150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140→284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
   },
   {
     "id": "type-perf-08",
@@ -4636,7 +4692,7 @@
     "title": "tsc 5.9/6.0 crash (RangeError: Maximum call stack size exceeded) when queries touch models on deep relation chains; tsserver silently drops all diagnostics",
     "status": "verified-fixed",
     "owner": "driver/scalar",
-    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120–150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140→284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
   },
   {
     "id": "type-perf-09",
@@ -4701,7 +4757,8 @@
     "status": "product-gap",
     "owner": "query-engine/cache/extensions",
     "resolution": "Direct root create/update/createMany/upsert write names are now sealed from State.shape, including ordinary and variant relations; literal-only polymorphic only/variants projection keys are sealed. Deeper nested mutation/filter/operator/AND-OR element key exactness remains an explicit static-product gap, with runtime strict admission preserving no-prefix-effects on invalid input. No claim of graph-wide editor exactness; existing public reachability pins remain visible rather than erased.",
-    "verification": "Whole native14 green8.45s5820.7MiB includes fresh+held root-write and only/variants negatives beside real keys plus valid declarations. Packed strictTS5.8/native write probes are driver-owned build6 pending. Historical full-recursive data guard cost172s/TS2589 and per-clause5.8 crash remain recorded in public contextual-typing gate; newest bounded root guard avoids recursive payload keyof and is retained only with current public compiler proof. No new successful whole-nested guard benchmark claimed."
+    "verification": "Whole native14 green8.45s5820.7MiB includes fresh+held root-write and only/variants negatives beside real keys plus valid declarations. Packed strictTS5.8/native write probes are driver-owned build6 pending. Historical full-recursive data guard cost172s/TS2589 and per-clause5.8 crash remain recorded in public contextual-typing gate; newest bounded root guard avoids recursive payload keyof and is retained only with current public compiler proof. No new successful whole-nested guard benchmark claimed.",
+    "evidence": "Product typing gap: direct root write names and selected literal polymorphic projection keys are sealed, while deeper nested mutation/filter/operator/combinator key exactness remains incomplete. Runtime strict admission and visible public compiler pins remain the boundaries; no graph-wide editor exactness or new recursive type-performance proof is claimed."
   },
   {
     "id": "type-soundness-03",
@@ -4712,7 +4769,7 @@
     "title": "Exporting a VibORM schema or client from a package that emits .d.ts fails (TS2742/TS4023/TS7056; TS2883 on TS 7)",
     "status": "pending",
     "owner": "driver/scalar",
-    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial. Actual artifact8 db exported schema/client/$extends producer+source/emitted downstream data/raw/recursion negative probes pass strictTS5.8/native at heap768/wall30s:68011/56773bytes,12.25s892MiB/5.03s729MiB; actual L5 paired-topology construction executed. Pending final public golden: declaration bundler still drops explicit type-only class reexport kinds; failed official sideEffects:true option removed, narrow source-AST export-kind correction saved for build9. No complete package/H13 closure claim before that proof."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120–150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140→284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial. Actual artifact8 db exported schema/client/$extends producer+source/emitted downstream data/raw/recursion negative probes pass strictTS5.8/native at heap768/wall30s:68011/56773bytes,12.25s892MiB/5.03s729MiB; actual L5 paired-topology construction executed. Pending final public golden: declaration bundler still drops explicit type-only class reexport kinds; failed official sideEffects:true option removed, narrow source-AST export-kind correction saved for build9. No complete package/H13 closure claim before that proof. Artifact10 actual public export-kind golden now passes27subpaths1.40s412MiB with negative class value imports retained; source-derived AST correction matches exact public entry filenames and explicit type-only named exports. Artifact12 InitialScalarState factory return names the same15 initial fields/types without runtime change; strictTS5.8 chain30 emission passes6.31s965MiB8080028bytes; native2.41s782MiB4002000bytes. No resource limit raised. Remaining exact ten dependent $extends TS2589 and an emitted child-parent backreference consumer are under diagnosis; H13 is not closed by emission success alone."
   },
   {
     "id": "type-soundness-04",
@@ -4847,7 +4904,8 @@
     "title": "A reusable `defineExtension<typeof schema>()` with model or client methods cannot be combined with `defaultOmit()` in either order",
     "status": "documented-contract",
     "resolution": "Schema-bound reusable result consumers retain the schema result context they were typed against; replay into an omitted client is intentionally refused. Public default-omit-extension.core.types probes cover stale mapped query/client/model refusals and successful omit-aware factories/global/non-consuming definitions, all native8 green. Arbitrary rebinding of already typed consumers remains a product feature gap.",
-    "owner": "query-engine/cache/extensions"
+    "owner": "query-engine/cache/extensions",
+    "evidence": "Documented contract: schema-bound reusable result consumers retain the result context against which they were typed; replay into an omitted client is refused. Omit-aware factories and non-consuming definitions remain the supported composition. Arbitrary rebinding of already typed consumers is unsupported."
   },
   {
     "id": "type-soundness-15",
@@ -4890,7 +4948,7 @@
     "title": "TS2321 'Excessive stack depth comparing Model' on long chains of same-shaped models",
     "status": "verified-fixed",
     "owner": "driver/scalar",
-    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120\u2013150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140\u2192284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
+    "evidence": "Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120–150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140→284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial."
   },
   {
     "id": "type-soundness-20",
@@ -4902,7 +4960,8 @@
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
     "resolution": "Foreign-key scalar assignment plus a relation write remains an explicit deterministic V8003 refusal even when proposed values agree; the plain message now names conflicting column and relation, removing internal engine names. A statically modeled FK/relation XOR remains a product typing gap; no matching-value acceptance or ownership precedence introduced.",
-    "verification": "Same command assignment owner serves create/update; root errors15 message-only repair and compatibility nested relation conflict contract. Existing compound-relation-adoption public refusal witnesses retained; root owns exact relation14 static guard disposition."
+    "verification": "Same command assignment owner serves create/update; root errors15 message-only repair and compatibility nested relation conflict contract. Existing compound-relation-adoption public refusal witnesses retained; root owns exact relation14 static guard disposition.",
+    "evidence": "Documented contract: a scalar FK assignment and a relation verb assigning the same column are refused with V8003, even when values agree. The diagnostic names the column/relation instead of an internal engine. A static FK/relation XOR remains unimplemented."
   },
   {
     "id": "type-soundness-21",
@@ -4956,7 +5015,8 @@
     "title": "The documented JSON update spelling `{ set: value }` silently stores the wrapper object on untyped s.json() columns",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "JSON updates take the document directly; {set:X} intentionally remains a literal document, matching Prisma. Corrected schema/scalars/json.mdx replacement example and explicit warning, as H15 requires; no incompatible JSON envelope added."
+    "resolution": "JSON updates take the document directly; {set:X} intentionally remains a literal document, matching Prisma. Corrected schema/scalars/json.mdx replacement example and explicit warning, as H15 requires; no incompatible JSON envelope added.",
+    "evidence": "Documented contract: JSON update values are documents directly. An object {set:X} is therefore the literal document, not an update envelope. The JSON guide corrects its example and warns about this distinction; no incompatible envelope grammar was introduced."
   },
   {
     "id": "write-api-03",
@@ -5036,7 +5096,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No SQL fragment/column expression assignment or JSON partial/list removal DSL in write data. These are additional mutation features, not implemented."
+    "resolution": "No SQL fragment/column expression assignment or JSON partial/list removal DSL in write data. These are additional mutation features, not implemented.",
+    "evidence": "Product gap: write data has no SQL-fragment/column-expression assignment, JSON partial-update or list-removal DSL. Read comparison operands do not supply mutation expressions."
   },
   {
     "id": "write-api-11",
@@ -5048,7 +5109,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No INSERT SELECT/UPDATE FROM/JOIN or heterogeneous set-based bulk updates. Existing homogeneous bulk insertion is repaired; new write protocols remain absent."
+    "resolution": "No INSERT SELECT/UPDATE FROM/JOIN or heterogeneous set-based bulk updates. Existing homogeneous bulk insertion is repaired; new write protocols remain absent.",
+    "evidence": "Product gap: INSERT SELECT, UPDATE FROM/JOIN and per-row-different set-based bulk updates were not added. Repaired homogeneous bulk insertion is a separate existing protocol."
   },
   {
     "id": "write-api-12",
@@ -5060,7 +5122,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "No bulk upsert or public conflict-target selector. skipDuplicates intentionally skips SQL root conflicts across applicable uniques; adding target selection is a mutation feature."
+    "resolution": "No bulk upsert or public conflict-target selector. skipDuplicates intentionally skips SQL root conflicts across applicable uniques; adding target selection is a mutation feature.",
+    "evidence": "Product gap: no bulk upsert or public conflict-target selector was added. Root skipDuplicates skips applicable unique conflicts; target-selective conflict semantics remain unsupported."
   },
   {
     "id": "write-api-13",
@@ -5083,7 +5146,8 @@
     "title": "To-many disconnect of a non-member throws NestedWriteError (Prisma: idempotent no-op), undocumented",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Preserved settled strict non-member disconnect behavior. client/compatibility.mdx now explicitly states NestedWriteError and contrasts empty to-one delete/no-op versus missing nested update; report permits documentation instead of Prisma behavior change."
+    "resolution": "Preserved settled strict non-member disconnect behavior. client/compatibility.mdx now explicitly states NestedWriteError and contrasts empty to-one delete/no-op versus missing nested update; report permits documentation instead of Prisma behavior change.",
+    "evidence": "Documented contract: disconnect of a non-member is a strict NestedWriteError rather than an idempotent no-op. The compatibility guide now states the divergence; no silent Prisma behavior change was made."
   },
   {
     "id": "write-api-15",
@@ -5095,7 +5159,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "MySQL savepoint-safe skipping and per-row selected returns preserve existing semantics. Set-based/per-row-returning protocol replacement is deferred performance work."
+    "resolution": "MySQL savepoint-safe skipping and per-row selected returns preserve existing semantics. Set-based/per-row-returning protocol replacement is deferred performance work.",
+    "evidence": "Performance gap: MySQL selected bulk returns and savepoint-safe skipping retain per-row work where needed for their semantics. A replacement set-based/returning protocol was not introduced or benchmarked."
   },
   {
     "id": "write-api-23",
@@ -5107,7 +5172,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Referential-action emulation without database FKs is absent product functionality."
+    "resolution": "Referential-action emulation without database FKs is absent product functionality.",
+    "evidence": "Product gap: ordinary generated relations rely on database foreign keys. An FK-less relation mode and referential-action emulation are not implemented by this repair."
   },
   {
     "id": "write-api-09",
@@ -5142,7 +5208,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Insert-only now fields deliberately have no typed update field. Correcting them requires physical raw SQL; a mutable/generated timestamp override feature is absent."
+    "resolution": "Insert-only now fields deliberately have no typed update field. Correcting them requires physical raw SQL; a mutable/generated timestamp override feature is absent.",
+    "evidence": "Product gap/current contract: insert-only now fields have no typed update field. Physical raw SQL is the available correction path; a public mutable/generated-timestamp override was not added."
   },
   {
     "id": "write-api-18",
@@ -5153,7 +5220,8 @@
     "title": "Undocumented public setWhere/targetWhere on upsert, with semantics unlike PostgreSQL and Drizzle",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "client/(update)/upsert.mdx now documents targetWhere/setWhere as existing-row AND guards: unmatched returns captured unchanged; absent row creates. Source evidence commands.ts condition probes + execution.ts choose branch. No SQL-native conflict-clause equivalence claimed."
+    "resolution": "client/(update)/upsert.mdx now documents targetWhere/setWhere as existing-row AND guards: unmatched returns captured unchanged; absent row creates. Source evidence commands.ts condition probes + execution.ts choose branch. No SQL-native conflict-clause equivalence claimed.",
+    "evidence": "Documented contract: upsert targetWhere/setWhere are existing-row AND guards; an unmatched found row is returned unchanged, while an absent row is created. The upsert guide documents these branches without claiming SQL-native conflict-clause equivalence."
   },
   {
     "id": "write-api-19",
@@ -5162,8 +5230,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "Unsafe integers are admitted into s.int() on SQLite, committed, then make the table unreadable",
-    "status": "implemented-unverified",
-    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified."
+    "status": "verified-fixed",
+    "evidence": "s.int() now requires a safe JavaScript integer before a typed write can dispatch. tests/providers/local/sqlite3-adapter-adversarial.test.ts attempts 2**60 as a key, observes the admission error and proves the table still has its original one row. This test passed in the 14/14 public SQLite gate."
   },
   {
     "id": "write-api-20",
@@ -5186,7 +5254,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Bulk returning supports scalar projection only. Relation-bearing returned graphs require additional batch/result semantics and remain a product gap."
+    "resolution": "Bulk returning supports scalar projection only. Relation-bearing returned graphs require additional batch/result semantics and remain a product gap.",
+    "evidence": "Product gap: bulk returning supports scalar projection, not returned relation graphs. Relation-bearing results require additional batch and result-window semantics and remain unsupported."
   },
   {
     "id": "write-api-22",
@@ -5432,8 +5501,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "Selecting cosine `_distance` crashes the query with V9001, blamed on the driver, when a returned row or the query vector is all zeros",
-    "status": "implemented-unverified",
-    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified."
+    "status": "verified-fixed",
+    "evidence": "The PostgreSQL adapter preserves NULL cosine distance for a zero query vector or zero stored vector; the projection type/parser accepts null. Actual pgvector tests in tests/providers/local/pglite-adapter-adversarial.test.ts cover both zero arms and a nullable row. The 9/9 named-zone/provider gate passed; no V9001 is produced for these supported values."
   },
   {
     "id": "geo-vector-oracle-07",
@@ -5442,8 +5511,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "`s.vector()` cannot be written on SQLite-family drivers, although the docs say vectors are 'stored as JSON'",
-    "status": "implemented-unverified",
-    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified."
+    "status": "verified-fixed",
+    "evidence": "SQLite-family vector JSON storage now uses the declared physical array codec. Actual create/update/direct/include results retain the three supplied coordinates; a wrong dimension refuses without changing the row. tests/providers/local/sqlite3-adapter-adversarial.test.ts passed in the 14/14 public SQLite gate."
   },
   {
     "id": "geo-vector-oracle-08",
@@ -5463,8 +5532,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Vector components pgvector rejects (+-Infinity, beyond float4 range) pass validation and fail as opaque V2001",
-    "status": "implemented-unverified",
-    "evidence": "Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified."
+    "status": "verified-fixed",
+    "evidence": "The existing vector semantic owner rejects nonfinite components, values outside float32 and wrong declared dimensions at admission. The actual PGlite provider witness asserts the failed write leaves the table unchanged; the latest 9/9 provider gate passes."
   },
   {
     "id": "integration-author-01",
@@ -5486,7 +5555,7 @@
     "status": "verified-fixed",
     "owner": "query-engine/cache/extensions",
     "resolution": "Capped mutation keeps its original predicate in the outer WHERE as well as the identity subquery, so PostgreSQL rechecks the updated row after a concurrent lock wait.",
-    "verification": "Real hosted Neon5/5 includes exact pinned PID observed waiting on Lock before holder commits n\u21920; limited UPDATE and DELETE both return count0 and leave n0/row intact. 7.31s526.6MiB combined runner; no arbitrary sleep schedule."
+    "verification": "Real hosted Neon5/5 includes exact pinned PID observed waiting on Lock before holder commits n→0; limited UPDATE and DELETE both return count0 and leave n0/row intact. 7.31s526.6MiB combined runner; no arbitrary sleep schedule."
   },
   {
     "id": "integration-author-03",
@@ -5535,8 +5604,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "A Decimal built by a second copy of viborm is refused, and isVibORMError is instanceof-based",
-    "status": "implemented-unverified",
-    "evidence": "Decimal validation now recognizes the canonical own structural value across duplicated packages/structured clones while preserving strict descriptor/domain checks. VibORM error authenticity still uses the local class identity; changing that trust boundary to arbitrary structural error objects is not represented as a completed cross-package error-brand feature."
+    "status": "documented-contract",
+    "evidence": "Cross-copy Decimal/error authentication is not implemented. Decimal instances use the constructing package's private brand; isVibORMError uses local class identity. Same-package results and duplicate public entry points share one constructor (tests/package/decimal-identity-smoke.mjs). Deep equality and structured cloning now preserve immutable canonical .value, but a clone or foreign instance must be converted explicitly through its string. Decimal and error docs state this package-boundary limitation. This corrects an earlier inaccurate ledger claim of structural admission; the review classifies the cross-copy finding as partial, and automatic cross-copy branding remains a product gap."
   },
   {
     "id": "integration-author-08",
@@ -5582,7 +5651,8 @@
     "title": "Connecting or creating into an occupied optional 1:1 fails with a raw P2002 where Prisma reassigns; undocumented, and inconsistent with VibORM silently stealing in the other direction",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Automatic occupied1:1 displacement is not implemented. client/compatibility.mdx now warns nested create/connect may hit provider uniqueness, directs explicit clear/delete when allowed, and distinguishes target FK reassignment from evicting an occupant. Exact Prisma displacement remains a compatibility product gap."
+    "resolution": "Automatic occupied1:1 displacement is not implemented. client/compatibility.mdx now warns nested create/connect may hit provider uniqueness, directs explicit clear/delete when allowed, and distinguishes target FK reassignment from evicting an occupant. Exact Prisma displacement remains a compatibility product gap.",
+    "evidence": "Documented contract: an occupied optional 1:1 is not automatically evicted and may produce provider uniqueness refusal. The compatibility guide directs explicit clearing/deletion when permitted and distinguishes target FK reassignment; Prisma-style displacement remains unsupported."
   },
   {
     "id": "nested-write-differential-04",
@@ -5593,7 +5663,8 @@
     "title": "A required 1:1 displacement is reported as a unique violation (prismaCode P2002) after the INSERT is sent; Prisma reports P2014",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Occupied required1:1 displacement remains provider uniqueness refusal, not Prisma P2014. client/compatibility.mdx explicitly documents unique-constraint refusal/no automatic eviction. Exact pre-write relation-displacement classification remains a compatibility taxonomy gap; no blanket Prisma mapping claimed."
+    "resolution": "Occupied required1:1 displacement remains provider uniqueness refusal, not Prisma P2014. client/compatibility.mdx explicitly documents unique-constraint refusal/no automatic eviction. Exact pre-write relation-displacement classification remains a compatibility taxonomy gap; no blanket Prisma mapping claimed.",
+    "evidence": "Documented contract: occupied required 1:1 displacement remains a provider unique-constraint refusal, not automatic eviction or Prisma P2014. The compatibility guide states this; exact pre-write displacement classification remains a compatibility gap."
   },
   {
     "id": "nested-write-differential-05",
@@ -5604,7 +5675,8 @@
     "title": "To-one `delete: true` on an empty slot silently succeeds (Prisma: P2025); undocumented, and asymmetric with nested `update`, which throws",
     "status": "documented-contract",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Preserved empty to-one delete/no-op. client/compatibility.mdx now explicitly distinguishes it from missing nested update and Prisma; report permits documentation instead of runtime semantic change."
+    "resolution": "Preserved empty to-one delete/no-op. client/compatibility.mdx now explicitly distinguishes it from missing nested update and Prisma; report permits documentation instead of runtime semantic change.",
+    "evidence": "Documented contract: deleting an empty to-one slot is a no-op, unlike missing nested update. The compatibility guide explicitly contrasts both with Prisma; runtime semantics were preserved."
   },
   {
     "id": "nested-write-differential-06",
@@ -5628,7 +5700,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Filtered to-one disconnect/delete/upsert Prisma forms are absent from the VibORM grammar, which documents boolean clear/delete and existing upsert target forms. This is a compatibility feature gap."
+    "resolution": "Filtered to-one disconnect/delete/upsert Prisma forms are absent from the VibORM grammar, which documents boolean clear/delete and existing upsert target forms. This is a compatibility feature gap.",
+    "evidence": "Compatibility gap: filtered to-one disconnect/delete/upsert Prisma forms remain outside VibORM's documented grammar. Existing boolean clearing/deletion and upsert target forms do not implement those extra forms."
   },
   {
     "id": "nested-write-differential-08",
@@ -5652,7 +5725,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "NestedWriteError does not blanket-map to Prisma P2025 because the report proves that misattributes about36percent of cases. Exact Prisma missing-relation/displacement taxonomy is an additional compatibility surface; no dishonest mapping added."
+    "resolution": "NestedWriteError does not blanket-map to Prisma P2025 because the report proves that misattributes about36percent of cases. Exact Prisma missing-relation/displacement taxonomy is an additional compatibility surface; no dishonest mapping added.",
+    "evidence": "Compatibility taxonomy gap: NestedWriteError covers distinct failure roles and is not blanket-mapped to Prisma P2025. Exact missing-relation/displacement classification remains additional work; the report's differential is not replaced with an inaccurate universal mapping."
   },
   {
     "id": "polymorphic-oracle-01",
@@ -5708,7 +5782,7 @@
     "effort": "S",
     "title": "On the SQLite VibORM pins (better-sqlite3 12.6.0, SQLite 3.51.2), relation-filtered reads with skip return wrong pages; VibORM's m:n and polymorphic shapes are hit where Prisma's and Drizzle's m:n are not",
     "status": "implemented-unverified",
-    "evidence": "Peer floor now better-sqlite3>=12.10 or13, which excludes SQLite3.51\u20133.53.0 optimizer defect. Installed13.0.3 after native build tool repair. Relation-filtered pagination regression and final provider qualification remain pending."
+    "evidence": "Peer floor now better-sqlite3>=12.10 or13, which excludes SQLite3.51–3.53.0 optimizer defect. Installed13.0.3 after native build tool repair. Relation-filtered pagination regression and final provider qualification remain pending."
   },
   {
     "id": "polymorphic-oracle-06",
@@ -5720,7 +5794,8 @@
     "status": "documented-contract",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Preserved complete declared-variant integrity checks; schema/relations/polymorphic.mdx441 now says only narrows returned projection and probes still cover every variant, matching533. Probe minimization remains a performance gap; no runtime probe removal claimed."
+    "resolution": "Preserved complete declared-variant integrity checks; schema/relations/polymorphic.mdx441 now says only narrows returned projection and probes still cover every variant, matching533. Probe minimization remains a performance gap; no runtime probe removal claimed.",
+    "evidence": "Documented contract: only narrows the returned polymorphic projection while integrity probes still cover every declared variant. The guide corrects its contrary promise; probe minimization remains performance work and was not claimed implemented."
   },
   {
     "id": "polymorphic-oracle-07",
@@ -5840,7 +5915,8 @@
     "owner": "query-engine/cache/extensions",
     "resolution": "Junction-first membership lowering is implemented; duplicate recursive CTE evaluation/materialization remains deferred performance work. No new timing proof or recursive query strategy claimed.",
     "verification": "Functional recursion passed; no final100k-node timing claim.",
-    "disposition": "product-gap"
+    "disposition": "product-gap",
+    "evidence": "Performance gap: junction-first membership lowering is repaired, but duplicate recursive evaluation/materialization remains. No fresh 100k-node timing or new recursive strategy is claimed."
   },
   {
     "id": "recursive-projections-03",
@@ -5863,7 +5939,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Recursive output is now bounded; existing repeated/path materialization can remain slower than fixed-depth/handwritten CTE reads. A new recursive execution strategy is deferred performance work."
+    "resolution": "Recursive output is now bounded; existing repeated/path materialization can remain slower than fixed-depth/handwritten CTE reads. A new recursive execution strategy is deferred performance work.",
+    "evidence": "Performance gap: bounded recursive output can still cost more than fixed-depth or handwritten CTE reads because of repeated/path materialization. No new execution strategy or benchmark superiority is claimed."
   },
   {
     "id": "recursive-projections-05",
@@ -5875,7 +5952,8 @@
     "status": "product-gap",
     "disposition": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Cache snapshots detach/freshen the unfolded graph. Canonical graph-carrier snapshots/zero-copy hit decoding would be new representation/lifetime work; no fast-hit claim made."
+    "resolution": "Cache snapshots detach/freshen the unfolded graph. Canonical graph-carrier snapshots/zero-copy hit decoding would be new representation/lifetime work; no fast-hit claim made.",
+    "evidence": "Performance/representation gap: cache snapshots detach the unfolded graph. A canonical graph-carrier or zero-copy hit representation was not added, and functional cache correctness does not prove a faster amplified-graph hit."
   },
   {
     "id": "recursive-projections-06",
@@ -5920,12 +5998,12 @@
     "id": "PB-5",
     "title": "**SQLite push mislabels a `.now()` column as safe.** Adding `s.dateTime().now()` to a non-empty table is labelled safe, then fails with V2001.",
     "evidence": "SQLite .now computed default uses existing reconstruction and backfills populated rows; second push noop. Live SQLite v1-push witness17/17; default-only risk safe only when actual valid SQL backfill exists.",
-    "cluster": "\u00a76 G (migrations-27)",
+    "cluster": "§6 G (migrations-27)",
     "status": "verified-fixed"
   },
   {
     "id": "PB-6",
-    "title": "**pg includes of timestamptz throw V9001 in named session zones.** `to_json` emits `\u00b1HH:MM:SS` LMT offsets.",
+    "title": "**pg includes of timestamptz throw V9001 in named session zones.** `to_json` emits `±HH:MM:SS` LMT offsets.",
     "evidence": "PG-family drivers preserve scalar/list temporal text; engine decoder handles year0..99, BC and second-resolution timezone offsets. Engine focused codec cases passed; real named-zone include repro pending integration. Scalar/list year0 binding owned by adapter/engine root.",
     "cluster": "H21",
     "status": "implemented-unverified",

@@ -259,7 +259,7 @@ const changedDependency: ScenarioDefinition = {
         assert.equal(observation.outcome.failure.code, "V4001");
         assert.equal(
           observation.outcome.failure.message,
-          "Validation failed for update: data.bins.updateMany.data.targets: Collection mutation must spell clearing verb 'set' before adding verb 'connectOrCreate'."
+          "Validation failed for update: data.bins.updateMany: Value did not match any union member: Collection mutation must spell clearing verb 'set' before adding verb 'connectOrCreate'., Expected array"
         );
         assert.deepEqual(observation.final, initial);
       },

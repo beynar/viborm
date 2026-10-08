@@ -487,6 +487,47 @@ describe("a key is not a domain", () => {
   const idDomainOf = (schema: Schema, model: string, field: string) =>
     schema[model]?.["~"].state.scalars[field]?.["~"].state.autoGenerate;
 
+  it("retains an explicit non-generating format on a primary key", () => {
+    const schema = {
+      user: s.model({ id: s.string().uuid().id({ generate: false }) }),
+    };
+    const document = serializeSchema(schema);
+    const parsed = parseSchema(document);
+    expect(idDomainOf(parsed, "user", "id")).toMatchObject({
+      kind: "uuid",
+      generate: false,
+    });
+    expect(parsed.user?.["~"].state.scalars.id?.["~"].state.hasDefault).toBe(
+      false
+    );
+    expect(serializeSchema(parsed)).toEqual(document);
+  });
+
+  it.each([
+    "now",
+    "updatedAt",
+    "increment",
+  ])("refuses a format-generation switch on %s", (kind) => {
+    expect(() =>
+      parseSchema({
+        version: 1,
+        models: {
+          user: {
+            fields: {
+              id: { type: "int", id: true },
+              value: {
+                type: kind === "increment" ? "int" : "datetime",
+                generate: { kind, generate: false },
+              },
+            },
+          },
+        },
+      })
+    ).toThrow(
+      "An explicit generation choice belongs only to string identifier formats"
+    );
+  });
+
   it("states a bare `.id()` as the key it is, with no generator node", () => {
     const document = serializeSchema({
       user: s.model({ id: s.string().id() }),

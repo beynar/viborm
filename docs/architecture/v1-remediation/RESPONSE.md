@@ -63,7 +63,7 @@ A product gap is not a fixed defect; implemented-unverified means work remains.
 
 | Check | Observed result | Remaining qualification |
 |---|---|---|
-| Whole-estate native typecheck15 | Passed,27.40s,5290.0MiB /8192MiB | Final CI revision |
+| Whole-estate native typecheck | Earlier full pass; native17 stayed below 8192 MiB but exposed a failed extension-type experiment | Replacement must pass before release |
 | Core7, four sequential shards | All9624 tests passed; unchanged resource budgets | Final CI revision |
 | Focused driver/instrumentation integration |132/132 passed, including actual OTel, Neon SDK mocks and poisoned-row taxonomy | Final CI revision |
 | Root SQLite storage and scalar behavior |20/20 passed; physical storage races and transformed JSON null included | Full provider CI |
@@ -71,7 +71,9 @@ A product gap is not a fixed defect; implemented-unverified means work remains.
 | Migration core and live precision |1973/1973 core;66 Time6;3/3 real PGlite;67 transformed-default and78 SQL-contract checks | Full provider CI |
 | Native PostgreSQL and geospatial behavior |8/8 real PGlite passed, including480 distance points | Full provider CI |
 | Neon concurrency and row-lock schedule |5/5 passed | Final affected-driver rerun |
-| Exported declarations and cyclic models | Minimal cyclic-type correction saved and native-checked | Fresh immutable package consumer proof |
+| Exported declarations and cyclic models | Golden export surface passes; TS5.8 can emit chain30 | Emitted backreference soundness and ten-extension inference remain open |
+| Schema coverage | 2,319 test executions; all four coverage metrics 100% | Remaining subsystem coverage gates |
+| Remote provider CI3 | PostgreSQL/MySQL and Bun/D1 jobs passed | New provider witnesses and final revision |
 | Production dependency audit |0 critical,0 high;2 moderate,1 low | Lower advisories remain disclosed |
 | Patched dependency behavior | Real Prisma loader/merge, HTTP cache and Drizzle witnesses passed | CI repeats the same gate |
 
@@ -83,8 +85,8 @@ The audit is unfiltered. Remaining lower advisories concern sprintf-js,
 postcss-selector-parser and KaTeX; they are not hidden by ignore rules.
 
 **Size and complexity.** The latest provisional whole-perimeter count is
-146,400 production-source lines versus141,375 at the reviewed upstream revision:
-+5,025, or3.55%. Tests grew2.06%, scripts0.11%, live documentation0.04%, and
+146,497 production-source lines versus 141,375 at the reviewed upstream revision:
++5,122, or 3.62%. Tests grew 2.21%, scripts 0.12%, live documentation 0.10%, and
 benchmarks were unchanged. Counts include new files and moves. They will be
 recomputed after the final batch. This is controlled growth, not LOC parity.
 New behavior remains with existing semantic owners, but the architecture has

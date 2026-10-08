@@ -256,10 +256,7 @@ describe("G3 failed caller-scope publication", () => {
       const inner = await arrayOutcome;
       assert.equal(inner.status, "rejected");
       if (inner.status !== "rejected") throw new Error("Expected rejection");
-      assert(
-        inner.reason instanceof TransactionError,
-        `Late failure: ${String(inner.reason)}`
-      );
+      assert.equal(inner.reason, callerFailure);
       assert.equal(progressOf(inner.reason), undefined);
 
       const heldIndex = held.statementIndex();

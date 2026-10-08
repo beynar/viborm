@@ -6,6 +6,8 @@ import { isRecord } from "@validation/value-guards";
 import type Database from "better-sqlite3";
 import type { ScenarioDefinition } from "../harness/protocol";
 
+const TRANSACTION_BEGIN = /^BEGIN(?: IMMEDIATE)?$/;
+
 export const upsertMembershipScenario: ScenarioDefinition = {
   id: "g25-nested-upsert-member-lost",
   family: "C05",
@@ -100,7 +102,7 @@ export const upsertMembershipScenario: ScenarioDefinition = {
           if (
             !detached &&
             memberCaptured &&
-            sql.trim().toUpperCase() === "BEGIN"
+            TRANSACTION_BEGIN.test(sql.trim().toUpperCase())
           ) {
             assert.equal(database.inTransaction, false);
             assert.deepEqual(inspect(database), initial);

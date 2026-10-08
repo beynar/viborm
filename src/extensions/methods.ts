@@ -299,18 +299,19 @@ type ResultConsumerStateOf<
   ? ExtensionResultConsumerState
   : X["resultConsumer"];
 
-export type MergeExtensionState<
+/** Accumulate the same seven facts lazily, without a conditional generic fallback. */
+export interface MergeExtensionState<
   X extends ExtensionStateConstraint,
   Definition,
-> = ClientExtensionState<
-  X["client"] & ClientMethodsOf<Definition>,
-  MergeModelMethods<X["models"], ModelMethodsOf<Definition>>,
-  X["cache"],
-  ResultConsumerStateOf<X, Definition>,
-  X["controls"] & DefinitionControls<Definition>,
-  X["rows"] | RowsModels<Definition>,
-  X["data"] | DefinitionData<Definition>
->;
+> extends ExtensionStateConstraint {
+  readonly client: X["client"] & ClientMethodsOf<Definition>;
+  readonly models: MergeModelMethods<X["models"], ModelMethodsOf<Definition>>;
+  readonly cache: X["cache"];
+  readonly resultConsumer: ResultConsumerStateOf<X, Definition>;
+  readonly controls: X["controls"] & DefinitionControls<Definition>;
+  readonly rows: X["rows"] | RowsModels<Definition>;
+  readonly data: X["data"] | DefinitionData<Definition>;
+}
 
 export interface BoundExtensionMethods {
   readonly client: Readonly<Record<string, RuntimeExtensionMethodFunction>>;

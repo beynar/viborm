@@ -43,6 +43,8 @@ try {
   run = startBoundedProcess({
     arguments: [nativeTscEntry, "--project", rootProject, "--noEmit"],
     command: process.execPath,
+    // Collect before the existing RSS ceiling; the native compiler uses Go.
+    env: { ...process.env, GOMEMLIMIT: process.env.GOMEMLIMIT ?? "6GiB" },
     label,
     rssCeiling: WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
     wallLimitMs: WALL_LIMIT_MS,

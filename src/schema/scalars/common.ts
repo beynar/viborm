@@ -269,13 +269,31 @@ export type DefaultValueInput<S extends ScalarState> = DefaultValue<
 // DEFAULT STATE FACTORY
 // =============================================================================
 
+/** The factory's existing initial state stays named in exported model graphs. */
+export interface InitialScalarState<T extends ScalarType, B extends VibSchema> {
+  type: T;
+  nullable: boolean;
+  array: boolean;
+  hasDefault: boolean;
+  isId: boolean;
+  isUnique: boolean;
+  default: undefined;
+  autoGenerate: undefined;
+  disallowZero: boolean;
+  schema: undefined;
+  columnName: undefined;
+  optional: boolean;
+  withTimezone: boolean;
+  base: B;
+}
+
 /**
  * Creates a default initial state for a scalar type
  */
 export const createDefaultState = <T extends ScalarType, B extends VibSchema>(
   type: T,
   base: B
-) => ({
+): InitialScalarState<T, B> => ({
   type,
   nullable: false,
   array: false,

@@ -464,13 +464,26 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
   test("accepts combined operations in single update", () => {
     const result = parse(schema, {
       posts: {
-        create: { id: "new-post", title: "New" },
-        connect: { id: "existing-post" },
         set: { id: "retained-post" },
         delete: { id: "old-post" },
+        create: { id: "new-post", title: "New" },
+        connect: { id: "existing-post" },
       },
     });
     expect(result.issues).toBeUndefined();
+  });
+
+  test("rejects adding before clearing at relation admission", () => {
+    expect(
+      parse(schema, { posts: { create: { id: "new", title: "New" }, set: [] } })
+        .issues
+    ).toEqual([
+      {
+        message:
+          "Collection mutation must spell clearing verb 'set' before adding verb 'create'.",
+        path: ["posts"],
+      },
+    ]);
   });
 
   // Output normalization tests

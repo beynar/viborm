@@ -184,8 +184,8 @@ describe("collection polymorphic reads and writes land on every surface", () => 
     expect(
       parse(core().update, {
         items: {
-          connect: [{ type: "article", where: { id: "a1" } }],
           disconnect: [{ type: "photo", where: { id: "p1" } }],
+          connect: [{ type: "article", where: { id: "a1" } }],
         },
       }).issues
     ).toBeUndefined();

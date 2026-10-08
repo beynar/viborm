@@ -17,7 +17,8 @@ const entry = s.model({
     .references("id"),
 });
 const compact = s.model({ id: s.string().id().ulid(), group: s.string() });
-const db = createClient({ schema: { parent, entry, compact } });
+const list = s.model({ id: s.int().id(), keys: s.bigInt().array() });
+const db = createClient({ schema: { parent, entry, compact, list } });
 const parentRefs = createModelFieldRefs("parent", parent);
 
 beforeAll(async () => {
@@ -133,5 +134,16 @@ test("compact identifier HAVING min/max compares transported operands", async ()
       by: ["group"],
       having: { id: { _min: { equals: high } } },
     })
+  ).toEqual([]);
+});
+
+test("bigint list membership compares exact text members on SQLite", async () => {
+  const keys = [9007199254740993n, -9007199254740993n];
+  await db.list.create({ data: { id: 1, keys } });
+  expect(
+    await db.list.findMany({ where: { keys: { has: keys[0]! } } })
+  ).toEqual([{ id: 1, keys }]);
+  expect(
+    await db.list.findMany({ where: { keys: { has: 9007199254740994n } } })
   ).toEqual([]);
 });

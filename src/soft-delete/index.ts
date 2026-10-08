@@ -58,7 +58,8 @@ type RestoreModels<
 export function softDelete<const Config extends SoftDeleteConfig>(
   config: Config
 ) {
-  return <
+  // Node 22's type stripper leaves a newline after `return <...>`, triggering ASI.
+  const extend = <
     C extends VibORMConfig & {
       readonly schema: Record<Names<Config>, AnyModel>;
     },
@@ -122,4 +123,5 @@ export function softDelete<const Config extends SoftDeleteConfig>(
     );
     return managed.$extends({ name: "viborm.softDelete.restore", model });
   };
+  return extend;
 }

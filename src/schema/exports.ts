@@ -70,7 +70,10 @@ export type {
   UpdateState as ScalarUpdateState,
   VectorScalar,
 } from "./scalars";
-export type { GeneratorDefaultBrand } from "./scalars/common";
+export type {
+  GeneratorDefaultBrand,
+  InitialScalarState,
+} from "./scalars/common";
 // Native database types (PG, MYSQL, SQLITE)
 export {
   MYSQL,

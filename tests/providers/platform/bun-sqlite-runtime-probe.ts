@@ -606,6 +606,36 @@ console.log("raw integer parity evidence passed");
 
 await qualifyRawDateCutoff(client);
 console.log("raw Date cutoff evidence passed");
+for (const hostile of ["\uD800", "\uDC00"]) {
+  let failure: unknown;
+  try {
+    await client.$executeRaw(
+      sql`INSERT INTO bun_sqlite_runtime_measurements (id, views) VALUES (${hostile}, ${0n})`
+    );
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof Error, "bun:sqlite accepted an unpaired surrogate");
+}
+const validSurrogatePair = "surrogate-\uD83D\uDE00";
+await client.measurement.create({
+  data: { id: validSurrogatePair, views: 0n },
+});
+const validSurrogateRow = await client.measurement.findUnique({
+  where: { id: validSurrogatePair },
+});
+assert(
+  validSurrogateRow?.id === validSurrogatePair,
+  "a valid surrogate pair failed roundtrip"
+);
+const surrogateEffect = await client.$queryRaw<{
+  n: number;
+}>`SELECT COUNT(*) AS n FROM bun_sqlite_runtime_measurements WHERE id IN (${"\uFFFD"}, ${""})`;
+assert(
+  surrogateEffect[0]?.n === 0,
+  "a refused surrogate write left provider effects"
+);
+console.log("surrogate refusal evidence passed");
 await client.$disconnect();
 
 // PB-4: failed BEGIN on a supplied native handle must not roll back or close
