@@ -384,13 +384,15 @@ declares the exact code it carries, so `if (error.code === "V3001")` narrows to
 be checked for exhaustiveness — see [the errors page](/docs/client/errors) for the full
 taxonomy and the narrowing rules. For code written against Prisma, every error also carries
 `error.prismaCode` — the Prisma code with the same meaning, or `undefined` when VibORM
-claims none. Porting a handler is a one-token edit:
+claims none. For the mapped unique-constraint case, use:
 
 ```ts
+import { isVibORMError } from "viborm";
+
 try {
   await client.user.create({ data });
 } catch (error) {
-  if (error.prismaCode === "P2002") {
+  if (isVibORMError(error) && error.prismaCode === "P2002") {
     // unique constraint — the same branch a Prisma app already has
   }
 }

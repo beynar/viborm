@@ -471,6 +471,8 @@ describe("official observation capability", () => {
       Object.fromEntries(NEEDS.map((need) => [need, false]))
     );
     expect(quiet.diagnostics).toEqual({
+      includeProviderDetails: false,
+      includeCallsite: false,
       includeParams: true,
       includeSql: false,
     });

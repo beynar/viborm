@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
-import { QueryEngineError, VibORMErrorCode } from "@errors";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
+import { PGlite, type Transaction } from "@electric-sql/pglite";
+import { QueryError, VibORMErrorCode } from "@errors";
 import { s } from "@schema";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { isRecord } from "@validation/value-guards";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { describe, it } from "vitest";
 
 const INSERT_STATEMENT = /^INSERT\b/;
@@ -46,7 +46,7 @@ class CorruptingBatchPGliteDriver extends BatchOnlyPGliteDriver {
     if (INSERT_STATEMENT.test(sql)) this.insertStatements++;
     if (!this.corruptionArmed) return response;
     for (const row of response.rows) {
-      if (!isRecord(row) || !Object.hasOwn(row, "id")) continue;
+      if (!(isRecord(row) && Object.hasOwn(row, "id"))) continue;
       Reflect.set(row, "id", "not-an-integer");
       this.corrupted = true;
     }
@@ -66,7 +66,7 @@ class CorruptingBatchPGliteDriver extends BatchOnlyPGliteDriver {
 }
 
 function failureObservation(failure: unknown): object {
-  if (failure instanceof QueryEngineError) {
+  if (failure instanceof QueryError) {
     return {
       name: failure.name,
       code: failure.code,
@@ -142,16 +142,26 @@ describe("G2.9 generated-result progress [commands]", () => {
       // as the shipped `runStatementAtomic` sends it.
       assert.equal(driver.insertBatches, 0, diagnostic);
       assert.equal(driver.corrupted, true, diagnostic);
-      assert(failure instanceof QueryEngineError, diagnostic);
-      assert.equal(failure.code, VibORMErrorCode.INTERNAL_ERROR, diagnostic);
+      assert(failure instanceof QueryError, diagnostic);
+      assert.equal(
+        failure.code,
+        VibORMErrorCode.QUERY_RESULT_INVALID,
+        diagnostic
+      );
       assert.equal(
         failure.message,
-        'Driver "pglite" returned a malformed int scalar for operation "create": the value is not a canonical integer.',
+        'The "create" result is incompatible with the int scalar domain: the value is not a canonical integer.',
         diagnostic
       );
       assert.deepEqual(
         { ...failure.meta },
-        { driver: "pglite", operation: "create", scalarType: "int" },
+        {
+          driver: "pglite",
+          model: "entity",
+          operation: "create",
+          scalarType: "int",
+          reason: "the value is not a canonical integer",
+        },
         diagnostic
       );
       assert.deepEqual(state.rows, [{ id: 1, label: "written" }], diagnostic);

@@ -16,6 +16,31 @@ s.string().array(); // string[] (native on PG, JSON on MySQL/SQLite)
 
 Common modifiers (`.nullable()`, `.unique()`, `.default()`, `.map()`, `.schema()`) are covered in the [modifier reference](/docs/schema/scalars). To override the column type (`varchar(n)`, `uuid`, `citext`, ...), see [Native Types](/docs/schema/native-types); `s.string({ pg: PG.STRING.CITEXT, mysql: MYSQL.STRING.LONGTEXT })` chooses one per database.
 
+## MySQL indexed strings
+
+A bare `s.string()` maps to `TEXT` on MySQL. A primary key, unique constraint,
+index, or foreign key changes that bare column to the conservative
+`VARCHAR(191)` mapping: its stored value is limited to **191 characters**.
+Adding an index later can therefore narrow an existing TEXT column; migration
+preview reports that type change as destructive. Review the stored data before
+consenting. Strict-mode admission prevents silent truncation, and an oversized
+value produces `ValueTooLongError` rather than establishing an application
+validation guarantee.
+
+Choose the physical length explicitly when 191 is unsuitable:
+
+```ts
+import { s } from "viborm";
+import { MYSQL } from "viborm/schema";
+
+s.string(MYSQL.STRING.VARCHAR(512)).unique();
+```
+
+The provider's index-byte limits still apply, including compound indexes and
+character-set width. Native VARCHAR bounds are enforced by the database;
+VibORM does not infer a corresponding upstream `.schema()` length refinement.
+Declare that refinement separately when early input validation is required.
+
 ## IDs and Auto-Generation
 
 `.id()` marks the field as the primary key and auto-generates a **ULID** by default:
@@ -84,9 +109,10 @@ belongs to it, and VibORM holds you to it and takes advantage of it:
 ```ts
 const user = s.model({ id: s.string().id().uuid("usr") });
 
-user.findUnique({ where: { id: "usr-a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" } }); // ok
-user.findUnique({ where: { id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" } }); // refused: the prefix is part of the value
-user.findUnique({ where: { id: "user-42" } }); // refused: not a uuid
+// With a client `db` configured with schema: { user }:
+db.user.findUnique({ where: { id: "usr-a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" } }); // ok
+db.user.findUnique({ where: { id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" } }); // refused: the prefix is part of the value
+db.user.findUnique({ where: { id: "user-42" } }); // refused: not a uuid
 ```
 
 Admission covers every position a value can appear in: `create`, `update`,

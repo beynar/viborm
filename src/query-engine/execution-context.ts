@@ -166,14 +166,27 @@ function createOperationInstrumentationFacts(
           isUnloggedError(failure)
             ? failure
             : undefined;
-        if (readCacheOutcomes === undefined && logged === undefined) {
+        const failureForTrace =
+          outcome.status === "failure" &&
+          failure instanceof Error &&
+          official.wants("operation")
+            ? failure
+            : undefined;
+        if (
+          readCacheOutcomes === undefined &&
+          logged === undefined &&
+          failureForTrace === undefined
+        ) {
           return undefined;
         }
         return Object.freeze({
           kind: "operation" as const,
           endedAt: Date.now(),
           ...(readCacheOutcomes === undefined ? {} : { readCacheOutcomes }),
-          ...(logged === undefined ? {} : { failure: logged }),
+          ...((logged ?? failureForTrace) === undefined
+            ? {}
+            : { failure: logged ?? failureForTrace }),
+          ...(logged === undefined ? { skipLog: true as const } : {}),
         });
       },
     });

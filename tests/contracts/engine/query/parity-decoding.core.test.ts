@@ -4,12 +4,19 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import { type Dialect, Driver, type DriverResultParser } from "@drivers";
+import {
+  type Dialect,
+  Driver,
+  type DriverResultParser,
+  type QueryExecutionContext,
+} from "@drivers";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import { sqliteResultParser } from "@drivers/shared";
-import { QueryEngineError } from "@errors";
+import { QueryError } from "@errors";
 import { CURSOR_CARRIER_PREFIX } from "@query-engine/result-aliases";
 import { hydrateSchemaNames, s } from "@schema";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   createModelRegistry,
   TestQueryEngine,
@@ -34,6 +41,7 @@ class ScriptedDriver extends Driver<null, null> {
   readonly statements: string[] = [];
   readonly result: DriverResultParser | undefined;
   private readonly rows: Record<string, unknown>[];
+  private readonly catalog: SQLite3Driver | undefined;
   constructor(
     rows: Record<string, unknown>[],
     dialect: Dialect = "sqlite",
@@ -42,23 +50,37 @@ class ScriptedDriver extends Driver<null, null> {
   ) {
     super(dialect, "scripted");
     this.rows = rows;
+    this.catalog = dialect === "sqlite" ? new SQLite3Driver() : undefined;
     this.result = result;
     this.adapter = adapter;
   }
   protected async initClient() {
+    if (this.catalog)
+      await syncLiveSchema(createClient({ schema, driver: this.catalog }));
     return null;
   }
   protected async closeClient() {
-    // Scripted rows own no provider resource.
+    await this.catalog?.disconnect();
   }
   protected async execute<T>(
     _client: null,
-    sql: string
+    sql: string,
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<{ rows: T[]; rowCount: number }> {
+    if (context?.model === "$schema" && this.catalog)
+      return this.catalog._executeRaw<T>(sql, params, context);
     this.statements.push(sql);
     return { rows: this.rows as T[], rowCount: this.rows.length };
   }
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+  protected async executeRaw<T>(
+    _client: null,
+    statement: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<{ rows: T[]; rowCount: number }> {
+    if (context?.model === "$schema" && this.catalog)
+      return this.catalog._executeRaw<T>(statement, params, context);
     return { rows: [], rowCount: 0 };
   }
   protected async transaction<T>(
@@ -119,7 +141,7 @@ describe("the decoder fails closed on a wrong provider row", () => {
     const { client } = scripted([{ id: 1, _count: null }]);
     await expect(
       client.parent.findMany({ select: { id: true, _count: true } })
-    ).rejects.toBeInstanceOf(QueryEngineError);
+    ).rejects.toBeInstanceOf(QueryError);
     await client.$disconnect();
   });
 
@@ -135,7 +157,7 @@ describe("the decoder fails closed on a wrong provider row", () => {
     const read = client.parent.findMany({
       select: { id: true, children: { select: { id: true } } },
     });
-    await expect(read).rejects.toBeInstanceOf(QueryEngineError);
+    await expect(read).rejects.toBeInstanceOf(QueryError);
     await client.$disconnect();
   });
 
@@ -145,7 +167,7 @@ describe("the decoder fails closed on a wrong provider row", () => {
       client.child.findMany({
         select: { id: true, parent: { select: { id: true } } },
       })
-    ).rejects.toBeInstanceOf(QueryEngineError);
+    ).rejects.toBeInstanceOf(QueryError);
     await client.$disconnect();
   });
 });
@@ -171,7 +193,7 @@ describe("the driver result seam is reached (D-17)", () => {
       sqliteResultParser
     );
     const read = client.parent.findMany({ select: { id: true, meta: true } });
-    await expect(read).rejects.toBeInstanceOf(QueryEngineError);
+    await expect(read).rejects.toBeInstanceOf(QueryError);
     await client.$disconnect();
   });
 
@@ -207,7 +229,7 @@ describe("the driver result seam is reached (D-17)", () => {
     await absent.client.$disconnect();
   });
 
-  test("a JSON integer outside the safe range is refused, and a safe one is a number", async () => {
+  test("JSON integers use the finite Number domain, including exact wide values", async () => {
     const { client } = scripted([{ id: 1, meta: 42n }]);
     await expect(
       client.parent.findMany({ select: { id: true, meta: true } })
@@ -217,8 +239,13 @@ describe("the driver result seam is reached (D-17)", () => {
     const huge = scripted([{ id: 1, meta: 2n ** 70n }]);
     await expect(
       huge.client.parent.findMany({ select: { id: true, meta: true } })
-    ).rejects.toBeInstanceOf(QueryEngineError);
+    ).resolves.toEqual([{ id: 1, meta: 2 ** 70 }]);
     await huge.client.$disconnect();
+    const nonfinite = scripted([{ id: 1, meta: 10n ** 400n }]);
+    await expect(
+      nonfinite.client.parent.findMany({ select: { id: true, meta: true } })
+    ).rejects.toMatchObject({ code: "V2006" });
+    await nonfinite.client.$disconnect();
   });
 });
 
@@ -255,13 +282,13 @@ describe("the adapter result seam decides nothing (D-40)", () => {
     await expect(counted.counted.count({})).resolves.toBe(2);
     await counted.$disconnect();
 
-    const present = scriptedPg([{ _count: "1" }]);
+    const present = scriptedPg([{ _count: true }]);
     await expect(present.counted.exist({ where: { id: 1 } })).resolves.toBe(
       true
     );
     await present.$disconnect();
 
-    const absent = scriptedPg([{ _count: "0" }]);
+    const absent = scriptedPg([{ _count: false }]);
     await expect(absent.counted.exist({ where: { id: 1 } })).resolves.toBe(
       false
     );
@@ -275,9 +302,7 @@ describe("the adapter result seam decides nothing (D-40)", () => {
     await carried.$disconnect();
 
     const unsafe = scriptedPg([{ _count: 2n ** 70n }]);
-    await expect(unsafe.counted.count({})).rejects.toBeInstanceOf(
-      QueryEngineError
-    );
+    await expect(unsafe.counted.count({})).rejects.toBeInstanceOf(QueryError);
     await unsafe.$disconnect();
   });
 
@@ -308,14 +333,12 @@ describe("the adapter result seam decides nothing (D-40)", () => {
     // read either.
     const recognised = scriptedMysql([{ "COUNT(*)": 2 }]);
     await expect(recognised.counted.count({})).rejects.toBeInstanceOf(
-      QueryEngineError
+      QueryError
     );
     await recognised.$disconnect();
 
     const produced = scriptedMysql([{ "0viborm_count_result": 2 }]);
-    await expect(produced.counted.count({})).rejects.toBeInstanceOf(
-      QueryEngineError
-    );
+    await expect(produced.counted.count({})).rejects.toBeInstanceOf(QueryError);
     await produced.$disconnect();
   });
 

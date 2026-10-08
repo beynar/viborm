@@ -2,8 +2,8 @@ import {
   type SQLiteStorageColumn,
   sqliteStorageCheck,
 } from "@adapters/databases/sqlite/storage/runtime-check";
-import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { deriveStatementExecutionContext } from "@drivers/execution-context";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel, ModelState } from "@schema/model";

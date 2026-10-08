@@ -20,13 +20,15 @@ async function register(email: string): Promise<void> {
     await client.user.create({ data: { email } });
   } catch (error) {
     if (error instanceof UniqueConstraintError) {
-      // error.meta.constraint, error.meta.columns, error.meta.table
+      // Provider-specific diagnostics may include constraint, columns, and table.
       throw new Error("That email is already registered.");
     }
     throw error;
   }
 }
 ```
+
+Constraint metadata depends on the provider's structured diagnostics. `constraint`, `columns`, and `table` may be absent; handle that case instead of assuming every provider reports them.
 
 `isVibORMError(error)` narrows to the base class when you want the code without committing
 to a specific class.
@@ -118,7 +120,7 @@ function userMessage(error: ConstraintFailure): string {
 ## Retrying
 
 `error.isRetryable()` identifies failures that may clear on a later attempt: `V1001`
-connection failure, `V1002` connection timeout, `V2002` query timeout, `V5003` deadlock,
+connection failure, `V1002` connection timeout, `V1005` exhausted connection capacity, `V2002` query timeout, `V5003` deadlock,
 `V5004` serialization failure and `V5006` lock contention. SQLite `SQLITE_BUSY`/`SQLITE_LOCKED`
 and PostgreSQL `55P03` are contention, distinct from a detected deadlock. MySQL lock-wait
 timeouts (`1205`) remain query timeouts.
@@ -171,9 +173,9 @@ payload said no, the driver cannot do it, or the record was not there.
 
 | Error class | `code` | Raised when |
 |---|---|---|
-| `ConnectionError` | `V1001`, `V1002`, `V1003` | The database could not be reached, timed out, or closed the connection |
+| `ConnectionError` | `V1001`, `V1002`, `V1003`, `V1005` | The database could not be reached, timed out, closed the connection, or exhausted its connection capacity |
 | `ClientInitializationError` | `V1004` | The client could not be built from the given schema and configuration |
-| `QueryError` | `V2001`, `V2002`, `V2003`, `V4002` | A statement was rejected, timed out, or a raw-SQL helper was called with something that is neither a tagged template nor an `sql` fragment |
+| `QueryError` | `V2001`, `V2002`, `V2003`, `V2004`, `V2005`, `V2006`, `V4002` | A statement was rejected, timed out, had invalid syntax, named a missing table/column, exceeded the physical numeric range, returned data outside the declared scalar domain, or violated the raw-input contract |
 | `UniqueConstraintError` | `V3001` | A unique constraint was violated |
 | `ForeignKeyError` | `V3002` | A foreign key constraint was violated |
 | `NotNullConstraintError` | `V3003` | A NOT NULL constraint was violated |
@@ -189,7 +191,7 @@ payload said no, the driver cannot do it, or the record was not there.
 | `NestedWriteAssertionError` | `V7006` | A batch-plan precondition (a connect target, an ownership check) did not hold |
 | `FeatureNotSupportedError` | `V8001` | The driver or dialect does not have the feature (pgvector, PostGIS) |
 | `UnsupportedOperationError` | `V8003` | A documented shape the query engine does not express |
-| `QueryEngineError` | `V9001`, `V9002` | An engine invariant broke, or the schema is not coherent — a bug; or a driver answer could not be decoded |
+| `QueryEngineError` | `V9001`, `V9002` | An engine invariant broke, or the schema is not coherent — a bug |
 | `CacheInvalidTTLError` | `V10001` | A cache TTL was malformed |
 | `CacheInvalidKeyError` | `V10002` | A cache key could not be built from the payload |
 | `CacheOperationNotCacheableError` | `V10003` | A write operation was asked to cache |
@@ -201,7 +203,25 @@ Codes `V4003`, `V6002` and `V6003` are reserved in the taxonomy and are not rais
 
 ## Coming from Prisma
 
-Every error also carries `error.prismaCode` where VibORM claims a Prisma equivalent, so a
-`catch` written against Prisma keeps working with a one-token edit. The mapping table, and
-what is deliberately left unmapped, is on the
+`error.prismaCode` identifies a Prisma equivalent only for the mapped families.
+Review each handler when porting: nested-write errors deliberately remain unmapped
+because their cases span several Prisma categories. Handle them through
+`NestedWriteError` and VibORM's own codes. The mapping table is on the
 [compatibility page](/docs/client/compatibility#errors-and-prisma-error-codes).
+
+Validation issues retain their input paths. Provider failures do not guarantee
+an array-transaction member index or a nested write's element path; operation
+and model metadata alone may not identify one failing element.
+
+Error metadata is a bounded, allowlisted diagnostic record. Arbitrary application
+metadata is not preserved by error construction, logging or serialization.
+Attach application context in your own logger callback. Statement parameters,
+when explicitly disclosed, are physical provider values: binary ID carriers are
+not reconstructed as logical IDs in logs.
+
+Malformed formatted IDs are validation failures on reads as well as writes.
+A not-found result applies to an admitted ID with no matching row.
+
+`V2006` identifies a result outside the declared scalar domain. Its metadata names the model, operation, scalar type, and reason. VibORM refuses the whole query; it does not silently skip or coerce poisoned rows. This is an expected, nonretryable data incompatibility, not an internal engine invariant.
+
+`V2004` covers missing tables and columns; `V2005` covers numeric overflow in the physical database type. They are not retryable. `V1005` names exhausted connection counts and may clear after connections are released. These families intentionally claim no Prisma equivalent: a family can contain more than one Prisma category. Provider codes remain in sanitized metadata; `diagnostics.includeProviderDetails` opts into bounded credential-redacted provider message/detail/hint.

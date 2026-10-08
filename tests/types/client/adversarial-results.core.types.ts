@@ -17,7 +17,7 @@ const item = s.model({
 });
 const client = createClient({ schema: { item } });
 
-async function resultShapes(dynamic: boolean) {
+async function _resultShapes(dynamic: boolean) {
   const asPromise: Promise<{ id: number }[]> = client.item.findMany({
     select: { id: true },
   });

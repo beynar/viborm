@@ -357,7 +357,7 @@ describe("what a callback may return", () => {
         where: { title: { equals: () => tokens.user.name } },
       })
     );
-    expect(refusal.name).toBe("QueryEngineError");
+    expect(refusal.name).toBe("UnsupportedOperationError");
     expect(String((refusal as unknown as Error).message)).toContain(
       "may only compare columns of the same model"
     );
@@ -389,6 +389,39 @@ describe("surfaces that stay closed", () => {
     );
   });
 
+  test("aggregate HAVING envelopes refuse expressions before union matching", () => {
+    for (const expression of [sql`1`, () => sql`1`]) {
+      const refusal = refusalOf(() =>
+        build(dialectCase, Post, "groupBy", {
+          by: ["authorId"],
+          having: { views: { _avg: { gt: expression } } },
+        })
+      );
+      expect(refusal.name).toBe("ValidationError");
+      expect(refusal.issues?.[0]?.message).toBe(
+        typeof expression === "function"
+          ? "A filter callback is not supported in 'having'."
+          : "An SQL fragment is not supported in 'having'."
+      );
+    }
+  });
+
+  test("orderBy refuses expressions explicitly and remains reusable", () => {
+    for (const orderBy of [{ views: sql`1` }, { views: () => sql`1` }]) {
+      const refusal = refusalOf(() => buildPost(dialectCase, { orderBy }));
+      expect(refusal.name).toBe("ValidationError");
+      expect(JSON.stringify(refusal.issues)).toContain(
+        "is not supported in 'orderBy'"
+      );
+    }
+    expect(
+      buildPost(dialectCase, { orderBy: { views: "asc" } }).statement
+    ).toContain("ORDER BY");
+    expect(
+      buildPost(dialectCase, { where: { views: { gt: sql`1` } } }).statement
+    ).toContain("WHERE");
+  });
+
   test("a fragment is refused in `having` at any `not` depth", () => {
     // The depth-cap bug the W2 review found, re-run for the fragment: a guard
     // that stops looking would emit the fragment into HAVING, where Postgres
@@ -414,7 +447,7 @@ describe("surfaces that stay closed", () => {
       })
     );
     expect(JSON.stringify(refusal.issues)).toContain(
-      "An SQL fragment is not supported in 'having'"
+      "A filter callback is not supported in 'having'"
     );
   });
 

@@ -272,7 +272,7 @@ describe("polymorphic collection push convergence", () => {
         ])
       );
       // THE CONVERGENCE CLAIM: the unique target side on the singular
-      // member, the non-unique reverse index on both, the compound primary
+      // member, the reverse index only where not covered by uniqueness, the compound primary
       // key and the dual cascade foreign keys all round-trip through
       // introspection without churn.
       expect(second.operations).toEqual([]);

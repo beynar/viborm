@@ -1,6 +1,7 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver } from "@drivers/driver";
+import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
 import { runTransactionLifecycle } from "@drivers/shared/transactions";
 import type { QueryResult } from "@drivers/types";
 import { sql } from "@sql";
@@ -215,8 +216,15 @@ describe("transaction-bound scope scheduling", () => {
       driver.withTransaction(async (tx) => {
         const first = tx._executeRaw("FAIL");
         const second = tx._executeRaw("SECOND");
-        await expect(first).rejects.toMatchObject({ name: "QueryError" });
-        await expect(second).rejects.toMatchObject({ name: "QueryError" });
+        const primary = await first.catch((error: unknown) => error);
+        const refusal = await second.catch((error: unknown) => error);
+        expect(primary).toMatchObject({ name: "QueryError" });
+        expect(refusal).not.toBe(primary);
+        expect(refusal).toMatchObject({
+          name: "TransactionError",
+          message: expect.stringContaining("rollback-only"),
+        });
+        expect(readSuppressedFailures(refusal)).toContain(primary);
       })
     ).rejects.toMatchObject({ name: "QueryError" });
 
@@ -238,7 +246,12 @@ describe("transaction-bound scope scheduling", () => {
         const siblingError = await sibling.catch((error) => error);
 
         expect(nestedError).toBeInstanceOf(AggregateError);
-        expect(siblingError).toBe(nestedError);
+        expect(siblingError).not.toBe(nestedError);
+        expect(siblingError).toMatchObject({
+          name: "TransactionError",
+          message: expect.stringContaining("rollback-only"),
+        });
+        expect(readSuppressedFailures(siblingError)).toContain(nestedError);
       })
     ).rejects.toBeInstanceOf(AggregateError);
 

@@ -98,8 +98,9 @@ keep the map form for genuine variants.
 `s.toMany({ ... })` declares a slot that holds several memberships, each of
 which may use a different variant. VibORM creates **one junction table per
 variant**, named `<owner_table>_<relation>_<variant>` by default, with a
-composite primary key over both sides, a reverse index, and cascading foreign
-keys on both sides.
+composite primary key over both sides and cascading foreign keys on both sides.
+A reverse index is added only when an existing primary or unique constraint does
+not already cover that reverse lookup.
 
 ```ts
 const shelf = s.model({

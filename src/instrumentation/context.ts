@@ -125,7 +125,8 @@ function snapshotTracingConfig(value: Record<string, unknown>): TracingConfig {
   );
   const tracer = safeRead(value, "tracer");
   return Object.freeze({
-    ...snapshotDisclosure(value),
+    includeParams: safeRead(value, "includeParams") === true,
+    includeSql: safeRead(value, "includeSql") === true,
     ...(ignoreSpanTypes.length > 0 ? { ignoreSpanTypes } : {}),
     ...(isPlatformTracer(tracer) ? { tracer } : {}),
   });
@@ -177,7 +178,8 @@ function snapshotLoggingConfig(
     return undefined;
   }
   return Object.freeze({
-    ...snapshotDisclosure(value),
+    includeParams: safeRead(value, "includeParams") === true,
+    includeSql: safeRead(value, "includeSql") === true,
     all,
     cache,
     error,

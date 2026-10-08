@@ -39,6 +39,14 @@ export type {
   RelationCardinality,
   RelationSlot,
 } from "./relation";
+// Named capability surfaces let exported declarations retain relation identity
+// without expanding the private terminal implementations.
+export type {
+  VariantToManyRelation,
+  VariantToOneRelation,
+} from "./relation/polymorphic";
+export type { ModelToManyRelation } from "./relation/to-many";
+export type { ModelToOneRelation, ReferencesStage } from "./relation/to-one";
 export type {
   AutoGenerate,
   BigIntScalar,

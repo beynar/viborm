@@ -115,3 +115,29 @@ describe("the token's type surface", () => {
     expectTypeOf<keyof AnyFieldRef>().toEqualTypeOf<typeof FIELD_REF_BRAND>();
   });
 });
+
+// JSON normalization detaches records and omits symbol keys; closure must run first.
+test("JSON normalization cannot erase a refused FieldRef before closure", () => {
+  const closed = v.noFieldRef(v.json(), "JSON write data");
+  expect(parse(closed, ref("payload")).issues?.[0]?.message).toContain(
+    "Field reference"
+  );
+  expect(
+    parse(closed, { nested: [ref("payload")] }).issues?.[0]?.message
+  ).toContain("Field reference");
+  expect(parse(closed, { strings: ["a"], values: [1] }).issues).toBeUndefined();
+});
+
+test("JSON refuses a FieldRef revealed only during normalization", () => {
+  let reads = 0;
+  const input = {
+    get nested() {
+      reads += 1;
+      return reads === 1 ? "ordinary" : ref("payload");
+    },
+  };
+  const result = parse(v.noFieldRef(v.json(), "JSON write data"), input);
+  expect(reads).toBe(2);
+  expect(result.issues).toBeDefined();
+  expect(parse(v.json(), { nested: [ref("payload")] }).issues).toBeDefined();
+});

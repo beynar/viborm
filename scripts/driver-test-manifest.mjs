@@ -59,6 +59,7 @@ const providerHeavyCoreContracts = new Set([
   "tests/contracts/drivers/transaction-lifecycle.core.test.ts",
   "tests/contracts/drivers/transaction-options-behavior.core.test.ts",
   "tests/contracts/drivers/transaction-portability.core.test.ts",
+  "tests/contracts/drivers/v1-transport-remediation.core.test.ts",
 ]);
 
 function coreCoverageGroups() {

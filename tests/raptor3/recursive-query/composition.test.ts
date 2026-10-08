@@ -41,7 +41,7 @@
  *     invalidation, commit certainty — never a rollback claim; in the
  *     operation's own region it rolls back and claims nothing;
  * 13. a malformed recursive carrier is the operation's malformed provider
- *     result: the `QueryEngineError` (V9001) that an ordinary relation column
+ *     result: the expected `QueryError` (V2006) that an ordinary relation column
  *     answered as an object also publishes, its `meta.scalarType` naming the
  *     carrier check that refused it; the same read decodes the well-formed
  *     answer.
@@ -59,6 +59,7 @@ import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import {
   QueryEngineError,
+  QueryError,
   TransactionError,
   UniqueConstraintError,
   ValidationError,
@@ -1810,8 +1811,8 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     assert.equal(recursive.failure.message, FK_CYCLE);
     // A malformed carrier is the operation's malformed result (cell 13).
     const malformedCarrier =
-      'Driver "sqlite3" returned a malformed recursive carrier scalar for operation "update": the carrier is not an object.';
-    assert.ok(malformed.failure instanceof QueryEngineError);
+      'The "update" result is incompatible with the recursive carrier scalar domain: the carrier is not an object.';
+    assert.ok(malformed.failure instanceof QueryError);
     assert.equal(malformed.failure.message, malformedCarrier);
     assert.equal(malformed.failure.meta.scalarType, "recursive carrier");
     assert.ok(
@@ -1849,7 +1850,7 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     const ownedControl = await refusedUpdate("transactional", "ordinary");
     assert.ok(owned.failure instanceof QueryEngineError);
     assert.equal(owned.failure.message, FK_CYCLE);
-    assert.ok(ownedMalformed.failure instanceof QueryEngineError);
+    assert.ok(ownedMalformed.failure instanceof QueryError);
     assert.equal(ownedMalformed.failure.message, malformedCarrier);
     for (const observed of [owned, ownedMalformed, ownedControl])
       assert.deepEqual(
@@ -1967,12 +1968,18 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     for (const [scalarType, rewrite, reason] of malformed) {
       answer(rewrite);
       const seen = await read({ recurse: { depth: 3 } });
-      assert.ok(seen.failure instanceof QueryEngineError, String(seen.failure));
+      assert.ok(seen.failure instanceof QueryError, String(seen.failure));
       assert.deepEqual(identity(seen.failure), {
-        name: "QueryEngineError",
-        code: "V9001",
-        message: `Driver "sqlite3" returned a malformed ${scalarType} scalar for operation "findUnique": ${reason}.`,
-        meta: { driver: "sqlite3", operation: "findUnique", scalarType },
+        name: "QueryError",
+        code: "V2006",
+        message: `The "findUnique" result is incompatible with the ${scalarType} scalar domain: ${reason}.`,
+        meta: {
+          driver: "sqlite3",
+          model: "node",
+          operation: "findUnique",
+          scalarType,
+          reason,
+        },
       });
       assert.equal(seen.value, undefined, "no partial answer");
       assert.equal(seen.statements.length, 1, "no retry, no fallback");
@@ -1991,14 +1998,16 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
     };
     const ordinary = await read({});
     assert.deepEqual(identity(ordinary.failure), {
-      name: "QueryEngineError",
-      code: "V9001",
+      name: "QueryError",
+      code: "V2006",
       message:
-        'Driver "sqlite3" returned a malformed collection scalar for operation "findUnique": a requested relation is not a provider array.',
+        'The "findUnique" result is incompatible with the collection scalar domain: a requested relation is not a provider array.',
       meta: {
         driver: "sqlite3",
         operation: "findUnique",
         scalarType: "collection",
+        model: "node",
+        reason: "a requested relation is not a provider array",
       },
     });
   });

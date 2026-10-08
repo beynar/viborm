@@ -317,6 +317,19 @@ function isConfigurationFailure(
   );
 }
 
+function isConnectionCapacityFailure(
+  code: string | number | undefined,
+  errno?: number
+): boolean {
+  return (
+    code === "53300" ||
+    code === "ER_CON_COUNT_ERROR" ||
+    code === "ER_TOO_MANY_USER_CONNECTIONS" ||
+    errno === 1040 ||
+    errno === 1203
+  );
+}
+
 function configurationFailure(
   cause: Error,
   context: DriverErrorContext,
@@ -413,6 +426,51 @@ function mapProviderError(
   }
 
   const diagnostics = context.diagnostics;
+  // SQLSTATEs and MySQL constants name the physical failure, independently of
+  // localized provider text. SQLite exposes these categories only in messages.
+  const capacity = isConnectionCapacityFailure(code, errno);
+  const schemaMismatch =
+    code === "42P01" ||
+    code === "42703" ||
+    code === "ER_NO_SUCH_TABLE" ||
+    code === "ER_BAD_FIELD_ERROR" ||
+    errno === 1146 ||
+    errno === 1054 ||
+    (context.dialect === "sqlite" &&
+      (rawMessage.includes("no such table:") ||
+        rawMessage.includes("no such column:") ||
+        rawMessage.includes("has no column named")));
+  const outOfRange =
+    code === "22003" ||
+    code === "ER_WARN_DATA_OUT_OF_RANGE" ||
+    code === "ER_DATA_OUT_OF_RANGE" ||
+    errno === 1264 ||
+    errno === 1690 ||
+    (context.dialect === "sqlite" && rawMessage.includes("integer overflow"));
+  if (capacity || schemaMismatch || outOfRange)
+    return withProviderFailureEvidence(
+      error,
+      capacity
+        ? new ConnectionError("Database connection capacity exhausted", {
+            cause,
+            diagnostics,
+            meta,
+            code: VibORMErrorCode.CONNECTION_CAPACITY,
+          })
+        : new QueryError(
+            schemaMismatch
+              ? "Database table or column does not exist"
+              : "Value exceeds the database numeric range",
+            {
+              cause,
+              diagnostics,
+              meta,
+              code: schemaMismatch
+                ? VibORMErrorCode.QUERY_SCHEMA_MISMATCH
+                : VibORMErrorCode.QUERY_OUT_OF_RANGE,
+            }
+          )
+    );
   if (code === "57014" || code === "ER_LOCK_WAIT_TIMEOUT" || errno === 1205) {
     return withProviderFailureEvidence(
       error,
@@ -518,11 +576,21 @@ export function normalizeDriverConnectionError(
     );
   return withProviderFailureEvidence(
     error,
-    new ConnectionError(message, {
-      cause,
-      diagnostics: context.diagnostics,
-      meta,
-    })
+    new ConnectionError(
+      isConnectionCapacityFailure(code, errno)
+        ? "Database connection capacity exhausted"
+        : message,
+      {
+        cause,
+        diagnostics: context.diagnostics,
+        meta,
+        code: isConnectionCapacityFailure(code, errno)
+          ? VibORMErrorCode.CONNECTION_CAPACITY
+          : code === "ETIMEDOUT"
+            ? VibORMErrorCode.CONNECTION_TIMEOUT
+            : VibORMErrorCode.CONNECTION_FAILED,
+      }
+    )
   );
 }
 

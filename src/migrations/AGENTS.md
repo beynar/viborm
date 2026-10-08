@@ -470,8 +470,12 @@ remain the bound `MigrationDriver`'s responsibility.
 
 Literal DateTime SQL defaults are rendered by the bound migration driver from
 the scalar declaration. SQLite routes INTEGER and REAL defaults through the
-same physical codec as query literals; Date-object and function defaults remain
-application defaults, and TEXT keeps the ISO timestamp spelling. Every admitted
+same physical codec as query literals; Date-object literals cross the existing ISO
+admission and physical encoder too. Function defaults remain application-only.
+Literal lists/JSON/bigint carry their ordinary provider representation into DDL.
+A required column without a physical default cannot backfill populated rows; push
+refuses before effects with a manual-backfill recipe and generated estates prove
+the table empty before adding it. TEXT keeps the ISO timestamp spelling. Every admitted
 public instant is writable in REAL form; a valid literal default is not refused
 because a Julian-day double is not an exact binary representation.
 

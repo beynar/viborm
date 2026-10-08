@@ -5,8 +5,8 @@ This report accompanies the V1 remediation branch based on `origin/main`
 pre-existing changes were preserved. Three GPT-6.1 Sol agents own the driver,
 query and migration work; the root agent integrates, reviews and releases it.
 
-**Release checkpoint: not published.** Version1.0.0 is prepared, but npm latest
-still points to0.1.0. Package, integration and protected CI qualification must
+**Release checkpoint: not published.** Version 1.0.0 is prepared, but npm latest
+still points to 0.1.0. Package, integration and protected CI qualification must
 finish before the Release workflow can publish. This document will be updated
 with the actual release evidence. Passing tests below describe their recorded
 revision; a later edit requires the affected check to run again.
@@ -14,7 +14,7 @@ revision; a later edit requires the affected check to run again.
 The accepted scope is to repair confirmed defects and explicitly retain product
 gaps. It does not include SQL Server, Studio, cross-schema relationships, replicas,
 new auth adapters, arbitrary geometry, or a general SQL query-builder product.
-The [555-item ledger](findings.json) accounts for every indexed finding and PB1–8
+The [555-item ledger](findings.json) accounts for every indexed finding and PB-1–8
 with its original title, severity, review classification, disposition and evidence.
 A product gap is not a fixed defect; implemented-unverified means work remains.
 
@@ -47,7 +47,7 @@ A product gap is not a fixed defect; implemented-unverified means work remains.
 - Public client types now preserve multi-key groupBy results, false/dynamic
   selectors, Promise compatibility, select/include exclusivity and singular
   recursive-node restrictions. Exported declarations and driver-specific entry
-  points are tested as installed tarballs, including TypeScript5.8.
+  points are tested as installed tarballs, including TypeScript 5.8.
 - Model delegates now expose real reflection surfaces and writable operation
   descriptors so ordinary spies and stubs can work. SQL keywords are no longer
   incorrectly reserved model names; the actual Promise hook remains protected.
@@ -63,17 +63,18 @@ A product gap is not a fixed defect; implemented-unverified means work remains.
 
 | Check | Observed result | Remaining qualification |
 |---|---|---|
-| Whole-estate native typecheck8 | Passed,8.99s,7158.3MiB/8192MiB | Rerun newest type edits |
-| Core estate2 | Incomplete: RSS ceiling1555.2/1536MiB and real fixture/admission failures | Fixes and4sequential shards; unchanged300s aggregate limit |
-| Packed build3 | Passed,2.51s,965.9MiB | Final package gates |
-| Root/schema declarations without optional peers | TS5.8 and native,skipLibCheck:false passed | Final artifact reuse |
-| Exported db/extended-client declarations | Unannotated2/5/30 chains and100-model chain passed |10-model cyclic TS2321 correction awaiting artifact4 |
-| Driver diagnostics and raw Date |121selected tests passed | Affected follow-up message assertions |
-| Neon concurrency and row-lock schedule |5/5passed | Required source CI still applies |
-| Migration focused core |1960/1960passed | New catalog/default checks |
-| SQLite12.11.1 optimizer witness |8/8passed on SQLite3.53.2 | Final provider suite |
-| Production dependency audit |0critical,0high;2moderate,1low | Lower advisories remain disclosed |
-| Frozen lockfile installation | Passed | Re-run if lockfile changes |
+| Whole-estate native typecheck15 | Passed,27.40s,5290.0MiB /8192MiB | Final CI revision |
+| Core7, four sequential shards | All9624 tests passed; unchanged resource budgets | Final CI revision |
+| Focused driver/instrumentation integration |132/132 passed, including actual OTel, Neon SDK mocks and poisoned-row taxonomy | Final CI revision |
+| Root SQLite storage and scalar behavior |20/20 passed; physical storage races and transformed JSON null included | Full provider CI |
+| Root client/schema followthrough |48/48 passed; diagnostics and executable docs144/144 passed | Final CI revision |
+| Migration core and live precision |1973/1973 core;66 Time6;3/3 real PGlite;67 transformed-default and78 SQL-contract checks | Full provider CI |
+| Native PostgreSQL and geospatial behavior |8/8 real PGlite passed, including480 distance points | Full provider CI |
+| Neon concurrency and row-lock schedule |5/5 passed | Final affected-driver rerun |
+| Exported declarations and cyclic models | Minimal cyclic-type correction saved and native-checked | Fresh immutable package consumer proof |
+| Production dependency audit |0 critical,0 high;2 moderate,1 low | Lower advisories remain disclosed |
+| Patched dependency behavior | Real Prisma loader/merge, HTTP cache and Drizzle witnesses passed | CI repeats the same gate |
+
 
 The security changes include compatible dependency updates plus two narrow
 patches with actual adversarial fixtures: HTTP cache revalidation rules, and the
@@ -81,20 +82,24 @@ Prisma-private deepmerge update with its prior default Map semantics preserved.
 The audit is unfiltered. Remaining lower advisories concern sprintf-js,
 postcss-selector-parser and KaTeX; they are not hidden by ignore rules.
 
-**Size and complexity.** At the measured integration checkpoint, production
-source grew from141,375 to145,440 physical lines: +4,065, about2.9%. Tests grew
-about1.5%, scripts about0.1%, live documentation shrank about0.5%, and benchmarks
-were unchanged. These are provisional whole-perimeter counts, including new
-files and moves, not just an unstaged diff. New behavior is kept with its existing
-owners; this release does not claim the whole architecture has become small.
+**Size and complexity.** The latest provisional whole-perimeter count is
+146,400 production-source lines versus141,375 at the reviewed upstream revision:
++5,025, or3.55%. Tests grew2.06%, scripts0.11%, live documentation0.04%, and
+benchmarks were unchanged. Counts include new files and moves. They will be
+recomputed after the final batch. This is controlled growth, not LOC parity.
+New behavior remains with existing semantic owners, but the architecture has
+not become small.
 
 **What V1 still is not.** It has no SQL Server or CockroachDB contract, Studio,
 read-replica router, cross-schema relation graph, first-class views/generated
 columns, streaming API, maintained auth adapters, or migration import tool.
 Provider qualification is per concrete driver; family resemblance is not hosted
 execution evidence. PlanetScale and other conditional surfaces must retain their
-published tier. Dynamic schema types, complex generic wrappers, verbose hovers
-and large-schema editor cost remain limitations. No new benchmark establishes a
+published tier. Nested clause typos can still pass TypeScript at the explicitly pinned depths;
+runtime validation refuses unknown keys. Getter-level relation key checking and
+static foreign-key/relation-write exclusivity remain incomplete. Dynamic schema
+types, complex generic wrappers, verbose hovers and large-schema editor cost
+remain limitations. No new benchmark establishes a
 speed advantage over Prisma or Drizzle, and no CI badge establishes adoption or
 independent maintainership.
 

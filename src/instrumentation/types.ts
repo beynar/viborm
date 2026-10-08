@@ -51,7 +51,7 @@ export type LogCallback = (
 /**
  * Tracing configuration options
  */
-export interface TracingConfig extends DiagnosticDisclosure {
+export interface TracingConfig {
   /**
    * Include SQL query text in spans.
    * @default false
@@ -130,7 +130,7 @@ export type LogLevelHandler = true | LogCallback;
  * }
  * ```
  */
-export interface LoggingConfig extends DiagnosticDisclosure {
+export interface LoggingConfig {
   /**
    * Catch-all handler for all log levels.
    * Applied when a specific level handler is not defined.

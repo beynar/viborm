@@ -36,7 +36,7 @@ const provider = process.env.VIBORM_RAPTOR3_PROVIDER;
 const port = Number(process.env.VIBORM_RAPTOR3_PROVIDER_PORT ?? "0");
 
 const ARITY_SET_INCREMENT =
-  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.";
+  "UnsupportedOperationError: Primary key field 'id' accepts exactly one update operation; received set, increment.";
 
 interface Outcome {
   readonly answer: string;

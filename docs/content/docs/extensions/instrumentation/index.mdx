@@ -36,9 +36,33 @@ parameter disclosure settings. Both default to `false`. Enabling disclosure
 for one channel does not enable it for another.
 
 VibORM snapshots hostile inputs once at the disclosure boundary. Raw provider
-messages and undeclared fields are redacted; stable provider codes remain
+messages and undeclared fields are redacted by default; stable provider codes remain
 available for retry and incident classification. Cache keys and custom cache
 suffixes never appear in public units, spans, or logs.
+
+For incident diagnosis, enable the existing diagnostic channel explicitly:
+
+```ts
+instrumentation({
+  diagnostics: { includeProviderDetails: true, includeCallsite: true },
+  logging: { error: event => console.error(JSON.stringify(event)) },
+})
+```
+
+Both flags default to `false`. `includeProviderDetails` retains bounded own-data
+provider `message`, `detail`, and `hint` values in the sanitized cause, with URL
+credentials, named passwords/tokens, and bearer credentials redacted. Provider
+text can still contain application data, so choose disclosure deliberately.
+`includeCallsite` captures `meta.callsite` when a deferred raw or model operation
+is created, before its later await; ordinary operations allocate no diagnostic
+stack. The selected details and callsite survive official error logs and JSON
+serialization. SQL and parameter disclosure remain independent per channel.
+
+Serialized validation errors retain the canonical class, message, boundary, and
+issue paths. Standard `error.cause` and `originalCause` reference the same
+sanitized underlying error. Failure spans retain `error.type`,
+`viborm.error.code`, and an available `db.response.sqlstate`, without provider
+messages or parameter values.
 
 :::warning
 Only enable parameter disclosure in a controlled development environment.

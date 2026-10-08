@@ -37,7 +37,7 @@ const distRoot = join(repositoryRoot, "dist");
  * lives in a second module. This one is `div`'s, and it is the class's alone —
  * grepped across `src/` to be sure.
  */
-const REFUSAL = "Division by zero";
+const REFUSAL = /(["'])Division by zero\1/;
 
 const rootEntry = await import(pathToFileURL(join(distRoot, "index.mjs")).href);
 
@@ -53,6 +53,30 @@ if (value.toString() !== "1.2") {
   throw new Error("A published Decimal must carry its canonical spelling");
 }
 
+const schemaEntry = await import(
+  pathToFileURL(join(distRoot, "schema.mjs")).href
+);
+let schemaValue;
+schemaEntry.s
+  .decimal({ precision: 8, scale: 2 })
+  .schema({
+    "~standard": {
+      version: 1,
+      vendor: "fixture",
+      validate(value) {
+        schemaValue = value;
+        return { value };
+      },
+    },
+  })
+  .default("1.20");
+if (!(schemaValue instanceof Decimal))
+  throw new Error(
+    "The schema entry must validate defaults with the root Decimal constructor"
+  );
+if (schemaValue.toString() !== "1.2")
+  throw new Error("The schema entry must retain canonical decimal value");
+
 const walk = (directory) => {
   const found = [];
   for (const name of readdirSync(directory)) {
@@ -67,7 +91,7 @@ const walk = (directory) => {
 };
 
 const carriers = walk(distRoot).filter((path) =>
-  readFileSync(path, "utf8").includes(REFUSAL)
+  REFUSAL.test(readFileSync(path, "utf8"))
 );
 if (carriers.length !== 1) {
   throw new Error(

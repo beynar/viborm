@@ -52,7 +52,7 @@ const OFFICIAL_CACHE_NAMESPACE = createOfficialCacheNamespace({
   namespace: "public",
 });
 const OFFICIAL_CACHE_SCOPE = createOfficialCacheScope(OFFICIAL_CACHE_NAMESPACE);
-const USER_CACHE_PREFIX = `${OFFICIAL_CACHE_NAMESPACE}:user:`;
+const CACHE_SCOPE_PREFIX = `${OFFICIAL_CACHE_NAMESPACE}:`;
 const NO_VALIDATED_PAYLOAD_PATTERN = /exposes no validated payload/;
 const UNKNOWN_OPERATION_PATTERN = /Unknown operation 'missing'/;
 
@@ -377,7 +377,7 @@ describe("PendingOperation frozen public contract", () => {
     ).operation;
 
     await expect(mutation).resolves.toBe(42);
-    expect(cache.clearedPrefixes).toEqual([USER_CACHE_PREFIX]);
+    expect(cache.clearedPrefixes).toEqual([CACHE_SCOPE_PREFIX]);
 
     expect(
       prepareMutationCacheWriteOutcome(
@@ -441,8 +441,8 @@ describe("PendingOperation frozen public contract", () => {
       )
     ).resolves.toBe(42);
     expect(cache.clearedPrefixes).toEqual([
-      USER_CACHE_PREFIX,
-      USER_CACHE_PREFIX,
+      CACHE_SCOPE_PREFIX,
+      CACHE_SCOPE_PREFIX,
     ]);
   });
 
@@ -472,7 +472,7 @@ describe("PendingOperation frozen public contract", () => {
       },
     });
     expect(caught.originalCause).toBeInstanceOf(Error);
-    expect(cache.clearedPrefixes).toEqual([USER_CACHE_PREFIX]);
+    expect(cache.clearedPrefixes).toEqual([CACHE_SCOPE_PREFIX]);
   });
 
   it("keeps PendingOperation as the root and client runtime export", () => {

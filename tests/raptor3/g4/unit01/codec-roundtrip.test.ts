@@ -86,7 +86,7 @@ describe("G4-01 scalar codec crossings (SC-01..SC-14, SL-01..SL-10, Q-R01)", () 
         (error: Error) => {
           assert.match(
             error.message,
-            /returned a malformed boolean scalar for operation "findMany": the value is not true, false, zero, or one\./
+            /The "findMany" result is incompatible with the boolean scalar domain: the value is not true, false, zero, or one\./
           );
           const meta = (error as { meta?: Record<string, unknown> }).meta;
           assert.equal(meta?.scalarType, "boolean");

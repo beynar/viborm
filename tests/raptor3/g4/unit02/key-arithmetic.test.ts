@@ -254,7 +254,7 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
   // decision looks like as checks: one positive contract, two parity.
   it("R-D2 (a) THE CONTRACT: names a decimal key increment, which is exact in coefficient space", async () => {
     // Legacy baseline, recorded not asserted: the shipped engine refuses this
-    // request with `QueryEngineError: Arithmetic updates are not portable for
+    // request with `UnsupportedOperationError: Arithmetic updates are not portable for
     // decimal primary key field 'id'. Use an explicit set value.` Arnaud
     // adopted the candidate's answer (R-D2 (a)), so the candidate is the
     // contract this cell states — and the capability
@@ -292,7 +292,7 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
     assert.deepEqual(candidate, shipped);
     assert.equal(
       candidate.answer,
-      "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment."
+      "UnsupportedOperationError: Primary key field 'id' accepts exactly one update operation; received set, increment."
     );
     // The row is untouched on both engines: the refusal precedes every
     // statement, as `assertPortablePrimaryKeyUpdateInput` does.
@@ -317,11 +317,10 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
     assert.deepEqual(candidate, shipped);
     assert.equal(
       candidate.answer,
-      "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, divide."
+      "ValidationError: Validation failed for update: data.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
     );
-    // The arity question is asked BEFORE the operator question, as shipped:
-    // `divide: 0` beside a `set` is answered by the arity sentence, never by
-    // "Cannot divide primary key field 'id' by zero."
+    // Division by zero is refused by the scalar operand schema before key
+    // portability inspects the admitted assignment, including a mixed set.
     assert.deepEqual(candidate.rows, [{ id: 7, label: "a" }]);
   });
 
@@ -349,7 +348,7 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
       assert.deepEqual(candidate, shipped, JSON.stringify(data));
       assert.equal(
         candidate.answer,
-        "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
+        "UnsupportedOperationError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
       );
       assert.deepEqual(candidate.rows, [{ id: 6, label: "a" }]);
     }
@@ -454,7 +453,7 @@ describe("G4-02 — the one shape with no expression form stays refused", () => 
         (error: Error) =>
           error.name === "QueryEngineError" &&
           error.message ===
-            `Raptor 3 cannot name the updated value of 'decKey.id' under '${operator}': the provider owns that operator's rounding inside its own assignment.`,
+            `Cannot determine the updated value of 'decKey.id' before '${operator}' executes: the database determines the stored result.`,
         operator
       );
     }

@@ -1,5 +1,6 @@
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
+import { encodeMySqlDateTime } from "@validation/primitives/datetime-physical-codec";
 import type { IdDomain } from "@validation/primitives/id-codec";
 /**
  * MySQL Migration Driver
@@ -239,6 +240,30 @@ export class MySQLMigrationDriver
    * connection, so an ambient default database — a pooled session, a proxy, a
    * URL path nobody re-read — can never decide which estate is introspected.
    */
+  override async preflightSchemaRequirements(
+    snapshots: readonly SchemaSnapshot[],
+    executeRaw: CatalogReader
+  ): Promise<void> {
+    const names = new Set(
+      snapshots.flatMap((snapshot) =>
+        snapshot.tables.map((table) => table.name)
+      )
+    );
+    if (names.size === 0) return;
+    const namespace = await resolveCatalogNamespace(executeRaw, this.namespace);
+    const views = await executeRaw<{ TABLE_NAME: string }>(
+      "SELECT TABLE_NAME FROM information_schema.VIEWS WHERE TABLE_SCHEMA = ?",
+      [namespace]
+    );
+    const collision = views.rows.find((row) => names.has(row.TABLE_NAME));
+    if (collision)
+      throw new MigrationError(
+        `MySQL relation "${collision.TABLE_NAME}" is a view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { table: collision.TABLE_NAME, feature: "view", namespace } }
+      );
+  }
+
   introspect(executeRaw: CatalogReader): Promise<SchemaSnapshot> {
     return introspectMySQL(executeRaw, this.namespace, this.target?.tables);
   }
@@ -333,6 +358,21 @@ export class MySQLMigrationDriver
     scalar: Scalar,
     scalarState: ScalarState
   ): string | undefined {
+    const literal =
+      scalarState.type === "datetime" &&
+      !scalarState.array &&
+      scalarState.hasDefault &&
+      !scalarState.autoGenerate
+        ? this.literalDefaultValue(scalarState)
+        : undefined;
+    if (
+      scalarState.type === "datetime" &&
+      !scalarState.array &&
+      scalarState.hasDefault &&
+      !scalarState.autoGenerate &&
+      typeof literal === "string"
+    )
+      return this.escapeValue(encodeMySqlDateTime(literal));
     // information_schema.COLUMNS reports both an omitted default and an
     // explicit DEFAULT NULL as catalog NULL. They have the same behavior for a
     // nullable column, so serialize the one representation MySQL can read back
@@ -403,6 +443,9 @@ export class MySQLMigrationDriver
 
     const finalized: TableDef = {
       ...table,
+      primaryKey: table.primaryKey
+        ? { ...table.primaryKey, name: "PRIMARY" }
+        : undefined,
       columns: table.columns.map((column) =>
         finalizeMySQLColumn(column, keyedColumns.has(column.name))
       ),

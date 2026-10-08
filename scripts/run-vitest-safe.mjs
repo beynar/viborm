@@ -114,10 +114,11 @@ try {
     process.stderr.write(
       `${label} resources: ${(outcome.wallMs / 1000).toFixed(2)}s wall, ${(outcome.peakGroupRssKb / 1024).toFixed(1)} MiB peak sampled process-group RSS (sampled ceiling ${rssLimit.rssLimitMb} MiB). ${outcome.error ? "Teardown not verified." : "Teardown verified."}\n`
     );
-    if (outcome.error || outcome.stopReason || outcome.code !== 0) {
+    if (outcome.error || outcome.stopReason || outcome.code !== 0)
       failed = true;
-      break;
-    }
+    // Collect independent shard failures without hiding later regressions.
+    // Resource, teardown and interruption failures still stop immediately.
+    if (outcome.error || outcome.stopReason) break;
   }
 } catch (error) {
   failed = true;

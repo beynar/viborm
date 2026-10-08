@@ -346,7 +346,7 @@ export function runMappedIndexBehavior({
 
       expect(
         second.operations.filter(
-          (op) => op.label === "createIndex" || op.label === "dropIndex"
+          (op) => op.type === "createIndex" || op.type === "dropIndex"
         )
       ).toEqual([]);
       expect(
@@ -431,7 +431,7 @@ export function runPartialIndexBehavior({
 
       expect(
         second.operations.filter(
-          (op) => op.label === "createIndex" || op.label === "dropIndex"
+          (op) => op.type === "createIndex" || op.type === "dropIndex"
         )
       ).toEqual([]);
       // The table carries a foreign key, so SQLite rebuilt it during that push
@@ -512,10 +512,10 @@ export function runPartialIndexPredicateChurnBehavior({
       return rows[0]?.predicate ?? null;
     }
 
-    function indexOps(operations: readonly { label: string }[]) {
-      return operations.filter(
-        (op) => op.label === "createIndex" || op.label === "dropIndex"
-      );
+    function indexKinds(operations: readonly { id: string }[]) {
+      return operations
+        .map((operation) => operation.id.slice(0, operation.id.indexOf(":")))
+        .filter((kind) => kind === "createIndex" || kind === "dropIndex");
     }
 
     // REGRESSION (Decision 7.4): the declaration and the catalog never agreed,
@@ -531,7 +531,7 @@ export function runPartialIndexPredicateChurnBehavior({
 
       const second = await syncLiveSchema(c as never);
 
-      expect(indexOps(second.operations)).toEqual([]);
+      expect(indexKinds(second.operations)).toEqual([]);
       expect(await storedPredicate(c)).toBe("(published = true)");
     });
 
@@ -544,7 +544,7 @@ export function runPartialIndexPredicateChurnBehavior({
       const respelled = make(churnRespelledSchema);
       const second = await syncLiveSchema(respelled as never);
 
-      expect(indexOps(second.operations)).toEqual([]);
+      expect(indexKinds(second.operations)).toEqual([]);
       expect(await storedPredicate(respelled)).toBe("(published = true)");
     });
 
@@ -556,7 +556,7 @@ export function runPartialIndexPredicateChurnBehavior({
       const changed = make(churnChangedSchema);
       const second = await syncLiveSchema(changed as never);
 
-      expect(indexOps(second.operations).map((op) => op.label)).toEqual([
+      expect(indexKinds(second.operations)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
@@ -580,7 +580,7 @@ export function runPartialIndexPredicateChurnBehavior({
         dryRun: true,
       });
 
-      expect(indexOps(second.operations).map((op) => op.label)).toEqual([
+      expect(indexKinds(second.operations)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
@@ -661,7 +661,7 @@ export function runPartialIndexCoverageBehavior({
 
       expect(
         second.operations.filter(
-          (op) => op.label === "createIndex" || op.label === "dropIndex"
+          (op) => op.type === "createIndex" || op.type === "dropIndex"
         )
       ).toEqual([]);
       expect(

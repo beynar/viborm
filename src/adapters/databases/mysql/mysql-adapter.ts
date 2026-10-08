@@ -2,6 +2,7 @@ import { unsupportedVector } from "@errors";
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
 import { type Sql, sql } from "@sql";
+import { encodeMySqlDateTime } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
   decimalColumnType,
@@ -360,8 +361,6 @@ const asciiCaseFold = (expr: Sql): Sql => {
 
 // MySQL DATETIME rejects ISO-8601's 'Z' suffix ("Incorrect datetime value"),
 // so datetimes are stored as naive UTC wall-clock 'YYYY-MM-DD HH:MM:SS.mmm'.
-const toMySqlDateTime = (iso: string): string =>
-  new Date(iso).toISOString().slice(0, 23).replace("T", " ");
 
 // Naive datetime string as it comes back from MySQL (top-level on string
 // drivers, or inside JSON_ARRAYAGG/JSON_OBJECT includes): no 'Z'/offset.
@@ -458,7 +457,8 @@ export class MySQLAdapter implements DatabaseAdapter {
       iso: string,
       _nativeType?: NativeTypeDeclaration,
       member?: boolean
-    ): Sql => sql`${member || iso.length === 10 ? iso : toMySqlDateTime(iso)}`,
+    ): Sql =>
+      sql`${member || iso.length === 10 ? iso : encodeMySqlDateTime(iso)}`,
 
     // The cast is load-bearing, not decoration. MySQL's comparison rules say
     // that when one side is a number and the other a string, BOTH are converted
@@ -1080,7 +1080,9 @@ export class MySQLAdapter implements DatabaseAdapter {
     ): unknown => {
       // MySQL stores booleans as TINYINT(1) - 0/1
       if (scalarType === "boolean") {
-        const parsed = parseIntegerBoolean(value);
+        const parsed = parseIntegerBoolean(
+          value === "0" ? 0 : value === "1" ? 1 : value
+        );
         if (parsed !== undefined) {
           return next(parsed);
         }

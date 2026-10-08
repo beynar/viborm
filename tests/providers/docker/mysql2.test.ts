@@ -175,10 +175,10 @@ describeIf("MySQL2 Driver", () => {
       for (const [longitude, latitude, expected] of cases) {
         const storedPoint = geoPoint.value(sql`${longitude}`, sql`${latitude}`);
         const membership = geoPoint.withinPolygon(storedPoint, polygon.value);
-        const result = await driver._execute<{ inside: number }>(
+        const result = await driver._execute<{ inside: number | string }>(
           sql`SELECT ${membership} AS inside`
         );
-        expect(result.rows[0]?.inside).toBe(expected);
+        expect(String(result.rows[0]?.inside)).toBe(String(expected));
       }
 
       for (const [longitude, expected] of [
@@ -193,10 +193,10 @@ describeIf("MySQL2 Driver", () => {
           north: 10,
           east: -170,
         });
-        const result = await driver._execute<{ inside: number }>(
+        const result = await driver._execute<{ inside: number | string }>(
           sql`SELECT ${membership} AS inside`
         );
-        expect(result.rows[0]?.inside).toBe(expected);
+        expect(String(result.rows[0]?.inside)).toBe(String(expected));
       }
     } finally {
       await driver.disconnect();

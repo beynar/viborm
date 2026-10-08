@@ -1,10 +1,10 @@
+import { bindExecutionTransactionPhases } from "@drivers/execution-context";
 import type {
   AnyDriver,
   BatchQuery,
   QueryExecutionContext,
   QueryResult,
 } from "@drivers/exports";
-import { bindExecutionTransactionPhases } from "@drivers/execution-context";
 import { assertNormalizedBatchResults } from "@drivers/normalized-result";
 import type {
   BatchTransactionOptions,

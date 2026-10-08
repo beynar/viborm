@@ -3,13 +3,13 @@ import {
   deriveStatementExecutionContext,
   getExecutionExtensionChain,
 } from "@drivers/execution-context";
-import { PGliteDriver } from "@drivers/pglite";
 import type { QueryExecutionContext } from "@drivers/types";
 import { appendResolvedExtension } from "@extensions/chain";
 import { type Sql, sql } from "@sql";
+import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { expect, test, vi } from "vitest";
 
-class StorageStatementDriver extends PGliteDriver {
+class StorageStatementDriver extends PlanningDriver {
   override readonly maxBindParametersPerStatement = 1;
   finalize(statement: Sql, context: QueryExecutionContext): Sql {
     return this.applyTrustedStatementTransforms(statement, context, "findMany");
@@ -24,7 +24,7 @@ test("protected storage checks bypass user transforms but retain bind limits", (
     { name: "replace", statement: transform },
     {}
   );
-  const driver = new StorageStatementDriver();
+  const driver = new StorageStatementDriver("postgresql");
   const original = sql`SELECT ${1}`;
   for (const operation of ["verifyStorage", "assertStorage"]) {
     const context = deriveStatementExecutionContext(

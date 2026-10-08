@@ -132,3 +132,10 @@ const priority = s.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
 | Migrations  | Requires migration to add values | No migration needed    |
 
 Use an enum for a fixed set of values that rarely changes (statuses, roles, tiers) and needs database-level enforcement. Use a string when values change frequently or are user-defined.
+
+## Ordering across databases
+
+PostgreSQL and MySQL native enums sort by declaration order. SQLite stores
+enum values as text and sorts lexically. `orderBy`, grouped output ordering and
+minimum/maximum therefore follow the provider; enum range predicates are not a
+portable substitute for a shared application order.

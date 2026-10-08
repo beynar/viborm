@@ -13,7 +13,11 @@
 
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import type { BatchQuery, QueryResult } from "@drivers/types";
+import type {
+  BatchQuery,
+  QueryExecutionContext,
+  QueryResult,
+} from "@drivers/types";
 import { ForeignKeyError, NotFoundError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { callRows } from "@extensions/rows";
@@ -401,11 +405,12 @@ class AfterLockSQLite3Driver extends SQLite3Driver {
   protected override async execute<T>(
     client: Database.Database,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const result = await super.execute<T>(client, sql, params);
     const pending = this.afterRead;
-    if (pending && POST_READ.test(sql)) {
+    if (pending && context?.model !== "$schema" && POST_READ.test(sql)) {
       this.afterRead = undefined;
       await this.executeRaw(client, pending);
     }

@@ -16,11 +16,15 @@ export enum VibORMErrorCode {
   CONNECTION_TIMEOUT = "V1002",
   CONNECTION_CLOSED = "V1003",
   CLIENT_INITIALIZATION = "V1004",
+  CONNECTION_CAPACITY = "V1005",
 
   // Query errors (2xxx)
   QUERY_FAILED = "V2001",
   QUERY_TIMEOUT = "V2002",
   QUERY_SYNTAX = "V2003",
+  QUERY_SCHEMA_MISMATCH = "V2004",
+  QUERY_OUT_OF_RANGE = "V2005",
+  QUERY_RESULT_INVALID = "V2006",
 
   // Constraint errors (3xxx)
   UNIQUE_CONSTRAINT = "V3001",
@@ -249,6 +253,12 @@ export class VibORMError extends Error {
     this.originalCause = options?.cause
       ? sanitizeErrorCause(options.cause, options?.diagnostics)
       : undefined;
+    if (this.originalCause)
+      Object.defineProperty(this, "cause", {
+        value: this.originalCause,
+        configurable: true,
+        writable: true,
+      });
     this.meta = sanitizeErrorMetadata(
       options?.meta ?? {},
       options?.diagnostics
@@ -397,6 +407,7 @@ interface CodeDisposition {
   // recover with backoff; closed clients and invalid configuration cannot.
   [VibORMErrorCode.CONNECTION_TIMEOUT]: "retryable";
   [VibORMErrorCode.CONNECTION_FAILED]: "retryable";
+  [VibORMErrorCode.CONNECTION_CAPACITY]: "retryable";
   [VibORMErrorCode.CONNECTION_CLOSED]: "expected";
   [VibORMErrorCode.CLIENT_INITIALIZATION]: "expected";
 
@@ -405,6 +416,9 @@ interface CodeDisposition {
   [VibORMErrorCode.QUERY_TIMEOUT]: "retryable";
   [VibORMErrorCode.QUERY_FAILED]: "expected";
   [VibORMErrorCode.QUERY_SYNTAX]: "expected";
+  [VibORMErrorCode.QUERY_SCHEMA_MISMATCH]: "expected";
+  [VibORMErrorCode.QUERY_OUT_OF_RANGE]: "expected";
+  [VibORMErrorCode.QUERY_RESULT_INVALID]: "expected";
 
   // Constraints (3xxx). The schema's own rules, enforced by the database. Never retryable:
   // the data has to change first.
@@ -517,6 +531,7 @@ const DEFECT_CODES: Partial<Record<VibORMErrorCode, true>> = {
 } satisfies Record<CodesWith<"defect">, true>;
 const RETRYABLE_CODES: Partial<Record<VibORMErrorCode, true>> = {
   [VibORMErrorCode.CONNECTION_FAILED]: true,
+  [VibORMErrorCode.CONNECTION_CAPACITY]: true,
   [VibORMErrorCode.CONNECTION_TIMEOUT]: true,
   [VibORMErrorCode.QUERY_TIMEOUT]: true,
   [VibORMErrorCode.DEADLOCK]: true,
@@ -576,12 +591,17 @@ export function isRetryableError(error: unknown): boolean {
 export function wrapError(
   error: unknown,
   code: VibORMErrorCode = VibORMErrorCode.INTERNAL_ERROR,
-  meta?: VibORMErrorMeta
+  meta?: VibORMErrorMeta,
+  diagnostics?: DiagnosticDisclosure
 ): VibORMError {
   if (isVibORMError(error)) {
     return error;
   }
 
   const cause = error instanceof Error ? error : new Error(String(error));
-  return new VibORMError("VibORM operation failed", code, { cause, meta });
+  return new VibORMError("VibORM operation failed", code, {
+    cause,
+    meta,
+    diagnostics,
+  });
 }

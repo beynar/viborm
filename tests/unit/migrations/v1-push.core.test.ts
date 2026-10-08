@@ -41,7 +41,7 @@ import { sqliteEstateDriver } from "./_estate";
 
 const EXPECTED_ERROR_PATTERN = /^[a-f0-9]{64}$/;
 const DROP_FOREIGN_LEDGER_PATTERN = /DROP.*foreign_ledger/;
-const EXPECTED_ERROR_PATTERN_2 = /^\d{2}:\d{2}:\d{2}\.\d{3}$/;
+const EXPECTED_ERROR_PATTERN_2 = /^\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
 
 const SCHEMA_WRITE = /^(CREATE|ALTER|DROP|INSERT|UPDATE|DELETE|REPLACE)\b/i;
 
@@ -604,6 +604,161 @@ describe("migration v1 authenticated push", () => {
       await client.$disconnect();
     }
   });
+  test.each([
+    [
+      "generated",
+      "CREATE TABLE legacy (id TEXT PRIMARY KEY, value INTEGER GENERATED ALWAYS AS (length(id)) STORED)",
+      "generated",
+    ],
+    [
+      "check",
+      "CREATE TABLE legacy (id TEXT PRIMARY KEY, value INTEGER CHECK (value > 0))",
+      "CHECK",
+    ],
+    ["virtual", "CREATE VIRTUAL TABLE legacy USING fts5(id, value)", "virtual"],
+  ])("selected SQLite %s semantics refuse while unrelated managed tables converge", async (_label, ddl, reason) => {
+    const driver = createInMemorySQLite3Driver();
+    const initial = createClient({ schema: { user }, driver });
+    try {
+      await pushV1(initial);
+      await driver._executeRaw(ddl);
+      await expect(
+        createMigrationClient(initial, { tables: ["user"] }).push()
+      ).resolves.toMatchObject({ outcome: "noop" });
+      const mapped = s
+        .model({ id: s.string().id(), value: s.int() })
+        .map("legacy");
+      const client = createClient({ schema: { entry: mapped }, driver });
+      await expect(
+        createMigrationClient(client, { tables: ["legacy"] }).push({
+          dryRun: true,
+        })
+      ).rejects.toMatchObject({ message: expect.stringContaining(reason) });
+      const catalog = await driver._executeRaw<{ sql: string }>(
+        "SELECT sql FROM sqlite_master WHERE name='legacy'"
+      );
+      expect(catalog.rows[0]?.sql).toBe(ddl);
+    } finally {
+      await initial.$disconnect();
+    }
+  });
+
+  test("SQLite view collisions refuse without poisoning unrelated tables", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const initial = createClient({ schema: { user }, driver });
+    try {
+      await pushV1(initial);
+      await driver._executeRaw("CREATE VIEW external_view AS SELECT 1 AS id");
+      await expect(
+        createMigrationClient(initial).push()
+      ).resolves.toMatchObject({ outcome: "noop" });
+      const client = createClient({
+        schema: { entry: s.model({ id: s.int().id() }).map("external_view") },
+        driver,
+      });
+      await expect(createMigrationClient(client).push()).rejects.toMatchObject({
+        message: expect.stringContaining("view"),
+      });
+      expect(
+        (await driver._executeRaw("SELECT id FROM external_view")).rows
+      ).toEqual([{ id: 1 }]);
+    } finally {
+      await initial.$disconnect();
+    }
+  });
+
+  test("literal defaults backfill SQLite rows and application-only defaults refuse before effects", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const initial = createClient({ schema: { user }, driver });
+    try {
+      await pushV1(initial);
+      await initial.user.create({
+        data: { id: "one", email: "one@example.test" },
+      });
+      const schema = {
+        user: s.model({
+          id: s.string().id(),
+          email: s.string().unique(),
+          names: s.string().array().default(["a,b", 'quoted"']),
+          numbers: s.int().array().default([1, -2]),
+          payload: s.json().default({ a: 1, nested: [null, true] }),
+          documentNull: s
+            .json()
+            .schema({
+              "~standard": {
+                version: 1,
+                vendor: "fixture",
+                validate: () => ({ value: null }),
+              },
+            })
+            .default({ input: true }),
+          normalized: s
+            .json()
+            .schema({
+              "~standard": {
+                version: 1,
+                vendor: "fixture",
+                validate: () => ({ value: { normalized: true } }),
+              },
+            })
+            .default({ input: true }),
+          huge: s.bigInt().default(9007199254740993n),
+          instant: s.dateTime().default(new Date("2024-01-15T10:30:00.123Z")),
+          day: s.date().default(new Date("2024-01-15T10:30:00.123Z")),
+        }),
+      };
+      const expanded = createClient({ schema, driver });
+      const migrations = createMigrationClient(expanded);
+      const preview = await migrations.push({ dryRun: true });
+      await migrations.push({ consent: preview.consent });
+      await expect(
+        expanded.user.findUnique({ where: { id: "one" } })
+      ).resolves.toMatchObject({
+        names: ["a,b", 'quoted"'],
+        numbers: [1, -2],
+        payload: { a: 1, nested: [null, true] },
+        normalized: { normalized: true },
+        huge: 9007199254740993n,
+        instant: new Date("2024-01-15T10:30:00.123Z"),
+        day: new Date("2024-01-15T00:00:00.000Z"),
+      });
+      const document = await driver._executeRaw<{
+        value: string;
+        kind: string;
+        sql_null: number;
+      }>(
+        'SELECT "documentNull" AS value, json_type("documentNull") AS kind, "documentNull" IS NULL AS sql_null FROM "user"'
+      );
+      expect(document.rows).toEqual([
+        { value: "null", kind: "null", sql_null: 0 },
+      ]);
+      await expect(migrations.push()).resolves.toMatchObject({
+        outcome: "noop",
+      });
+      const required = createClient({
+        schema: {
+          user: schema.user.extends({
+            functionValue: s.string().default(() => "value"),
+          }),
+        },
+        driver,
+      });
+      await expect(
+        createMigrationClient(required).push({ dryRun: true })
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("manual data migration"),
+      });
+      const columns = await driver._executeRaw<{ name: string }>(
+        'PRAGMA table_info("user")'
+      );
+      expect(columns.rows.map((column) => column.name)).not.toContain(
+        "functionValue"
+      );
+    } finally {
+      await initial.$disconnect();
+    }
+  });
+
   test("adding a SQLite now default backfills existing rows and converges", async () => {
     const driver = createInMemorySQLite3Driver();
     const before = createClient({ schema: { user }, driver });
@@ -634,13 +789,23 @@ describe("migration v1 authenticated push", () => {
       ).toBeInstanceOf(Date);
       const row = await after.user.findUniqueOrThrow({ where: { id: "one" } });
       expect(row.day).toBeInstanceOf(Date);
-      expect(row.clockLiteral).toBe("12:30:00.000");
+      expect(row.clockLiteral).toBe("12:30:00");
+      expect(
+        (
+          await driver._executeRaw<{ value: string }>(
+            'SELECT "clockLiteral" AS value FROM "user"'
+          )
+        ).rows
+      ).toEqual([{ value: "12:30:00.000" }]);
       expect(row.clock).toMatch(EXPECTED_ERROR_PATTERN_2);
       const physical = await driver._executeRaw<{ day: string; clock: string }>(
         'SELECT "day", "clock" FROM "user"'
       );
       expect(physical.rows).toEqual([
-        { day: row.day.toISOString().slice(0, 10), clock: row.clock },
+        {
+          day: row.day.toISOString().slice(0, 10),
+          clock: row.clock.padEnd(12, row.clock.includes(".") ? "0" : ".000"),
+        },
       ]);
       expect((await migrations.push({ dryRun: true })).outcome).toBe("noop");
     } finally {

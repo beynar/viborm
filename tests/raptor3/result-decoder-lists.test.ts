@@ -35,10 +35,14 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import type { Dialect, DriverResultParser } from "@drivers";
+import type {
+  Dialect,
+  DriverResultParser,
+  QueryExecutionContext,
+} from "@drivers";
 import { Driver } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError } from "@errors";
+import { QueryEngineError, QueryError } from "@errors";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
@@ -114,6 +118,7 @@ function spelled(row: unknown): unknown {
 
 /** A driver that answers exactly the rows a cell hands it. */
 class ScriptedDriver extends Driver<null, null> {
+  private readonly catalog = new SQLite3Driver();
   readonly adapter;
   readonly result: DriverResultParser | undefined;
   private readonly rows: unknown[];
@@ -124,15 +129,30 @@ class ScriptedDriver extends Driver<null, null> {
     this.adapter = new SQLite3Driver().adapter;
   }
   protected async initClient() {
+    await syncLiveSchema(createClient({ schema, driver: this.catalog }));
     return null;
   }
   protected async closeClient() {
-    // Scripted rows own no provider resource.
+    await this.catalog.disconnect();
   }
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+  protected async execute<T>(
+    _client: null,
+    statement: string,
+    params: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<{ rows: T[]; rowCount: number }> {
+    if (context?.model === "$schema")
+      return this.catalog._executeRaw<T>(statement, params, context);
     return { rows: this.rows as T[], rowCount: this.rows.length };
   }
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+  protected async executeRaw<T>(
+    _client: null,
+    statement: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<{ rows: T[]; rowCount: number }> {
+    if (context?.model === "$schema")
+      return this.catalog._executeRaw<T>(statement, params, context);
     return { rows: [], rowCount: 0 };
   }
   protected async transaction<T>(
@@ -169,7 +189,7 @@ async function rejection(read: PromiseLike<unknown>): Promise<any> {
 
 /** The public malformed-result sentence for one scalar type and reason. */
 const malformed = (type: string, reason: string) =>
-  `Driver "scripted" returned a malformed ${type} scalar for operation "findMany": ${reason}.`;
+  `The "findMany" result is incompatible with the ${type} scalar domain: ${reason}.`;
 
 /** One root box row, every required list set, `overrides` replacing cells. */
 function boxRow(overrides: Record<string, unknown> = {}) {
@@ -272,7 +292,7 @@ describe("the list container at a physical root cell", () => {
       const failure = await rejection(
         client.box.findMany({ select: { id: true, [field]: true } })
       );
-      expect(failure).toBeInstanceOf(QueryEngineError);
+      expect(failure).toBeInstanceOf(QueryError);
       const type =
         field === "levels"
           ? "enum"
@@ -292,7 +312,7 @@ describe("the list container at a physical root cell", () => {
       const failure = await rejection(
         client.box.findMany({ select: { id: true, tags: true } })
       );
-      expect(failure).toBeInstanceOf(QueryEngineError);
+      expect(failure).toBeInstanceOf(QueryError);
       expect(failure.message).toBe(
         malformed("string", "a list scalar did not return an array")
       );
@@ -332,7 +352,7 @@ describe("the list container at a physical root cell", () => {
     for (const [cells, type, reason] of cases) {
       const client = scripted([boxRow(cells)]);
       const failure = await rejection(client.box.findMany({ select: LISTS }));
-      expect(failure).toBeInstanceOf(QueryEngineError);
+      expect(failure).toBeInstanceOf(QueryError);
       expect(failure.message).toBe(malformed(type, reason));
       await client.$disconnect();
     }
@@ -428,9 +448,9 @@ describe("the list representations an adapter declares", () => {
     expect(read('{"HIGH",LOW}')).toEqual(["HIGH", "LOW"]);
     // A provider that already parsed the array hands it over unchanged.
     expect(read(["LOW"])).toEqual(["LOW"]);
-    expect(thrown(() => read('["LOW"]'))).toMatchObject({
+    expect(read('["LOW"]')).toEqual(["LOW"]);
+    expect(thrown(() => read("[1]"))).toMatchObject({
       scalarType: "enum",
-      reason: "a list scalar did not return an array",
     });
     expect(thrown(() => read("{LOW,NULL}"))).toMatchObject({
       scalarType: "enum",
@@ -441,12 +461,12 @@ describe("the list representations an adapter declares", () => {
       reason: "the value is not a declared enum member",
     });
 
-    // Every OTHER PostgreSQL list is a driver-parsed array; its text is read
-    // as JSON, never as array text.
+    // The declared PostgreSQL array-text carrier applies to every native
+    // list; supplied parsers may also hand the same array over as JSON.
     const tags = decoderOver(new PostgresAdapter(), { tags: true });
     expect(tags([{ tags: ["a", "b"] }])[0]?.tags).toEqual(["a", "b"]);
     expect(tags([{ tags: '["a"]' }])[0]?.tags).toEqual(["a"]);
-    expect(thrown(() => tags([{ tags: "{a}" }]))).toBeInstanceOf(SyntaxError);
+    expect(tags([{ tags: "{a}" }])[0]?.tags).toEqual(["a"]);
 
     for (const adapter of [new MySQLAdapter(), new SQLiteAdapter()]) {
       const json = decoderOver(adapter, { levels: true });
@@ -679,7 +699,7 @@ const WRITTEN = [FULL_BOX, EMPTY_BOX];
 /** A written box as the public read answers it (decimals as text). */
 function answered(row: typeof FULL_BOX | typeof EMPTY_BOX) {
   const { crateId: _crate, ...lists } = row;
-  return lists;
+  return { ...lists, keys: lists.keys.map((key) => key.toLowerCase()) };
 }
 
 async function seededWorld() {

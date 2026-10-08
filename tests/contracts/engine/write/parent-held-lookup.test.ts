@@ -221,7 +221,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
           data: { author: { connect: { email: "target@x" } } },
         })
       ).rejects.toThrow(
-        'Driver "pglite" returned a malformed int scalar for operation "update": a required scalar is null.'
+        'The "update" result is incompatible with the int scalar domain: a required scalar is null.'
       );
       await expect(
         stateClient.book.findUnique({ where: { id: 2 } })

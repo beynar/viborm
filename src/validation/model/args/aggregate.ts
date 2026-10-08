@@ -688,13 +688,13 @@ export function getHavingSchema(
     entries[name] =
       state?.array === true
         ? listHavingSchema(schemas.filter)
-        : v.union([
-            havingAggregateSchema(
-              state,
-              v.noOperandExpression(schemas.filter, "'having'")
-            ),
-            v.noOperandExpression(schemas.filter, "'having'"),
-          ]);
+        : v.noOperandExpression(
+            v.union([
+              havingAggregateSchema(state, schemas.filter),
+              schemas.filter,
+            ]),
+            "'having'"
+          );
   }
 
   // AND/OR/NOT recurse into the same schema through thunks — `.extend` returns

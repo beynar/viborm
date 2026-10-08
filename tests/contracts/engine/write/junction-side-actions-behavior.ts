@@ -151,7 +151,7 @@ export function runJunctionSideActionsBehavior(options: {
       const changed = createClient({ schema: labelSideRestricted(), driver });
       const plan = await createMigrationClient(changed).push({ dryRun: true });
       // ONE foreign key is replaced; the post side's key is not touched.
-      expect(plan.operations.map((operation) => operation.label)).toEqual([
+      expect(plan.operations.map((operation) => operation.id.slice(0, operation.id.indexOf(":")))).toEqual([
         "dropForeignKey",
         "addForeignKey",
       ]);

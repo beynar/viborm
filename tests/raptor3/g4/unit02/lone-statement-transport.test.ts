@@ -37,7 +37,7 @@
 import assert from "node:assert/strict";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError, VibORMError } from "@errors";
+import { QueryError, VibORMError } from "@errors";
 import { s } from "@schema";
 import { createClient } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -444,10 +444,10 @@ describe("G4-02 D-7 — a lone statement leaves the batch", () => {
       assert.equal(driver.inserts, 2, diagnostic);
       assert.equal(driver.batches, 1, diagnostic);
       assert.equal(driver.corrupted, true, diagnostic);
-      assert.ok(failure instanceof QueryEngineError, diagnostic);
+      assert.ok(failure instanceof QueryError, diagnostic);
       assert.equal(
         failure.message,
-        'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
+        'The "createMany" result is incompatible with the int scalar domain: the value is not a canonical integer.',
         diagnostic
       );
       assert.deepEqual(

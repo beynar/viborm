@@ -1,3 +1,4 @@
+import { readArrayLiteralText } from "../adapters/databases/postgres/array-literal";
 import { sqliteGeoPointEncoding } from "../adapters/databases/sqlite/storage/geo-point";
 import { decodeProviderTimestamp } from "../validation/primitives/datetime-physical-codec";
 /**
@@ -262,7 +263,8 @@ const UTC_NOW_DEFAULT =
   /^(?:now\(\) at time zone 'utc'|timezone\(\s*'utc'\s*,\s*now\(\)\s*\))$/;
 const MILLISECOND_NOW_DEFAULT =
   /^date_trunc\(\s*'milliseconds'\s*,([\s\S]+)\)$/;
-const UTC_CURRENT_TIME_DEFAULT = /^timezone\(\s*'utc'\s*,\s*current_time\s*\)$/;
+const UTC_CURRENT_TIME_DEFAULT =
+  /^timezone\(\s*'utc'\s*,\s*current_time(?:\(3\))?\s*\)$/;
 const NUMERIC_PHYSICAL_TYPE =
   /^(integer|bigint|smallint|real|double precision|float|int|tinyint)/;
 const INTEGER_LITERAL = /^[-+]?\d+$/;
@@ -317,7 +319,9 @@ export function normalizeDefault(
       return `date_trunc('milliseconds',${clock})`;
   }
   if (UTC_CURRENT_TIME_DEFAULT.test(utcNow))
-    return "timezone('utc',current_time)";
+    return utcNow.includes("current_time(3)")
+      ? "timezone('utc',current_time(3))"
+      : "timezone('utc',current_time)";
   if (normalized === "current_timestamp" || normalized === "now()")
     return "now()";
   const boolean = type === undefined || normalizeType(type) === "boolean";
@@ -337,6 +341,30 @@ export function normalizeDefault(
       ? normalized.slice(1, -1)
       : normalized;
   const physical = type === undefined ? "" : normalizeType(type);
+  if (spelling.startsWith("'") && spelling.endsWith("'")) {
+    const literal = spelling.slice(1, -1).replaceAll("''", "'");
+    if (physical.endsWith("[]")) {
+      const values = readArrayLiteralText(literal);
+      if (values)
+        return canonicalizeJsonText(
+          values.map((value) =>
+            value === null
+              ? null
+              : normalizeDefault(
+                  `'${(physical.slice(0, -2) === "boolean" && (value === "t" || value === "f") ? (value === "t" ? "true" : "false") : value).replaceAll("'", "''")}'`,
+                  physical.slice(0, -2)
+                )
+          )
+        );
+    }
+    if (physical === "json" || physical === "jsonb") {
+      try {
+        return canonicalizeJsonText(JSON.parse(literal));
+      } catch {
+        /* A SQL expression is not a JSON document literal. */
+      }
+    }
+  }
   if (NUMERIC_PHYSICAL_TYPE.test(physical) && NUMBER_LITERAL.test(unquoted)) {
     return INTEGER_LITERAL.test(unquoted)
       ? BigInt(unquoted).toString()

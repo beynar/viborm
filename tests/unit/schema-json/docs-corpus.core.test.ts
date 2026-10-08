@@ -83,6 +83,22 @@ function fences(): DocsFence[] {
 }
 
 describe("docs acceptance corpus", () => {
+  it("the documented collection and its two inverses form one valid schema", () => {
+    const ids = [1, 7, 8].map((index) => `relations/polymorphic.mdx#${index}`);
+    const declarations = ids.map((id) => {
+      const fence = fences().find((entry) => entry.id === id);
+      if (!fence) throw new Error(`Missing documented declaration: ${id}`);
+      return fence.body;
+    });
+    // The declaration API deliberately requires local plain records. Execute
+    // these trusted repository examples in this realm, just as application code.
+    const schema = new Function(
+      "s",
+      `${declarations.join("\n")}\nreturn { shelf, book, video };`
+    )(s);
+    expect(validateSchema(schema).errors).toEqual([]);
+  });
+
   it("partitions every schema-declaring fence into accepted and refused", () => {
     const declared = schemaDeclaringFenceIds();
     const accepted = docsFenceCorpus.map((entry) => entry.id);
@@ -102,7 +118,7 @@ describe("docs acceptance corpus", () => {
       byLanguage[fence.language] = (byLanguage[fence.language] ?? 0) + 1;
     }
     expect(byLanguage).toEqual({
-      ts: 161,
+      ts: 162,
       sql: 8,
       json: 5,
       text: 3,

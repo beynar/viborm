@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { v } from "@validation";
 import { isRecord } from "@validation/value-guards";
@@ -183,6 +184,20 @@ export function extensionBScenario(
             candidateFactory,
             "CS-03 extension campaigns require one candidate engine"
           );
+          const originalAdmission = EngineSchema.prototype.admit;
+          EngineSchema.prototype.admit = function (
+            this: EngineSchema,
+            model,
+            verb,
+            input
+          ) {
+            if (
+              model["~"].names.ts === (isRelation ? "shelf" : "entry") &&
+              verb === operation
+            )
+              admitOperation("selected");
+            return originalAdmission.call(this, model, verb, input);
+          };
           try {
             const value = await candidateFactory({
               schema: isRelation ? { shelf, child: childModel } : { entry },
@@ -193,6 +208,8 @@ export function extensionBScenario(
           } catch (failure) {
             if (isInvalid) controls.recordCut("refuse:limit");
             throw failure;
+          } finally {
+            EngineSchema.prototype.admit = originalAdmission;
           }
         },
         inspect(database) {
@@ -257,7 +274,7 @@ export function extensionBScenario(
             const state = database
               .prepare(
                 recipe.mutation === "scalar-deleteMany"
-                  ? 'SELECT COUNT(*) count FROM cs03_b_entries WHERE "group"=\'selected\''
+                  ? "SELECT COUNT(*) count FROM cs03_b_entries WHERE \"group\"='selected'"
                   : "SELECT COUNT(*) count FROM cs03_b_entries WHERE value=9"
               )
               .get();

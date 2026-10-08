@@ -4,12 +4,12 @@
  * an attribute key or a log event.
  */
 
-import type { QueryExecutionContext } from "@drivers/exports";
 import {
   type DriverIdentity,
   type DriverIdentitySource,
   readDriverIdentity,
 } from "@drivers/driver-identity";
+import type { QueryExecutionContext } from "@drivers/exports";
 import { type DiagnosticDisclosure, sanitizeErrorForLogging } from "@errors";
 import type {
   CacheBackendFacts,

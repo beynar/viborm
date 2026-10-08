@@ -30,6 +30,8 @@ import {
 import { s } from "@schema";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { DbNull, JsonNull } from "@schema/json-null";
+import { PG } from "@schema/scalars/native-types";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, test } from "vitest";
 import { ddlContext, pgEstateDriver } from "./_estate";
@@ -48,6 +50,196 @@ const table = (name: string): TableDef => ({
 const snapshot = (item: TableDef): SchemaSnapshot => ({ tables: [item] });
 
 describe("adversarial migration regressions", () => {
+  test("native precision-six Time clocks generate logical milliseconds", () => {
+    for (const type of [PG.DATETIME.TIME(6), PG.DATETIME.TIMETZ(6)]) {
+      const field = s.time(type).now();
+      expect(
+        postgresMigrationDriver.getDefaultExpression(field, field["~"].state)
+      ).toBe("timezone('UTC', CURRENT_TIME(3))");
+    }
+    expect(
+      normalizeDefault("timezone('UTC', CURRENT_TIME(3))", "timetz(6)")
+    ).toBe(
+      normalizeDefault("timezone('UTC'::text, CURRENT_TIME(3))", "timetz(6)")
+    );
+    expect(
+      normalizeDefault("timezone('UTC', CURRENT_TIME(3))", "timetz(6)")
+    ).not.toBe(normalizeDefault("timezone('UTC', CURRENT_TIME)", "timetz(6)"));
+  });
+
+  test("transformed JSON document-null defaults do not become SQL NULL", () => {
+    const schema = {
+      entry: s.model({
+        id: s.int().id(),
+        document: s
+          .json()
+          .schema({
+            "~standard": {
+              version: 1,
+              vendor: "fixture",
+              validate: () => ({ value: null }),
+            },
+          })
+          .default({ input: true }),
+        nullableDocument: s
+          .json()
+          .nullable()
+          .schema({
+            "~standard": {
+              version: 1,
+              vendor: "fixture",
+              validate: () => ({ value: null }),
+            },
+          })
+          .default({ input: true }),
+        sqlNull: s.json().nullable().default(null),
+        missing: s.json().nullable().default(DbNull),
+      }),
+    };
+    hydrateSchemaNames(schema);
+    for (const driver of [
+      postgresMigrationDriver,
+      mysqlMigrationDriver,
+      sqlite3MigrationDriver,
+    ]) {
+      const table = serializeModels(schema, { migrationDriver: driver })
+        .tables[0];
+      const columns = new Map(
+        table?.columns.map((column) => [column.name, column])
+      );
+      const documentNull = driver.dialect === "mysql" ? "('null')" : "'null'";
+      expect(columns.get("document")?.default).toBe(documentNull);
+      expect(columns.get("nullableDocument")?.default).toBe(documentNull);
+      expect(columns.get("sqlNull")?.default).toBe(
+        driver.dialect === "sqlite" ? "NULL" : undefined
+      );
+      expect(columns.get("missing")?.default).toBe(
+        driver.dialect === "sqlite" ? "NULL" : undefined
+      );
+      if (!table) throw new Error("Expected serialized table");
+      expect(
+        driver.generateCreateTable(
+          { type: "createTable", table },
+          { destination: "artifact" }
+        )
+      ).not.toContain("NOT NULL DEFAULT NULL");
+    }
+  });
+
+  test("literal defaults use scalar transforms exactly once and retain sentinel/function contracts", () => {
+    let stringCalls = 0;
+    let jsonCalls = 0;
+    const stringSchema = {
+      "~standard": {
+        version: 1,
+        vendor: "fixture",
+        validate: () => {
+          stringCalls++;
+          return { value: "NORMALIZED" };
+        },
+      },
+    } satisfies StandardSchemaV1<string>;
+    const jsonSchema = {
+      "~standard": {
+        version: 1,
+        vendor: "fixture",
+        validate: () => {
+          jsonCalls++;
+          return { value: { normalized: true } };
+        },
+      },
+    } satisfies StandardSchemaV1;
+    const schema = {
+      entry: s.model({
+        id: s.int().id(),
+        text: s.string().schema(stringSchema).default("input"),
+        document: s.json().schema(jsonSchema).default({ input: true }),
+        generated: s
+          .string()
+          .schema(stringSchema)
+          .default(() => "input"),
+      }),
+    };
+    hydrateSchemaNames(schema);
+    for (const driver of [
+      postgresMigrationDriver,
+      mysqlMigrationDriver,
+      sqlite3MigrationDriver,
+    ]) {
+      stringCalls = 0;
+      jsonCalls = 0;
+      const table = serializeModels(schema, { migrationDriver: driver })
+        .tables[0];
+      expect(
+        table?.columns.find((column) => column.name === "text")?.default
+      ).toContain("NORMALIZED");
+      expect(
+        table?.columns.find((column) => column.name === "document")?.default
+      ).toContain('{"normalized":true}');
+      expect(
+        table?.columns.find((column) => column.name === "generated")?.default
+      ).toBeUndefined();
+      expect(stringCalls).toBe(1);
+      expect(jsonCalls).toBe(1);
+    }
+    expect(
+      mysqlMigrationDriver.finalizeTable({
+        ...table("entry"),
+        primaryKey: { columns: ["id"], name: "public_selector" },
+      }).primaryKey?.name
+    ).toBe("PRIMARY");
+  });
+
+  test("literal list, object, bigint and Date defaults have physical DDL on every dialect", () => {
+    const schema = {
+      entry: s.model({
+        id: s.int().id(),
+        names: s
+          .string()
+          .array()
+          .default(["a,b", 'quoted"', "slash\\", "'apostrophe"]),
+        numbers: s.int().array().default([1, -2]),
+        payload: s.json().default({ a: 1, nested: [null, true] }),
+        huge: s.bigInt().default(9007199254740993n),
+        instant: s.dateTime().default(new Date("2024-01-15T10:30:00.123Z")),
+        day: s.date().default(new Date("2024-01-15T10:30:00.123Z")),
+      }),
+    };
+    hydrateSchemaNames(schema);
+    for (const driver of [
+      postgresMigrationDriver,
+      mysqlMigrationDriver,
+      sqlite3MigrationDriver,
+    ]) {
+      const columns = new Map(
+        serializeModels(schema, {
+          migrationDriver: driver,
+        }).tables[0]?.columns.map((column) => [column.name, column])
+      );
+      for (const name of [
+        "names",
+        "numbers",
+        "payload",
+        "huge",
+        "instant",
+        "day",
+      ])
+        expect(columns.get(name)?.default).toBeDefined();
+      expect(columns.get("huge")?.default).toBe("9007199254740993");
+      expect(columns.get("instant")?.default).toContain(
+        driver.dialect === "mysql"
+          ? "2024-01-15 10:30:00.123"
+          : "2024-01-15T10:30:00.123Z"
+      );
+    }
+    expect(normalizeDefault(`'{1,-2}'`, "integer[]")).toBe(
+      normalizeDefault(`'{"1","-2"}'`, "integer[]")
+    );
+    expect(
+      normalizeDefault(`'{"a": 1, "nested": [null, true]}'`, "jsonb")
+    ).toBe(normalizeDefault(`'{"nested":[null,true],"a":1}'`, "jsonb"));
+  });
+
   test("JSON defaults distinguish document null, SQL NULL, and JSON string null", () => {
     const schema = {
       entry: s.model({

@@ -1,3 +1,4 @@
+import { stringifyJson } from "../../adapters/shared/standard-sql";
 /**
  * MigrationDriver Base Class
  *
@@ -674,7 +675,7 @@ export abstract class MigrationDriver {
       return undefined;
     }
 
-    const defaultVal = scalarState.default;
+    const defaultVal = this.literalDefaultValue(scalarState);
 
     // Function defaults are generated at runtime
     if (typeof defaultVal === "function") {
@@ -689,11 +690,15 @@ export abstract class MigrationDriver {
       if (kind === "DbNull")
         return this.dialect === "sqlite" ? "NULL" : undefined;
       if (kind === "JsonNull") return this.escapeValue("null");
+      // A schema's null output is a document; only the original nullable
+      // bare-null default declares an absent SQL value.
+      if (defaultVal === null && scalarState.default !== null)
+        return this.escapeValue("null");
       if (
         defaultVal !== null &&
         ["string", "number", "boolean"].includes(typeof defaultVal)
       )
-        return this.escapeValue(JSON.stringify(defaultVal));
+        return this.escapeValue(stringifyJson(defaultVal));
     }
 
     // Null default
@@ -715,6 +720,12 @@ export abstract class MigrationDriver {
         )
       );
     }
+
+    if (scalarState.array && Array.isArray(defaultVal))
+      return this.escapeValue(stringifyJson(defaultVal));
+    if (scalarState.type === "json" && typeof defaultVal === "object")
+      return this.escapeValue(stringifyJson(defaultVal));
+    if (typeof defaultVal === "bigint") return defaultVal.toString();
 
     // Primitive defaults
     if (typeof defaultVal === "string") {
@@ -754,6 +765,31 @@ export abstract class MigrationDriver {
     }
 
     return undefined;
+  }
+
+  /** Literal defaults cross the scalar's authoritative write admission once. */
+  protected literalDefaultValue(state: ScalarState): unknown {
+    const value = state.default;
+    if (
+      value == null ||
+      typeof value === "function" ||
+      state.autoGenerate ||
+      jsonNullKindOf(value) ||
+      state.decimal !== undefined
+    )
+      return value;
+    if (typeof value === "number" && !Number.isFinite(value))
+      throw new MigrationError(
+        `Invalid default value: ${value} is not a finite number`,
+        VibORMErrorCode.INVALID_INPUT
+      );
+    const result = state.base["~standard"].validate(value);
+    if (!("value" in result))
+      throw new MigrationError(
+        `Invalid ${state.type} literal default; the declared scalar schema refused it before DDL.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    return result.value;
   }
 
   /**

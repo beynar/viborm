@@ -311,7 +311,7 @@ describe("model definition rules", () => {
   });
 
   it("rejects an array scalar used as a single-field ID", () => {
-    const model = s.model({ id: s.string().array().id() });
+    const model = s.model({ id: s.string().array().id({ generate: false }) });
 
     expect(errorCodes({ model })).toContain("F007");
   });

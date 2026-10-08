@@ -150,7 +150,7 @@ function leafCodec(leaf: Leaf, requestedOperation: string): ValueCodec {
   else if (leaf.type === "number") value = numberCodec();
   else
     throw new EngineInvariantError(
-      `The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishes no declaring scalar.`
+      `Cannot cache a '${leaf.type}' result for '${requestedOperation}': its scalar declaration is missing.`
     );
   return leaf.nullable ? nullableCodec(value) : value;
 }

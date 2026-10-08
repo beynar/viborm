@@ -747,7 +747,7 @@ describe("pg listens only on the pool it owns", () => {
     // The current acquisition is the requested action and stays primary. The
     // background failure is the half no request-scoped channel could surface,
     // so it remains inspectable beside the primary rather than replacing it.
-    expect(readPath(thrown, "code")).toBe("V1001");
+    expect(readPath(thrown, "code")).toBe("V1005");
     expect(readPath(thrown, "meta", "providerCode")).toBe("53300");
     expect(readPath(thrown, "originalCause", "code")).toBe("53300");
     const [background] = readSuppressedFailures(thrown);

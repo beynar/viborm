@@ -13,7 +13,6 @@ import {
   TestQueryEngine,
 } from "@tests/fixtures/query-engine";
 import { createSchemaRegistry } from "@validation";
-import { geoBoundsForDistance } from "@validation/primitives/geo-area-codec";
 import { beforeAll, describe, expect, test } from "vitest";
 
 /**
@@ -205,18 +204,18 @@ describe.each(dialectCases)("$name mutation correlation", (dialectCase) => {
 /**
  * A limited `deleteMany`/`updateMany` takes the first `limit` rows in key
  * order, the order a read's `take` completes with (owner ruling, 2026-10-02):
- * PostgreSQL and SQLite through the keyed subquery, ordered; MySQL, which
- * refuses a `LIMIT` inside `IN`, on the statement itself. The compound key is
+ * PostgreSQL/SQLite recheck candidates outside their ordered keyed subquery;
+ * MySQL retains the predicate on its native ordered LIMIT mutation. The compound key is
  * ordered in declaration order (`row`, `col`), not in its constraint's. MySQL
  * cannot execute here: its text is the only witness of its spelling.
  */
 const LIMITED_WRITES: Record<string, readonly string[]> = {
   PostgreSQL: [
-    'DELETE FROM "public"."parity_lowering_employees" WHERE "id" IN (SELECT "q0"."id" FROM "public"."parity_lowering_employees" AS "q0" WHERE "q0"."views" > $1 ORDER BY "q0"."id" ASC LIMIT $2)',
-    'UPDATE "public"."parity_lowering_employees" SET "name" = $1 WHERE "id" IN (SELECT "q0"."id" FROM "public"."parity_lowering_employees" AS "q0" WHERE "q0"."views" > $2 ORDER BY "q0"."id" ASC LIMIT $3)',
-    'DELETE FROM "public"."parity_lowering_employees" WHERE "id" IN (SELECT "q0"."id" FROM "public"."parity_lowering_employees" AS "q0" WHERE EXISTS (SELECT 1 FROM "public"."parity_lowering_employees" AS "q1" WHERE ("q0"."id" = "q1"."managerId" AND "q1"."name" = $1)) ORDER BY "q0"."id" ASC LIMIT $2)',
-    'DELETE FROM "public"."parity_lowering_seats" WHERE ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "public"."parity_lowering_seats" AS "q0" WHERE "q0"."label" = $1 ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT $2)',
-    'UPDATE "public"."parity_lowering_seats" SET "label" = $1 WHERE ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "public"."parity_lowering_seats" AS "q0" WHERE "q0"."label" = $2 ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT $3)',
+    'DELETE FROM "public"."parity_lowering_employees" WHERE ("parity_lowering_employees"."views" > $1 AND "id" IN (SELECT "q0"."id" FROM "public"."parity_lowering_employees" AS "q0" WHERE "q0"."views" > $2 ORDER BY "q0"."id" ASC LIMIT $3))',
+    'UPDATE "public"."parity_lowering_employees" SET "name" = $1 WHERE ("parity_lowering_employees"."views" > $2 AND "id" IN (SELECT "q0"."id" FROM "public"."parity_lowering_employees" AS "q0" WHERE "q0"."views" > $3 ORDER BY "q0"."id" ASC LIMIT $4))',
+    'DELETE FROM "public"."parity_lowering_employees" WHERE (EXISTS (SELECT 1 FROM "public"."parity_lowering_employees" AS "q0" WHERE ("parity_lowering_employees"."id" = "q0"."managerId" AND "q0"."name" = $1)) AND "id" IN (SELECT "q1"."id" FROM "public"."parity_lowering_employees" AS "q1" WHERE EXISTS (SELECT 1 FROM "public"."parity_lowering_employees" AS "q2" WHERE ("q1"."id" = "q2"."managerId" AND "q2"."name" = $2)) ORDER BY "q1"."id" ASC LIMIT $3))',
+    'DELETE FROM "public"."parity_lowering_seats" WHERE ("parity_lowering_seats"."label" = $1 AND ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "public"."parity_lowering_seats" AS "q0" WHERE "q0"."label" = $2 ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT $3))',
+    'UPDATE "public"."parity_lowering_seats" SET "label" = $1 WHERE ("parity_lowering_seats"."label" = $2 AND ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "public"."parity_lowering_seats" AS "q0" WHERE "q0"."label" = $3 ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT $4))',
   ],
   MySQL: [
     "DELETE FROM `parity_lowering_employees` WHERE `parity_lowering_employees`.`views` > ? ORDER BY `id` ASC LIMIT 2",
@@ -226,11 +225,11 @@ const LIMITED_WRITES: Record<string, readonly string[]> = {
     "UPDATE `parity_lowering_seats` SET `label` = ? WHERE (`parity_lowering_seats`.`label` = ? AND BINARY `parity_lowering_seats`.`label` = ?) ORDER BY `row` ASC, `col` ASC LIMIT 2",
   ],
   SQLite: [
-    'DELETE FROM "parity_lowering_employees" WHERE "id" IN (SELECT "q0"."id" FROM "parity_lowering_employees" AS "q0" WHERE "q0"."views" > ? ORDER BY "q0"."id" ASC LIMIT ?)',
-    'UPDATE "parity_lowering_employees" SET "name" = ? WHERE "id" IN (SELECT "q0"."id" FROM "parity_lowering_employees" AS "q0" WHERE "q0"."views" > ? ORDER BY "q0"."id" ASC LIMIT ?)',
-    'DELETE FROM "parity_lowering_employees" WHERE "id" IN (SELECT "q0"."id" FROM "parity_lowering_employees" AS "q0" WHERE EXISTS (SELECT 1 FROM "parity_lowering_employees" AS "q1" WHERE ("q0"."id" = "q1"."managerId" AND "q1"."name" COLLATE BINARY = ?)) ORDER BY "q0"."id" ASC LIMIT ?)',
-    'DELETE FROM "parity_lowering_seats" WHERE ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "parity_lowering_seats" AS "q0" WHERE "q0"."label" COLLATE BINARY = ? ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT ?)',
-    'UPDATE "parity_lowering_seats" SET "label" = ? WHERE ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "parity_lowering_seats" AS "q0" WHERE "q0"."label" COLLATE BINARY = ? ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT ?)',
+    'DELETE FROM "parity_lowering_employees" WHERE ("parity_lowering_employees"."views" > ? AND "id" IN (SELECT "q0"."id" FROM "parity_lowering_employees" AS "q0" WHERE "q0"."views" > ? ORDER BY "q0"."id" ASC LIMIT ?))',
+    'UPDATE "parity_lowering_employees" SET "name" = ? WHERE ("parity_lowering_employees"."views" > ? AND "id" IN (SELECT "q0"."id" FROM "parity_lowering_employees" AS "q0" WHERE "q0"."views" > ? ORDER BY "q0"."id" ASC LIMIT ?))',
+    'DELETE FROM "parity_lowering_employees" WHERE (EXISTS (SELECT 1 FROM "parity_lowering_employees" AS "q0" WHERE ("parity_lowering_employees"."id" = "q0"."managerId" AND "q0"."name" COLLATE BINARY = ?)) AND "id" IN (SELECT "q1"."id" FROM "parity_lowering_employees" AS "q1" WHERE EXISTS (SELECT 1 FROM "parity_lowering_employees" AS "q2" WHERE ("q1"."id" = "q2"."managerId" AND "q2"."name" COLLATE BINARY = ?)) ORDER BY "q1"."id" ASC LIMIT ?))',
+    'DELETE FROM "parity_lowering_seats" WHERE ("parity_lowering_seats"."label" COLLATE BINARY = ? AND ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "parity_lowering_seats" AS "q0" WHERE "q0"."label" COLLATE BINARY = ? ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT ?))',
+    'UPDATE "parity_lowering_seats" SET "label" = ? WHERE ("parity_lowering_seats"."label" COLLATE BINARY = ? AND ("row", "col") IN (SELECT "q0"."row", "q0"."col" FROM "parity_lowering_seats" AS "q0" WHERE "q0"."label" COLLATE BINARY = ? ORDER BY "q0"."row" ASC, "q0"."col" ASC LIMIT ?))',
   ],
 };
 
@@ -344,30 +343,16 @@ describe("the bounded distance index probe", () => {
     (dialectCase) => dialectCase.dialect !== "sqlite"
   );
 
-  /**
-   * The probe is the adapter's OWN `withinBounds` spelling for the bounding
-   * box of the stated upper bound, so the oracle is that same filter compiled
-   * on its own — no dialect literal is pinned here.
-   */
-  const probeSpelling = (dialectCase: DialectCase, meters: number): string => {
-    const statement = build(
-      dialectCase.adapter(),
-      dialectCase.dialect,
-      "findMany",
-      {
-        where: {
-          location: { within: { bounds: geoBoundsForDistance(paris, meters) } },
-        },
-      }
+  // Bounds now combine a conservative spatial index probe with exact
+  // coordinate guards. The distance conjunction can group those guards
+  // differently from a standalone within filter; the index predicate itself
+  // must remain present only in positive bounded distance filters.
+  const probed = (statement: string, dialectCase: DialectCase): boolean =>
+    statement.includes(
+      dialectCase.dialect === "postgresql"
+        ? "&& ST_SetSRID(ST_GeomFromGeoJSON"
+        : "MBRIntersects("
     );
-    return statement.slice(statement.indexOf("WHERE ") + "WHERE ".length);
-  };
-
-  const probed = (
-    statement: string,
-    dialectCase: DialectCase,
-    meters = 1000
-  ): boolean => statement.includes(probeSpelling(dialectCase, meters));
 
   test.each(
     cases

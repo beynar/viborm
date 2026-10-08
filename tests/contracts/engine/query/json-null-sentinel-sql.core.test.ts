@@ -19,7 +19,7 @@ import { beforeAll, describe, expect, test } from "vitest";
  * execution leg only runs under Docker.
  *
  * The pinned shapes are what make the truth table PORTABLE. `IS NULL` is the
- * database NULL everywhere; the JSON null is a value comparison against
+ * database NULL everywhere; the JSON null uses structural document equality against
  * whatever `adapter.json.value(null)` binds, which is the same serialization
  * the write path stores for `JsonNull` — a plain `'null'` parameter cast to
  * the column type by PG, `CAST(? AS JSON)` on MySQL, canonical text on SQLite.
@@ -50,8 +50,9 @@ type DialectCase = {
   createAdapter: () => DatabaseAdapter;
   /** How the dialect spells the bound JSON-null operand in a comparison. */
   jsonNullOperand: (placeholder: string) => string;
-  /** The dialect's inequality operator, as it lands in SQL. */
-  notEquals: "!=" | "<>";
+  /** Root extraction and equality preserve the document, not its text spelling. */
+  rootComparison: string;
+  comparisonTexts: readonly string[];
 };
 
 const dialectCases: DialectCase[] = [
@@ -60,9 +61,9 @@ const dialectCases: DialectCase[] = [
     dialect: "postgresql",
     quote: '"',
     createAdapter: () => new PostgresAdapter(),
-    // A plain parameter: PG infers jsonb from the column side of the comparison
     jsonNullOperand: (placeholder) => placeholder,
-    notEquals: "<>",
+    rootComparison: '(("q0"."meta")::jsonb#>?::text[])::jsonb = (?)::jsonb',
+    comparisonTexts: ["", "null"],
   },
   {
     name: "MySQL",
@@ -71,7 +72,8 @@ const dialectCases: DialectCase[] = [
     createAdapter: () => new MySQLAdapter(),
     // Without the cast the parameter compares as a JSON *string* scalar
     jsonNullOperand: (placeholder) => `CAST(${placeholder} AS JSON)`,
-    notEquals: "<>",
+    rootComparison: "JSON_EXTRACT(`q0`.`meta`, ?) = CAST(? AS JSON)",
+    comparisonTexts: ["$", "null"],
   },
   {
     name: "SQLite",
@@ -79,7 +81,9 @@ const dialectCases: DialectCase[] = [
     quote: '"',
     createAdapter: () => new SQLiteAdapter(),
     jsonNullOperand: (placeholder) => placeholder,
-    notEquals: "<>",
+    rootComparison:
+      'CASE WHEN "q0"."meta" -> \'$\' IS NULL OR ? IS NULL THEN NULL',
+    comparisonTexts: ["null", "null", "null"],
   },
 ];
 
@@ -136,22 +140,29 @@ describe.each(dialectCases)("$name json null sentinel SQL", (dialectCase) => {
     expect(values).toEqual([]);
   });
 
-  test("equals JsonNull compares against the serialized JSON null", () => {
+  test.each([
+    { name: "JsonNull", sentinel: JsonNull, includesDbNull: false },
+    { name: "AnyNull", sentinel: AnyNull, includesDbNull: true },
+  ])("equals $name preserves structural JSON-null equality", ({
+    sentinel,
+    includesDbNull,
+  }) => {
     const { predicate, values } = wherePredicate({
-      meta: { equals: JsonNull },
+      meta: { equals: sentinel },
     });
-    expect(predicate).toContain(`${q("meta")} = ${jsonNull}`);
-    expect(jsonTexts(values)).toEqual(["null"]);
-  });
-
-  test("equals AnyNull is the disjunction of the two", () => {
-    const { predicate, values } = wherePredicate({
-      meta: { equals: AnyNull },
-    });
-    expect(predicate).toContain(`${q("meta")} IS NULL`);
-    expect(predicate).toContain(`${q("meta")} = ${jsonNull}`);
-    expect(predicate).toContain(" OR ");
-    expect(jsonTexts(values)).toEqual(["null"]);
+    expect(predicate).toContain(dialectCase.rootComparison);
+    expect(jsonTexts(values)).toEqual(dialectCase.comparisonTexts);
+    if (dialectCase.dialect === "postgresql") expect(values[0]).toEqual([]);
+    if (dialectCase.dialect === "sqlite") {
+      // Both set differences are necessary for structural equality.
+      expect(predicate.split("NOT EXISTS")).toHaveLength(3);
+      expect(predicate.split(" EXCEPT ")).toHaveLength(3);
+      expect(predicate).toContain('json_tree("q0"."meta" -> \'$\')');
+    }
+    if (includesDbNull) {
+      expect(predicate).toContain(`${q("meta")} IS NULL`);
+      expect(predicate).toContain(" OR ");
+    }
   });
 
   /**

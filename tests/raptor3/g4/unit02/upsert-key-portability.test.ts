@@ -234,7 +234,7 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
     });
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
+      "UnsupportedOperationError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
     );
   });
 
@@ -267,7 +267,7 @@ describe("G4-02 — a relation-bearing upsert update DOES carry it", () => {
     });
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
+      "UnsupportedOperationError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
     );
   });
 });
@@ -281,7 +281,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     });
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot divide a primary key by zero."
+      "UnsupportedOperationError: Cannot divide a primary key by zero."
     );
   });
 
@@ -293,7 +293,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     });
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot divide a primary key by zero."
+      "UnsupportedOperationError: Cannot divide a primary key by zero."
     );
     assert.deepEqual(outcome.rows, [{ id: 6, label: "o", code: "c6" }]);
   });
@@ -308,7 +308,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     // owner never runs and the validator's sentence is the answer on both.
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot divide primary key field 'id' by zero."
+      "UnsupportedOperationError: Cannot divide primary key field 'id' by zero."
     );
   });
 
@@ -338,7 +338,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     const outcome = await bothEngines("owner", "g4u2u_owners", args);
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation."
+      "UnsupportedOperationError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation."
     );
     assert.deepEqual(outcome.rows, [{ id: 6, label: "o" }]);
   });
@@ -355,7 +355,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     const outcome = await bothEngines("owner", "g4u2u_owners", args);
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation."
+      "UnsupportedOperationError: Cannot determine the updated primary key for model 'owner' because field 'id' uses an unsupported operation."
     );
     assert.deepEqual(outcome.rows, [{ id: 6, label: "o" }]);
   });
@@ -372,7 +372,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     const outcome = await bothEngines("note", "g4u2u_notes", args);
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, multiply."
+      "UnsupportedOperationError: Primary key field 'id' accepts exactly one update operation; received set, multiply."
     );
   });
 
@@ -386,7 +386,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     // analysis and the found arm's validator answers on both engines.
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot divide primary key field 'id' by zero."
+      "UnsupportedOperationError: Cannot divide primary key field 'id' by zero."
     );
   });
 
@@ -408,7 +408,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     // pre-value and the found arm's validator answers on both engines.
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot divide primary key field 'id' by zero."
+      "UnsupportedOperationError: Cannot divide primary key field 'id' by zero."
     );
   });
 
@@ -436,7 +436,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
     // to the per-member compile-time source, so the validator answers.
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot divide primary key field 'a' by zero."
+      "UnsupportedOperationError: Cannot divide primary key field 'a' by zero."
     );
   });
 

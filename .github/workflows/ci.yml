@@ -69,6 +69,9 @@ jobs:
       - name: Audit production dependencies
         run: pnpm audit --prod --audit-level=high
 
+      - name: Verify patched dependency behavior
+        run: node scripts/run-node-safe.mjs 512 60000 tests/package/security-dependencies-smoke.mjs
+
       - name: Check changed formatting and lint rules
         run: >-
           pnpm exec biome check --changed --since="${QUALITY_BASE_SHA}"

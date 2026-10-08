@@ -40,6 +40,7 @@ import {
   isTrustedCode,
   safeArrayLength,
   safeOwnPropertyDescriptor,
+  sanitizeSqlState,
 } from "../errors/diagnostic-safety";
 import { transferLoggedErrorEvidence } from "../errors/logged-errors";
 import {
@@ -430,6 +431,7 @@ export function buildMeta(
   const sqlState =
     error.sqlState ??
     error.sqlstate ??
+    sanitizeSqlState(providerCode) ??
     MYSQL_SQLSTATE_IN_MESSAGE_PATTERN.exec(message)?.[1];
   if (typeof sqlState === "string") meta.providerSqlState = sqlState;
   const status = error.status ?? error.statusCode;

@@ -183,7 +183,12 @@ describe("PostGIS migration preflight", () => {
     const calls = execution.statements.filter(
       (statement) => statement !== "<connect>"
     );
-    expect(calls).toHaveLength(1);
+    expect(
+      calls.filter((statement) => statement.includes("st_makepoint"))
+    ).toHaveLength(1);
+    expect(
+      calls.filter((statement) => statement.includes("relation.relkind"))
+    ).toHaveLength(1);
     for (const signature of [
       "st_makepoint(double precision,double precision)",
       "st_setsrid(geometry,integer)",
@@ -193,7 +198,9 @@ describe("PostGIS migration preflight", () => {
       "st_intersects(geography,geography)",
       "&&(geography,geography)",
     ]) {
-      expect(calls[0]).toContain(signature);
+      expect(
+        calls.find((statement) => statement.includes("st_makepoint"))
+      ).toContain(signature);
     }
 
     await command.preflightSchemaRequirements([{ tables: [] }], () => {

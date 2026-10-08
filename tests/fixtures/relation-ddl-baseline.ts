@@ -16,6 +16,11 @@
  * DEFAULT NULL spellings: the live catalog reports no default. Nullable values,
  * relation topology, constraints and order remain identical. No corpus regeneration.
  *
+ * V1 also removes the two redundant unique-covered reverse indexes in the
+ * named singular-member cases and records MySQL's actual PRIMARY constraint
+ * name in dialect-witness. Only these explicit physical corrections change;
+ * the rest of this hand-frozen artifact is not regenerated.
+ *
  * Array order is significant everywhere: table order (model tables, then member
  * junctions, then ordinary junctions), column order, index order, foreign-key
  * order, and history member order are all part of what is pinned. Object KEY
@@ -1497,13 +1502,7 @@ export const relationDdlBaseline: Readonly<
             { name: "videoId", type: "text", nullable: false },
           ],
           primaryKey: { columns: ["shelfId", "videoId"] },
-          indexes: [
-            {
-              name: "vmem_one_shelves_items_video_videoId_idx",
-              columns: ["videoId"],
-              unique: false,
-            },
-          ],
+          indexes: [],
           foreignKeys: [
             {
               name: "vmem_one_shelves_items_video_shelfId_fkey",
@@ -2330,13 +2329,7 @@ export const relationDdlBaseline: Readonly<
             { name: "postId", type: "text", nullable: false },
           ],
           primaryKey: { columns: ["boardId", "postId"] },
-          indexes: [
-            {
-              name: "anchor_boards_items_post_postId_idx",
-              columns: ["postId"],
-              unique: false,
-            },
-          ],
+          indexes: [],
           foreignKeys: [
             {
               name: "anchor_boards_items_post_boardId_fkey",
@@ -2706,7 +2699,7 @@ export const relationDdlBaseline: Readonly<
               autoIncrement: false,
             },
           ],
-          primaryKey: { columns: ["id"], name: "dw_users_pkey" },
+          primaryKey: { columns: ["id"], name: "PRIMARY" },
           indexes: [],
           foreignKeys: [],
           uniqueConstraints: [],
@@ -2727,7 +2720,7 @@ export const relationDdlBaseline: Readonly<
               autoIncrement: false,
             },
           ],
-          primaryKey: { columns: ["id"], name: "dw_profiles_pkey" },
+          primaryKey: { columns: ["id"], name: "PRIMARY" },
           indexes: [
             {
               name: "dw_profiles_userId_key",
@@ -2763,7 +2756,7 @@ export const relationDdlBaseline: Readonly<
               autoIncrement: false,
             },
           ],
-          primaryKey: { columns: ["id"], name: "dw_posts_pkey" },
+          primaryKey: { columns: ["id"], name: "PRIMARY" },
           indexes: [
             {
               name: "dw_posts_authorId_idx",
@@ -2793,7 +2786,7 @@ export const relationDdlBaseline: Readonly<
               autoIncrement: false,
             },
           ],
-          primaryKey: { columns: ["id"], name: "dw_teams_pkey" },
+          primaryKey: { columns: ["id"], name: "PRIMARY" },
           indexes: [],
           foreignKeys: [],
           uniqueConstraints: [],
@@ -2810,7 +2803,7 @@ export const relationDdlBaseline: Readonly<
             { name: "subject_type", type: "VARCHAR(191)", nullable: false },
             { name: "subject_id", type: "VARCHAR(191)", nullable: false },
           ],
-          primaryKey: { columns: ["id"], name: "dw_comments_pkey" },
+          primaryKey: { columns: ["id"], name: "PRIMARY" },
           indexes: [
             {
               name: "dw_comments_subject_poly_idx",
@@ -2839,7 +2832,7 @@ export const relationDdlBaseline: Readonly<
               autoIncrement: false,
             },
           ],
-          primaryKey: { columns: ["id"], name: "dw_boards_pkey" },
+          primaryKey: { columns: ["id"], name: "PRIMARY" },
           indexes: [],
           foreignKeys: [],
           uniqueConstraints: [],
@@ -2850,7 +2843,7 @@ export const relationDdlBaseline: Readonly<
             { name: "boardId", type: "VARCHAR(191)", nullable: false },
             { name: "postId", type: "VARCHAR(191)", nullable: false },
           ],
-          primaryKey: { columns: ["boardId", "postId"] },
+          primaryKey: { columns: ["boardId", "postId"], name: "PRIMARY" },
           indexes: [
             {
               name: "dw_boards_items_post_postId_idx",
@@ -2884,7 +2877,7 @@ export const relationDdlBaseline: Readonly<
             { name: "boardId", type: "VARCHAR(191)", nullable: false },
             { name: "teamId", type: "VARCHAR(191)", nullable: false },
           ],
-          primaryKey: { columns: ["boardId", "teamId"] },
+          primaryKey: { columns: ["boardId", "teamId"], name: "PRIMARY" },
           indexes: [
             {
               name: "dw_boards_items_team_teamId_idx",
@@ -2918,7 +2911,7 @@ export const relationDdlBaseline: Readonly<
             { name: "teamId", type: "VARCHAR(191)", nullable: false },
             { name: "userId", type: "VARCHAR(191)", nullable: false },
           ],
-          primaryKey: { columns: ["teamId", "userId"] },
+          primaryKey: { columns: ["teamId", "userId"], name: "PRIMARY" },
           indexes: [
             {
               name: "team_user_userId_idx",

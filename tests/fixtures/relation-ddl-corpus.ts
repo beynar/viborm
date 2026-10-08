@@ -1037,6 +1037,7 @@ export const relationDdlCorpus: readonly RelationDdlCase[] = [
     build: variantMemberDirectOnly,
   },
   {
+    // V1 confirmed perf correction: uniqueness covers the second-side reverse lookup; omit its redundant index.
     id: "variant-member-to-one-inverse",
     title: "member junctions bound to to-one inverses",
     pins: ["a unique target-side constraint per member table"],
@@ -1093,6 +1094,7 @@ export const relationDdlCorpus: readonly RelationDdlCase[] = [
     build: ordinaryJunctionBeforeVariantCarrier,
   },
   {
+    // V1 confirmed perf correction: uniqueness covers the second-side reverse lookup; omit its redundant index.
     id: "variant-carrier-after-inverse-models",
     title: "variant carriers whose inverse models sort first",
     pins: [
@@ -1104,6 +1106,7 @@ export const relationDdlCorpus: readonly RelationDdlCase[] = [
     build: variantCarrierAfterInverseModels,
   },
   {
+    // V1 confirmed physical-name correction: MySQL always names its primary constraint PRIMARY.
     id: "dialect-witness",
     title: "every relation-derived artifact, on all four migration drivers",
     pins: [

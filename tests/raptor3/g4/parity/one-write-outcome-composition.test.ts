@@ -33,7 +33,7 @@
 import assert from "node:assert/strict";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError } from "@errors";
+import { QueryError } from "@errors";
 import { s } from "@schema";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache } from "@src/cache/exports";
@@ -50,7 +50,7 @@ const WRITTEN_TABLE = /FROM "fc05_composition_parents"/;
 const ALIASED_SCALAR = /^SELECT .* AS "id"$/;
 const SCRATCH_CLEANUP = /^DELETE FROM "__viborm_batch_refs"/;
 const MALFORMED =
-  'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.';
+  'The "createMany" result is incompatible with the int scalar domain: the value is not a canonical integer.';
 
 /**
  * A batch-only transport, so the write window really is a batch and `submit()`
@@ -281,7 +281,7 @@ describe("FC-05 — one write-outcome composition", () => {
       const primary = seen.failure.errors[0];
       // The primary is the carry's own decode failure — the value this unit
       // produced, read back at its boundary and malformed by the provider.
-      assert.ok(primary instanceof QueryEngineError, diagnostic);
+      assert.ok(primary instanceof QueryError, diagnostic);
       assert.equal(primary.message, MALFORMED, diagnostic);
       // The operation's progress marking survives the composition: the write
       // window acknowledged, so its committed segment is still reported on the

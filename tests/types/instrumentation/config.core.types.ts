@@ -148,3 +148,9 @@ const heldDiagnosticTypo = {
 } as const;
 // @ts-expect-error - held diagnostics bag remains structurally exact
 const _heldProviderDiagnosticTypo = instrumentation(heldDiagnosticTypo);
+
+const _diagnosticsBelongToDiagnosticsChannel = () =>
+  instrumentation({
+    // @ts-expect-error - provider/callsite flags have only the diagnostics owner
+    tracing: { includeSql: true, includeCallsite: true },
+  });

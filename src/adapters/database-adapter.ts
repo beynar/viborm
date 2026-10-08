@@ -243,7 +243,11 @@ export interface DatabaseAdapter {
      * answers are not the same shape, and the measurements that forced that
      * are recorded in `docs/architecture/query-performance-plan.md`, §7.3.
      */
-    startsWithPrefix: (column: Sql, value: string) => Sql;
+    startsWithPrefix: (
+      column: Sql,
+      value: string,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql;
 
     /**
      * `column = value` and `column IN (values)` on a TEXT column, under the
@@ -263,8 +267,16 @@ export interface DatabaseAdapter {
      * routes a reference to the plain comparison, which has no index lookup to
      * preserve.
      */
-    exactTextEq: (column: Sql, value: Sql) => Sql;
-    exactTextIn: (column: Sql, values: Sql) => Sql;
+    exactTextEq: (
+      column: Sql,
+      value: Sql,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql;
+    exactTextIn: (
+      column: Sql,
+      values: Sql,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql;
 
     // Set membership
     in: (column: Sql, values: Sql) => Sql;

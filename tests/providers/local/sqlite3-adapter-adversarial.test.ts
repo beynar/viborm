@@ -114,6 +114,45 @@ test("unsafe integer input is rejected before a write", async () => {
   expect(await client.parent.count()).toBe(1);
 });
 
+test("JSON transformations to null store a JSON document on create, default and update", async () => {
+  const document = s
+    .json()
+    .schema({
+      "~standard": {
+        version: 1,
+        vendor: "fixture",
+        validate: () => ({ value: null }),
+      },
+    })
+    .default({ input: true });
+  const db = createClient({
+    schema: { record: s.model({ id: s.int().id(), document }) },
+  });
+  try {
+    await syncLiveSchema(db);
+    await db.record.create({ data: { id: 1, document: { input: true } } });
+    await db.record.create({ data: { id: 2 } });
+    await db.record.update({
+      where: { id: 1 },
+      data: { document: { set: { next: true } } },
+    });
+    expect(
+      await db.$queryRawUnsafe(
+        "SELECT id, json_type(document) AS kind, document IS NULL AS absent FROM record ORDER BY id"
+      )
+    ).toEqual([
+      { id: 1, kind: "null", absent: 0 },
+      { id: 2, kind: "null", absent: 0 },
+    ]);
+    expect(await db.record.findMany({ orderBy: { id: "asc" } })).toEqual([
+      { id: 1, document: null },
+      { id: 2, document: null },
+    ]);
+  } finally {
+    await db.$disconnect();
+  }
+});
+
 test("insensitive string ranges fold both sides like equality", async () => {
   await client.entry.update({ where: { id: 1 }, data: { title: "Z" } });
   expect(

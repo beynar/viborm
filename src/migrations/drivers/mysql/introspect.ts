@@ -672,6 +672,22 @@ export async function introspect(
     // Build columns
     const columns: ColumnDef[] = [];
     for (const col of columnsByTable.get(tableName) || []) {
+      if (
+        (managedTables === undefined || managedTables.includes(tableName)) &&
+        (col.EXTRA.toUpperCase().includes("VIRTUAL GENERATED") ||
+          col.EXTRA.toUpperCase().includes("STORED GENERATED"))
+      )
+        throw new MigrationError(
+          `MySQL column "${tableName}.${col.COLUMN_NAME}" is generated. Synchronization refuses before effects because its expression cannot be represented.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          {
+            meta: {
+              table: tableName,
+              column: col.COLUMN_NAME,
+              feature: "generated column",
+            },
+          }
+        );
       // Extract enum values if this is an enum column
       // MySQL has no standalone enum object, so the inline type IS the
       // identity — and it is the identity the DESIRED snapshot registers too

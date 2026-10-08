@@ -87,6 +87,82 @@ function foreignKey(
 
 describe("provider-free PostgreSQL catalog reconstruction", () => {
   test.each([
+    "generated",
+    "partitioned",
+  ])("refuses selected %s semantics without poisoning excluded tables", async (kind) => {
+    const execution = catalogDriver({
+      tables: [
+        {
+          table_name: "account",
+          relation_kind: kind === "partitioned" ? "p" : "r",
+          is_partition: false,
+        },
+      ],
+      columns: [
+        {
+          ...column("id", "integer", "int4"),
+          generated_kind: kind === "generated" ? "s" : "",
+        },
+      ],
+    });
+    await expect(
+      getMigrationDriver(execution).introspect((sql, params) =>
+        execution._executeRaw(sql, params)
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining(
+        kind === "generated" ? "generated" : "partition"
+      ),
+    });
+    await expect(
+      introspectPostgresSchema(
+        (sql, params) => execution._executeRaw(sql, params),
+        {
+          namespace: "billing",
+          tables: ["external"],
+          admittedExtensionTypes: new Set(),
+        }
+      )
+    ).resolves.toMatchObject({ tables: [{ name: "account" }] });
+  });
+
+  test("view collision catalog parameters use explicit escaped PostgreSQL array text", async () => {
+    const execution = catalogDriver({});
+    const calls: unknown[][] = [];
+    execution.respond = (sql, params) => {
+      if (sql.includes("relation.relkind IN ('v','m')")) {
+        calls.push(params ?? []);
+        return [{ name: "mapped_view" }];
+      }
+      return [];
+    };
+    await expect(
+      getMigrationDriver(execution).preflightSchemaRequirements(
+        [
+          {
+            tables: [
+              {
+                name: "mapped_view",
+                columns: [],
+                primaryKey: undefined,
+                uniqueConstraints: [],
+                indexes: [],
+                foreignKeys: [],
+              },
+            ],
+          },
+        ],
+        (sql, params) => execution._executeRaw(sql, params)
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("view"),
+    });
+    expect(calls).toEqual([["billing", '{"mapped_view"}']]);
+  });
+
+  test.each([
     "btree",
     "hnsw",
   ])("refuses unrepresentable %s index metadata in owned scope and leaves external scope alone", async (method) => {

@@ -231,6 +231,7 @@ for (const { name, createDriver, verbatimTable } of DIALECTS) {
         const { client } = await setup();
 
         await expect(
+          // @ts-expect-error - exercise runtime refusal for an invalid JS call
           client.$queryRaw(sql`SELECT 1`, "stray")
         ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
       });
@@ -739,6 +740,7 @@ describe("raw SQL in a native array transaction", () => {
       await expect(
         client.$transaction([
           client.$executeRaw`UPDATE ${raw(pgliteVerbatimTable())} SET qty = ${77}`,
+          // @ts-expect-error - invalid JS array members must fail before writes
           client.$queryRaw(sql`SELECT 1`, "stray"),
         ])
       ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });

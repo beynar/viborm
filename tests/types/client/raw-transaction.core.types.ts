@@ -4,6 +4,7 @@ import { createClient } from "@client/client";
 import type { RawOperation } from "@client/raw";
 import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
+import { sql } from "@sql";
 
 const item = s.model({ id: s.string().id(), active: s.boolean() });
 const client = createClient({ schema: { item }, driver: new PGliteDriver() });
@@ -37,3 +38,20 @@ const _inlineTuple: Promise<[number, number, { id: string }[]]> =
 const _ordinaryPromiseIsRefused = () =>
   // @ts-expect-error - a bare promise is not a transaction operation
   client.$transaction([client.item.count(), Promise.resolve(1)]);
+
+const _safeFragmentArguments = () => {
+  const fragment = sql`SELECT ${1} AS id`;
+  const typedRows: RawOperation<{ id: number }[]> = client.$queryRaw<{
+    id: number;
+  }>(fragment);
+  client.$executeRaw(fragment);
+  // @ts-expect-error - a fragment already contains its bound values
+  client.$queryRaw<{ id: number }>(fragment, 2);
+  // @ts-expect-error - fresh fragments cannot take extra values either
+  client.$queryRaw(sql`SELECT ${1}`, 2);
+  // @ts-expect-error - the execute family has the same fragment contract
+  client.$executeRaw(fragment, 2);
+  // @ts-expect-error - bare strings belong to the explicit unsafe family
+  client.$queryRaw("SELECT 1");
+  return typedRows;
+};

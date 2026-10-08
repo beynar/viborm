@@ -78,6 +78,9 @@ function classify(failure: MappedFailure): string {
     case VibORMErrorCode.QUERY_FAILED:
     case VibORMErrorCode.QUERY_TIMEOUT:
     case VibORMErrorCode.QUERY_SYNTAX:
+    case VibORMErrorCode.QUERY_SCHEMA_MISMATCH:
+    case VibORMErrorCode.QUERY_OUT_OF_RANGE:
+    case VibORMErrorCode.QUERY_RESULT_INVALID:
     case VibORMErrorCode.INVALID_INPUT:
       return "query";
     default: {

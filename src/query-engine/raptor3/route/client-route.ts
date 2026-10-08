@@ -182,7 +182,7 @@ class RoutedOperation implements RoutedCandidateOperation {
     const read = this.#prepared.read;
     if (!read)
       throw new UnsupportedOperationError(
-        `The Raptor 3 route cannot encode a cached result for '${this.#requestedOperation}' on model '${this.#modelName}': the verb publishes no prepared read.`,
+        `Cannot cache '${this.#requestedOperation}' on model '${this.#modelName}': the operation has no readable result.`,
         {
           meta: {
             model: this.#modelName,

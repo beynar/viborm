@@ -1,4 +1,5 @@
 import { createClient } from "@client/client";
+import { PGliteDriver } from "@drivers/pglite";
 import { createMigrationClient } from "@migrations";
 import { getMigrationDriver } from "@migrations/drivers";
 import type { ResolveChange } from "@migrations/types";
@@ -37,6 +38,8 @@ function schema(
         microZoned: s.dateTime(PG.DATETIME.TIMESTAMPTZ(6)).now(),
         today: s.date().now(),
         currentClock: s.time().now(),
+        microClock: s.time(PG.DATETIME.TIME(6)).now(),
+        microZoneClock: s.time(PG.DATETIME.TIMETZ(6)).now(),
         zonedClock: s.time(PG.DATETIME.TIMETZ(3)).now(),
         ancient: s.dateTime().default("0000-01-01T00:00:00.000Z"),
         ancientDate: s.date().default("0000-01-01"),
@@ -53,6 +56,123 @@ function schema(
 }
 
 describe("adversarial PostgreSQL round trip", () => {
+  test("literal defaults backfill populated PostgreSQL rows and repeat no-op", async () => {
+    const fixture = family();
+    const isolatedNamespace = `${fixture.namespace}_defaults`;
+    await fixture.database.exec(`CREATE SCHEMA "${isolatedNamespace}"`);
+    const driver = new PGliteDriver({
+      client: fixture.database,
+      namespace: isolatedNamespace,
+    });
+    const base = s.model({ id: s.string().id() }).map("default_rows");
+    const before = createClient({ schema: { entry: base }, driver });
+    await syncLiveSchema(before);
+    await before.entry.create({ data: { id: "one" } });
+    const extended = base.extends({
+      names: s
+        .string()
+        .array()
+        .default(["a,b", 'quoted"', "slash\\", "apostrophe'"]),
+      numbers: s.int().array().default([1, -2]),
+      empty: s.int().array().default([]),
+      flags: s.boolean().array().default([true, false]),
+      payload: s.json().default({ a: 1, nested: [null, true] }),
+      normalized: s
+        .json()
+        .schema({
+          "~standard": {
+            version: 1,
+            vendor: "fixture",
+            validate: () => ({ value: { normalized: true } }),
+          },
+        })
+        .default({ input: true }),
+      documents: s.json().default([{ a: 1 }, { quoted: "'quote\"" }]),
+      huge: s.bigInt().default(9007199254740993n),
+      instant: s.dateTime().default(new Date("2024-01-15T10:30:00.123Z")),
+      day: s.date().default(new Date("0000-01-15T10:30:00.123Z")),
+    });
+    const after = createClient({ schema: { entry: extended }, driver });
+    await syncLiveSchema(after);
+    await expect(
+      after.entry.findUnique({ where: { id: "one" } })
+    ).resolves.toMatchObject({
+      names: ["a,b", 'quoted"', "slash\\", "apostrophe'"],
+      numbers: [1, -2],
+      empty: [],
+      flags: [true, false],
+      payload: { a: 1, nested: [null, true] },
+      normalized: { normalized: true },
+      documents: [{ a: 1 }, { quoted: "'quote\"" }],
+      huge: 9007199254740993n,
+      instant: new Date("2024-01-15T10:30:00.123Z"),
+      day: new Date("0000-01-15T00:00:00.000Z"),
+    });
+    await expect(syncLiveSchema(after)).resolves.toMatchObject({
+      outcome: "noop",
+    });
+    const required = createClient({
+      schema: {
+        entry: extended.extends({
+          generated: s.string().default(() => "value"),
+        }),
+      },
+      driver,
+    });
+    await expect(
+      createMigrationClient(required).push({ dryRun: true })
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("manual data migration"),
+    });
+  });
+
+  test("generated columns, partitions and mapped views refuse while excluded objects remain independent", async () => {
+    const fixture = family();
+    const database = fixture.database;
+    const namespace = `${fixture.namespace}_native`;
+    await database.exec(`CREATE SCHEMA "${namespace}"`);
+    const driver = new PGliteDriver({ client: database, namespace });
+    const quote = getMigrationDriver(driver).escapeIdentifier.bind(
+      getMigrationDriver(driver)
+    );
+    await database.exec(
+      `CREATE TABLE ${quote(namespace)}.generated_rows (id TEXT PRIMARY KEY, value INTEGER GENERATED ALWAYS AS (length(id)) STORED); INSERT INTO ${quote(namespace)}.generated_rows (id) VALUES ('keep'); CREATE TABLE ${quote(namespace)}.partition_rows (id INTEGER) PARTITION BY RANGE(id); CREATE VIEW ${quote(namespace)}.mapped_view AS SELECT 1 AS id`
+    );
+    const isolated = createClient({
+      schema: { entry: s.model({ id: s.string().id() }).map("managed_rows") },
+      driver,
+    });
+    await createMigrationClient(isolated, { tables: ["managed_rows"] }).push();
+    await expect(
+      createMigrationClient(isolated, { tables: ["managed_rows"] }).push()
+    ).resolves.toMatchObject({ outcome: "noop" });
+    for (const name of ["generated_rows", "partition_rows", "mapped_view"]) {
+      const client = createClient({
+        schema: { entry: s.model({ id: s.string().id() }).map(name) },
+        driver,
+      });
+      await expect(
+        createMigrationClient(client, { tables: [name] }).push({ dryRun: true })
+      ).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      });
+    }
+    expect(
+      (
+        await database.query<{ value: number }>(
+          `SELECT value FROM ${quote(namespace)}.generated_rows`
+        )
+      ).rows
+    ).toEqual([{ value: 4 }]);
+    expect(
+      (
+        await database.query<{ id: number }>(
+          `SELECT id FROM ${quote(namespace)}.mapped_view`
+        )
+      ).rows
+    ).toEqual([{ id: 1 }]);
+  });
+
   test("native precision/defaults converge and enum changes stay atomic with data", async () => {
     const { driver, database, namespace } = family();
     const migrationDriver = getMigrationDriver(driver);
@@ -85,10 +205,17 @@ describe("adversarial PostgreSQL round trip", () => {
       time_ok: boolean;
       zone_ok: boolean;
     }>(
-      `INSERT INTO ${migrationDriver.escapeIdentifier(namespace)}."roundtrip" ("id", "tags", "chars") VALUES ('default-oracle', '{}', '{}') RETURNING "today"="currentUtc"::date AS date_ok, "currentClock"="currentUtc"::time(3) AS time_ok, EXTRACT(TIMEZONE FROM "zonedClock")=0 AS zone_ok`
+      `INSERT INTO ${migrationDriver.escapeIdentifier(namespace)}."roundtrip" ("id", "tags", "chars") VALUES ('default-oracle', '{}', '{}') RETURNING "today"="currentUtc"::date AS date_ok, "currentClock"="currentUtc"::time(3) AS time_ok, EXTRACT(TIMEZONE FROM "zonedClock")=0 AS zone_ok, EXTRACT(MICROSECONDS FROM "microClock")::bigint % 1000=0 AS clock_ms, EXTRACT(MICROSECONDS FROM "microZoneClock")::bigint % 1000=0 AS zoneclock_ms, EXTRACT(TIMEZONE FROM "microZoneClock")=0 AS micro_zone_ok`
     );
     expect(defaults.rows).toEqual([
-      { date_ok: true, time_ok: true, zone_ok: true },
+      {
+        date_ok: true,
+        time_ok: true,
+        zone_ok: true,
+        clock_ms: true,
+        zoneclock_ms: true,
+        micro_zone_ok: true,
+      },
     ]);
     const generatedSix = await initial.entry.findUniqueOrThrow({
       where: { id: "default-oracle" },
@@ -101,6 +228,7 @@ describe("adversarial PostgreSQL round trip", () => {
           id: "default-oracle",
           microStamp: generatedSix.microStamp,
           microZoned: generatedSix.microZoned,
+          microClock: generatedSix.microClock,
         },
       })
     ).resolves.toMatchObject({ id: "default-oracle" });

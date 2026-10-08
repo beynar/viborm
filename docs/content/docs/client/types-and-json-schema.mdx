@@ -106,6 +106,14 @@ const validation = createPost["~standard"].validate({
 `InferOutput` means the normalized output of **validation**, not a record read
 from the database. Use `OperationResult` for query results.
 
+These helpers return VibORM validation schemas implementing Standard Schema.
+They do not generate Zod or Valibot objects, a database row validator, or those
+libraries' `pick` and `extend` APIs. A scalar's `.schema()` can consume a
+Standard Schema validator; that is distinct from generating one from a model.
+BigInt inputs remain JavaScript `bigint` values. Convert a validated decimal
+string at a JSON boundary instead of passing a JSON number, which may already
+have lost integer precision.
+
 To validate a full payload selected by model and operation:
 
 ```ts

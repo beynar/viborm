@@ -3,7 +3,6 @@ import {
   getAdapterInternals,
 } from "@adapters/adapter-internals";
 import type { PhysicalSchemaCheck } from "@client/physical-schema";
-import type { AnyDriver } from "@drivers/exports";
 import {
   attachCommitCertainty,
   remapStatementIndex,
@@ -13,6 +12,7 @@ import {
   bindExecutionTransactionPhases,
   deriveStatementExecutionContext,
 } from "@drivers/execution-context";
+import type { AnyDriver } from "@drivers/exports";
 import {
   borrowPositionalResult,
   resolvePositionalResultDriver,
@@ -30,6 +30,7 @@ import {
   NestedWriteAssertionError,
   NestedWriteError,
   QueryEngineError,
+  QueryError,
   type RecordSeriesProgress,
   retainWriteOutcomeFailure,
   TransactionError,
@@ -346,7 +347,7 @@ export class OperationContext {
    */
   private get incompletePreparation(): Error {
     return (this.#incompletePreparationSentinel ??= new Error(
-      "Raptor 3 operation requires dynamic execution"
+      "This operation requires dynamic execution"
     ));
   }
   #preparedParser: ((results: QueryResult<unknown>[]) => unknown) | undefined;
@@ -392,7 +393,7 @@ export class OperationContext {
    */
   private get requiresEnvelope(): Error {
     return (this.#requiresEnvelopeSentinel ??= new Error(
-      "Raptor 3 operation requires its physical envelope"
+      "This operation must execute through its driver context"
     ));
   }
   readonly schema: EngineSchema;
@@ -661,11 +662,15 @@ export class OperationContext {
     let failure = error;
     if (error instanceof InvalidScalarResult) {
       const driver = this.driver.driverName;
+      const model = this.modelName;
       const operation = this.operation;
-      const scalarType = error.scalarType;
-      failure = new QueryEngineError(
-        `Driver "${driver}" returned a malformed ${scalarType} scalar for operation "${operation}": ${error.reason}.`,
-        { meta: { driver, operation, scalarType } }
+      const { scalarType, reason } = error;
+      failure = new QueryError(
+        `The "${operation}" result is incompatible with the ${scalarType} scalar domain: ${reason}.`,
+        {
+          code: VibORMErrorCode.QUERY_RESULT_INVALID,
+          meta: { driver, model, operation, scalarType, reason },
+        }
       );
     }
     const attribution = member
@@ -1976,7 +1981,7 @@ export class OperationContext {
       // model and verb. It is read only by `sameAttribution`
       // (`batch-error-attribution.ts`), where being CONSTANT per model and
       // verb is what makes two guards of the same shape agree.
-      message: `Raptor 3 ${this.operation} located no '${model["~"].names.ts!}' row for its unique where.`,
+      message: `${this.operation} found no '${model["~"].names.ts!}' row matching its unique selector.`,
       raceable: false,
     });
   }
@@ -3061,7 +3066,7 @@ export class OperationContext {
         insertIdField === undefined
       )
         throw new Error(
-          "Raptor 3 interactive output requires RETURNING or one generated increment field"
+          "Returning generated values requires RETURNING support or one generated increment field"
         );
       if (producedProjection && adapter.capabilities.supportsReturning)
         statement = sql`${statement} ${adapter.mutations.returning(
@@ -3141,7 +3146,7 @@ export class OperationContext {
           adapter.capabilities.supportsCteWithMutations
         )
           throw new Error(
-            "Raptor 3 G1 atomic output requires exact identity scratch or segmented RETURNING"
+            "The driver cannot return generated values for this atomic batch without an exact row identity"
           );
         // The next segment must prove the actual stored owner, including supplied row-key fields.
         const returned = [

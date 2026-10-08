@@ -77,6 +77,7 @@ import {
   createSubqueries,
   escapeLikeLiteral,
 } from "../../shared/standard-sql";
+import { arrayLiteralText } from "./array-literal";
 
 const quoteIdent = createIdentifierQuoter('"');
 function postgresLikeLiteral(value: Sql): Sql {
@@ -116,7 +117,6 @@ const POSTGRES_INTEGERS: ExactIntegerArithmetic = {
 };
 
 /** The two characters PostgreSQL reads structurally inside a quoted member. */
-const ARRAY_LITERAL_ESCAPES = /(["\\])/g;
 
 /**
  * PostgreSQL's own text spelling of one list, for a column whose element type
@@ -127,12 +127,6 @@ const ARRAY_LITERAL_ESCAPES = /(["\\])/g;
  * only characters the server reads structurally, and quoting makes the reading
  * unambiguous without a per-member decision.
  */
-function arrayLiteralText(values: readonly unknown[]): string {
-  const members = values.map(
-    (value) => `"${String(value).replace(ARRAY_LITERAL_ESCAPES, "\\$1")}"`
-  );
-  return `{${members.join(",")}}`;
-}
 
 /**
  * PostgreSQL Database Adapter
@@ -279,14 +273,27 @@ export class PostgresAdapter implements DatabaseAdapter {
     // estimate of any join above it. It is never worse than the spelling it
     // replaced on any measured leg. Full record: Decision 7.3 in
     // docs/architecture/query-performance-plan.md.
-    startsWithPrefix: (column: Sql, value: string): Sql =>
-      sql`${column} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\'`,
+    startsWithPrefix: (
+      column: Sql,
+      value: string,
+      nativeType?: NativeTypeDeclaration
+    ): Sql =>
+      sql`${this.expressions.caseSensitiveText(column, nativeType, true)} LIKE ${`${escapeLikeLiteral(value)}%`} ESCAPE '\\'`,
 
-    // PostgreSQL's text comparison is already byte-exact and already
-    // index-usable — `caseSensitiveText` is the identity here — so these are
-    // the plain comparisons, byte-identical to what shipped before §10.2.
-    exactTextEq: (column: Sql, value: Sql): Sql => sql`${column} = ${value}`,
-    exactTextIn: (column: Sql, values: Sql): Sql => sql`${column} IN ${values}`,
+    // Preserve native equality and indexes; the shared text boundary refuses
+    // native types such as XML that cannot express an exact comparison.
+    exactTextEq: (
+      column: Sql,
+      value: Sql,
+      nativeType?: NativeTypeDeclaration
+    ): Sql =>
+      sql`${this.expressions.caseSensitiveText(column, nativeType, false)} = ${value}`,
+    exactTextIn: (
+      column: Sql,
+      values: Sql,
+      nativeType?: NativeTypeDeclaration
+    ): Sql =>
+      sql`${this.expressions.caseSensitiveText(column, nativeType, false)} IN ${values}`,
 
     // Set membership — values is a parenthesized list from literals.list(),
     // so ANY/ALL (which need an array) would produce invalid SQL here

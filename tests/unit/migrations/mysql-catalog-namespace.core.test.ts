@@ -589,3 +589,36 @@ describe("cross-database foreign keys refuse before a snapshot exists", () => {
     expect(JSON.stringify(snapshot)).not.toContain("billing");
   });
 });
+
+it("refuses only desired view collisions using the catalog-proven MySQL namespace", async () => {
+  const reader = catalogReader((sql) =>
+    sql.includes("information_schema.SCHEMATA")
+      ? [{ SCHEMA_NAME: "billing" }]
+      : sql.includes("information_schema.VIEWS")
+        ? [{ TABLE_NAME: "mapped_view" }, { TABLE_NAME: "unrelated" }]
+        : []
+  );
+  const table = {
+    name: "mapped_view",
+    columns: [],
+    indexes: [],
+    uniqueConstraints: [],
+    foreignKeys: [],
+  };
+  await expect(
+    BILLING.preflightSchemaRequirements([{ tables: [table] }], reader.read)
+  ).rejects.toMatchObject({
+    code: "V11009",
+    message: expect.stringContaining("view"),
+  });
+  expect(
+    reader.calls.find((call) => call.sql.includes("information_schema.VIEWS"))
+      ?.params
+  ).toEqual(["billing"]);
+  await expect(
+    BILLING.preflightSchemaRequirements(
+      [{ tables: [{ ...table, name: "selected" }] }],
+      reader.read
+    )
+  ).resolves.toBeUndefined();
+});

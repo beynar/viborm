@@ -59,7 +59,7 @@ describeIf("pg native type per dialect", () => {
         handle: "character varying(40)",
         score: "smallint",
         ratio: "real",
-        seenAt: "timestamp with time zone",
+        seenAt: "timestamp(3) with time zone",
         tags: "text[]",
       },
       pets: { id: "text", name: "text", ownerId: "bytea" },

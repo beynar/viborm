@@ -1,5 +1,5 @@
-import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import {
   ForeignKeyError,
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,

@@ -1372,9 +1372,7 @@ type DirectWriteKeysGuard<
   O extends Operations,
   Arg,
   M extends Model<any>,
-  Keys extends PropertyKey =
-    | keyof M["~"]["state"]["scalars"]
-    | keyof M["~"]["state"]["relations"],
+  Keys extends PropertyKey = keyof M["~"]["state"]["shape"],
 > = O extends "create" | "createMany" | "update" | "updateMany"
   ? ClauseGuard<Arg, { data: Record<Keys, unknown> }, "data">
   : O extends "upsert"

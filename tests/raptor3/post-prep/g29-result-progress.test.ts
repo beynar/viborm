@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError, VibORMErrorCode } from "@errors";
+import { QueryError, VibORMErrorCode } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
@@ -124,7 +124,7 @@ function createDriver(
 }
 
 function failureObservation(failure: unknown): object {
-  if (failure instanceof QueryEngineError) {
+  if (failure instanceof QueryError) {
     return {
       name: failure.name,
       code: failure.code,
@@ -144,19 +144,21 @@ function assertMalformedResultFailure(
   progress: object | undefined,
   diagnostic: string
 ): void {
-  assert(failure instanceof QueryEngineError, diagnostic);
-  assert.equal(failure.code, VibORMErrorCode.INTERNAL_ERROR, diagnostic);
+  assert(failure instanceof QueryError, diagnostic);
+  assert.equal(failure.code, VibORMErrorCode.QUERY_RESULT_INVALID, diagnostic);
   assert.equal(
     failure.message,
-    `Driver "sqlite3" returned a malformed int scalar for operation "${operation}": the value is not a canonical integer.`,
+    `The "${operation}" result is incompatible with the int scalar domain: the value is not a canonical integer.`,
     diagnostic
   );
   assert.deepEqual(
     { ...failure.meta },
     {
       driver: "sqlite3",
+      model: "entity",
       operation,
       scalarType: "int",
+      reason: "the value is not a canonical integer",
       ...(progress ? { recordSeriesProgress: progress } : {}),
     },
     diagnostic

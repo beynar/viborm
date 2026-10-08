@@ -133,7 +133,7 @@ describe("the transaction view's own property surface", () => {
 
     expect(observed.schema).toBe(schema);
     expect(observed.unknownDollar).toBeUndefined();
-    expect(observed.model).toBe("function");
+    expect(observed.model).toBe("object");
   });
 });
 
@@ -154,8 +154,7 @@ describe("the concrete scope handed to an extension factory", () => {
         observed.transaction = typeof Reflect.get(scope, "$transaction");
         observed.raw = typeof Reflect.get(scope, "$queryRaw");
         observed.unknownDollar = Reflect.get(scope, "$notAClientMember");
-        // A non-dollar key is a model name as far as this scope is concerned,
-        // so it falls through to the model proxy rather than answering nothing.
+        // Reflection exposes declared models, not callable phantom delegates.
         observed.plain = typeof Reflect.get(scope, "notAModelName");
         return { $second: () => "two" };
       },
@@ -166,7 +165,7 @@ describe("the concrete scope handed to an extension factory", () => {
     expect(observed.transaction).toBe("function");
     expect(observed.raw).toBe("function");
     expect(observed.unknownDollar).toBeUndefined();
-    expect(observed.plain).toBe("function");
+    expect(observed.plain).toBe("undefined");
     expect(callNoArgs(Reflect.get(second, "$second"))).toBe("two");
   });
 });

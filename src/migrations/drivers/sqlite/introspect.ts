@@ -1,3 +1,4 @@
+import { isSqliteStateControlDefinition } from "../../control";
 /**
  * SQLite Schema Introspection
  *
@@ -321,7 +322,10 @@ export async function introspect(
           Number(sqliteEnumCheckSuffix(tableSql, column.name) !== undefined),
         0
       );
-      if (checks !== represented)
+      if (
+        checks !== represented &&
+        !isSqliteStateControlDefinition(tableName, tableSql)
+      )
         throw new MigrationError(
           `SQLite table "${tableName}" has CHECK constraints that this schema cannot faithfully represent. Synchronization refuses before effects and preserves them.`,
           VibORMErrorCode.MIGRATION_INVALID_STATE,

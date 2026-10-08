@@ -584,18 +584,18 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
             ? published.context
             : getErrorExecutionContext(failure, published.context));
         const capability = readOfficialCapability(logContext);
-        if (
-          capability?.wants(
-            failure === undefined ? "query-log" : "error-log"
-          ) !== true
-        ) {
+        if (capability === undefined) return undefined;
+        const log = capability.wants(
+          failure === undefined ? "query-log" : "error-log"
+        );
+        if (!(log || (failure && capability.wants("statement"))))
           return undefined;
-        }
-        if (failure !== undefined) markErrorLogged(failure);
+        if (failure !== undefined && log) markErrorLogged(failure);
         return Object.freeze({
           kind: "statement",
           endedAt: Date.now(),
           capability,
+          ...(log ? {} : { skipLog: true as const }),
           context: logContext,
           sql: member?.sql ?? published.sql,
           params: member?.params ?? published.params,
@@ -630,9 +630,14 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
     const facts: LifecycleFacts = Object.freeze({
       kind: "driver-lifecycle",
       dispatch: deferred.dispatch,
-      complete: () => {
+      complete: (outcome) => {
         deferred.settleSkipped();
-        return undefined;
+        return outcome.status === "failure" && outcome.failure instanceof Error
+          ? Object.freeze({
+              kind: "driver-lifecycle",
+              failure: outcome.failure,
+            })
+          : undefined;
       },
     });
     return Object.freeze({

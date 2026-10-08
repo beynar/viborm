@@ -153,18 +153,15 @@ describe("provider execution-context concurrency", () => {
     const providerResults = createDeferred<unknown>();
     type SubmittedQuery = { sql: string; params: unknown[] };
     let submitted: SubmittedQuery[] = [];
-    const transaction = vi.fn(
-      async (
-        buildQueries: (
-          execute: (sql: string, params: unknown[]) => SubmittedQuery
-        ) => SubmittedQuery[]
-      ) => {
-        submitted = buildQueries((sql, params) => ({ sql, params }));
-        started.resolve();
-        return providerResults.promise;
-      }
+    const query = vi.fn(
+      (sql: string, params: unknown[]): SubmittedQuery => ({ sql, params })
     );
-    const client = Object.assign(vi.fn(), { transaction });
+    const transaction = vi.fn(async (queries: SubmittedQuery[]) => {
+      submitted = queries;
+      started.resolve();
+      return providerResults.promise;
+    });
+    const client = { query, transaction };
     const driver = new NeonHTTPDriver();
     Reflect.set(driver, "client", client);
     const secondContext = {
@@ -235,24 +232,18 @@ describe("provider execution-context concurrency", () => {
 
   it("attributes Neon statement construction failures to their batch position", async () => {
     type SubmittedQuery = { sql: string; params: unknown[] };
-    const transaction = vi.fn(
-      async (
-        buildQueries: (
-          execute: (sql: string, params: unknown[]) => SubmittedQuery
-        ) => SubmittedQuery[]
-      ) =>
-        buildQueries((sql, params) => {
-          if (sql === "SELECT broken") {
-            const nested = params[0];
-            if (typeof nested === "object" && nested !== null) {
-              Object.assign(nested, { value: "provider-mutated" });
-            }
-            throw new Error("private Neon statement construction failure");
-          }
-          return { sql, params };
-        })
-    );
-    const client = Object.assign(vi.fn(), { transaction });
+    const query = vi.fn((sql: string, params: unknown[]): SubmittedQuery => {
+      if (sql === "SELECT broken") {
+        const nested = params[0];
+        if (typeof nested === "object" && nested !== null) {
+          Object.assign(nested, { value: "provider-mutated" });
+        }
+        throw new Error("private Neon statement construction failure");
+      }
+      return { sql, params };
+    });
+    const transaction = vi.fn(async (queries: SubmittedQuery[]) => queries);
+    const client = { query, transaction };
     const driver = new NeonHTTPDriver();
     Reflect.set(driver, "client", client);
     const officialContext = (values: BatchQuery["context"]) =>

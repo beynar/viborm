@@ -27,11 +27,11 @@ import { beforeAll, describe, expect, test } from "vitest";
  * per-adapter comments.
  *
  * What the pins protect, beyond the text: `startsWith` is the ONLY operation
- * that moved. `contains`, `endsWith`, insensitive mode, a referenced-column
- * operand and an enum column all keep the `LEFT`/`substr` spelling, and each
- * of those is asserted here as a complement — a pattern operator appearing on
- * one of them would mean the routing condition in the where-builder had
- * widened past what the escaper can actually serve.
+ * with a literal binds a pre-escaped pattern and can use a native index.
+ * Other providers retain `LEFT`/`substr` for nonliteral predicates. PostgreSQL
+ * uses escaped LIKE expressions for suffix/contains/referenced patterns to
+ * preserve native CITEXT semantics; dynamic pattern characters are escaped
+ * by the adapter before LIKE consumes them.
  *
  * The live answers behind these strings are in
  * {@link file://../drivers/like-escape-behavior.ts}, on all four drivers, and
@@ -128,7 +128,9 @@ function predicateOf(
   const { statement, values } = buildDocQuery(dialectCase, args);
   const alias = statement.match(TABLE_ALIAS)?.[1] ?? "";
   return {
-    predicate: statement.slice(statement.indexOf("WHERE") + "WHERE ".length),
+    predicate: statement
+      .slice(statement.indexOf("WHERE") + "WHERE ".length)
+      .split(" ORDER BY ")[0]!,
     values,
     alias,
   };
@@ -166,11 +168,15 @@ describe.each(dialectCases)("$name startsWith SQL", (dialectCase) => {
     expect(values).toEqual(dialectCase.prefixValues(""));
   });
 
-  test("endsWith keeps the LEFT/substr family — no dialect can range a suffix", () => {
+  test("endsWith uses exact suffix semantics without a literal prefix range", () => {
     const { predicate } = predicateOf(dialectCase, {
       where: { title: { endsWith: "abc" } },
     });
-    expect(predicate).not.toContain("LIKE");
+    if (dialectCase.dialect === "postgresql") {
+      expect(predicate).toContain("LIKE");
+      expect(predicate).toContain("REPLACE(REPLACE(REPLACE(");
+      expect(predicate).toContain("ESCAPE");
+    } else expect(predicate).not.toContain("LIKE");
     expect(predicate).not.toContain("GLOB");
   });
 
@@ -178,7 +184,11 @@ describe.each(dialectCases)("$name startsWith SQL", (dialectCase) => {
     const { predicate } = predicateOf(dialectCase, {
       where: { title: { contains: "abc" } },
     });
-    expect(predicate).not.toContain("LIKE");
+    if (dialectCase.dialect === "postgresql") {
+      expect(predicate).toContain("LIKE");
+      expect(predicate).toContain("REPLACE(REPLACE(REPLACE(");
+      expect(predicate).toContain("ESCAPE");
+    } else expect(predicate).not.toContain("LIKE");
     expect(predicate).not.toContain("GLOB");
   });
 
@@ -193,14 +203,17 @@ describe.each(dialectCases)("$name startsWith SQL", (dialectCase) => {
     expect(values).toContain("abc");
   });
 
-  test("a referenced-column operand keeps the LEFT/substr spelling", () => {
-    // There is no client-side string to escape here, so the pattern operator
-    // cannot serve this shape at all.
+  test("a referenced-column pattern is escaped at execution without bound literals", () => {
+    // PostgreSQL escapes the referenced value in SQL; other providers use
+    // direct substring comparison. No field token can become a bound literal.
     const { predicate, values } = predicateOf(dialectCase, {
       where: { title: { startsWith: refs.slug } },
     });
     expect(predicate).not.toContain("GLOB");
-    expect(predicate).not.toContain("ESCAPE");
+    if (dialectCase.dialect === "postgresql") {
+      expect(predicate).toContain("REPLACE(REPLACE(REPLACE(");
+      expect(predicate).toContain("ESCAPE");
+    } else expect(predicate).not.toContain("ESCAPE");
     expect(predicate).toContain("slug_col");
     expect(values).toHaveLength(0);
   });

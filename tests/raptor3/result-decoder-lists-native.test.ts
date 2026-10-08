@@ -55,7 +55,7 @@ import { createClient } from "@client/client";
 import type { AnyDriver, DriverResultParser } from "@drivers";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
-import { QueryEngineError } from "@errors";
+import { QueryError } from "@errors";
 import { s } from "@schema";
 import { Decimal } from "@src/index";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -205,7 +205,6 @@ const url =
   provider === "pg"
     ? `postgresql://postgres@127.0.0.1:${port}/raptor3_g2`
     : `mysql://root@127.0.0.1:${port}/raptor3_g2`;
-const driverName = provider === "pg" ? "pg" : "mysql2";
 
 /** A driver over this run's own namespace. */
 function nativeDriver(): AnyDriver {
@@ -237,7 +236,7 @@ function listLiteral(pg: string, mysql: unknown[]): string {
 
 /** The public malformed-result sentence for one scalar type and reason. */
 const malformed = (type: string, reason: string) =>
-  `Driver "${driverName}" returned a malformed ${type} scalar for operation "findMany": ${reason}.`;
+  `The "findMany" result is incompatible with the ${type} scalar domain: ${reason}.`;
 
 /**
  * Malformed list values a native column can hold, each with its column, its
@@ -425,7 +424,7 @@ describe.runIf(live)(`native ${provider} list decoding`, () => {
             select: { id: true, [column]: true },
           })
         );
-        expect(physical).toBeInstanceOf(QueryEngineError);
+        expect(physical).toBeInstanceOf(QueryError);
         expect(physical.message).toBe(malformed(type, reason));
         const carried = await rejection(
           client.crate.findMany({
@@ -436,7 +435,7 @@ describe.runIf(live)(`native ${provider} list decoding`, () => {
             },
           })
         );
-        expect(carried).toBeInstanceOf(QueryEngineError);
+        expect(carried).toBeInstanceOf(QueryError);
         expect(carried.message).toBe(malformed(type, reason));
         await setup._executeRaw(restore);
       }

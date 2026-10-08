@@ -64,6 +64,31 @@ test("default factories resolve once and contain failures", () => {
   ).toBeDefined();
 });
 
+test("a transformed JSON null stays a document in explicit and defaulted writes", () => {
+  const field = s.json().schema({
+    "~standard": {
+      version: 1,
+      vendor: "fixture",
+      validate: () => ({ value: null }),
+    },
+  });
+  for (const scalar of [field, field.nullable()]) {
+    const schemas = getScalarSchemas(scalar["~"].state);
+    expect(parse(schemas.create, { input: true })).toEqual({ value: JsonNull });
+    expect(parse(schemas.update, { set: { input: true } })).toEqual({
+      value: { set: JsonNull },
+    });
+  }
+  for (const scalar of [
+    field.default({ input: true }),
+    field.nullable().default({ input: true }),
+  ]) {
+    expect(
+      parse(getScalarSchemas(scalar["~"].state).create, undefined)
+    ).toEqual({ value: JsonNull });
+  }
+});
+
 test("existing JSON null default sentinels survive schema document round trips", () => {
   const schema = {
     record: s.model({

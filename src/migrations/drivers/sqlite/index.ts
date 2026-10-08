@@ -333,7 +333,13 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       if (scalarState.type === "date") return "(strftime('%Y-%m-%d','now'))";
       if (scalarState.type === "time") return "(strftime('%H:%M:%f','now'))";
     }
-    const defaultValue = scalarState.default;
+    const defaultValue =
+      scalarState.hasDefault &&
+      !scalarState.autoGenerate &&
+      !scalarState.array &&
+      (scalarState.type === "datetime" || scalarState.type === "time")
+        ? this.literalDefaultValue(scalarState)
+        : undefined;
     if (
       scalarState.type === "datetime" &&
       scalarState.array !== true &&

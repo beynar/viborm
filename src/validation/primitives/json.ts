@@ -1,3 +1,4 @@
+import { isFieldRef } from "@schema/field-ref";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -77,6 +78,7 @@ function normalizeJson(
   if (value === null || isString(value) || isBoolean(value)) return value;
   if (isNumber(value)) return Number.isFinite(value) ? value : INVALID_JSON;
   if (!(isRecord(value) || Array.isArray(value))) return INVALID_JSON;
+  if (isFieldRef(value)) return INVALID_JSON;
   const previous = seen.get(value);
   if (previous !== undefined) return previous;
   seen.set(value, INVALID_JSON); // A back-edge is a cycle; completed aliases are reusable.

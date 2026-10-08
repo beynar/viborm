@@ -1054,7 +1054,8 @@ export class Queries {
    * `id` is the destination column's identifier storage, which the scalar
    * alone cannot answer: a foreign key DERIVES its domain and a private
    * carrier column names the key it stands in for. Only a COLUMN operand
-   * carries it — min/max aggregates compare the identifier's logical spelling.
+   * carries native storage; min/max operands additionally pass through the
+   * same transport expression their aggregate reads.
    */
   #scalarValue(
     scalar: Scalar,
@@ -1560,7 +1561,7 @@ export class Queries {
       (update.operator === "multiply" || update.operator === "divide");
     if (update.kind === "list" || rounds)
       throw new QueryEngineError(
-        `Raptor 3 cannot name the updated value of '${model["~"].names.ts ?? "unknown"}.${field}' under '${update.operator}': the provider owns that operator's rounding inside its own assignment.`
+        `Cannot determine the updated value of '${model["~"].names.ts ?? "unknown"}.${field}' before '${update.operator}' executes: the database determines the stored result.`
       );
     const base =
       state.type === "int" ? a.expressions.cast(before, "integer") : before;
@@ -2377,7 +2378,13 @@ export class Queries {
    * (`g4/perf2/receipts/micro-in-list.json`).
    */
   #prepareOperand(owner: PreparedScalar, value: unknown): PreparedOperand {
-    if (isFieldRef(value)) return this.#prepareFieldOperand(owner, value);
+    if (isFieldRef(value)) {
+      if (owner.physical.scalar["~"].state.type === "json")
+        throw new UnsupportedOperationError(
+          `Field reference '${formatFieldRef(value)}' is not supported in a JSON filter operand.`
+        );
+      return this.#prepareFieldOperand(owner, value);
+    }
     if (!(value instanceof Sql)) return { kind: "value", value };
     const operands = value.values.map((member) => {
       if (isFieldRef(member)) return this.#prepareFieldOperand(owner, member);
@@ -2387,7 +2394,7 @@ export class Queries {
       const seen = new WeakSet<object>();
       for (const nested of pending) {
         if (isFieldRef(nested))
-          throw new QueryEngineError(
+          throw new UnsupportedOperationError(
             "An SQL filter field reference must be a direct interpolation, not nested inside a parameter object."
           );
         if (nested === null || typeof nested !== "object" || seen.has(nested))
@@ -2413,22 +2420,22 @@ export class Queries {
     const payload = fieldRefPayload(value);
     const scope = model["~"].names.ts ?? "unknown";
     if (payload.model !== scope)
-      throw new QueryEngineError(
+      throw new UnsupportedOperationError(
         `Field reference '${formatFieldRef(value)}' cannot be used while filtering '${scope}': a field reference may only compare columns of the same model.`
       );
     if (payload.list)
-      throw new QueryEngineError(
+      throw new UnsupportedOperationError(
         `Field reference '${formatFieldRef(value)}' is a list field and cannot be used as a scalar SQL operand.`
       );
     const referenced = model["~"].state.scalars[payload.field];
     if (!referenced)
-      throw new QueryEngineError(
+      throw new UnsupportedOperationError(
         `Field reference '${formatFieldRef(value)}' does not name a scalar field of '${scope}'.`
       );
     const own = exactDecimalDomain(owner.physical.scalar["~"].state);
     const other = exactDecimalDomain(referenced["~"].state);
     if (own && other && !sameDecimalDomain(own, other))
-      throw new QueryEngineError(
+      throw new UnsupportedOperationError(
         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': '${owner.field}' is decimal(${own.precision},${own.scale}) and '${payload.field}' is decimal(${other.precision},${other.scale}). Two decimals compare exactly only when they declare the same precision and scale.`
       );
     const storage = incomparableIdentifiers(
@@ -2438,7 +2445,7 @@ export class Queries {
       payload.field
     );
     if (storage !== undefined)
-      throw new QueryEngineError(
+      throw new UnsupportedOperationError(
         `Field reference '${payload.field}' cannot be compared with '${owner.field}' on '${scope}': ${storage}`
       );
     return {
@@ -2860,7 +2867,11 @@ export class Queries {
         )
           return a.operators.eq(folded, bind(single, true));
         if (text && single.kind === "value" && !(literal instanceof Sql))
-          return a.operators.exactTextEq(exact(column), bind(single));
+          return a.operators.exactTextEq(
+            column,
+            bind(single),
+            scalar?.physical.scalar["~"].nativeType
+          );
         return a.operators.eq(comparableColumn(single), bind(single));
       }
       case "lt":
@@ -2873,7 +2884,15 @@ export class Queries {
         );
       default:
         return this.#lowerOtherOperation(predicate, {
-          column: pattern ? exact(column) : column,
+          column:
+            pattern &&
+            !(
+              operator === "startsWith" &&
+              operand?.kind === "value" &&
+              typeof operand.value === "string"
+            )
+              ? exact(column)
+              : column,
           folded,
           insensitive,
           text,
@@ -2931,7 +2950,11 @@ export class Queries {
         const list = a.literals.list(operands.map((member) => bind(member)));
         if (negated) return a.operators.notIn(exact(column), list);
         return text
-          ? a.operators.exactTextIn(exact(column), list)
+          ? a.operators.exactTextIn(
+              column,
+              list,
+              scalar?.physical.scalar["~"].nativeType
+            )
           : a.operators.in(column, list);
       }
       case "contains":
@@ -2942,7 +2965,11 @@ export class Queries {
         if (insensitive)
           return a.operators.startsWithText(folded, bind(operand!, true));
         return operand!.kind === "value" && typeof operand!.value === "string"
-          ? a.operators.startsWithPrefix(column, operand!.value)
+          ? a.operators.startsWithPrefix(
+              column,
+              operand!.value,
+              scalar?.physical.scalar["~"].nativeType
+            )
           : a.operators.startsWithText(column, bind(operand!));
       case "endsWith":
         return insensitive
@@ -3054,6 +3081,23 @@ export class Queries {
     value: unknown,
     id: IdentifierColumn | undefined
   ): Sql {
+    if (
+      target.kind === "aggregate" &&
+      (target.aggregate === "_min" || target.aggregate === "_max")
+    ) {
+      const aggregateId = this.scalarShape(scalar.model, scalar.field).id;
+      if (isCompact(aggregateId))
+        return aggregatedIdentifier(
+          this.adapter,
+          aggregateId,
+          this.#scalarValue(
+            scalar.physical.scalar,
+            value,
+            scalar.field,
+            aggregateId
+          )
+        );
+    }
     if (target.kind === "aggregate" && target.aggregate === "_sum")
       return this.#sumTargetValue(scalar, value, id);
     return this.#scalarValue(scalar.physical.scalar, value, scalar.field, id);
@@ -5564,7 +5608,7 @@ export class Queries {
       throw query.expectedRows.missing;
     if (query.expectedRows && rows > query.expectedRows.count)
       throw new QueryEngineError(
-        "Raptor 3 createMany final read returned inconsistent row counts."
+        "createMany returned a different number of rows than expected."
       );
   }
   decodeQuery(query: Query, rows: Input[], internal = false): Input[] {
@@ -6322,11 +6366,13 @@ export class Queries {
       nullable: false,
     });
     const readMember = this.compileScalar(member, internal);
+    const arrayText =
+      this.adapter.result.enumListRepresentation === "arrayText";
     return (value) => {
       const items: unknown =
         typeof value !== "string"
           ? value
-          : value.startsWith("{")
+          : arrayText && value.startsWith("{")
             ? providerArrayMembers(value)
             : JSON.parse(value);
       if (!Array.isArray(items))

@@ -92,7 +92,7 @@ describe("G4 perf review — the lazy sentinels keep their identity", () => {
     );
     assert.notEqual(
       (raised as Error).message,
-      "Raptor 3 operation requires dynamic execution",
+      "This operation requires dynamic execution",
       "prepareBatch leaked its own control-flow sentinel to the caller"
     );
     escaped = `${(raised as Error).name}: ${(raised as Error).message}`;

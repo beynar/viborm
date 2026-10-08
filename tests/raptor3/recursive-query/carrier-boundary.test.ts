@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { UnsupportedOperationError } from "@errors";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { UnsupportedOperationError } from "@errors";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";

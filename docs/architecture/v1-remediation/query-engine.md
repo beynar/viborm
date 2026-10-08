@@ -173,3 +173,104 @@ every(NULL), ASCII folding, synchronous request and cache bypass for arbitrary
 statement transforms remain documented contracts. Missing query APIs and new
 performance strategies are explicit product gaps in findings.json; no runtime
 repair is claimed for them.
+
+Final control/array/recursive qualification passed138/138 (8.91s wall,
+631.6MiB sampled group RSS, teardown verified): controls48, query-interceptors-
+array54, dedicated22 in its actual extended-local project, and recursive
+carrier14 in its actual raptor3 project. The saved two-phase admission uses
+existing prepareAdmission input/plan phases; it retains late physical prepare
+and query-handler order while proving all controls precede statement transforms
+and unsupported member skipping reaches no earlier user DML. The first attempt
+using owner.prepare directly passed101/102 but moved an injected late failure
+before handlers; that attempt was corrected rather than its oracle weakened.
+The recursive cycle witness now proves V8003 and relation metadata. Native8
+qualified the generic model-key guard (8.99s7158.3MiB); later literal-only variants
+and direct-write-key candidates still await integrated native qualification.
+
+Direct write-key candidate derives scalar/relation names from M State and reuses
+ClauseGuard over a flat unknown-valued record. It never asks the recursive write
+payload for keys. Public direct fresh/held create/update/upsert/createMany
+negative and positive probes are saved; native and TS5.8 chain qualification
+remain required. Nested model-dependent write/operator guards were not added.
+
+Latest integrated checkpoint (pending next full gate): the actual SQLite12.11.1
+provider batch qualified12/12,5.08s538.6MiB with teardown verified
+(`/tmp/viborm-v1-query-final-sqlite.log`). This covers current-row Sql FieldRef
+binding through mapped columns/root and nested aliases, preserved literal
+parameters, V8003 wrong-model/hidden-token refusals, explicit unsupported
+relation/count cursor ordering, parent/child membership updatedAt stamping,
+and empty root/nested upsert update no-ops. These findings now cite executed
+provider evidence rather than a queued witness.
+
+Native11 completed10.54s7388.2MiB, failing only two deliberate raw extra-argument
+fixtures owned by root; the current direct-write, polymorphic-envelope,
+soft-delete, isolated decoder-catalog and HAVING/OrderBy batch contributed no
+TypeScript diagnostics. This is not a claim that the full gate passed.
+Historical `secondary` and `commments` root-write typo pins now fail correctly
+and were converted into exact negative probes; valid declared polymorphic
+members remain admitted. Strict packed TS5.8/native public write-key witnesses
+are driver-owned and still required before final release qualification.
+
+The original CI exposed two fixture trust-boundary gaps. Scripted row decoders
+now delegate protected `$schema` catalog and assertion work to their own stock
+SQLite driver initialized via the actual migration owner; user rows remain
+scripted and fixture-owned teardown closes that catalog. The semantic B harness
+observes real EngineSchema admission instead of relying on a write transform
+running in a filter. The semantic C deleteMany harness observes the actual bound
+deleteGroup filter validation with scoped install/restore; full cut/count/order
+assertions remain. These harness corrections are saved but not yet executed.
+
+Original-input closure now precedes JSON normalization, with the transformed
+output closure retained; root's recursive JSON owner additionally refuses a
+FieldRef exposed only by a later getter. MySQL alone normalizes exact `"0"` and
+`"1"` integer boolean transport at its existing parseField boundary; general
+integer transport and the shared strict boolean parser remain unchanged. The
+new regression witnesses are saved and await focused runtime qualification.
+
+HAVING closes the full aggregate/filter union before matching, preserving an
+explicit refused-expression message instead of an unrelated unknown aggregate
+key. Only fresh model-owned OrderBy schemas install the same closure in place,
+retaining entries/extend metadata; captured original validation prevents
+self-recursion. No borrowed/interned schema is mutated and no broad write-schema
+wrapper was added merely to homogenize invalid-type messages.
+
+Native12 passed the complete estate in9.23s6007.7MiB with teardown verified.
+Current owned production TS census against reviewed upstream a4a5b8dc6 is
+30,902→31,835, net+933 (+3.02%); the count includes shared root/driver edits
+inside query-engine/extensions/cache/soft-delete and excludes tests/docs.
+
+Core5 shard1 then exposed seven owned stale expectations: noncanonical MySQL
+integer-boolean text must refuse, deliberate wrong-model field operands now use
+UnsupportedOperationError, limited mutation SQL must recheck its candidate
+predicate outside the keyed window on all dialects, and safe bounds compose
+coordinate guards whose parentheses differ from the old whole-predicate pin.
+The repaired exact SQL goldens retain outer rechecks/total order/MySQL derived
+windows; the distance oracle asks for the real conservative index predicate only
+in positive bounded filters and forbids it for lower bounds/negation. No provider
+result expectation or predicate semantic was relaxed.
+
+The five existing caller-only key portability/transition refusal sites now use
+V8003 with unchanged messages and arithmetic eligibility. Matching legacy class
+string witnesses changed accordingly; a genuine internal exact-decimal computed
+publication invariant keeps V9001. Prepared MySQL concurrent-upsert oracles now
+expect the authorized selected-constraint adoption through failed+fresh member
+savepoints on the same caller connection, then successful caller commit. This
+remains provider-CI evidence pending, rather than borrowing the executed Neon
+race proof as a claim about MySQL.
+
+Actual PGlite native string/provider checkpoint passed8/8,7.35s1949.2MiB under
+the existing2560MiB isolated-provider allowance, with teardown verified
+(`/tmp/viborm-v1-query-native-string-final.log`). Nontext INET/CIDR/MACADDR/UUID/
+XML/TSVECTOR/TSQUERY/BIT pattern and case operations, native MAC/UUID equality,
+and explicit XML equality refusal are executed. Root's same fixture also proves
+citext, year0, nullable/zero vector distances,480 independently computed distance
+points, and wide native JSON projections.
+
+Focused169 attempt2 still had162 passes: every prior ordinary literal SQL,
+canonical written identifier, null ordering, divide0 and spatial-probe repair
+passed. Six remaining failures were obsolete malformed-result classes while the
+driver owner installed the authorized V2006 taxonomy; their final golden changes
+are now frozen. One remaining PG nonenum brace-array pin was obsolete after H21
+and now accepts the declared native array-text grammar. JSON-container dialects
+accept JSON text only, gated by the existing adapter carrier declaration. The
+final169 followup is still required after root yields the runner.

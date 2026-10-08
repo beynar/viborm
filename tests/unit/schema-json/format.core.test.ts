@@ -146,7 +146,7 @@ const COMPLETE_SURFACE: SchemaDocument = {
         clock: { type: "time", withoutTimezone: true },
         price: { type: "decimal", precision: 10, scale: 2, default: "1.5" },
         meta: { type: "json", default: { a: [1, null, true] } },
-        blank: { type: "json", default: null },
+        blank: { type: "json", default: { $jsonNull: "JsonNull" } },
         bytes: { type: "blob", default: { $bytes: "AQID" } },
         vec: { type: "vector", dimension: 3 },
         spot: { type: "point" },

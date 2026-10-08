@@ -202,3 +202,9 @@ await client.user.findMany({
     href="/docs/client/filtering"
   />
 </CardGroup>
+
+VibORM publishes ESM and supports Node.js 22+ for ESM applications. A CommonJS
+application can use `require("viborm")` through Node's `require(esm)` support
+on Node.js 22.12+ or 24. A `.cts` consumer should use TypeScript 5.8+ with
+`module` and `moduleResolution` set to `"NodeNext"`. This CommonJS path does
+not imply flag-free `require(esm)` on Node.js 22.0.

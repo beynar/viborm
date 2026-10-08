@@ -598,3 +598,140 @@ Generic cache types and existing schema functions now route directly to their
 owners in client/cache-flow. These source-only corrections preserve runtime
 identity; candidate3 actual packed H13/no-peer proofs are pending final native/core
 and dependency/source freeze. No caller getter/type annotation masks the defects.
+
+### Artifact3/4 consumer and diagnostic qualification
+
+Build3 passed2.51s/965.9MiB; artifact3 is immutable. The real unannotated
+composite db/schema/client and valid `$extends()` now emit and downstream types
+retain ordinary scalar/include/groupBy answers. Chain2/5/30 emission passed;
+chain100 public nested query passed. Ring10 still fails TS2321. State-only model
+comparison did not repair the cyclic declaration comparison (artifact4,
+`packed-declaration-6`, strict library checks after supplying the real
+`@types/better-sqlite3` peer). The next candidate compares a named recursive
+projection of declaration data, retaining target graph data while removing
+fluent class methods. H13 remains open until an actual packed ring proof passes.
+
+Artifact3 root/schema with runtime dependencies alone passed both TS5.8 and
+native `skipLibCheck:false` with no optional driver/OTel/Cloudflare peers:
+`packed-nopeer-3`,5.14s/761.3MiB. Actual packed D1 Sessions, exported
+sqliteResultParser, and executable supplied postgres vibormTypes public setup
+passed `packed-driver-setup-1`,0.78s/263.9MiB. No fake ambient peer declarations
+or user annotations replace the original export sites.
+
+Driver diagnostics/date qualification: `driver-diagnostics-2` passed121/121,
+6.07s/540.2MiB, teardown verified. This revision precedes root's newer validation
+message wording and the subsequent span/native-cause corrections. New false-
+default `diagnostics.includeProviderDetails/includeCallsite` preserve bounded
+own-data provider message/detail/hint with credential redaction, capture the
+actual deferred raw/model creation stack only opt-in, and retain those selected
+facts in official JSON error logs. Validation source/issues are snapshotted at
+construction and survive public mutation. Default redaction remains intact.
+
+The raw Date cutoff witness actually executes safe/unsafe inserts, strict
+before/equal/after ISO-TEXT filters and updates with SQLite3/libSQL and Bun.
+D1's controlled native binding receives the ISO timestamp. libSQL raw INTEGER
+continues to expose its configured bigint carrier; the Date witness does not
+pretend that a raw row has a typed model descriptor. SQLite epoch/Julian raw
+parameters remain caller-owned physical values.
+
+CI confirmed two obsolete fixture failures: generic provider binary mock lacked
+the newly required `.pragma` FK read and could leave global Buffer unavailable
+while cleanup ran; mock corrected and globals now restore synchronously before
+async disconnect. Decimal duplicate-class census was substring matching the new
+scalar phrase `Division by zero is not allowed`; census now matches the exact
+class literal and checks that public schema validation produces an instance of
+the root Decimal constructor. Qualification of these latest followthroughs is
+pending the next bounded runner.
+
+### Final diagnostic checkpoint and unresolved ring consumer
+
+Immutable artifact5 contains 2,080,695 bytes; build passed in 2.53s at
+973MiB (`/tmp/viborm-v1-build-5.log`). The genuine strict TS5.8 packed
+consumer still passes exported db/schema/client/extension and chains2/5/30/100,
+but ring10 fails TS2321 while comparing the named ModelIdentity projection
+(`/tmp/viborm-v1-packed-declaration-7.log`,32.40s/966MiB). H13 remains a
+confirmed defect; native compiler qualification has not been reached by that
+script. An attempted generic structural graph projector additionally triggered
+TS2589 in the source filter schema and was removed. No caller annotations,
+ambient peer shims, or skipLibCheck relaxation hide either failure.
+
+Binary transport correction now passes3/3 with teardown,3.54s/438.2MiB
+(`/tmp/viborm-v1-binary-focused-4.log`). Node's async-context loader is primed
+before removing Buffer; SQLite3/Bun byte binding and result conversion still
+execute with Buffer unavailable. All globals restore before asynchronous cleanup.
+
+The latest provider taxonomy introduces capacity V1005, schema mismatch V2004,
+and numeric range V2005 in the existing ConnectionError/QueryError classes.
+Capacity is retryable; schema/range refusals are expected and nonretryable. PG,
+MySQL and proven SQLite category facts map without claiming a guessed Prisma
+equivalent. Mapping73/73 and hostile30/30 individual suites passed in the prior
+bounded batch; that command subsequently exceeded RSS in the separately repaired
+binary fixture, so it is not a whole-command pass. Final SQLSTATE clone/span and
+new public class export/runtime diagnostics are awaiting the integrated gate.
+
+Native9 had no production diagnostics. Three owned test defects were repaired:
+the fake Driver requires both generic arguments, failure-family discrimination
+includes the new codes, and lifecycle completion now explicitly correlates its
+private driver-lifecycle kind and failure fact. Native10/core qualification is
+owned by the integration coordinator.
+
+The final native pass exposed a diagnostics test harness mistake: withOtelRecorder
+returns a recorder and accepts no callback. The three newly written tracing
+cases had not executed their intended assertions; native10 caught the misuse.
+The integration owner is repairing them to create/dispose a real recorder and
+qualify actual spans. Prior test-count evidence does not establish those new
+canonical statement/operation/lifecycle span claims. Baseline strict TS5.8
+source imports additionally expose a generic filter.ts60 TS2589; the same
+error occurs before and after the failed lazy-arm/asymmetric identity experiments.
+The actual packed consumer is the public declaration qualification boundary;
+source-only generic factory checking remains separately visible.
+
+### H13 cause isolated without declaration waivers
+
+The decisive temporary packed experiment changed only RecursiveArm from an
+eager membership conditional to the already existing recursive node. Actual
+unannotated ring10 then passed strict TS5.8 (`ring-packed-lazy`,5.50s/900MiB).
+Restoring the simpler exact model-state identity also passed (`ring-packed-lazy-state`,
+6.78s/921.5MiB). These commands mutate only disposable extracted declaration
+files; immutable artifact5 is unchanged, so they are diagnosis rather than
+final shipped-package proof.
+
+The source fix removes the eager tuple conditional at the include schema owner.
+The recursive node remains unavailable when its required recurse value is never;
+ordinary includes no longer require an immediate whole-graph identity decision.
+The unsuccessful named recursive identity language was removed, reducing
+production LOC. Runtime schema factories are unchanged. Public self-recursion
+positives/negatives and both compilers against a freshly built immutable artifact
+remain required before resolving H13 and its chain/ring aliases.
+
+### Final core integration follow-through
+
+Actual recorder diagnostics assertions now ran: provider-details-callsite 7/7 and
+schema JSON docs 137/137; 144/144 total, 3.78 s / 472.1 MiB (`root-final-diagnostics-corpus`).
+This supersedes the earlier callback harness that did not execute its new span
+assertions. Operation, statement and failed connection spans retain canonical
+class/code/SQLSTATE, while the default cause stays redacted and standard cause is
+the same sanitized instance as originalCause.
+
+The final focused driver/instrumentation batch passed 132/132 across 10 files,
+5.68 s / 583.7 MiB with verified teardown (`drivers-core-final-2`). It includes all
+56 supplied-client/pool ownership cases and the single result-domain fixture
+with multiple assertions. That fixture proves
+actual database-legal SQLite INTEGER poisoning yields nonretryable QueryError
+V2006 with model/operation/scalar/reason; targeted valid reads still work, clone
+attribution survives, and an actual public 1000-bind IN filter succeeds.
+Strict whole-query domain refusal remains the contract; V9001 is reserved for
+actual invariants. No lenient read mode was added.
+
+Neon controlled mocks now match SDK 1.2 query(): typed query promises are passed
+as an array to transaction(), preserving statement-position attribution and
+snapshots. No timeout was raised. Queue regressions preserve the first provider
+error and the original cleanup aggregate, while subsequent queued work receives
+a distinct rollback-only TransactionError carrying canonical suppressed evidence.
+
+Tracing/logging snapshots now contain only their own SQL/parameter disclosure
+flags; diagnostics alone contains provider-detail/callsite opt-ins. The reviewed
+golden changes are exactly canonical class/code span attributes, sanitized native
+cause alias/redaction, validation issue/source/path presentation, and conservative
+cache.clear observation. Full runtime vocabulary explicitly includes the newly
+public existing error classes and guards.

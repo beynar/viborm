@@ -430,9 +430,8 @@ describe("polymorphic member-table serialization", () => {
 
     // Default naming (`${ownerTable}_${relationField}_${publicType}`), scalar
     // string target, compound owner side, canonical owner-first order, and the
-    // ACCEPTED REDUNDANCY: this singular-inverse target sorts canonical-second,
-    // so the unconditional reverse index and the unique side cover the same
-    // column — DDL shape is uniform, never conditional on sort order.
+    // singular target sorts canonical-second, so its unique constraint covers
+    // reverse lookups without an additional non-unique index.
     expect(byName.get("owner_gallery_post")).toEqual({
       name: "owner_gallery_post",
       columns: [
@@ -441,13 +440,7 @@ describe("polymorphic member-table serialization", () => {
         { name: "postId", type: "text", nullable: false },
       ],
       primaryKey: { columns: ["owner_1", "owner_2", "postId"] },
-      indexes: [
-        {
-          name: "owner_gallery_post_postId_idx",
-          columns: ["postId"],
-          unique: false,
-        },
-      ],
+      indexes: [],
       foreignKeys: [
         {
           name: "owner_gallery_post_owner_fkey",

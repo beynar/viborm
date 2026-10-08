@@ -168,6 +168,7 @@ const META_KEY_VALUES: Readonly<Record<string, MetaValue>> = {
   representation: MetaValue.String,
   resultIndex: MetaValue.Count,
   scalarType: MetaValue.String,
+  reason: MetaValue.String,
   statementIndex: MetaValue.Count,
   step: MetaValue.String,
   strategy: MetaValue.String,
@@ -421,10 +422,11 @@ export function getTrustedErrorCause(error: Error): Error | undefined {
   return getTrustedErrorSnapshot(error)?.cause;
 }
 
-const URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)[^/\s@]*@/gi;
+const URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)[^/\s]*@/gi;
 const TRUNCATED_URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)[^/\s]*:[^/\s]*$/gi;
+const BEARER_CREDENTIALS = /\bBearer\s+[^\s,;]+/gi;
 const NAMED_CREDENTIALS =
-  /((?:password|passwd|pwd|token|authToken|api[_-]?key|secret)\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s&,;]+)/gi;
+  /((?:password|passwd|pwd|token|auth[_-]?token|api[_-]?key|secret)["']?\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s&,;]+)/gi;
 
 function ownValue(value: unknown, key: string): unknown {
   if (typeof value !== "object" || value === null) return undefined;
@@ -436,7 +438,8 @@ function sanitizeDiagnosticText(value: string, state: SanitizeState): string {
   return sanitizeString(value, state)
     .replace(URL_CREDENTIALS, "$1[REDACTED]@")
     .replace(TRUNCATED_URL_CREDENTIALS, "$1[REDACTED]")
-    .replace(NAMED_CREDENTIALS, "$1[REDACTED]");
+    .replace(NAMED_CREDENTIALS, "$1[REDACTED]")
+    .replace(BEARER_CREDENTIALS, "Bearer [REDACTED]");
 }
 
 /** Preserve the selected disclosure through package-owned error clones. */
@@ -624,10 +627,16 @@ function sanitizeObject(
         continue;
       state.entries += 1;
       const descriptor = safeOwnPropertyDescriptor(value, key);
-      const entry =
+      const raw =
         descriptor && "value" in descriptor
           ? descriptor.value
           : UNREADABLE_VALUE;
+      const entry =
+        insideCause &&
+        typeof raw === "string" &&
+        ["message", "detail", "hint"].includes(normalizedKey)
+          ? sanitizeDiagnosticText(raw, state)
+          : raw;
       defineSafe(
         result,
         sanitizeString(key, state),

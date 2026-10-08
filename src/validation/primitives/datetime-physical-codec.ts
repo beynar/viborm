@@ -171,3 +171,7 @@ export function decodeProviderTimestamp(value: string): Date | undefined {
   const epoch = parsed.getTime() - (match[9] === "-" ? -offset : offset);
   return isDateTimeInstant(epoch) ? new Date(epoch) : undefined;
 }
+
+/** MySQL DATETIME stores the admitted instant as a naive UTC wall clock. */
+export const encodeMySqlDateTime = (iso: string): string =>
+  new Date(iso).toISOString().slice(0, 23).replace("T", " ");

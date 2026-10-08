@@ -178,7 +178,7 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
       }),
     expectReject: true,
     expectedError:
-      "query-engine-v2 create has conflicting final assignments for column 'parentId' on relation 'parent'.",
+      "create assigns conflicting values to column 'parentId' through relation 'parent'.",
     expected: { nodes: [] },
   },
   {

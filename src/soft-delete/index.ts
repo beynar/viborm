@@ -1,7 +1,6 @@
 // viborm/soft-delete: the entire extension.
 
 import type { OperationPayload } from "../client/exports"; // public today
-import type { Schema } from "../client/types";
 import type {
   ExtendedOperationResult,
   ExtensionState,
@@ -9,7 +8,6 @@ import type {
   VibORMClient,
   VibORMConfig,
 } from "../index";
-import type { AnyModel } from "../schema/exports";
 
 export interface SoftDeleteModel {
   readonly deletedAt: string; // a DateTime field of this model
@@ -19,22 +17,21 @@ export interface SoftDeleteConfig {
   readonly models: Readonly<Record<string, SoftDeleteModel>>;
   readonly actor?: string | number | bigint; // bound per derived client
 }
+type Schema = VibORMConfig["schema"];
+type AnyModel = Schema[string];
 type Names<Config extends SoftDeleteConfig> = keyof Config["models"] & string;
 
 // One value per configured model, keys kept: step B types `db.post.restore`
 // from them. The cast is TypeScript's own limit: Object.fromEntries forgets keys.
-const perModel = <
+function perModel<
   Config extends SoftDeleteConfig,
   T,
   S extends Schema = Schema,
->(
-  config: Config,
-  build: (m: SoftDeleteModel) => T,
-  _schema?: S
-) =>
-  Object.fromEntries(
+>(config: Config, build: (m: SoftDeleteModel) => T, _schema?: S) {
+  return Object.fromEntries(
     Object.entries(config.models).map(([k, m]) => [k, build(m)])
   ) as { readonly [K in Names<Config> & keyof S]: T };
+}
 
 // restore takes the model's own update arguments, minus `data`; other keys are flagged.
 type RestoreArgs<
@@ -58,9 +55,10 @@ type RestoreModels<
   };
 };
 
-export const softDelete =
-  <const Config extends SoftDeleteConfig>(config: Config) =>
-  <
+export function softDelete<const Config extends SoftDeleteConfig>(
+  config: Config
+) {
+  return <
     C extends VibORMConfig & {
       readonly schema: Record<Names<Config>, AnyModel>;
     },
@@ -124,3 +122,4 @@ export const softDelete =
     );
     return managed.$extends({ name: "viborm.softDelete.restore", model });
   };
+}

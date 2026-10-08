@@ -171,9 +171,9 @@ const keys = (rows: unknown[]): unknown[] =>
   rows.map((row) => (row as { id: unknown }).id);
 
 const ARITY_SET_INCREMENT =
-  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received set, increment.";
+  "UnsupportedOperationError: Primary key field 'id' accepts exactly one update operation; received set, increment.";
 const ARITY_NONE =
-  "QueryEngineError: Primary key field 'id' accepts exactly one update operation; received none.";
+  "UnsupportedOperationError: Primary key field 'id' accepts exactly one update operation; received none.";
 
 describe("G4-02 — R-D2 (c) at the nested sites (decisions round 2)", () => {
   it("refuses a nested child update whose key names set beside an operator", async () => {

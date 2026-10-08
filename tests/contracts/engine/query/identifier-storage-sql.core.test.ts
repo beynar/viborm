@@ -39,6 +39,7 @@ const UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11";
 const UUID_HEX = "a0eebc999c0b4ef8bb6d6bb9bd380a11";
 const USER = `usr-${UUID}`;
 const ULID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const ULID_HEX = "01563e3ab5d3d6764c61efb99302bd5b";
 const CUID = "tz4a98xxat96iws9zmbrgj3a";
 
 const models = (() => {
@@ -497,7 +498,7 @@ describe("projecting an identifier column", () => {
       select: { id: true, slug: true },
     }).toStatement("$n");
     expect(select).toBe(
-      `SELECT "q0"."id" AS "id", "q0"."slug" AS "slug" FROM "public"."user" AS "q0"`
+      `SELECT "q0"."id" AS "id", "q0"."slug" AS "slug" FROM "public"."user" AS "q0" ORDER BY "q0"."id" ASC`
     );
   });
 
@@ -566,15 +567,18 @@ describe("aggregating an identifier column", () => {
     );
   });
 
-  test("a HAVING operand over an identifier aggregate is a number, never an identifier", () => {
-    // Admission types every non-decimal aggregate operand as a number, so no
-    // identifier ever needs the transported spelling on the operand side.
-    expect(() =>
-      build(pg, post, "groupBy", {
-        by: ["authorId"],
-        having: { id: { _min: { equals: ULID } } },
-      })
-    ).toThrowError(ValidationError);
+  test("HAVING min/max uses the identifier domain while count uses numbers", () => {
+    // MIN/MAX compare the field's logical domain; COUNT has its own numeric
+    // operand and must not apply identifier encoding.
+    const minimum = build(pg, post, "groupBy", {
+      by: ["authorId"],
+      having: { id: { _min: { equals: ULID } } },
+    });
+    // The transported nullable expression binds the same physical value for
+    // its NULL guard and its hex arm, exactly as the aggregate target does.
+    expect(minimum.values).toEqual([bytesOf(ULID_HEX), bytesOf(ULID_HEX)]);
+    expect(minimum.toStatement("$n")).toContain("HAVING");
+    expect(minimum.toStatement("$n")).toContain("encode($2, 'hex')");
     expect(
       build(pg, post, "groupBy", {
         by: ["authorId"],
@@ -639,7 +643,7 @@ describe("filtering an identifier column", () => {
     });
     expect(where.values).toEqual([bytesOf(UUID_HEX)]);
     expect(where.toStatement("$n")).toBe(
-      "SELECT `q0`.`slug` AS `slug` FROM `user` AS `q0` WHERE `q0`.`id` = $1"
+      "SELECT `q0`.`slug` AS `slug` FROM `user` AS `q0` WHERE `q0`.`id` = $1 ORDER BY `q0`.`id` ASC"
     );
     // The same column under `notIn` is not wrapped for exact text either.
     expect(

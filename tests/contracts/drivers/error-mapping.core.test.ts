@@ -2,7 +2,10 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver } from "@drivers/driver";
 import { attachExecutionContext } from "@drivers/driver-error-context";
-import { normalizeDriverError } from "@drivers/error-mapping";
+import {
+  normalizeDriverConnectionError,
+  normalizeDriverError,
+} from "@drivers/error-mapping";
 import type { Dialect, QueryResult } from "@drivers/types";
 // biome-ignore lint/performance/noNamespaceImport: the identity round-trip test discovers every concrete error class from the barrel
 import * as allErrors from "@errors";
@@ -33,6 +36,87 @@ const REDACTED_ERROR_CONTENT_PATTERN =
 const context = { driverName: "test" };
 
 describe("normalizeDriverError fixtures", () => {
+  test.each([
+    [{ code: "42P01" }, "postgresql", "missing relation", "V2004", false],
+    [{ code: "42703" }, "postgresql", "missing column", "V2004", false],
+    [{ code: "22003" }, "postgresql", "range", "V2005", false],
+    [{ code: "53300" }, "postgresql", "connections", "V1005", true],
+    [
+      { code: "ER_NO_SUCH_TABLE", errno: 1146 },
+      "mysql",
+      "missing table",
+      "V2004",
+      false,
+    ],
+    [
+      { code: "ER_BAD_FIELD_ERROR", errno: 1054 },
+      "mysql",
+      "missing column",
+      "V2004",
+      false,
+    ],
+    [
+      { code: "ER_DATA_OUT_OF_RANGE", errno: 1690 },
+      "mysql",
+      "range",
+      "V2005",
+      false,
+    ],
+    [
+      { code: "ER_CON_COUNT_ERROR", errno: 1040 },
+      "mysql",
+      "connections",
+      "V1005",
+      true,
+    ],
+    [
+      { code: "SQLITE_ERROR" },
+      "sqlite",
+      "no such table: missing",
+      "V2004",
+      false,
+    ],
+    [
+      { code: "SQLITE_ERROR" },
+      "sqlite",
+      "no such column: missing",
+      "V2004",
+      false,
+    ],
+    [{ code: "SQLITE_ERROR" }, "sqlite", "integer overflow", "V2005", false],
+  ] as const)("categorizes physical provider rejection %j", (shape, dialect, message, code, retryable) => {
+    const error = normalizeDriverError(
+      Object.assign(new Error(message), shape),
+      {
+        driverName: "fixture",
+        dialect,
+        model: "entry",
+        operation: "findMany",
+      }
+    );
+    expect(error.code).toBe(code);
+    expect(error.name).toBe(retryable ? "ConnectionError" : "QueryError");
+    expect(error.isRetryable()).toBe(retryable);
+    expect(error.prismaCode).toBeUndefined();
+    const clone = attachExecutionContext(error, {
+      driverName: "fixture",
+      model: "other",
+      operation: "count",
+    });
+    expect(clone.code).toBe(code);
+    expect(clone.meta.providerCode).toBe(shape.code);
+    expect(clone.meta).toMatchObject({ model: "other", operation: "count" });
+  });
+
+  test.each([
+    { code: "53300" },
+    { code: "ER_CON_COUNT_ERROR", errno: 1040 },
+  ])("connection initialization preserves capacity classification %j", (raw) => {
+    const error = normalizeDriverConnectionError(raw, context);
+    expect(error.code).toBe(VibORMErrorCode.CONNECTION_CAPACITY);
+    expect(error.isRetryable()).toBe(true);
+  });
+
   test("maps PlanetScale-shaped errors via errno in the message", () => {
     // @planetscale/database DatabaseError carries the MySQL errno only in text
     const raw = Object.assign(
@@ -694,7 +778,7 @@ describe("normalizeDriverError fixtures", () => {
     ).not.toThrow();
   });
 
-  test("flattens validation errors whose runtime issue array is unreadable", () => {
+  test("preserves the trusted validation evidence when public issues become unreadable", () => {
     const source = new ValidationError("create", [
       { path: "email", message: "Email is invalid" },
     ]);
@@ -712,8 +796,11 @@ describe("normalizeDriverError fixtures", () => {
     });
 
     expect(normalized).toBeInstanceOf(VibORMError);
-    expect(normalized).not.toBeInstanceOf(ValidationError);
-    expect(normalized.name).toBe("VibORMError");
+    expect(normalized).toBeInstanceOf(ValidationError);
+    expect(normalized.name).toBe("ValidationError");
+    expect(normalized.toJSON().issues).toEqual([
+      { path: "email", message: "Email is invalid" },
+    ]);
   });
 
   test("maps batch-plan assertion failures to NestedWriteAssertionError on every dialect", () => {

@@ -65,6 +65,7 @@ function familyOf(failure: DriverFailure): string {
     case VibORMErrorCode.CONNECTION_FAILED:
     case VibORMErrorCode.CONNECTION_TIMEOUT:
     case VibORMErrorCode.CONNECTION_CLOSED:
+    case VibORMErrorCode.CONNECTION_CAPACITY:
       return "connection";
     case VibORMErrorCode.UNIQUE_CONSTRAINT:
       return "unique";
@@ -88,6 +89,9 @@ function familyOf(failure: DriverFailure): string {
     case VibORMErrorCode.QUERY_FAILED:
     case VibORMErrorCode.QUERY_TIMEOUT:
     case VibORMErrorCode.QUERY_SYNTAX:
+    case VibORMErrorCode.QUERY_SCHEMA_MISMATCH:
+    case VibORMErrorCode.QUERY_OUT_OF_RANGE:
+    case VibORMErrorCode.QUERY_RESULT_INVALID:
     case VibORMErrorCode.INVALID_INPUT:
       return "query";
     default: {

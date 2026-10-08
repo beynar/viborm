@@ -18,7 +18,7 @@
  *  2. the schema runs EXACTLY ONCE per decoded value — never twice for one
  *     value, and never at all for a field the projection did not select;
  *  3. a stored document the schema REFUSES raises the restored public
- *     `QueryEngineError` sentence, redacted: the schema's own issue text
+ *     `QueryError` sentence, redacted: the schema's own issue text
  *     describes a stored document and never reaches the caller;
  *  4. the cache route materializes the transformed value from its snapshot
  *     WITHOUT a second schema run, and a revalidation decodes once more —
@@ -33,7 +33,7 @@
 import assert from "node:assert/strict";
 import { cache as cacheExtension } from "@cache/extension";
 import { createClient } from "@client/client";
-import { QueryEngineError, QueryError } from "@errors";
+import { QueryError } from "@errors";
 import { s } from "@schema";
 import type { JsonValue } from "@src/validation";
 import { isRecord } from "@src/validation/value-guards";
@@ -257,12 +257,12 @@ describe("D-33 — a json().schema(…) field's schema runs at the decode bounda
     );
 
     assert.ok(
-      refused instanceof QueryEngineError,
-      `not a QueryEngineError: ${String(refused)}`
+      refused instanceof QueryError,
+      `not a QueryError: ${String(refused)}`
     );
     assert.equal(
       refused.message,
-      'Driver "sqlite3" returned a malformed json scalar for operation "findUnique": custom output schema rejected the value.'
+      'The "findUnique" result is incompatible with the json scalar domain: custom output schema rejected the value.'
     );
     assert.equal(refused.meta?.driver, "sqlite3");
     assert.equal(refused.meta?.operation, "findUnique");
@@ -312,12 +312,12 @@ describe("D-33 — a json().schema(…) field's schema runs at the decode bounda
       client.document.findMany({ where: { id: 2 } })
     );
     assert.ok(
-      direct instanceof QueryEngineError,
-      `not a QueryEngineError: ${String(direct)}`
+      direct instanceof QueryError,
+      `not a QueryError: ${String(direct)}`
     );
     assert.equal(
       direct.message,
-      'Driver "sqlite3" returned a malformed json scalar for operation "findMany": custom output schema rejected the value.'
+      'The "findMany" result is incompatible with the json scalar domain: custom output schema rejected the value.'
     );
   });
 
@@ -356,12 +356,12 @@ describe("D-33 — a json().schema(…) field's schema runs at the decode bounda
         client.late.findUnique({ where: { id: 1 } })
       );
       assert.ok(
-        refused instanceof QueryEngineError,
-        `not a QueryEngineError: ${String(refused)}`
+        refused instanceof QueryError,
+        `not a QueryError: ${String(refused)}`
       );
       assert.equal(
         refused.message,
-        'Driver "sqlite3" returned a malformed json scalar for operation "findUnique": custom output schema rejected the value.'
+        'The "findUnique" result is incompatible with the json scalar domain: custom output schema rejected the value.'
       );
       // Node reports an unhandled rejection only after the microtask queue
       // drains; two macrotask turns are more than it needs.

@@ -2,7 +2,7 @@
 
 Working tree: `/Users/arnaud/.codex/worktrees/v1-review-remediation/viborm`, based on report revision `a4a5b8dc6`. The original checkout and its pre-existing work are preserved.
 
-## Implemented, pending full integration validation
+## Implemented corrections
 
 | Finding | Responsible existing owner | Correction |
 | --- | --- | --- |
@@ -98,8 +98,10 @@ feature gaps behind documentation or a neighboring primitive:
 - migrations-11: hosted/edge effectful migration admission needs actual proven
   producer lock, execution boundary and marker CAS. A dialect renderer alone
   does not supply them.
-- migrations-16: static risk and named labels improved; no live data-aware
-  row-count preflight has been added.
+- migrations-16: static risk and named labels improved. Populated required-column
+  additions without a physical default now inspect whether the selected table
+  contains a row and refuse before effects. General row-count, cost and online
+  migration planning remain absent.
 - migrations-21: one namespace per estate remains a deliberate immutable
   identity contract; multi-schema or tenant-estate reuse needs a separate design.
 - migrations-23: current-time defaults compare canonically, but no raw-SQL
@@ -158,9 +160,8 @@ individually, with a documented reason: implicit SQL NULL is represented by no
 catalog default. Relation topology, physical nullable behavior, constraints and
 order remain pinned; the corpus was not regenerated.
 
-Dedicated final JSON-default and vector/native-index witnesses are prepared but
-remain unverified until their coordinated runner slot. They are not included in
-this 1,952-test claim.
+This earlier checkpoint excludes the later JSON-default/vector/native-index
+witnesses. Their final qualification appears below.
 
 
 ## Final bounded checkpoint
@@ -212,9 +213,11 @@ Latest frozen-source scoped LOC measurement against `a4a5b8dc6`: **30,925 →
 32,323 TS newline lines (+1,398; 4.52%)**, 89→90 files.
 This uses the same migration/CLI/config + six SQLite physical leaf-module scope
 and exclusions as the earlier measurement, counts moved source on both sides,
-and excludes tests/docs. It is controlled growth, not parity. The final precision
->3 DateTime.now generator/normalizer/witness follow-through is saved and pending
-the scheduled provider test; final integrated core/type gates belong the parent.
+and excludes tests/docs. It is controlled growth, not parity. That measurement precedes the final catalog/default follow-through. Current
+scoped count is **30925 → 32722 TS newline lines (+1797)**, 89→90 files. The extra PostgreSQL physical array leaf contains the moved
+adapter formatter and its catalog literal reader; shared codec/adapter edits are
+reported by the integration owner rather than hidden as free moves. Precision-six
+DateTime.now is now proven by the final live provider witness below.
 
 ## Dependency security checkpoint
 
@@ -254,3 +257,138 @@ The corrected, actually published better-sqlite3 **12.11.1** embeds SQLite
 12.12.0 does not exist and was replaced with this registry-verified compatible
 release. The public peer also admits version 13, separately qualified by the
 integration owner.
+
+## Final catalog and literal-default qualification
+
+The complete migration runtime lane now passes **119 files / 1,970 tests**,
+**10.22s wall / 878.8 MiB**, with teardown verified
+(`/tmp/viborm-v1-migration-core-10.log`). The follow-through includes actionable
+safe error metadata, actual canonical SQLite Time default storage, exact control
+state CHECK ownership, populated-row literal-default backfills and no-op repeats,
+plus selected generated/custom-CHECK/view preservation and excluded-table scope.
+The public Time decoder retains its prior zero-fraction trimming; the physical
+storage assertion explicitly proves `12:30:00.000` rather than changing that
+public formatting contract.
+
+The current source then passes **3/3 isolated PGlite witnesses**, **5.32s wall /
+2,011.8 MiB**, inside the allowlisted 2,560 MiB stage, teardown verified
+(`/tmp/viborm-v1-migration-pglite-final-5.log`). The real PostgreSQL witnesses now
+also prove populated-row defaults for escaped/empty/numeric/boolean lists, JSON
+objects/documents, exact bigint, Date objects and year-zero Date values, with a
+second synchronization no-op. PostgreSQL's boolean-array `t/f` deparse is
+canonicalized by the existing typed default owner. Actual native precision-six
+`.now()` defaults produce millisecond values and find their own rows through
+public Date equality; the earlier enum/BC/lock/native-index assertions still run.
+
+Selected PostgreSQL generated columns, partitions and partitioned tables refuse
+before effects. View/materialized-view name collisions use the existing desired
+snapshot preflight and refuse rather than planning a table creation. SQLite uses
+stored structural SQL to refuse generated columns, virtual tables, and custom
+CHECK constraints it cannot reconstruct. Known enum/decimal/GeoPoint constraints
+remain represented by their existing readers. The internal state-table exception
+requires its exact reserved name and exact control-owner writer definition;
+control authenticity remains with that owner. MySQL's existing EXTRA metadata
+also refuses selected generated columns. Excluded physical objects do not poison
+an authenticated managed-table selection. The real provider witnesses retain
+stored generated values and readable views after the refusal.
+
+There is still no generated/read-only/view/partition/custom-CHECK DSL. These
+refusals mitigate destructive projection; they are not advertised as adoption or
+modeling capabilities.
+
+Literal Date/DateTime inputs cross the existing ISO admission and physical
+encoders, including naive UTC MySQL and PostgreSQL BC spelling. MySQL/SQLite
+lists use their existing BigInt-aware JSON container serializer; PostgreSQL uses
+the same escaped physical array encoder as its adapter. JSON object and bigint
+literals now become physical defaults. Function/unsupported generators remain
+application-only. A populated required-column addition without a database
+backfill/default refuses in push with a manual nullable-add/fill/make-required
+recipe. Generated add-column preconditions additionally prove the table empty
+before effects when no physical default exists. No value is invented for old rows.
+
+The first extended provider fixture used a nonexistent `s.json().array()` call
+and shared a namespace with unsupported objects across tests. These were fixture
+errors, not API changes: JSON document arrays use `s.json().default([...])`, and
+new witnesses use distinct disposable namespaces. The final executed tests enter
+through those real public spellings.
+
+## Latest source qualification and provider follow-through
+
+The current complete lane passes **119/119 files and 1,973/1,973 tests**,
+**23.10s wall / 840.4 MiB**, teardown verified
+(`/tmp/viborm-v1-migration-core-13.log`). Current isolated PGlite passes **3/3**,
+**10.56s / 1,787.5 MiB**, teardown verified
+(`/tmp/viborm-v1-migration-pglite-final-6.log`). These supersede the earlier
+checkpoints for the latest owned source.
+
+The extended qualification proves authoritative scalar transforms run once per
+literal-default serialization and are applied to stored/backfilled JSON defaults,
+not merely to model-created rows. Already-normalized decimal declaration values,
+authenticated null sentinels, and application functions retain their existing
+contracts. Actual SQLite FTS5 catalog preservation now runs alongside generated
+and custom-CHECK refusal; unrelated managed tables still converge.
+
+Real PostgreSQL/MySQL CI exposed two physical-integration assumptions that local
+planning fixtures had hidden. MySQL always names its primary constraint
+`PRIMARY`; the finalizer now declares that actual physical identity instead of a
+PostgreSQL-style name. PostgreSQL control authenticity now uses the existing type
+normalizer to recognize `integer` from `format_type` and old `int4` fixture rows.
+Provider migration fixtures select operation kinds by stable `id`/derived `type`
+rather than descriptive human labels; the order assertions themselves remain.
+The native-type catalog oracle now expects the intentional millisecond precision.
+The reserved-conversion collision assertion was retained: its earlier secondary
+failure followed interrupted tests blocked by the wrong PRIMARY identity.
+
+Singular polymorphic member junctions no longer store a redundant second-side
+reverse index when target uniqueness already covers the full lookup prefix.
+Canonical-first targets and nonsingular members retain the necessary reverse
+index. Only two identified frozen PostgreSQL corpus indexes were removed, and
+MySQL primary names were corrected in its named dialect witness; reasons are
+recorded on the corpus cases. The rest of the frozen physical artifact was not
+regenerated. Full corpus and orientation tests pass; the existing live
+polymorphic convergence fixtures remain part of provider qualification.
+
+These provider CI repairs require the integration owner's final remote rerun;
+local PGlite/SQLite evidence is explicit and is not presented as real MySQL proof.
+
+Latest fixed-scope LOC after the final clock/null follow-through: **30,925 → 32,770 (+1,845; 5.97%)**, against integrated review revision `a4a5b8dc6` and the same scoped owners described above (89→90 files). Shared PostgreSQL array leaf and integration-owned adapter/codec files remain accounted separately by the root report. The initial filesystem manifest reflects the older checkout, so it is not substituted for the integrated review revision in this comparison.
+
+The final clock follow-through passes **66/66** focused current-source regressions
+(**3.98s / 555.2 MiB**, teardown verified,
+`/tmp/viborm-v1-time6-core-final.log`) and the full **3/3** current isolated
+PGlite witnesses (**4.73s / 1,727.2 MiB**, teardown verified,
+`/tmp/viborm-v1-migration-pglite-final-7.log`). Native PostgreSQL TIME(6) and
+TIMETZ(6) `.now()` now use UTC `CURRENT_TIME(3)` so the ORM's own database default
+cannot create a time its millisecond decoder refuses. Raw microsecond-modulo
+assertions, zero zoned offset, public naive-Time self-equality and repeat no-op
+all execute. Default precision-three behavior is retained, and normalization
+distinguishes constrained from unconstrained clock expressions. The earlier
+1,973-test complete lane remains the broader checkpoint; the integration owner
+qualifies the final full source/type/package gates.
+
+The final transformed-default follow-through passes its two files in the
+integration owner's core6 run: adversarial-regressions **41/41** and v1-push
+**26/26**. A non-null JSON literal transformed by its schema
+to document null now emits a JSON `null` default. The original nullable bare-null
+default and authenticated DbNull still mean SQL NULL. New three-dialect DDL
+assertions and a populated SQLite row witness distinguish `json_type(...) =
+'null'` from `IS NULL` (core6 combined log and shard3 log). This correction is
+not counted in the preceding executed 1,973-test checkpoint. The integration
+owner applies the same result boundary to runtime JSON writes. Native gate 14
+has passed the entire declaration estate. These focused results were subsequently included in the integration owner's
+fully green core7 gate: **465/465 files, 9,624/9,624 tests** over all four shards.
+Native15 passes the whole declaration estate (**27.40s / 5,290.0 MiB**), and
+build6 passes (**2.79s / 960.9 MiB**); each runner reports verified teardown.
+Fresh immutable-package consumer qualification and documentation build remain
+separate gates owned by the integration sequence.
+
+The integration follow-through updates two SQL contract fixtures without changing
+adapters: GeoPoint **57/57** and JSON-null sentinel **21/21**, **78/78 total**,
+**3.75s / 562.8 MiB**, teardown verified
+(`/tmp/viborm-v1-final-sql-contracts.log`). The goldens pin SQLite's binary64
+constructor and duplicate bind slots, the Greenwich meridian in the conservative
+spatial index envelope, structural JSON-null equality and root-path parameters.
+An empty SQL-only mock result now pins the returning fast-create V2006 QueryError
+(the query owner corrected its missing-result callback), the existing MySQL
+fallback category, and a createMany count of zero. No provider effect is claimed
+for these SQL-only fixtures.

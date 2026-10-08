@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { z } from "zod";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import type {
@@ -360,14 +360,21 @@ function assertActorOutcome(
       (candidate === "commands" && actor.fault === "consumer-malformed"));
   assert.equal(
     outcome.failure.name,
-    malformed ? "QueryEngineError" : "QueryError"
+    preciseMalformed
+      ? "QueryError"
+      : malformed
+        ? "QueryEngineError"
+        : "QueryError"
   );
-  assert.equal(outcome.failure.code, malformed ? "V9001" : "V2001");
+  assert.equal(
+    outcome.failure.code,
+    preciseMalformed ? "V2006" : malformed ? "V9001" : "V2001"
+  );
   assert.equal(
     outcome.failure.message,
     malformed
       ? preciseMalformed
-        ? `Driver "${profile}" returned a malformed int scalar for operation "${actor.operation}": the value is not a canonical integer.`
+        ? `The "${actor.operation}" result is incompatible with the int scalar domain: the value is not a canonical integer.`
         : "Record-series execution failed at a committed-segment boundary."
       : "Query execution failed"
   );
@@ -433,8 +440,10 @@ function assertActorOutcome(
         meta;
       assert.deepEqual(scalarMeta, {
         driver: profile,
+        model: actor.model,
         operation: "update",
         scalarType: "int",
+        reason: "the value is not a canonical integer",
       });
     }
     return;

@@ -6,8 +6,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "A format on a non-key column quietly generates values; the docs recommend putting one on foreign keys",
-    "status": "implemented-unverified",
-    "evidence": "Runtime declaration115/115 plus final modifier6/refinement8/string120/L5model37/schemaJSONserialize35+format20 green; error registry18 green. Domain-only formats and id({generate:false}) required input, explicit generation, retained defaults/refinements (date/time included), native custom map admission and disabled-generation JSON roundtrip. Physical-domain filters avoid write transforms; ID folding retained; list members custom-validate once; numeric/decimal refined arithmetic refused at runtime and public types. Native type gate for newest scalar/validation source still pending; custom type codecs remain release-level product scope."
+    "status": "verified-fixed",
+    "evidence": "Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md."
   },
   {
     "id": "api-dx-02",
@@ -97,7 +97,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Seeing your SQL takes an extension and two flags; raw SQL errors stay opaque",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "False-default instrumentation diagnostics.includeProviderDetails/includeCallsite implemented at existing error/private execution snapshot owners. Descriptor-only bounded provider message/detail/hint with credential redaction; raw/model deferred application frames captured only opt-in; official JSON logs preserve canonical class/message, sanitized cause and immutable validation source/issues. New4 cases + existing diagnostics25/hostile30 all passed within driver-diagnostics-2 121/121,6.07s/540.2MiB. Packed runtime confirmation still follows final artifact; no default provider disclosure."
   },
   {
     "id": "api-dx-11",
@@ -369,8 +370,8 @@
     "kind": "bug",
     "effort": "M",
     "title": "Caller-supplied pool/client skips VibORM's temporal parsers: withoutTimezone() values silently shifted, s.date() reads throw",
-    "status": "implemented-unverified",
-    "evidence": "pg/PGlite/Neon temporal text OIDs per query; mysql2 per-command text decoding; supplied postgres requires executable vibormTypes setup. Hosted pg/postgres owned/borrowed fidelity passed west of UTC; supplied ownership56/56 passed. Full MySQL/PGlite/Bun temporal matrix awaits integrated qualification."
+    "status": "verified-fixed",
+    "evidence": "Supplied-client parity: driver-supplied-clients56/56 passed (includes per-query pg/PGlite temporal text and executable supported postgres text setup refusal/acceptance), latest driver runtime/core checkpoints in drivers.md. Owned/supplied postgres+pg and Neon HTTP actual hosted6/6 current SDK1.2 preserve UTC/year0/date scalar/arrays. Borrowed lifecycle remains caller-owned."
   },
   {
     "id": "data-fidelity-04",
@@ -415,7 +416,8 @@
     "kind": "design",
     "effort": "M",
     "title": "Poison rows: one database-legal value outside VibORM's narrower domain fails the whole query, blamed on the driver",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "H16 data/domain mismatch now expected nonretryable QueryError/V2006 at the existing OperationContext mapping, preserving model/operation/scalar/reason without driver blame. Actual legal SQLite unsafe INTEGER poisons whole query, valid targeted/filter rows still read, clone attribution remains stable; result-domain core passes within final drivers132/132 (5.68s583.7MiB). Strict whole-query rejection remains the intentional contract; no lenient reads introduced."
   },
   {
     "id": "data-fidelity-08",
@@ -434,7 +436,8 @@
     "kind": "design",
     "effort": "M",
     "title": "s.time() defaults to timetz but cannot represent an offset; its own NOW() default yields rows it cannot read",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "s.time() defaults to WITHOUT TIME ZONE. Migration Date/Time NOW defaults and explicit TIMETZ are canonicalized to the logical time-of-day domain at millisecond precision. Actual PGlite final6 /tmp/viborm-v1-migration-pglite-final-6.log passed3/3 under Pacific/Kiritimati: returned Time/Date self-equality, UTC defaults, offset0, follow-up push noop. No hosted MySQL claim. Latest temporal-default source requalified /tmp/viborm-v1-migration-pglite-final-7.log:3/3 green4.73s/1727.2MiB teardown; native TIME6/TIMETZ6 NOW emits UTC CURRENT_TIME(3), microseconds modulo1000=0/offset0, naive Time self-equality. Native TIMESTAMP6/TIMESTAMPTZ6 defaults likewise millisecond-aligned and public Date self-equality; latest DDL core66/66 green."
   },
   {
     "id": "data-fidelity-10",
@@ -443,7 +446,8 @@
     "kind": "footgun",
     "effort": "M",
     "title": "PostgreSQL DateTime is timestamptz(6) but the domain is milliseconds; DB-side NOW() defaults ignore VibORM's UTC convention",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "DateTime default precision is3; explicit native precision6 DateTime NOW/updatedAt defaults truncate to logical milliseconds and UTC date/time defaults use provider-appropriate canonical SQL. Actual PGlite final6 /tmp/viborm-v1-migration-pglite-final-6.log3/3 verifies EXTRACT microseconds%1000=0, returned Date public self-equality and follow-up push noop; current migration core1973/1973 passed. Hosted Neon scalar/array year0 public boundaries previously6/6. Latest temporal-default source requalified /tmp/viborm-v1-migration-pglite-final-7.log:3/3 green4.73s/1727.2MiB teardown; native TIME6/TIMETZ6 NOW emits UTC CURRENT_TIME(3), microseconds modulo1000=0/offset0, naive Time self-equality. Native TIMESTAMP6/TIMESTAMPTZ6 defaults likewise millisecond-aligned and public Date self-equality; latest DDL core66/66 green."
   },
   {
     "id": "data-fidelity-14",
@@ -494,7 +498,10 @@
     "kind": "footgun",
     "effort": "M",
     "title": "SQLite DateTime TEXT: spellings the reader accepts are silently mis-filtered",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "root",
+    "resolution": "SQLite typed temporal inputs are canonicalized to UTC millisecond text. Operation-scoped physical storage checks refuse foreign noncanonical values before predicates, cache hits or writes, including an atomic recheck at dispatch. Public migration SQL helpers support an explicit reviewed conversion; strict raw SQL remains physical.",
+    "verification": "Real SQLite storage11/11 and adapter6/6 passed in /tmp/viborm-v1-root-sqlite-4.log (6.16s,547.7MiB); tests/providers/local/sqlite3-storage-admission.test.ts covers +00:00 rows, cached reads, native array transactions, malformed calendars and post-admission mutation. Migration helper/default qualification is recorded in migrations.md. Final provider CI still required."
   },
   {
     "id": "data-fidelity-13",
@@ -523,7 +530,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "s.int() range is dialect-dependent and overflow errors are opaque",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "s.int logical admission is JS safe integers; documented default PG/MySQL signed32 and SQLite INTEGER physical bounds remain distinct. Known PG22003/MySQL1264/1690/SQLite integer overflow now expected nonretryable QueryError/V2005, proved mapping73/73 current core6. SQLite legal unsafe integer output now V2006 rather than engine bug, actual poisoned-row fixture passes driver132. No silent clamping or per-model physical inference introduced."
   },
   {
     "id": "data-fidelity-19",
@@ -633,7 +641,8 @@
     "kind": "gap",
     "effort": "L",
     "title": "No full-text search on any dialect, and the FTS building blocks VibORM ships are traps (dead MySQL FULLTEXT index, tsvector-as-string, FTS5 tables planned for DROP)",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No FTS query/ranking DSL was added. MySQL FULLTEXT DDL already uses correct CREATE FULLTEXT INDEX prefix and refuses UNIQUE (pinned in migration1973). Selected SQLite FTS5/virtual table synchronization now refuses beforeeffects, actual FTS5 catalog preserved and unrelated selectedtable syncnoop in1973. PostgreSQL tsvector generic operator admission is handled by native-string contract; that is not a full-text search capability."
   },
   {
     "id": "dialect-features-07",
@@ -642,7 +651,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "No generated columns, and a GENERATED column created by hand cannot even be mapped (explicit NULL on insert -> 428C9)",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns."
   },
   {
     "id": "dialect-features-09",
@@ -682,9 +692,10 @@
     "kind": "footgun",
     "effort": "M",
     "title": "Native types are cosmetic: inet/cidr/macaddr/uuid/tsvector/xml string columns keep text operators that crash at runtime",
-    "status": "implemented-unverified",
-    "resolution": "Existing adapter caseSensitiveText seam receives native declaration and text-operation hint; PostgreSQL casts non-text string pattern/fold operands, preserves native equality/key semantics, and explicitly refuses unsupported XML equality/order before dispatch. Actual allowlisted PGlite native-family provider witness saved; awaiting serial slot.",
-    "owner": "query-engine/cache/extensions"
+    "status": "verified-fixed",
+    "resolution": "Existing adapter text-expression owner casts nontext native PostgreSQL strings for pattern/case operations while preserving native equality and key semantics. XML equality/order are explicit V8003 refusals. Literal equality/membership delegates unwrapped columns to existing exactTextEq/In with native-type hint, preserving MySQL indexed conjunct and preventing doubled collation.",
+    "owner": "query-engine/cache/extensions",
+    "verification": "Actual PGlite provider8/8 PASS7.35s1949.2MiB within existing2560MiB allowlist, teardown verified; native INET/CIDR/MACADDR/UUID/XML/TSVECTOR/TSQUERY/BIT pattern/fold cases, native MAC/UUID equality and XML equality refusal in tests/providers/local/pglite-adapter-adversarial.test.ts; /tmp/viborm-v1-query-native-string-final.log. Existing focused ordinary predicate SQL/class/list repairs current169 awaiting final driver golden gate; not misrepresented as green."
   },
   {
     "id": "dialect-features-13",
@@ -704,7 +715,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Views, materialized views and partitioned tables cannot be modeled; the migrator treats them as tables",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns."
   },
   {
     "id": "dialect-features-16",
@@ -855,7 +867,10 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Empty or undefined OR members evaluate to FALSE: OR [{ role: role ?? undefined }] returns zero rows, undocumented and with no strict mode",
-    "status": "pending"
+    "status": "documented-contract",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Preserve settled Boolean filter behavior: undefined members omitted, empty AND/NOT true, empty OR including empty children false. Compatibility Filter behavior on a port now states exact semantics and safe optional-input construction concern. New strictUndefined mode remains a product feature gap.",
+    "verification": "Source existing prepared predicate semantics; tests/contracts/drivers/behaviors/prisma-parity-behavior.ts empty-OR coverage and tests/raptor3/g4/review/unit01-followup2/characterize.test.ts/combinator-depth.test.ts establish extensive intentional contract. No new runtime change or fresh full-provider run claimed."
   },
   {
     "id": "differential-14",
@@ -864,7 +879,10 @@
     "kind": "gap",
     "effort": "M",
     "title": "SQLite-family statements are capped at 999 bound values (D1: 100), refused rather than chunked: an IN list of 1,000 ids throws",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "The incorrect generic999 SQLite ceiling is repaired at the existing concrete driver capacity owner: current SQLite-family transports declare32766; D1 retains its actual100-provider limit. Ordinary admitted caller IN1000 executes. Final rendered budget still fails closed before provider effects at a real ceiling; automatically splitting arbitrary logical read predicates is an explicit remaining query-strategy product gap, not claimed implemented.",
+    "verification": "Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support."
   },
   {
     "id": "differential-15",
@@ -873,7 +891,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "mode: \"insensitive\" folds ASCII only (documented): \u00e9/\u00cb/\u0130/\u00df never match case-insensitively on any database",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "The portable insensitive contract is ASCII folding. Unicode case equivalence and normalization are not promised across dialects; no locale-independent Unicode collation layer added.",
+    "owner": "root/integration"
   },
   {
     "id": "differential-16",
@@ -892,7 +912,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Enum orderBy/groupBy order differs: declaration order on PostgreSQL/MySQL, alphabetical on SQLite (undocumented)",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Enum ordering remains provider storage ordering: declaration order for PostgreSQL/MySQL enums, lexical order for SQLite text. No new portable enum-order expression was added; range operators remain refused. Explicit ordering caveat added to enum guide.",
+    "owner": "root/integration"
   },
   {
     "id": "differential-10",
@@ -901,7 +923,9 @@
     "kind": "footgun",
     "effort": "M",
     "title": "String orderBy/lt/gt/_min/_max follow the PG database collation, while JSON-path strings are pinned to code point",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Ordinary string ordering/aggregates follow the database collation; JSON-path code-point rules remain distinct. Insensitive range predicate defect fixed and actual SQLite adversarial witness passed8/8. No global collation contract added.",
+    "owner": "root/integration"
   },
   {
     "id": "differential-11",
@@ -920,7 +944,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "s.int() accepts values PostgreSQL int4 can't store; overflow surfaces as opaque V2001 / misleading V9001 errors",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Logical s.int admits JS safe integers; documented default PG/MySQL signed32 and SQLite signed64 physical ranges remain distinct. Provider numeric overflow now expected nonretryable V2005 with category evidence PG22003/MySQL1264/1690/SQLite integer overflow in mapping73/73 core6. No silent clamping or broad schema inference added."
   },
   {
     "id": "differential-17",
@@ -941,7 +966,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "Cursor pagination refuses relation and aggregate orderBy (documented); Prisma accepts it",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Cursor order by relation/count/distance remains unsupported; intentional refusals now use UnsupportedOperationError V8003 instead of internal-bug V9001. Real SQLite operand suite3/3 qualified exact public errors.",
+    "owner": "root/integration"
   },
   {
     "id": "differential-19",
@@ -950,7 +977,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Unvalidated inputs reach the database and surface as opaque QueryError V2001 'Query execution failed'",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "Write admission enforces logical/physical scalar output domain, custom transforms once and result-aware arithmetic refusal. Provider schema/range categories now V2004/V2005, auth/config V1004 and capacity V1005; explicit diagnostics opt-in retains sanitized bounded provider detail and callsite. Mapping73/73/hostile30/30 core6 and real recorder disclosure7/7/root144 passed."
   },
   {
     "id": "differential-20",
@@ -1069,7 +1097,10 @@
     "kind": "docs",
     "effort": "M",
     "title": "Error codes are weakly linked to docs, and the documented UniqueConstraintError metadata is absent",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "root/driver",
+    "resolution": "The public error reference lists the shipped typed families and stable codes, links the Prisma mapping precisely, and states that constraint/columns/table metadata depends on provider evidence. The diagnostic allowlist preserves these structured fields; arbitrary application metadata remains excluded.",
+    "verification": "Provider mapping73 and hostile30 core6 tests plus current driver/instrumentation132 passed; actual-recorder diagnostics7 and executable docs corpus137 passed. docs/content/docs/client/errors.mdx is updated for V2004/V2005/V2006/V1005 and unavailable metadata. Final docs validation remains a release gate."
   },
   {
     "id": "docs-onboarding-23",
@@ -1208,8 +1239,8 @@
     "kind": "bug",
     "effort": "M",
     "title": "Caller-supplied pools/clients bypass VibORM's type setup: naive timestamps silently shift by the process UTC offset (pg, postgres.js, PGlite; mysql2 by code)",
-    "status": "implemented-unverified",
-    "evidence": "pg/PGlite/Neon temporal text OIDs per query; mysql2 per-command text decoding; supplied postgres requires executable vibormTypes setup. Hosted pg/postgres owned/borrowed fidelity passed west of UTC; supplied ownership56/56 passed. Full MySQL/PGlite/Bun temporal matrix awaits integrated qualification. Latest SDK1.2 hosted6/6 passed7.38s448.3MiB includes year0000 scalar/array on TCP and HTTP; retained empty fixture in drivers.md. Latest current SDK1.2 actual Neon/TCP fidelity6/6 passed7.38s448.3MiB, year0000 scalar+array nowincluded; owned/supplied pg/postgres bothproven. Full liveMySQL/Bun qualification is not claimed."
+    "status": "verified-fixed",
+    "evidence": "Supplied-client parity: driver-supplied-clients56/56 passed (includes per-query pg/PGlite temporal text and executable supported postgres text setup refusal/acceptance), latest driver runtime/core checkpoints in drivers.md. Owned/supplied postgres+pg and Neon HTTP actual hosted6/6 current SDK1.2 preserve UTC/year0/date scalar/arrays. Borrowed lifecycle remains caller-owned."
   },
   {
     "id": "drivers-03",
@@ -1218,8 +1249,8 @@
     "kind": "security",
     "effort": "S",
     "title": "postgres.js and mysql2 drivers re-parse databaseUrl by hand: sslmode/ssl and every query parameter are dropped (silent plaintext) and credentials are never percent-decoded",
-    "status": "implemented-unverified",
-    "evidence": "Original PostgreSQL URL passed to provider; MySQL percent credentials/query options preserved and unrepresentable TLS refused; Bun URL/options combined. V1 transport boundary 4/4 plus modern core 29/29 passed. Actual URL TLS handshake and Bun-owned URL/options runtime precedence remain outside focused executed evidence."
+    "status": "verified-fixed",
+    "evidence": "Existing URL owner preserves postgres original URL, decodes MySQL percent credentials/query TLS options, forwards Bun SQL options with URL. Dedicated v1-transport remediation9/9 and transport coverage focused fixtures passed; no credentials printed. drivers.md."
   },
   {
     "id": "drivers-02",
@@ -1228,8 +1259,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "libSQL: any caller-supplied client is treated as in-memory, so callback transactions on remote Turso are not atomic (and $disconnect closes the caller's client)",
-    "status": "implemented-unverified",
-    "evidence": "libSQL uses protocol-based local classification and dedicated native write transactions for every callback; caller-owned clients never close. Actual 0.18 memory rollback/ownership and supplied precision refusal passed. Hosted Turso rollback not executed; no claim of hosted qualification. Native local driver11/11 passed in86/86 focused batch: in-memory/supplied modern libSQL write transactions, rollback retaineddatabase, exactinteger setup refusal, SQLITE_BUSY at setup quarantines exactclient across wrappers without borrowed close; owned disconnect recreates cleantransport."
+    "status": "verified-fixed",
+    "evidence": "libSQL0.18 native local transaction/rollback and supplied ownership proved in latest local14/14 (driver-diagnostics-2); capability is derived from actual SDK transaction support instead of supplied=in-memory assumption. Quarantine scoped to exact busy client prevents later acknowledgment; caller client never closed. Controlled remote capability tests prove protocol selection; no hosted Turso qualification claim."
   },
   {
     "id": "drivers-04",
@@ -1248,8 +1279,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "Bind caps refuse ordinary in/notIn/OR filters instead of chunking: 1,000 ids fail on every SQLite driver (real limit 32,766), 101 on D1",
-    "status": "implemented-unverified",
-    "evidence": "Driver ceilings corrected: SQLite32766, PGlite32767, postgres.js65533, D1100. Large logical filter splitting/batched createMany admission belongs query owner and must be verified before whole finding closure."
+    "status": "documented-contract",
+    "evidence": "SQLite ceiling32766/PGlite32767/postgres.js65533/D1100 corrected; original ordinary SQLite1000-value IN was a false ceiling. Filters exceeding the verified provider cap fail explicitly. OR splitting does not reduce total binds; no new array/JSON binding or split-query strategy was added. Generated writes separately use single-key IN/balanced compound OR (query138-case qualification).",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-07",
@@ -1258,8 +1290,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "bun-sqlite with a supplied Database: foreign keys are off (cascades silently skipped, dangling rows accepted) and $disconnect closes the caller's database",
-    "status": "implemented-unverified",
-    "evidence": "Bun SQLite supplied handle identity/ownership retained; FK pragma must already be enabled; shared handle queue; failed BEGIN never blanket-rolls back caller transaction or closes DB. Actual analogous better-sqlite3 witness passed; Bun-native PB-4 repro still needs integrated Bun qualification."
+    "status": "verified-fixed",
+    "evidence": "Bun native runtime probe1/1 passed driver-diagnostics-2 including supplied-handle FK setup refusal, no borrowed close/rollback, exact raw INTEGER and Date cutoff checks. FK setup documented executable contract; VibORM does not silently modify unrelated borrowed users."
   },
   {
     "id": "drivers-08",
@@ -1268,8 +1300,9 @@
     "kind": "gap",
     "effort": "XL",
     "title": "No Microsoft SQL Server support at all",
-    "status": "pending",
-    "evidence": "Confirmed product gap: Driver dialect/adapter union remains PostgreSQL/MySQL/SQLite; no SQL Server adapter, transport or migrations were added. No support claim or documentation-only fix."
+    "status": "product-gap",
+    "evidence": "SQL Server has no dialect, adapter, transport or migration implementation; it is an unimplemented platform expansion, not an existing-driver bug. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-05",
@@ -1288,8 +1321,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "No read-replica routing",
-    "status": "pending",
-    "evidence": "Confirmed product gap: one configured driver/namespace has no replica selection or read/write routing owner; no replicas were implemented."
+    "status": "product-gap",
+    "evidence": "No replica routing owner or read/write target selection was introduced; supplied pools and namespaces are not replica routing. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-10",
@@ -1298,8 +1332,9 @@
     "kind": "gap",
     "effort": "L",
     "title": "No CockroachDB support; the PostgreSQL migration lock uses pg_advisory_lock, which CockroachDB does not define",
-    "status": "pending",
-    "evidence": "Confirmed product gap: PostgreSQL migrations still depend on PostgreSQL session/advisory-lock semantics; no CockroachDB lock protocol or provider qualification exists."
+    "status": "product-gap",
+    "evidence": "No CockroachDB advisory-lock replacement or hosted qualification was added; the PostgreSQL migration protocol targets PostgreSQL. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-11",
@@ -1308,8 +1343,9 @@
     "kind": "gap",
     "effort": "L",
     "title": "MariaDB is unsupported: the MySQL adapter emits MySQL-8-only SQL and collations",
-    "status": "pending",
-    "evidence": "Confirmed qualification gap: MySQL SQL/migration owners target MySQL; MariaDB dialect/function/collation and server evidence were not added."
+    "status": "product-gap",
+    "evidence": "No MariaDB dialect/function/collation qualification was added; MySQL support does not imply MariaDB support. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-12",
@@ -1318,8 +1354,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "Neon is HTTP-only: no WebSocket Pool driver for interactive transactions, no client/authToken pass-through, and the docs recommend a Pool path VibORM rejects",
-    "status": "pending",
-    "evidence": "Partially repaired: Neon SDK1.2 public query API, authToken pass-through, ordered batch and isolation are proven hosted6/6 including temporal/bigint/decimal/arrays. An interactive WebSocket Pool transport and supplied Neon function option remain unimplemented; HTTP callback refusal is truthful and docs no longer suggest Pool substitution."
+    "status": "product-gap",
+    "evidence": "SDK1.2 HTTP query/authToken/ordered batch/isolation and temporal/exact values are hosted-qualified6/6. Interactive WebSocket Pool and caller-supplied Neon function support remain unimplemented. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-13",
@@ -1328,8 +1365,9 @@
     "kind": "gap",
     "effort": "L",
     "title": "Platform reach trails Drizzle badly: no Durable Objects, React Native (Expo/op-sqlite), node:sqlite, sql.js, Bun SQL MySQL/SQLite, Turso Database, TiDB/AWS Data API/Xata/Vercel/Netlify/SingleStore, or HTTP-proxy drivers",
-    "status": "pending",
-    "evidence": "Confirmed platform expansion gap: current11 transport families remain; no Durable Objects, React Native, node:sqlite, sql.js, Bun MySQL/SQLite or named hosted/proxy targets were implemented. Browser PGlite async-context absence now preserves finite queued transaction behavior, but does not qualify those separate platforms."
+    "status": "product-gap",
+    "evidence": "Named alternative runtime/platform transports remain unimplemented. Browser PGlite now has bounded queue behavior without Node async context; this does not qualify a separate Durable Objects/Expo/node:sqlite/sql.js/proxy transport. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-14",
@@ -1338,8 +1376,9 @@
     "kind": "maturity",
     "effort": "L",
     "title": "Most drivers are barely qualified: 6 of 11 run at most 3 of the 56 shared provider contracts, hosted services are never exercised, and CI pins one server version per database",
-    "status": "pending",
-    "evidence": "Qualification expanded with controlled driver/transaction/supplied-client contracts, native SQLite/libSQL and real pg/postgres/NeonHTTP6/6. Bun-native/Workers-native, hosted Turso/PlanetScale/D1, shared provider contract census and multi-server-version CI remain incomplete. These are recorded qualification limits, not marked fixed."
+    "status": "product-gap",
+    "evidence": "Bounded driver/supplied-client/lifecycle contracts, native SQLite/libSQL, hosted Neon and CI native Bun coverage were expanded. Hosted Turso/PlanetScale/D1 and multiple server-version qualification remain absent; no blanket eleven-driver parity claim. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-15",
@@ -1348,7 +1387,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "No live schema management on edge SQLite/HTTP providers: push/migrate refused on D1, libSQL (even an empty local file), Neon HTTP and PlanetScale; D1 introspection broken; the deleted D1 HTTP driver is still in the docs",
-    "status": "pending"
+    "status": "product-gap",
+    "owner": "driver/scalar",
+    "evidence": "Interactive/pinned migration protocols are not implemented for D1, remote libSQL, NeonHTTP or PlanetScale. Local libSQL runtime execution is qualified separately. Unsupported migration APIs fail explicitly; this is not a claim of edge migration support. Accepted expansion boundary; not marked fixed by documentation."
   },
   {
     "id": "drivers-16",
@@ -1357,8 +1398,9 @@
     "kind": "maturity",
     "effort": "S",
     "title": "Peer ranges lag the driver ecosystem (libSQL, better-sqlite3, workers-types, PlanetScale) - with PlanetScale SDK 2.0 the driver fails every query",
-    "status": "pending",
-    "evidence": "Root upgraded Neon1.2/libSQL0.18 and qualifies current supported PlanetScale1.x. PlanetScale2 removed parameter-array API and is outside retained peer contract; no speculative lexical/manual formatter introduced. Full modern peer/provider compatibility still requires package/API disposition and matrix proof."
+    "status": "product-gap",
+    "evidence": "Neon1.2/libSQL0.18 and better-sqlite3\u226512.10/13 peer contracts were updated. PlanetScale2 parameter API support was deliberately not invented: the supported peer remains1.x. Actual modern-peer qualification is scoped to installed/tested versions; PlanetScale2 remains an expansion gap. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "drivers-17",
@@ -1377,8 +1419,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "The custom-driver escape hatch silently returns SQLite JSON as strings: the needed result parser is not exported and the documented contract omits it",
-    "status": "implemented-unverified",
-    "evidence": "Export canonical sqliteResultParser from viborm/driver and document required custom-driver result; supplied postgres setup imports vibormTypes and passes native URL; D1 accepts DatabaseSession. Final export/declaration/snippet/session qualification pending integrated gate."
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact3 consumer passed public D1 Sessions API typing, exported sqliteResultParser JSON decoding, and documented supplied postgres vibormTypes setup (packed-driver-setup-1, 0.78s/263.9MiB). Source/runtime supplied-client tests pass. D1 controlled binding acceptance is not a hosted Cloudflare claim."
   },
   {
     "id": "drivers-19",
@@ -1387,8 +1429,8 @@
     "kind": "dx",
     "effort": "M",
     "title": "Every public declaration entry imports the types of all nine driver packages",
-    "status": "implemented-unverified",
-    "evidence": "Actual artifact1 no-peer root/schema skipLibCheck:false failed TS5.8/native with9optional-provider TS2307 and unused runtime-helper TS7016. Generic type-only imports routed to existing driver/exports (22files); separate runtime keepNames/declaration-only build preserves88mjs+35dmts and passed aggregate1009.9MiB. Artifact2 removes all driver peer/helper errors; only CloudflareKV type remained via @cache barrel. Client/cache-flow now import existing direct cache owners; candidate3 no-peer proof pending. No fake peer declarations or skipLibCheck suppression."
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact3 no-peer root/schema consumer strict skipLibCheck:false passed TS5.8 and native with runtime dependencies only, no fake ambient peers. packed-nopeer-3:5.14s/761.3MiB. Generic driver type imports routed to existing public exports boundary; cache generic imports direct owners; separate runtime keepNames/declaration output eliminates undeclared __name helper."
   },
   {
     "id": "drivers-20",
@@ -1397,8 +1439,8 @@
     "kind": "docs",
     "effort": "S",
     "title": "The documented postgres.js 'Using Existing Client' snippet does not typecheck",
-    "status": "implemented-unverified",
-    "evidence": "Export canonical sqliteResultParser from viborm/driver and document required custom-driver result; supplied postgres setup imports vibormTypes and passes native URL; D1 accepts DatabaseSession. Final export/declaration/snippet/session qualification pending integrated gate."
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact3 consumer passed public D1 Sessions API typing, exported sqliteResultParser JSON decoding, and documented supplied postgres vibormTypes setup (packed-driver-setup-1, 0.78s/263.9MiB). Source/runtime supplied-client tests pass. D1 controlled binding acceptance is not a hosted Cloudflare claim."
   },
   {
     "id": "drivers-21",
@@ -1407,8 +1449,8 @@
     "kind": "gap",
     "effort": "S",
     "title": "D1 read replication (Sessions API) is not accepted",
-    "status": "implemented-unverified",
-    "evidence": "Export canonical sqliteResultParser from viborm/driver and document required custom-driver result; supplied postgres setup imports vibormTypes and passes native URL; D1 accepts DatabaseSession. Final export/declaration/snippet/session qualification pending integrated gate."
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact3 consumer passed public D1 Sessions API typing, exported sqliteResultParser JSON decoding, and documented supplied postgres vibormTypes setup (packed-driver-setup-1, 0.78s/263.9MiB). Source/runtime supplied-client tests pass. D1 controlled binding acceptance is not a hosted Cloudflare claim."
   },
   {
     "id": "drivers-22",
@@ -1459,9 +1501,9 @@
     "kind": "security",
     "effort": "S",
     "title": "Unchecked rows/data model names: one typo in a runtime model list turns tenancy off and leaks every tenant",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Schema-bound rows/data/deletion reject unknown model/top field names at extension application; structural model guards refuse typo and wide maps.",
+    "resolution": "Policy model/field/control/mode names fail closed at existing definition/reference owners; private input/plan array admission now admits all controls before physical transforms while preflighting all plans before DML. Final controls48+arrays54+dedicated22+carrier14 passed138/138; complete-key generic factory guard qualified native8,8.99s7158.3MiB. Fresh/held typo and wide-model-map type refusals are retained.",
     "verification": "Runtime policy4/4, controls48/48, deletion13/13 and soft-delete26/26 passed. Concrete/generic model-key typing awaits integrated native gate3."
   },
   {
@@ -1582,7 +1624,9 @@
     "kind": "gap",
     "effort": "L",
     "title": "No RLS policy/role DDL, and an extension cannot bind a per-call Postgres session setting",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No RLS policy/role DDL or per-operation database session-setting extension is shipped. Client filters and omit are not complete row authorization; raw/manual database policy remains application-owned.",
+    "owner": "root/integration"
   },
   {
     "id": "ecosystem-14",
@@ -1627,8 +1671,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Standard test doubles do not work on model delegates (vi.spyOn throws, stubs silently ignored)",
-    "status": "implemented-unverified",
-    "evidence": "Root/model proxies now expose real schema/member keys with writable configurable delegate descriptors, memoized operations and own-property overrides. Spy/stub/restore/independent-client public tests added; final runtime core pending.",
+    "status": "verified-fixed",
+    "evidence": "Client proxies now expose only real schema models and operations, memoize delegates, and honor writable/configurable overrides. Existing public spy/stub/restore and independent-client regressions passed in root follow-through2; parsed unknown model reflection and serialization boundary regressions passed there as well.",
     "owner": "root/integration"
   },
   {
@@ -1638,7 +1682,8 @@
     "kind": "gap",
     "effort": "L",
     "title": "Validation derivation is VibORM-v-only: no Zod/Valibot objects, no row schema, no pick/extend, BigInt unusable from JSON",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "Standard Schema operation validation and JSON Schema export are supported; generated Zod/Valibot objects, row validators and pick/extend wrappers are outside this defect-only release. types-and-json-schema.mdx explicitly distinguishes scalar Standard Schema consumption from derivation and documents bigint conversion at JSON boundaries. The bigint-only public contract is retained for exactness."
   },
   {
     "id": "ecosystem-21",
@@ -1751,7 +1796,9 @@
     "kind": "dx",
     "effort": "S",
     "title": "`logging: { query: true }` prints no SQL; no documented SQL preview (toSQL)",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Query logging requires an explicit handler and includeSql disclosure flag. Logging guide states the distinction; no public toSQL/explain surface added. Protected diagnostics details and callsite opt-ins are separate.",
+    "owner": "root/integration"
   },
   {
     "id": "ecosystem-29",
@@ -1802,7 +1849,10 @@
     "kind": "dx",
     "effort": "M",
     "title": "CLI needs a separately installed TS loader on Node, and both documented ways to run it fail for common setups (Bun + better-sqlite3, pnpm)",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "owner": "root/package",
+    "resolution": "jiti is a runtime dependency used by the CLI config loader. The CLI loads project environment values and TypeScript config; documentation uses the correct executable and the selected runtime/provider combination. Native SQLite under Bun is not advertised as a better-sqlite3 ABI guarantee.",
+    "verification": "Migration CLI69/69 and complete migration core1973 passed, including actual config files loaded through jiti. Genuine installed package CLI and Node22.0 release consumer are pending exact-artifact qualification."
   },
   {
     "id": "edge-bundle-04",
@@ -1831,7 +1881,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Peer ranges reject the current major of 5 of 10 drivers: npm ERESOLVE for existing projects, silent downgrades for new ones",
-    "status": "pending"
+    "status": "product-gap",
+    "owner": "driver/scalar",
+    "evidence": "Compatible supported peer ranges were updated, including libSQL0.18 and better-sqlite3\u226512.10/13. PlanetScale2 remains unsupported rather than admitted through an unproven interpolator; not every current ecosystem major is qualified. Accepted expansion boundary; not marked fixed by documentation."
   },
   {
     "id": "edge-bundle-07",
@@ -1840,8 +1892,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "libSQL driver with @libsql/client 0.18 (latest) cannot run transactions or nested writes on its default in-memory database",
-    "status": "implemented-unverified",
-    "evidence": "libSQL uses protocol-based local classification and dedicated native write transactions for every callback; caller-owned clients never close. Actual 0.18 memory rollback/ownership and supplied precision refusal passed. Hosted Turso rollback not executed; no claim of hosted qualification. Native local driver11/11 passed in86/86 focused batch: in-memory/supplied modern libSQL write transactions, rollback retaineddatabase, exactinteger setup refusal, SQLITE_BUSY at setup quarantines exactclient across wrappers without borrowed close; owned disconnect recreates cleantransport."
+    "status": "verified-fixed",
+    "evidence": "libSQL0.18 native local transaction/rollback and supplied ownership proved in latest local14/14 (driver-diagnostics-2); capability is derived from actual SDK transaction support instead of supplied=in-memory assumption. Quarantine scoped to exact busy client prevents later acknowledgment; caller client never closed. Controlled remote capability tests prove protocol selection; no hosted Turso qualification claim."
   },
   {
     "id": "edge-bundle-08",
@@ -1860,7 +1912,8 @@
     "kind": "dx",
     "effort": "M",
     "title": "Runtime and driver incompatibilities cannot be diagnosed: provider messages are always redacted, with no opt-in",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "False-default instrumentation diagnostics.includeProviderDetails/includeCallsite implemented at existing error/private execution snapshot owners. Descriptor-only bounded provider message/detail/hint with credential redaction; raw/model deferred application frames captured only opt-in; official JSON logs preserve canonical class/message, sanitized cause and immutable validation source/issues. New4 cases + existing diagnostics25/hostile30 all passed within driver-diagnostics-2 121/121,6.07s/540.2MiB. Packed runtime confirmation still follows final artifact; no default provider disclosure."
   },
   {
     "id": "edge-bundle-10",
@@ -1879,8 +1932,8 @@
     "kind": "footgun",
     "effort": "M",
     "title": "Shared declaration chunk imports types from all 9 optional peers: TS2307 for drivers you never installed",
-    "status": "implemented-unverified",
-    "evidence": "Actual artifact1 no-peer root/schema skipLibCheck:false failed TS5.8/native with9optional-provider TS2307 and unused runtime-helper TS7016. Generic type-only imports routed to existing driver/exports (22files); separate runtime keepNames/declaration-only build preserves88mjs+35dmts and passed aggregate1009.9MiB. Artifact2 removes all driver peer/helper errors; only CloudflareKV type remained via @cache barrel. Client/cache-flow now import existing direct cache owners; candidate3 no-peer proof pending. No fake peer declarations or skipLibCheck suppression."
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact3 no-peer root/schema consumer strict skipLibCheck:false passed TS5.8 and native with runtime dependencies only, no fake ambient peers. packed-nopeer-3:5.14s/761.3MiB. Generic driver type imports routed to existing public exports boundary; cache generic imports direct owners; separate runtime keepNames/declaration output eliminates undeclared __name helper."
   },
   {
     "id": "edge-bundle-12",
@@ -1889,9 +1942,9 @@
     "kind": "gap",
     "effort": "S",
     "title": "D1 Sessions API (read replication) is rejected by the D1 driver's types although it works at runtime",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "owner": "driver/scalar",
-    "evidence": "Same fix as drivers-21: D1DriverOptions accepts official D1DatabaseSession alongside D1Database, preserving borrowed lifecycle. Public integrated declaration/type gate pending; no live Cloudflare session claim."
+    "evidence": "Actual immutable artifact3 consumer passed public D1 Sessions API typing, exported sqliteResultParser JSON decoding, and documented supplied postgres vibormTypes setup (packed-driver-setup-1, 0.78s/263.9MiB). Source/runtime supplied-client tests pass. D1 controlled binding acceptance is not a hosted Cloudflare claim."
   },
   {
     "id": "edge-bundle-13",
@@ -1930,7 +1983,8 @@
     "kind": "design",
     "effort": "M",
     "title": "Every database error message is destroyed, with no opt-in anywhere",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "False-default diagnostics.includeProviderDetails/includeCallsite at existing owners: descriptor-only bounded credential-redacted provider message/detail/hint; actual deferred application origin captured only opt-in. Canonical class/message, sanitized same-instance native cause and validation source/issues survive JSON logs. Actual recorder provider-details-callsite7/7 plus docs137/137 passed root144/144 (3.78s472.1MiB), superseding mistaken callback harness. Final tracing/context/golden suite passed drivers132/132 (5.68s583.7MiB). Default disclosure stays off."
   },
   {
     "id": "errors-02",
@@ -1949,8 +2003,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "A down or unreachable database is 'Query execution failed', never ConnectionError",
-    "status": "implemented-unverified",
-    "evidence": "Bun string errno SQLSTATE and connection SQLSTATE/network mapping corrected; auth/config refusal distinguished from retryable connection failure; cancellation/lock-wait become V2002. Transport+failure-union modern core29/29 passed. Real Bun constraint/provider failover qualification and broader transaction disposition remain pending."
+    "status": "verified-fixed",
+    "evidence": "Provider connection SQLSTATE/network errors now ConnectionError/V1001 retryable; auth/config V1004 and capacity V1005 are distinct. Mapping73/73 and hostile30/30 passed current core6; own-session terminated Neon connection recovery1/1 previously proved reconnect without unrelated backend termination. Real Bun platform cases remain part of required CI, not inferred from Node mocks."
   },
   {
     "id": "errors-04",
@@ -1971,7 +2025,8 @@
     "kind": "dx",
     "effort": "M",
     "title": "Stack traces never reach your code; Prisma prints the exact call site",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "False-default diagnostics.includeProviderDetails/includeCallsite at existing owners: descriptor-only bounded credential-redacted provider message/detail/hint; actual deferred application origin captured only opt-in. Canonical class/message, sanitized same-instance native cause and validation source/issues survive JSON logs. Actual recorder provider-details-callsite7/7 plus docs137/137 passed root144/144 (3.78s472.1MiB), superseding mistaken callback harness. Final tracing/context/golden suite passed drivers132/132 (5.68s583.7MiB). Default disclosure stays off."
   },
   {
     "id": "errors-06",
@@ -1990,7 +2045,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Error log events lose the message, stack and validation path when serialised",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "False-default diagnostics.includeProviderDetails/includeCallsite at existing owners: descriptor-only bounded credential-redacted provider message/detail/hint; actual deferred application origin captured only opt-in. Canonical class/message, sanitized same-instance native cause and validation source/issues survive JSON logs. Actual recorder provider-details-callsite7/7 plus docs137/137 passed root144/144 (3.78s472.1MiB), superseding mistaken callback harness. Final tracing/context/golden suite passed drivers132/132 (5.68s583.7MiB). Default disclosure stays off."
   },
   {
     "id": "errors-09",
@@ -1999,7 +2055,9 @@
     "kind": "dx",
     "effort": "M",
     "title": "Validation messages hide the path, the model and the bad value, and speak validator",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "evidence": "ValidationError now names model.operation when known and includes the path for single-issue failures, without adding caller values. Multiple issues remain available in trusted serialized snapshot. Updated public helper contract pending runtime.",
+    "owner": "root/integration"
   },
   {
     "id": "errors-13",
@@ -2008,7 +2066,8 @@
     "kind": "gap",
     "effort": "S",
     "title": "Nested-write misses break the 'one-token Prisma port' promise",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "The partial Prisma mapping is deliberate: V7001 covers multiple Prisma categories and a blanket P2025 would misroute them. errors.mdx now removes the universal one-token port promise, requires reviewing each catch, and names NestedWriteError/VibORM codes; compatibility.mdx retains its explicit unmapped families table. Adding new Prisma case taxonomy is a product gap."
   },
   {
     "id": "errors-16",
@@ -2017,7 +2076,9 @@
     "kind": "footgun",
     "effort": "M",
     "title": "IDs are logged, traced and attached to errors as byte arrays",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Opted-in statement parameters remain provider physical values, including binary ID carriers; values are not reinterpreted without their scalar descriptor. Review marks this partial/parity with Drizzle. Raw docs and response distinguish logical rows from physical SQL parameters.",
+    "owner": "root/integration"
   },
   {
     "id": "errors-19",
@@ -2026,7 +2087,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "No documented toSQL/explain; buildStatement() is hidden and reads-only",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No general public toSQL/explain compiler API added. Query inspection and instrumentation disclose prepared SQL only at their established boundaries; internal buildStatement is not advertised as supported API.",
+    "owner": "root/integration"
   },
   {
     "id": "errors-21",
@@ -2035,7 +2098,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "Narrow provider mapping: schema drift, auth and capacity errors are untyped",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "driver/scalar",
+    "evidence": "Same-class taxonomy now maps schema mismatch V2004, numeric overflow V2005 and retryable capacity V1005; auth/config V1004. Provider PG/MySQL/provenSQLite cases73/73 and hostile30/30 passed core6; final supplied pool53300 acquisition case passes as primary V1005 while57P01 evidence remains suppressed. Actual SQLSTATE53300 protected span passed real recorder7/7. No guessed Prisma equivalence."
   },
   {
     "id": "errors-07",
@@ -2044,7 +2109,9 @@
     "kind": "gap",
     "effort": "S",
     "title": "Every failed span says 'Operation failed' \u2014 no error.type, code or SQLSTATE",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "driver/scalar",
+    "evidence": "Actual OTel protected operation/statement/connection spans carry error.type, viborm.error.code and provider SQLSTATE without enabling logs or disclosing provider text. Real recorder provider-details-callsite7/7 plus docs137/137 passed root final diagnostics144; final tracer/context/official observer/golden contracts passed in drivers132/132. The earlier callback harness evidence is superseded by these actual assertions."
   },
   {
     "id": "errors-10",
@@ -2053,7 +2120,10 @@
     "kind": "design",
     "effort": "S",
     "title": "Caller mistakes are filed as engine bugs (V9001 'please report it')",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Deliberate field-reference scope/domain/token refusals, cursor relation/count/distance and cyclic recursion now use UnsupportedOperationError V8003. Existing five caller-only key portability/transition refusals now use the same taxonomy with unchanged eligibility/messages. Genuine internal carrier/key-publication invariant failures retain V9001.",
+    "verification": "Actual SQLite root/nested FieldRef and cursor taxonomy12/12; recursive carrier14/14 in138 focused admission batch. Five key owner sites and existing exact class-string goldens saved; current final key runtime qualification queued."
   },
   {
     "id": "errors-11",
@@ -2062,7 +2132,9 @@
     "kind": "docs",
     "effort": "S",
     "title": "Error classes the docs tell you to instanceof are not exported",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "driver/scalar",
+    "evidence": "All documented existing error classes/guards now root runtime exports. Explicit public-runtime-surface vocabulary passes within final drivers132/132. Actual packed root golden remains required by final release artifact gate; no new error classes introduced."
   },
   {
     "id": "errors-12",
@@ -2071,7 +2143,9 @@
     "kind": "design",
     "effort": "S",
     "title": "No standard cause chain; wrapError() destroys the caller's message",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "driver/scalar",
+    "evidence": "Standard cause is the same sanitized Error instance as originalCause; explicit wrapError diagnostics preserves bounded redacted caller details. Actual provider-details-callsite identity/wrap tests ran7/7 in root final diagnostics144, and final golden confirms consistent serialization. Defaults retain privacy."
   },
   {
     "id": "errors-14",
@@ -2080,7 +2154,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Which batch member or nested element failed is never identified",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "Validation issues carry input paths, but provider failures do not guarantee array member indices or nested element attribution. This missing diagnostic feature is explicitly documented in errors.mdx; model/operation metadata is not claimed as element attribution."
   },
   {
     "id": "errors-15",
@@ -2089,7 +2164,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Internal codenames and design vocabulary leak into user-facing errors",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "evidence": "Removed remaining user-facing Raptor 3/query-engine-v2 and G1 wording from command conflicts, parent-reference refusal, generated output, cache failures and row count diagnostics at their existing owners. Existing exact message witnesses updated; full engine/provider integration still required."
   },
   {
     "id": "errors-17",
@@ -2098,8 +2174,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "Migration error meta is stripped; the destructive-push refusal says nothing actionable",
-    "status": "implemented-unverified",
-    "evidence": "Destructive push refusal now gives dryRun/review/consent recovery in its message and retains only existing allowlisted command/dialect/checksum/statement-count/hint metadata. No SQL/params/preview disclosure policy expansion. Named regression is saved; final focused runtime qualification pending."
+    "status": "verified-fixed",
+    "evidence": "Migration1973green: destructive refusal provides dryRun\u2192review\u2192consent recovery and retains only existing allowlisted command/dialect/checksum/statement-count/hint metadata in public toJSON. SQL/params/preview disclosure unchanged; raw catalog preflight failures remain normalized, typed failure propagated."
   },
   {
     "id": "errors-18",
@@ -2141,7 +2217,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Custom meta keys on errors are silently dropped",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Error metadata uses an allowlisted, bounded diagnostic vocabulary and drops arbitrary caller keys by design. Rich unrelated application context belongs to application logging; documentation must not imply arbitrary meta survives serialization.",
+    "owner": "root/integration"
   },
   {
     "id": "errors-24",
@@ -2161,7 +2239,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "A malformed id on a read throws a contradictory ValidationError instead of 'not found'",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Malformed formatted IDs are invalid input even on reads; they are refused before provider execution. No-match applies only to admitted identifiers. This prevents using query absence as a substitute for ID validation.",
+    "owner": "root/integration"
   },
   {
     "id": "escape-hatches-01",
@@ -2190,7 +2270,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Raw SQL failures are undebuggable: the database message is always redacted, even with diagnostics enabled",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "False-default instrumentation diagnostics.includeProviderDetails/includeCallsite implemented at existing error/private execution snapshot owners. Descriptor-only bounded provider message/detail/hint with credential redaction; raw/model deferred application frames captured only opt-in; official JSON logs preserve canonical class/message, sanitized cause and immutable validation source/issues. New4 cases + existing diagnostics25/hostile30 all passed within driver-diagnostics-2 121/121,6.07s/540.2MiB. Packed runtime confirmation still follows final artifact; no default provider disclosure."
   },
   {
     "id": "escape-hatches-03",
@@ -2199,9 +2280,10 @@
     "kind": "footgun",
     "effort": "M",
     "title": "ctx.sql fragments can't reference the current row; natural spellings error or silently bind the wrong table",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Direct field interpolation in typed scalar filter SQL prepares via existing scoped field owner and lowers to the current actual mapped-column alias; ordinary literal slots remain bound. Tokens inside parameter objects are refused without interpreting provider objects as SQL. Public actual SQLite root/nested arithmetic+invalid-scope witnesses queued after native7."
+    "resolution": "Typed scalar Sql interpolation resolves direct FieldRef tokens through the existing scoped mapped-column/alias owner, leaves ordinary literals bound, and refuses wrong-model or hidden object tokens with V8003.",
+    "verification": "Actual SQLite12.11.1 public root+nested mapped-column arithmetic, literal interpolation, wrong-model/deep-object V8003 and no-effects witnesses: tests/providers/local/sqlite3-v1-sql-operands.test.ts, part of12/12,5.08s538.6MiB, /tmp/viborm-v1-query-final-sqlite.log."
   },
   {
     "id": "escape-hatches-05",
@@ -2260,7 +2342,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Database views can't be modeled: reads work through .map(view) but push plans CREATE TABLE over it",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No view/read-only model DSL was added. Confirmed effectful name collision is mitigated by desired-snapshot catalog preflight on PG views/materialized views, SQLite views and MySQL views; collision refuses beforeeffects, unrelated excluded views do not poison selected scope. Full migration1973+actual PGlite3green retain readableviews afterrefusal; MySQL actual provider CI qualification remains integration gate."
   },
   {
     "id": "escape-hatches-07",
@@ -2299,7 +2382,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Raw Date parameters fail on SQLite with an opaque error; the ISO-text storage format is undocumented for raw callers",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "Public docs Date cutoff now binds ISO text. Native SQLite3+libSQL safe/unsafe INSERT/filter/UPDATE exact before/equal/after oracle and Bun runtime same witness passed; D1 controlled native bind receives ISO text,44/44 D1. driver-diagnostics-2:121/121; libSQL raw INTEGER intentionally retains configured bigint physical carrier, irrelevant to Date equality. Shared SQLite encoder owns Date.toISOString; physical epoch/Julian raw binds remain caller-owned."
   },
   {
     "id": "escape-hatches-15",
@@ -2329,7 +2413,10 @@
     "kind": "dx",
     "effort": "S",
     "title": "Unsupported escape-hatch positions fail with misleading generic errors; fragment-plus-values typechecks",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Existing operand closure scans original inputs before union matching and transformed output after normalization. HAVING closes its whole aggregate-or-filter union, and fresh model-owned OrderBy retains metadata with one captured original validator; callbacks/Sql receive explicit refusal, valid where comparison Sql preserved. Unsupported write Sql is already V4001 invalid scalar/JSON data and receives its honest required-domain message; no expression update DSL introduced. Root safe raw Sql overload rejects extra rest values structurally.",
+    "verification": "Exact HAVING aggregate-envelope/OrderBy callback+fragment/reuse and ordinary where Sql regressions saved; full native12 passed prior caller-taxonomy-only followup. Focused runtime plus root raw runtime/type evidence still required."
   },
   {
     "id": "escape-hatches-18",
@@ -2389,7 +2476,8 @@
     "kind": "gap",
     "effort": "L",
     "title": "DB-maintained values do not port: SQL/sequence defaults become required fields, generated columns break creates or get dropped, explicit NULLs bypass DB defaults",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns."
   },
   {
     "id": "migrant-08",
@@ -2428,7 +2516,9 @@
     "kind": "footgun",
     "effort": "M",
     "title": "String filters silently change case semantics on port (SQLite contains; MySQL equality on Prisma's _ci tables)",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Porting preserves VibORM's explicit case-sensitive string contract rather than inheriting an existing MySQL _ci collation or Prisma SQLite LIKE semantics. Select insensitive mode where needed; no silent API parity claim.",
+    "owner": "root/integration"
   },
   {
     "id": "migrant-06",
@@ -2437,7 +2527,9 @@
     "kind": "footgun",
     "effort": "M",
     "title": "Same-named ID helpers are incompatible with Prisma's: .cuid() makes CUID v1 tables unreadable, .uuid()/.uuidv7()/.ulid() change storage",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Identifier formats are storage/validation contracts, not Prisma-compatible helper aliases. Legacy CUIDv1 or textual UUID/ULID storage must use an appropriate plain/native scalar and application mapping; raw physical storage is documented.",
+    "owner": "root/integration"
   },
   {
     "id": "migrant-11",
@@ -2456,9 +2548,9 @@
     "kind": "dx",
     "effort": "S",
     "title": "Common model names (order, group, key, index, table, column, field, model, default...) are refused even when mapped",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "owner": "root/integration",
-    "evidence": "Removed49-word SQL keyword reservation at the definition-rule owner; identifiers are quoted. Only model key then remains refused because it hides the client Promise hook. Added12 keyword cases with mapped/unmapped models; full core qualification pending."
+    "evidence": "Removed SQL keyword model bans; physical table/column identifiers remain quoted. Only then, the client Promise hook, is refused as a schema key. Twelve mapped/unmapped keyword cases passed root follow-through2."
   },
   {
     "id": "migrant-13",
@@ -2467,7 +2559,9 @@
     "kind": "gap",
     "effort": "L",
     "title": "Drizzle RQB v2 'through' relations, predefined relation filters and extras have no VibORM spelling; ported result shapes change",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "Drizzle-specific predefined relation filters, extras and arbitrary through views have no equivalent declaration in V1. Existing junction naming/storage capabilities do not constitute these features.",
+    "owner": "root/integration"
   },
   {
     "id": "migrant-14",
@@ -2476,7 +2570,9 @@
     "kind": "gap",
     "effort": "XL",
     "title": "Drizzle SQL-builder calls have no object-API home: no upsert on a partial unique index, no bulk upsert, no row locks, no CTEs or arbitrary joins",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "General SQL-builder joins/CTEs, row locks, bulk/partial-arbiter upserts remain raw SQL/application work; no object-API product expansion added.",
+    "owner": "root/integration"
   },
   {
     "id": "migrant-15",
@@ -2485,7 +2581,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Views: no declaration; a model mapped to a view reads fine but push plans CREATE TABLE for it",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns."
   },
   {
     "id": "migrant-16",
@@ -2494,7 +2591,9 @@
     "kind": "dx",
     "effort": "S",
     "title": "Decimal and BigInt inputs refuse JS numbers at type and runtime",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "BigInt and Decimal retain exact logical input domains (bigint and Decimal/string respectively). Safe-number input coercion is not a promised API; JSON callers must convert explicitly before validation. No hidden rounding added.",
+    "owner": "root/integration"
   },
   {
     "id": "migrant-17",
@@ -2503,7 +2602,9 @@
     "kind": "gap",
     "effort": "S",
     "title": "Enum value @map is unsupported",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "Per-enum-value database mapping is not implemented.",
+    "owner": "root/integration"
   },
   {
     "id": "migrant-18",
@@ -2512,7 +2613,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "Unbounded numeric has no decimal spelling",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "Unbounded NUMERIC has no fixed-decimal declaration. The one precision/scale language remains intentional; no alternate decimal mode added.",
+    "owner": "root/integration"
   },
   {
     "id": "migrant-19",
@@ -2521,7 +2624,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "No better-auth adapter",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No maintained better-auth adapter added; same explicit ecosystem gap as ecosystem09.",
+    "owner": "root/integration"
   },
   {
     "id": "migrant-20",
@@ -2530,7 +2635,9 @@
     "kind": "design",
     "effort": "M",
     "title": "One-way door on SQLite: VibORM-native storage reads wrong in other tools",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "SQLite exact decimal coefficients, JSON list carriers and identifier physical encodings require logical decoding outside the ORM. Documentation now distinguishes raw physical values; no portable external-tool view layer added.",
+    "owner": "root/integration"
   },
   {
     "id": "migrations-01",
@@ -2619,8 +2726,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Migration failures are opaque: database messages redacted, CLI shows 'Query execution failed', no JSON or per-family exit codes on error",
-    "status": "implemented-unverified",
-    "evidence": "CLI finalizer/typed JSON errors/stable migration exit status verified69/69, baseline/apply/verify differences reported. Integrated built-package and driver diagnostic redaction behavior still requires root evidence; no raw provider messages exposed."
+    "status": "verified-fixed",
+    "evidence": "CLI69/69 and full migration1973green: migration errors retain safe catalog/schema identifiers and recovery hints, JSON failure object and family exit code, cleanup failure preserves primary failure, invalid config/custom migration authoring are actionable. Errors17 destructive recovery/public allowlisted metadata tested. Raw provider SQL/parameter/message redaction remains intentional; no unsafe disclosure promise. PostgreSQL preflight raw catalog failures now normalize publicly while preserving typed refusals."
   },
   {
     "id": "migrations-03",
@@ -2690,7 +2797,7 @@
     "effort": "M",
     "title": "No data-aware safety checks; plan labels omit table and column names",
     "status": "product-gap",
-    "evidence": "Static risk and object labels fixed/verified; live row-count/data-aware planning remains a product gap."
+    "evidence": "Static destructive classification and object labels fixed/verified. The specific required-column/noDBdefault case now observes row presence and refuses populated tables beforeeffects, with stored generated empty-table precondition. General live row counts/size/cost/data-aware preview remains a product gap, not claimed complete."
   },
   {
     "id": "migrations-17",
@@ -2859,8 +2966,8 @@
     "kind": "security",
     "effort": "S",
     "title": "The postgres.js and mysql2 drivers drop TLS and every other URL parameter and pass percent-encoded credentials verbatim; bun-sql ignores `options` whenever databaseUrl is set",
-    "status": "implemented-unverified",
-    "evidence": "Original PostgreSQL URL passed to provider; MySQL percent credentials/query options preserved and unrepresentable TLS refused; Bun URL/options combined. V1 transport boundary 4/4 plus modern core 29/29 passed. Actual URL TLS handshake and Bun-owned URL/options runtime precedence remain outside focused executed evidence."
+    "status": "verified-fixed",
+    "evidence": "Existing URL owner preserves postgres original URL, decodes MySQL percent credentials/query TLS options, forwards Bun SQL options with URL. Dedicated v1-transport remediation9/9 and transport coverage focused fixtures passed; no credentials printed. drivers.md."
   },
   {
     "id": "production-ops-02",
@@ -2869,8 +2976,8 @@
     "kind": "bug",
     "effort": "M",
     "title": "A caller-supplied pool or client (the documented 'Using Existing Pool' and shared-pool patterns) skips VibORM's type configuration: `timestamp without time zone` reads shift by the process time zone and DATE reads throw",
-    "status": "implemented-unverified",
-    "evidence": "pg/PGlite/Neon temporal text OIDs per query; mysql2 per-command text decoding; supplied postgres requires executable vibormTypes setup. Hosted pg/postgres owned/borrowed fidelity passed west of UTC; supplied ownership56/56 passed. Full MySQL/PGlite/Bun temporal matrix awaits integrated qualification. Latest SDK1.2 hosted6/6 passed7.38s448.3MiB includes year0000 scalar/array on TCP and HTTP; retained empty fixture in drivers.md. Latest current SDK1.2 actual Neon/TCP fidelity6/6 passed7.38s448.3MiB, year0000 scalar+array nowincluded; owned/supplied pg/postgres bothproven. Full liveMySQL/Bun qualification is not claimed."
+    "status": "verified-fixed",
+    "evidence": "Supplied-client parity: driver-supplied-clients56/56 passed (includes per-query pg/PGlite temporal text and executable supported postgres text setup refusal/acceptance), latest driver runtime/core checkpoints in drivers.md. Owned/supplied postgres+pg and Neon HTTP actual hosted6/6 current SDK1.2 preserve UTC/year0/date scalar/arrays. Borrowed lifecycle remains caller-owned."
   },
   {
     "id": "production-ops-03",
@@ -2879,8 +2986,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "No read-replica support of any kind",
-    "status": "pending",
-    "evidence": "Confirmed routing product gap: no replica target or routing policy added; same disposition as drivers-09."
+    "status": "product-gap",
+    "evidence": "Read-replica selection/routing remains unimplemented; no support claim. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "production-ops-04",
@@ -2889,7 +2997,9 @@
     "kind": "design",
     "effort": "M",
     "title": "Every operational failure collapses into one non-retryable `QueryError V2001 \"Query execution failed\"` with the database message redacted; the declared retryable timeout codes are never produced",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "driver/scalar",
+    "evidence": "Canonical mapping now distinguishes retryable connection/capacity, query/transaction timeout, lock contention/deadlock/serialization and nonretryable auth/config/schema/range; actual core6 mapping73/73/hostile30/30, transaction timers6/6 and queue17/17 passed. Actual diagnostic opt-in/span7/7 in root144 and latest driver132 retain disclosure/callsite/class/SQLSTATE. Own-session Neon warm-dead1/1 proved recovery; no unsafe-write automatic retry promise."
   },
   {
     "id": "production-ops-06",
@@ -2898,8 +3008,8 @@
     "kind": "perf",
     "effort": "S",
     "title": "The mysql2 driver uses server-side prepared statements (execute) with mysql2's 16,000-per-connection cache while emitting a distinct statement text per IN-list length and createMany size, which can exhaust MySQL's server-wide max_prepared_stmt_count",
-    "status": "implemented-unverified",
-    "evidence": "mysql2 typed commands use per-command query text protocol/typeCast, avoiding dynamic prepared-cache growth and preserving supplied-pool temporal/exact decoding. Controlled ownership56/56 passed; integrated native MySQL regression pending."
+    "status": "verified-fixed",
+    "evidence": "MySQL2 typed dispatch now calls documented text query protocol with per-command exact typeCast, rather than server-side prepared execute; source owner inspected. Provider result contracts115/115 passed current core6 and supplied-pool lifecycle56/56 passed final focused gate. This removes cache-causing dispatch; no measured whole-server memory reduction or fully qualified external MySQL matrix claim."
   },
   {
     "id": "production-ops-07",
@@ -2928,8 +3038,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "SQLite drivers refuse any statement with more than 999 bound values (an IN list of 1,000 ids), although the bundled SQLite accepts 32,766 and both competitors handle such lists",
-    "status": "implemented-unverified",
-    "evidence": "Driver ceilings corrected: SQLite32766, PGlite32767, postgres.js65533, D1100. Large logical filter splitting/batched createMany admission belongs query owner and must be verified before whole finding closure."
+    "status": "verified-fixed",
+    "evidence": "SQLite driver ceilings now32766 (D1 remains100); actual stockSQLite public1000-bind IN query passed within final driver132/132, excluding poisoned row and selecting valid row exactly. Existing query generated-key balancing is separate. No automatic split strategy beyond actual provider ceiling is claimed."
   },
   {
     "id": "production-ops-09",
@@ -2948,8 +3058,9 @@
     "kind": "gap",
     "effort": "M",
     "title": "Shutdown is inconsistent and has no deadline: single-connection drivers reject $disconnect during a transaction, pooled drivers wait indefinitely, concurrent $disconnect throws, and a closed client silently reconnects",
-    "status": "pending",
-    "evidence": "Partially repaired shared-handle queue, owned cleanup retry/quarantine and supplied ownership. There is no universal shutdown deadline or closed-client permanent shutdown mode; native pool draining can remain unbounded. New production guide names current shutdown contract; no claim that the complete shutdown feature gap is fixed."
+    "status": "product-gap",
+    "evidence": "Close rejection now quarantines the exact handle until explicit cleanup retry succeeds; borrowed lifecycle remains untouched and reconnect after successful disconnect is intentional. A configurable shutdown deadline/draining policy and coalesced concurrent disconnect API remain unimplemented. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "production-ops-11",
@@ -2958,8 +3069,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Interactive transactions have no default timeout or maxWait, and there is no client-level default",
-    "status": "pending",
-    "evidence": "Single-handle queues now have finite default maxWait5000ms (browser reentry reaches deadline); per-call callback timeout remains available. There is still no default callback timeout or client-level transaction defaults; no invented timeout guarantee."
+    "status": "product-gap",
+    "evidence": "Explicit callback timeout/maxWait are supported. Browser async-context absence has a finite5s queue fallback to prevent unbounded reentry. Global client default timeout/maxWait configuration remains unimplemented; no universal default deadline claim. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "production-ops-14",
@@ -2968,8 +3080,9 @@
     "kind": "gap",
     "effort": "S",
     "title": "No pool observability: driver-made pools are unreachable, idle-pool failures are retained silently, and there are no pool stats or error hooks",
-    "status": "pending",
-    "evidence": "Confirmed observability gap: supplied pools expose native stats/listeners to their owner, but VibORM has no built-in pool-stats or idle-error hook API. Native pooling lifetime remains provider-owned."
+    "status": "product-gap",
+    "evidence": "Dead-pool retained failure/lifecycle recovery were fixed and independently hosted-qualified. Public owned-pool statistics/error hooks remain unimplemented; a supplied pool retains caller ownership and its own observability. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "production-ops-15",
@@ -2998,8 +3111,9 @@
     "kind": "gap",
     "effort": "L",
     "title": "No streaming or cursor iteration: every read is materialized in full",
-    "status": "pending",
-    "evidence": "Confirmed product gap: typed reads remain materialized; no streaming/cursor iteration transport/result contract introduced."
+    "status": "product-gap",
+    "evidence": "Streaming/cursor iteration remains unimplemented; reads materialize results and documentation states this boundary. Accepted expansion boundary; not marked fixed by documentation.",
+    "owner": "driver/scalar"
   },
   {
     "id": "production-ops-13",
@@ -3018,8 +3132,8 @@
     "kind": "gap",
     "effort": "S",
     "title": "SQLite transactions always BEGIN DEFERRED; with no 'immediate' option, multi-process read-modify-write fails about 45% of the time under contention",
-    "status": "implemented-unverified",
-    "evidence": "Owned SQLite/Bun write transactions now BEGIN IMMEDIATE with nonzero default busy timeout; libSQL uses native write transaction. Native local boundary tests passed. New multiprocess/WAL contention rate qualification not run; explicit interactive mode option remains a product gap."
+    "status": "verified-fixed",
+    "evidence": "SQLite3/Bun owned interactive writes now BEGIN IMMEDIATE with nonzero default busy timeout; libSQL uses native write transactions. Existing native lifecycle/transaction-option behavior3/3 and queue17/17 pass current core6; failed provider work refuses later acknowledgments through rollback-only/quarantine. Exact previous multiprocess45% failure rate was not rebenchmarked and no configurable transaction-mode product feature added."
   },
   {
     "id": "production-ops-18",
@@ -3140,7 +3254,10 @@
     "kind": "bug",
     "effort": "M",
     "title": "`in` lists over 999 values are refused on SQLite drivers (over 100 on D1), with no chunking",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "The incorrect generic999 SQLite ceiling is repaired at the existing concrete driver capacity owner: current SQLite-family transports declare32766; D1 retains its actual100-provider limit. Ordinary admitted caller IN1000 executes. Final rendered budget still fails closed before provider effects at a real ceiling; automatically splitting arbitrary logical read predicates is an explicit remaining query-strategy product gap, not claimed implemented.",
+    "verification": "Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support."
   },
   {
     "id": "read-api-08",
@@ -3275,9 +3392,10 @@
     "kind": "gap",
     "effort": "M",
     "title": "Cursor + relation or _count ordering is refused at runtime (the types accept it)",
-    "status": "implemented-unverified",
+    "status": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Relation/count/distance cursor orders remain an explicit feature gap; unsupported runtime attempts now raise UnsupportedOperationError instead of engine-bug V9001. Public actual SQLite taxonomy witness queued after native7."
+    "resolution": "Relation/count/distance cursor ordering remains an explicit feature gap. Runtime attempts now fail with UnsupportedOperationError V8003 rather than internal engine-bug taxonomy.",
+    "verification": "Actual SQLite12.11.1 public relation+count cursor refusal witness in sqlite3-v1-sql-operands.test.ts, part of12/12, /tmp/viborm-v1-query-final-sqlite.log; no capability implementation claimed."
   },
   {
     "id": "read-api-20",
@@ -3455,9 +3573,10 @@
     "kind": "gap",
     "effort": "M",
     "title": "Cursor pagination cannot be combined with relation or _count ordering",
-    "status": "implemented-unverified",
+    "status": "product-gap",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Relation/count cursor orders remain an explicit feature gap; unsupported runtime attempts now raise UnsupportedOperationError instead of engine-bug V9001. Public actual SQLite taxonomy witness queued after native7."
+    "resolution": "Relation/count cursor ordering remains an explicit feature gap. Runtime attempts now fail with UnsupportedOperationError V8003 rather than internal engine-bug taxonomy.",
+    "verification": "Actual SQLite12.11.1 public relation+count cursor refusal witness in sqlite3-v1-sql-operands.test.ts, part of12/12, /tmp/viborm-v1-query-final-sqlite.log; no capability implementation claimed."
   },
   {
     "id": "relations-13",
@@ -3466,7 +3585,10 @@
     "kind": "gap",
     "effort": "M",
     "title": "Overlapping compound foreign keys (multi-tenant) cannot be connected in one write",
-    "status": "pending"
+    "status": "product-gap",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "One payload cannot independently assign a shared physical FK column through multiple relation writes; existing assignment owner refuses V8003 before effects and does not invent precedence, partial compound ownership, or matching-value merge semantics. Supporting overlapping compound-FK relation writes requires an explicit mutation ownership contract, remains a product gap; declarations and existing nonoverlapping compound relations keep their proven behavior.",
+    "verification": "Existing Assignments relation contribution conflict owner and compound relation adoption/refusal witnesses; plain field/relation diagnostic wording root errors15 and compatibility nested conflict contract. No support expansion claimed."
   },
   {
     "id": "relations-15",
@@ -3487,7 +3609,10 @@
     "kind": "footgun",
     "effort": "M",
     "title": "FK scalar plus relation write in one payload type-checks but always throws (with a stale engine name)",
-    "status": "pending"
+    "status": "documented-contract",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "A scalar FK plus relation verb assigning the same column is an explicit V8003 refusal even for agreeing input. Diagnostic now names conflicting column/relation rather than internal engine. Static FK/relation XOR remains a product typing gap; no precedence or matching-value merge introduced.",
+    "verification": "Existing assignment owner and compound relation adoption public witnesses; root errors15 message correction and compatibility conflict documentation. Does not claim static XOR implemented."
   },
   {
     "id": "relations-16",
@@ -3531,7 +3656,9 @@
     "kind": "docs",
     "effort": "S",
     "title": "Default referential actions are undocumented, and onUpdate defaults to NO ACTION (Prisma: CASCADE)",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Relation guide now states stored-FK onDelete setNull only when every member nullable, restrict otherwise; onUpdate noAction. Junction defaults cascade both operations. Physical owner behavior preserved, including difference from Prisma update default.",
+    "owner": "root/integration"
   },
   {
     "id": "relations-20",
@@ -3540,7 +3667,9 @@
     "kind": "docs",
     "effort": "S",
     "title": "Polymorphic collection docs example fails validation (R010)",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "evidence": "Polymorphic collection example now names its items carrier to match its existing named inverse examples. Literal example topology validation still needs direct qualification.",
+    "owner": "root/integration"
   },
   {
     "id": "relations-21",
@@ -3549,7 +3678,10 @@
     "kind": "dx",
     "effort": "L",
     "title": "Relation field names and schema membership are not type-checked",
-    "status": "pending"
+    "status": "product-gap",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Concrete runtime schema composition establishes relation target membership and actual source/reference columns once at L5 before operations. Static relation fields/references and cross-schema getter membership are not fully sealed through the getter; that public typing capability remains an explicit product gap. Shallow public model reflection now reflects actual schema membership rather than phantom delegates (root-owned distinct fix).",
+    "verification": "Runtime L5 schema validation and relation-resolution owners; existing public contextual relation key reachability pins remain visible. Getter-keying historical123 estate errors are recorded; driver packedH13 static membership refactoring/consumer proofs are separately owned, no broad compile-time column-key seal claimed."
   },
   {
     "id": "relations-22",
@@ -3582,7 +3714,9 @@
     "kind": "dx",
     "effort": "S",
     "title": "Relation schema errors drop their repair hints",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "evidence": "SchemaValidationError renders existing candidates and repair fields from its frozen issue snapshot; focused text+serialization regression added. Runtime core pending.",
+    "owner": "root/integration"
   },
   {
     "id": "relations-25",
@@ -3615,8 +3749,8 @@
     "kind": "bug",
     "effort": "S",
     "title": ".withoutTimezone() timestamps drift by the process UTC offset, progressively on every read-modify-write, when a PostgreSQL client/pool is supplied (documented 'Using Existing Instance')",
-    "status": "implemented-unverified",
-    "evidence": "Same supplied-client remediation as drivers-01/production-ops-02: pg/PGlite per-query temporal scalar/array text parsers; postgres supplied vibormTypes setup refusal; mysql typed text paths. Hosted currentSDK6/6 exercised owned/supplied pg/postgres including year0 scalars/arrays. Final native integration qualification pending."
+    "status": "verified-fixed",
+    "evidence": "Supplied-client parity: driver-supplied-clients56/56 passed (includes per-query pg/PGlite temporal text and executable supported postgres text setup refusal/acceptance), latest driver runtime/core checkpoints in drivers.md. Owned/supplied postgres+pg and Neon HTTP actual hosted6/6 current SDK1.2 preserve UTC/year0/date scalar/arrays. Borrowed lifecycle remains caller-owned."
   },
   {
     "id": "schema-dsl-05",
@@ -3635,7 +3769,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Literal defaults for lists, JSON, bigint and Date objects (plus .now() on SQLite, .updatedAt(), function defaults) are app-only; adding such a column to a populated table fails after a 'safe' preview",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "Declared supported literal lists/JSON object/bigint/Date defaults now cross existing physical encoders into DDL. Actual populated SQLite and PG rows backfill and secondpushnoop; all3dialect SQL-shape witness; function/unsupported generators remain application-only, populated required-column add refuses beforeeffects with explicit manualbackfill recipe, storedgenerated precheck proves empty. Migration1973/PGlite3 green. MySQL PRIMARY canonicalization fixed after real CI exposed its mismatch; actual MySQL final provider qualification belongs CI."
   },
   {
     "id": "schema-dsl-07",
@@ -3644,7 +3779,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Database-computed values cannot be modeled: no SQL-expression defaults, no generated columns, no read-only fields, and omitted nullable fields are written as explicit NULL",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns."
   },
   {
     "id": "schema-dsl-08",
@@ -3683,8 +3819,8 @@
     "kind": "bug",
     "effort": "M",
     "title": "Transforms in .schema() are applied twice for JSON and to filter operands for every scalar, so read values do not round-trip",
-    "status": "implemented-unverified",
-    "evidence": "Root owns JSON admission/read normalization. Scalar transform-count regression8/8 and string120/120 passed: string/int/number/bigint/date/time/dateTime/decimal filter equality/shorthand use physical domain without custom write transform; ID folding and decimal descriptor retained; runtime lists refine members once. Native integrated gate pending. Followthrough scalar refinement/output guard9 plus modifiers66/localdriver11 passed86/86; physical-domain output refusal covers malicious Standard Schema results without restricting primitive v.* transforms. Final ordinary zero-divisor test10/10 green. Integrated type gate pending. Latest11/11 adds normalized temporal custom output (Date andoffsettext), customschema invocationonce, and numericzero-divisor refusal; no read-side custom validator added."
+    "status": "verified-fixed",
+    "evidence": "Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md."
   },
   {
     "id": "schema-dsl-04",
@@ -3723,8 +3859,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Modifier order silently discards defaults and generators: .default(x).nullable(), .uuid().nullable(), .now().nullable() lose them",
-    "status": "implemented-unverified",
-    "evidence": "Runtime declaration115/115 plus final modifier6/refinement8/string120/L5model37/schemaJSONserialize35+format20 green; error registry18 green. Domain-only formats and id({generate:false}) required input, explicit generation, retained defaults/refinements (date/time included), native custom map admission and disabled-generation JSON roundtrip. Physical-domain filters avoid write transforms; ID folding retained; list members custom-validate once; numeric/decimal refined arithmetic refused at runtime and public types. Native type gate for newest scalar/validation source still pending; custom type codecs remain release-level product scope."
+    "status": "verified-fixed",
+    "evidence": "Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md."
   },
   {
     "id": "schema-dsl-14",
@@ -3733,8 +3869,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "s.string().id() always installs a ULID generator: natural string keys become optional and are silently minted when forgotten",
-    "status": "implemented-unverified",
-    "evidence": "Runtime declaration115/115 plus final modifier6/refinement8/string120/L5model37/schemaJSONserialize35+format20 green; error registry18 green. Domain-only formats and id({generate:false}) required input, explicit generation, retained defaults/refinements (date/time included), native custom map admission and disabled-generation JSON roundtrip. Physical-domain filters avoid write transforms; ID folding retained; list members custom-validate once; numeric/decimal refined arithmetic refused at runtime and public types. Native type gate for newest scalar/validation source still pending; custom type codecs remain release-level product scope."
+    "status": "verified-fixed",
+    "evidence": "Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md."
   },
   {
     "id": "schema-dsl-16",
@@ -3743,8 +3879,8 @@
     "kind": "bug",
     "effort": "S",
     "title": ".schema() refinements are bypassed by arithmetic updates and list push/unshift, and .array()/.nullable() called after .schema() erase it from update validation on several scalar kinds",
-    "status": "implemented-unverified",
-    "evidence": "Runtime declaration115/115 plus final modifier6/refinement8/string120/L5model37/schemaJSONserialize35+format20 green; error registry18 green. Domain-only formats and id({generate:false}) required input, explicit generation, retained defaults/refinements (date/time included), native custom map admission and disabled-generation JSON roundtrip. Physical-domain filters avoid write transforms; ID folding retained; list members custom-validate once; numeric/decimal refined arithmetic refused at runtime and public types. Native type gate for newest scalar/validation source still pending; custom type codecs remain release-level product scope. Followthrough scalar refinement/output guard9 plus modifiers66/localdriver11 passed86/86; physical-domain output refusal covers malicious Standard Schema results without restricting primitive v.* transforms. Final ordinary zero-divisor test10/10 green. Integrated type gate pending. Latest11/11 adds normalized temporal custom output (Date andoffsettext), customschema invocationonce, and numericzero-divisor refusal; no read-side custom validator added."
+    "status": "verified-fixed",
+    "evidence": "Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md."
   },
   {
     "id": "schema-dsl-17",
@@ -3754,7 +3890,7 @@
     "effort": "S",
     "title": "s.time() defaults to PostgreSQL timetz and VibORM strips the offset on read, so ordering and range filters depend on each session's TimeZone and DST",
     "status": "verified-fixed",
-    "evidence": "Default Time maps to TIME(3), with naive clock values; UTC Time.now defaults and explicit TIMETZ zero-offset default exercised under Pacific/Kiritimati in real PGlite, repeat no-op. Full migration 1,960/1,960 verifies mapping. Explicit native TIMETZ remains opt-in with documented narrower carrier semantics."
+    "evidence": "Default Time maps to TIME(3), with naive clock values; UTC Time.now defaults and explicit TIMETZ zero-offset default exercised under Pacific/Kiritimati in real PGlite, repeat no-op. Full migration 1,960/1,960 verifies mapping. Explicit native TIMETZ remains opt-in with documented narrower carrier semantics. Latest nativeTIME6/TIMETZ6 own .now uses UTC CURRENT_TIME(3); actualPGlitefinal7 3/3 proves\u00b5mod1000=0/UTCoffset0/naiveTime self-equality andsyncnoop. FinalClockcore66/66 current source."
   },
   {
     "id": "schema-dsl-18",
@@ -3763,8 +3899,8 @@
     "kind": "design",
     "effort": "S",
     "title": "s.dateTime() maps to microsecond timestamptz while values are millisecond Dates: a timestamp read back cannot find its own row, and .now()'s own DEFAULT NOW() creates such rows",
-    "status": "implemented-unverified",
-    "evidence": "Default DateTime TIMESTAMP(3)/TIMESTAMPTZ(3), UTC naive now and repeat-noop proven by full migration lane and final isolated PGlite 1/1. Last confirmed explicit native timestamp precision>3 now generator defect patched with date_trunc milliseconds and actual self-equality witness saved; awaiting scheduled final provider run. Arbitrary raw/native submillisecond data is not claimed preserved by Date results."
+    "status": "verified-fixed",
+    "evidence": "PG default TIMESTAMP/TIMESTAMPTZ millis domain uses precision3. Explicit native precision>3 .now() truncates generated instant to milliseconds while preserving UTC semantics. Actual precision6 database-default rows pass EXTRACT microseconds modulo1000=0 and public returned-Date self-equality query, then syncnoop; isolatedPGlite3/3 current source. Latest nativeTIME6/TIMETZ6 own .now uses UTC CURRENT_TIME(3); actualPGlitefinal7 3/3 proves\u00b5mod1000=0/UTCoffset0/naiveTime self-equality andsyncnoop. FinalClockcore66/66 current source."
   },
   {
     "id": "schema-dsl-19",
@@ -3783,7 +3919,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "No views or materialized views",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns."
   },
   {
     "id": "schema-dsl-21",
@@ -3793,7 +3930,7 @@
     "effort": "M",
     "title": "No user-declared CHECK constraints",
     "status": "product-gap",
-    "evidence": "No user-declared CHECK constraint DSL was added. Existing physical custom CHECK preservation requires a selected-table refusal guard; final catalog guard qualification is pending and this product gap does not excuse destructive reconstruction."
+    "evidence": "User-declared CHECK DSL remains absent. SQLite selected unknown CHECK refuses reconstruction before effects; exact enum/decimal/GeoPoint physical readers retain owned checks, control state requires exact existing writer shape/authentication. Actual selected refusal/catalog preservation plus excluded-scope noop are green in migration1970. PostgreSQL CHECK DSL still absent, no full importer claim."
   },
   {
     "id": "schema-dsl-15",
@@ -3802,9 +3939,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Common model names (order, group, key, index, table, column, field, model, relation, constraint, default, limit, offset...) are refused by push/migrate even when mapped, after the client already worked with them",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "owner": "root/integration",
-    "evidence": "Removed49-word SQL keyword reservation at the definition-rule owner; identifiers are quoted. Only model key then remains refused because it hides the client Promise hook. Added12 keyword cases with mapped/unmapped models; full core qualification pending."
+    "evidence": "SQL identifiers are always quoted; model validation no longer bans SQL keywords. Only exact lowercase then is reserved for the actual Promise assimilation boundary; physical .map(\"then\") remains allowed. Twelve mapped/unmapped SQL keyword witnesses passed root follow-through2."
   },
   {
     "id": "schema-dsl-22",
@@ -3833,8 +3970,8 @@
     "kind": "gap",
     "effort": "M",
     "title": "Custom types: a single-dialect string escape with no codec; the map form type-checks but throws at runtime; PG.DATETIME.INTERVAL is offered but unusable",
-    "status": "implemented-unverified",
-    "evidence": "Runtime declaration115/115 plus final modifier6/refinement8/string120/L5model37/schemaJSONserialize35+format20 green; error registry18 green. Domain-only formats and id({generate:false}) required input, explicit generation, retained defaults/refinements (date/time included), native custom map admission and disabled-generation JSON roundtrip. Physical-domain filters avoid write transforms; ID folding retained; list members custom-validate once; numeric/decimal refined arithmetic refused at runtime and public types. Native type gate for newest scalar/validation source still pending; custom type codecs remain release-level product scope."
+    "status": "verified-fixed",
+    "evidence": "Native custom scalar map form now resolves existing dialect owner; impossible PG DateTime INTERVAL vocabulary removed by root. Native49/49 and scalar modifier115/115 fixtures passed, native8 type gate green; no new custom codec feature claimed."
   },
   {
     "id": "schema-dsl-25",
@@ -3843,7 +3980,9 @@
     "kind": "gap",
     "effort": "S",
     "title": ".map() cannot reach legacy physical names: mapped names must be ASCII identifiers of at most 63 bytes and not Object.prototype names",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Mapped names retain the ASCII/63byte/non-prototype identifier grammar. SQL keyword refusal was removed separately; arbitrary Unicode/punctuation physical naming remains outside the declared language.",
+    "owner": "root/integration"
   },
   {
     "id": "schema-dsl-26",
@@ -3862,7 +4001,9 @@
     "kind": "footgun",
     "effort": "S",
     "title": "A schema with a gin/gist/hash index cannot be pushed to SQLite at all; indexes have no per-dialect form",
-    "status": "pending"
+    "status": "product-gap",
+    "evidence": "Dialect-specific index declarations/fallbacks are not added. PostgreSQL-only GIN/GiST/hash cannot be applied unchanged to SQLite; refusal remains intentional instead of silently dropping an index.",
+    "owner": "root/integration"
   },
   {
     "id": "schema-dsl-28",
@@ -3871,7 +4012,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "MySQL (code reading): a keyed s.string() is silently rewritten from TEXT to VARCHAR(191); adding an index later changes the column type; nothing validates length on write",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "Settled keyed bare MySQL TEXT\u2192VARCHAR191 mapping retained. String and MySQL migration guides now state exact191character stored bound, explicit native VARCHAR(length) escape, provider compound/index-byte limits and destructive preview when adding a key narrows TEXT. Strict migration sql_mode admission + typed ValueTooLongError mitigate silent truncation; no claim early native length refinement is inferred (that static validation gap remains explicit). Physical key/refusal regressions qualified in migration1970; backend actual CI owns MySQL execution."
   },
   {
     "id": "schema-dsl-29",
@@ -3984,7 +4126,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Provider structural failures collapse to an opaque V2001 with no hint",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "Provider structural categories now specific expected codes V2004 schema mismatch/V2005 overflow, auth V1004 and capacity V1005; caller can explicitly opt into bounded credential-redacted provider message/detail/hint and callsite. Defaults stay redacted. Actual mapping73/73/hostile30/30 core6 and real diagnostics7/7/root144 passed."
   },
   {
     "id": "security-10",
@@ -4039,7 +4182,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "PGlite: the 'verified' 65,535-value budget hits PGlite's >32,767-parameter bug \u2014 silent empty results, poisoned session, count/exist decode a missing row as 0/false",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "evidence": "PGlite conservative capacity corrected to32767; finalizer enforces before provider I/O. Static driver capacity12/12 passed core6; new exact32768 bound typed controlled-handle zero-dispatch regression saved pending next focused gate. No32767-scale actual provider result claim."
   },
   {
     "id": "sql-perf-07",
@@ -4072,7 +4216,10 @@
     "kind": "gap",
     "effort": "M",
     "title": "SQLite drivers refuse `in` lists above 999 values although better-sqlite3 accepts 32,766; no chunking or array binding",
-    "status": "pending"
+    "status": "verified-fixed",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "The incorrect generic999 SQLite ceiling is repaired at the existing concrete driver capacity owner: current SQLite-family transports declare32766; D1 retains its actual100-provider limit. Ordinary admitted caller IN1000 executes. Final rendered budget still fails closed before provider effects at a real ceiling; automatically splitting arbitrary logical read predicates is an explicit remaining query-strategy product gap, not claimed implemented.",
+    "verification": "Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support."
   },
   {
     "id": "sql-perf-08",
@@ -4129,7 +4276,10 @@
     "kind": "gap",
     "effort": "S",
     "title": "JSON object keys are bound as parameters: D1 refuses ordinary wide includes, parameter lists and logs balloon",
-    "status": "pending"
+    "status": "product-gap",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Projection JSON member names remain safe bound parameters at existing adapter JSON object owners. Wide-object argument arity is fixed, but a D1 statement whose projection keys plus actual operands exceed its genuine100 bind ceiling still refuses before dispatch. Trusted projection-key literal inlining or another parameter-saving projection strategy is not implemented; retain explicit D1 capacity boundary and do not claim generic wide-D1 includes solved.",
+    "verification": "Source adapter json.object/objectFromColumns continues sql`${key}` binding in all dialects. Final renderer driver budget owns predispatch refusal; actual wide native PG projection8/8 and SQLite argument-width tests close function arity only, not D1 bind-key count."
   },
   {
     "id": "sql-perf-13",
@@ -4196,8 +4346,8 @@
     "kind": "bug",
     "effort": "M",
     "title": "A failed BEGIN/COMMIT permanently bricks the client and tears down the transport (postgres.js, Bun SQL, sqlite3, bun-sqlite, libsql :memory:, PGlite)",
-    "status": "implemented-unverified",
-    "evidence": "Removed per-lifecycle pool/client teardown; only cleanup failure retains poison, successful disconnect clears it. Actual SQLite deferred COMMIT rollback/memory preservation passed. postgres warm-dead-session BEGIN hang regression has not been rerun against a real pooled connection. Native local driver11/11 passed in86/86 focused batch: in-memory/supplied modern libSQL write transactions, rollback retaineddatabase, exactinteger setup refusal, SQLITE_BUSY at setup quarantines exactclient across wrappers without borrowed close; owned disconnect recreates cleantransport. Real own-session warm-dead Neon direct postgres.js witness1/1 passed: transaction settledrejected666ms and later SELECT1 recovered; real Bun supplied-control ownership witness1/1 passed. drivers.md records exact runs; integrated native gate remains pending."
+    "status": "verified-fixed",
+    "evidence": "Lifecycle31/31, savepoint17/17 and local14/14 regressions prove failed BEGIN does not rollback/close borrowed transaction; failed COMMIT restores owned in-memory use only after proven rollback; failed cleanup quarantines retained exact transport until explicit disconnect succeeds. SDK0.18 local client and browser fallback covered. drivers.md records scoped recovery/no transparent busy replay."
   },
   {
     "id": "transactions-03",
@@ -4206,8 +4356,8 @@
     "kind": "bug",
     "effort": "S",
     "title": "Multi-process SQLite: implicit read-then-write transactions use deferred BEGIN, so normal write contention fails instantly with 'Database is locked'",
-    "status": "implemented-unverified",
-    "evidence": "Owned SQLite/Bun write transactions now BEGIN IMMEDIATE with nonzero default busy timeout; libSQL uses native write transaction. Native local boundary tests passed. New multiprocess/WAL contention rate qualification not run; explicit interactive mode option remains a product gap."
+    "status": "verified-fixed",
+    "evidence": "SQLite3/Bun owned interactive writes now BEGIN IMMEDIATE with nonzero default busy timeout; libSQL uses native write transactions. Native lifecycle/transaction-option behavior3/3 and queue17/17 passed current core6; actual libSQL busy failure quarantines exact handle and requires explicit cleanup, rather than acknowledging later lost writes. No contention-rate or transparent arbitrary-write retry claim."
   },
   {
     "id": "transactions-04",
@@ -4294,8 +4444,8 @@
     "kind": "dx",
     "effort": "S",
     "title": "Transaction failures are hard to act on: V5001 covers transient, misuse and fatal states; an unreachable database is a non-retryable QueryError",
-    "status": "implemented-unverified",
-    "evidence": "Bun string errno SQLSTATE and connection SQLSTATE/network mapping corrected; auth/config refusal distinguished from retryable connection failure; cancellation/lock-wait become V2002. Transport+failure-union modern core29/29 passed. Real Bun constraint/provider failover qualification and broader transaction disposition remain pending."
+    "status": "verified-fixed",
+    "evidence": "Existing transaction code taxonomy distinguishes V5002 timeout, V5003 deadlock, V5004 serialization, V5005 invalid input and V5006 lock contention; unreachable/capacity are retryable V1001/V1005 rather than V2001, auth/config V1004 stays nonretryable. Mapping73/73/hostile30/30, transaction timers6/6 core6 and final scheduler5/5 passed; rollback-only V5001 later refusal preserves actual original error via canonical suppressed evidence."
   },
   {
     "id": "transactions-11",
@@ -4376,9 +4526,9 @@
     "kind": "gap",
     "effort": "L",
     "title": "Models and clients cannot be declaration-emitted (TS2742/TS4023/TS7056), which blocks composite/monorepo db packages",
-    "status": "implemented-unverified",
+    "status": "pending",
     "owner": "driver/scalar",
-    "evidence": "Actual artifact1 valid unannotated client export failed TS4023 ClientExtensionState plus extended TS2742. Artifact2 named-state reexports resolved simple db export; extended still TS2742. Existing MergeExtensionState now type-only public reexported, without annotating callers. Genuine packed composite producer/downstream, unannotated chains2/5/30 and public chain100/ring10 fixture retained. Candidate3 actual proof pending; no H13 fixed claim yet."
+    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
   },
   {
     "id": "type-perf-05",
@@ -4387,7 +4537,10 @@
     "kind": "gap",
     "effort": "L",
     "title": "Perf-driven type-safety ceiling: typos in nested include.where, where.some, select.select, nested create, AND[] items and operators compile",
-    "status": "pending"
+    "status": "product-gap",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Direct root create/update/createMany/upsert write names are now sealed from State.shape, including ordinary and variant relations; literal-only polymorphic only/variants projection keys are sealed. Deeper nested mutation/filter/operator/AND-OR element key exactness remains an explicit static-product gap, with runtime strict admission preserving no-prefix-effects on invalid input. No claim of graph-wide editor exactness; existing public reachability pins remain visible rather than erased.",
+    "verification": "Whole native14 green8.45s5820.7MiB includes fresh+held root-write and only/variants negatives beside real keys plus valid declarations. Packed strictTS5.8/native write probes are driver-owned build6 pending. Historical full-recursive data guard cost172s/TS2589 and per-clause5.8 crash remain recorded in public contextual-typing gate; newest bounded root guard avoids recursive payload keyof and is retained only with current public compiler proof. No new successful whole-nested guard benchmark claimed."
   },
   {
     "id": "type-perf-01",
@@ -4429,7 +4582,9 @@
     "kind": "bug",
     "effort": "M",
     "title": "Look-alike models (shared field names) trigger TS2321 'Excessive stack depth comparing types' on plain queries (survives TS 7) and up to 3.4x slower checks",
-    "status": "pending"
+    "status": "pending",
+    "owner": "driver/scalar",
+    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
   },
   {
     "id": "type-perf-08",
@@ -4449,7 +4604,9 @@
     "kind": "bug",
     "effort": "M",
     "title": "tsc 5.9/6.0 crash (RangeError: Maximum call stack size exceeded) when queries touch models on deep relation chains; tsserver silently drops all diagnostics",
-    "status": "pending"
+    "status": "pending",
+    "owner": "driver/scalar",
+    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
   },
   {
     "id": "type-perf-09",
@@ -4458,8 +4615,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "With skipLibCheck: false, VibORM's own .d.mts files fail with 7 TS2307 errors (they import every optional peer driver)",
-    "status": "implemented-unverified",
-    "evidence": "Actual artifact1 no-peer root/schema skipLibCheck:false failed TS5.8/native with9optional-provider TS2307 and unused runtime-helper TS7016. Generic type-only imports routed to existing driver/exports (22files); separate runtime keepNames/declaration-only build preserves88mjs+35dmts and passed aggregate1009.9MiB. Artifact2 removes all driver peer/helper errors; only CloudflareKV type remained via @cache barrel. Client/cache-flow now import existing direct cache owners; candidate3 no-peer proof pending. No fake peer declarations or skipLibCheck suppression."
+    "status": "verified-fixed",
+    "evidence": "Actual immutable artifact3 no-peer root/schema consumer strict skipLibCheck:false passed TS5.8 and native with runtime dependencies only, no fake ambient peers. packed-nopeer-3:5.14s/761.3MiB. Generic driver type imports routed to existing public exports boundary; cache generic imports direct owners; separate runtime keepNames/declaration output eliminates undeclared __name helper."
   },
   {
     "id": "type-perf-10",
@@ -4511,7 +4668,10 @@
     "kind": "gap",
     "effort": "L",
     "title": "Typos in write data, beside a real filter operator, in OR arrays and relation filters compile",
-    "status": "pending"
+    "status": "product-gap",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Direct root create/update/createMany/upsert write names are now sealed from State.shape, including ordinary and variant relations; literal-only polymorphic only/variants projection keys are sealed. Deeper nested mutation/filter/operator/AND-OR element key exactness remains an explicit static-product gap, with runtime strict admission preserving no-prefix-effects on invalid input. No claim of graph-wide editor exactness; existing public reachability pins remain visible rather than erased.",
+    "verification": "Whole native14 green8.45s5820.7MiB includes fresh+held root-write and only/variants negatives beside real keys plus valid declarations. Packed strictTS5.8/native write probes are driver-owned build6 pending. Historical full-recursive data guard cost172s/TS2589 and per-clause5.8 crash remain recorded in public contextual-typing gate; newest bounded root guard avoids recursive payload keyof and is retained only with current public compiler proof. No new successful whole-nested guard benchmark claimed."
   },
   {
     "id": "type-soundness-03",
@@ -4520,9 +4680,9 @@
     "kind": "bug",
     "effort": "L",
     "title": "Exporting a VibORM schema or client from a package that emits .d.ts fails (TS2742/TS4023/TS7056; TS2883 on TS 7)",
-    "status": "implemented-unverified",
+    "status": "pending",
     "owner": "driver/scalar",
-    "evidence": "Actual artifact1 valid unannotated client export failed TS4023 ClientExtensionState plus extended TS2742. Artifact2 named-state reexports resolved simple db export; extended still TS2742. Existing MergeExtensionState now type-only public reexported, without annotating callers. Genuine packed composite producer/downstream, unannotated chains2/5/30 and public chain100/ring10 fixture retained. Candidate3 actual proof pending; no H13 fixed claim yet."
+    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
   },
   {
     "id": "type-soundness-04",
@@ -4698,7 +4858,9 @@
     "kind": "bug",
     "effort": "M",
     "title": "TS2321 'Excessive stack depth comparing Model' on long chains of same-shaped models",
-    "status": "pending"
+    "status": "pending",
+    "owner": "driver/scalar",
+    "evidence": "Artifact5 actual strictTS5.8 exports/extends/chains2/5/30 and chain100 pass; ring10 failed. Temporary packed declarations isolate eager recursive include membership conditional: removing it with original exact ModelState identity passes actual unannotated ring10 strictTS5.8 (6.78s921.5MiB). Minimal source removal saved/native14 green; final fresh immutable build6 both-compilers consumer still pending. No caller annotation, skipLibCheck or depth cap waiver."
   },
   {
     "id": "type-soundness-20",
@@ -4707,7 +4869,10 @@
     "kind": "dx",
     "effort": "S",
     "title": "FK scalar plus `connect` to a different row compiles; the runtime error leaks an internal engine name",
-    "status": "pending"
+    "status": "documented-contract",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Foreign-key scalar assignment plus a relation write remains an explicit deterministic V8003 refusal even when proposed values agree; the plain message now names conflicting column and relation, removing internal engine names. A statically modeled FK/relation XOR remains a product typing gap; no matching-value acceptance or ownership precedence introduced.",
+    "verification": "Same command assignment owner serves create/update; root errors15 message-only repair and compatibility nested relation conflict contract. Existing compound-relation-adoption public refusal witnesses retained; root owns exact relation14 static guard disposition."
   },
   {
     "id": "type-soundness-21",
@@ -4874,9 +5039,10 @@
     "kind": "footgun",
     "effort": "S",
     "title": "updatedAt diverges from Prisma: not bumped when a parent-side connect/set moves a child; always bumped by upsert(update: {})",
-    "status": "implemented-unverified",
+    "status": "verified-fixed",
     "owner": "query-engine/cache/extensions",
-    "resolution": "Implicit FK membership updates now obtain generated updatedAt defaults from the existing update-data admission owner, preserving settled exclusion of extension stamps. Empty root/nested upsert update arms suppress generated/stamped assignments. Public actual SQLite both-direction/connect/set/empty-arm witness queued after native7."
+    "resolution": "Implicit FK membership updates obtain generated updatedAt defaults from the existing update-data admission owner, preserving settled exclusion of extension stamps. Empty root/nested upsert update arms suppress generated/stamped assignments.",
+    "verification": "Actual SQLite12.11.1 public child+parent connect/set and root/nested empty upsert witness: tests/providers/local/sqlite3-v1-updated-at.test.ts1/1, part of12/12,5.08s538.6MiB, /tmp/viborm-v1-query-final-sqlite.log."
   },
   {
     "id": "write-api-14",
@@ -5040,8 +5206,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "Raw SQL Date parameters on the SQLite family: silent no-ops and all-NULL rows on bun-sqlite, epoch-ms text that poisons rows on libsql, opaque throws on sqlite3/D1, including the docs' own examples",
-    "status": "implemented-unverified",
-    "evidence": "D1 bigint parameters now decimal text; engine/adapters own bigint CAST/projection. Raw SQLite-family Date now ISO physical text. Controlled boundary regression passed; full Workers/Bun/provider run pending."
+    "status": "verified-fixed",
+    "evidence": "Public docs Date cutoff now binds ISO text. Native SQLite3+libSQL safe/unsafe INSERT/filter/UPDATE exact before/equal/after oracle and Bun runtime same witness passed; D1 controlled native bind receives ISO text,44/44 D1. driver-diagnostics-2:121/121; libSQL raw INTEGER intentionally retains configured bigint physical carrier, irrelevant to Date equality. Shared SQLite encoder owns Date.toISOString; physical epoch/Julian raw binds remain caller-owned."
   },
   {
     "id": "driver-conformance-05",
@@ -5163,7 +5329,7 @@
     "effort": "S",
     "title": "s.json().default(null) type-checks and emits NOT NULL DEFAULT NULL: every create that omits it fails, and a JSON-null default cannot be spelled",
     "status": "verified-fixed",
-    "evidence": "Existing JsonNull/DbNull identities are admitted for defaults and existing schema codec tag preserves them (driver owner). Migration defaults quote JSON document null/string/bool distinctly from SQL NULL; MySQL expression wrapping stays at its physical owner. Three-dialect DDL/serializer witness passes within full migration 1,960/1,960; driver runtime/default/schema roundtrip evidence owned by parent."
+    "evidence": "Existing JsonNull/DbNull identities are admitted for defaults and existing schema codec tag preserves them (driver owner). Migration defaults quote JSON document null/string/bool distinctly from SQL NULL; MySQL expression wrapping stays at its physical owner. Three-dialect DDL/serializer witness passes within full migration 1,973/1,973; driver runtime/default/schema roundtrip evidence owned by parent. Final follow-through also distinguishes a non-null JSON literal transformed to document null from an original nullable bare-null default; its added three-dialect and populated SQLite assertions pass in core6 adversarial-regressions41/41 plus v1-push26/26. Included in final core7 465files/9624tests green, with native15 and build6 green; fresh package/provider/docs gates remain separate."
   },
   {
     "id": "dsl-cross-product-09",
@@ -5172,7 +5338,10 @@
     "kind": "dx",
     "effort": "M",
     "title": "Type admission is far wider than runtime admission, and the refusals come late, untyped, or as 'engine bug' V9001",
-    "status": "pending"
+    "status": "implemented-unverified",
+    "owner": "query-engine/cache/extensions",
+    "resolution": "Query subset: five caller-only key portability/transition refusals corrected to V8003 without broadening numeric/decimal primary-key arithmetic. Declaration modifier/native DDL pieces share root/driver/migration owners and must retain their exact sibling verification; this umbrella does not pretend every type signature proves provider execution.",
+    "verification": "Current full-native12 public write and declaration estate proof precedes query taxonomy followup; existing public number/decimal/compound key refusal execution goldens updated, final focused run pending. Root owns schema/declaration taxonomy and physical invalid DDL disposition."
   },
   {
     "id": "geo-vector-oracle-01",
@@ -5253,7 +5422,9 @@
     "kind": "dx",
     "effort": "S",
     "title": "Distance ordering is inconsistent between GeoPoint and vector (sort required vs optional, NULLs last vs first on desc, `nulls` refused)",
-    "status": "pending"
+    "status": "documented-contract",
+    "evidence": "GeoPoint/vector distance ordering retain their documented distinct option/default surfaces; no common ordering API or nullable-sort feature introduced. Cosine null result typing/provider semantics are corrected separately.",
+    "owner": "root/integration"
   },
   {
     "id": "geo-vector-oracle-09",
@@ -5324,8 +5495,8 @@
     "kind": "footgun",
     "effort": "S",
     "title": "The client proxy hides its models from `in`/Object.keys and returns a callable for every unknown name, so `db[model]?.` never short-circuits",
-    "status": "implemented-unverified",
-    "evidence": "createModelProxy now derives membership from registered schema keys and the existing operation vocabulary; ownKeys, has and property descriptors agree with property access. Unknown model/method access is absent rather than a fabricated callable, with plain/cache reflection and memoization regression coverage. Awaiting integrated runtime qualification."
+    "status": "verified-fixed",
+    "evidence": "Public root/model reflection publishes actual model/operation keys; missing names return undefined with false in/hasOwn. Runtime client initialization/reflection and schema-json unknown-model checks passed root follow-through2; previous synthetic callable model behavior is removed."
   },
   {
     "id": "integration-author-05",
@@ -5528,7 +5699,8 @@
     "kind": "perf",
     "effort": "S",
     "title": "Singular collection variants get a duplicate index (UNIQUE(target) plus a non-unique reverse index on the same columns)",
-    "status": "pending"
+    "status": "verified-fixed",
+    "evidence": "Serializer omits the reverse index iff uniqueTarget && canonical sourceIsFirst proves target uniqueness covers the complete second-side lookup. Reverse index retained for canonical-first target and nonsingular member. Targeted orientation/schema assertions + full relation preservation corpus pass migration119files/1973tests. Only two named frozen PG indexes removed and MySQL physical PRIMARY names corrected with explicit corpus reasons; no corpus regeneration. Existing polymorphic-push convergence fixtures retained."
   },
   {
     "id": "polymorphic-oracle-08",
@@ -5549,9 +5721,10 @@
     "kind": "dx",
     "effort": "S",
     "title": "`variants` naming a variant excluded by `only` type-checks; only the runtime rejects it",
-    "status": "implemented-unverified",
-    "resolution": "Existing collection-envelope guard now restricts supplied variants keys to supplied only literal names, without resolving target models. Public fresh+held beside-real select/include negative and multi-arm/empty positive probes saved; native qualification pending.",
-    "owner": "query-engine/cache/extensions"
+    "status": "verified-fixed",
+    "resolution": "Direct collection only/variants envelopes intersect a literal key refusal, preserving valid selected arms and rejecting excluded arms in fresh and held select/include objects. No model topology traversal or runtime behavior change.",
+    "owner": "query-engine/cache/extensions",
+    "verification": "Public contextual-typing gate fresh/held excluded-arm negatives+multiarm/empty selection positives passed full native12 (9.23s6007.7MiB), with prior deliberately unguarded pins converted to negatives. Full consumer strictTS5.8 proof remains driver-owned next artifact, not claimed executed."
   },
   {
     "id": "prisma8-horizon-01",
@@ -5645,8 +5818,8 @@
     "kind": "footgun",
     "effort": "M",
     "title": "One cyclic foreign-key row fails every recursive read that reaches it, as a V9001 'engine bug' with empty meta and no opt-out",
-    "status": "implemented-unverified",
-    "resolution": "Rejected cyclic recursive traversal now raises existing UnsupportedOperationError V8003, preserves message/QueryEngineError instanceof compatibility, and names relation/feature in metadata. No new cycle mode. Strengthened carrier-boundary self-loop witness saved; runtime qualification pending.",
+    "status": "verified-fixed",
+    "resolution": "Rejected cyclic recursive traversal raises existing UnsupportedOperationError V8003 with relation/feature metadata while preserving message and QueryEngineError instanceof compatibility. No new cycle mode. Strengthened direct self-loop carrier witness passed in final138/138 batch,8.91s631.6MiB teardown verified.",
     "owner": "query-engine/cache/extensions"
   },
   {

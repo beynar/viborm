@@ -6,9 +6,9 @@
  * Handles both storage operations and cache orchestration (hit/miss/stale/SWR).
  */
 
-import type { QueryExecutionContext } from "@drivers/exports";
 import type { DriverIdentity } from "@drivers/driver-identity";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
+import type { QueryExecutionContext } from "@drivers/exports";
 import { CacheInvalidKeyError } from "@errors";
 import {
   getOfficialInstrumentationChainCapability,

@@ -1,6 +1,6 @@
-import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { bindExecutionTransactionPhases } from "@drivers/execution-context";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import type {
   BatchTransactionOptions,
   TransactionOptions,

@@ -17,7 +17,8 @@
  *
  * The driver plans SQL and counts every dispatch; it has no database, so an
  * ACCEPTED write is observed as its first dispatch failing, which the client
- * reports as a (redacted) query failure. Live providers:
+ * reports as a (redacted) query failure. SQLite's protected storage inspection
+ * is a raw dispatch and is counted too. Live providers:
  * `tests/providers/local/{sqlite3,pglite}-insert-only-timestamps.test.ts`.
  */
 
@@ -47,6 +48,16 @@ class CountingDriver extends PlanningDriver {
   ): Promise<QueryResult<T>> {
     this.statements.push(sql);
     return super.execute(client, sql, params, context);
+  }
+
+  protected override executeRaw<T>(
+    client: null,
+    sql: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    this.statements.push(sql);
+    return super.executeRaw(client, sql, params, context);
   }
 }
 

@@ -205,7 +205,7 @@ export const getOrderBySchema = <
     "orderBy"
   );
 
-  return v.object({
+  const schema = v.object({
     ...scalarEntries,
     ...vectorEntries,
     ...pointEntries,
@@ -213,4 +213,9 @@ export const getOrderBySchema = <
     ...relationEntries,
     ...polymorphicEntries,
   });
+  // This fresh model-owned object retains entries/extend; only its validation
+  // closes the unsupported expression boundary before enum/union matching.
+  const closed = v.noOperandExpression(schema, "'orderBy'");
+  Reflect.set(schema["~standard"], "validate", closed["~standard"].validate);
+  return schema;
 };

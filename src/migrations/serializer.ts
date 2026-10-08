@@ -842,7 +842,7 @@ export function serializeResolvedModels(
  * Serialize ONE polymorphic collection member's junction table, byte-reusing
  * the ordinary junction template: canonical orientation, driver types zipped
  * BY INDEX against the stored topology's sides, PK without a name, one
- * unconditional reverse index, and two FIXED-cascade foreign keys —
+ * reverse index when uniqueness does not cover it, and two FIXED-cascade foreign keys —
  * `resolveJunctionPairActions` is NEVER called on this path (member actions
  * are cascade by design; a hostile referential-action spelling never reaches
  * this DDL). Consumes ONLY the stored `ResolvedJunctionTopology`: every
@@ -918,19 +918,18 @@ function serializeMemberJunction(
       })),
     ],
     primaryKey: { columns: [...firstColumns, ...secondColumns] },
-    // The PK covers first-side lookups; reverse traversal needs one index
-    // over the complete second-side stored reference — emitted
-    // UNCONDITIONALLY so every member table shares one template shape.
-    // Accepted redundancy: when a SINGULAR-inverse member's target sorts
-    // canonical-second, the unique constraint below covers the same columns;
-    // DDL shape must not become conditional on canonical sort order.
-    indexes: [
-      {
-        name: junction.reverseIndexName(),
-        columns: secondColumns,
-        unique: false,
-      },
-    ],
+    // The PK covers the first side. A singular target on the second side has
+    // its unique constraint already; otherwise reverse lookup needs an index.
+    indexes:
+      member.uniqueTarget && junction.sourceIsFirst
+        ? []
+        : [
+            {
+              name: junction.reverseIndexName(),
+              columns: secondColumns,
+              unique: false,
+            },
+          ],
     foreignKeys: [
       {
         name: junction.foreignKeyName(

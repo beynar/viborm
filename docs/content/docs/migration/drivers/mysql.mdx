@@ -156,11 +156,11 @@ The driver generates and introspects btree (default), `FULLTEXT`, and `SPATIAL` 
 
 ## Indexed TEXT Columns
 
-InnoDB can't index a `TEXT` column without an explicit key length. When a `string()` column participates in a primary key, unique constraint, index, or foreign key, the driver maps it to `VARCHAR(191)` instead (191 × 4 bytes fits the 767-byte InnoDB key limit).
+InnoDB cannot directly index an unbounded `TEXT` column through this column-list DSL. A bare `string()` participating in a primary key, unique constraint, index, or foreign key maps to the conservative `VARCHAR(191)` default. This limits stored values to 191 characters; adding a key to existing TEXT can narrow the column and is labeled destructive. Choose an explicit native `MYSQL.STRING.VARCHAR(length)` for a different bound, subject to the provider's index-byte limits. Strict mode and typed `ValueTooLongError` prevent silent truncation, but do not add upstream length validation.
 
 ## Column Defaults
 
-MySQL doesn't allow `DEFAULT` values on `TEXT`, `BLOB`, `JSON`, or spatial columns; the driver omits defaults for those types.
+MySQL requires expression defaults for TEXT, BLOB and JSON. The driver retains represented literal defaults and wraps them in parentheses, including JSON objects and list containers. Declared bigint and Date/DateTime literals also become database defaults; DateTime uses the same naive UTC physical encoder as model writes. Function defaults and unsupported application generators remain application-only. Adding a required column to a populated table without a database default requires an explicit manual data migration; push refuses before effects instead of inventing values. Spatial defaults have no supported literal declaration.
 
 ## Limitations
 

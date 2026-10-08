@@ -99,8 +99,9 @@ export interface RawSurface {
    * `;
    * ```
    */
+  $queryRaw<T = unknown>(query: RawQueryInput): RawOperation<T[]>;
   $queryRaw<T = unknown>(
-    query: RawQueryInput,
+    query: TemplateStringsArray,
     ...values: unknown[]
   ): RawOperation<T[]>;
   /**
@@ -115,7 +116,11 @@ export interface RawSurface {
    * Run a statement and get the affected row count. Interpolations are bound
    * parameters.
    */
-  $executeRaw(query: RawQueryInput, ...values: unknown[]): RawOperation<number>;
+  $executeRaw(query: RawQueryInput): RawOperation<number>;
+  $executeRaw(
+    query: TemplateStringsArray,
+    ...values: unknown[]
+  ): RawOperation<number>;
   /**
    * Run a hand-written statement string with positional parameters. The
    * statement text is used verbatim — never build it from user input.
@@ -678,8 +683,9 @@ class DeferredRawOperation<T>
 export function createRawSurface(options: RawSurfaceOptions): RawSurface {
   const { engine } = options;
 
+  function $queryRaw<T = unknown>(query: RawQueryInput): RawOperation<T[]>;
   function $queryRaw<T = unknown>(
-    query: RawQueryInput,
+    query: TemplateStringsArray,
     ...values: unknown[]
   ): RawOperation<T[]>;
   function $queryRaw<T = unknown>(
@@ -706,8 +712,9 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
     );
   }
 
+  function $executeRaw(query: RawQueryInput): RawOperation<number>;
   function $executeRaw(
-    query: RawQueryInput,
+    query: TemplateStringsArray,
     ...values: unknown[]
   ): RawOperation<number>;
   function $executeRaw(

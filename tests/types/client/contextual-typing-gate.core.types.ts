@@ -1123,8 +1123,8 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
     // @ts-expect-error held update field typo beside the valid title
     client.book.update(heldUpdateTypo);
   const _manyCreateTypoRefused = () =>
-    // @ts-expect-error every createMany member is keyed without inspecting nested data
     client.book.createMany({
+      // @ts-expect-error every createMany member is keyed without inspecting nested data
       data: [
         { id: "1", title: "x", pages: 1, authorId: "a" },
         { id: "2", title: "x", ttitle: "x", pages: 1, authorId: "a" },
@@ -1629,8 +1629,8 @@ describe("polymorphic projection nodes are keyed to their cardinality's shape", 
     });
   const _includedVariantMustBelongToOnly = () =>
     boardClient.board.findMany({
-      // @ts-expect-error image is excluded beside the valid note arm
       include: {
+        // @ts-expect-error image is excluded beside the valid note arm
         items: { only: ["note"], variants: { note: true, image: true } },
       },
     });
@@ -1644,8 +1644,8 @@ describe("polymorphic projection nodes are keyed to their cardinality's shape", 
     boardClient.board.findMany(heldExcludedVariant);
   const _selectedVariantMustBelongToOnly = () =>
     boardClient.board.findMany({
-      // @ts-expect-error image is excluded in select as well as include
       select: {
+        // @ts-expect-error image is excluded in select as well as include
         items: { only: ["note"], variants: { note: true, image: true } },
       },
     });

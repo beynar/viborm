@@ -26,10 +26,10 @@ import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError } from "@errors";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
+import { QueryError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
@@ -111,7 +111,10 @@ const note = s
     id: s.int().id(),
     body: s.string(),
     ownerId: s.int().nullable().map("owner_id"),
-    owner: s.toOne(() => owner).fields("ownerId").references("id"),
+    owner: s
+      .toOne(() => owner)
+      .fields("ownerId")
+      .references("id"),
   })
   .map("g4_unit02_cut_notes");
 
@@ -132,7 +135,10 @@ async function observe(run: () => Promise<unknown>): Promise<Observation> {
 }
 
 function identity(failure: unknown): object {
-  assert.ok(failure instanceof QueryEngineError, `not a QueryEngineError: ${String(failure)}`);
+  assert.ok(
+    failure instanceof QueryError,
+    `not a QueryError: ${String(failure)}`
+  );
   return {
     name: failure.name,
     code: failure.code,
@@ -167,16 +173,22 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
     assert.deepEqual(
       { ...observed, meta: undefined },
       {
-        name: "QueryEngineError",
-        code: (seen.failure as QueryEngineError).code,
+        name: "QueryError",
+        code: (seen.failure as QueryError).code,
         message:
-          'Driver "sqlite3" returned a malformed int scalar for operation "create": the value is not a canonical integer.',
+          'The "create" result is incompatible with the int scalar domain: the value is not a canonical integer.',
         meta: undefined,
       }
     );
     assert.deepEqual(
       (observed as { meta: Record<string, unknown> }).meta,
-      { driver: "sqlite3", operation: "create", scalarType: "int" },
+      {
+        driver: "sqlite3",
+        model: "entity",
+        operation: "create",
+        scalarType: "int",
+        reason: "the value is not a canonical integer",
+      },
       "a TRANSACTION rolls back, so there is no committed segment to report"
     );
     assert.deepEqual(
@@ -212,7 +224,7 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
     };
     assert.equal(
       observed.message,
-      'Driver "sqlite3" returned a malformed int scalar for operation "create": the value is not a canonical integer.'
+      'The "create" result is incompatible with the int scalar domain: the value is not a canonical integer.'
     );
     assert.deepEqual(
       observed.meta.recordSeriesProgress,
@@ -307,7 +319,13 @@ describe("G4-02 §5.4 — the malformed-result cut around the folded root create
     );
     assert.deepEqual(
       (shipped.failure as { meta: Record<string, unknown> }).meta,
-      { driver: "sqlite3", operation: "create", scalarType: "int" },
+      {
+        driver: "sqlite3",
+        model: "entity",
+        operation: "create",
+        scalarType: "int",
+        reason: "the value is not a canonical integer",
+      },
       "no series, no progress record"
     );
   });

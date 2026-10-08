@@ -1,6 +1,8 @@
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
 import type { IdDomain } from "@validation/primitives/id-codec";
+import { arrayLiteralText } from "../../../adapters/databases/postgres/array-literal";
+import { stringifyJson } from "../../../adapters/shared/standard-sql";
 /**
  * PostgreSQL Migration Driver
  *
@@ -315,94 +317,112 @@ export class PostgresMigrationDriver extends MigrationDriver {
     snapshots: readonly SchemaSnapshot[],
     executeRaw: RawExecutor
   ): Promise<void> {
-    const desiredNames = [
-      ...new Set(
+    try {
+      const vectors = new Set(
         snapshots.flatMap((snapshot) =>
-          snapshot.tables.map((table) => table.name)
-        )
-      ),
-    ];
-    if (desiredNames.length > 0) {
-      const views = await executeRaw<{ name: string }>(
-        `SELECT relation.relname AS name FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('v','m') AND relation.relname=ANY($2::text[])`,
-        [this.requireEstateNamespace(), desiredNames]
-      );
-      const collision = views.rows.find((row) =>
-        desiredNames.includes(row.name)
-      );
-      if (collision)
-        throw new MigrationError(
-          `PostgreSQL relation "${collision.name}" is a view or materialized view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
-          VibORMErrorCode.MIGRATION_INVALID_STATE,
-          { meta: { table: collision.name, feature: "view" } }
-        );
-    }
-    const vectors = new Set(
-      snapshots.flatMap((snapshot) =>
-        snapshot.tables.flatMap((table) =>
-          table.columns.flatMap(
-            (column) =>
-              VECTOR_TYPE_TOKEN.exec(column.type)?.[1]?.toLowerCase() ?? []
+          snapshot.tables.flatMap((table) =>
+            table.columns.flatMap(
+              (column) =>
+                VECTOR_TYPE_TOKEN.exec(column.type)?.[1]?.toLowerCase() ?? []
+            )
           )
         )
+      );
+      if (
+        vectors.size > 0 &&
+        !this.executionDriver?.adapter.capabilities.supportsVector
       )
-    );
-    if (vectors.size > 0) {
-      if (!this.executionDriver?.adapter.capabilities.supportsVector)
         throw new MigrationError(
           "This migration requires pgvector support. Construct the PostgreSQL driver with pgvector: true and install the vector extension before applying it. VibORM never installs it.",
           VibORMErrorCode.DRIVER_NOT_SUPPORTED,
           { meta: { dialect: this.dialect, feature: "vector" } }
         );
-      const proof = await executeRaw<{ ready: boolean }>(
-        `SELECT NOT EXISTS (SELECT 1 FROM unnest($1::text[]) AS required(name) WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension AS e JOIN pg_catalog.pg_depend AS d ON d.refobjid=e.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.deptype='e' JOIN pg_catalog.pg_type AS t ON t.oid=d.objid AND d.classid='pg_catalog.pg_type'::regclass WHERE e.extname='vector' AND t.typname=required.name AND pg_catalog.pg_type_is_visible(t.oid))) AS ready`,
-        [[...vectors]]
-      );
-      if (proof.rows.length !== 1 || proof.rows[0]?.ready !== true)
+      if (
+        snapshots.some(snapshotUsesGeoPoint) &&
+        !this.executionDriver?.adapter.geoPoint
+      ) {
         throw new MigrationError(
-          "pgvector preflight did not prove every required visible extension-owned vector type. Install the vector extension before migration effects; VibORM never installs it.",
+          "This migration requires PostGIS GeoPoint support, but the bound PostgreSQL adapter has no GeoPoint protocol. Construct the driver with `postgis: true` and ensure PostGIS is installed before applying it.",
+          VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+          { meta: { dialect: this.dialect, feature: "GeoPoint" } }
+        );
+      }
+      const desiredNames = [
+        ...new Set(
+          snapshots.flatMap((snapshot) =>
+            snapshot.tables.map((table) => table.name)
+          )
+        ),
+      ];
+      if (desiredNames.length > 0) {
+        const views = await executeRaw<{ name: string }>(
+          `SELECT relation.relname AS name FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname=$1 AND relation.relkind IN ('v','m') AND relation.relname=ANY($2::text[])`,
+          [this.requireEstateNamespace(), arrayLiteralText(desiredNames)]
+        );
+        const collision = views.rows.find((row) =>
+          desiredNames.includes(row.name)
+        );
+        if (collision)
+          throw new MigrationError(
+            `PostgreSQL relation "${collision.name}" is a view or materialized view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
+            VibORMErrorCode.MIGRATION_INVALID_STATE,
+            { meta: { table: collision.name, feature: "view" } }
+          );
+      }
+      if (vectors.size > 0) {
+        const proof = await executeRaw<{ ready: boolean }>(
+          `SELECT NOT EXISTS (SELECT 1 FROM unnest($1::text[]) AS required(name) WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension AS e JOIN pg_catalog.pg_depend AS d ON d.refobjid=e.oid AND d.refclassid='pg_catalog.pg_extension'::regclass AND d.deptype='e' JOIN pg_catalog.pg_type AS t ON t.oid=d.objid AND d.classid='pg_catalog.pg_type'::regclass WHERE e.extname='vector' AND t.typname=required.name AND pg_catalog.pg_type_is_visible(t.oid))) AS ready`,
+          [arrayLiteralText([...vectors])]
+        );
+        if (proof.rows.length !== 1 || proof.rows[0]?.ready !== true)
+          throw new MigrationError(
+            "pgvector preflight did not prove every required visible extension-owned vector type. Install the vector extension before migration effects; VibORM never installs it.",
+            VibORMErrorCode.MIGRATION_INVALID_STATE,
+            { meta: { dialect: this.dialect, feature: "vector" } }
+          );
+      }
+      if (snapshots.some((snapshot) => (snapshot.enums?.length ?? 0) > 0)) {
+        const version = await executeRaw<{ version: string }>(
+          "SELECT current_setting('server_version_num') AS version"
+        );
+        const number = Number(version.rows[0]?.version);
+        if (!Number.isInteger(number) || number < 120_000)
+          throw new MigrationError(
+            "PostgreSQL enum migrations require server_version_num >= 120000 for transactional enum safety",
+            VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
+          );
+      }
+      if (!snapshots.some(snapshotUsesGeoPoint)) return;
+      let rows: readonly { ready?: unknown }[];
+      try {
+        rows = (await executeRaw<{ ready?: unknown }>(POSTGIS_PREFLIGHT_QUERY))
+          .rows;
+      } catch (failure) {
+        throw new MigrationError(
+          "PostGIS GeoPoint preflight could not prove the required extension, types, and functions before migration effects.",
           VibORMErrorCode.MIGRATION_INVALID_STATE,
-          { meta: { dialect: this.dialect, feature: "vector" } }
+          {
+            cause: errorCause(failure),
+            meta: { dialect: this.dialect, feature: "GeoPoint" },
+          }
         );
-    }
-    if (snapshots.some((snapshot) => (snapshot.enums?.length ?? 0) > 0)) {
-      const version = await executeRaw<{ version: string }>(
-        "SELECT current_setting('server_version_num') AS version"
-      );
-      const number = Number(version.rows[0]?.version);
-      if (!Number.isInteger(number) || number < 120_000)
+      }
+      if (rows.length !== 1 || rows[0]?.ready !== true) {
         throw new MigrationError(
-          "PostgreSQL enum migrations require server_version_num >= 120000 for transactional enum safety",
-          VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
+          "PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.",
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          { meta: { dialect: this.dialect, feature: "GeoPoint" } }
         );
-    }
-    if (!snapshots.some(snapshotUsesGeoPoint)) return;
-    if (!this.executionDriver?.adapter.geoPoint) {
-      throw new MigrationError(
-        "This migration requires PostGIS GeoPoint support, but the bound PostgreSQL adapter has no GeoPoint protocol. Construct the driver with `postgis: true` and ensure PostGIS is installed before applying it.",
-        VibORMErrorCode.DRIVER_NOT_SUPPORTED,
-        { meta: { dialect: this.dialect, feature: "GeoPoint" } }
-      );
-    }
-    let rows: readonly { ready?: unknown }[];
-    try {
-      rows = (await executeRaw<{ ready?: unknown }>(POSTGIS_PREFLIGHT_QUERY))
-        .rows;
+      }
     } catch (failure) {
+      if (failure instanceof MigrationError) throw failure;
       throw new MigrationError(
-        "PostGIS GeoPoint preflight could not prove the required extension, types, and functions before migration effects.",
+        "PostgreSQL schema preflight could not prove the required catalog facts before migration effects.",
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         {
           cause: errorCause(failure),
-          meta: { dialect: this.dialect, feature: "GeoPoint" },
+          meta: { dialect: this.dialect, feature: "schema catalog" },
         }
-      );
-    }
-    if (rows.length !== 1 || rows[0]?.ready !== true) {
-      throw new MigrationError(
-        "PostGIS GeoPoint preflight did not prove the required extension, visible types, and exact function signatures. VibORM never installs PostGIS.",
-        VibORMErrorCode.MIGRATION_INVALID_STATE,
-        { meta: { dialect: this.dialect, feature: "GeoPoint" } }
       );
     }
   }
@@ -528,6 +548,33 @@ export class PostgresMigrationDriver extends MigrationDriver {
     scalar: Scalar,
     scalarState: ScalarState
   ): string | undefined {
+    const literal =
+      scalarState.hasDefault &&
+      !scalarState.autoGenerate &&
+      !scalarState.decimal &&
+      (scalarState.array ||
+        scalarState.type === "datetime" ||
+        scalarState.type === "date")
+        ? this.literalDefaultValue(scalarState)
+        : undefined;
+    if (
+      scalarState.hasDefault &&
+      !scalarState.autoGenerate &&
+      scalarState.array &&
+      Array.isArray(literal)
+    ) {
+      if (scalarState.decimal)
+        return super.getDefaultExpression(scalar, scalarState);
+      const members = literal.map((value) =>
+        scalarState.type === "json"
+          ? stringifyJson(value)
+          : (scalarState.type === "datetime" || scalarState.type === "date") &&
+              typeof value === "string"
+            ? encodePostgresTemporal(value)
+            : value
+      );
+      return this.escapeValue(arrayLiteralText(members));
+    }
     // `gen_random_uuid()` produces a `uuid`, so a column that does not hold one
     // cannot take it as a default. A `.uuid()` field whose native type override
     // makes it `bytea` is exactly that column: the value would be a type error
@@ -554,14 +601,16 @@ export class PostgresMigrationDriver extends MigrationDriver {
       (scalarState.type === "datetime" || scalarState.type === "date") &&
       scalarState.autoGenerate === undefined &&
       scalarState.hasDefault &&
-      typeof scalarState.default === "string"
+      typeof literal === "string"
     )
-      return this.escapeValue(encodePostgresTemporal(scalarState.default));
+      return this.escapeValue(encodePostgresTemporal(literal));
     if (scalarState.autoGenerate?.kind === "now") {
       if (scalarState.type === "date")
         return "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')";
       if (scalarState.type === "time") {
         const physical = this.mapScalarType(scalar, scalarState).toLowerCase();
+        if (Number(TEMPORAL_PRECISION_TOKEN.exec(physical)?.[1] ?? 6) > 3)
+          return "timezone('UTC', CURRENT_TIME(3))";
         return physical.includes("timetz") ||
           physical.includes("with time zone")
           ? "timezone('UTC', CURRENT_TIME)"

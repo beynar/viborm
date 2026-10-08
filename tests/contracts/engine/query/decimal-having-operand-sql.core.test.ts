@@ -138,7 +138,10 @@ const operandAfter = (statement: string, operator: string): string => {
   if (index < 0) {
     throw new Error(`No '${operator}' comparison in statement: ${statement}`);
   }
-  return statement.slice(index + operator.length + 1).trim();
+  return statement
+    .slice(index + operator.length + 1)
+    .split(" ORDER BY ")[0]!
+    .trim();
 };
 
 describe("SQLite widened decimal sum operand range", () => {

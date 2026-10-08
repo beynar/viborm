@@ -1,6 +1,12 @@
 /** Composite packages/db emission and its downstream user, against a real tarball. */
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
 
@@ -16,6 +22,7 @@ export const loadPosts = () => db.post.findMany({ include: { author: true } });
 export const grouped = () => db.sale.groupBy({ by: ["region", "channel"], _sum: { amount: true } });
 `;
 const downstream = `import { db, extended, loadPosts, grouped } from "./db.js";
+import { sql } from "viborm";
 export async function consumer() {
   const posts = await loadPosts();
   const title: string = posts[0]!.title;
@@ -24,8 +31,38 @@ export async function consumer() {
   const region: string = rows[0]!.region;
   const channel: string = rows[0]!.channel;
   const ready: boolean = extended.$ready();
+  // @ts-expect-error - a non-self relation cannot gain recursive eligibility
+  void db.post.findMany({ include: { author: { select: { id: true }, recurse: true } } });
   // @ts-expect-error - genuine retained types reject the wrong scalar input
   db.user.findUnique({ where: { id: 42 } });
+  void db.user.create({ data: { id: "one", name: "ok", active: true } });
+  void db.user.update({ where: { id: "one" }, data: { name: "ok" } });
+  void db.user.upsert({ where: { id: "one" }, create: { id: "one", name: "ok", active: true }, update: { name: "ok" } });
+  void db.user.createMany({ data: [{ id: "one", name: "ok", active: true }] });
+  // @ts-expect-error - fresh root data typo beside real keys is refused
+  void db.user.create({ data: { name: "ok", active: true, naame: "wrong" } });
+  const heldCreate = { name: "ok", active: true, naame: "wrong" };
+  // @ts-expect-error - held root create data is structurally keyed
+  void db.user.create({ data: heldCreate });
+  // @ts-expect-error - fresh update data typo beside a real key is refused
+  void db.user.update({ where: { id: "one" }, data: { name: "ok", naame: "wrong" } });
+  const heldUpdate = { name: "ok", naame: "wrong" };
+  // @ts-expect-error - held update data is structurally keyed
+  void db.user.update({ where: { id: "one" }, data: heldUpdate });
+  // @ts-expect-error - fresh upsert create data typo beside real keys is refused
+  void db.user.upsert({ where: { id: "one" }, create: { name: "ok", active: true, naame: "wrong" }, update: { name: "ok" } });
+  // @ts-expect-error - held upsert update data is structurally keyed
+  void db.user.upsert({ where: { id: "one" }, create: { name: "ok", active: true }, update: heldUpdate });
+  // @ts-expect-error - fresh createMany member typo beside real keys is refused
+  void db.user.createMany({ data: [{ name: "ok", active: true, naame: "wrong" }] });
+  // @ts-expect-error - held createMany members are structurally keyed
+  void db.user.createMany({ data: [heldCreate] });
+  void db.$queryRaw(sql\`SELECT 1\`);
+  void db.$executeRaw(sql\`SELECT 1\`);
+  // @ts-expect-error - a safe Sql fragment already owns its arguments
+  void db.$queryRaw(sql\`SELECT 1\`, "ignored");
+  // @ts-expect-error - execute raw preserves the same safe argument contract
+  void db.$executeRaw(sql\`SELECT 1\`, "ignored");
   return { title, author, region, channel, ready };
 }
 `;
@@ -55,11 +92,30 @@ const compilers = [
   ["native", join(repositoryRoot, "node_modules/typescript-native/bin/tsc")],
 ];
 
+const compilerChoice = process.env.VIBORM_DECLARATION_COMPILER;
+const caseChoice = process.env.VIBORM_DECLARATION_CASE;
+const cases = ["db", "chain2", "chain5", "chain30", "chain100", "ring10"];
+if (compilerChoice && !compilers.some(([label]) => label === compilerChoice))
+  throw new Error(`Unknown declaration compiler: ${compilerChoice}`);
+if (caseChoice && !cases.includes(caseChoice))
+  throw new Error(`Unknown declaration case: ${caseChoice}`);
+const includesCase = (name) => !caseChoice || caseChoice === name;
+
 withPackedConsumer(
   "viborm-declaration-consumer",
   { "db.ts": db },
   ({ root }) => {
+    // better-sqlite3 publishes its types through its real DefinitelyTyped peer.
+    // Supply the two declared typings a SQLite user installs; no ambient stubs.
+    mkdirSync(join(root, "node_modules/@types"), { recursive: true });
+    for (const peer of ["better-sqlite3", "node"])
+      symlinkSync(
+        realpathSync(join(repositoryRoot, "node_modules/@types", peer)),
+        join(root, "node_modules/@types", peer),
+        "dir"
+      );
     for (const [label, compiler] of compilers) {
+      if (compilerChoice && compilerChoice !== label) continue;
       const output = join(root, label);
       const project = join(root, `tsconfig-${label}.json`);
       writeFileSync(
@@ -82,37 +138,40 @@ withPackedConsumer(
         })
       );
       try {
-        execFileSync(process.execPath, [compiler, "--project", project], {
-          cwd: root,
-          encoding: "utf8",
-          stdio: "pipe",
-        });
-        const declaration = readFileSync(join(output, "db.d.ts"), "utf8");
-        writeFileSync(join(output, "use.ts"), downstream);
-        execFileSync(
-          process.execPath,
-          [
-            compiler,
-            "--strict",
-            "--noEmit",
-            "--target",
-            "ES2022",
-            "--module",
-            "ESNext",
-            "--moduleResolution",
-            "Bundler",
-            "--types",
-            "node",
-            "--typeRoots",
-            join(repositoryRoot, "node_modules/@types"),
-            join(output, "use.ts"),
-          ],
-          { cwd: root, encoding: "utf8", stdio: "pipe" }
-        );
-        console.log(
-          `${label}: exported schema/client emitted ${Buffer.byteLength(declaration)} bytes; downstream positive and negative probes passed`
-        );
+        if (includesCase("db")) {
+          execFileSync(process.execPath, [compiler, "--project", project], {
+            cwd: root,
+            encoding: "utf8",
+            stdio: "pipe",
+          });
+          const declaration = readFileSync(join(output, "db.d.ts"), "utf8");
+          writeFileSync(join(output, "use.ts"), downstream);
+          execFileSync(
+            process.execPath,
+            [
+              compiler,
+              "--strict",
+              "--noEmit",
+              "--target",
+              "ES2022",
+              "--module",
+              "ESNext",
+              "--moduleResolution",
+              "Bundler",
+              "--types",
+              "node",
+              "--typeRoots",
+              join(repositoryRoot, "node_modules/@types"),
+              join(output, "use.ts"),
+            ],
+            { cwd: root, encoding: "utf8", stdio: "pipe" }
+          );
+          console.log(
+            `${label}: exported schema/client emitted ${Buffer.byteLength(declaration)} bytes; downstream positive and negative probes passed`
+          );
+        }
         for (const count of [2, 5, 30]) {
+          if (!includesCase(`chain${count}`)) continue;
           const file = `chain${count}.ts`;
           writeFileSync(join(root, file), chainSource(count));
           const chainProject = join(
@@ -156,6 +215,7 @@ withPackedConsumer(
           [100, false],
           [10, true],
         ]) {
+          if (!includesCase(`${ring ? "ring" : "chain"}${count}`)) continue;
           const file = `${ring ? "ring" : "chain"}${count}-query.ts`;
           writeFileSync(join(root, file), chainSource(count, ring));
           execFileSync(

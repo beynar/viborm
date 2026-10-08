@@ -16,7 +16,8 @@ const entry = s.model({
     .fields("parentId")
     .references("id"),
 });
-const db = createClient({ schema: { parent, entry } });
+const compact = s.model({ id: s.string().id().ulid(), group: s.string() });
+const db = createClient({ schema: { parent, entry, compact } });
 const parentRefs = createModelFieldRefs("parent", parent);
 
 beforeAll(async () => {
@@ -69,14 +70,20 @@ test("SQL parameters cannot smuggle references from another model or an object",
     db.entry.count({
       where: { score: { gt: (ctx) => ctx.sql`${parentRefs.id}` } },
     })
-  ).rejects.toThrow("same model");
+  ).rejects.toMatchObject({
+    code: "V8003",
+    message: expect.stringContaining("same model"),
+  });
   await expect(
     db.entry.count({
       where: {
         score: { gt: (ctx) => ctx.sql`${{ deep: [ctx.fields.floor] }}` },
       },
     })
-  ).rejects.toThrow("direct interpolation");
+  ).rejects.toMatchObject({
+    code: "V8003",
+    message: expect.stringContaining("direct interpolation"),
+  });
   expect(await db.entry.count()).toBe(3);
 });
 
@@ -93,4 +100,38 @@ test("cursor relation order is an explicit unsupported capability", async () => 
       orderBy: { entries: { _count: "asc" } },
     })
   ).rejects.toBeInstanceOf(UnsupportedOperationError);
+});
+
+test("compact identifier HAVING min/max compares transported operands", async () => {
+  const low = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const high = "01ARZ3NDEKTSV4RRFFQ69G5FAW";
+  await db.compact.createMany({
+    data: [
+      { id: low, group: "shared" },
+      { id: high, group: "shared" },
+    ],
+  });
+  expect(
+    await db.compact.groupBy({
+      by: ["group"],
+      having: {
+        id: {
+          _min: { equals: low },
+          _max: { equals: high },
+          _count: { equals: 2 },
+        },
+      },
+      _min: { id: true },
+      _max: { id: true },
+      _count: true,
+    })
+  ).toEqual([
+    { group: "shared", _min: { id: low }, _max: { id: high }, _count: 2 },
+  ]);
+  expect(
+    await db.compact.groupBy({
+      by: ["group"],
+      having: { id: { _min: { equals: high } } },
+    })
+  ).toEqual([]);
 });

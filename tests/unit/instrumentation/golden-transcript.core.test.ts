@@ -14,9 +14,10 @@
  *    scenario varies it);
  *  - the units and completions an ordinary observer receives.
  *
- * The committed `__golden__/transcript.json` was written once from the source
- * the plan was measured at and is never regenerated while the plan runs: a
- * difference is a behaviour change the plan did not authorize.
+ * The committed `__golden__/transcript.json` pins presentation, including the
+ * approved V1 diagnostic code/class, sanitized native cause, issue paths, and
+ * conservative cache invalidation changes. Updates require reviewing each
+ * difference against its public contract.
  *
  * Normalization. Trace, span and parent ids become ordinals by first
  * appearance in export order (`external` for a parent the recorder never saw),

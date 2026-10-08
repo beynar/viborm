@@ -284,6 +284,7 @@ describe("the retry policy reads the same switch", () => {
     expect(retryable.sort()).toEqual(
       [
         VibORMErrorCode.CONNECTION_FAILED,
+        VibORMErrorCode.CONNECTION_CAPACITY,
         VibORMErrorCode.CONNECTION_TIMEOUT,
         VibORMErrorCode.QUERY_TIMEOUT,
         VibORMErrorCode.DEADLOCK,

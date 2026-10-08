@@ -65,6 +65,24 @@ for (const statement of result.statements) {
   </Tab>
 </Tabs>
 
+## Defaults on existing rows
+
+Supported literal list, JSON, bigint and Date/DateTime defaults become database
+defaults, so adding their required columns can backfill existing rows. Temporal
+literals use the same physical representation as model writes. A function
+`.default(() => value)` or an application-only generator runs on new model writes;
+it does not fill stored rows. Push refuses to add such a required column to a
+populated table before executing migration effects. Use a reviewed manual
+migration to add it as nullable, fill the values explicitly, and then make it
+required. Generated migration preconditions require an empty table when a
+required added column has no physical default.
+
+Selected generated columns, unsupported native indexes, SQLite custom CHECK
+constraints and mapped view collisions refuse synchronization when their physical
+semantics cannot be represented. Manage those tables outside the authenticated
+`migrations.tables` selection until a faithful declaration/manual workflow exists;
+an unrelated excluded object does not block the selected tables.
+
 ## Resolving Changes
 
 When push detects **destructive changes** (dropping tables/columns), **ambiguous changes** (potential renames), or **enum value removals**, it calls the `resolve` callback for each one.

@@ -37,10 +37,14 @@ import assert from "node:assert/strict";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
-import type { Dialect, DriverResultParser } from "@drivers";
+import type {
+  Dialect,
+  DriverResultParser,
+  QueryExecutionContext,
+} from "@drivers";
 import { Driver } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError } from "@errors";
+import { QueryError } from "@errors";
 import { s } from "@schema";
 import { DbNull, Decimal, JsonNull } from "@src/index";
 import type { JsonValue } from "@src/validation";
@@ -600,11 +604,6 @@ describe("every codec, physical and carried, through the public client", () => {
         groups,
         [
           {
-            parentId: null,
-            _max: { views: 9_007_199_254_740_993n, maybePrice: null },
-            _count: { _all: 1 },
-          },
-          {
             parentId: "k1",
             _max: {
               views: 9_007_199_254_740_996n,
@@ -619,6 +618,11 @@ describe("every codec, physical and carried, through the public client", () => {
               maybePrice: new Decimal("1.25"),
             },
             _count: { _all: 2 },
+          },
+          {
+            parentId: null,
+            _max: { views: 9_007_199_254_740_993n, maybePrice: null },
+            _count: { _all: 1 },
           },
         ],
         "grouped carriers"
@@ -884,6 +888,7 @@ describe("the chain that runs is the execution's, at every route", () => {
 
 /** A driver that answers exactly the rows a cell hands it. */
 class ScriptedDriver extends Driver<null, null> {
+  private readonly catalog = new SQLite3Driver();
   readonly adapter = new SQLite3Driver().adapter;
   private readonly rows: unknown[];
   constructor(rows: unknown[]) {
@@ -891,15 +896,30 @@ class ScriptedDriver extends Driver<null, null> {
     this.rows = rows;
   }
   protected async initClient() {
+    await syncLiveSchema(createClient({ schema, driver: this.catalog }));
     return null;
   }
   protected async closeClient() {
-    // Scripted rows own no provider resource.
+    await this.catalog.disconnect();
   }
-  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
+  protected async execute<T>(
+    _client: null,
+    statement: string,
+    params: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<{ rows: T[]; rowCount: number }> {
+    if (context?.model === "$schema")
+      return this.catalog._executeRaw<T>(statement, params, context);
     return { rows: this.rows as T[], rowCount: this.rows.length };
   }
-  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
+  protected async executeRaw<T>(
+    _client: null,
+    statement: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<{ rows: T[]; rowCount: number }> {
+    if (context?.model === "$schema")
+      return this.catalog._executeRaw<T>(statement, params, context);
     return { rows: [], rowCount: 0 };
   }
   protected async transaction<T>(
@@ -924,9 +944,9 @@ async function scriptedFailure(
 }
 
 const ABSENT_TITLE =
-  'Driver "scripted" returned a malformed string scalar for operation "findMany": the value is absent.';
+  'The "findMany" result is incompatible with the string scalar domain: the value is absent.';
 const NOT_A_ROW =
-  'Driver "scripted" returned a malformed row scalar for operation "findMany": a requested document is not a provider row.';
+  'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.';
 
 describe("the document and own-key rules at the later placements", () => {
   it("reads a variant arm by own key and refuses one that is no document", async () => {
@@ -938,7 +958,7 @@ describe("the document and own-key rules at the later placements", () => {
       "pin",
       args
     );
-    assert.ok(inherited instanceof QueryEngineError);
+    assert.ok(inherited instanceof QueryError);
     assert.equal(inherited.message, ABSENT_TITLE);
     for (const malformed of [5, '"text"', [1]])
       assert.equal(
@@ -1003,7 +1023,7 @@ describe("the document and own-key rules at the later placements", () => {
         },
       }
     );
-    assert.ok(failure instanceof QueryEngineError);
+    assert.ok(failure instanceof QueryError);
     assert.equal(failure.message, ABSENT_TITLE);
   });
 
@@ -1041,10 +1061,10 @@ describe("the document and own-key rules at the later placements", () => {
         },
       }
     );
-    assert.ok(failure instanceof QueryEngineError);
+    assert.ok(failure instanceof QueryError);
     assert.equal(
       failure.message,
-      'Driver "scripted" returned a malformed recursive depth scalar for operation "findMany": an edge is not reachable at its recorded depth.'
+      'The "findMany" result is incompatible with the recursive depth scalar domain: an edge is not reachable at its recorded depth.'
     );
   });
 });
