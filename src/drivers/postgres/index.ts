@@ -95,14 +95,10 @@ function encodeListParameters(params: unknown[]): unknown[] {
   );
 }
 
-/** postgres.js prepares only when the connection AND the query say so, and
- * an unprepared parameterized statement costs a second round trip. Queries say
- * yes, so the connection's `prepare` decides; an owned one stays unprepared
- * unless asked, for transaction-mode poolers (PgBouncer, Supavisor). */
-const CONNECTION_DECIDES = { prepare: true };
-
 const withVibormTypes = (options: PostgresOptions = {}): PostgresOptions => ({
   ...options,
+  // postgres.js prepares only when the connection AND the query say so; every
+  // query says yes, so this decides. Unprepared suits transaction poolers.
   prepare: options.prepare ?? false,
   types: { ...vibormTypes, ...options.types },
 });
@@ -231,7 +227,7 @@ export class PostgresDriver extends Driver<
     const result = await client.unsafe<T[]>(
       sqlStr,
       encodeListParameters(params),
-      CONNECTION_DECIDES
+      { prepare: true }
     );
     return {
       rows: result,
@@ -254,7 +250,7 @@ export class PostgresDriver extends Driver<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "executeRaw";
-    const result = await client.unsafe<T[]>(sqlStr, params, CONNECTION_DECIDES);
+    const result = await client.unsafe<T[]>(sqlStr, params, { prepare: true });
     return {
       rows: result,
       rowCount: normalizePostgresRowCount(

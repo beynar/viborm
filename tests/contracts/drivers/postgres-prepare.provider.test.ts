@@ -118,6 +118,18 @@ describe("postgres.js statement preparation", () => {
       expect(reads.amounts).toEqual(AMOUNTS);
       expect(types(reads.messages)).toBe("BES".repeat(REPEATS));
 
+      const raw = await repeatedReads(
+        async (id) =>
+          (
+            await orm.$queryRawUnsafe<{ amountCents: number }>(
+              'SELECT "amountCents" FROM "pgjs_prepare_invoice" WHERE "id" = $1',
+              id
+            )
+          )[0] ?? null
+      );
+      expect(raw.amounts).toEqual(AMOUNTS);
+      expect(types(raw.messages)).toBe("BES".repeat(REPEATS));
+
       await settle(1);
       const updates = await sent(async () => {
         for (let id = 2; id <= REPEATS; id++) {

@@ -156,9 +156,9 @@ per connection and costs one round trip after that. Statements without
 parameters always take one.
 
 - **Client from `databaseUrl` or `options`:** defaults to `prepare: false`, so
-  it works behind transaction-mode poolers (PgBouncer, Supavisor) that cannot
-  keep session prepared statements. On a direct or session-pooled connection,
-  set `options: { prepare: true }`.
+  it works behind transaction-mode poolers that do not keep prepared statements
+  across transactions (for example PgBouncer without `max_prepared_statements`).
+  Where the connection or pooler supports them, set `options: { prepare: true }`.
 - **Supplied client:** its own setting applies, and postgres.js defaults to
   `prepare: true`. Behind a transaction-mode pooler, build it with
   `postgres(url, { prepare: false, types: vibormTypes })`.
