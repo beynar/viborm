@@ -50,11 +50,22 @@ const user = s.model({
 }).map("users");
 ```
 
-Generated full-schema enum transitions use a transactional type replacement.
-This permits newly introduced values in dependent defaults and columns within
-the same transaction; PostgreSQL's `ADD VALUE` cannot use its new value before
-commit. The renderer preserves declared order, drops dependent defaults before
-casting, and restores the destination defaults afterward.
+Adding values, at the end or in the middle of the list, emits
+`ALTER TYPE ... ADD VALUE ... [BEFORE ...]` in declared order. It only changes
+the catalog: tables using the enum are not rewritten, and views, rules and
+CHECK constraints over its columns do not block it.
+
+PostgreSQL forbids using an added value before its transaction commits. When
+the same push or migration makes a new value a default, VibORM instead replaces
+the type in that transaction, which rewrites every table using it. To keep the
+addition catalog-only, add the value in one migration and use it in a later
+one: `apply` and `down` commit after each migration that adds enum values.
+
+Removing or reordering values replaces the type in one transaction: dependent
+columns are cast through text, defaults are dropped first and restored after,
+and every table using the enum is rewritten. A view, rule or CHECK constraint
+over such a column blocks the replacement; drop it first and recreate it
+afterwards.
 
 Removed values require explicit per-column mappings, including nullable columns.
 `useNull()` is a deliberate decision. Enum arrays preserve their order and NULL

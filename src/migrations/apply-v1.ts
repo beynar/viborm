@@ -207,12 +207,12 @@ export async function applyPathUnderLock(
   let current = marker;
   const nextPath = marker ? [...marker.path] : [];
   let bootstrapPending = needsBootstrap;
-  for (const group of groupContiguousAtomicity(prepared)) {
-    const statements = group.items.flatMap(({ transition, blob }) =>
-      transition.operations.flatMap((operation) =>
-        operation.steps.map((step) => sliceDispatch(blob, step.execute))
-      )
+  const statementsOf = ({ transition, blob }: PreparedForwardEdge) =>
+    transition.operations.flatMap((operation) =>
+      operation.steps.map((step) => sliceDispatch(blob, step.execute))
     );
+  for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
+    const statements = group.items.flatMap(statementsOf);
     const lifted = liftForeignKeyPragmas(pinned, statements);
     const run = async (producer: Parameters<typeof appendLedger>[0]) => {
       if (bootstrapPending) {

@@ -844,18 +844,17 @@ function classifyOne(
 }
 
 /**
- * Whether a generated PostgreSQL history needs a commit boundary mid-replay.
+ * Whether a PostgreSQL migration edge must commit before the next one runs.
  *
- * `ALTER TYPE ... ADD VALUE` cannot be used by a statement in the same
- * transaction that added it, so a history where one migration adds an enum
- * value and a later one uses it is replayable one-commit-per-entry (which is
- * what `apply()` does) but NOT inside migration reset's single transaction.
- * Reset refuses such a history before clearing anything, rather than
- * discovering it after the estate is empty.
+ * `ALTER TYPE ... ADD VALUE` cannot be used by a later statement of the
+ * transaction that added it (55P04), so apply and rollback end their shared
+ * transaction after such an edge. Reset needs no boundary: it replays onto a
+ * cleared namespace, and values added to a type created in the same
+ * transaction are usable at once.
  *
  * The question is PostgreSQL's alone — no other dialect has the statement — so
  * the scan reads PostgreSQL's lexical grammar rather than taking a dialect its
- * two callers would each have to answer for.
+ * callers would each have to answer for.
  */
 export function needsEnumAdditionCommitBoundary(
   statements: readonly string[]

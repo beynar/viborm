@@ -3160,6 +3160,73 @@ describe("PostgreSQL DDL Generation", () => {
         'ALTER TABLE "users" ALTER COLUMN "status" TYPE "status_enum"'
       );
     });
+
+    it("adds values in place unless a later operation of the batch uses one", () => {
+      const column = (type: string, fallback?: string): ColumnDef => ({
+        name: "state",
+        type,
+        nullable: false,
+        ...(fallback === undefined ? {} : { default: fallback }),
+      });
+      const table = (name: string, columns: ColumnDef[]) => ({
+        name,
+        columns,
+        indexes: [],
+        foreignKeys: [],
+        uniqueConstraints: [],
+      });
+      const op: DiffOperation = {
+        type: "alterEnum",
+        enumName: "status_enum",
+        addValues: ["pending", "archived"],
+        newValues: ["active", "pending", "inactive", "archived"],
+        dependentColumns: [{ tableName: "users", columnName: "state" }],
+      };
+      const compile = (followingOperations: DiffOperation[]) =>
+        postgresMigrationDriver.compileStatements(
+          op,
+          ddlContext("live", {
+            currentSchema: {
+              tables: [table("users", [column("status_enum", "'active'")])],
+              enums: [{ name: "status_enum", values: ["active", "inactive"] }],
+            },
+            followingOperations,
+          })
+        );
+
+      expect(
+        compile([
+          {
+            type: "addColumn",
+            tableName: "users",
+            column: column("status_enum", "'inactive'"),
+          },
+        ])
+      ).toEqual([
+        `ALTER TYPE "status_enum" ADD VALUE 'pending' BEFORE 'inactive'`,
+        `ALTER TYPE "status_enum" ADD VALUE 'archived'`,
+      ]);
+      const uses: DiffOperation[] = [
+        {
+          type: "addColumn",
+          tableName: "users",
+          column: column("status_enum", "'pending'"),
+        },
+        {
+          type: "alterColumn",
+          tableName: "users",
+          columnName: "state",
+          from: column("status_enum[]"),
+          to: column("status_enum[]", `'{"active","archived"}'`),
+        },
+        {
+          type: "createTable",
+          table: table("audits", [column("status_enum", "'archived'")]),
+        },
+      ];
+      for (const use of uses)
+        expect(compile([use])).toContain('DROP TYPE "status_enum"');
+    });
   });
 
   describe("getEnumColumnType", () => {

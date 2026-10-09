@@ -22,7 +22,7 @@ icon: cpu
 
 ## Driver Capabilities
 
-Each driver declares what its database can do: whether enums and arrays are native, which index types exist, and whether enum values can be added inside a transaction. PostgreSQL has native enum types and arrays. On PostgreSQL 12+, adding a value is transactional, but using that value before commit is forbidden; full-schema generated transitions use one transactional type replacement. MySQL defines enums inline on the column (changing one is a `MODIFY COLUMN`, which implicitly commits) and stores arrays as JSON. SQLite emulates enums with CHECK constraints and stores arrays as JSON.
+Each driver declares what its database can do: whether enums and arrays are native, which index types exist, and whether enum values can be added inside a transaction. PostgreSQL has native enum types and arrays. On PostgreSQL 12+, adding a value is a transactional, catalog-only `ALTER TYPE ... ADD VALUE`, but using that value before commit is forbidden; removals and reorders use one transactional type replacement. MySQL defines enums inline on the column (changing one is a `MODIFY COLUMN`, which implicitly commits) and stores arrays as JSON. SQLite emulates enums with CHECK constraints and stores arrays as JSON.
 
 ## Supported Operations
 
@@ -45,7 +45,7 @@ Migration drivers generate DDL for these operations:
 | `dropPrimaryKey` | Direct | Direct | Table recreation |
 | `createEnum` | `CREATE TYPE` | No-op (inline in column) | No-op (TEXT) |
 | `dropEnum` | `DROP TYPE` | No-op | No-op |
-| `alterEnum` | Transactional type replacement | `MODIFY COLUMN` per column | Table recreation |
+| `alterEnum` | `ADD VALUE [BEFORE]` for additions; type replacement for removals and reorders | `MODIFY COLUMN` per column | Table recreation |
 
 ## Automatic Driver Selection
 

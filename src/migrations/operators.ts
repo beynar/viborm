@@ -451,14 +451,14 @@ export async function downV1(
       }
       const run = async (producer: Parameters<typeof appendLedger>[0]) => {
         let current = marker;
-        for (const group of groupContiguousAtomicity(prepared)) {
-          const statements = group.items.flatMap((item) =>
-            item.rollback.operations.flatMap((operation) =>
-              operation.steps.map((step) =>
-                sliceDispatch(item.blob, step.execute)
-              )
+        const statementsOf = (item: (typeof prepared)[number]) =>
+          item.rollback.operations.flatMap((operation) =>
+            operation.steps.map((step) =>
+              sliceDispatch(item.blob, step.execute)
             )
           );
+        for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
+          const statements = group.items.flatMap(statementsOf);
           const lifted = liftForeignKeyPragmas(pinned, statements);
           const executeGroup = async (
             groupProducer: Parameters<typeof appendLedger>[0]

@@ -1,7 +1,10 @@
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
 import type { IdDomain } from "@validation/primitives/id-codec";
-import { arrayLiteralText } from "../../../adapters/databases/postgres/array-literal";
+import {
+  arrayLiteralText,
+  readArrayLiteralText,
+} from "../../../adapters/databases/postgres/array-literal";
 import { stringifyJson } from "../../../adapters/shared/standard-sql";
 /**
  * PostgreSQL Migration Driver
@@ -140,6 +143,23 @@ function snapshotUsesGeoPoint(snapshot: SchemaSnapshot): boolean {
     )
   );
 }
+
+/** The labels a default of `enumName`, or of its array, spells. */
+function enumDefaultLabels(
+  column: ColumnDef,
+  enumName: string
+): readonly (string | null)[] {
+  if (column.type !== enumName && column.type !== `${enumName}[]`) return [];
+  const literal = column.default
+    ?.match(QUOTED_LITERAL)?.[1]
+    ?.replaceAll("''", "'");
+  if (literal === undefined) return [];
+  return column.type === enumName
+    ? [literal]
+    : (readArrayLiteralText(literal) ?? []);
+}
+
+const QUOTED_LITERAL = /^'(.*)'$/s;
 
 export class PostgresMigrationDriver extends MigrationDriver {
   readonly dialect = "postgresql" as const;
@@ -1275,8 +1295,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
       ...context,
       currentSchema: this.schemaAtOperation(context),
     };
-    const { enumName, addValues, removeValues, newValues, dependentColumns } =
-      op;
+    const {
+      enumName,
+      addValues = [],
+      removeValues,
+      newValues,
+      dependentColumns,
+    } = op;
     const statements: string[] = [];
     const enumType = this.qualify(enumName);
     const before =
@@ -1287,28 +1312,24 @@ export class PostgresMigrationDriver extends MigrationDriver {
       newValues !== undefined &&
       before.filter((value) => newValues.includes(value)).join("\0") !==
         newValues.filter((value) => before.includes(value)).join("\0");
-    const usedByDefault = (physicalContext.precedingOperations ?? []).some(
+    // ADD VALUE only touches the catalog, but PostgreSQL refuses the new value
+    // to every later statement of its transaction (55P04). A default in this
+    // batch naming an added value is such a use; a recreated type admits it.
+    const usesAddedValue = (context.followingOperations ?? []).some(
       (operation) =>
-        "column" in operation &&
-        operation.column.type === enumName &&
-        operation.column.default !== undefined
+        (operation.type === "createTable"
+          ? operation.table.columns
+          : operation.type === "addColumn"
+            ? [operation.column]
+            : operation.type === "alterColumn"
+              ? [operation.to]
+              : []
+        ).some((column) => {
+          const labels = enumDefaultLabels(column, enumName);
+          return addValues.some((value) => labels.includes(value));
+        })
     );
-    // Newly added enum values cannot be USED until commit, even on PG12+.
-    // Recreating the type lets a later column/default use it in this transaction.
-    const dependentDefault = (physicalContext.currentSchema?.tables ?? []).some(
-      (table) =>
-        table.columns.some(
-          (column) => column.type === enumName && column.default !== undefined
-        )
-    );
-    const recreate =
-      (physicalContext.currentSchema !== undefined &&
-        newValues !== undefined) ||
-      (removeValues?.length ?? 0) > 0 ||
-      reordered ||
-      usedByDefault ||
-      dependentDefault;
-    if (addValues?.length && !recreate) {
+    if (!(removeValues?.length || reordered || usesAddedValue)) {
       const available = new Set(before);
       for (const value of addValues) {
         const following = newValues
