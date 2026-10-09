@@ -574,7 +574,7 @@ export const RESULT_DECODER_NATIVE_COUNTS = Object.freeze({
   "tests/raptor3/result-decoder-lists-native.test.ts": 4,
 });
 export const RQ01_SQLITE_COUNTS = Object.freeze({
-  "tests/raptor3/recursive-query/provider-sql-sqlite.test.ts": 15,
+  "tests/raptor3/recursive-query/provider-sql-sqlite.test.ts": 17,
 });
 export const RQ01_SQLITE_TESTS = Object.freeze(Object.keys(RQ01_SQLITE_COUNTS));
 export const RQ05_CACHE_COUNTS = Object.freeze({
@@ -583,7 +583,7 @@ export const RQ05_CACHE_COUNTS = Object.freeze({
 });
 export const RQ05_CACHE_TESTS = Object.freeze(Object.keys(RQ05_CACHE_COUNTS));
 export const RQ06_COMPOSITION_COUNTS = Object.freeze({
-  "tests/raptor3/recursive-query/composition.test.ts": 13,
+  "tests/raptor3/recursive-query/composition.test.ts": 14,
   "tests/raptor3/recursive-query/campaign-sqlite.test.ts": 7,
 });
 export const RQ06_COMPOSITION_TESTS = Object.freeze(
@@ -599,11 +599,11 @@ export const RQ06_NATIVE_COUNTS = Object.freeze({
   "tests/raptor3/recursive-query/campaign-native.test.ts": 4,
 });
 export const RQ01_PGLITE_COUNTS = Object.freeze({
-  "tests/raptor3/recursive-query/provider-sql-pglite.test.ts": 14,
+  "tests/raptor3/recursive-query/provider-sql-pglite.test.ts": 16,
 });
 export const RQ01_PGLITE_TESTS = Object.freeze(Object.keys(RQ01_PGLITE_COUNTS));
 export const RQ01_NATIVE_COUNTS = Object.freeze({
-  "tests/raptor3/recursive-query/provider-sql-native.test.ts": 3,
+  "tests/raptor3/recursive-query/provider-sql-native.test.ts": 5,
 });
 /** Every fixed C01/C12 read witness, for one whole-family run. */
 export const G4_READ_COUNTS = Object.freeze({
