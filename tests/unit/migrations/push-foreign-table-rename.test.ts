@@ -36,6 +36,8 @@ const fields = {
 };
 const users = s.model(fields).map("users");
 const accounts = s.model(fields).map("accounts");
+/** Another application's table: same shape as `users`, so a pair is offered. */
+const customers = s.model(fields).map("customers");
 
 /** The push docs' resolver: columns rename, a table only by its named pair. */
 const docsResolver: ResolveCallback = (change) => {
@@ -94,6 +96,14 @@ describe.each(providers)("$name push and table renames", (provider) => {
       : createMigrationClient(client);
   };
 
+  async function seed(driver: AnyDriver, table: string) {
+    await driver._executeRaw(
+      provider.series(
+        `INSERT INTO "${table}" ("id", "email", "name", "role", "loginCount", "createdAt", "updatedAt") SELECT 'u' || i, 'user' || i || '@${table}.example', 'User ' || i, 'member', i, ${provider.instant}, ${provider.instant}`
+      )
+    );
+  }
+
   async function contents(driver: AnyDriver, table: string) {
     const { rows } = await driver._executeRaw<{ c: unknown; s: unknown }>(
       `SELECT count(*) AS c, sum(length("email")) AS s FROM "${table}"`
@@ -103,15 +113,9 @@ describe.each(providers)("$name push and table renames", (provider) => {
 
   test("a foreign table is never paired into a new model without a named pair", async () => {
     await withDatabase(async (driver) => {
-      await driver._executeRaw(
-        `CREATE TABLE "billing_invoices" ("id" INTEGER PRIMARY KEY, "email" TEXT NOT NULL, "amount_cents" INTEGER NOT NULL)`
-      );
-      await driver._executeRaw(
-        provider.series(
-          `INSERT INTO "billing_invoices" SELECT i, 'payer' || i || '@corp.example', i * 7`
-        )
-      );
-      const foreign = await contents(driver, "billing_invoices");
+      await migrationsFor(driver, { customers }).push();
+      await seed(driver, "customers");
+      const foreign = await contents(driver, "customers");
       expect(foreign.rows).toBe(ROWS);
 
       const unscoped = migrationsFor(driver, { users });
@@ -120,13 +124,11 @@ describe.each(providers)("$name push and table renames", (provider) => {
           unscoped.push({ dryRun: true, resolve })
         ).rejects.toMatchObject({
           code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
-          message: expect.stringContaining(
-            'Table "billing_invoices" → "users"'
-          ),
+          message: expect.stringContaining('Table "customers" → "users"'),
         });
       }
 
-      expect(await contents(driver, "billing_invoices")).toEqual(foreign);
+      expect(await contents(driver, "customers")).toEqual(foreign);
       await expect(contents(driver, "users")).rejects.toThrow();
 
       // The shared-database route: scope the push to the schema's tables.
@@ -139,7 +141,7 @@ describe.each(providers)("$name push and table renames", (provider) => {
       expect((await scoped.push({ resolve: docsResolver })).outcome).toBe(
         "noop"
       );
-      expect(await contents(driver, "billing_invoices")).toEqual(foreign);
+      expect(await contents(driver, "customers")).toEqual(foreign);
       expect(await contents(driver, "users")).toEqual({
         rows: 0,
         checksum: 0,
@@ -150,11 +152,7 @@ describe.each(providers)("$name push and table renames", (provider) => {
   test("a named pair renames a populated table through exact consent", async () => {
     await withDatabase(async (driver) => {
       await migrationsFor(driver, { users }).push();
-      await driver._executeRaw(
-        provider.series(
-          `INSERT INTO "users" ("id", "email", "name", "role", "loginCount", "createdAt", "updatedAt") SELECT 'u' || i, 'user' || i || '@app.example', 'User ' || i, 'member', i, ${provider.instant}, ${provider.instant}`
-        )
-      );
+      await seed(driver, "users");
       const before = await contents(driver, "users");
       expect(before.rows).toBe(ROWS);
 

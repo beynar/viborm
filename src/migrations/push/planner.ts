@@ -359,7 +359,7 @@ async function resolveWithCallback(
         }
         throw new MigrationError(
           `Unresolved ambiguous change: ${resolveChange.description}\n` +
-            "Return change.rename() or change.addAndDrop() from the resolver, or use force: true.",
+            "Return change.rename() or change.addAndDrop() from the resolver.",
           VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
         );
       }
@@ -473,7 +473,7 @@ async function resolveDestructiveOperations(
       } else {
         throw new MigrationError(
           `Unresolved destructive change: ${change.description}\n` +
-            "Return change.proceed() or change.reject() from the resolver, or use force: true.",
+            "Return change.proceed() or change.reject() from the resolver.",
           VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
         );
       }
