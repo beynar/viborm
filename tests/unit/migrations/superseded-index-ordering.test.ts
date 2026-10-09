@@ -41,7 +41,7 @@ describe("live push — an index name that moves to another table", () => {
         await syncLiveSchema(before as never);
         const planned = await syncLiveSchema(after as never);
 
-        expect(planned.operations.map((op) => op.label)).toEqual([
+        expect(planned.operations.map((op) => op.type)).toEqual([
           "dropIndex",
           "createIndex",
         ]);

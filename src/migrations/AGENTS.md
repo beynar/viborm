@@ -162,6 +162,20 @@ and keeps a unique index that an FK targets as an index — `information_schema`
 drops that pair (`unique_constraint_name` is null; `conindid` also names the
 referenced unique index).
 
+`MigrationDriver.projectNativeRename` owns the physical rename projection used
+by resolution, enum retargeting, generation, and inverse snapshots. Its default
+retains the shared native table/column replay. PostgreSQL additionally moves only
+the exact derived default primary-key name, through the same rule its rename DDL
+compiles; custom names remain untouched. `generatedPrimaryKeyName` supplies the
+exact CREATE/ADD spelling and automatic inverse name. Rename compilation reads preceding
+table and primary-key operations so its source key is the one present at that
+step. Serializer `finalizeTable` is not a rename projection: its type, index,
+and declaration-admission changes must not run on a live renamed snapshot.
+The sorter retains numeric priorities and inserts accepted native rename
+prerequisites before their consumers, including enum dependent columns; cyclic
+prerequisites refuse. PostgreSQL enum DDL reads the same projected prefix for
+array/default metadata and replacement updates.
+
 **MySQL addendum (R2a, 2026-09-21).** MySQL hands back its own vocabulary, so
 its introspection — not `normalizeType` / `normalizeDefault` — is where the two
 snapshots are made comparable. An ENUM's values ARE its type and MySQL has no

@@ -1,12 +1,22 @@
 # Declaration backend comparison
 
-Artifact28 follow-through changes runtime dispatch only. Its34 declaration files
-are equivalent to artifact27 after normalizing two generated chunk references
-and the unused optional parameter label `context`→`_context`; no type expression
-changes remain. The matrix below describes the executed artifact27 experiment,
-with that exact equivalence recorded in
-`/tmp/viborm-v1-artifact28-declaration-equivalence.json`. Artifact28's grouped
-package gate separately passes all33 cases/all53 expanded scenarios onNode24.
+Artifact32 retains the qualified client representation and changes migration
+declarations for physical rename projection and generated key naming. Its full
+native source/test check passes; package checks on that artifact remain pending.
+The 118-row backend experiment below was executed on artifact27. It is not a
+claimed repeat on32. CI11 separately passes all 33 package cases on both Node22
+and Node24 for artifact30's source revision.
+
+Artifact30 retains artifact27's declaration type expressions. Artifact28 changed
+two generated chunk references and the unused optional parameter label
+`context`→`_context`; artifact29's34 declaration files were byte-identical to28.
+Artifact30 changes only two generated chunk references and three specific upsert
+JSDoc passages. The matrix below describes the executed artifact27 experiment,
+not a claimed repeat on30. Exact equivalence receipts are
+`/tmp/viborm-v1-artifact28-declaration-equivalence.json` and
+`/tmp/viborm-v1-artifact30-declaration-equivalence.json`. Artifact29's grouped
+package gate separately passes all33 cases/all53 expanded scenarios onNode24;
+whole-estate native checking of artifact30's source/test inputs also passes.
 
 No tested backend alone fixes the exported cyclic inferred-schema backreference. The baseline experiment below retains the existing declaration backend: switching to native emission improves this isolated producer's emission time but preserves the correctness defect. OXC requires changing the unannotated producer contract. That comparison changed no library representation, annotation, dependency, shared build output, or repository source.
 

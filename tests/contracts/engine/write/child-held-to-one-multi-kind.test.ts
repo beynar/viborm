@@ -198,7 +198,7 @@ test("create root refuses two kinds on a child-held to-one before any statement"
 
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toBe(
-    "Validation failed for create: Unsupported to-one operation combination: create, connect"
+    "Validation failed for create: data.card: Unsupported to-one operation combination: create, connect"
   );
   // Validation rejects the payload before planning, so nothing ran.
   expect(statements).toEqual([]);
@@ -227,7 +227,7 @@ test("update root refuses two kinds on a child-held to-one before any statement"
 
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toBe(
-    "Validation failed for update: Unsupported to-one operation combination: create, connect"
+    "Validation failed for update: data.card: Unsupported to-one operation combination: create, connect"
   );
   expect(statements).toEqual([]);
   await expect(client.card.findMany({ where: { hubId: 2 } })).resolves.toEqual(
@@ -262,7 +262,7 @@ test("update root refuses two kinds on a NON-unique child-held to-one (the two-r
   ).resolves.toEqual([]);
   expect(error).toBeInstanceOf(Error);
   expect((error as Error).message).toBe(
-    "Validation failed for update: Unsupported to-one operation combination: create, connect"
+    "Validation failed for update: data.ticket: Unsupported to-one operation combination: create, connect"
   );
   expect(statements).toEqual([]);
 });

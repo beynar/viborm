@@ -172,15 +172,8 @@ describe("official default omit public behavior", () => {
       await sibling.user.findUniqueOrThrow({ where: { id: "u1" } })
     ).toEqual({ id: "u1", passwordHash: "hash-1" });
     expect(Reflect.get(base, "$hiddenUsers")).toBeUndefined();
-    const baseHidden = Reflect.get(base.user, "hidden");
-    if (typeof baseHidden !== "function") {
-      throw new TypeError(
-        "Expected the model proxy to defer unknown operations"
-      );
-    }
-    await expect(Reflect.apply(baseHidden, base.user, [])).rejects.toThrow(
-      "Unknown operation 'hidden' on model 'user'"
-    );
+    expect(Reflect.get(base.user, "hidden")).toBeUndefined();
+    expect(Reflect.has(base.user, "hidden")).toBe(false);
   });
 
   test("hides the default on all nine row-returning operations", async () => {
@@ -481,14 +474,7 @@ describe("official default omit public behavior", () => {
     ]);
     const unextended = family().client;
     expect(Reflect.get(unextended, "$hiddenUsers")).toBeUndefined();
-    const unextendedHidden = Reflect.get(unextended.user, "hidden");
-    if (typeof unextendedHidden !== "function") {
-      throw new TypeError(
-        "Expected the model proxy to defer unknown operations"
-      );
-    }
-    await expect(
-      Reflect.apply(unextendedHidden, unextended.user, [])
-    ).rejects.toThrow("Unknown operation 'hidden' on model 'user'");
+    expect(Reflect.get(unextended.user, "hidden")).toBeUndefined();
+    expect(Reflect.has(unextended.user, "hidden")).toBe(false);
   });
 });

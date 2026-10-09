@@ -195,7 +195,11 @@ export async function resolveAmbiguousChanges(
       resolutionOperations.push(...operations);
 
       for (const operation of operations) {
-        workingSnapshot = applyResolutionEffect(workingSnapshot, operation);
+        workingSnapshot = applyResolutionEffect(
+          workingSnapshot,
+          operation,
+          options.projectRename
+        );
         if (operation.type === "renameTable") {
           const liveName = liveTableNames.get(operation.from) ?? operation.from;
           liveTableNames.delete(operation.from);
@@ -237,10 +241,11 @@ function optionsForWorkingSnapshot(
 
 function applyResolutionEffect(
   snapshot: SchemaSnapshot,
-  operation: DiffOperation
+  operation: DiffOperation,
+  projectRename: typeof applyNativeRename = applyNativeRename
 ): SchemaSnapshot {
   if (operation.type === "renameTable" || operation.type === "renameColumn") {
-    return applyNativeRename(snapshot, operation);
+    return projectRename(snapshot, operation);
   }
   if (operation.type === "dropTable") {
     return {

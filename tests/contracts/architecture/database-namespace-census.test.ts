@@ -83,12 +83,13 @@ const NO_MIGRATION_CONTEXT_EXPORTS: string[] = [];
  * §3.5: live migration execution runs on ONE pinned producer, and §12.13
  * forbids a parallel driver path. Every site named here executes on whatever
  * producer its caller hands it, which under a locked command is the pinned
- * session. CLI commands are absent because they hold confirmation and
- * presentation only. Live clear belongs to `live-reset.ts`. Dispatch belongs
+ * session. The CLI's sole SQLite database-list read presents an in-memory
+ * warning; it executes no migration DDL. Live clear belongs to `live-reset.ts`. Dispatch belongs
  * to `execute-dispatch.ts`. Control discovery, authentication, marker, and
  * ledger I/O belong to `control.ts`.
  */
 const ADMITTED_LIVE_EXECUTION_OWNERS = [
+  "src/cli/commands/push.ts executeRaw 1",
   // apply-v1.ts and operators.ts, and the second sites in push-plan.ts and
   // reset-v1.ts, were admitted 2026-08-31 after auditing each one: every call
   // is `pinned._executeRaw` or `producer._executeRaw`, i.e. it runs on the
@@ -113,9 +114,12 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   "src/migrations/pinned-session.ts executeRaw 5",
   "src/migrations/pinned-session.ts queryExecutorFactory 3",
   "src/migrations/push-fingerprint.ts executeRaw 2",
-  "src/migrations/push-plan.ts executeRaw 2",
+  // Selected-table population proof uses the handed producer and its adapter's
+  // qualified identifier before refusing an unsafe required-column addition.
+  "src/migrations/push-plan.ts executeRaw 3",
   "src/migrations/push/planner.ts executeRaw 2",
-  "src/migrations/reset-v1.ts executeRaw 2",
+  // The added catalog probe uses the pinned producer and bound probe parameters.
+  "src/migrations/reset-v1.ts executeRaw 3",
   "src/migrations/utils.ts executeRaw 1",
 ];
 

@@ -184,7 +184,8 @@ describe("Package H — shared-primary-key supplier + modify", () => {
         select: { accountId: true, memo: true },
       }),
     }).toEqual({
-      message: "Validation failed for update: Unknown key: disconnect",
+      message:
+        "Validation failed for update: data.account.disconnect: Unknown key: disconnect",
       // A refusal that fires after a write is not a refusal: the row never moved.
       stubs: [{ accountId: "a1", memo: "m" }],
     });

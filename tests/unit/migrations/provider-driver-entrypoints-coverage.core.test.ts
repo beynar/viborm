@@ -183,7 +183,7 @@ describe("provider migration-driver public entrypoints", () => {
     };
 
     expect(driver.generateCreateTable(create, ddlContext("artifact"))).toBe(
-      'CREATE TABLE "billing"."account" (\n  "id" integer NOT NULL,\n  PRIMARY KEY ("id")\n)'
+      'CREATE TABLE "billing"."account" (\n  "id" integer NOT NULL,\n  CONSTRAINT "account_pkey" PRIMARY KEY ("id")\n)'
     );
     expect(driver.generateAlterColumn(alter, ddlContext("artifact"))).toContain(
       'ALTER TABLE "billing"."account" ALTER COLUMN "id" TYPE bigint'

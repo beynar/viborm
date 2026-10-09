@@ -25,6 +25,7 @@ import {
   isPostgresTextToUuid,
   postgresTextToUuidGuard,
 } from "../../identifier-conversion";
+import type { NativeRenameOperation } from "../../native-rename";
 import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
 import { derivedMigrationName } from "../../utils";
 import {
@@ -731,9 +732,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       const pkCols = table.primaryKey.columns
         .map((c) => this.escapeIdentifier(c))
         .join(", ");
-      const pkName = table.primaryKey.name
-        ? `CONSTRAINT ${this.escapeIdentifier(table.primaryKey.name)} `
-        : "";
+      const pkName = `CONSTRAINT ${this.escapeIdentifier(this.generatedPrimaryKeyName(table.name, table.primaryKey.name))} `;
       columnDefs.push(`${pkName}PRIMARY KEY (${pkCols})`);
     }
 
@@ -803,16 +802,118 @@ export class PostgresMigrationDriver extends MigrationDriver {
     context: DDLContext
   ): readonly string[] {
     const statements = [this.generateRenameTable(op, context)];
-    const source = context.currentSchema?.tables.find(
-      (table) => table.name === op.from
+    const rename = this.defaultPrimaryKeyRename(
+      op,
+      this.schemaAtOperation(context)
     );
-    const primaryKeyName = source?.primaryKey?.name;
-    if (primaryKeyName === derivedMigrationName(`${op.from}_pkey`)) {
+    if (rename) {
       statements.push(
-        `ALTER TABLE ${this.qualify(op.to)} RENAME CONSTRAINT ${this.escapeIdentifier(primaryKeyName)} TO ${this.escapeIdentifier(derivedMigrationName(`${op.to}_pkey`))}`
+        `ALTER TABLE ${this.qualify(op.to)} RENAME CONSTRAINT ${this.escapeIdentifier(rename.from)} TO ${this.escapeIdentifier(rename.to)}`
       );
     }
     return this.filterStatements(statements);
+  }
+
+  override projectNativeRename(
+    snapshot: SchemaSnapshot,
+    operation: NativeRenameOperation
+  ): SchemaSnapshot {
+    const projected = super.projectNativeRename(snapshot, operation);
+    const rename =
+      operation.type === "renameTable"
+        ? this.defaultPrimaryKeyRename(operation, snapshot)
+        : undefined;
+    if (!rename) return projected;
+    return {
+      ...projected,
+      tables: projected.tables.map((table) =>
+        table.name === operation.to && table.primaryKey
+          ? { ...table, primaryKey: { ...table.primaryKey, name: rename.to } }
+          : table
+      ),
+    };
+  }
+
+  private defaultPrimaryKeyRename(
+    operation: RenameTableOperation,
+    snapshot: SchemaSnapshot | undefined
+  ): { from: string; to: string } | undefined {
+    const name = snapshot?.tables.find((table) => table.name === operation.from)
+      ?.primaryKey?.name;
+    return name === this.generatedPrimaryKeyName(operation.from)
+      ? { from: name, to: this.generatedPrimaryKeyName(operation.to) }
+      : undefined;
+  }
+
+  /** Generated keys have an explicit bounded name; catalog omissions stay unknown. */
+  override generatedPrimaryKeyName(tableName: string, name?: string): string {
+    return name || derivedMigrationName(`${tableName}_pkey`);
+  }
+
+  /** Native identity and PK effects needed by rename and enum DDL at this prefix. */
+  private schemaAtOperation(context: DDLContext): SchemaSnapshot | undefined {
+    let snapshot = context.currentSchema;
+    if (!snapshot) return undefined;
+    for (const operation of context.precedingOperations ?? []) {
+      if (
+        operation.type === "renameTable" ||
+        operation.type === "renameColumn"
+      ) {
+        snapshot = this.projectNativeRename(snapshot, operation);
+      } else if (operation.type === "createTable") {
+        const table = operation.table;
+        snapshot = {
+          ...snapshot,
+          tables: [
+            ...snapshot.tables,
+            table.primaryKey
+              ? {
+                  ...table,
+                  primaryKey: {
+                    ...table.primaryKey,
+                    name: this.generatedPrimaryKeyName(
+                      table.name,
+                      table.primaryKey.name
+                    ),
+                  },
+                }
+              : table,
+          ],
+        };
+      } else if (operation.type === "dropTable") {
+        snapshot = {
+          ...snapshot,
+          tables: snapshot.tables.filter(
+            (table) => table.name !== operation.tableName
+          ),
+        };
+      } else if (
+        operation.type === "addPrimaryKey" ||
+        operation.type === "dropPrimaryKey"
+      ) {
+        snapshot = {
+          ...snapshot,
+          tables: snapshot.tables.map((table) =>
+            table.name === operation.tableName
+              ? {
+                  ...table,
+                  primaryKey:
+                    operation.type === "addPrimaryKey"
+                      ? {
+                          ...operation.primaryKey,
+                          name: this.generatedPrimaryKeyName(
+                            operation.tableName,
+                            operation.primaryKey.name
+                          ),
+                        }
+                      : undefined,
+                }
+              : table
+          ),
+        };
+      }
+    }
+    return snapshot;
   }
 
   // ===========================================================================
@@ -1042,9 +1143,9 @@ export class PostgresMigrationDriver extends MigrationDriver {
     const cols = primaryKey.columns
       .map((c) => this.escapeIdentifier(c))
       .join(", ");
-    const name = primaryKey.name
-      ? this.escapeIdentifier(primaryKey.name)
-      : this.escapeIdentifier(`${tableName}_pkey`);
+    const name = this.escapeIdentifier(
+      this.generatedPrimaryKeyName(tableName, primaryKey.name)
+    );
     return `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${name} PRIMARY KEY (${cols})`;
   }
 
@@ -1168,20 +1269,25 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   override compileAlterEnum(
     op: AlterEnumOperation,
-    _context: DDLContext
+    context: DDLContext
   ): readonly string[] {
+    const physicalContext = {
+      ...context,
+      currentSchema: this.schemaAtOperation(context),
+    };
     const { enumName, addValues, removeValues, newValues, dependentColumns } =
       op;
     const statements: string[] = [];
     const enumType = this.qualify(enumName);
     const before =
-      _context.currentSchema?.enums?.find((item) => item.name === enumName)
-        ?.values ?? [];
+      physicalContext.currentSchema?.enums?.find(
+        (item) => item.name === enumName
+      )?.values ?? [];
     const reordered =
       newValues !== undefined &&
       before.filter((value) => newValues.includes(value)).join("\0") !==
         newValues.filter((value) => before.includes(value)).join("\0");
-    const usedByDefault = (_context.precedingOperations ?? []).some(
+    const usedByDefault = (physicalContext.precedingOperations ?? []).some(
       (operation) =>
         "column" in operation &&
         operation.column.type === enumName &&
@@ -1189,14 +1295,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
     );
     // Newly added enum values cannot be USED until commit, even on PG12+.
     // Recreating the type lets a later column/default use it in this transaction.
-    const dependentDefault = (_context.currentSchema?.tables ?? []).some(
+    const dependentDefault = (physicalContext.currentSchema?.tables ?? []).some(
       (table) =>
         table.columns.some(
           (column) => column.type === enumName && column.default !== undefined
         )
     );
     const recreate =
-      (_context.currentSchema !== undefined && newValues !== undefined) ||
+      (physicalContext.currentSchema !== undefined &&
+        newValues !== undefined) ||
       (removeValues?.length ?? 0) > 0 ||
       reordered ||
       usedByDefault ||
@@ -1220,7 +1327,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
         VibORMErrorCode.MIGRATION_INVALID_STATE
       );
     for (const { tableName, columnName } of dependentColumns ?? []) {
-      const column = _context.currentSchema?.tables
+      const column = physicalContext.currentSchema?.tables
         .find((table) => table.name === tableName)
         ?.columns.find((item) => item.name === columnName);
       const reference = `${this.qualify(tableName)} ALTER COLUMN ${this.escapeIdentifier(columnName)}`;
@@ -1231,13 +1338,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
         `ALTER TABLE ${reference} TYPE ${carrier} USING ${this.escapeIdentifier(columnName)}::${carrier}`
       );
     }
-    statements.push(...this.buildEnumReplacementUpdates(op, _context));
+    statements.push(...this.buildEnumReplacementUpdates(op, physicalContext));
     statements.push(`DROP TYPE ${enumType}`);
     statements.push(
       `CREATE TYPE ${enumType} AS ENUM (${newValues.map((value) => this.escapeValue(value)).join(", ")})`
     );
     for (const { tableName, columnName } of dependentColumns ?? []) {
-      const column = _context.currentSchema?.tables
+      const column = physicalContext.currentSchema?.tables
         .find((table) => table.name === tableName)
         ?.columns.find((item) => item.name === columnName);
       const reference = `${this.qualify(tableName)} ALTER COLUMN ${this.escapeIdentifier(columnName)}`;

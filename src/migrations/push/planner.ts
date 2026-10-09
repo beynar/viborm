@@ -219,6 +219,7 @@ export async function planRebuildFromEmpty(
   );
   const current = emptyManagedSnapshot();
   const diffOptions: DiffOptions = {
+    projectRename: migrationDriver.projectNativeRename.bind(migrationDriver),
     refuseConstraintNameChurn:
       migrationDriver.capabilities.introspectionReadsConstraintNames,
     matchConstraintsByShape:
@@ -256,6 +257,7 @@ export async function planPush(
   // file-based generate(), where both serialized snapshots are available.
   const current = await introspectSchema(client.$driver, migrationDriver);
   const diffOptions: DiffOptions = {
+    projectRename: migrationDriver.projectNativeRename.bind(migrationDriver),
     canonicalizeIndexPredicate: buildIndexPredicateCanonicalizer(
       client.$driver,
       migrationDriver
@@ -381,7 +383,8 @@ async function resolveWithCallback(
   const resolvedEnumRemovals = retargetEnumRemovals(
     enumRemovals,
     current,
-    resolvedOperations
+    resolvedOperations,
+    diffOptions.projectRename
   );
   const finalOperations = await resolveDestructiveOperations(
     resolvedOperations.filter((op) => op.type !== "alterEnum"),
@@ -405,12 +408,13 @@ async function resolveWithCallback(
 function retargetEnumRemovals(
   removals: EnumRemoval[],
   current: SchemaSnapshot,
-  operations: DiffOperation[]
+  operations: DiffOperation[],
+  projectRename: typeof applyNativeRename = applyNativeRename
 ): EnumRemoval[] {
   let renamedCurrent = current;
   for (const operation of operations) {
     if (operation.type === "renameTable" || operation.type === "renameColumn") {
-      renamedCurrent = applyNativeRename(renamedCurrent, operation);
+      renamedCurrent = projectRename(renamedCurrent, operation);
     }
   }
 

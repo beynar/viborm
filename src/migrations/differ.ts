@@ -14,6 +14,7 @@ import {
   describeDecimalDomain,
   migrationDecimalStorageKind,
 } from "./decimal";
+import type { applyNativeRename } from "./native-rename";
 import { inlineEnumValues } from "./push/enum-removals";
 import {
   canonicalUniqueEntities,
@@ -85,6 +86,9 @@ export interface DiffOptions {
 
   /** Effectful planning admission; diagnostic diffs must retain drift evidence. */
   refuseConstraintNameChurn?: boolean;
+
+  /** The exact producer's additional physical effects of an accepted rename. */
+  projectRename?: typeof applyNativeRename;
 }
 
 /** Canonical spellings, keyed by table and by the predicate as declared. */

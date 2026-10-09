@@ -935,8 +935,8 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
           where: { id: 1 },
           data: {
             friends: {
-              connect: { id: 2 },
               deleteMany: { id: 3 },
+              connect: { id: 2 },
             },
           },
         }),
@@ -946,6 +946,35 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
           { id: 2, label: "two", parentId: null },
         ],
         friends: [{ sourceId: 1, targetId: 2 }],
+        allies: [],
+      },
+    },
+    {
+      name: "disjoint m2m add-before-clear is still refused without effects",
+      seed: async (client) => {
+        await client.node.create({ data: { id: 1, label: "one" } });
+        await client.node.create({ data: { id: 2, label: "two" } });
+        await client.node.create({ data: { id: 3, label: "three" } });
+        await client.node.update({
+          where: { id: 1 },
+          data: { friends: { connect: { id: 3 } } },
+        });
+      },
+      expectReject: true,
+      expectedError:
+        "Collection mutation must spell clearing verb 'deleteMany' before adding verb 'connect'",
+      act: (client) =>
+        client.node.update({
+          where: { id: 1 },
+          data: { friends: { connect: { id: 2 }, deleteMany: { id: 3 } } },
+        }),
+      expected: {
+        nodes: [
+          { id: 1, label: "one", parentId: null },
+          { id: 2, label: "two", parentId: null },
+          { id: 3, label: "three", parentId: null },
+        ],
+        friends: [{ sourceId: 1, targetId: 3 }],
         allies: [],
       },
     },

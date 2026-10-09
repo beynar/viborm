@@ -83,7 +83,12 @@ export function compileGeneratedTransition(
       )
     )
     .filter((operation) => operation.steps.length > 0);
-  const inverse = invertOperations([...operations], currentSchema);
+  const inverse = invertOperations(
+    [...operations],
+    currentSchema,
+    driver.projectNativeRename.bind(driver),
+    driver.generatedPrimaryKeyName.bind(driver)
+  );
   const missingBackfill = inverse.operations.find(
     (operation) =>
       operation.type === "addColumn" &&

@@ -37,10 +37,11 @@ const behindTheOrm = (statement: string) => family().database.exec(statement);
 
 function createCachedClient(
   cacheDriver: MemoryCache | ClockedMemoryCache,
-  waitUntil?: (promise: Promise<unknown>) => void
+  waitUntil?: (promise: Promise<unknown>) => void,
+  version?: string
 ) {
   return VibORM.create({ schema, driver: family().driver }).$extends(
-    cacheExtension({ driver: cacheDriver, waitUntil })
+    cacheExtension({ driver: cacheDriver, waitUntil, version })
   );
 }
 
@@ -550,8 +551,14 @@ describe("Cache", () => {
   });
 
   describe("cache invalidation", () => {
-    it("auto-invalidates the exact model without clearing a delimiter sibling", async () => {
-      const { client, settle } = cachedClient();
+    it("auto-invalidates the bound namespace while preserving another cache version and explicit opt-out", async () => {
+      const cache = new MemoryCache();
+      const background: Promise<unknown>[] = [];
+      const waitUntil = (promise: Promise<unknown>) => {
+        background.push(promise);
+      };
+      const client = createCachedClient(cache, waitUntil);
+      const isolated = createCachedClient(cache, waitUntil, "isolated");
 
       await client.user.create({
         data: { id: "1", name: "Alice", email: "alice@test.com" },
@@ -569,25 +576,44 @@ describe("Cache", () => {
           .$withCache({ key: "tenant-a" })
           .userProfile.findMany({ orderBy: { id: "asc" } });
 
+      const readIsolatedProfiles = () =>
+        isolated
+          .$withCache({ key: "tenant-a" })
+          .userProfile.findMany({ orderBy: { id: "asc" } });
       expect(await readUsers()).toHaveLength(1);
       expect(await readProfiles()).toHaveLength(1);
-      await settle();
+      expect(await readIsolatedProfiles()).toHaveLength(1);
+      await Promise.all(background.splice(0));
 
       await behindTheOrm(
         `INSERT INTO ${qualified("cache_user_profile")} ("id", "displayName") VALUES ('profile-2', 'Bob')`
       );
       expect(await client.userProfile.findMany()).toHaveLength(2);
+      expect(await readProfiles()).toHaveLength(1);
+      expect(await readIsolatedProfiles()).toHaveLength(1);
 
       await client.user.create({
         data: { id: "2", name: "Bob", email: "bob@test.com" },
         cache: { autoInvalidate: true },
       });
 
-      // The exact warmed user operation is fresh. The neighboring
-      // `userProfile` model remains warm: model invalidation owns `user:`, not
-      // the raw string prefix `user`.
+      // Automatic invalidation covers every model in this scope, but no other version.
       expect(await readUsers()).toHaveLength(2);
-      expect(await readProfiles()).toHaveLength(1);
+      expect((await readProfiles()).map(({ id }) => id)).toEqual([
+        "profile-1",
+        "profile-2",
+      ]);
+      expect((await readIsolatedProfiles()).map(({ id }) => id)).toEqual([
+        "profile-1",
+      ]);
+      await Promise.all(background.splice(0));
+
+      await client.user.create({
+        data: { id: "3", name: "Carol", email: "carol@test.com" },
+        cache: { autoInvalidate: false },
+      });
+      expect((await readUsers()).map(({ id }) => id)).toEqual(["1", "2"]);
+      expect(await client.user.count()).toBe(3);
     });
 
     it("invalidates every cached operation under a model prefix", async () => {
@@ -597,6 +623,11 @@ describe("Cache", () => {
         data: { id: "1", name: "Alice", email: "alice@test.com" },
       });
 
+      await client.userProfile.create({
+        data: { id: "profile-1", displayName: "Alice" },
+      });
+      const readProfiles = () =>
+        client.$withCache({ key: "manual-model" }).userProfile.findMany();
       const readUsers = () =>
         client
           .$withCache({ key: "manual-model" })
@@ -606,11 +637,17 @@ describe("Cache", () => {
 
       expect(await readUsers()).toHaveLength(1);
       expect(await readCount()).toBe(1);
+      expect(await readProfiles()).toHaveLength(1);
       await settle();
 
       await behindTheOrm(
         `INSERT INTO ${qualified("user")} VALUES ('2', 'Bob', 'bob@test.com')`
       );
+
+      await behindTheOrm(
+        `INSERT INTO ${qualified("cache_user_profile")} ("id", "displayName") VALUES ('profile-2', 'Bob')`
+      );
+      expect(await client.userProfile.count()).toBe(2);
 
       // Both exact warmed reads are stale before invalidation.
       expect(await readUsers()).toHaveLength(1);
@@ -620,6 +657,8 @@ describe("Cache", () => {
 
       expect(await readUsers()).toHaveLength(2);
       expect(await readCount()).toBe(2);
+      // Manual model prefixes remain delimiter-specific, unlike automatic scope invalidation.
+      expect((await readProfiles()).map(({ id }) => id)).toEqual(["profile-1"]);
     });
   });
 

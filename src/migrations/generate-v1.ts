@@ -180,6 +180,7 @@ export async function generateV1(
             emptyManagedSnapshot());
       const diffOptions = {
         ...AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS,
+        projectRename: driver.projectNativeRename.bind(driver),
         refuseConstraintNameChurn:
           driver.capabilities.introspectionReadsConstraintNames,
       };

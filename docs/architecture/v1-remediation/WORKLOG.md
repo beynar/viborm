@@ -68,6 +68,92 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
+- Checkpoint12 is ready for CI on artifact32 source. All 2,099 migration tests
+  pass across 131 files in 14.90s/1109.3MiB, with verified teardown. Coverage
+  is 98.49% statements/lines, 97.32% branches and 99.46% functions; every floor
+  is unchanged. One SQL golden now spells the approved explicit PK name, and
+  three additional public-prefix controls cover dropped/recreated table
+  identity, unrelated PK changes and chained column renames. No runtime
+  source changed after artifact32. The remaining 48 provider stages resume
+  from original index16, preserving the 16 earlier artifact30 receipts.
+  Log: `/tmp/viborm-v1-migrations-coverage-final32-complete.log`.
+- Artifact32 passes the full original shared8 group: 192 tests across all
+  14 files, 13.48s/1665.5MiB, verified teardown. The original 19-case carrier
+  file and all repaired raw/default-omit/order fixtures pass together. Receipt:
+  `/tmp/viborm-v1-ci8-tail/repaired-shared-8-final32.log`. Affected migration
+  coverage subsequently passes with unchanged floors as recorded above.
+- Artifact32 closes the remaining enum/table/column rename failure. Numeric
+  operation priorities remain the baseline; required native renames are placed
+  before their consumers, with explicit cycle refusal and name-lifetime handling.
+  PostgreSQL enum SQL reads the existing prefix projection for scalar/array
+  defaults and replacement mappings. All 33 focused checks pass, including
+  720 input permutations, and all 19 original carrier tests pass unchanged.
+  Independent review closes the initially caught false-cycle edge. Logs:
+  `/tmp/viborm-v1-enum-rename-pure-final.log` and
+  `/tmp/viborm-v1-decimal-carrier-enum-final-source.log`.
+- Artifact32 builds in 2.15s/1024.5MiB from 538 frozen inputs; its 2,055,036-byte
+  archive has SHA256
+  `236b5408d36ad7b8ab52462379aa7ae85ffb0b92164328fe0192c77960199780`.
+  Native50 passes the entire source/test estate: zero diagnostics,
+  34.80s/5958.6MiB, unchanged limits and verified teardown. Root dist matches
+  that archive. Original shared8 and affected migration coverage run before
+  the remaining 48 provider stages. Imported1 already passes 88 tests with
+  227 explicit Docker-conditional skips in 9.07s/1671.9MiB, verified teardown.
+- Current whole-perimeter LOC is 147,587 source-tree lines against 141,375:
+  +6,212 (+4.39%), including source guides. Tests grow 3.54%, scripts 0.57%,
+  and live documentation 0.31%. The combined migration correction adds
+  239 runtime lines and 14 guide lines. Latest receipt:
+  `/tmp/viborm-v1-checkpoint12-loc.json`.
+- Previous candidate artifact31 supplied the PostgreSQL migration correction
+  makes rename projection agree with the driver's extra default-PK rename.
+  One driver-owned naming rule also governs generated CREATE/ADD keys and
+  rollback, including bounded long names. Caller/custom/unknown catalog names
+  and other dialects retain their contracts. Independent review found no
+  blocker; 50 focused checks pass in 2.64s/515.1MiB with verified teardown.
+  The two original live decimal/enum preservation cases remain unchanged.
+- Artifact31 builds in 2.20s/1002.0MiB from 538 frozen inputs; archive SHA256
+  `ccfabede4479b6f6ec41b9fc660711592a0a476ef65020a189389c9fbe7d31d7`,
+  2,053,683 bytes. Native49 passes the complete source/test estate with zero
+  diagnostics in 35.78s/6005.5MiB, with unchanged limits and verified teardown.
+  Root dist matches that archive and retains the complete private test entry.
+  Shared8 and imported1 are being rerun before the remaining 48 provider
+  stages; the first 16 stages retain their original artifact30 receipts.
+- Whole-perimeter LOC at this checkpoint is 147,495 source lines versus
+  141,375 at origin/main: +6,120 (+4.33%), including source guides. Tests grow
+  3.46%, scripts 0.57%, and live documentation 0.31%. The rename correction
+  itself adds 151 runtime lines and 10 guide lines. This is controlled growth,
+  not parity. Receipt: `/tmp/viborm-v1-checkpoint12-loc.json`.
+- Checkpoint11 is pushed at `58dd2664699e7526766cd8626418bb632b5939bf`,
+  CI run `37889590572`. Seven jobs pass: types/format/docs, core, Node22/24
+  package contracts, PostgreSQL/MySQL, Bun/D1, and coverage. Both package jobs execute
+  all33 cases: Node22 takes257.80s/1217.0MiB, Node24 takes225.96s/1215.2MiB,
+  with unchanged ceilings and verified teardown. Local providers reproduce
+  the44 shared6 failures below. Migration coverage is 97.31% branches against
+  the unchanged 97.3% floor; the new rename correction requires requalification.
+  Job logs are at
+  `/tmp/viborm-v1-ci11-package22.log`, `-package24.log`, and
+  `-local-providers.log`. This is PR evidence, not exact-main release approval.
+- Repaired original shared6 and7 now pass completely:163/14 in
+  14.77s/1803.4MiB and229/14 in13.72s/1688.8MiB, with verified teardown.
+  Four additional invalid-order cases require rejection without row or
+  membership effects. Migration selectors read stable operation types;
+  cache assertions prove scope-wide invalidation and version isolation;
+  precise error paths and explicit lexical order retain the other assertions.
+  The same-ID delete/upsert SQL witness proves deletion followed by creation
+  and junction reattachment, with exact create values. Temporary tracing is
+  removed byte-for-byte. Receipts are `repaired-shared-6.log`,
+  `repaired-shared-7.log`, and `m2m-upsert-delete-schedule.json` beneath
+  `/tmp/viborm-v1-ci8-tail/`.
+- Original shared8 remains unqualified:183 passes/9 failures in
+  13.28s/1710.4MiB. Imported1 has87 passes/1 failure/227 explicit conditional
+  skips in8.83s/1942.3MiB. Both verify teardown. Default-omit reflection and
+  raw-Date fixtures are corrected without runtime changes. The migration rename
+  correction is now in artifact31; operation-label/architecture assertions are
+  also repaired. Query root-dependency SQL witnesses preserve canonical
+  bulk-before-upsert effects. Imported2 passes 190 tests with 14 explicit
+  conditional skips; the first 16 later provider stages pass 305 active tests
+  on artifact30, before the coordinated rename-fix boundary.
+
 - The next original provider groups complete with failures on frozen artifact30:
   shared6 has116 passes/44 failures across14 files (14.79s/1750.6MiB), and
   shared7 has223 passes/5 failures across14 files (13.98s/1767.3MiB). Both

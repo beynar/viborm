@@ -3,7 +3,7 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## 1.0.0 — 2026-10-08
+## 1.0.0 — 2026-10-09
 
 - Repair the confirmed transaction, driver lifecycle, SQLite storage, scalar,
   nested-write, cache, type and migration defects from the October 8 adversarial
@@ -16,7 +16,13 @@ Versioning.
   canonical temporal defaults and JSON null distinctions.
 - Load TypeScript config and project environment files in the CLI; correct the
   installation and persistence recipes. Ship third-party license notices.
-
+- Preserve exact cyclic relation types when applications export inferred clients
+  or client factories and emit declarations. No getter annotations or codegen
+  are required. Rebuilding a client from separately emitted raw cyclic models
+  retains its documented limitation.
+- Keep PostgreSQL migration rename planning, generated constraint names and
+  rollback consistent. Apply accepted table and column renames before enum
+  changes that use their new names, retaining enum array and default metadata.
 
 - **Fixed: an unlimited soft delete no longer reads every candidate key to
   lock them.** Before tombstoning a model that a restricting relation

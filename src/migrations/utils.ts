@@ -20,6 +20,14 @@ export function derivedMigrationName(name: string): string {
   return `${prefix}_${createHash("sha256").update(name).digest("hex").slice(0, 8)}`;
 }
 
+/** Default generated-key spelling; dialects may supply their physical rule. */
+export function defaultGeneratedPrimaryKeyName(
+  tableName: string,
+  name?: string
+): string {
+  return name || `${tableName}_pkey`;
+}
+
 // DIALECT UTILITIES
 // =============================================================================
 
@@ -175,15 +183,69 @@ export function sortOperations(operations: DiffOperation[]): DiffOperation[] {
     superseded.has(op)
       ? SUPERSEDED_INDEX_DROP_PRIORITY
       : OPERATION_PRIORITY[op.type];
-  return [...operations].sort((a, b) => {
-    if (a.type === "renameTable" && operationTargetsTable(b, a.to)) {
-      return -1;
+  const baseline = operations
+    .map((operation, index) => ({ operation, index }))
+    .sort((a, b) => priorityOf(a.operation) - priorityOf(b.operation));
+  const renames = baseline.filter(
+    ({ operation }) =>
+      operation.type === "renameTable" || operation.type === "renameColumn"
+  );
+  if (renames.length === 0) return baseline.map(({ operation }) => operation);
+  const ordered: DiffOperation[] = [];
+  const visited = new Set<number>();
+  const active = new Set<number>();
+  const visit = (entry: (typeof baseline)[number]): void => {
+    if (visited.has(entry.index)) return;
+    if (active.has(entry.index)) {
+      throw new MigrationError(
+        "Migration operations contain a cyclic native rename dependency",
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
     }
-    if (b.type === "renameTable" && operationTargetsTable(a, b.to)) {
-      return 1;
+    active.add(entry.index);
+    for (const prerequisite of renames) {
+      if (prerequisite.index === entry.index) continue;
+      const rename = prerequisite.operation;
+      const operation = entry.operation;
+      if (rename.type === "renameTable") {
+        // A later producer can reuse an earlier table name. A column rename
+        // before that name was consumed addresses the earlier identity.
+        if (
+          operation.type === "renameColumn" &&
+          prerequisite.index > entry.index &&
+          renames.some(
+            (earlier) =>
+              earlier.index > entry.index &&
+              earlier.index < prerequisite.index &&
+              earlier.operation.type === "renameTable" &&
+              earlier.operation.from === operation.tableName
+          )
+        )
+          continue;
+        const needed =
+          operation.type === "renameTable"
+            ? prerequisite.index < entry.index && rename.to === operation.from
+            : operationTargetsTable(operation, rename.to);
+        if (needed) visit(prerequisite);
+      } else if (rename.type === "renameColumn") {
+        const needed =
+          operation.type === "renameTable"
+            ? prerequisite.index < entry.index &&
+              rename.tableName === operation.from
+            : operation.type === "renameColumn"
+              ? prerequisite.index < entry.index &&
+                rename.tableName === operation.tableName &&
+                rename.to === operation.from
+              : operationTargetsColumn(operation, rename.tableName, rename.to);
+        if (needed) visit(prerequisite);
+      }
     }
-    return priorityOf(a) - priorityOf(b);
-  });
+    active.delete(entry.index);
+    visited.add(entry.index);
+    ordered.push(entry.operation);
+  };
+  for (const entry of baseline) visit(entry);
+  return ordered;
 }
 
 /** A table operation that must address the post-rename identity. */
@@ -194,7 +256,35 @@ function operationTargetsTable(
   if (operation.type === "createTable") {
     return operation.table.name === tableName;
   }
+  if (operation.type === "alterEnum" || operation.type === "dropEnum") {
+    return (
+      operation.dependentColumns?.some(
+        (column) => column.tableName === tableName
+      ) ?? false
+    );
+  }
   return "tableName" in operation && operation.tableName === tableName;
+}
+
+function operationTargetsColumn(
+  operation: DiffOperation,
+  tableName: string,
+  columnName: string
+): boolean {
+  if (operation.type === "alterEnum" || operation.type === "dropEnum") {
+    return (
+      operation.dependentColumns?.some(
+        (column) =>
+          column.tableName === tableName && column.columnName === columnName
+      ) ?? false
+    );
+  }
+  return (
+    "tableName" in operation &&
+    operation.tableName === tableName &&
+    "columnName" in operation &&
+    operation.columnName === columnName
+  );
 }
 
 /**

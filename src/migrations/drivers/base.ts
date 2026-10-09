@@ -17,6 +17,10 @@ import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { refuseBinaryReencoding } from "../binary-conversion";
+import {
+  applyNativeRename,
+  type NativeRenameOperation,
+} from "../native-rename";
 import type {
   ColumnDef,
   DiffOperation,
@@ -25,6 +29,7 @@ import type {
   SchemaSnapshot,
   TableDef,
 } from "../types";
+import { defaultGeneratedPrimaryKeyName } from "../utils";
 import type { Dialect, MigrationCapabilities } from "./types";
 
 /**
@@ -275,6 +280,19 @@ export abstract class MigrationDriver {
    */
   finalizeTable(table: TableDef): TableDef {
     return table;
+  }
+
+  /** The exact generated PK name used by this driver's DDL and its inverse. */
+  generatedPrimaryKeyName(tableName: string, name?: string): string {
+    return defaultGeneratedPrimaryKeyName(tableName, name);
+  }
+
+  /** Project exactly this driver's compiled rename before diffing or inversion. */
+  projectNativeRename(
+    snapshot: SchemaSnapshot,
+    operation: NativeRenameOperation
+  ): SchemaSnapshot {
+    return applyNativeRename(snapshot, operation);
   }
 
   // Note: getDefaultExpression is implemented below as a common method

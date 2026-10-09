@@ -68,9 +68,7 @@ describe("relation → DDL convergence", () => {
       const client = createClient({ schema: prepare(testCase).schema, driver });
       const first = await syncLiveSchema(client);
       expect(
-        first.operations.filter(
-          (operation) => operation.label === "createTable"
-        )
+        first.operations.filter((operation) => operation.type === "createTable")
       ).toHaveLength(
         relationDdlBaseline[testCase.id]?.postgres?.tables.length ?? 0
       );
@@ -93,9 +91,7 @@ describe("relation → DDL convergence", () => {
       const client = createClient({ schema: prepare(testCase).schema, driver });
       const first = await syncLiveSchema(client);
       expect(
-        first.operations.filter(
-          (operation) => operation.label === "createTable"
-        )
+        first.operations.filter((operation) => operation.type === "createTable")
       ).toHaveLength(
         relationDdlBaseline[testCase.id]?.postgres?.tables.length ?? 0
       );
