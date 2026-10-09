@@ -170,9 +170,18 @@ describe.each([
       include: { lines: true },
     });
     expect(deleted.lines).toHaveLength(inFirst((r) => r.units !== 0n));
-    // The other baskets' zero rows are untouched.
+
+    const second = await db.basket.update({
+      where: { id: 2 },
+      data: { lines: { deleteMany: { qty: 0 } } },
+      include: { lines: true },
+    });
+    expect(second.lines).toHaveLength(
+      where((r) => r.basketId === 2 && r.qty !== 0)
+    );
+    // The other basket's zero rows are untouched.
     expect(await db.line.count({ where: { qty: 0 } })).toBe(
-      where((r) => r.basketId !== 1 && r.qty === 0)
+      where((r) => r.basketId === 3 && r.qty === 0)
     );
   });
 });

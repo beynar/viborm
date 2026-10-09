@@ -25,6 +25,7 @@
 
 import { s } from "@schema";
 import type { ScalarState } from "@schema/scalars/common";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { parse, type VibSchema } from "@validation";
 import { getScalarSchemas } from "@validation/scalars";
 import { describe, expect, test, vi } from "vitest";
@@ -38,6 +39,15 @@ type OperationSchemas = {
 
 const schemasOf = (state: ScalarState): OperationSchemas =>
   getScalarSchemas(state) as unknown as OperationSchemas;
+
+/** A `.schema()` that writes zero whatever it is handed. */
+const writesZero = <T>(zero: T): StandardSchemaV1<T> => ({
+  "~standard": {
+    version: 1,
+    vendor: "test",
+    validate: () => ({ value: zero }),
+  },
+});
 
 /** One fresh field per call: interning, not memoization, is what is measured. */
 const interned: Record<string, () => ScalarState> = {
@@ -100,9 +110,23 @@ describe("every kind owns its intern caches", () => {
     const { getScalarSchemas: build } = await import("@validation/scalars");
     const of = (state: ScalarState) =>
       build(state) as unknown as OperationSchemas;
-    for (const [kind, increment, plain, zero] of [
-      ["int", () => fresh.int().increment(), () => fresh.int(), 0],
-      ["bigInt", () => fresh.bigInt().increment(), () => fresh.bigInt(), 0n],
+    for (const [kind, increment, plain, zero, refined, one] of [
+      [
+        "int",
+        () => fresh.int().increment(),
+        () => fresh.int(),
+        0,
+        () => fresh.int().increment().schema(writesZero(0)),
+        1,
+      ],
+      [
+        "bigInt",
+        () => fresh.bigInt().increment(),
+        () => fresh.bigInt(),
+        0n,
+        () => fresh.bigInt().increment().schema(writesZero(0n)),
+        1n,
+      ],
     ] as const) {
       const auto = of(increment()["~"].state);
       const column = of(plain()["~"].state);
@@ -113,6 +137,12 @@ describe("every kind owns its intern caches", () => {
       }
       expect(parse(column.update, zero).issues, kind).toBeUndefined();
       expect(parse(auto.create, zero).issues?.[0]?.message, kind).toContain(
+        "Explicit zero"
+      );
+      // The refusal judges the value create WRITES, so a `.schema()` that
+      // turns a non-zero input into zero is refused too.
+      const written = of(refined()["~"].state).create;
+      expect(parse(written, one).issues?.[0]?.message, kind).toContain(
         "Explicit zero"
       );
     }

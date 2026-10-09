@@ -9,8 +9,6 @@ import type { IdDomain } from "../primitives/id-codec";
  * is fully determined by a handful of flags (nullable, array, withTimezone).
  * Two `s.string()` fields on different models therefore build structurally
  * identical filter trees; interning shares one instance across all of them.
- * So no other state may reach them: a create-only rule such as an increment's
- * refused zero lives on `create`, which is never interned.
  *
  * Shared instances are safe: filter schemas are immutable after construction,
  * contain no field/model identity (error paths are attached by the parent
