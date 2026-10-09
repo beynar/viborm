@@ -195,7 +195,7 @@ payload said no, the driver cannot do it, or the record was not there.
 | `NotFoundError` | `V6001` | An `…OrThrow` read, or a targeted write, matched no record |
 | `NestedWriteError` | `V7001`, `V7002`, `V7003`, `V7004`, `V7005`, `V7006` | A nested write's precondition did not hold |
 | `NestedWriteAssertionError` | `V7006` | A batch-plan precondition (a connect target, an ownership check) did not hold |
-| `FeatureNotSupportedError` | `V8001` | The driver or dialect does not have the feature (pgvector, PostGIS) |
+| `FeatureNotSupportedError` | `V8001` | The driver or dialect does not have the feature (pgvector, PostGIS, a MySQL `updateMany`/`deleteMany` whose recursive filter walks the changed model) |
 | `UnsupportedOperationError` | `V8003` | A documented shape the query engine does not express |
 | `QueryEngineError` | `V9001`, `V9002` | An engine invariant broke, or the schema is not coherent — a bug |
 | `CacheInvalidTTLError` | `V10001` | A cache TTL was malformed |

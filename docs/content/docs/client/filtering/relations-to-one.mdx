@@ -80,6 +80,37 @@ Direct polymorphic relations are variant-aware: target filters include a
 `{ isNot: null }`. Singular polymorphic inverse slots use the ordinary forms
 shown above. See [Polymorphic Relations](/docs/schema/relations/polymorphic#filter-by-variant-and-target-fields).
 
+## Recursive filters
+
+On a self relation, `recurse` turns the filter into a quantifier over every
+row the relation reaches transitively: `parent` with `recurse` ranges over the
+ancestors. Because that closure is a set, a recursive to-one filter takes
+`some`, `every` and `none` instead of `is`/`isNot`:
+
+```ts
+// The document itself or any ancestor carries a grant to the user
+const readable = await client.document.findMany({
+  where: {
+    parent: { recurse: true, self: true, some: { grants: { some: { userId } } } },
+  },
+});
+
+// No ancestor is archived (true for a root)
+const live = await client.document.findMany({
+  where: { parent: { recurse: { depth: false }, none: { archived: true } } },
+});
+```
+
+`self: true` adds the document itself to the closure, and `recurse` takes the
+same options as in `select`. See [Recursive filters](/docs/client/filtering/relations#recursive-filters)
+for the depth, cycle and provider rules. `{ parent: { some: … } }` without
+`recurse` is still refused: one hop of a to-one relation is `is`/`isNot`.
+
+An object without `is` or `isNot` is read as `is` (`{ author: { role: "ADMIN" } }`
+is `{ author: { is: { role: "ADMIN" } } }`). With the key `recurse`, it is
+always the recursive filter. To filter a target field that is literally named
+`recurse`, spell `is`: `{ parent: { is: { recurse: … } } }`.
+
 ## Nested Conditions
 
 Filter deeply nested relations:

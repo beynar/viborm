@@ -122,6 +122,28 @@ const publishedPosts = await client.post.findMany({
 });
 ```
 
+## Recursive filters
+
+On a self relation, `recurse` makes `some`, `every` and `none` range over every
+row the relation reaches transitively, not only the direct members: on
+`children`, the descendants.
+
+```ts
+// Teams with Eve in them or in any team below them
+const teams = await client.team.findMany({
+  where: {
+    children: {
+      recurse: true,
+      self: true,
+      some: { members: { some: { userId: "eve" } } },
+    },
+  },
+});
+```
+
+See [Recursive filters](/docs/client/filtering/relations#recursive-filters)
+for `self`, `depth`, cycles and the provider rules.
+
 ## Nested Conditions
 
 ```ts

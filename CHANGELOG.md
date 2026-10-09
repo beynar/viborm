@@ -3,6 +3,41 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## Unreleased
+
+A new public capability, so a minor release: proposed **1.1.0** (first
+candidate 1.1.0-rc.1). The release PR sets the heading.
+
+### Added
+
+- **Recursive relation filters.** A `where` filter on an ordinary self relation
+  accepts `recurse` and quantifies over the relation's transitive closure. This
+  covers a foreign key such as `parent`/`children`, or a junction such as
+  `team.parents`/`team.children`.
+  - Example: `{ parent: { recurse: true, self: true, some: { grants: { some: {
+    userId } } } } }` matches a document when it, or any ancestor, carries the
+    grant.
+  - `recurse` takes the same options as in `select`/`include`: `true` follows
+    100 levels, `{ depth: n }` follows 1–1000 levels, `{ depth: false }` is
+    exhaustive.
+  - `self: true` includes the row itself. `some`/`every`/`none` take the related
+    model's full `where`; with `recurse`, a to-one relation accepts them too.
+  - Cycles and diamonds terminate, and each reached row counts once. Rows
+    hidden by `softDelete` or a `rows` extension stop the walk.
+  - It compiles to one correlated `WITH RECURSIVE` inside `EXISTS`. It works in
+    every read, `count`, aggregates, `updateMany`/`deleteMany`, and nested
+    inside other relation filters.
+- On MySQL, an `updateMany`/`deleteMany` whose recursive filter walks the model
+  being changed is refused with `FeatureNotSupportedError` before any SQL is
+  sent: MySQL would re-read rows the statement already changed. Reads, and
+  changes to other models, are supported.
+
+### Changed
+
+- On a to-one relation filter, the key `recurse` now always selects the
+  recursive filter. Filter a target field literally named `recurse` through
+  `is`: `{ parent: { is: { recurse: … } } }`.
+
 ## 1.0.1-rc.1 — Release candidate
 
 Fixes the regressions found in the round-2 review of 1.0.0 and removes
