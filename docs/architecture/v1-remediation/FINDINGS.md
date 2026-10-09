@@ -199,7 +199,7 @@ The repository still carries historical evidence and a large engine/test harness
 
 **Disposition:** implemented-unverified. **Review:** low severity; confirmed.
 
-README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
 
 ### codebase-health-17: The npm tarball ships 20 stale design specs from the project's first weeks
 
@@ -699,7 +699,7 @@ Canonical PGlite configuration now supplies persistent dataDir and explicit mode
 
 **Disposition:** implemented-unverified. **Review:** medium severity; confirmed.
 
-README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
 
 ### docs-onboarding-11: No migrating-from-Prisma/Drizzle guide and no brownfield onboarding path
 
@@ -807,7 +807,7 @@ Added a public CLI command reference linked from documentation navigation; confi
 
 **Disposition:** verified-fixed. **Review:** low severity; partial.
 
-README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
 
 **Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
 
@@ -3579,7 +3579,7 @@ Direct collection only/variants envelopes intersect a literal key refusal, prese
 
 **Disposition:** verified-fixed. **Review:** low severity; partial.
 
-README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
 
 **Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
 

@@ -1,5 +1,24 @@
 # V1 adversarial remediation
 
+## Final publication documentation correction
+
+PR #84 merged as `02eaf90596a8e80499be091c1d2c72b197841ab0` after all
+8 PR CI jobs passed, including all 97 local-provider stages (5,741 passed,
+1,074 explicit conditional skips). Before publication, the production
+readback preparation exposed an incorrect README count introduced by this
+remediation: six extension capabilities were listed, but the reviewed
+origin/main already defined ten. The six handlers and four declarative
+capabilities are one existing extension language; no runtime/API change is
+needed. README and the four affected ledger descriptions now agree with
+`RuntimeExtensionDefinition`, the extension guide and the V1 upgrade guide.
+
+Release run `37898498982` was cancelled before publication or environment
+approval. Its artifact/package/Node 22.0/documentation checks passed, but its
+archive is withdrawn and must not be published. Exact-main CI `37898461475`
+was also cancelled to avoid qualifying the superseded candidate. A new
+protected-main revision and tested tarball are required for the README
+correction. Resource ceilings, coverage floors and required checks are unchanged.
+
 Goal: answer all 547 indexed findings and PB-1 through PB-8 from the October 8
 adversarial review, repair actionable defects, verify the integrated release,
 publish 1.0.0 as npm latest, and write a complete response and fresh roast.
