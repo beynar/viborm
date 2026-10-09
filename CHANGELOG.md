@@ -16,7 +16,7 @@ per-operation work that protected nothing.
   assertion and `COMMIT`; DateTime and Time columns also scanned the whole table
   twice. A primary-key lookup on a `createdAt` + `updatedAt` model took 82 ms at
   1k rows and 7.7 s at 100k. D1 refused every query on a model with a text
-  DateTime or Time column (statement too long, or pattern too complex). One
+  DateTime column (statement too long, or pattern too complex). One
   non-canonical timestamp row made the whole model fail with V8003. A typed
   statement now sends only its own SQL: one statement per `findUnique`, about
   0.05 ms at 100k rows, and no write lock for reads.
