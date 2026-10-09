@@ -605,3 +605,26 @@ affected final-source build, validation and render rerun is pending. The D1
 options table also now names the shipped `D1Database | D1DatabaseSession` union
 and demonstrates `withSession("first-primary")` inside the current request,
 matching the installed Workers types and the real public driver consumer.
+
+CI6 exposed a coverage-only regression in source-through-Jiti config loading:
+the ordinary utils/check selection passed **36/36**, but the exact CLI coverage
+command reproduced **6 failures / 75 passes**, including SQLite3 static
+initialization's `undefined.prototype`. A standalone native-import CommonJS
+probe did **not** reproduce it; that negative is not evidence that instrumented
+loading works. Changing only Jiti's `interopDefault` to `true` removed those six
+failures and exposed the two expected synthetic-default selection failures.
+Installed Jiti 2.7.0 proves a synthetic default is readable but is not an own
+property; authored defaults are own properties. The final loader therefore
+retains dependency CommonJS interop, while config and custom-migration consumers
+select an authored default with `Object.hasOwn`, preserving their existing
+truthy and nullish fallback rules respectively. This supersedes the earlier
+`interopDefault: false` conclusion. A truthy invalid authored default still refuses
+instead of falling back to a named config; real SQLite `SELECT 1` and a real
+named TypeScript migration author remain covered. Final CLI coverage passes
+**85/85 in five files**, **4.07s / 783.6 MiB**, with verified teardown and
+**100% statements, branches, functions and lines** at unchanged floors.
+Changed-file Biome and `git diff --check` pass. Receipts:
+[exact failing coverage baseline](/tmp/viborm-v1-cli-coverage-before.log),
+[one-factor interop comparison](/tmp/viborm-v1-cli-interop-true.log),
+[installed own-export proof](/tmp/viborm-v1-cli-jiti-authored-export-proof.log),
+and [final coverage](/tmp/viborm-v1-cli-coverage-final.log).

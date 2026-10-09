@@ -1,3 +1,4 @@
+import { discardAsyncValidationResult } from "../parse-failure";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -128,7 +129,10 @@ function buildDecimalValueValidator(
       const parsed = base(value);
       if (parsed.issues) return parsed;
       const refined = refine(toDecimal(parsed.value));
-      if ("then" in refined) return fail("Async schemas are not supported");
+      if ("then" in refined) {
+        discardAsyncValidationResult(refined);
+        return fail("Async schemas are not supported");
+      }
       if (refined.issues) {
         return standardSchemaFailure(refined.issues);
       }

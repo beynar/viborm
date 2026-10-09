@@ -154,7 +154,10 @@ export function createMigrateCommand(): Command {
                 default?: Author;
                 migration?: Author;
               }>(resolve(opts.custom));
-              const author = module.default ?? module.migration;
+              const author =
+                (Object.hasOwn(module, "default")
+                  ? module.default
+                  : undefined) ?? module.migration;
               if (!author)
                 throw new Error(
                   "A custom migration module must export a default migration or author function"

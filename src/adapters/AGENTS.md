@@ -302,7 +302,7 @@ WHERE `active` = 1
 schema key to its physical constraint name and the exact normalized provider
 descriptor for that dialect. Query engines pass the physical table, columns,
 and the schema key's compound name or mapped scalar column; they do not
-synthesize `_pkey`, `PRIMARY`, `_key`, or SQLite's qualified-column evidence.
+synthesize `_pkey`, `PRIMARY`, `_key`, or SQLite's table/column evidence.
 Driver error normalization owns the inverse provider boundary. Candidate
 recovery compares its output exactly and fails closed; it does not reinterpret
 provider messages. This vocabulary must not appear on the public

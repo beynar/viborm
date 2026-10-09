@@ -1,3 +1,4 @@
+import { discardAsyncValidationResult } from "../parse-failure";
 import type { InferInput, InferOutput, VibSchema } from "../types";
 import { createSchema, fail } from "./helpers";
 
@@ -42,6 +43,7 @@ export function union<const TOptions extends readonly VibSchema<any, any>[]>(
       const result = validate(value);
       let message: string;
       if ("then" in result) {
+        discardAsyncValidationResult(result);
         message = "Async schemas are not supported";
       } else if (result.issues) {
         message = result.issues[0]!.message;

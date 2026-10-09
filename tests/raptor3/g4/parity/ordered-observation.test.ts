@@ -14,7 +14,7 @@
 
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
-import { NestedWriteError } from "@errors";
+import { NestedWriteError, ValidationError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, it } from "vitest";
@@ -115,7 +115,7 @@ const schema = { user, post, tag, container, node, thing, owner };
 const UPDATE_POSTS = /^UPDATE "n1_posts"/;
 const SELECT_POSTS = /^SELECT .* FROM "n1_posts"/;
 const INSERT_TAGS = /^INSERT INTO "n1_tags"/;
-const SELECT_TAGS = /^SELECT .* FROM "n1_tags"/;
+const DELETE_TAGS = /^DELETE FROM "n1_tags"/;
 const MOVE_NODE = /^UPDATE "n1_nodes" SET "containerId"/;
 const SELECT_CONTAINERS = /^SELECT .* FROM "n1_containers"/;
 
@@ -272,61 +272,55 @@ for (const [route, make] of [
       assert.equal(driver.batchCalls, 0);
     });
 
-    it("a dependent junction capture moves behind the write it depends on: deleteMany removes the tag the connectOrCreate just made", async () => {
-      // The collection order runs `connectOrCreate` before `deleteMany` (and
-      // `create` last), so the capture's answer depends on the create arm.
+    it("refuses add-before-clear collection bodies before any effect", async () => {
       const client = await world();
-      await client.post.update({
-        where: { id: "p1" },
-        data: {
-          tags: {
-            connectOrCreate: {
-              where: { id: 9 },
-              create: { id: 9, code: "nine" },
+      await assert.rejects(
+        async () =>
+          client.post.update({
+            where: { id: "p1" },
+            data: {
+              tags: {
+                connectOrCreate: {
+                  where: { id: 9 },
+                  create: { id: 9, code: "nine" },
+                },
+                deleteMany: { code: "nine" },
+              },
             },
-            deleteMany: { code: "nine" },
-          },
-        },
-      });
+          }),
+        (error: unknown) =>
+          error instanceof ValidationError &&
+          error.message.includes("clearing verb 'deleteMany'")
+      );
+      assert.equal(driver.statements.length, 0);
       assert.deepEqual(
         (await client.tag.findMany({ orderBy: { id: "asc" } })).map(
           (row) => row.id
         ),
-        [7],
-        statements().join("\n")
+        [7]
       );
       assert.deepEqual(
         (
           await client.post.findMany({
             where: { id: "p1" },
-            include: { tags: { orderBy: { id: "asc" } } },
+            include: { tags: true },
           })
         ).map((row) => row.tags.map((member) => member.id)),
         [[7]]
       );
-      if (batch) {
-        assert.ok(driver.batchCalls >= 2, `batches: ${driver.batchCalls}`);
-      } else {
-        const write = indexOf(INSERT_TAGS);
-        assert.ok(write >= 0, statements().join("\n"));
-        assert.ok(
-          indexOf(SELECT_TAGS, write + 1) > write,
-          statements().join("\n")
-        );
-      }
     });
 
-    it("a disjoint capture keeps its place ahead of the effects", async () => {
+    it("clears a disjoint member before supplying its replacement", async () => {
       const client = await world();
       await client.post.update({
         where: { id: "p1" },
         data: {
           tags: {
+            deleteMany: { id: 7 },
             connectOrCreate: {
               where: { id: 9 },
               create: { id: 9, code: "nine" },
             },
-            deleteMany: { id: 7 },
           },
         },
       });
@@ -337,12 +331,9 @@ for (const [route, make] of [
         [9]
       );
       if (!batch) {
-        const observation = indexOf(SELECT_TAGS);
+        const removal = indexOf(DELETE_TAGS);
         const write = indexOf(INSERT_TAGS);
-        assert.ok(
-          observation >= 0 && write > observation,
-          statements().join("\n")
-        );
+        assert.ok(removal >= 0 && write > removal, statements().join("\n"));
       }
     });
 
@@ -409,11 +400,35 @@ for (const [route, make] of [
       }
     });
 
-    it("a set whose retained member a sibling produced keeps that member and clears the rest", async () => {
-      // `connectOrCreate` runs before `set` in the collection order; the
-      // set's target lookup depends on the create arm, lands ahead of the
-      // set's own clear, and the clear keeps the row it names.
+    it("set requires its retained member before later supply", async () => {
+      // Canonical collection order resolves set before connectOrCreate.
       const client = await world();
+      await assert.rejects(
+        async () =>
+          client.user.update({
+            where: { id: "u1" },
+            data: {
+              posts: {
+                set: [{ id: "p9" }],
+                connectOrCreate: [
+                  { where: { id: "p9" }, create: { id: "p9", title: "Nine" } },
+                ],
+              },
+            },
+          }),
+        (error: unknown) => error instanceof NestedWriteError
+      );
+      assert.deepEqual(
+        (await client.post.findMany({ orderBy: { id: "asc" } })).map((row) => [
+          row.id,
+          row.userId,
+        ]),
+        [
+          ["p1", "u1"],
+          ["p2", "u1"],
+        ]
+      );
+      await client.post.create({ data: { id: "p9", title: "Nine" } });
       await client.user.update({
         where: { id: "u1" },
         data: {

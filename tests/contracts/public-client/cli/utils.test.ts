@@ -19,7 +19,13 @@ import {
 import { join } from "node:path";
 import { chdir, cwd } from "node:process";
 import { pathToFileURL } from "node:url";
-import { defineConfig, failCli, finishCli, loadConfig } from "@src/cli/utils";
+import {
+  defineConfig,
+  failCli,
+  finishCli,
+  loadCliModule,
+  loadConfig,
+} from "@src/cli/utils";
 import {
   makeTempProject,
   type TempProject,
@@ -51,6 +57,45 @@ describe("loadConfig", () => {
     // loadConfig reads process.cwd(); always restore it even if a test chdir'd.
     chdir(origCwd);
     project.cleanup();
+  });
+
+  it.each([
+    {
+      name: "named config",
+      source: "export const config = { marker: 'named' };",
+      ownDefault: false,
+      expected: { config: { marker: "named" } },
+    },
+    {
+      name: "module exports",
+      source: "export const client = { marker: 'module' };",
+      ownDefault: false,
+      expected: { client: { marker: "module" } },
+    },
+    {
+      name: "authored default",
+      source: "export default { marker: 'authored' };",
+      ownDefault: true,
+      expected: { marker: "authored" },
+    },
+  ])("distinguishes the $name from a synthetic loader default", async (entry) => {
+    writeConfigFixture(project, { rawConfigSource: entry.source });
+    const module = await loadCliModule<{ default?: unknown }>(
+      project.configPath
+    );
+    expect(Object.hasOwn(module, "default")).toBe(entry.ownDefault);
+    expect(module.default).toBeDefined();
+    expect(entry.ownDefault ? module.default : module).toEqual(entry.expected);
+  });
+
+  it("refuses an invalid authored default instead of choosing a named config", async () => {
+    writeConfigFixture(project, {
+      rawConfigSource:
+        "export default { migrations: {} }; export const config = { client: 1 };",
+    });
+    await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
+      MISSING_CLIENT_PATTERN
+    );
   });
 
   // --- config file discovery ---------------------------------------------

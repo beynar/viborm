@@ -67,7 +67,10 @@ export type {
 } from "./types";
 
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { validationFailureFromThrown } from "./parse-failure";
+import {
+  discardAsyncValidationResult,
+  validationFailureFromThrown,
+} from "./parse-failure";
 import type { ParseResult, ValidationFailure } from "./types";
 import { isFunction, isRecord } from "./value-guards";
 
@@ -93,7 +96,10 @@ export function parse(
 ): StandardSchemaV1.Result<unknown> {
   try {
     const result = schema["~standard"].validate(value);
-    if (isPromiseLike(result)) return refuseAsyncResult(result);
+    if (isPromiseLike(result)) {
+      discardAsyncValidationResult(result);
+      return asyncValidationFailure;
+    }
     if (!isRecord(result)) return malformedValidationFailure;
 
     const issues = Reflect.get(result, "issues");
@@ -105,14 +111,4 @@ export function parse(
   } catch (cause) {
     return validationFailureFromThrown(cause);
   }
-}
-
-/**
- * The refused promise is still live. Without a handler its rejection would
- * surface as an unhandled rejection, a process-level fault for a schema the
- * caller was already told is unsupported (D-37).
- */
-function refuseAsyncResult(result: PromiseLike<unknown>): ValidationFailure {
-  result.then(undefined, () => undefined);
-  return asyncValidationFailure;
 }

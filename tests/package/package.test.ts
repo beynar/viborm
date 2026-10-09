@@ -10,6 +10,7 @@ import {
   assertBuiltPublicDistMatchesArchive,
   packedArchive,
 } from "./packed-consumer.mjs";
+import { PACKAGE_STAGE_PREFIX } from "./stage-progress.mjs";
 
 const execute = promisify(execFile);
 
@@ -90,15 +91,11 @@ const scripts = [
   ...(["TS5.8", "native"] as const).flatMap((compiler) =>
     (
       [
-        "db",
-        "extends10",
+        "core-family",
+        "target-family",
+        "modifier-family",
         "chain2",
         "chain5",
-        "backreference",
-        "factories",
-        "self-junction",
-        "variants",
-        "modifiers",
         "lossy-models",
         "chain30",
         "chain100",
@@ -138,7 +135,8 @@ describe("built package", () => {
       // Keep descendants in the launcher's monitored group. Package bail:1
       // ends qualification on any timeout; the existing bounded launcher then
       // tears down that complete group before another run can start.
-      await execute(process.execPath, [script], {
+      console.info(`[viborm-package-case] begin ${name}`);
+      const pending = execute(process.execPath, [script], {
         cwd: REPOSITORY_ROOT,
         env: {
           ...process.env,
@@ -149,6 +147,17 @@ describe("built package", () => {
         timeout: 30_000,
         killSignal: "SIGKILL",
       });
+      let stageOutput = "";
+      pending.child.stderr?.on("data", (chunk: Buffer) => {
+        stageOutput += chunk.toString();
+        const lines = stageOutput.split("\n");
+        stageOutput = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.startsWith(PACKAGE_STAGE_PREFIX)) console.info(line);
+        }
+      });
+      await pending;
+      console.info(`[viborm-package-case] passed ${name}`);
     });
   }
 });

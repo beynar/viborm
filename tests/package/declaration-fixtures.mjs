@@ -383,3 +383,53 @@ try {
 }
 `;
 }
+
+/** Recursive JSON results retain their broad and finite declared domains. */
+export const jsonSource = `import { createClient, s, type JsonValue } from "viborm";
+import { SQLite3Driver } from "viborm/sqlite3";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+const broad: StandardSchemaV1<JsonValue, JsonValue> = {
+  "~standard": { version: 1, vendor: "json-result-probe", validate: () => Promise.reject(new Error("unsupported async validator")) },
+};
+const finite: StandardSchemaV1<JsonValue, { mode: "stored"; nested: { enabled: boolean } }> = {
+  "~standard": { version: 1, vendor: "json-result-probe", validate: () => ({ value: { mode: "stored", nested: { enabled: true } } }) },
+};
+const document = s.model({ id: s.int().id(), payload: s.json().schema(broad), nullablePayload: s.json().schema(broad).nullable(), finite: s.json().schema(finite) }).map("json_result_documents");
+export const db = createClient({ schema: { document }, driver: new SQLite3Driver() });
+export const makeClient = () => createClient({ schema: { document }, driver: new SQLite3Driver() });
+export const read = async () => (await db.document.findUnique({ where: { id: 1 } }))?.payload;
+export const readMany = async () => (await db.document.findMany()).map(row => row.payload);
+`;
+
+export const jsonProbe = `import { db, makeClient, read, readMany } from "./json.js";
+import type { JsonValue } from "viborm";
+type IsAny<T> = 0 extends 1 & T ? true : false;
+declare const payload: Awaited<ReturnType<typeof read>>;
+declare const many: Awaited<ReturnType<typeof readMany>>;
+declare const payloadIsAny: IsAny<typeof payload>;
+declare const manyLeafIsAny: IsAny<(typeof many)[number]>;
+const noAny: false = payloadIsAny;
+const noManyAny: false = manyLeafIsAny;
+const admitted: JsonValue | undefined = payload;
+const manyDomain: JsonValue[] = many;
+const sameDomain: typeof payload = { nested: [null, { deep: [true, 1, "value"] }] };
+const absent: typeof payload = undefined;
+// @ts-expect-error - recursive JSON domain rejects foreign value objects
+const badDocument: typeof payload = new Date();
+// @ts-expect-error - JSON result is not an arbitrary scalar number
+const badScalar: number = payload;
+export async function inspect() {
+  const full = await makeClient().document.findUnique({ where: { id: 1 } });
+  const nullable: JsonValue | undefined = full?.nullablePayload;
+  const refined: "stored" | undefined = full?.finite.mode;
+  // @ts-expect-error - finite custom JSON retains its refinement
+  const badRefined: "wrong" | undefined = full?.finite.mode;
+  const selected = await db.document.findUnique({ where: { id: 1 }, select: { payload: true } });
+  // @ts-expect-error - preserved JSON does not widen a selected result
+  const excluded = selected?.finite;
+  // @ts-expect-error - exact public selector retains number scalar domain
+  await db.document.findUnique({ where: { id: "one" } });
+  return { nullable, refined, selected };
+}
+void [noAny, noManyAny, admitted, manyDomain, sameDomain, absent, badDocument, badScalar];
+`;

@@ -14,6 +14,8 @@ import {
   constructionSource,
   factoryProbe,
   factorySource,
+  jsonProbe,
+  jsonSource,
   lossyModelsControl,
   modifierProbe,
   modifierSource,
@@ -24,6 +26,7 @@ import {
 } from "./declaration-fixtures.mjs";
 import { assertChain5ClientIntegrity } from "./emitted-client-integrity.mjs";
 import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
+import { runPackageStage } from "./stage-progress.mjs";
 
 const db = `import { createClient, defineExtension, s } from "viborm";
 import { SQLite3Driver } from "viborm/sqlite3";
@@ -125,6 +128,18 @@ const LOSSY_REBUILD_DIAGNOSTICS = new Set([
 ]);
 const compilerChoice = process.env.VIBORM_DECLARATION_COMPILER;
 const caseChoice = process.env.VIBORM_DECLARATION_CASE;
+const declarationFamilies = {
+  "core-family": ["db", "extends10", "backreference"],
+  "target-family": ["factories", "self-junction", "variants"],
+  "modifier-family": ["modifiers", "json"],
+};
+const composedFixtures = [
+  ["factories", factorySource(), factoryProbe()],
+  ["self-junction", selfJunctionSource, selfJunctionProbe],
+  ["variants", variantSource, variantProbe],
+  ["modifiers", modifierSource, modifierProbe],
+  ["json", jsonSource, jsonProbe],
+];
 const cases = [
   "db",
   "extends10",
@@ -140,6 +155,8 @@ const cases = [
   "chain100",
   "chain200",
   "ring10",
+  "json",
+  ...Object.keys(declarationFamilies),
 ];
 if (compilerChoice && !compilers.some(([label]) => label === compilerChoice))
   throw new Error(`Unknown declaration compiler: ${compilerChoice}`);
@@ -150,7 +167,14 @@ const includesCase = (name) => !caseChoice || caseChoice === name;
 withPackedConsumer(
   "viborm-declaration-consumer",
   { "db.ts": db },
-  ({ root, run }) => {
+  ({ root, run: executeRuntime }) => {
+    const run = (file, label) =>
+      runPackageStage(
+        compilerChoice ?? "all",
+        caseChoice ?? "all",
+        "construction",
+        () => executeRuntime(file, label)
+      );
     // better-sqlite3 publishes its types through its real DefinitelyTyped peer.
     // Supply the two declared typings a SQLite user installs; no ambient stubs.
     mkdirSync(join(root, "node_modules/@types"), { recursive: true });
@@ -180,31 +204,37 @@ withPackedConsumer(
       writeFileSync(join(root, "use-source.ts"), downstream);
     }
     const checkFile = (compiler, file) =>
-      execFileSync(
-        process.execPath,
-        [
-          compiler,
-          "--strict",
-          "--noEmit",
-          "--target",
-          "ES2022",
-          "--module",
-          "ESNext",
-          "--moduleResolution",
-          "Bundler",
-          "--types",
-          "node",
-          "--typeRoots",
-          join(repositoryRoot, "node_modules/@types"),
-          file,
-        ],
-        {
-          cwd: root,
-          encoding: "utf8",
-          stdio: "pipe",
-          timeout: 30_000,
-          killSignal: "SIGKILL",
-        }
+      runPackageStage(
+        compilers.find((entry) => entry[1] === compiler)[0],
+        caseChoice ?? "all",
+        "consumer",
+        () =>
+          execFileSync(
+            process.execPath,
+            [
+              compiler,
+              "--strict",
+              "--noEmit",
+              "--target",
+              "ES2022",
+              "--module",
+              "ESNext",
+              "--moduleResolution",
+              "Bundler",
+              "--types",
+              "node",
+              "--typeRoots",
+              join(repositoryRoot, "node_modules/@types"),
+              file,
+            ],
+            {
+              cwd: root,
+              encoding: "utf8",
+              stdio: "pipe",
+              timeout: 30_000,
+              killSignal: "SIGKILL",
+            }
+          )
       );
     for (const [label, compiler] of compilers) {
       if (compilerChoice && compilerChoice !== label) continue;
@@ -254,15 +284,130 @@ withPackedConsumer(
                 projectFile,
                 ...producers,
               ];
-        execFileSync(process.execPath, arguments_, {
-          cwd: root,
-          encoding: "utf8",
-          stdio: "pipe",
-          timeout: 30_000,
-          killSignal: "SIGKILL",
-        });
+        runPackageStage(label, caseChoice ?? "all", "check-and-emit", () =>
+          execFileSync(process.execPath, arguments_, {
+            cwd: root,
+            encoding: "utf8",
+            stdio: "pipe",
+            timeout: 30_000,
+            killSignal: "SIGKILL",
+          })
+        );
       };
       try {
+        if (Object.hasOwn(declarationFamilies, caseChoice)) {
+          const selected = declarationFamilies[caseChoice];
+          const definitions = [
+            ["db", "db", db, downstream],
+            ["extends10", "extends10", extensionSource, extensionConsumer],
+            ["backreference", "chain5", chainSource(5), backreferenceSource()],
+            ...composedFixtures.map(([name, source, probe]) => [
+              name,
+              name,
+              source,
+              probe,
+            ]),
+          ].filter(([scenario]) => selected.includes(scenario));
+          if (definitions.length !== selected.length)
+            throw new Error("Declaration family is missing a scenario");
+          const producers = [];
+          const probes = [];
+          const consumerFiles = [];
+          const familyOutput = join(root, `${label}-${caseChoice}`);
+          for (const [scenario, name, source, probe] of definitions) {
+            const directory = join(root, caseChoice, scenario);
+            mkdirSync(directory, { recursive: true });
+            writeFileSync(join(directory, `${name}.ts`), source);
+            writeFileSync(join(directory, "source-probe.ts"), probe);
+            producers.push(`./${caseChoice}/${scenario}/${name}.ts`);
+            probes.push(`./${caseChoice}/${scenario}/source-probe.ts`);
+            if (
+              ["factories", "self-junction", "variants", "modifiers"].includes(
+                scenario
+              )
+            ) {
+              writeFileSync(
+                join(directory, "runtime.ts"),
+                constructionSource(scenario)
+              );
+              run(
+                `${caseChoice}/${scenario}/runtime.ts`,
+                `${scenario} topology`
+              );
+            } else if (scenario === "db") {
+              writeFileSync(
+                join(directory, "runtime.ts"),
+                'import { db } from "./db.ts";\nif (!db.$schema.post) throw new Error("Missing admitted model");\nconsole.log("declaration topology: pass");\n'
+              );
+              run(
+                `${caseChoice}/${scenario}/runtime.ts`,
+                "declaration topology"
+              );
+            } else if (scenario === "extends10") {
+              writeFileSync(
+                join(directory, "runtime.ts"),
+                'import { ten } from "./extends10.ts";\nif (ten.$one() !== 1 || ten.$five() !== "five" || ten.$nine() !== 9 || ten.$ten() !== 10) throw new Error("Extension chain failed");\nconsole.log("ten extensions: pass");\n'
+              );
+              run(`${caseChoice}/${scenario}/runtime.ts`, "ten extensions");
+            }
+          }
+          const familyProject = join(
+            root,
+            `tsconfig-${label}-${caseChoice}.json`
+          );
+          emitSource(familyProject, familyOutput, producers, probes);
+          for (const [scenario, name, _source, probe] of definitions) {
+            const directory = join(familyOutput, caseChoice, scenario);
+            const declaration = readFileSync(
+              join(directory, `${name}.d.ts`),
+              "utf8"
+            );
+            if (!declaration)
+              throw new Error("Producer did not emit a declaration");
+            if (scenario === "backreference" || scenario === "factories")
+              assertChain5ClientIntegrity(declaration);
+            const consumer = join(directory, "consumer.ts");
+            writeFileSync(consumer, probe);
+            consumerFiles.push(consumer);
+          }
+          const consumerProject = join(
+            root,
+            `tsconfig-${label}-${caseChoice}-consumer.json`
+          );
+          writeFileSync(
+            consumerProject,
+            JSON.stringify({
+              compilerOptions: {
+                strict: true,
+                noEmit: true,
+                skipLibCheck: false,
+                target: "ES2022",
+                module: "ESNext",
+                moduleResolution: "Bundler",
+                types: ["node"],
+                typeRoots: [join(repositoryRoot, "node_modules/@types")],
+              },
+              files: consumerFiles,
+            })
+          );
+          runPackageStage(label, caseChoice, "consumer", () =>
+            execFileSync(
+              process.execPath,
+              [compiler, "--project", consumerProject],
+              {
+                cwd: root,
+                encoding: "utf8",
+                stdio: "pipe",
+                timeout: 30_000,
+                killSignal: "SIGKILL",
+              }
+            )
+          );
+          console.log(
+            `${label}: ${selected.join(", ")} construction/source/emission/declaration-only probes passed`
+          );
+          continue;
+        }
         if (includesCase("extends10")) {
           const extensionProject = join(
             root,
@@ -282,55 +427,12 @@ withPackedConsumer(
           );
         }
         if (includesCase("db")) {
-          // Pin source inference separately from the emitted declaration's
-          // downstream inference; both must preserve required-owner nullability.
-          execFileSync(
-            process.execPath,
-            [
-              compiler,
-              "--strict",
-              "--noEmit",
-              "--target",
-              "ES2022",
-              "--module",
-              "ESNext",
-              "--moduleResolution",
-              "Bundler",
-              "--types",
-              "node",
-              "--typeRoots",
-              join(repositoryRoot, "node_modules/@types"),
-              join(root, "use-source.ts"),
-            ],
-            { cwd: root, encoding: "utf8", stdio: "pipe" }
-          );
-          execFileSync(process.execPath, [compiler, "--project", project], {
-            cwd: root,
-            encoding: "utf8",
-            stdio: "pipe",
-          });
+          // Share source checking and producer emission; the declaration-only
+          // consumer below remains a separate program and trust boundary.
+          emitSource(project, output, ["./db.ts"], ["./use-source.ts"]);
           const declaration = readFileSync(join(output, "db.d.ts"), "utf8");
           writeFileSync(join(output, "use.ts"), downstream);
-          execFileSync(
-            process.execPath,
-            [
-              compiler,
-              "--strict",
-              "--noEmit",
-              "--target",
-              "ES2022",
-              "--module",
-              "ESNext",
-              "--moduleResolution",
-              "Bundler",
-              "--types",
-              "node",
-              "--typeRoots",
-              join(repositoryRoot, "node_modules/@types"),
-              join(output, "use.ts"),
-            ],
-            { cwd: root, encoding: "utf8", stdio: "pipe" }
-          );
+          checkFile(compiler, join(output, "use.ts"));
           console.log(
             `${label}: exported schema/client emitted ${Buffer.byteLength(declaration)} bytes; downstream positive and negative probes passed`
           );
@@ -388,22 +490,19 @@ withPackedConsumer(
             `${label}: unannotated related chain${count} emitted ${Buffer.byteLength(emitted)} bytes`
           );
         }
-        for (const [fixture, source, probe] of [
-          ["factories", factorySource(), factoryProbe()],
-          ["self-junction", selfJunctionSource, selfJunctionProbe],
-          ["variants", variantSource, variantProbe],
-          ["modifiers", modifierSource, modifierProbe],
-        ]) {
+        for (const [fixture, source, probe] of composedFixtures) {
           if (!includesCase(fixture)) continue;
           writeFileSync(join(root, `${fixture}.ts`), source);
           const sourceProbe = join(root, `${fixture}-probe.ts`);
           writeFileSync(sourceProbe, probe);
           // Construction invokes the actual topology owner without database I/O.
-          writeFileSync(
-            join(root, `${fixture}-runtime.ts`),
-            constructionSource(fixture)
-          );
-          run(`${fixture}-runtime.ts`, `${fixture} topology`);
+          if (fixture !== "json")
+            writeFileSync(
+              join(root, `${fixture}-runtime.ts`),
+              constructionSource(fixture)
+            );
+          if (fixture !== "json")
+            run(`${fixture}-runtime.ts`, `${fixture} topology`);
           const fixtureOutput = join(root, `${label}-${fixture}`);
           const fixtureProject = join(
             root,
@@ -461,25 +560,27 @@ withPackedConsumer(
           if (!includesCase(`${ring ? "ring" : "chain"}${count}`)) continue;
           const file = `${ring ? "ring" : "chain"}${count}-query.ts`;
           writeFileSync(join(root, file), chainSource(count, ring));
-          execFileSync(
-            process.execPath,
-            [
-              compiler,
-              "--strict",
-              "--noEmit",
-              "--target",
-              "ES2022",
-              "--module",
-              "ESNext",
-              "--moduleResolution",
-              "Bundler",
-              "--types",
-              "node",
-              "--typeRoots",
-              join(repositoryRoot, "node_modules/@types"),
-              join(root, file),
-            ],
-            { cwd: root, encoding: "utf8", stdio: "pipe" }
+          runPackageStage(label, caseChoice ?? "all", "query", () =>
+            execFileSync(
+              process.execPath,
+              [
+                compiler,
+                "--strict",
+                "--noEmit",
+                "--target",
+                "ES2022",
+                "--module",
+                "ESNext",
+                "--moduleResolution",
+                "Bundler",
+                "--types",
+                "node",
+                "--typeRoots",
+                join(repositoryRoot, "node_modules/@types"),
+                join(root, file),
+              ],
+              { cwd: root, encoding: "utf8", stdio: "pipe" }
+            )
           );
           console.log(
             `${label}: same-shape ${ring ? "ring" : "chain"}${count} nested public query passed`

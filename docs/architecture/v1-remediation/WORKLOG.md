@@ -68,6 +68,91 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
+- Final immutable artifact27 passes the complete package suites on both
+  runtimes: 43/43 on Node24.14 in107.33s/1224.9MiB and Node22.12 in
+  118.67s/1110.2MiB. Every previous scenario remains, recursive JSON output is
+  added, strict emitted-only consumers pass, live stage markers are visible,
+  and teardown is verified under unchanged30s child/300s aggregate/1536MiB RSS
+  limits. Logs: `/tmp/viborm-v1-package27-node24.log` and
+  `/tmp/viborm-v1-package27-node22.log`. The changed package test passes its
+  focused native check; its temporary root-local config was removed. An
+  initial external config could not resolve inherited type libraries and is
+  recorded as a failed setup, not a product diagnostic.
+- Final artifact27 perimeter: source147305 (+5930/+4.1945%), tests459775
+  (+14319/+3.2145%), scripts31844 (+150/+0.4733%), live docs23200
+  (+71/+0.3070%). Counts include new files, both sides of moves, comments and
+  blanks. `/tmp/viborm-v1-checkpoint7-loc-final27.json` and its companion
+  manifest reproduce these totals. All555 finding identities/dispositions
+  remain unchanged after refreshing22 evidence entries.
+- Immutable artifact27 completes all 118 compiler/backend/scaling checks with
+  zero unexpected failures. Every successful inferred-client emission retains
+  its exact literal links and contains no elisions or getter functions. Dense
+  graphs pass through 96 models; maximum child 3.878s/846.4MiB. The current JS
+  declaration backend remains in place. The isolated build passed in
+  2.13s/1046.4MiB; archive SHA256
+  `12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0`,
+  source manifest `c1c0799002320e8f7b386038e53cb535be2832c09b5c202f4c98ab7ecdd4cf39`.
+  All 89 runtime modules are byte-identical to artifact26. The final receipts
+  are in `/tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json`.
+- Remaining ordinary local-provider shards 11–15 pass: 75 tests, six intentional
+  Docker skips, peak 581.1MiB, every teardown verified. This covers the five
+  ordinary stages CI6 never reached. The later provider families still require
+  the final protected CI run; no blanket claim is inferred from these shards.
+- Independent review confirms the grouped package harness preserves every
+  previous scenario, strict source checks, fresh emitted-declaration-only
+  consumers, six runtime construction checks and literal-link integrity
+  assertions. Three bounded fixture families share compiler startup; 43 test
+  cases retain the previous 51 scenarios and add recursive JSON results. Full
+  Node22/24 package qualification against artifact27 is next. No test, resource
+  ceiling, compiler version or runtime bundle setting was weakened.
+- Native43 passes the complete estate with zero diagnostics in34.94s at
+  6043.6MiB, unchanged8192MiB/300s limits and verified teardown. The exact
+  JSON result TS2589 also fails on immutable25 under both5.8 and7: it is a
+  latent recursive `Prettify<JsonValue>` expansion, not an async-lifecycle
+  regression. The existing canonical JSON domain now bypasses cosmetic
+  remapping. Public single/many/selected/finite-output/negative controls and
+  independent union/Date/Decimal/function review pass; no client annotation,
+  carrier change or alternate value vocabulary is introduced. Source grows
+  only5 lines for this owner correction. Package and backend requalification
+  will use the new immutable27 artifact because declarations have changed.
+- CI6 runtime repairs now pass171/171 across the seven affected files in
+  4.15s/608.8MiB. Direct and prepared-array scalar refusals both retain V2006
+  metadata, both SQLite collision tests retain exactly two attempts, and
+  rejected async validators/callbacks remain contained across all six sites.
+  Independent review confirms prepared result provenance and commit certainty
+  are preserved. Full validation coverage passes3719 tests across four chunks,
+  all metrics100%, largest chunk1090.2MiB. Native42 finds one newly exercised
+  JSON-result TS2589 and two test-only schema annotations; the annotations are
+  corrected, and the JSON case is under isolated diagnosis. Native42 is red.
+- Immutable artifact26 builds in2.21s/1011.3MiB. All34 declaration files are
+  byte-for-byte identical to qualified25, so its118-row type matrix still
+  applies; the new runtime/CLI package must be qualified. Archive2,051,167 bytes,
+  SHA256 `9746d0d529f27dbe5b0bd984f0bdf9f5b73b2a82bcbf86081f25b1a6e495adbd`;
+  source manifest `ef6b40eff5313695b049c2cdfffdcf378ef7f434776fef7918c3130a7852a738`.
+  Working dist was replaced only after confirming its complete contents were
+  the owned artifact25. Type comparison receipt:
+  `/tmp/viborm-v1-artifact26-declaration-parity.json`.
+- Checkpoint6 `31466ea131ade9a2221def34eb73cbc7d7b407b3` is pushed to
+  PR84. Remote CI6 `37874673209` passes core, PostgreSQL/MySQL and Bun/D1.
+  It exposes four remaining lanes: docs exceeds1536MiB at1537.7MiB; CLI
+  coverage finds six source-through-jiti interop failures; local providers
+  find retired fixture contracts plus a genuine SQLite constraint identity
+  mismatch; Linux package work exceeds one30s child and the300s aggregate.
+  Local artifact25 package/type results below remain local evidence, not
+  successful protected CI. The pending docs-only2048MiB decision is unchanged.
+- CLI repair restores dependency CJS interop while both config and custom
+  migration readers select only authored own defaults. Exact CLI coverage
+  passes85/85 with all four metrics100%,4.07s/783.6MiB, unchanged budgets.
+  SQLite identity now uses the driver's physical table plus ordered columns;
+  both collision recovery tests still require exactly two transaction regions.
+  The first focused gate passes151/153; two JSON tests correctly expose
+  unhandled rejected async validators and missing prepared-parser error
+  mapping. Those owner fixes are saved and await integrated qualification.
+- The package owner proved that emission itself retains declaration failures
+  on TypeScript5.8/5.9, but removing a duplicate transform did not materially
+  improve timing. The `db` source check and emission can share one program,
+  preserving the separate emitted-only consumer. Linux aggregate repair is
+  still being measured; no fixture, negative assertion or budget is weakened.
 - Final artifact25 compiler/backend matrix is complete:118 distinct rows,
   one immutable archive hash, zero unexpected failures. The ten expected
   refusals are eight already-lossy raw-model controls, the installed native
@@ -92,8 +177,8 @@ when faulty supported behavior remains.
   lines:22.12.0 in203.02s/1384.9MiB and24.14.0 in187.93s/1433.6MiB. Both
   preserve the1536MiB RSS,300s aggregate and30s per-consumer ceilings, with
   verified teardown. These include the unchanged200-model cases and emitted
-  client/factory/modifier consumers. Final118-row declaration/backend matrix
-  is running serially against this same archive.
+  client/factory/modifier consumers. The final118-row declaration/backend matrix
+  completed against this same archive.
 - Frozen artifact25 integrates the two `NoInfer` equality operands. A bounded
   TypeScript5.8 trace located602 recursive inference frames comparing the same
   model types; the failed accessor-only trial was discarded. All676 concrete
@@ -107,8 +192,8 @@ when faulty supported behavior remains.
   `cc208fb939bad29b6fbdf86e05e41477c83474aa467aee5512353af948c2eae4`.
   All89 runtime `.mjs` files are byte-identical to artifact22. Whole-estate
   native gate41 passes zero diagnostics in35.51s/6143.9MiB with verified teardown
-  under the existing8192MiB allowance. The final118-row compiler/backend matrix
-  and exact-revision protected CI remain required.
+  under the existing8192MiB allowance. Exact-revision protected CI remains
+  required after the recorded118-row compiler/backend matrix.
 - Artifact24's full Node22 suite passes35 cases, then TS5.8 chain200
   crashes with `RangeError: Maximum call stack size exceeded` in recursive
   type inference (166.40s total/1196.9MiB). The same immutable archive passes

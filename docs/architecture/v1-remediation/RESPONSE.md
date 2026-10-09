@@ -7,8 +7,10 @@ query and migration work; the root agent integrates, reviews and releases it.
 
 **Release checkpoint: held, not published.** Arnaud requires fully unannotated
 exported clients and client factories to preserve cyclic relation typing through
-declaration emission. The schema-key carrier passes both complete51-case package
-suites and the118-row compiler/backend/scaling matrix on TypeScript5.8 and7.
+declaration emission. The schema-key carrier passes the 118-row final
+compiler/backend/scaling matrix on TypeScript 5.8 and 7. The final tarball passes
+all 43 package cases on Node 22 and 24; the grouped harness retains all previous
+51 scenarios and adds recursive JSON result checks.
 Caller getter annotations are unnecessary. Rebuilding a client from
 already-emitted cyclic models is an explicitly accepted remaining limitation.
 Version 1.0.0 is prepared, but npm latest
@@ -46,6 +48,10 @@ findings,4 non-defects and1 refuted claim. There are no unassigned pending rows.
   no longer accidentally generate foreign-key values. Decimal/DateTime/JSON and
   vector boundaries use their existing semantic owners; invalid or lossy provider
   crossings are refused instead of producing plausible values.
+- Rejected async validators and filter callbacks cannot leak unhandled promise
+  rejections. Prepared array results retain the same scalar-error attribution
+  as ordinary queries. Recursive JSON result types bypass cosmetic remapping
+  without losing their domain, finite custom outputs or selected-field checks.
 - SQLite JSON comparisons use structural equality. PostgreSQL boolean aggregates
   use supported operators. Native string domains keep native identity comparison
   while text predicates use explicit supported text operations.
@@ -73,23 +79,24 @@ findings,4 non-defects and1 refuted claim. There are no unassigned pending rows.
 
 | Check | Observed result | Remaining qualification |
 |---|---|---|
-| Whole-estate native typecheck | Final artifact25 source and permanent compatibility probes pass with zero diagnostics,35.51s,6143.9MiB, unchanged8192MiB/300s limits | Final CI revision |
+| Whole-estate native typecheck | Artifact27 source, exact recursive JSON result regression and permanent compatibility probes pass with zero diagnostics, 34.94s, 6043.6MiB, unchanged 8192MiB/300s limits. The subsequent package-harness edit passes its focused native check | Final CI revision |
 | Core7, four sequential shards | All9624 tests passed; unchanged resource budgets | Final CI revision |
 | Focused driver/instrumentation integration |132/132 passed, including actual OTel, Neon SDK mocks and poisoned-row taxonomy | Final CI revision |
+| CI6 integration repair |171/171 affected tests pass; SQLite selected-key recovery retains exactly two attempts, direct/array scalar failures retain V2006 metadata, and rejected async validators/callbacks remain contained. All3719 validation tests pass with100% coverage | Final CI revision |
 | Root SQLite storage and scalar behavior |20/20 passed; physical storage races and transformed JSON null included | Full provider CI |
 | Root client/schema followthrough |48/48 passed; diagnostics and executable docs144/144 passed | Final CI revision |
 | Migration coverage and live precision |2075/2075 tests pass all coverage floors; real PGlite precision and MySQL catalog contracts pass | Final CI revision |
 | Native PostgreSQL and geospatial behavior |9/9 real PGlite passed, including480 distance points and historical second-offset timezones | Full provider CI |
 | Neon TCP/HTTP and concurrency |12/12 live checks passed, including recovery after failed BEGIN | Final CI revision |
 | libSQL HTTP rollback |3/3 passed over real HTTP against official sqld0.23.0 | Hosted Turso and newer servers remain unqualified |
-| Installed Node22.12/24.14 consumers | All51 package cases pass on both runtimes, including actual value use across27 public subpaths, CommonJS/SQLite, extension recipes, absent peers and CLI configuration | Final protected CI |
-| Exported declarations and cyclic models | Artifact25 completes118 compiler/backend checks with zero unexpected failures; direct JS5.9/native7 and both working tsdown paths preserve strict TS5.8/native7 consumers. All emitted clients have exact literal links and zero elisions/getter functions; dense graphs pass through96 models | Raw-model reconstruction remains lossy; stock native plugin lacks its expected peer and OXC requires annotations. Current JS backend retained; [full comparison](declaration-backends.md) |
-| Full package qualification | Immutable artifact25 passes51/51 cases on Node22.12 in203.02s/1384.9MiB and Node24.14 in187.93s/1433.6MiB, with verified teardown and unchanged1536MiB/300s limits. All676 concrete equality controls and all20 archive/AST integrity regressions pass | Final protected CI |
-| Documentation build | The overwritten prerender setting is corrected. Node22.19/512MiB completed120 pages once at1535.8MiB, but its cold repeat exceeded1536MiB; current output is unqualified | A docs-only2GiB exception awaits approval; then cold/warm build, validation and final-page inspection |
-| Coverage gates | Recorded local coverage passed every unchanged subsystem floor; schema, validation, errors, extensions, CLI, instrumentation and adapters recorded all four metrics100% | Final CI coverage after the fixture-policy repair |
+| Installed Node22.12/24.14 consumers | All 43 grouped package cases pass on both runtimes, retaining all 51 previous scenarios and adding recursive JSON output. This includes actual value use across 27 public subpaths, CommonJS/SQLite, extension recipes, absent peers and CLI configuration | Final protected CI |
+| Exported declarations and cyclic models | Artifact27 completes 118 compiler/backend checks with zero unexpected failures; direct JS5.9/native7 and both working tsdown paths preserve strict TS5.8/native7 consumers. All emitted clients have exact literal links and zero elisions/getter functions; dense graphs pass through 96 models. Maximum child 3.878s/846.4MiB | Raw-model reconstruction remains lossy; stock native plugin lacks its expected peer and OXC requires annotations. Current JS backend retained; [full comparison](declaration-backends.md) |
+| Full package qualification | Immutable artifact27 passes 43/43 cases on Node22.12 in 118.67s/1110.2MiB and Node24.14 in 107.33s/1224.9MiB, with verified teardown and unchanged 1536MiB/300s limits. All 676 concrete equality controls and all 20 archive/AST integrity regressions pass | Final protected CI |
+| Documentation build | The overwritten prerender setting is corrected. Node22.19/512MiB completed120 pages once at1535.8MiB, but its cold repeat exceeded1536MiB; Linux CI6 also exceeds the ceiling at1537.7MiB. Current output is unqualified | A docs-only2GiB exception awaits approval; then cold/warm build, validation and final-page inspection |
+| Coverage gates | Recorded local coverage passed every unchanged subsystem floor. CI6 exposed six source-through-jiti CLI failures; restored dependency interop plus authored-default selection now passes85/85 with all four CLI metrics100% | Final CI coverage after the current integration repairs |
 | Driver coverage |2017 passed,680 explicit conditional skips across62 current chunks;96.65% statements/lines,92.76% branches,96.16% functions | Final CI revision |
 | Query coverage |3176 tests across242 files pass;94.23% statements/lines,94.33% branches,95.37% functions; peak1356.9MiB | Final CI revision |
-| Remote CI5 at400a9ce04 | Core, PostgreSQL/MySQL and Bun/D1 passed | Package compiler cost, Linux docs memory, and requalification of the repaired local/coverage fixtures |
+| [Remote CI6 at 31466ea13](https://github.com/beynar/viborm/actions/runs/37874673209) | Core, PostgreSQL/MySQL and Bun/D1 passed. That revision's Node24 package exceeded one 30s case; Node22 exceeded the 300s aggregate. Local-provider and CLI coverage failures are repaired and pass their affected gates; the grouped package harness passes locally on both runtimes. Five remaining ordinary local shards pass 75 tests with six intentional Docker skips | Linux docs memory and protected CI on the current integration repairs |
 | Actual D1 |41/41 passed after exact bigint metadata repair; catalog followthrough passes1/1 in actual Workers and2/2 SQLite scope cases, excluding protected internal tables while retaining user tables | Final CI revision |
 | Production dependency audit |0 critical,0 high;2 moderate,1 low | Lower advisories remain disclosed |
 | Patched dependency behavior | Real Prisma loader/merge, HTTP cache and Drizzle witnesses passed | CI repeats the same gate |
@@ -102,8 +109,8 @@ The audit is unfiltered. Remaining lower advisories concern sprintf-js,
 postcss-selector-parser and KaTeX; they are not hidden by ignore rules.
 
 **Size and complexity.** The frozen production-source whole-perimeter count is
-147,279 production-source lines versus 141,375 at the reviewed upstream revision:
-+5,904, or 4.18%. Tests grew 3.13%, scripts 0.47%, live documentation 0.31%, and
+147,305 production-source lines versus 141,375 at the reviewed upstream revision:
++5,930, or 4.19%. Tests grew 3.21%, scripts 0.47%, live documentation 0.31%, and
 benchmarks were unchanged. Counts include new files and both sides of moves,
 comments and blank lines. A later resource-policy amendment must be counted
 separately. Root build configuration and workflows are

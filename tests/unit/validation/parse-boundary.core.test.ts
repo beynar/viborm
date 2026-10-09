@@ -30,6 +30,44 @@ const foreignSchema = (
 });
 
 describe("parse containment", () => {
+  test("contains rejected async results through every validation wrapper", async () => {
+    const external = {
+      "~standard": {
+        version: 1,
+        vendor: "parse-boundary-test",
+        validate: () => Promise.reject(new Error("late refusal")),
+      },
+    } satisfies StandardSchemaV1;
+    const wrapped = v.string();
+    Object.defineProperty(wrapped["~standard"], "validate", {
+      value: external["~standard"].validate,
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      expect(parse(external, "value").issues?.[0]?.message).toBe(
+        "Async validation is not supported"
+      );
+      for (const schema of [
+        v.string({ schema: external }),
+        v.decimal({ schema: external }),
+        v.pipe(wrapped),
+        v.union([wrapped]),
+      ]) {
+        expect(parse(schema, "1").issues?.[0]?.message).toContain(
+          "Async schemas are not supported"
+        );
+      }
+      expect(parse(v.union([wrapped, v.number()]), 42)).toEqual({ value: 42 });
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   test("issues that are not an array are a malformed result, not a failure", () => {
     // `issues` is present, so the schema CLAIMS a refusal — but a refusal the
     // caller cannot iterate is not one. Passing it on would hand `.map` a

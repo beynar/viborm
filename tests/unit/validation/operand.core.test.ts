@@ -80,7 +80,7 @@ describe("comparison operands", () => {
     expect(restoredContext).toBe(outerContext);
   });
 
-  test("turns callback throws and invalid returns into issues", () => {
+  test("turns callback throws and invalid returns into issues", async () => {
     const thrownError = runInOperandScope(model, () =>
       parse(operand, () => {
         throw new Error("callback exploded");
@@ -95,10 +95,16 @@ describe("comparison operands", () => {
     const promised = runInOperandScope(model, () =>
       parse(operand, async () => fieldRef())
     );
+    const rejected = runInOperandScope(model, () =>
+      parse(operand, () => Promise.reject(new Error("late callback refusal")))
+    );
 
     expect(thrownError.issues?.[0]?.message).toContain("callback exploded");
     expect(thrownValue.issues?.[0]?.message).toContain("callback refused");
     expect(promised.issues?.[0]?.message).toContain("cannot be async");
+    expect(rejected.issues?.[0]?.message).toContain("cannot be async");
+    // The test runner also fails on any unhandled rejection after refusal.
+    await new Promise((resolve) => setImmediate(resolve));
 
     for (const invalid of [null, [], 1]) {
       const result = runInOperandScope(model, () =>

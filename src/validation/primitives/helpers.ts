@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { createJsonSchemaConverter } from "../json-schema/factory";
+import { discardAsyncValidationResult } from "../parse-failure";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -300,7 +301,10 @@ function withCustomSchema(
     const r = prev(v);
     if (r.issues) return r;
     const sr = schemaValidate(r.value);
-    if ("then" in sr) return fail("Async schemas are not supported");
+    if ("then" in sr) {
+      discardAsyncValidationResult(sr);
+      return fail("Async schemas are not supported");
+    }
     if (sr.issues) return standardSchemaFailure(sr.issues);
     return ok(sr.value);
   };
@@ -412,6 +416,7 @@ export function validateSchema<const S extends StandardSchemaV1>(
 ): ValidationResult<StandardSchemaV1.InferOutput<S>> {
   const result = schema["~standard"].validate(value);
   if ("then" in result) {
+    discardAsyncValidationResult(result);
     return fail("Async schemas are not supported");
   }
   if (result.issues) {

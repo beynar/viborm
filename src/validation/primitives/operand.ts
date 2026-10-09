@@ -26,6 +26,7 @@ import {
 import type { AnyModel } from "@schema/model";
 import type { ScalarType } from "@schema/scalars/common";
 import { isSql, type Sql, sql } from "@sql";
+import { discardAsyncValidationResult } from "../parse-failure";
 import type { InferInput, InferOutput, VibSchema } from "../types";
 import { isFunction, isRecord } from "../value-guards";
 import { limitFilterDepth } from "./filter-depth";
@@ -220,6 +221,7 @@ function resolveCallback(
     return ok(returned);
   }
   if (isRecord(returned) && isFunction(returned.then)) {
+    discardAsyncValidationResult(returned);
     return fail(
       `${RETURN_REFUSAL}; it returned a promise. Validation is synchronous, so a filter callback cannot be async.`
     );

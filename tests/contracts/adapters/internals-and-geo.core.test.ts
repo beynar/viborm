@@ -193,11 +193,11 @@ describe("private adapter seam", () => {
       ])
     ).toEqual({
       name: "account_email_key",
-      normalizedError: { columns: ["account.email_address"] },
+      normalizedError: { table: "account", columns: ["email_address"] },
     });
     // The other half of the same matrix: a named dialect identifies a unique
-    // key by CONSTRAINT, and SQLite identifies a primary key by qualified
-    // COLUMNS, because that is the only evidence each provider's error gives.
+    // key by CONSTRAINT, and SQLite identifies a primary key by its physical
+    // TABLE and ordered COLUMNS after driver normalization.
     for (const named of [postgres, mysql]) {
       expect(
         getAdapterInternals(named).constraints.unique("account", "email", [
@@ -215,7 +215,7 @@ describe("private adapter seam", () => {
       ])
     ).toEqual({
       name: "account_pkey",
-      normalizedError: { columns: ["account.id", "account.tenant"] },
+      normalizedError: { table: "account", columns: ["id", "tenant"] },
     });
     for (const adapter of [postgres, mysql, sqlite]) {
       expect("constraints" in adapter).toBe(false);

@@ -194,7 +194,9 @@ export async function loadConfig(
 
   // Extract config (handle both default export and named export)
   const config: VibORMConfig =
-    configModule.default || configModule.config || configModule;
+    (Object.hasOwn(configModule, "default") && configModule.default) ||
+    configModule.config ||
+    configModule;
 
   // Validate client
   if (!config.client) {
@@ -251,10 +253,10 @@ export async function loadConfig(
  * Dynamically imports a TypeScript/JavaScript module.
  */
 export function loadCliModule<T>(filePath: string): Promise<T> {
-  // Consumers select authored exports; synthetic defaults mask named config/authors.
+  // Dependency imports need CJS interop; consumers select only authored defaults.
   return createJiti(filePath, {
     tsconfigPaths: true,
-    interopDefault: false,
+    interopDefault: true,
   }).import<T>(filePath);
 }
 

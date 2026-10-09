@@ -2116,7 +2116,8 @@ export class OperationContext {
     return error === this.incompletePreparation;
   }
   preparedBatch(): PreparedBatchOperation<unknown> | undefined {
-    if (this.#preparedParser === undefined) return undefined;
+    const parse = this.#preparedParser;
+    if (parse === undefined) return undefined;
     if (this.#attemptStore?.hasAssertedPremises) return undefined;
     return {
       queries: this.queued.map((query) =>
@@ -2129,7 +2130,13 @@ export class OperationContext {
       ...(this.#preparedGuardList?.length
         ? { guards: this.#preparedGuardList }
         : {}),
-      parseResult: this.#preparedParser,
+      parseResult: (results) => {
+        try {
+          return parse(results);
+        } catch (error) {
+          throw this.failure(error, "result");
+        }
+      },
     };
   }
   async #setMutation(

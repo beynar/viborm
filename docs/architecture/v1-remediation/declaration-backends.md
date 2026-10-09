@@ -3,8 +3,8 @@
 No tested backend alone fixes the exported cyclic inferred-schema backreference. The baseline experiment below retains the existing declaration backend: switching to native emission improves this isolated producer's emission time but preserves the correctness defect. OXC requires changing the unannotated producer contract. That comparison changed no library representation, annotation, dependency, shared build output, or repository source.
 
 Arnaud subsequently supplied and authorized a type-only schema-key link carrier
-at `createClient`. Artifact25 qualifies that representation across the complete
-package suites and final compiler/backend/scaling matrix. Its acceptance gate is
+at `createClient`. Artifact27 qualifies that representation across the final
+compiler/backend/scaling matrix and complete Node22/24 package suites. Its acceptance gate is
 exact unannotated exported clients and client factories. Rebuilding a client
 from already-emitted cyclic models remains an explicitly accepted limitation,
 checked independently by source-valid, emitted-semantic negative controls. The
@@ -151,7 +151,7 @@ readonly getter: () => import("viborm").Model<import("viborm").InitialModelState
 ```
 
 The flat client replaces that recursion with declared state and literal links.
-These are actual excerpts from the final artifact25 JS-direct client argument:
+These are actual excerpts from the final artifact27 JS-direct client argument:
 
 ```ts
 readonly target: {
@@ -186,7 +186,7 @@ readonly target: {
 The unknown flat getter is deliberate: the linked view derives its exact target
 from those keys. Original files are retained in
 `/tmp/viborm-v1-declaration-backends-20261008/js-direct/chain5.d.ts` and
-`/tmp/viborm-v1-linked-client-20261008/final25/chain5/js-direct/producer.d.ts`.
+`/tmp/viborm-v1-linked-client-20261008/final27/chain5/js-direct/producer.d.ts`.
 The original exported model declarations still contain elisions; the corrected
 client argument does not.
 
@@ -299,28 +299,75 @@ substitutes for the final integrated package run. This final equality correction
 adds 4 production lines, including its comment and formatter line wraps; that
 delta is separate from the 48-line modifier correction.
 
+### Preserving recursive JSON result leaves
+
+A newly exercised public result exposed an independent, latent artifact25 defect:
+an unannotated mapped model with `s.json().schema(...)`, where the schema is
+`StandardSchemaV1<JsonValue, JsonValue>`, failed at
+`(await client.late.findUnique({ where: { id: 1 } }))?.payload` with TS2589.
+The same exact public query fails on artifact25 under both TypeScript5.8.3 and
+native7.0.2; the isolated current source also fails. Neither the asynchronous
+validation lifecycle repair nor a declaration-backend change caused this defect.
+The original runtime fixture remains unannotated and retains that result access.
+
+`Prettify` recursively mapped the canonical recursive `JsonValue` union solely
+for display. Its existing owner now returns `T` when `JsonValue extends T`,
+before the distributive mapping. Broad JSON and unions containing its domain
+keep their original type; finite custom JSON and other nested objects retain
+the existing display mapping. No new JSON type, `any` fallback, depth limit,
+client annotation, carrier change or compiler setting is introduced.
+
+The exact scratch artifact25 query passes both compilers with only that type
+shortcut. The saved source correction and new public result controls pass the
+isolated native check with zero diagnostics, **2.21s / 942.8 MiB**, verified
+teardown under the ordinary 1536 MiB ceiling. Controls cover full, selected and
+many-row access, nullable JSON, finite custom output, domain-containing unions
+and nested objects, Date/Decimal/function semantics, selected-field exclusion
+and an invalid ID. Whole-estate native43 and build27 also pass. The completed
+artifact27 matrix is below. The separate emitted-only recursive-JSON checks
+also pass under TypeScript 5.8 and native7 in both complete package suites.
+
+Evidence: [artifact25 exact public failure](/tmp/viborm-v1-json-recursive-artifact25.log),
+[current source failure](/tmp/viborm-v1-json-recursive-source.log),
+[scratch leaf comparison](/tmp/viborm-v1-json-recursive-leaf-candidate.log), and
+[final focused source proof](/tmp/viborm-v1-json-recursive-source-final.log).
+The durable public probes are in
+`tests/types/client/json-result-public.core.types.ts` and the unchanged
+`tests/raptor3/g4/parity/json-read-schema.test.ts`.
+
 ### Final artifact qualification
 
-Immutable artifact 25 SHA256:
-`5370aa3d244db77aebff9fb347d73df7ae102e5a39ad670a6d4839979013a5b9`.
+Immutable artifact 27 SHA256:
+`12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0`.
 Source manifest:
-`cc208fb939bad29b6fbdf86e05e41477c83474aa467aee5512353af948c2eae4`.
-The isolated build passed in 2.11 s at 1035.8 MiB. The unchanged full-estate
-native41 program passed with zero diagnostics in 35.51 s at 6143.9 MiB,
-under its 8192 MiB/300 s ceiling. The complete Node22.12 package suite
-passed all 51 cases in 203.02 s at 1384.9 MiB under its unchanged 1536 MiB/300 s
-limits, with verified teardown. Its TS5.8 chain100/chain200 cases took
-4.283 s/5.075 s; native chain200 took 1.554 s. The exact terminal receipt is
-`/tmp/viborm-v1-package25-node22.log`.
-The same artifact also passed all 51 cases on Node24.14 in 187.93 s at
-1433.6 MiB, with verified teardown and the same limits
-(`/tmp/viborm-v1-package25-node24.log`).
+`c1c0799002320e8f7b386038e53cb535be2832c09b5c202f4c98ab7ecdd4cf39`.
+The isolated build passed in **2.13 s / 1046.4 MiB** with verified teardown.
+The complete whole-estate native43 program passed with zero diagnostics in
+**34.94 s / 6043.6 MiB**, under its unchanged 8192 MiB/300 s ceiling.
+Receipts: `/tmp/viborm-v1-package-build-27.log` and
+`/tmp/viborm-v1-native-43.log`.
 
-The final source-shape chunk passed all 24 checks with zero failures and a
-1049.0 MiB peak. It covers chain5 source, domain/result/key probes, source-valid
+Artifact27's complete package suites pass **43/43 on both runtimes**:
+Node22.12 in **118.67 s / 1110.2 MiB**, Node24.14 in
+**107.33 s / 1224.9 MiB**, under unchanged 1536 MiB/300 s limits with
+verified teardown. The grouped harness preserves all previous 51 scenarios
+and adds recursive JSON results. Three bounded fixture families share strict
+source checking and declaration emission, followed by a fresh consumer program
+that imports only emitted declarations. Runtime construction, negative typing
+and exact literal-link checks remain. Live stage markers expose compiler cost.
+Receipts: `/tmp/viborm-v1-package27-node22.log` and
+`/tmp/viborm-v1-package27-node24.log`.
+
+The earlier artifact25 suites took 203.02 s on Node22.12 and 187.93 s on
+Node24.14. This is a measured improvement in package qualification cost across
+the combined compiler-grouping and JSON type correction; it is not a runtime
+ORM performance claim or a measurement of either change in isolation.
+
+The final source-shape chunk passed all 24 checks with zero failures and an
+812.2 MiB peak. It covers chain5 source, domain/result/key probes, source-valid
 raw-model controls, generic/provider factories, self-junctions, both variant
 cardinalities and full indexed modifiers under TS5.8 and native7. Exact receipts:
-`final25/receipts-5-factories-self-variants-modifiers-source.json` beneath the
+`final27/receipts-5-factories-self-variants-modifiers-source.json` beneath the
 matrix directory below. The direct shapes emission/consumer chunk is now complete below.
 
 #### Direct emission and strict consumers
@@ -329,35 +376,35 @@ The 38-row shapes chunk completed without unexpected failures: ten direct
 emissions retain zero client elisions/getter functions and exact literal target
 tables; all separate positive/negative consumers pass. Four raw-model rebuild
 controls intentionally fail with their expected semantic diagnostics. Peak
-sampled group RSS was 937.7 MiB.
+sampled group RSS was 844.2 MiB.
 
 For the unannotated chain5 client, cells show wall seconds and instantiations:
 
 | Emitter | Emit | Total/client declaration bytes | TS5.8 consumer | Native7 consumer |
 |---|---:|---:|---:|---:|
-| JS5.9 direct | 3.61s / 1,044,717 | 163,394 / 31,667 | 3.81s / 2,896,928 | 1.49s / 2,238,769 |
-| Native7 direct | 1.50s / 2,093,940 | 133,434 / 29,437 | 3.79s / 2,897,038 | 1.48s / 2,239,050 |
+| JS5.9 direct | 2.60s / 882,624 | 163,394 / 31,667 | 2.77s / 2,500,992 | 1.03s / 1,483,152 |
+| Native7 direct | 1.05s / 1,338,295 | 133,434 / 29,437 | 2.78s / 2,501,102 | 1.05s / 1,483,433 |
 
 Whole-file elisions remain 40/24 respectively in exported raw models. Both
 client arguments are clean and preserve the exact target table; unequal sizes
 reflect different serialization, not an assumed byte-identical declaration.
-Receipts: `final25/receipts-5-factories-self-variants-modifiers-direct.json`.
+Receipts: `final27/receipts-5-factories-self-variants-modifiers-direct.json`.
 
 #### Dense source scaling
 
 These are actual exported VibORM clients over dense paired FK/backreference graphs,
 with separate source and domain/result probe programs. All 16 checks passed;
-peak sampled group RSS was 927.2 MiB.
+peak sampled group RSS was 839.0 MiB.
 Cells show wall seconds and compiler instantiations, not inferred complexity.
 
 | Models | TS5.8 source | TS5.8 probe | Native7 source | Native7 probe |
 |---:|---:|---:|---:|---:|
-| 12 | 3.78s / 3,205,338 | 4.13s / 4,165,182 | 1.48s / 2,125,056 | 1.50s / 2,448,046 |
-| 24 | 3.80s / 3,258,378 | 4.27s / 4,224,313 | 1.46s / 2,146,968 | 1.50s / 2,491,870 |
-| 48 | 4.00s / 3,373,098 | 4.54s / 4,339,033 | 1.47s / 2,199,432 | 1.50s / 2,596,798 |
-| 96 | 4.21s / 3,637,098 | 5.25s / 4,603,033 | 1.48s / 2,338,920 | 1.50s / 2,875,774 |
+| 12 | 2.77s / 2,809,267 | 3.13s / 3,769,501 | 1.01s / 1,369,597 | 1.03s / 1,692,469 |
+| 24 | 2.86s / 2,862,307 | 3.21s / 3,828,632 | 1.02s / 1,391,509 | 1.04s / 1,736,293 |
+| 48 | 2.91s / 2,977,027 | 3.34s / 3,943,352 | 1.01s / 1,443,973 | 1.05s / 1,841,221 |
+| 96 | 3.16s / 3,241,027 | 3.88s / 4,207,352 | 1.03s / 1,583,461 | 1.08s / 2,120,197 |
 
-Exact receipts: `final25/receipts-12-24-48-96-source.json`.
+Exact receipts: `final27/receipts-12-24-48-96-source.json`.
 
 #### Dense emission and separate consumers
 
@@ -368,14 +415,14 @@ exact literal target table. Cells show wall seconds and instantiations.
 
 | Models | Emitter | Emit | Total/client bytes | TS5.8 consumer | Native7 consumer |
 |---:|---|---:|---:|---:|---:|
-| 12 | JS5.9 | 3.61s / 1,110,823 | 109,645 / 108,975 | 3.90s / 2,952,279 | 1.48s / 2,260,287 |
-| 12 | Native7 | 1.51s / 2,168,234 | 104,293 / 103,623 | 3.92s / 2,937,259 | 1.55s / 2,253,439 |
-| 24 | JS5.9 | 3.74s / 1,151,059 | 220,957 / 220,287 | 4.03s / 2,954,756 | 1.54s / 2,261,969 |
-| 24 | Native7 | 1.59s / 2,208,518 | 210,253 / 209,583 | 3.99s / 2,939,335 | 1.49s / 2,254,867 |
-| 48 | JS5.9 | 3.96s / 1,240,171 | 443,581 / 442,911 | 3.95s / 2,958,380 | 1.46s / 2,264,393 |
-| 48 | Native7 | 1.62s / 2,297,726 | 422,173 / 421,503 | 4.04s / 2,943,487 | 1.47s / 2,257,723 |
-| 96 | JS5.9 | 4.73s / 1,452,955 | 888,829 / 888,159 | 4.25s / 2,965,628 | 1.49s / 2,269,241 |
-| 96 | Native7 | 1.84s / 2,510,702 | 846,013 / 845,343 | 4.22s / 2,951,791 | 1.48s / 2,263,435 |
+| 12 | JS5.9 | 2.72s / 948,871 | 109,645 / 108,975 | 2.94s / 2,556,343 | 1.04s / 1,504,670 |
+| 12 | Native7 | 1.09s / 1,412,732 | 104,293 / 103,623 | 2.88s / 2,541,323 | 1.06s / 1,497,822 |
+| 24 | JS5.9 | 2.86s / 989,107 | 220,957 / 220,287 | 2.97s / 2,558,820 | 1.05s / 1,506,352 |
+| 24 | Native7 | 1.13s / 1,453,016 | 210,253 / 209,583 | 2.96s / 2,543,399 | 1.05s / 1,499,250 |
+| 48 | JS5.9 | 3.14s / 1,078,219 | 443,581 / 442,911 | 3.10s / 2,562,444 | 1.06s / 1,508,776 |
+| 48 | Native7 | 1.19s / 1,542,224 | 422,173 / 421,503 | 3.09s / 2,547,551 | 1.05s / 1,502,106 |
+| 96 | JS5.9 | 3.59s / 1,291,003 | 888,829 / 888,159 | 3.34s / 2,569,692 | 1.08s / 1,513,624 |
+| 96 | Native7 | 1.36s / 1,755,200 | 846,013 / 845,343 | 3.26s / 2,555,855 | 1.08s / 1,507,818 |
 
 Against the exact dense12 before case, JS5.9 now emits a usable 109,645-byte
 declaration where it previously refused with TS7056. Native7 output shrinks
@@ -383,8 +430,7 @@ from 2,894,234 to 104,293 bytes and both previously failing separate consumers
 now pass. This establishes client fidelity; it does not imply the separate
 raw-model reconstruction limitation disappeared.
 
-Receipts: `final25/receipts-12-24-direct.json` and
-`final25/receipts-48-96-direct.json`.
+Receipts: `final27/receipts-12-24-48-96-direct.json`.
 
 For the preceding artifact 24, the unchanged whole-estate native40 program
 passed in 35.91 s at 6112.9 MiB under its 8192 MiB/300 s ceiling; all 89 runtime
@@ -397,9 +443,9 @@ clear its independently reproduced chain 200 stack failure.
 
 | tsdown backend | Emit wall | Total/client bytes | TS5.8 consumer | Native7 consumer | Outcome |
 |---|---:|---:|---:|---:|---|
-| Current JS | 0.77s | 118,182 / 23,635 | 3.73s / 2,914,455 | 1.44s / 2,259,069 | Exact client/keys; strict consumers pass |
-| Native scratch alias | 0.28s | 97,320 / 22,085 | 3.76s / 2,910,577 | 1.46s / 2,253,767 | Exact client/keys; strict consumers pass |
-| Stock native | 0.14s | No output | — | — | Missing optional native-preview peer |
+| Current JS | 0.72s | 118,182 / 23,635 | 2.86s / 2,518,519 | 1.03s / 1,503,452 | Exact client/keys; strict consumers pass |
+| Native scratch alias | 0.27s | 97,320 / 22,085 | 2.84s / 2,514,641 | 1.06s / 1,498,150 | Exact client/keys; strict consumers pass |
+| Stock native | 0.13s | No output | — | — | Missing optional native-preview peer |
 | OXC | 0.13s | No output | — | — | TS9010: inferred exports require annotations |
 
 Bundler emission does not expose instantiation statistics; those values are
@@ -408,15 +454,15 @@ not stock support or a shipped dependency change. Its experimental plugin uses
 `--noCheck`; separate consumers remain strict. Both successful bundled client
 arguments retain the full literal table with zero elisions/getter functions.
 The four bundled raw-model controls fail as expected. Receipts:
-`final25/receipts-5-bundle.json`.
+`final27/receipts-5-bundle.json`.
 
-The final aggregator verified all 118 expected rows against one artifact25 SHA,
+The final aggregator verified all 118 unique expected rows against one artifact27 SHA,
 with zero unexpected failures. Ten failures are deliberate controls: eight
 semantic raw-model reconstruction refusals, the stock native missing peer and
-OXC's TS9010 annotation requirement. The largest child took 5.248 s and peak
-sampled child-group RSS was 1049.0 MiB, under the unchanged ordinary
+OXC's TS9010 annotation requirement. The largest child took 3.878 s and peak
+sampled child-group RSS was 846.4 MiB, under the unchanged ordinary
 768 MiB heap/1536 MiB RSS/30 s limits; teardown was verified. Exact summary:
-`/tmp/viborm-v1-linked-client-20261008/final25/verified-summary.json`.
+`/tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json`.
 
 The accepted boundary remains explicit: exported clients and factories carry
 recoverable graph facts. An independently exported plain model/schema can still
@@ -428,28 +474,26 @@ and OXC isolated declarations still require annotations for the original exports
 
 ### Tested scope and source cost
 
-These counts cover the complete remediation perimeter, not just declaration
-work. They use physical LF lines including comments/blanks, exclude generated
-or ignored outputs, and compare against baseline commit
+These artifact27 counts cover the complete remediation perimeter, including the
+grouped package harness. They use physical LF lines including comments/blanks,
+exclude generated or ignored outputs, and compare against baseline commit
 `a4a5b8dc607a9a8db506bd60ddb5125519d8ab0b`.
 
-| Perimeter | Baseline | Final perimeter | Net | Change |
+| Perimeter | Baseline | Artifact27 perimeter | Net | Change |
 |---|---:|---:|---:|---:|
-| src/ | 141,375 | 147,279 | +5,904 | +4.1761% |
-| tests/ | 445,456 | 459,403 | +13,947 | +3.1309% |
+| src/ | 141,375 | 147,305 | +5,930 | +4.1945% |
+| tests/ | 445,456 | 459,775 | +14,319 | +3.2145% |
 | scripts/ | 31,694 | 31,844 | +150 | +0.4733% |
 | docs/content/ | 23,129 | 23,200 | +71 | +0.3070% |
 
-The final live-doc count includes 11 subsequent authored JSON prose lines;
-those change neither the published source nor artifact25.
-
 The indexed modifier correction adds 48 production lines; the final NoInfer
-correction adds 4, including comments and formatting. Those local deltas are
-parts of the full source count, not additional totals. Census and per-file
-manifest: `/tmp/viborm-v1-checkpoint6-loc-final25-docs.json` and
-`/tmp/viborm-v1-checkpoint6-loc-final25-docs-manifest.json`.
+correction adds 4 and the recursive JSON display correction adds 5, including
+comments and formatting. Those local deltas are parts of the full source count,
+not additional totals. Census and per-file manifest:
+`/tmp/viborm-v1-checkpoint7-loc-final27.json` and
+`/tmp/viborm-v1-checkpoint7-loc-final27-manifest.json`.
 
-Artifact25 preserves the unannotated exported client/factory workflow under
+Artifact27 preserves the unannotated exported client/factory workflow under
 both direct emitters and both strict consumer compilers, including generic
 provider factories, modifiers, variants, literal target identity and nested
 backreference key refusals. Dense96 also passes source, emission and separate

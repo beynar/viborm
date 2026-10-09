@@ -1334,23 +1334,16 @@ as a refusal, and whether a sparse list should be refused is an open policy
 question the plan records (`docs/architecture/raptor3-compiled-list-decoder-plan.md`
 § "Known baseline issue"). Do not change it as a side effect of a decoder
 edit.
-**And a `json` FIELD's own output schema runs at that same boundary** (Arnaud's
-D-33): `s.json().schema(…)` is a Standard Schema the caller wrote, the engine
-replaced ran it on every read (`result/ResultParser.ts:721` into
-`scalar-structured-parser.ts:78`), and the accepted cost is one run per JSON
-field per row read. The fact travels on the projection's own leaf —
-`Leaf.jsonSchema`, filled once per (adapter, model, field) by `Queries.leaf`
-beside `decimal`, `dateTime`, `enumValues` and `dimension` — so nothing walks a
-projection looking for JSON columns, and `compileScalar`'s `json` arm asks it
-once per VALUE: the JSON value domain, then the schema, then the value domain
-again over the schema's OUTPUT, which is what keeps a transforming schema's
-answer inside the domain and prototype-safe. The engine is only the CALLER:
-`parse` (`validation/index.ts`) is the estate's one owner of that protocol —
-asynchronous schemas refused, a throwing schema caught, a malformed result
-refused — and a refusal is `InvalidScalarResult("json", "custom output schema
-rejected the value")` with NO issue detail, because those messages describe a
-STORED document. The cache route materializes from its snapshot, which holds
-the DECODED value, and therefore must never run the schema a second time.
+**Custom JSON schemas run only at write admission.** `s.json().schema(…)`
+validates and transforms the supplied document once; its output must remain
+inside the JSON value domain before physical encoding. `compileScalar`'s
+`json` arm decodes and validates the stored physical JSON domain without
+replaying arbitrary user schemas. Live reads, write RETURNING rows, prepared
+batches and cached reads therefore publish the stored document without a
+second transform. Existing documents remain readable after a write-schema
+change. Invalid physical values raise `InvalidScalarResult`; custom schema
+refusals belong to write admission. The cache materializes the already decoded
+value from its snapshot and never runs the write schema.
 
 **A polymorphic membership the parent claims whose row is gone is refused, not
 read as absent.** A variant ROW carrier's arm is lowered as "claimed ⇒ a

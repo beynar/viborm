@@ -1,3 +1,4 @@
+import { getAdapterInternals } from "@adapters/adapter-internals";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver } from "@drivers/driver";
@@ -36,6 +37,30 @@ const REDACTED_ERROR_CONTENT_PATTERN =
 const context = { driverName: "test" };
 
 describe("normalizeDriverError fixtures", () => {
+  test("SQLite mapped composite constraint identity matches normalized driver evidence", () => {
+    const table = "mapped_records";
+    const columns = ["tenant_key", "record_key"];
+    const constraints = getAdapterInternals(new SQLiteAdapter()).constraints;
+    const error = normalizeDriverError(
+      Object.assign(
+        new Error(
+          "UNIQUE constraint failed: mapped_records.tenant_key, mapped_records.record_key"
+        ),
+        { code: "SQLITE_CONSTRAINT_UNIQUE" }
+      ),
+      { driverName: "sqlite3", dialect: "sqlite" }
+    );
+    expect(error).toBeInstanceOf(UniqueConstraintError);
+    for (const identity of [
+      constraints.primaryKey(table, columns),
+      constraints.unique(table, "logical_compound_name", columns),
+    ]) {
+      expect(identity.normalizedError).toEqual({ table, columns });
+      expect(error.meta?.table).toBe(identity.normalizedError.table);
+      expect(error.meta?.columns).toEqual(identity.normalizedError.columns);
+      expect(error.meta?.constraint).toBe(identity.normalizedError.constraint);
+    }
+  });
   test("a postgres.js physical socket closure remains transient", () => {
     const error = normalizeDriverError(
       Object.assign(new Error("Socket closed"), { code: "CONNECTION_CLOSED" }),

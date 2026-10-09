@@ -4,6 +4,11 @@ import type { ValidationFailure } from "./types";
 
 const PARSE_FAILURE_CAUSE = Symbol("viborm.validation.parseFailureCause");
 
+/** A refused async validator must not leak a later process-level rejection. */
+export function discardAsyncValidationResult(result: unknown): void {
+  Promise.resolve(result).catch(() => undefined);
+}
+
 /** Contain a thrown validator value while retaining sanitized cause evidence. */
 export function validationFailureFromThrown(cause: unknown): ValidationFailure {
   const error = isError(cause)
