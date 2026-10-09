@@ -296,7 +296,7 @@
     "effort": "S",
     "title": "Release bookkeeping drift: untagged rc.4, and README and changelog saying rc.5 is unpublished",
     "status": "implemented-unverified",
-    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required."
+    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required."
   },
   {
     "id": "codebase-health-17",
@@ -1103,7 +1103,7 @@
     "effort": "S",
     "title": "README and docs contradict each other on maturity, transactions, extension capabilities, raw SQL and release status",
     "status": "implemented-unverified",
-    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required."
+    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required."
   },
   {
     "id": "docs-onboarding-11",
@@ -1264,7 +1264,7 @@
     "effort": "S",
     "title": "Positioning is dated and one-sided: Prisma 7 isn't acknowledged, Drizzle is barely mentioned, and the only comparison covers migrations",
     "status": "verified-fixed",
-    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.",
+    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.",
     "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {
@@ -5930,7 +5930,7 @@
     "effort": "S",
     "title": "The headline pitch argues against Prisma's pre-8 frictions: against npm prisma@latest (8 RC, GA expected this month) the WASM argument is gone and the codegen argument shrinks to an emit step",
     "status": "verified-fixed",
-    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.",
+    "evidence": "README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.",
     "verification": "CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step."
   },
   {

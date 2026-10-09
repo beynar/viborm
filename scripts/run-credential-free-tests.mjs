@@ -9,6 +9,7 @@ import {
   WHOLE_ESTATE_TYPECHECK_RSS_CEILING,
 } from "./bounded-process.mjs";
 import {
+  CI_LOCAL_SERIAL_STAGE_LABEL,
   EXTENDED_LOCAL_IMPORTED_PGLITE_SHARDS,
   EXTENDED_LOCAL_PGLITE_TESTS,
   EXTENDED_LOCAL_SHARED_FAMILY_SHARDS,
@@ -18,6 +19,7 @@ import {
   PGLITE_PROVIDER_TESTS,
   RAPTOR3_FIXED_LOCAL_TESTS,
   SQLITE3_PROVIDER_TESTS,
+  shardCredentialFreeCIStages,
 } from "./credential-free-test-manifest.mjs";
 import {
   D50_PROVIDER_TESTS,
@@ -157,7 +159,7 @@ const stages = [
   packageScriptStage("test:core"),
   {
     ...vitestStage(
-      "Raptor 3 fixed contracts, harness falsifiers and candidate comparison",
+      CI_LOCAL_SERIAL_STAGE_LABEL,
       120_000,
       "raptor3",
       RAPTOR3_FIXED_LOCAL_TESTS
@@ -272,12 +274,40 @@ const ciCoveredStages = new Set([
   "provider-d1",
   "pnpm test:package",
 ]);
-const selectedStages = process.argv.includes("--ci-local")
+const ciLocal = process.argv.includes("--ci-local");
+const ciStages = ciLocal
   ? matchingStages.filter((stage) => !ciCoveredStages.has(stage.label))
   : matchingStages;
-if (onlyFilter && selectedStages.length === 0) {
+if (onlyFilter && ciStages.length === 0) {
   process.stderr.write(`[test:all] --only ${onlyFilter} matched no stage\n`);
   process.exit(2);
+}
+// Parallel CI steps use independent physical checkouts; each shard still takes
+// the ordinary workspace lock. No execution or resource ownership is bypassed.
+const shardArguments = process.argv
+  .slice(2)
+  .filter((arg) => arg.startsWith("--shard"));
+let selectedStages = ciStages;
+if (shardArguments.length) {
+  const match =
+    shardArguments.length === 1 &&
+    /^--shard=([1-9]\d*)\/([1-9]\d*)$/.exec(shardArguments[0]);
+  if (!ciLocal || onlyFilter || !match) {
+    process.stderr.write(
+      "[test:all] --shard=N/M requires --ci-local, one shard argument and no --only\n"
+    );
+    process.exit(2);
+  }
+  try {
+    selectedStages = shardCredentialFreeCIStages(
+      ciStages,
+      Number(match[1]),
+      Number(match[2])
+    );
+  } catch (error) {
+    process.stderr.write(`[test:all] ${describeError(error)}\n`);
+    process.exit(2);
+  }
 }
 if (process.argv.includes("--list")) {
   // Never include env: Raptor stages carry the parent's environment snapshot.

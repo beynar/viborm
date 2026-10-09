@@ -148,12 +148,9 @@ jobs:
   coverage:
     name: Coverage gates
     runs-on: ubuntu-latest
-    # 25 = pnpm test:coverage measured at 329s and doubled to about 11 min for a
-    # hosted runner, + the 3 min ceiling of the three 60s policy tests below,
-    # + 5 min setup, + roughly 6 min of headroom. No aggregate ceiling exists to
-    # anchor on: run-coverage.mjs bounds every part of each of its fifteen
-    # subsystems separately at 600000 ms, so their sum, 150 min, describes
-    # nothing real. The former 35 predated the 329s measurement.
+    # Retain the 25-minute job ceiling. CI12's 14 projects / 86 bounded parts
+    # took 17.5 minutes; policy checks and setup fit the remaining time.
+    # Each coverage part still has its own unchanged 600000 ms ceiling.
     timeout-minutes: 25
     steps:
       - name: Check out the exact revision
@@ -201,11 +198,8 @@ jobs:
   package:
     name: Package contract (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
-    # 15 unchanged, and still honest. pnpm test:package measured 15s, nowhere
-    # near either of its launcher ceilings (package:build at 300000 ms through
-    # run-node-safe.mjs, then a 5 min Vitest run), which leaves publint, attw
-    # and size-limit inside roughly 8 min of accounted cost once setup is
-    # counted.
+    # Retain the 15-minute job ceiling and the separate 300000 ms build and
+    # consumer limits. CI12's slower consumer suite took 236 seconds.
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -253,6 +247,9 @@ jobs:
   local-providers:
     name: Local providers
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
     # Retain the existing aggregate ceiling. Only unique bounded local stages
     # run here; other required jobs own the five removed duplicate stages.
     timeout-minutes: 125
@@ -260,6 +257,41 @@ jobs:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: source
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Check out local-provider shard 2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: shard-2
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Check out local-provider shard 3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: shard-3
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Check out local-provider shard 4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: shard-4
+          ref: ${{ github.sha }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -277,26 +309,57 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # One invocation cannot hold this estate. A single live-PGlite file needs
-      # roughly 1.3 GiB on its own and every process group is capped at 1536 MiB
-      # of sampled RSS, so `--project=extended-local --project=provider-pglite`
-      # in one process either breaches the ceiling or reports nothing.
-      # scripts/run-credential-free-tests.mjs is the one owner of the bounded,
-      # sharded path this repository actually runs: the extended-local shards
-      # declared by scripts/credential-free-test-manifest.mjs, then each PGlite
-      # provider file in its own process, then SQLite3, LibSQL, Bun and local
-      # D1 - every stage launched bounded and required to prove whole-group
-      # teardown before the next one starts. Invoke it; never re-expand it into
-      # a single multi-project run and never raise a ceiling to fit a stage.
-      # CI's other required jobs own types, core, package, Bun and D1. The
-      # CI-local selection omits exactly those duplicates; default test:all
-      # remains the complete local command.
-      - name: Run the credential-free estate as bounded shards
-        run: pnpm test:all --ci-local
+      # Four sibling repositories keep workspace locks, dependency caches and
+      # outputs private. Each lane runs the existing bounded stages serially.
+      # At most four 2560 MiB PGlite groups fit this public 4-core/16 GiB runner;
+      # ordinary groups retain 1536 MiB. No native typecheck or package build
+      # runs alongside these lanes.
+      - name: Prepare private shard dependencies and temporary directories
+        timeout-minutes: 5
+        run: |
+          mkdir "${RUNNER_TEMP}/viborm-ci-local"
+          for lane in 1 2 3 4; do
+            mkdir "${RUNNER_TEMP}/viborm-ci-local/tmp-${lane}"
+          done
+          for lane in 2 3 4; do
+            pnpm --dir "${GITHUB_WORKSPACE}/shard-${lane}" install --offline --frozen-lockfile
+          done
+
+      # This stage uses about 100 of its 120 seconds. Keep it free of sibling
+      # CPU contention; the four shards partition the remaining 96 stages.
+      - name: Run the fixed Raptor contracts
+        run: pnpm test:all --ci-local --only 'Raptor 3 fixed'
+
+      # The implicit wait fails the job if any lane fails. Including the serial
+      # stage above, all 97 unique stages run exactly once with the same limits.
+      - parallel:
+          - name: Run local-provider shard 1/4
+            env:
+              TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-1
+            run: pnpm test:all --ci-local --shard=1/4
+
+          - name: Run local-provider shard 2/4
+            working-directory: ${{ github.workspace }}/shard-2
+            env:
+              TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-2
+            run: pnpm test:all --ci-local --shard=2/4
+
+          - name: Run local-provider shard 3/4
+            working-directory: ${{ github.workspace }}/shard-3
+            env:
+              TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-3
+            run: pnpm test:all --ci-local --shard=3/4
+
+          - name: Run local-provider shard 4/4
+            working-directory: ${{ github.workspace }}/shard-4
+            env:
+              TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-4
+            run: pnpm test:all --ci-local --shard=4/4
 
   docker-providers:
     name: PostgreSQL and MySQL providers

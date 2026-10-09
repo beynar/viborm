@@ -82,8 +82,9 @@ separate [migration workflow](docs/content/docs/migration/index.mdx).
 - PostgreSQL, MySQL and SQLite adapters with eleven transport drivers.
 - Callback transactions where the provider supports them, and atomic array
   transactions on the supported batch transports.
-- Six extension capabilities: `request`, `query`, `statement`, `observe`,
-  `client` and `model`; official cache, instrumentation, omit and soft-delete tools.
+- Ten extension capabilities: `request`, `query`, `statement`, `observe`, `client`,
+  `model`, `controls`, `rows`, `deletion` and `data`; official cache,
+  instrumentation, omit and soft-delete tools.
 - Fixed-decimal values, millisecond DateTime values, GeoPoint and PostgreSQL vector
   operations with explicit provider requirements.
 
