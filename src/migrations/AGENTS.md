@@ -37,7 +37,7 @@ extension. MySQL uses `POINT SRID 4326` and one-field non-null spatial indexes.
 SQLite uses the reserved `VIBORM_GEO_TEXT` type plus its exact canonical JSON
 CHECK and refuses spatial indexes. Its physical CHECK reader/writer, fixed-decimal
 carrier, and quote-aware column parser live in the adapter-owned
-`src/adapters/databases/sqlite/storage/` leaf modules so runtime admission and
+`src/adapters/databases/sqlite/storage/` leaf modules so `viborm check --db` and
 migration introspection consume the same rule without importing migration
 execution. A GeoPoint `geoPointEncoding` annotation authenticates the legacy
 15-digit versus binary64 CHECK; upgrading reconstructs its stored doubles once,

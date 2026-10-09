@@ -15,10 +15,16 @@ const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 describeIf("pg enum evolution", () => {
   const pool = new Pool({ connectionString: TEST_CONNECTION_STRING });
-  afterAll(() => pool.end());
+  const opened = new Set<string>();
+  afterAll(async () => {
+    for (const namespace of opened)
+      await pool.query(`DROP SCHEMA IF EXISTS "${namespace}" CASCADE`);
+    await pool.end();
+  });
 
   enumEvolutionTests(async (label) => {
     const namespace = `enum_evolution_${label}`;
+    opened.add(namespace);
     await pool.query(`DROP SCHEMA IF EXISTS "${namespace}" CASCADE`);
     await pool.query(`CREATE SCHEMA "${namespace}"`);
     return { namespace, driver: new PgDriver({ pool, namespace }) };

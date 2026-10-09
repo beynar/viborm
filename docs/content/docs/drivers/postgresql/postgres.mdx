@@ -69,7 +69,8 @@ VibORM checks supplied temporal parser configuration before using the client.
 `vibormTypes` keeps PostgreSQL dates and timestamps as text so typed queries
 decode them consistently, including years before 100 and timezone offsets.
 `$disconnect()` leaves this supplied client open; its owner calls `sql.end()`.
-The client's own `prepare` setting applies — see
+Its statements stay unprepared, whatever its own `prepare` setting, unless you
+pass `options: { prepare: true }` beside it; see
 [Prepared statements](#prepared-statements).
 
 ### With pgvector
@@ -146,22 +147,22 @@ transaction reconnects once the server is back, without `$disconnect()`.
 
 ## Prepared statements
 
-The connection's postgres.js `prepare` option decides whether generated and raw
-statements are prepared. It defaults to `true`, for a client built from
-`databaseUrl` or `options` and for a supplied one; VibORM never overrides it
-per query.
+Generated and raw statements are unprepared by default, for a client built from
+`databaseUrl` or `options` and for a supplied one. postgres.js sends an
+unprepared statement that has parameters in two round trips: it parses and
+describes it, waits for the server's parameter types, then binds and executes.
+The unnamed statement leaves nothing on the server, so transaction-mode poolers
+accept it. [`viborm/pg`](/docs/drivers/postgresql/pg) (node-postgres) sends the
+same unnamed statement in one round trip.
 
-A prepared statement is parsed once per connection and then costs one round
-trip. Without preparation, postgres.js sends every statement that has
-parameters in two: it parses and describes the statement, waits for the
-server's parameter types, then binds and executes.
+Where the endpoint keeps prepared statements, opt in with
+`options: { prepare: true }`, also beside a supplied `client`. Each statement is
+then parsed once per connection and costs one round trip after that. Opting in
+means:
 
-:::warning[Transaction-mode poolers]
-A pooler that does not keep prepared statements across transactions refuses
-them with `prepared statement "…" does not exist`. Examples are Supabase's
-transaction pooler (port 6543), PgBouncer without `max_prepared_statements`, and
-AWS RDS Proxy, which pins the connection instead. Turn preparation off there:
-`options: { prepare: false }`, or `postgres(url, { prepare: false, types:
-vibormTypes })` for a supplied client. VibORM 1.0.0 always sent unprepared
-statements, so check this when you upgrade.
-:::
+- After a migration that replaces an enum type (removing or reordering values,
+  or using a value the same migration adds), restart or reconnect every running
+  client: until then its statements bound to the old type fail with `V2001`.
+- The server keeps one prepared statement per distinct query shape (each
+  `in`-list length, each `createMany` row count) per connection until the
+  connection reaches its `max_lifetime`.

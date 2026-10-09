@@ -92,7 +92,7 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // `check --db` (2026-10-09): read-only SQLite storage audit on the configured
   // client's own driver. SQLite has no namespace to route, and the audit runs
   // no migration program.
-  "src/cli/commands/check.ts executeRaw 3",
+  "src/cli/commands/check.ts executeRaw 2",
   "src/cli/commands/push.ts executeRaw 1",
   // apply-v1.ts and operators.ts, and the second sites in push-plan.ts and
   // reset-v1.ts, were admitted 2026-08-31 after auditing each one: every call

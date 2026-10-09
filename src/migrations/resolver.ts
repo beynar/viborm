@@ -314,7 +314,8 @@ export function callbackAsResolver(callback: ResolveCallback): Resolver {
   return async (changes) => {
     const resolutions = new Map<AmbiguousChange, ChangeResolution>();
     for (const change of changes) {
-      const result = await callback(ambiguousToResolveChange(change));
+      const resolveChange = ambiguousToResolveChange(change);
+      const result = await callback(resolveChange);
       if (result === "rename") {
         resolutions.set(change, { type: "rename" });
         continue;
@@ -324,7 +325,8 @@ export function callbackAsResolver(callback: ResolveCallback): Resolver {
         continue;
       }
       throw new MigrationError(
-        "Generate requires rename or addAndDrop for each ambiguous change",
+        `Unresolved ambiguous change: ${resolveChange.description}\n` +
+          "Generate requires change.rename() or change.addAndDrop() from the resolver.",
         VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
       );
     }

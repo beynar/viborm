@@ -594,8 +594,8 @@ describe("$transaction with array (batch mode)", () => {
       let preparedQueryCount = 0;
       let preparedInsertIds: Array<number | bigint | undefined> | undefined;
       const updateOperation = overrideTransactionOperation(updateSource, {
-        prepareBatch: async (driver) => {
-          const prepared = await updateCapability.prepareBatch(driver);
+        prepareBatch: async () => {
+          const prepared = await updateCapability.prepareBatch();
           if (!prepared) return undefined;
           preparedQueryCount = prepared.queries.length;
           return {

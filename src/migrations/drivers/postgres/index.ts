@@ -1401,8 +1401,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
       if (
         column?.default !== undefined &&
-        !(removeValues ?? []).some(
-          (value) => column.default === this.escapeValue(value)
+        !enumDefaultLabels(column, enumName).some(
+          (label) => label !== null && removeValues?.includes(label)
         )
       )
         statements.push(

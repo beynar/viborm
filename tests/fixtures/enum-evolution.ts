@@ -43,6 +43,28 @@ function tickets<const V extends readonly [string, ...string[]]>(
   };
 }
 
+/** Tickets tagged with a list of the enum, defaulting to `tags`. */
+function taggedTickets<const V extends readonly [string, ...string[]]>(
+  values: V,
+  tags: V[number][]
+) {
+  return {
+    ticket: s
+      .model({
+        id: s.int().id().increment(),
+        title: s.string(),
+        tags: s
+          .enum([...values])
+          .name("ticket_status")
+          .array()
+          .default(tags),
+        createdAt: s.dateTime().now(),
+        updatedAt: s.dateTime().updatedAt(),
+      })
+      .map("tickets"),
+  };
+}
+
 /** Tickets whose `resolution` is text or the enum, and an optional partial index. */
 function resolvedTickets(
   values: readonly [string, ...string[]],
@@ -275,6 +297,39 @@ export function enumEvolutionTests(open: OpenEnumEvolutionNamespace): void {
       `DROP TYPE ${generated.type}`
     );
     expect(await generated.labels()).toEqual(["open", "closed", "flagged"]);
+  });
+
+  test("removing a value an enum-array default names restores the destination default", async () => {
+    const db = await estate(open, "array_default");
+    await syncLiveSchema(
+      createClient({
+        schema: taggedTickets(["bug", "ux", "legacy"], ["bug", "legacy"]),
+        driver: db.driver,
+      })
+    );
+    await db.exec(
+      `INSERT INTO ${db.table} ("title", "updatedAt") SELECT 'ticket ' || g, now() FROM generate_series(1, ${ROWS}) g`
+    );
+    const retired = createClient({
+      schema: taggedTickets(["bug", "ux"], ["bug"]),
+      driver: db.driver,
+    });
+    // Restoring the old default, which names the removed value, would fail.
+    await syncLiveSchema(retired, {
+      resolve: (change: ResolveChange) =>
+        change.type === "enumValueRemoval"
+          ? change.mapValues({ legacy: "ux" })
+          : change.reject(),
+    });
+    expect(await db.labels()).toEqual(["bug", "ux"]);
+    expect(
+      await retired.ticket.count({ where: { tags: { equals: ["bug", "ux"] } } })
+    ).toBe(ROWS);
+    expect(
+      await db.query<{ tags: string }>(
+        `INSERT INTO ${db.table} ("title", "updatedAt") VALUES ('defaulted', now()) RETURNING "tags"::text`
+      )
+    ).toEqual([{ tags: "{bug}" }]);
   });
 
   test("generate and apply add values in place and commit them before a later migration uses them", async () => {

@@ -63,10 +63,7 @@ export async function executeInterceptedNativeArray(
           if (prepared) return { kind: "single" as const, prepared };
           return {
             kind: "batch" as const,
-            preparedBatch: await slot.owner.prepareBatch(
-              slot.operation,
-              driver
-            ),
+            preparedBatch: await slot.owner.prepareBatch(slot.operation),
           };
         }
       );

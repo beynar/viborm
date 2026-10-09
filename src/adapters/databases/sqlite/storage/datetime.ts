@@ -227,7 +227,7 @@ export function sqliteCanonicalDateTimeExpression(columnName: string): string {
   return `CASE WHEN ${source} IS NULL THEN NULL WHEN ${sourceIsExact(source, "text", epoch)} AND ${targetIsExact(epoch, "text", value)} THEN ${value} ELSE abs(${SQLITE_MIN_INTEGER}) END`;
 }
 
-/** The Time writer and both admission/repair consumers share one physical grammar. */
+/** The Time writer, the `viborm check --db` audit and the repair share one physical grammar. */
 function timeSource(source: string): { valid: string; value: string } {
   const shapes = [
     ISO_TIME,
@@ -247,7 +247,7 @@ export function sqliteCanonicalTimeExpression(columnName: string): string {
   return `CASE WHEN ${source} IS NULL THEN NULL WHEN ${valid} THEN ${value} ELSE abs(${SQLITE_MIN_INTEGER}) END`;
 }
 
-/** Exact canonical runtime carrier predicates: NULL passes, unknown/malformed does not. */
+/** Exact canonical carrier predicates for `viborm check --db`: NULL passes, unknown/malformed does not. */
 export function sqliteCanonicalDateTimePredicate(columnName: string): string {
   const source = createIdentifierQuoter('"')(columnName);
   const epoch = textToEpochMilliseconds(source);

@@ -108,7 +108,6 @@ describe("postgres.js controlled transport execution", () => {
     );
     const options = postgresProvider.create.mock.calls[0]?.[1];
     expect(options).toMatchObject({ max: 3 });
-    expect(options).not.toHaveProperty("prepare");
     expect(options?.types.int4).toBe(customType);
     expect(options?.types.timestamp.serialize("2026-08-31 11:12:13")).toBe(
       "2026-08-31 11:12:13"
@@ -154,23 +153,19 @@ describe("postgres.js controlled transport execution", () => {
     // The UPDATE returns no rows, so 4 can only have come from the command tag.
     expect(result.rows).toHaveLength(0);
     expect(result.rowCount).toBe(4);
-    // The query defers preparation to the caller's connection.
     expect(postgresProvider.unsafe).toHaveBeenCalledWith(
       "UPDATE events SET active = $1",
       [false],
-      { prepare: true }
+      { prepare: false }
     );
     // `initClient` short-circuits on the supplied transport, so the provider
     // module is never asked for a second one.
     expect(postgresProvider.create).not.toHaveBeenCalled();
   });
 
-  test("decides preparation on the owned connection, never per query", async () => {
+  test("forwards explicit prepared-statement opt-in on typed and raw paths", async () => {
     const driver = new PostgresDriver({ options: { prepare: true } });
     await driver._execute(sql`SELECT ${9}`);
-    expect(postgresProvider.create.mock.calls[0]?.[0]).toMatchObject({
-      prepare: true,
-    });
     expect(postgresProvider.unsafe).toHaveBeenLastCalledWith("SELECT $1", [9], {
       prepare: true,
     });

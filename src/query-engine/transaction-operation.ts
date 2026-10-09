@@ -47,8 +47,7 @@ export interface TransactionOperationOwner<Owner extends object = object> {
   executeWith(owner: Owner, driver: AnyDriver): Promise<unknown>;
   prepare(owner: Owner, driver?: AnyDriver): PreparedQuery | undefined;
   prepareBatch(
-    owner: Owner,
-    driver?: AnyDriver
+    owner: Owner
   ): Promise<PreparedBatchOperation<unknown> | undefined>;
   parseResult(owner: Owner, raw: QueryResult<unknown>): unknown;
   observeBatchPhase<Result>(

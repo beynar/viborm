@@ -1,8 +1,8 @@
 import { createClient as createDriverClient } from "@client/client";
 import { createClient, PostgresDriver, vibormTypes } from "@drivers/postgres";
 import { isRetryableError, VibORMErrorCode } from "@errors";
-import { s } from "@schema";
 import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import { wireInvoice } from "@tests/fixtures/pglite-wire-invoice";
 import { pgliteWireServer } from "@tests/fixtures/pglite-wire-server";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import postgres from "postgres";
@@ -14,21 +14,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
  * serving the same database again, and kills a session on demand.
  */
 
-const invoice = s
-  .model({
-    id: s.string().id().ulid(),
-    customer: s.string(),
-    amountCents: s.int(),
-    status: s.string().default("open"),
-    paid: s.boolean().default(false),
-    createdAt: s.dateTime().now(),
-    updatedAt: s.dateTime().updatedAt(),
-  })
-  .map("pgjs_outage_invoice");
-const schema = { invoice };
-const SEEDED = 10_000;
-/** One 5,000-row Bind stalls this minimal bridge; 2,000-row chunks do not. */
-const SEED_CHUNK = 2000;
+const schema = { invoice: wireInvoice };
+const SEEDED = 1000;
 
 const database = openTestPGlite();
 const server = pgliteWireServer(database);
@@ -39,14 +26,12 @@ beforeAll(async () => {
   port = await server.start();
   const seeder = connect();
   await syncLiveSchema(seeder);
-  for (let first = 0; first < SEEDED; first += SEED_CHUNK) {
-    await seeder.invoice.createMany({
-      data: Array.from({ length: SEED_CHUNK }, (_, offset) => ({
-        customer: `customer-${(first + offset) % 97}`,
-        amountCents: 100 + first + offset,
-      })),
-    });
-  }
+  await seeder.invoice.createMany({
+    data: Array.from({ length: SEEDED }, (_, index) => ({
+      customer: `customer-${index % 97}`,
+      amountCents: 100 + index,
+    })),
+  });
   await seeder.$disconnect();
 });
 
@@ -130,7 +115,7 @@ describe("postgres.js transaction during a server outage", () => {
           'Driver "postgres" is unavailable after transaction cleanup failed.',
       });
       const { rows } = await database.query(
-        "SELECT count(*)::int AS total FROM pgjs_outage_invoice WHERE customer = 'inside-dead-session'"
+        "SELECT count(*)::int AS total FROM pgjs_wire_invoice WHERE customer = 'inside-dead-session'"
       );
       expect(rows).toEqual([{ total: 0 }]);
     } finally {

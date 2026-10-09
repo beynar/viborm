@@ -57,6 +57,18 @@ async function check(
   return run(project.configPath, args);
 }
 
+/** A sqlite3 config on a file database the test also opens directly. */
+function fileDatabase(schemaBody: string) {
+  project = makeTempProject();
+  const file = join(project.dir, "app.db");
+  writeConfigFixture(project, {
+    dialect: "sqlite3",
+    schemaBody,
+    dataDir: file,
+  });
+  return { configPath: project.configPath, db: new Database(file) };
+}
+
 async function run(configPath: string, args: string[]) {
   const out: string[] = [];
   vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
@@ -135,27 +147,20 @@ describe("viborm check", () => {
   });
 
   it("--db counts noncanonical SQLite DateTime/Time text per column and prints the repair", async () => {
-    project = makeTempProject();
-    writeConfigFixture(project, { dialect: "sqlite3", schemaBody: TEMPORAL });
-    const file = join(project.dir, "app.db");
-    const { readFileSync, writeFileSync } = await import("node:fs");
-    writeFileSync(
-      project.configPath,
-      readFileSync(project.configPath, "utf8").replace(
-        '":memory:"',
-        JSON.stringify(file)
-      )
-    );
-    const db = new Database(file);
+    const { configPath, db } = fileDatabase(TEMPORAL);
     db.exec(`CREATE TABLE event (id INTEGER PRIMARY KEY, title TEXT, at TEXT, clock TEXT, moments TEXT, stamp INTEGER);
       INSERT INTO event VALUES (1, 'canonical', '2024-01-15T10:30:00.000Z', '12:30:00.000', '["2024-01-15T10:30:00.000Z"]', 0);
       INSERT INTO event VALUES (2, 'rc.x', '2024-01-15T10:30:00Z', '12:30:00', '["2024-01-15 10:30:00"]', 0);`);
     try {
-      const output = await run(project.configPath, ["--db"]);
+      const output = await run(configPath, ["--db"]);
       expect(output).toContain(
-        '[storage] "event"."at": 1 row(s) of noncanonical DateTime text compare and sort wrongly.'
+        '[storage] "event"."at": 1 row(s) of noncanonical DateTime text compare and sort wrongly.\n    Repair with sqliteCanonicalDateTimeExpression'
       );
       expect(output).toContain("Repair with sqliteCanonicalTimeExpression");
+      // The scalar expression aborts on a JSON array; a list goes through `update`.
+      expect(output).toContain(
+        '"event"."moments": 1 row(s) of noncanonical DateTime text compare and sort wrongly.\n    Rewrite each row through the typed client (`update`)'
+      );
       expect(output).toContain("Storage audited: 3 column(s), 3 need repair.");
       expect(process.exitCode).toBe(1);
 
@@ -163,19 +168,18 @@ describe("viborm check", () => {
       db.exec(
         `UPDATE event SET at = '2024-01-15T10:30:00.000Z', clock = '12:30:00.000', moments = '["2024-01-15T10:30:00.000Z"]'`
       );
-      const result = JSON.parse(
-        await run(project.configPath, ["--db", "--json"])
-      );
+      const result = JSON.parse(await run(configPath, ["--db", "--json"]));
       expect(result).toMatchObject({ valid: true, errors: [] });
       expect(result.storage).toEqual(
         [
-          ["at", "datetime"],
-          ["clock", "time"],
-          ["moments", "datetime"],
-        ].map(([column, type]) => ({
+          ["at", "datetime", false],
+          ["clock", "time", false],
+          ["moments", "datetime", true],
+        ].map(([column, type, list]) => ({
           table: "event",
           column,
           type,
+          list,
           noncanonical: 0,
         }))
       );
@@ -200,22 +204,11 @@ describe("viborm check", () => {
   });
 
   it("--db reports SQLite decimal columns that are not VibORM's checked storage", async () => {
-    project = makeTempProject();
-    writeConfigFixture(project, { dialect: "sqlite3", schemaBody: PRICED });
-    const file = join(project.dir, "app.db");
-    const { readFileSync, writeFileSync } = await import("node:fs");
-    writeFileSync(
-      project.configPath,
-      readFileSync(project.configPath, "utf8").replace(
-        '":memory:"',
-        JSON.stringify(file)
-      )
-    );
-    const db = new Database(file);
+    const { configPath, db } = fileDatabase(PRICED);
     // Another tool's table: typed queries never inspect it.
     db.exec("CREATE TABLE item (id INTEGER PRIMARY KEY, price REAL NOT NULL)");
     try {
-      const output = await run(project.configPath, ["--db"]);
+      const output = await run(configPath, ["--db"]);
       expect(output).toContain(
         '[storage] "item"."price": declared REAL, not the checked scaled-integer decimal storage VibORM writes; typed reads, filters and writes are not checked against it.'
       );
@@ -230,21 +223,18 @@ describe("viborm check", () => {
       db.exec(
         "DROP TABLE item; CREATE TABLE item (id INTEGER PRIMARY KEY, price DECIMAL(10,2) NOT NULL, prices TEXT NOT NULL)"
       );
-      const prisma = await run(project.configPath, ["--db"]);
+      const prisma = await run(configPath, ["--db"]);
       expect(prisma).toContain('"item"."price": declared DECIMAL(10,2), not');
       expect(prisma).toContain('"item"."prices": declared TEXT, not');
       expect(process.exitCode).toBe(1);
 
-      // A missing table fails as it fails the temporal scan.
+      // A missing table reports each decimal column missing.
       process.exitCode = undefined;
       db.exec("ALTER TABLE item RENAME TO foreign_item");
-      vi.spyOn(process, "exit").mockImplementation((code) => {
-        throw new Error(`exit ${code}`);
-      });
-      await expect(run(project.configPath, ["--db"])).rejects.toThrow("exit");
-      expect(process.stderr.write).toHaveBeenCalledWith(
-        expect.stringContaining("Database table or column does not exist")
-      );
+      const missing = await run(configPath, ["--db"]);
+      expect(missing).toContain('"item"."price": the column is missing');
+      expect(missing).toContain("Storage audited: 2 column(s), 2 need repair.");
+      expect(process.exitCode).toBe(1);
 
       process.exitCode = undefined;
       db.exec("DROP TABLE foreign_item");
@@ -257,9 +247,7 @@ describe("viborm check", () => {
         .map("item");
       const owner = createClient({ client: db, schema: { item } });
       await syncLiveSchema(owner);
-      const result = JSON.parse(
-        await run(project.configPath, ["--db", "--json"])
-      );
+      const result = JSON.parse(await run(configPath, ["--db", "--json"]));
       expect(result.storage).toEqual(
         ["price", "prices"].map((column) => ({
           table: "item",

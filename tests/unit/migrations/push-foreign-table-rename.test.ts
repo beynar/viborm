@@ -128,6 +128,13 @@ describe.each(providers)("$name push and table renames", (provider) => {
         });
       }
 
+      // A pair nobody named points at the scope before the two decisions.
+      await expect(
+        unscoped.push({ dryRun: true, resolve: lenientResolver })
+      ).rejects.toThrow(
+        'If "customers" is not this schema\'s table, set migrations.tables so push does not manage it; otherwise name the pair with change.rename() or change.addAndDrop().'
+      );
+
       expect(await contents(driver, "customers")).toEqual(foreign);
       await expect(contents(driver, "users")).rejects.toThrow();
 

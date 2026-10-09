@@ -3,7 +3,9 @@
  *
  * Driver implementation for postgres.js - a modern, fast PostgreSQL client.
  *
- * Generated statements use unsafe(query, values, queryOptions).
+ * Generated statements use unsafe(query, values, queryOptions). Preparation
+ * defaults to false for pooler compatibility; options.prepare: true opts into
+ * the provider's prepared-statement reuse on compatible sessions.
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -219,12 +221,12 @@ export class PostgresDriver extends Driver<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
-    // postgres.js prepares only when the connection AND the query say so; every
-    // query says yes, so the connection's `prepare` option decides.
+    // postgres.js unsafe() takes (query, parameters?, queryOptions?)
+    // parameters must be cast as postgres expects specific types
     const result = await client.unsafe<T[]>(
       sqlStr,
       encodeListParameters(params),
-      { prepare: true }
+      { prepare: this.driverOptions.options?.prepare === true }
     );
     return {
       rows: result,
@@ -247,7 +249,9 @@ export class PostgresDriver extends Driver<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "executeRaw";
-    const result = await client.unsafe<T[]>(sqlStr, params, { prepare: true });
+    const result = await client.unsafe<T[]>(sqlStr, params, {
+      prepare: this.driverOptions.options?.prepare === true,
+    });
     return {
       rows: result,
       rowCount: normalizePostgresRowCount(

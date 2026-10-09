@@ -1,70 +1,71 @@
 import { createClient as createDriverClient } from "@client/client";
 import { createClient, PostgresDriver, vibormTypes } from "@drivers/postgres";
-import { s } from "@schema";
 import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import { wireInvoice } from "@tests/fixtures/pglite-wire-invoice";
 import { pgliteWireServer } from "@tests/fixtures/pglite-wire-server";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 /**
- * The postgres.js connection's own `prepare` option decides, on the wire.
+ * VibORM's own `options.prepare` decides postgres.js statement preparation, on
+ * the wire, whatever the connection's own option says.
  *
- * An unprepared parameterized statement is two round trips — Parse, Describe,
- * Flush, wait for the parameter types, then Bind, Execute, Sync. A prepared
- * one is parsed once per connection and then costs one: Bind, Execute, Sync.
+ * Unprepared, the default, is the unnamed statement: two round trips, Parse,
+ * Describe, Flush, wait for the parameter types, then Bind, Execute, Sync. It
+ * leaves nothing on the server, so a migration that replaces an enum type
+ * breaks no running client and each `in`-list length adds no statement.
+ * `options: { prepare: true }` parses a statement once per connection, then
+ * costs one round trip: Bind, Execute, Sync.
  */
 
-const invoice = s
-  .model({
-    id: s.int().id().increment(),
-    customer: s.string(),
-    amountCents: s.int(),
-    status: s.string().default("open"),
-    paid: s.boolean().default(false),
-    createdAt: s.dateTime().now(),
-    updatedAt: s.dateTime().updatedAt(),
-  })
-  .map("pgjs_prepare_invoice");
-const schema = { invoice };
-const SEEDED = 10_000;
-/** One 5,000-row Bind stalls this minimal bridge; 2,000-row chunks do not. */
-const SEED_CHUNK = 2000;
+const schema = { invoice: wireInvoice };
 const REPEATS = 5;
-/** Rows 1..REPEATS were seeded with these amounts. */
+/** Rows 1..REPEATS hold these amounts; row SEEDED warms each connection. */
+const SEEDED = REPEATS + 1;
 const AMOUNTS = Array.from({ length: REPEATS }, (_, index) => 100 + index);
 const NAMED = /.+/;
 const PARSE_OR_FLUSH = /[PH]/;
+const UNNAMED = Array.from({ length: REPEATS }, () => ({
+  type: "P",
+  statement: "",
+}));
 
 const database = openTestPGlite();
 const server = pgliteWireServer(database);
 let url = "";
 
-const supplied = (prepare: boolean) => {
+/** A caller's postgres.js client, with its own `prepare`, under VibORM. */
+const supplied = (prepare: boolean, options?: { prepare: boolean }) => {
   const sql = postgres(url, { max: 1, prepare, types: vibormTypes });
   const orm = createDriverClient({
     schema,
-    driver: new PostgresDriver({ client: sql }),
+    driver: new PostgresDriver({ client: sql, options }),
   });
-  return { orm, sql };
+  return { orm, end: () => sql.end() };
+};
+
+const owned = (prepare?: boolean) => {
+  const orm = createClient({
+    schema,
+    databaseUrl: url,
+    options: { max: 1, ...(prepare === undefined ? {} : { prepare }) },
+  });
+  return { orm, end: async () => undefined };
 };
 
 beforeAll(async () => {
   await database.waitReady;
   url = `postgres://postgres:postgres@127.0.0.1:${await server.start()}/postgres`;
-  // Seeded through a prepared connection: 2,000-row binds on named statements.
-  const { orm: seeder, sql } = supplied(true);
+  const { orm: seeder } = owned();
   await syncLiveSchema(seeder);
-  for (let first = 0; first < SEEDED; first += SEED_CHUNK) {
-    await seeder.invoice.createMany({
-      data: Array.from({ length: SEED_CHUNK }, (_, offset) => ({
-        customer: `customer-${(first + offset) % 97}`,
-        amountCents: 100 + first + offset,
-      })),
-    });
-  }
+  await seeder.invoice.createMany({
+    data: Array.from({ length: SEEDED }, (_, index) => ({
+      customer: `customer-${index % 3}`,
+      amountCents: 100 + index,
+    })),
+  });
   await seeder.$disconnect();
-  await sql.end();
 });
 
 afterAll(() => server.stop());
@@ -78,6 +79,9 @@ async function sent(run: () => Promise<unknown>) {
 
 const types = (messages: readonly { type: string }[]) =>
   messages.map(({ type }) => type).join("");
+
+const parses = (messages: readonly { type: string }[]) =>
+  messages.filter(({ type }) => type === "P");
 
 /** `REPEATS` primary-key reads after a first one: what they sent and read. */
 async function repeatedReads(
@@ -93,11 +97,46 @@ async function repeatedReads(
   return { amounts, messages };
 }
 
+type Orm = ReturnType<typeof owned>["orm"];
+
+const typedReads = (orm: Orm) =>
+  repeatedReads((id) => orm.invoice.findUnique({ where: { id } }));
+
+const rawReads = (orm: Orm) =>
+  repeatedReads(
+    async (id) =>
+      (
+        await orm.$queryRawUnsafe<{ amountCents: number }>(
+          'SELECT "amountCents" FROM "pgjs_wire_invoice" WHERE "id" = $1',
+          id
+        )
+      )[0] ?? null
+  );
+
 describe("postgres.js statement preparation", () => {
-  it("a supplied prepare:true client parses a statement once, then only binds and executes it", async () => {
-    const { orm, sql } = supplied(true);
-    const findUnique = (id: number) =>
-      orm.invoice.findUnique({ where: { id } });
+  it.each([
+    ["an owned client", () => owned()],
+    ["a supplied prepare:true client", () => supplied(true)],
+    ["a supplied prepare:false client", () => supplied(false)],
+  ])("%s sends the unnamed statement by default, typed and raw", async (_, connect) => {
+    const { orm, end } = connect();
+    try {
+      for (const reads of [await typedReads(orm), await rawReads(orm)]) {
+        expect(reads.amounts).toEqual(AMOUNTS);
+        expect(types(reads.messages)).toBe("PDHBES".repeat(REPEATS));
+        expect(parses(reads.messages)).toEqual(UNNAMED);
+      }
+    } finally {
+      await orm.$disconnect();
+      await end();
+    }
+  });
+
+  it.each([
+    ["an owned client", () => owned(true)],
+    ["a supplied client", () => supplied(true, { prepare: true })],
+  ])("options.prepare: true makes %s parse a statement once, then only bind and execute it", async (_, connect) => {
+    const { orm, end } = connect();
     const settle = (id: number) =>
       orm.invoice.update({
         where: { id },
@@ -105,7 +144,9 @@ describe("postgres.js statement preparation", () => {
       });
     try {
       await orm.invoice.count();
-      const first = await sent(() => findUnique(SEEDED));
+      const first = await sent(() =>
+        orm.invoice.findUnique({ where: { id: SEEDED } })
+      );
       expect(first).toEqual([
         { type: "P", statement: expect.stringMatching(NAMED) },
         { type: "D" },
@@ -114,21 +155,10 @@ describe("postgres.js statement preparation", () => {
         { type: "E" },
         { type: "S" },
       ]);
-      const reads = await repeatedReads(findUnique);
-      expect(reads.amounts).toEqual(AMOUNTS);
-      expect(types(reads.messages)).toBe("BES".repeat(REPEATS));
-
-      const raw = await repeatedReads(
-        async (id) =>
-          (
-            await orm.$queryRawUnsafe<{ amountCents: number }>(
-              'SELECT "amountCents" FROM "pgjs_prepare_invoice" WHERE "id" = $1',
-              id
-            )
-          )[0] ?? null
-      );
-      expect(raw.amounts).toEqual(AMOUNTS);
-      expect(types(raw.messages)).toBe("BES".repeat(REPEATS));
+      for (const reads of [await typedReads(orm), await rawReads(orm)]) {
+        expect(reads.amounts).toEqual(AMOUNTS);
+        expect(types(reads.messages)).toBe("BES".repeat(REPEATS));
+      }
 
       await settle(1);
       const updates = await sent(async () => {
@@ -159,54 +189,7 @@ describe("postgres.js statement preparation", () => {
       ).resolves.toBe(REPEATS);
     } finally {
       await orm.$disconnect();
-      await sql.end();
-    }
-  });
-
-  it("an owned client prepares by default", async () => {
-    const orm = createClient({ schema, databaseUrl: url, options: { max: 1 } });
-    try {
-      const reads = await repeatedReads((id) =>
-        orm.invoice.findUnique({ where: { id } })
-      );
-      expect(reads.amounts).toEqual(AMOUNTS);
-      expect(types(reads.messages)).toBe("BES".repeat(REPEATS));
-    } finally {
-      await orm.$disconnect();
-    }
-  });
-
-  it("an owned client opts out with options.prepare: false", async () => {
-    const orm = createClient({
-      schema,
-      databaseUrl: url,
-      options: { max: 1, prepare: false },
-    });
-    try {
-      const reads = await repeatedReads((id) =>
-        orm.invoice.findUnique({ where: { id } })
-      );
-      expect(reads.amounts).toEqual(AMOUNTS);
-      expect(types(reads.messages)).toBe("PDHBES".repeat(REPEATS));
-      expect(reads.messages.filter(({ type }) => type === "P")).toEqual(
-        Array.from({ length: REPEATS }, () => ({ type: "P", statement: "" }))
-      );
-    } finally {
-      await orm.$disconnect();
-    }
-  });
-
-  it("a supplied prepare:false client keeps the unnamed statement", async () => {
-    const { orm, sql } = supplied(false);
-    try {
-      const reads = await repeatedReads((id) =>
-        orm.invoice.findUnique({ where: { id } })
-      );
-      expect(reads.amounts).toEqual(AMOUNTS);
-      expect(types(reads.messages)).toBe("PDHBES".repeat(REPEATS));
-    } finally {
-      await orm.$disconnect();
-      await sql.end();
+      await end();
     }
   });
 });

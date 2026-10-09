@@ -30,7 +30,11 @@ interface CheckCliOptions {
 }
 
 type ColumnAudit = { readonly table: string; readonly column: string } & (
-  | { readonly type: "datetime" | "time"; readonly noncanonical: number }
+  | {
+      readonly type: "datetime" | "time";
+      readonly list: boolean;
+      readonly noncanonical: number;
+    }
   | {
       readonly type: "decimal";
       /** The catalog's declared type; `null` when the column is missing. */
@@ -59,9 +63,6 @@ async function readCatalog(
     `SELECT s.sql AS definition, p.name, p.type, p."notnull", p.pk FROM sqlite_schema AS s JOIN pragma_table_info(s.name) AS p WHERE s.type = 'table' AND s.name = ?`,
     [table]
   );
-  // A missing table fails here as it fails a temporal scan (V2004).
-  if (rows.length === 0)
-    await driver._executeRaw(`SELECT 1 FROM ${quote(table)} LIMIT 0`);
   // SQLite reports a primary key nullable; VibORM writes it NOT NULL.
   return rows.map(({ notnull, pk, ...column }) => ({
     ...column,
@@ -122,6 +123,7 @@ async function auditStorage(
         table,
         column,
         type,
+        list: array,
         noncanonical: Number(rows[0]?.noncanonical),
       });
     }
@@ -142,7 +144,10 @@ const describeAudit = (audit: ColumnAudit): string => {
     return `${column}: ${found}; typed reads, filters and writes are not checked against it.\n    Adopt the table through viborm push, migrate or baseline: https://viborm.dev/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool`;
   }
   const kind = audit.type === "time" ? "Time" : "DateTime";
-  return `${column}: ${audit.noncanonical} row(s) of noncanonical ${kind} text compare and sort wrongly.\n    Repair with sqliteCanonical${kind}Expression from viborm/migrations: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;
+  const repair = audit.list
+    ? "Rewrite each row through the typed client (`update`), which stores canonical members"
+    : `Repair with sqliteCanonical${kind}Expression from viborm/migrations`;
+  return `${column}: ${audit.noncanonical} row(s) of noncanonical ${kind} text compare and sort wrongly.\n    ${repair}: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;
 };
 
 // The repair hint, when the issue has one, goes on its own indented line.
