@@ -1009,6 +1009,30 @@ for it, and neither does the schema-only shape. Measure
 statement/bind/provider-row/output growth separately from source-derived
 occurrence and transient-copy counts; do not invent an allocation metric API.
 
+A recursive relation FILTER (`recurse`, optional `self`, and `some`/`every`/
+`none` on an eligible self relation in `where`) has the same ONE walk owner as
+the projection, `Queries.walk`, with two readers: the projection reads edges
+(parent columns, per-hop selector) and a filter reads the reached set. With
+`self`, the start row joins the FIRST hop in the anchor; a start-only anchor
+would spend one of MySQL's `cte_max_recursion_depth` iterations and fail
+`{ depth: 1000 }`. `prepareSlotPredicate` turns a spelled `recurse` into the
+relation predicate's `closure` (`{ depth, self }`; the cycle policy is not
+carried, since a set does not depend on the paths that reach it), and
+`lowerRelationPredicate` puts the walk in the `EXISTS` subquery's OWN `WITH`
+and joins the target by key. Never wrap it in a derived table or a `LATERAL`:
+MySQL evaluates a wrapped correlated recursive CTE once and answers every
+outer row from it wherever the `EXISTS` is not flattened (under `OR`, `NOT`, a
+select list). A closure's read is INEXACT and declares its link fields
+(`relationScope`): an intermediate row's link decides membership, so no key the
+filter names proves a write to another row disjoint
+(`recursive-query/composition.test.ts` case 14). Unwrapped, the walk cannot
+hide the mutated table from MySQL ERROR 1093, so a closure over the table an
+UPDATE/DELETE changes is refused before any SQL with `FeatureNotSupportedError`
+and `RECURSIVE_FILTER_MUTATION_REFUSAL`; `hidesMutationTarget` is the one
+condition that refusal and `hideMutationTarget` both read. Both readers'
+provider SQL is pinned byte for byte per dialect in
+`recursive-query/provider-sql-{pglite,sqlite,native}.test.ts`.
+
 Independent SQLite fixtures own expected results, database state, defaults,
 failure timing and causal cuts. Cross-engine comparison is semantic; exact SQL
 and event tapes belong only to replay within one candidate. Run validation

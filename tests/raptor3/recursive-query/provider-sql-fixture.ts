@@ -1,7 +1,8 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
 import type { Operations, Schema } from "@client/types";
-import { QueryEngineError } from "@errors";
+import { FeatureNotSupportedError, QueryEngineError } from "@errors";
+import { RECURSIVE_FILTER_MUTATION_REFUSAL } from "@query-engine/raptor3/shared/query";
 import { s } from "@schema";
 
 /** A statement carrying a recursive CTE, and the two mutation statements. */
@@ -297,6 +298,8 @@ export interface ProviderCase {
    * session limit (§2.4, §5).
    */
   readonly exceedsMySQLRecursionLimit?: true;
+  /** The exact sentence MySQL refuses this case with, before any SQL is sent. */
+  readonly mysqlFailure?: string;
   /** An ORDINARY control: the same read without recursion — no recursive CTE. */
   readonly control?: true;
 }
@@ -659,6 +662,139 @@ export const SELECT_SQL_PINS: readonly ProviderCase[] = Object.freeze([
         ],
       },
     ],
+  },
+]);
+
+const codes = (...values: string[]) => values.map((code) => ({ code }));
+const closureRead = (where: Record<string, unknown>) => ({
+  where,
+  orderBy: { code: "asc" },
+  select: { code: true },
+});
+
+/**
+ * The recursive FILTER shapes whose provider SQL each provider test pins byte
+ * for byte, with their rows written by hand from the placement tables: both
+ * of the owner's shapes (a foreign-key ancestor walk with `self`; a junction
+ * walk nested in another relation filter), the depth column and its absence,
+ * `self` both ways, a closure nested in a closure, and the two mutations —
+ * one walking the table it updates, which MySQL refuses before any SQL, and
+ * one walking another table, which every provider runs.
+ */
+export const FILTER_SQL_PINS: readonly ProviderCase[] = Object.freeze([
+  {
+    name: "foreign-key ancestors with self, default depth",
+    model: "node",
+    operation: "findMany",
+    args: closureRead({
+      parent: {
+        recurse: true,
+        self: true,
+        some: { notes: { some: { text: "beta note" } } },
+      },
+    }),
+    expected: codes("beta", "beta-child"),
+  },
+  {
+    name: "junction walk with self, bounded, nested in a relation filter",
+    model: "note",
+    operation: "findMany",
+    args: {
+      where: {
+        node: {
+          neighbors: {
+            recurse: { depth: 2 },
+            self: true,
+            some: {
+              OR: [
+                { notes: { some: { position: 2 } } },
+                { label: "Nobody" },
+              ],
+            },
+          },
+        },
+      },
+      orderBy: { id: "asc" },
+      select: { id: true },
+    },
+    expected: [{ id: "n1" }, { id: "n2" }],
+  },
+  {
+    name: "foreign-key descendants, exhaustive, none",
+    model: "node",
+    operation: "findMany",
+    args: closureRead({
+      children: { recurse: { depth: false }, none: { visible: false } },
+    }),
+    expected: codes(
+      "alpha",
+      "alpha-child",
+      "beta",
+      "beta-child",
+      "gamma",
+      "hidden",
+      "merge",
+      "root-b"
+    ),
+  },
+  {
+    name: "junction, one hop, every over empty closures",
+    model: "node",
+    operation: "findMany",
+    args: closureRead({
+      neighbors: { recurse: { depth: 1 }, every: { rank: { gte: 10 } } },
+    }),
+    expected: codes(
+      "alpha",
+      "alpha-child",
+      "beta",
+      "beta-child",
+      "gamma",
+      "hidden",
+      "root-a",
+      "root-b"
+    ),
+  },
+  {
+    name: "a closure nested in a closure",
+    model: "node",
+    operation: "findMany",
+    args: closureRead({
+      parent: {
+        recurse: true,
+        some: {
+          neighbors: {
+            recurse: { depth: false },
+            self: true,
+            some: { code: "merge" },
+          },
+        },
+      },
+    }),
+    expected: codes("alpha", "alpha-child", "beta", "beta-child", "hidden"),
+  },
+  {
+    name: "updateMany walking the table it updates",
+    model: "node",
+    operation: "updateMany",
+    args: {
+      where: { parent: { recurse: true, some: { code: "root-a" } } },
+      data: { rank: { increment: 0 } },
+    },
+    expected: { count: 5 },
+    mysqlFailure: `where.parent.recurse is not supported. ${RECURSIVE_FILTER_MUTATION_REFUSAL}`,
+  },
+  {
+    name: "updateMany walking another table",
+    model: "forest",
+    operation: "updateMany",
+    args: {
+      where: {
+        entry: { children: { recurse: true, some: { code: "beta-child" } } },
+      },
+      data: { name: "Forest A" },
+    },
+    expected: { count: 1 },
   },
 ]);
 
@@ -1223,6 +1359,21 @@ export const HIERARCHY_GROUPS: readonly CaseGroup[] = Object.freeze([
         { labels: ["s1", "s0"], end: "null" },
         2
       ),
+      {
+        // The start row joins the first hop in the anchor, so `self` spends
+        // none of MySQL's 1000 recursion iterations: hop 1000 is reached.
+        name: "a recursive filter with self reaches hop 1000",
+        model: "spine",
+        operation: "findMany",
+        args: {
+          where: {
+            id: { in: [1000, 1001] },
+            parent: { recurse: { depth: 1000 }, self: true, some: { id: 0 } },
+          },
+          select: { id: true },
+        },
+        expected: [{ id: 1000 }],
+      },
     ],
   },
   {
@@ -2300,7 +2451,10 @@ export async function caseOutcome(
       providerCase.args
     );
   } catch (failure) {
-    if (failure instanceof QueryEngineError)
+    if (
+      failure instanceof QueryEngineError ||
+      failure instanceof FeatureNotSupportedError
+    )
       return { failure: failure.message };
     throw failure;
   }
