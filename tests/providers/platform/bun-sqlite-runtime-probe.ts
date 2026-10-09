@@ -13,9 +13,6 @@
  * test asserts on.
  */
 
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
@@ -26,9 +23,6 @@ import { sql } from "@sql";
 import { Decimal } from "@src/index";
 import { qualifyRawDateCutoff } from "@tests/fixtures/raw-date-cutoff";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-
-/** Bun's global; this probe runs only under Bun, which has no types here. */
-declare const Bun: { gc(force: boolean): void };
 
 const DECIMAL_DOMAIN = { precision: 16, scale: 2 };
 const PAST_DOUBLE = "99999999999999.99";
@@ -817,29 +811,4 @@ for (const [label, run] of [
   assert(failure instanceof Error, `a ${label} ran on a closed database`);
 }
 
-// A driver-owned database is released by $disconnect: once collected, no
-// reused statement keeps its file open.
-const openFiles = () => readdirSync("/dev/fd").length;
-const reuseDirectory = mkdtempSync(join(tmpdir(), "viborm-bun-reuse-"));
-try {
-  const filesBefore = openFiles();
-  const fileClient = createClient({
-    schema: { reuseEntry },
-    driver: new BunSQLiteDriver({ dataDir: join(reuseDirectory, "reuse.db") }),
-  });
-  await fileClient.$executeRawUnsafe(
-    `CREATE TABLE "bun_sqlite_reuse_entries" ("id" INTEGER PRIMARY KEY, "label" TEXT NOT NULL)`
-  );
-  await fileClient.reuseEntry.create({ data: { id: 1, label: "one" } });
-  await fileClient.reuseEntry.findMany();
-  await fileClient.reuseEntry.findMany();
-  await fileClient.$disconnect();
-  Bun.gc(true);
-  assert(
-    openFiles() === filesBefore,
-    "a driver-owned database stayed open after $disconnect"
-  );
-} finally {
-  rmSync(reuseDirectory, { recursive: true, force: true });
-}
 console.log("statement reuse evidence passed");

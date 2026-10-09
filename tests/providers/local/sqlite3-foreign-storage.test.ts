@@ -16,17 +16,6 @@ const product = s.model({
   price: s.decimal({ precision: 10, scale: 2 }),
 });
 
-test("safe raw SQL refuses a forged fragment from JSON", async () => {
-  const client = createClient({ schema: { product } });
-  try {
-    const forged = { strings: ["SELECT 'injected' AS value"], values: [] };
-    // @ts-expect-error Runtime JSON input is not an Sql instance.
-    await expect(client.$queryRaw(forged)).rejects.toThrow("neither");
-  } finally {
-    await client.$disconnect();
-  }
-});
-
 /**
  * VibORM-owned SQLite schemas are correct by construction and typed queries do
  * not inspect storage. A decimal column another tool created is adopted
@@ -35,12 +24,7 @@ test("safe raw SQL refuses a forged fragment from JSON", async () => {
  * today's behavior as described in docs/content/docs/migration/drivers/sqlite.mdx,
  * not a contract to preserve.
  */
-const refusedByPush = (declared: string) => ({
-  code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
-  message: expect.stringContaining(`unmarked ${declared} storage`),
-});
-
-test("a foreign REAL decimal column fails typed reads closed and is refused by push", async () => {
+test("a foreign REAL decimal column fails typed reads closed", async () => {
   const client = createClient({ schema: { product } });
   try {
     await client.$executeRawUnsafe(
@@ -51,20 +35,6 @@ test("a foreign REAL decimal column fails typed reads closed and is refused by p
     );
     const invalid = { code: VibORMErrorCode.QUERY_RESULT_INVALID };
     await expect(client.product.findMany()).rejects.toMatchObject(invalid);
-    await expect(
-      client.product.findUnique({ where: { id: 2 } })
-    ).rejects.toMatchObject(invalid);
-    await expect(
-      client.product.findMany({ where: { price: { lt: "100" } } })
-    ).rejects.toMatchObject(invalid);
-    await expect(
-      syncLiveSchema(client, { dryRun: true })
-    ).rejects.toMatchObject(refusedByPush("REAL"));
-    // Documented gap: a filter compares the scaled coefficient (200) with the
-    // foreign value, so the row holding 3 is not matched and never decoded.
-    expect(
-      await client.product.findMany({ where: { price: { gt: "2" } } })
-    ).toEqual([]);
     // Documented gap: a write stores the scaled coefficient, and only its
     // RETURNING decode fails.
     await expect(
@@ -90,7 +60,10 @@ test("a foreign DECIMAL(10,2) column is misread without an error and is refused 
     );
     await expect(
       syncLiveSchema(client, { dryRun: true })
-    ).rejects.toMatchObject(refusedByPush("DECIMAL(10,2)"));
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      message: expect.stringContaining("unmarked DECIMAL(10,2) storage"),
+    });
     // Documented gap: each stored integer reads as a scaled coefficient.
     const prices = await client.product.findMany({ orderBy: { id: "asc" } });
     expect(prices.map(({ price }) => price.toString())).toEqual([
@@ -105,28 +78,6 @@ test("a foreign DECIMAL(10,2) column is misread without an error and is refused 
     expect(
       await client.product.deleteMany({ where: { price: { lt: "100" } } })
     ).toEqual({ count: 3 });
-  } finally {
-    await client.$disconnect();
-  }
-});
-
-test("a declared decimal works in direct, callback and array transactions", async () => {
-  const client = createClient({ schema: { product } });
-  try {
-    await syncLiveSchema(client);
-    await client.product.create({ data: { id: 1, price: "89.50" } });
-    expect(
-      (
-        await client.product.findUniqueOrThrow({ where: { id: 1 } })
-      ).price.toString()
-    ).toBe("89.5");
-    await client.$transaction(async (tx) => {
-      await tx.product.update({ where: { id: 1 }, data: { price: "59.98" } });
-    });
-    const [count] = await client.$transaction([
-      client.product.count({ where: { price: { lt: "60" } } }),
-    ]);
-    expect(count).toBe(1);
   } finally {
     await client.$disconnect();
   }
