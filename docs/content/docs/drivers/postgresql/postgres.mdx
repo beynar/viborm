@@ -69,8 +69,8 @@ VibORM checks supplied temporal parser configuration before using the client.
 `vibormTypes` keeps PostgreSQL dates and timestamps as text so typed queries
 decode them consistently, including years before 100 and timezone offsets.
 `$disconnect()` leaves this supplied client open; its owner calls `sql.end()`.
-Its statements stay unprepared, whatever its own `prepare` setting, unless you
-pass `options: { prepare: true }` beside it; see
+Its statements stay unprepared unless you pass `options: { prepare: true }`
+beside it and the client keeps postgres.js's default `prepare: true`; see
 [Prepared statements](#prepared-statements).
 
 ### With pgvector
@@ -156,9 +156,10 @@ accept it. [`viborm/pg`](/docs/drivers/postgresql/pg) (node-postgres) sends the
 same unnamed statement in one round trip.
 
 Where the endpoint keeps prepared statements, opt in with
-`options: { prepare: true }`, also beside a supplied `client`. Each statement is
-then parsed once per connection and costs one round trip after that. Opting in
-means:
+`options: { prepare: true }`, also beside a supplied `client` that keeps
+postgres.js's default `prepare: true` (postgres.js prepares only when both
+agree). Each statement is then parsed once per connection and costs one round
+trip after that. Opting in means:
 
 - After a migration that replaces an enum type (removing or reordering values,
   or using a value the same migration adds), restart or reconnect every running

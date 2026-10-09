@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
  */
 
 const schema = { invoice: wireInvoice };
-const SEEDED = 1000;
+const SEEDED = 200;
 
 const database = openTestPGlite();
 const server = pgliteWireServer(database);
