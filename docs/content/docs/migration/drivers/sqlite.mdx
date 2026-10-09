@@ -89,16 +89,27 @@ it cannot recover digits that an earlier writer already rounded away.
 
 ## Repairing foreign timestamp and Time text
 
-Typed queries refuse noncanonical stored temporal text before comparing or
-writing it. Canonical DateTime storage is `YYYY-MM-DDTHH:mm:ss.sssZ`; Time is
-`HH:mm:ss.sss`. Merely decoding a `+00:00` timestamp on read does not repair
-lexical filters against that physical value.
+VibORM writes canonical text: DateTime as `YYYY-MM-DDTHH:mm:ss.sssZ`, Time as
+`HH:mm:ss.sss`. Typed filters, ordering and unique lookups compare that stored
+text, so they assume it is canonical. Text written in another spelling by raw
+SQL, another writer, or a release candidate that stored string input verbatim
+(`2024-01-15T10:30:00Z`, a `+00:00` offset, SQLite's `datetime('now')`) still
+reads back as the right instant, but comparisons can miss or misorder its rows.
+Typed queries do not inspect storage per statement. Run `viborm check --db` to
+count noncanonical values per column; it exits nonzero when any exist.
 
 The manual migration helpers quote a physical column name and return a SQLite
 expression. DateTime conversion uses the same calendar, instant range and
 wide-offset rules as the migration converter, including year zero and offsets
 up to ±23:59. NULL remains NULL; malformed or out-of-range values abort the
 statement. Time padding preserves its clock value and refuses an invalid clock.
+Text without a zone, such as `datetime('now')`, is refused because its instant
+is unknown. If that writer used UTC, state it first:
+`UPDATE "events" SET "created_at" = replace("created_at", ' ', 'T') || 'Z' WHERE "created_at" GLOB '????-??-?? ??:??:??'`.
+A DateTime or Time list is a JSON array: read it through the typed client and
+write it back with `update`, which stores canonical members. D1 refuses the
+timestamp patterns these expressions and the audit use (`LIKE or GLOB pattern
+too complex`); audit and repair a D1 database through an exported SQLite copy.
 
 ```ts title="repair-temporal.ts"
 import { sql } from "viborm";
@@ -147,7 +158,7 @@ Review the resulting checked transition with
 `viborm migrate generate --custom ./repair-temporal.ts --dry-run --review ./repair.sql`.
 The helper generates SQL only. It does not inspect, update, or automatically
 repair an application database. Back up and authorize the intended data update
-before applying the reviewed migration.
+before applying the reviewed migration, then rerun `viborm check --db`.
 
 
 ## Native indexes

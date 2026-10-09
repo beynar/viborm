@@ -352,6 +352,90 @@ beforeAll(async () => {
   );
 });
 
+const TIMESTAMPED_ROWS = 1000;
+const TIMESTAMP_EPOCH = Date.UTC(2026, 0, 1);
+const timestampedPost = s
+  .model({
+    id: s.int().id(),
+    title: s.string(),
+    views: s.int(),
+    publishedAt: s.dateTime().nullable(),
+    createdAt: s.dateTime().now(),
+    updatedAt: s.dateTime().updatedAt(),
+  })
+  .map("viborm_d1_timestamped_posts")
+  .index(["createdAt"]);
+
+describe("D1 timestamped model", () => {
+  it("serves typed CRUD and range filters with only small statements", async () => {
+    await env.DB.exec(
+      "CREATE TABLE viborm_d1_timestamped_posts (id INTEGER PRIMARY KEY, title TEXT NOT NULL, views INTEGER NOT NULL, publishedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)\nCREATE INDEX viborm_d1_timestamped_posts_createdAt ON viborm_d1_timestamped_posts (createdAt)"
+    );
+    // 1.0.0 prepended a 147 KB storage scan per statement, which D1 refuses.
+    const statements: string[] = [];
+    const database = new Proxy(env.DB, {
+      get(target, key) {
+        if (key !== "prepare") return Reflect.get(target, key);
+        return (query: string) => {
+          statements.push(query);
+          return target.prepare(query);
+        };
+      },
+    });
+    const client = createClient({
+      schema: { post: timestampedPost },
+      database,
+    });
+    const at = (second: number) => new Date(TIMESTAMP_EPOCH + second * 1000);
+    try {
+      for (let start = 1; start <= TIMESTAMPED_ROWS; start += 250)
+        await client.post.createMany({
+          data: Array.from({ length: 250 }, (_, offset) => ({
+            id: start + offset,
+            title: `post ${start + offset}`,
+            views: start + offset,
+            publishedAt: (start + offset) % 2 === 0 ? null : at(start + offset),
+            createdAt: at(start + offset),
+          })),
+        });
+      expect(await client.post.count()).toBe(TIMESTAMPED_ROWS);
+      expect(
+        await client.post.findUnique({
+          where: { id: 7 },
+          select: { id: true, createdAt: true, publishedAt: true },
+        })
+      ).toEqual({ id: 7, createdAt: at(7), publishedAt: at(7) });
+      expect(
+        await client.post.findMany({
+          where: { createdAt: { gte: at(500), lt: at(510) } },
+          select: { id: true },
+          orderBy: { createdAt: "desc" },
+        })
+      ).toEqual(
+        Array.from({ length: 10 }, (_, offset) => ({ id: 509 - offset }))
+      );
+      const updated = await client.post.update({
+        where: { id: 7 },
+        data: { title: "edited" },
+      });
+      expect(updated.updatedAt.getTime()).toBeGreaterThan(at(7).getTime());
+      const created = await client.post.create({
+        data: { id: TIMESTAMPED_ROWS + 1, title: "new", views: 0 },
+      });
+      expect(created.createdAt).toEqual(created.updatedAt);
+      await client.post.delete({ where: { id: TIMESTAMPED_ROWS + 1 } });
+      expect(
+        await client.post.count({ where: { createdAt: { lt: at(101) } } })
+      ).toBe(100);
+      expect(statements.length).toBeGreaterThan(TIMESTAMPED_ROWS / 250);
+      for (const statement of statements)
+        expect(statement.length).toBeLessThan(2048);
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
+
 describe("D1 fixed-decimal provider evidence", () => {
   beforeEach(async () => {
     await env.DB.prepare(`DELETE FROM ${DECIMAL_TABLE}`).run();

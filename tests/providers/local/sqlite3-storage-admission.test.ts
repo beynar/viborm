@@ -1,3 +1,4 @@
+import { sqliteNoncanonicalTemporalCount } from "@adapters/databases/sqlite/storage/datetime";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient as createCoreClient } from "@client/client";
@@ -6,6 +7,10 @@ import type {
   LifecycleUnit,
   ObservationCompletion,
 } from "@extensions/observation";
+import {
+  sqliteCanonicalDateTimeExpression,
+  sqliteCanonicalTimeExpression,
+} from "@migrations";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -39,14 +44,9 @@ test("storage checks cover only tables used by this operation, including cached 
 });
 
 test.each([
-  { change: "definition", observing: false },
-  { change: "temporal", observing: false },
-  { change: "definition", observing: true },
-  { change: "temporal", observing: true },
-])("a $change change after admission is refused atomically before the write, observing:$observing", async ({
-  change,
-  observing,
-}) => {
+  false,
+  true,
+])("a definition change after admission is refused atomically before the write, observing:%s", async (observing) => {
   const handle = new Database(":memory:");
   handle.pragma("foreign_keys = ON");
   let armed = false;
@@ -54,7 +54,7 @@ test.each([
   const statementModels: (string | undefined)[] = [];
   const client = createClient({
     client: handle,
-    schema: { product, event },
+    schema: { product },
   }).$extends({
     name: "change-storage-after-admission",
     ...(observing
@@ -72,13 +72,9 @@ test.each([
       observed.push(context.model);
       if (armed) {
         armed = false;
-        if (change === "definition") {
-          handle.exec(
-            "ALTER TABLE product RENAME TO previous_product; CREATE TABLE product (id INTEGER PRIMARY KEY, price REAL NOT NULL); INSERT INTO product VALUES (1, 89.5)"
-          );
-        } else {
-          handle.exec("UPDATE event SET at = '2024-01-01T12:00:00+00:00'");
-        }
+        handle.exec(
+          "ALTER TABLE product RENAME TO previous_product; CREATE TABLE product (id INTEGER PRIMARY KEY, price REAL NOT NULL); INSERT INTO product VALUES (1, 89.5)"
+        );
       }
       return context.statement;
     },
@@ -86,15 +82,10 @@ test.each([
   try {
     await syncLiveSchema(client);
     await client.product.create({ data: { id: 1, price: "89.50" } });
-    await client.event.create({ data: { id: 1, at: "2024-01-01T12:00:00Z" } });
     observed.length = 0;
     statementModels.length = 0;
     armed = true;
-    await expect(
-      change === "definition"
-        ? client.product.deleteMany()
-        : client.event.deleteMany()
-    ).rejects.toThrow("changed");
+    await expect(client.product.deleteMany()).rejects.toThrow("changed");
     expect(observed).not.toContain("$schema");
     if (observing) {
       expect(statementModels).toContain("$schema");
@@ -102,15 +93,7 @@ test.each([
         observed
       );
     }
-    expect(
-      handle
-        .prepare(
-          change === "definition"
-            ? "SELECT id FROM product"
-            : "SELECT id FROM event"
-        )
-        .all()
-    ).toEqual([{ id: 1 }]);
+    expect(handle.prepare("SELECT id FROM product").all()).toEqual([{ id: 1 }]);
   } finally {
     await client.$disconnect();
     handle.close();
@@ -218,95 +201,154 @@ test("a successful read does not attest a later replacement table", async () => 
   }
 });
 
-test("noncanonical legacy timestamps refuse predicates and cached reads", async () => {
+const legacy = s
+  .model({
+    id: s.int().id(),
+    title: s.string(),
+    at: s.dateTime(),
+    clock: s.time(),
+    moments: s.dateTime().array(),
+    createdAt: s.dateTime().now(),
+    updatedAt: s.dateTime().updatedAt(),
+  })
+  .map("legacy_event");
+
+const LEGACY_COLUMNS = [
+  ["at", "datetime", false],
+  ["clock", "time", false],
+  ["moments", "datetime", true],
+  ["createdAt", "datetime", false],
+  ["updatedAt", "datetime", false],
+] as const;
+
+async function noncanonical(client: {
+  $queryRawUnsafe(sql: string): Promise<unknown>;
+}): Promise<Record<string, unknown>> {
+  const counts: Record<string, unknown> = {};
+  for (const [column, type, list] of LEGACY_COLUMNS)
+    counts[column] = await client.$queryRawUnsafe(
+      sqliteNoncanonicalTemporalCount("legacy_event", column, type, list)
+    );
+  return counts;
+}
+
+test("a noncanonical legacy row no longer takes its model offline; the audit counts it and the repair fixes it", async () => {
   const storage = new MemoryCache();
-  const client = createClient({ schema: { event } }).$extends(
+  const client = createClient({ schema: { legacy } }).$extends(
     cache({ driver: storage })
   );
   try {
     await syncLiveSchema(client);
-    await client.event.create({ data: { id: 1, at: "2024-01-01T12:00:00Z" } });
-    expect(await client.$withCache({ ttl: 60 }).event.count()).toBe(1);
+    await client.legacy.createMany({
+      data: [1, 2, 3].map((id) => ({
+        id,
+        title: `event ${id}`,
+        at: `2024-01-1${id}T10:30:00Z`,
+        clock: "12:30:00",
+        moments: [`2024-01-1${id}T10:30:00Z`],
+      })),
+    });
+    expect(await client.$withCache({ ttl: 60 }).legacy.count()).toBe(3);
+    // rc.x stored string input verbatim; SQLite's datetime('now') has no zone.
     await client.$executeRawUnsafe(
-      "UPDATE event SET at = '2024-01-01T12:00:00+00:00'"
+      `UPDATE legacy_event SET at = '2024-01-13T10:30:00Z', clock = '12:30:00', moments = '["2024-01-13T10:30:00+00:00"]', "createdAt" = datetime('now') WHERE id = 3`
     );
-    await expect(
-      client.event.deleteMany({ where: { at: { lt: "2024-01-01T13:00:00Z" } } })
-    ).rejects.toThrow("canonical UTC text");
-    await expect(client.$withCache({ ttl: 60 }).event.count()).rejects.toThrow(
-      "canonical UTC text"
-    );
-    expect(await client.$queryRawUnsafe("SELECT id FROM event")).toEqual([
-      { id: 1 },
+    const one = { at: 1, clock: 1, moments: 1, createdAt: 1, updatedAt: 0 };
+    const counted = (counts: Record<string, number>) =>
+      Object.fromEntries(
+        Object.entries(counts).map(([column, n]) => [
+          column,
+          [{ noncanonical: n }],
+        ])
+      );
+    expect(await noncanonical(client)).toEqual(counted(one));
+
+    expect(
+      await client.legacy.findUnique({ where: { id: 1 }, select: { id: true } })
+    ).toEqual({ id: 1 });
+    expect(await client.$withCache({ ttl: 60 }).legacy.count()).toBe(3);
+    expect(
+      await client.legacy.findMany({
+        where: { title: "event 3" },
+        select: { at: true, clock: true, moments: true },
+      })
+    ).toEqual([
+      {
+        at: new Date("2024-01-13T10:30:00Z"),
+        clock: "12:30:00",
+        moments: [new Date("2024-01-13T10:30:00Z")],
+      },
     ]);
+    await client.legacy.update({ where: { id: 1 }, data: { title: "edited" } });
+    await client.legacy.create({
+      data: {
+        id: 4,
+        title: "new",
+        at: new Date(),
+        clock: "08:00:00",
+        moments: [],
+      },
+    });
+    // Comparisons assume canonical storage: the legacy spelling is missed.
+    const sameInstant = { at: { equals: new Date("2024-01-13T10:30:00Z") } };
+    expect(await client.legacy.count({ where: sameInstant })).toBe(0);
+
+    // The helper refuses zone-less text; this writer is known to write UTC.
+    await expect(
+      client.$executeRawUnsafe(
+        `UPDATE legacy_event SET "createdAt" = ${sqliteCanonicalDateTimeExpression("createdAt")}`
+      )
+    ).rejects.toThrow("numeric range");
+    await client.$executeRawUnsafe(
+      `UPDATE legacy_event SET "createdAt" = replace("createdAt", ' ', 'T') || 'Z' WHERE "createdAt" GLOB '????-??-?? ??:??:??'`
+    );
+    await client.$executeRawUnsafe(
+      `UPDATE legacy_event SET at = ${sqliteCanonicalDateTimeExpression("at")}, clock = ${sqliteCanonicalTimeExpression("clock")}, "createdAt" = ${sqliteCanonicalDateTimeExpression("createdAt")}`
+    );
+    // A list is rewritten through the typed client, which stores canonical members.
+    const { moments } = await client.legacy.findUniqueOrThrow({
+      where: { id: 3 },
+    });
+    await client.legacy.update({ where: { id: 3 }, data: { moments } });
+    expect(await noncanonical(client)).toEqual(
+      counted({ at: 0, clock: 0, moments: 0, createdAt: 0, updatedAt: 0 })
+    );
+    expect(await client.legacy.count({ where: sameInstant })).toBe(1);
+    expect(await client.legacy.delete({ where: { id: 3 } })).toMatchObject({
+      id: 3,
+    });
   } finally {
     await client.$disconnect();
     await storage.disconnect();
   }
 });
 
-test("foreign canonical-looking calendar and clock values cannot reach predicates", async () => {
-  const schedule = s.model({
-    id: s.int().id(),
-    at: s.dateTime(),
-    time: s.time(),
-  });
-  const client = createClient({ schema: { schedule } });
-  try {
-    await client.$executeRawUnsafe(
-      "CREATE TABLE schedule (id INTEGER PRIMARY KEY, at TEXT NOT NULL, time TEXT NOT NULL)"
-    );
-    await client.$executeRawUnsafe(
-      "INSERT INTO schedule VALUES (1, '2024-01-01T00:00:00.000Z', '12:30:59.999')"
-    );
-    expect(await client.schedule.count()).toBe(1);
-    for (const [at, time] of [
-      ["2024-02-30T00:00:00.000Z", "12:30:59.999"],
-      ["2024-01-01T25:00:00.000Z", "12:30:59.999"],
-      ["2024-01-01T00:00:00.000Z", "24:99:99.000"],
-    ]) {
-      await client.$executeRawUnsafe(
-        "UPDATE schedule SET at = ?, time = ?",
-        at,
-        time
-      );
-      await expect(
-        client.schedule.deleteMany({ where: { id: 1 } })
-      ).rejects.toThrow("canonical UTC text");
-      expect(await client.$queryRawUnsafe("SELECT id FROM schedule")).toEqual([
-        { id: 1 },
-      ]);
-    }
-  } finally {
-    await client.$disconnect();
-  }
-});
-
-test("foreign temporal list spellings cannot silently change member filters", async () => {
-  const schedule = s.model({ id: s.int().id(), moments: s.dateTime().array() });
-  const client = createClient({ schema: { schedule } });
+test("the audit counts invalid calendar and clock text while typed access stays online", async () => {
+  const client = createClient({ schema: { legacy } });
   try {
     await syncLiveSchema(client);
-    await client.schedule.create({
-      data: { id: 1, moments: ["2024-01-01T00:00:00Z"] },
+    for (const [id, at, clock] of [
+      [1, "2024-01-01T00:00:00.000Z", "12:30:59.999"],
+      [2, "2024-02-30T00:00:00.000Z", "12:30:59.999"],
+      [3, "2024-01-01T25:00:00.000Z", "12:30:59.999"],
+      [4, "2024-01-01T00:00:00.000Z", "24:99:99.000"],
+    ] as const)
+      await client.$executeRawUnsafe(
+        `INSERT INTO legacy_event VALUES (?, 'raw', ?, ?, ?, '2024-01-01T00:00:00.000Z', '2024-01-01T00:00:00.000Z')`,
+        id,
+        at,
+        clock,
+        id === 4 ? '["2024-01-01"]' : `["${at}"]`
+      );
+    expect(await noncanonical(client)).toMatchObject({
+      at: [{ noncanonical: 2 }],
+      clock: [{ noncanonical: 1 }],
+      moments: [{ noncanonical: 3 }],
     });
-    expect(
-      await client.schedule.count({
-        where: { moments: { has: "2024-01-01T00:00:00Z" } },
-      })
-    ).toBe(1);
-    await client.$executeRawUnsafe(
-      "UPDATE schedule SET moments = ?",
-      '["2024-01-01T00:00:00+00:00"]'
-    );
-    await expect(
-      client.schedule.deleteMany({
-        where: { moments: { has: "2024-01-01T00:00:00Z" } },
-      })
-    ).rejects.toThrow("canonical UTC text");
-    expect(await client.$queryRawUnsafe("SELECT id FROM schedule")).toEqual([
-      { id: 1 },
-    ]);
+    expect(await client.legacy.count()).toBe(4);
+    expect(await client.legacy.deleteMany({ where: { id: 1 } })).toEqual({
+      count: 1,
+    });
   } finally {
     await client.$disconnect();
   }

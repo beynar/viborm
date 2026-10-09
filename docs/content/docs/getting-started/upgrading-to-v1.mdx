@@ -174,8 +174,18 @@ queries as well as DDL. See [String](/docs/schema/scalars/string).
 DateTime accepts valid `Date` values and timestamps naming a real calendar
 date, with a timezone and a UTC instant from `0000-01-01T00:00:00.000Z` through
 `9999-12-31T23:59:59.999Z`. Invalid dates, nonexistent calendar days, hour 24,
-leap-second spellings, and out-of-range instants are refused. Audit permissive
-legacy strings before reading or rewriting them through the typed client.
+leap-second spellings, and out-of-range instants are refused.
+
+Release candidates up to rc.5 stored SQLite DateTime string input verbatim, so
+a column can hold `2024-01-15T10:30:00Z` or `+00:00` spellings beside canonical
+`2024-01-15T10:30:00.000Z` text; other writers add `datetime('now')`. Those
+rows read back as the right instant, but filters, ordering and unique lookups
+compare the stored text and miss or misorder them until they are repaired.
+1.0.0 refused every typed query on a model holding one such row. 1.0.1 serves
+the model and leaves the audit to `viborm check --db`, which counts the
+noncanonical values per column and exits nonzero. Repair them with the
+[SQLite repair helpers](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text),
+then rerun the audit.
 
 SQLite DateTime storage follows the declared native type:
 

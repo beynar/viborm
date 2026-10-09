@@ -1,5 +1,5 @@
 import {
-  type SQLiteStorageColumn,
+  type SQLiteDecimalColumn,
   sqliteStorageCheck,
 } from "@adapters/databases/sqlite/storage/runtime-check";
 import { deriveStatementExecutionContext } from "@drivers/execution-context";
@@ -20,7 +20,7 @@ export type PhysicalSchemaCheck = (
   models: Iterable<AnyModel>
 ) => Promise<readonly PhysicalSchemaAssertion[]>;
 
-/** Bind immutable declarations; observe mutable storage at each execution. */
+/** Bind immutable declarations; observe mutable decimal storage at each execution. */
 export function createPhysicalSchemaCheck(
   schema: Schema,
   driver: AnyDriver
@@ -29,31 +29,15 @@ export function createPhysicalSchemaCheck(
   const checks = new Map<AnyModel, ReturnType<typeof sqliteStorageCheck>>();
   for (const [name, model] of Object.entries(schema)) {
     const state: ModelState = model["~"].state;
-    const columns: SQLiteStorageColumn[] = [];
+    const columns: SQLiteDecimalColumn[] = [];
     for (const [field, scalar] of Object.entries(state.scalars)) {
       const definition = scalar["~"].state;
-      const name = model["~"].getFieldName(field).sql;
-      if (definition.type === "decimal") {
+      if (definition.type === "decimal")
         columns.push({
-          name,
-          kind: "decimal",
+          name: model["~"].getFieldName(field).sql,
           descriptor: definition.decimal,
           list: definition.array === true,
         });
-      } else if (
-        definition.type === "time" ||
-        (definition.type === "datetime" &&
-          (definition.array ||
-            (driver.adapter.result.dateTimeRepresentation?.(
-              scalar["~"].nativeType
-            ) ?? "text") === "text"))
-      ) {
-        columns.push({
-          name,
-          kind: definition.type === "time" ? "time" : "timestamp",
-          list: definition.array === true,
-        });
-      }
     }
     if (columns.length)
       checks.set(
@@ -82,7 +66,7 @@ export function createPhysicalSchemaCheck(
       assertions.push({
         query,
         failure: new UnsupportedOperationError(
-          `SQLite storage for model '${model["~"].names.ts}' changed after inspection or contains noncanonical time values; repair its physical schema/data before using typed queries.`,
+          `SQLite storage for model '${model["~"].names.ts}' changed after inspection; repair its physical schema before using typed queries.`,
           { meta: { model: model["~"].names.ts, dialect: "sqlite" } }
         ),
       });

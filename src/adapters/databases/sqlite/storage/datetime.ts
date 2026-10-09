@@ -260,3 +260,24 @@ export function sqliteCanonicalTimePredicate(columnName: string): string {
   const { valid, value } = timeSource(source);
   return `CASE WHEN ${source} IS NULL THEN 1 WHEN ${valid} AND ${source} = ${value} THEN 1 ELSE 0 END`;
 }
+
+/** Counts one text DateTime/Time column's rows (scalar or JSON list) outside the canonical carrier. */
+export function sqliteNoncanonicalTemporalCount(
+  table: string,
+  column: string,
+  type: "datetime" | "time",
+  list: boolean
+): string {
+  const quote = createIdentifierQuoter('"');
+  const canonical =
+    type === "time"
+      ? sqliteCanonicalTimePredicate
+      : sqliteCanonicalDateTimePredicate;
+  const name = quote(column);
+  // json_each is reached only after proving an array carrier. Each member
+  // uses the same temporal domain as a scalar column.
+  const noncanonical = list
+    ? `CASE WHEN ${name} IS NULL THEN 0 WHEN json_valid(${name}) AND json_type(${name}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(${name}) WHERE type <> 'text' OR NOT ${canonical("value")}) ELSE 1 END`
+    : `NOT ${canonical(column)}`;
+  return `SELECT count(*) AS noncanonical FROM ${quote(table)} WHERE ${noncanonical}`;
+}

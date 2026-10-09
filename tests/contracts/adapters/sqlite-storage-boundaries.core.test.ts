@@ -25,17 +25,17 @@ import Database from "better-sqlite3";
 import { expect, test } from "vitest";
 
 test("catalog admission refuses missing tables and incomplete column records", () => {
-  const check = sqliteStorageCheck("events", [
-    { name: "at", kind: "timestamp", list: false },
+  const check = sqliteStorageCheck("records", [
+    { name: "amount", descriptor: { precision: 6, scale: 2 }, list: false },
   ]);
   expect(() => check.validate([])).toThrow("physical table is missing");
-  expect(() => sqliteStorageCheck("events", []).validate([])).toThrow(
+  expect(() => sqliteStorageCheck("records", []).validate([])).toThrow(
     "physical table is missing"
   );
   const row = {
-    definition: "CREATE TABLE events (at TEXT)",
-    name: "at",
-    type: "TEXT",
+    definition: "CREATE TABLE records (amount INTEGER)",
+    name: "amount",
+    type: "INTEGER",
   };
   for (const rows of [
     [{ ...row, name: "other" }],
@@ -47,11 +47,6 @@ test("catalog admission refuses missing tables and incomplete column records", (
   ]) {
     expect(() => check.validate(rows)).toThrow("physical column is missing");
   }
-  expect(check.validate([row]).values).toEqual(["events", row.definition]);
-  expect(check.validate([{ ...row, foreign_time: null }]).values).toEqual([
-    "events",
-    row.definition,
-  ]);
 });
 
 test("stored DDL parsing distinguishes empty, quoted and incomplete tokens", () => {
@@ -100,8 +95,8 @@ test("decimal catalog proof uses primary-key nullability and list storage", () =
   try {
     db.exec(ddl);
     const check = sqliteStorageCheck("records", [
-      { name: "amount", kind: "decimal", descriptor, list: false },
-      { name: "values", kind: "decimal", descriptor, list: true },
+      { name: "amount", descriptor, list: false },
+      { name: "values", descriptor, list: true },
     ]);
     const rows = db
       .prepare<[string], Record<string, unknown>>(check.statement.toStatement())
