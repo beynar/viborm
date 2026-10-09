@@ -1,0 +1,389 @@
+{
+  "name": "viborm",
+  "version": "1.0.0",
+  "description": "Type-safe ORM for PostgreSQL, MySQL, and SQLite with a Prisma-inspired API",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/beynar/viborm.git"
+  },
+  "homepage": "https://viborm.dev",
+  "bugs": {
+    "url": "https://github.com/beynar/viborm/issues"
+  },
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs",
+      "default": "./dist/index.mjs"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.mts",
+      "import": "./dist/schema.mjs",
+      "default": "./dist/schema.mjs"
+    },
+    "./schema/json": {
+      "types": "./dist/schema/json.d.mts",
+      "import": "./dist/schema/json.mjs",
+      "default": "./dist/schema/json.mjs"
+    },
+    "./driver": {
+      "types": "./dist/driver.d.mts",
+      "import": "./dist/driver.mjs",
+      "default": "./dist/driver.mjs"
+    },
+    "./sql": {
+      "types": "./dist/sql.d.mts",
+      "import": "./dist/sql.mjs",
+      "default": "./dist/sql.mjs"
+    },
+    "./pg": {
+      "types": "./dist/pg.d.mts",
+      "import": "./dist/pg.mjs",
+      "default": "./dist/pg.mjs"
+    },
+    "./postgres": {
+      "types": "./dist/postgres.d.mts",
+      "import": "./dist/postgres.mjs",
+      "default": "./dist/postgres.mjs"
+    },
+    "./pglite": {
+      "types": "./dist/pglite.d.mts",
+      "import": "./dist/pglite.mjs",
+      "default": "./dist/pglite.mjs"
+    },
+    "./neon-http": {
+      "types": "./dist/neon-http.d.mts",
+      "import": "./dist/neon-http.mjs",
+      "default": "./dist/neon-http.mjs"
+    },
+    "./bun-sql": {
+      "types": "./dist/bun-sql.d.mts",
+      "import": "./dist/bun-sql.mjs",
+      "default": "./dist/bun-sql.mjs"
+    },
+    "./mysql2": {
+      "types": "./dist/mysql2.d.mts",
+      "import": "./dist/mysql2.mjs",
+      "default": "./dist/mysql2.mjs"
+    },
+    "./planetscale": {
+      "types": "./dist/planetscale.d.mts",
+      "import": "./dist/planetscale.mjs",
+      "default": "./dist/planetscale.mjs"
+    },
+    "./sqlite3": {
+      "types": "./dist/sqlite3.d.mts",
+      "import": "./dist/sqlite3.mjs",
+      "default": "./dist/sqlite3.mjs"
+    },
+    "./libsql": {
+      "types": "./dist/libsql.d.mts",
+      "import": "./dist/libsql.mjs",
+      "default": "./dist/libsql.mjs"
+    },
+    "./d1": {
+      "types": "./dist/d1.d.mts",
+      "import": "./dist/d1.mjs",
+      "default": "./dist/d1.mjs"
+    },
+    "./bun-sqlite": {
+      "types": "./dist/bun-sqlite.d.mts",
+      "import": "./dist/bun-sqlite.mjs",
+      "default": "./dist/bun-sqlite.mjs"
+    },
+    "./cache": {
+      "types": "./dist/cache.d.mts",
+      "import": "./dist/cache.mjs",
+      "default": "./dist/cache.mjs"
+    },
+    "./cache/memory": {
+      "types": "./dist/cache/memory.d.mts",
+      "import": "./dist/cache/memory.mjs",
+      "default": "./dist/cache/memory.mjs"
+    },
+    "./cache/cloudflare-kv": {
+      "types": "./dist/cache/cloudflare-kv.d.mts",
+      "import": "./dist/cache/cloudflare-kv.mjs",
+      "default": "./dist/cache/cloudflare-kv.mjs"
+    },
+    "./migrations": {
+      "types": "./dist/migrations.d.mts",
+      "import": "./dist/migrations.mjs",
+      "default": "./dist/migrations.mjs"
+    },
+    "./migrations/storage/fs": {
+      "types": "./dist/migrations/storage/fs.d.mts",
+      "import": "./dist/migrations/storage/fs.mjs",
+      "default": "./dist/migrations/storage/fs.mjs"
+    },
+    "./config": {
+      "types": "./dist/config.d.mts",
+      "import": "./dist/config.mjs",
+      "default": "./dist/config.mjs"
+    },
+    "./client": {
+      "types": "./dist/client.d.mts",
+      "import": "./dist/client.mjs",
+      "default": "./dist/client.mjs"
+    },
+    "./validation": {
+      "types": "./dist/validation.d.mts",
+      "import": "./dist/validation.mjs",
+      "default": "./dist/validation.mjs"
+    },
+    "./instrumentation": {
+      "types": "./dist/instrumentation.d.mts",
+      "import": "./dist/instrumentation.mjs",
+      "default": "./dist/instrumentation.mjs"
+    },
+    "./soft-delete": {
+      "types": "./dist/soft-delete.d.mts",
+      "import": "./dist/soft-delete.mjs",
+      "default": "./dist/soft-delete.mjs"
+    },
+    "./adapters": {
+      "types": "./dist/adapters.d.mts",
+      "import": "./dist/adapters.mjs",
+      "default": "./dist/adapters.mjs"
+    }
+  },
+  "bin": {
+    "viborm": "dist/cli.mjs"
+  },
+  "files": [
+    "THIRD_PARTY_NOTICES.md",
+    "dist/**/*.d.mts",
+    "dist/**/*.mjs",
+    "dist/**/*.mjs.map",
+    "!dist/internal/**"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "node scripts/run-typecheck.mjs",
+    "dev": "node node_modules/typescript/bin/tsc --watch",
+    "test": "pnpm test:types && pnpm test:core",
+    "test:raptor3": "node scripts/run-raptor3.mjs g0",
+    "test:raptor3:compare": "node scripts/run-raptor3.mjs g1-compare",
+    "test:raptor3:contracts": "node scripts/run-raptor3.mjs g1-contracts",
+    "test:raptor3:generated": "node scripts/run-raptor3.mjs g1-generated",
+    "test:raptor3:seeds": "node scripts/run-raptor3.mjs g1-seeds",
+    "test:raptor3:transport": "node scripts/run-raptor3.mjs g1-transport",
+    "test:raptor3:transport:seeds": "node scripts/run-raptor3.mjs g1-transport-seeds",
+    "test:core": "node scripts/run-vitest-safe.mjs --sequential-shards=4 run --workspace vitest.workspace.ts --project='layer-*'",
+    "test:all": "node scripts/run-credential-free-tests.mjs",
+    "test:watch": "node scripts/run-vitest-safe.mjs --workspace vitest.workspace.ts --project='layer-*'",
+    "test:ui": "node scripts/run-vitest-safe.mjs --ui --workspace vitest.workspace.ts --project='layer-*'",
+    "test:types": "node scripts/run-typecheck.mjs",
+    "test:coverage": "node --max-old-space-size=768 scripts/run-coverage.mjs all",
+    "test:coverage:public": "node --max-old-space-size=768 scripts/run-coverage.mjs public",
+    "test:coverage:schema": "node --max-old-space-size=768 scripts/run-coverage.mjs schema",
+    "test:coverage:validation": "node --max-old-space-size=768 scripts/run-coverage.mjs validation",
+    "test:coverage:sql": "node --max-old-space-size=768 scripts/run-coverage.mjs sql",
+    "test:coverage:instrumentation": "node --max-old-space-size=768 scripts/run-coverage.mjs instrumentation",
+    "test:coverage:extensions": "node --max-old-space-size=768 scripts/run-coverage.mjs extensions",
+    "test:coverage:errors": "node --max-old-space-size=768 scripts/run-coverage.mjs errors",
+    "test:coverage:adapters": "node --max-old-space-size=768 scripts/run-coverage.mjs adapters",
+    "test:coverage:cli": "node --max-old-space-size=768 scripts/run-coverage.mjs cli",
+    "test:coverage:query-engine-core": "node --max-old-space-size=768 scripts/run-coverage.mjs query-engine-core",
+    "test:coverage:drivers": "node --max-old-space-size=768 scripts/run-coverage.mjs drivers",
+    "test:coverage:client": "node --max-old-space-size=768 scripts/run-coverage.mjs client",
+    "test:coverage:cache": "node --max-old-space-size=768 scripts/run-coverage.mjs cache",
+    "test:coverage:migrations": "node --max-old-space-size=768 scripts/run-coverage.mjs migrations",
+    "test:coverage:policy": "node scripts/run-node-safe.mjs 512 60000 scripts/coverage-policy.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/bounded-process.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/test-run-lock.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/raptor3-refusal-census.test.mjs",
+    "test:package": "pnpm package:build && node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=package",
+    "test:providers": "node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=provider-pg --project=provider-postgres --project=provider-mysql2 --project=provider-transaction-options --project=provider-neon-http --project=provider-planetscale",
+    "test:layer:validation": "node scripts/run-layer-core.mjs validation",
+    "test:layer:scalars": "node scripts/run-layer-core.mjs scalars",
+    "test:layer:operation-schemas": "node scripts/run-layer-core.mjs operation-schemas",
+    "test:layer:relations": "node scripts/run-layer-core.mjs relations",
+    "test:layer:schema-validation": "node scripts/run-layer-core.mjs schema-validation",
+    "test:layer:schema-json": "node scripts/run-layer-core.mjs schema-json",
+    "test:layer:query-engine": "node scripts/run-layer-core.mjs query-engine",
+    "test:layer:write-engine": "node scripts/run-layer-core.mjs write-engine",
+    "test:layer:adapters": "node scripts/run-layer-core.mjs adapters",
+    "test:layer:drivers": "node scripts/run-layer-core.mjs drivers",
+    "test:layer:client": "node scripts/run-layer-core.mjs client",
+    "test:layer:cache": "node scripts/run-layer-core.mjs cache",
+    "test:layer:instrumentation": "node scripts/run-layer-core.mjs instrumentation",
+    "test:layer:migrations": "node scripts/run-layer-core.mjs migrations",
+    "bench": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run",
+    "bench:baseline": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run --outputJson benchmarks/baseline.json",
+    "bench:compare": "node scripts/run-vitest-safe.mjs --heap-limit-mb=768 --rss-limit-mb=1536 --wall-limit-ms=1200000 bench --run --compare benchmarks/baseline.json",
+    "bench:operation-pipeline": "node benchmarks/operation-pipeline-compare.mjs",
+    "bench:operation-pipeline:diagnostic": "node benchmarks/operation-pipeline-compare.mjs --diagnostic",
+    "bench:operation-pipeline:check": "node --test benchmarks/operation-pipeline-report.test.mjs",
+    "bench:operation-pipeline:describe": "node benchmarks/operation-pipeline-worker.mjs --describe",
+    "db:run": "docker run -d --name baseorm -p 2222:5432 -e POSTGRES_DB=baseorm -e POSTGRES_PASSWORD=password postgres",
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "package:build": "node scripts/run-node-safe.mjs 1280 300000 node_modules/tsdown/dist/run.mjs",
+    "package:dev": "tsdown --watch",
+    "package:lint": "publint run --strict && attw --pack . --profile esm-only",
+    "size": "size-limit",
+    "size:why": "size-limit --why"
+  },
+  "keywords": [
+    "orm",
+    "typescript",
+    "postgres",
+    "mysql",
+    "sqlite",
+    "type-safe",
+    "prisma-like"
+  ],
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@10.11.0",
+  "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
+    "@biomejs/biome": "2.3.11",
+    "@cloudflare/vitest-pool-workers": "0.9.14",
+    "@cloudflare/workers-types": "^4.20260103.0",
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-pgvector": "0.0.9",
+    "@electric-sql/pglite-postgis": "0.2.8",
+    "@libsql/client": "0.18.0",
+    "@neondatabase/serverless": "1.2.0",
+    "@noble/hashes": "^2.0.1",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/resources": "^2.4.0",
+    "@opentelemetry/sdk-node": "^0.210.0",
+    "@opentelemetry/sdk-trace-node": "^2.4.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@paralleldrive/cuid2": "^3.3.0",
+    "@planetscale/database": "^1.19.0",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "7.9.1",
+    "@size-limit/esbuild-why": "12.0.0",
+    "@size-limit/file": "12.0.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/bun": "^1.2.17",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.16.0",
+    "@vitest/coverage-v8": "3.1.4",
+    "@vitest/ui": "^3.1.4",
+    "arktype": "^2.2.3",
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.3",
+    "mysql2": "^3.14.1",
+    "pg": "^8.16.0",
+    "pglite-prisma-adapter": "^0.7.2",
+    "postgres": "^3.4.8",
+    "prisma": "^7.9.1",
+    "publint": "0.3.24",
+    "size-limit": "12.0.0",
+    "tsdown": "0.19.0-beta.4",
+    "type-fest": "^4.41.0",
+    "typescript": "5.9.3",
+    "typescript-5-8": "npm:typescript@5.8.3",
+    "typescript-native": "npm:typescript@7.0.2",
+    "ultracite": "7.0.6",
+    "valibot": "^1.2.0",
+    "vitest": "^3.1.4",
+    "wrangler": "4.44.0",
+    "zod": "^4.6.5"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "@standard-schema/spec": "^1.0.0",
+    "commander": "^12.0.0",
+    "jiti": "^2.7.0"
+  },
+  "peerDependencies": {
+    "@cloudflare/workers-types": "^4.20260103.0",
+    "@electric-sql/pglite": "^0.3.2 || ^0.4.0 || ^0.5.0",
+    "@libsql/client": "^0.18.0",
+    "@neondatabase/serverless": "^1.2.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@planetscale/database": "^1.19.0",
+    "better-sqlite3": "^12.11.1 || ^13.0.3",
+    "mysql2": "^3.14.1",
+    "pg": "^8.16.0",
+    "postgres": "^3.4.0"
+  },
+  "peerDependenciesMeta": {
+    "@cloudflare/workers-types": {
+      "optional": true
+    },
+    "@electric-sql/pglite": {
+      "optional": true
+    },
+    "@libsql/client": {
+      "optional": true
+    },
+    "@neondatabase/serverless": {
+      "optional": true
+    },
+    "@opentelemetry/api": {
+      "optional": true
+    },
+    "@planetscale/database": {
+      "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    },
+    "postgres": {
+      "optional": true
+    }
+  },
+  "size-limit": [
+    {
+      "name": "Main (viborm)",
+      "path": "dist/index.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Schema",
+      "path": "dist/schema.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Driver (pg)",
+      "path": "dist/pg.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Driver (pglite)",
+      "path": "dist/pglite.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Cache",
+      "path": "dist/cache.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Migrations",
+      "path": "dist/migrations.mjs",
+      "brotli": false,
+      "gzip": false
+    },
+    {
+      "name": "Validation",
+      "path": "dist/validation.mjs",
+      "brotli": false,
+      "gzip": false
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+process.stderr.write('RUNTIME_PROOF '+JSON.stringify({pid:process.pid,execPath:process.execPath,node:process.versions.node,bun:process.versions.bun??null,v8:process.versions.v8})+'\n');

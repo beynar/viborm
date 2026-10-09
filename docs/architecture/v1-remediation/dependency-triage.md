@@ -2,7 +2,7 @@
 
 No confirmed critical/high risk shipped in the VibORM npm consumer runtime or its currently resolved optional-provider peer closure. 28 alerts reach repository dev/test/build tooling; one high reaches a docs dependency through the unselected Vercel adapter. Do not describe the whole workspace as vulnerability-free.
 
-Revision: `9fd7b011b75743a3e3ea8de587354e0192e26d44`. Read-only triage; no dependency or source changes. The released source `3a94e1e8a87f1866449217f96b750ef92264b7ff` retains the same dependency declarations and lockfile.
+Triage snapshot: 2026-10-09 at revision `9fd7b011b75743a3e3ea8de587354e0192e26d44`. Read-only triage; no dependency or source changes. The released source `3a94e1e8a87f1866449217f96b750ef92264b7ff` retains the same dependency declarations and lockfile.
 
 | Package/version | Severity and advisory | Current scope |
 |---|---|---|
@@ -35,8 +35,21 @@ The five critical alert instances are two Tinypool advisories through Vitest, Vi
 
 codebase-health-12 verified-fixed concerns enabling security tooling, not resolving every alert; it does not adjudicate these 29 current alerts.
 
-migrations.md dependency security checkpoint records earlier production audit: 0 critical/0 high, 2 moderate/1 low; existing machine output /tmp/viborm-v1-prod-audit-patched.json agrees with that historical audit. The security-tooling ledger row does not adjudicate these alerts; this report records their separate scope.
+[migrations.md](migrations.md) dependency security checkpoint records the earlier production audit: 0 critical/0 high, 2 moderate/1 low; the [original machine output](evidence/dependency-triage/prod-audit-patched.json.txt) agrees with that historical audit. Its original source revision was not recorded, so this audit is not assigned the later triage revision. The security-tooling ledger row does not adjudicate these alerts; this report records their separate scope.
 
 The docs high remains installed: `blume → @astrojs/vercel → @vercel/routing-utils → path-to-regexp@6.1.0`. The Vercel helper still invokes the old version even though it also loads 6.3.0 under an alias. The docs configuration selects Cloudflare. This evidence does not establish public Cloudflare-worker exposure, and it does not waive the installed docs/tooling advisory.
 
-Exact package paths, ranges, patched versions and input hashes: `/tmp/viborm-v1-dependabot-traced-alerts.json`.
+## Durable evidence
+
+The [archived original traced result](evidence/dependency-triage/traced-alerts.json.txt)
+retains all 29 alert instances, package paths, ranges and patched versions. The
+[filtered advisory API input](evidence/dependency-triage/critical-high-alerts.jsonl.txt)
+preserves the separate version-range/manifest instances behind the 24 advisory
+rows above. The [locked closure receipt](evidence/dependency-triage/closure-evidence.json.txt)
+contains the seven runtime packages, 90 resolved optional-peer packages and
+selected lock records used for the scope conclusions.
+
+The [manifest](evidence/dependency-triage/manifest.json) records original receipt
+hashes, byte lengths, capture metadata and exact tracked source/lock identities;
+the [evidence guide](evidence/dependency-triage/README.md) explains verification
+and historical limits. No audit or dependency update was rerun for this archive.

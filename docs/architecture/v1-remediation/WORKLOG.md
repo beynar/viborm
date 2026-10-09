@@ -1,5 +1,15 @@
 # V1 adversarial remediation
 
+## Evidence durability follow-through — 2026-10-09
+
+PR87 review identified temporary-only audit receipts in the Bun and dependency
+reports. Their original inputs, results and logs are now archived under
+`evidence/bun-vitest/` and `evidence/dependency-triage/`, with repository-relative
+links, exact-revision source references and byte/hash manifests. The 20-file
+archive totals 228,641 bytes; it copies no dependency trees or build outputs.
+All archived hashes and pinned input identities verify. No experiment, security
+scan, dependency change or runtime modification was made to create the archive.
+
 ## Publication, production verification and final ledger — 2026-10-09
 
 The human approval gate cleared. Release `37908244607` completed all eight jobs;

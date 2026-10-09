@@ -1,0 +1,912 @@
+[
+  {
+    "label": "leaf",
+    "backend": "node",
+    "command": "node --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "layer-validation",
+      "tests/unit/validation/vector.core.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": null,
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-leaf-node.log",
+    "code": 0,
+    "wallMs": 3382.644625,
+    "peakRssMiB": 389.8125,
+    "teardownVerified": true,
+    "reportedTestSummary": "12 passed (12)",
+    "reportedCounts": {
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 5297,
+        "execPath": "/usr/local/bin/node",
+        "node": "24.14.0",
+        "bun": null,
+        "v8": "13.6.233.17-node.41"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "a4a730cfd3789025f56f517e7ae4997e6dd76a2ace24afd4a572d46cdc9703d6",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "leaf",
+    "backend": "bun",
+    "command": "bun --bun --no-install --no-env-file --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "layer-validation",
+      "tests/unit/validation/vector.core.test.ts",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-leaf-bun.log",
+    "code": 1,
+    "wallMs": 11414.959333,
+    "peakRssMiB": 341.515625,
+    "teardownVerified": true,
+    "reportedTestSummary": "closed successfully but something prevents the main process from exiting",
+    "reportedCounts": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 5576,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "f0082294b2c04e9aa857094064b3964406e945e2a3c2a4fb9fcbfe76b67612c8",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "leaf-threads",
+    "backend": "node",
+    "command": "node --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "layer-validation",
+      "tests/unit/validation/vector.core.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": null,
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-leaf-threads-node.log",
+    "code": 0,
+    "wallMs": 2613.411208,
+    "peakRssMiB": 342.109375,
+    "teardownVerified": true,
+    "reportedTestSummary": "12 passed (12)",
+    "reportedCounts": {
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 6788,
+        "execPath": "/usr/local/bin/node",
+        "node": "24.14.0",
+        "bun": null,
+        "v8": "13.6.233.17-node.41"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "6da2e69934d173818215b5ec36f72dab5d28b03a87a8b290433ba3fa0237e3ca",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "leaf-threads",
+    "backend": "bun",
+    "command": "bun --bun --no-install --no-env-file --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "layer-validation",
+      "tests/unit/validation/vector.core.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-leaf-threads-bun.log",
+    "code": 0,
+    "wallMs": 2015.1734589999999,
+    "peakRssMiB": 335.75,
+    "teardownVerified": true,
+    "reportedTestSummary": "12 passed (12)",
+    "reportedCounts": {
+      "passed": 12,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 7125,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "6de1fa80a2c6df09d7c15bfad23edcbb1df3098014700f3ea26aeebb50a4ad61",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "worker-failure",
+    "backend": "node",
+    "command": "node --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "layer-validation",
+      "tests/unit/validation/bun-runtime-refusal-experiment.core.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": null,
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-worker-failure-node.log",
+    "code": 1,
+    "wallMs": 1967.865916,
+    "peakRssMiB": 262.625,
+    "teardownVerified": true,
+    "reportedTestSummary": "1 failed | 1 passed (2)",
+    "reportedCounts": {
+      "passed": 1,
+      "failed": 1,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 7465,
+        "execPath": "/usr/local/bin/node",
+        "node": "24.14.0",
+        "bun": null,
+        "v8": "13.6.233.17-node.41"
+      },
+      {
+        "actual": "node",
+        "pid": 7465,
+        "execPath": "/usr/local/bin/node",
+        "bun": null,
+        "node": "24.14.0"
+      }
+    ],
+    "workerRuntimeProofs": [
+      {
+        "actual": "node",
+        "pid": 7465,
+        "execPath": "/usr/local/bin/node",
+        "bun": null,
+        "node": "24.14.0"
+      }
+    ],
+    "logSha256": "abb50d471c835e79f15060cd8e7778d8a85ec8d24c7684f4dc9312553c916dea",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "worker-failure",
+    "backend": "bun",
+    "command": "bun --bun --no-install --no-env-file --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "layer-validation",
+      "tests/unit/validation/bun-runtime-refusal-experiment.core.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-worker-failure-bun.log",
+    "code": 1,
+    "wallMs": 1549.80675,
+    "peakRssMiB": 273.15625,
+    "teardownVerified": true,
+    "reportedTestSummary": "1 failed | 1 passed (2)",
+    "reportedCounts": {
+      "passed": 1,
+      "failed": 1,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 7617,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      },
+      {
+        "actual": "bun",
+        "pid": 7617,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "bun": "1.4.0",
+        "node": "26.3.0"
+      }
+    ],
+    "workerRuntimeProofs": [
+      {
+        "actual": "bun",
+        "pid": 7617,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "bun": "1.4.0",
+        "node": "26.3.0"
+      }
+    ],
+    "logSha256": "97b8158e793a7cef913063eeaa1c1a7d501bdce23606072f58ec626820066211",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "core-shard",
+    "backend": "node",
+    "command": "node --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "layer-validation",
+      "tests/unit/validation/vector.core.test.ts",
+      "tests/unit/validation/json.core.test.ts",
+      "tests/unit/validation/operand.core.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": null,
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-core-shard-node.log",
+    "code": 0,
+    "wallMs": 2652.4737920000002,
+    "peakRssMiB": 350.359375,
+    "teardownVerified": true,
+    "reportedTestSummary": "59 passed (59)",
+    "reportedCounts": {
+      "passed": 59,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 7864,
+        "execPath": "/usr/local/bin/node",
+        "node": "24.14.0",
+        "bun": null,
+        "v8": "13.6.233.17-node.41"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "854832815c091b252be0ddb49d4a3c39b2124814ed29a17a82761348406800c3",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "core-shard",
+    "backend": "bun",
+    "command": "bun --bun --no-install --no-env-file --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "layer-validation",
+      "tests/unit/validation/vector.core.test.ts",
+      "tests/unit/validation/json.core.test.ts",
+      "tests/unit/validation/operand.core.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-core-shard-bun.log",
+    "code": 0,
+    "wallMs": 2102.872,
+    "peakRssMiB": 356.375,
+    "teardownVerified": true,
+    "reportedTestSummary": "59 passed (59)",
+    "reportedCounts": {
+      "passed": 59,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 8141,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "7c7c1a640245f7ed23ed9c81600f656ef0c1684c0b84ff3333d2d5ec3ba649c3",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "native-sqlite",
+    "backend": "node",
+    "command": "node --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "provider-sqlite3",
+      "tests/providers/local/sqlite3-native-type-map.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": null,
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-native-sqlite-node.log",
+    "code": 0,
+    "wallMs": 3494.868708,
+    "peakRssMiB": 443,
+    "teardownVerified": true,
+    "reportedTestSummary": "7 passed (7)",
+    "reportedCounts": {
+      "passed": 7,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 8365,
+        "execPath": "/usr/local/bin/node",
+        "node": "24.14.0",
+        "bun": null,
+        "v8": "13.6.233.17-node.41"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "b437c61651263135c32b9d2edf9e2384e478ae25a262cbb16e98991cbb27a2cf",
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "native-sqlite",
+    "backend": "bun",
+    "command": "bun --bun --no-install --no-env-file --require runtime.cjs node_modules/vitest/vitest.mjs",
+    "vitestArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "provider-sqlite3",
+      "tests/providers/local/sqlite3-native-type-map.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-native-sqlite-bun.log",
+    "code": 1,
+    "wallMs": 2682.2396670000003,
+    "peakRssMiB": 449.03125,
+    "teardownVerified": true,
+    "reportedTestSummary": "7 skipped (7)",
+    "reportedCounts": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 7
+    },
+    "runtimeProofs": [
+      {
+        "pid": 8604,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "b8ae5f8e68486883fd1058a90021e3b60a06c775d793233e182110b1a3d6b18c",
+    "skipsAreSuiteFailureConsequences": true,
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "native-cause",
+    "backend": "bun",
+    "command": "/Users/arnaud/.bun/bin/bun --bun --no-install --no-env-file --require /tmp/viborm-v1-bun-vitest-experiment-runtime.cjs /tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs native",
+    "entry": "/tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs",
+    "forwardedArguments": [
+      "native"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-native-cause-bun.log",
+    "code": 1,
+    "wallMs": 134.037792,
+    "peakRssMiB": 1.421875,
+    "teardownVerified": true,
+    "reportedTestSummary": null,
+    "reportedCounts": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 9405,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "a7b120465f8910ba1f2f6f6dcfea30d6007189cdd187e2639be009e67ab021e5",
+    "actualCommandArguments": [
+      "/Users/arnaud/.bun/bin/bun",
+      "--bun",
+      "--no-install",
+      "--no-env-file",
+      "--require",
+      "/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs",
+      "/tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs",
+      "native"
+    ],
+    "fastSamplingCaveat": true
+  },
+  {
+    "label": "inspector",
+    "backend": "node",
+    "command": "/usr/local/bin/node --require /tmp/viborm-v1-bun-vitest-experiment-runtime.cjs /tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs inspector",
+    "entry": "/tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs",
+    "forwardedArguments": [
+      "inspector"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": null,
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-inspector-node.log",
+    "code": 0,
+    "wallMs": 67.959125,
+    "peakRssMiB": 0.953125,
+    "teardownVerified": true,
+    "reportedTestSummary": null,
+    "reportedCounts": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 9684,
+        "execPath": "/usr/local/bin/node",
+        "node": "24.14.0",
+        "bun": null,
+        "v8": "13.6.233.17-node.41"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "1db4ae204999e4ed61e55dfdae8b96fe45977334fd28fc03cdf981a1a148913c",
+    "actualCommandArguments": [
+      "/usr/local/bin/node",
+      "--require",
+      "/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs",
+      "/tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs",
+      "inspector"
+    ],
+    "fastSamplingCaveat": true
+  },
+  {
+    "label": "inspector",
+    "backend": "bun",
+    "command": "/Users/arnaud/.bun/bin/bun --bun --no-install --no-env-file --require /tmp/viborm-v1-bun-vitest-experiment-runtime.cjs /tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs inspector",
+    "entry": "/tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs",
+    "forwardedArguments": [
+      "inspector"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-inspector-bun.log",
+    "code": 1,
+    "wallMs": 113.69658299999999,
+    "peakRssMiB": 1.34375,
+    "teardownVerified": true,
+    "reportedTestSummary": null,
+    "reportedCounts": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 10045,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "398d7878e8d1ee17181f2646e5deb00617718936f03f15444f13c70f24afc5c0",
+    "actualCommandArguments": [
+      "/Users/arnaud/.bun/bin/bun",
+      "--bun",
+      "--no-install",
+      "--no-env-file",
+      "--require",
+      "/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs",
+      "/tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs",
+      "inspector"
+    ],
+    "fastSamplingCaveat": true
+  },
+  {
+    "label": "public-coverage",
+    "backend": "node",
+    "command": "/usr/local/bin/node --require /tmp/viborm-v1-bun-vitest-experiment-runtime.cjs /tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs run --workspace vitest.workspace.ts --project coverage-public --coverage --pool threads --maxWorkers=1 --minWorkers=1 --no-file-parallelism",
+    "entry": "/tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs",
+    "forwardedArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "coverage-public",
+      "--coverage",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": null,
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-public-coverage-node.log",
+    "code": 0,
+    "wallMs": 3663.183,
+    "peakRssMiB": 453.21875,
+    "teardownVerified": true,
+    "reportedTestSummary": "8 passed (8)",
+    "reportedCounts": {
+      "passed": 8,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 10102,
+        "execPath": "/usr/local/bin/node",
+        "node": "24.14.0",
+        "bun": null,
+        "v8": "13.6.233.17-node.41"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "885a0ad068785632ec1de8076aafc4b5a16811c859dd814d7773c50840e85630",
+    "actualCommandArguments": [
+      "/usr/local/bin/node",
+      "--require",
+      "/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs",
+      "/tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs",
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "coverage-public",
+      "--coverage",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "public-coverage",
+    "backend": "bun",
+    "command": "/Users/arnaud/.bun/bin/bun --bun --no-install --no-env-file --require /tmp/viborm-v1-bun-vitest-experiment-runtime.cjs /tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs run --workspace vitest.workspace.ts --project coverage-public --coverage --pool threads --maxWorkers=1 --minWorkers=1 --no-file-parallelism",
+    "entry": "/tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs",
+    "forwardedArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "coverage-public",
+      "--coverage",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-public-coverage-bun.log",
+    "code": 1,
+    "wallMs": 2666.8761250000002,
+    "peakRssMiB": 432.484375,
+    "teardownVerified": true,
+    "reportedTestSummary": null,
+    "reportedCounts": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 10672,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "2109bab5d7306f425de024380f53f43b322d02e4dcde614ae266a5decf7c111e",
+    "fileReportedPassesBeforeCoverageFailure": 8,
+    "coverageQualified": false,
+    "actualCommandArguments": [
+      "/Users/arnaud/.bun/bin/bun",
+      "--bun",
+      "--no-install",
+      "--no-env-file",
+      "--require",
+      "/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs",
+      "/tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs",
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "coverage-public",
+      "--coverage",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "bun-sqlite",
+    "backend": "node",
+    "command": "/usr/local/bin/node --require /tmp/viborm-v1-bun-vitest-experiment-runtime.cjs /tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs run --workspace vitest.workspace.ts --project provider-bun tests/providers/platform/bun-sqlite-runtime.test.ts --pool threads --maxWorkers=1 --minWorkers=1 --no-file-parallelism",
+    "entry": "/tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs",
+    "forwardedArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "provider-bun",
+      "tests/providers/platform/bun-sqlite-runtime.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": null,
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-bun-sqlite-node.log",
+    "code": 0,
+    "wallMs": 2142.1739159999997,
+    "peakRssMiB": 345.890625,
+    "teardownVerified": true,
+    "reportedTestSummary": "1 passed (1)",
+    "reportedCounts": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 11061,
+        "execPath": "/usr/local/bin/node",
+        "node": "24.14.0",
+        "bun": null,
+        "v8": "13.6.233.17-node.41"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "1b892f786dac855518a613bce25f2943f9d2eb91dcf6ee16afd35db3cce65fa8",
+    "actualCommandArguments": [
+      "/usr/local/bin/node",
+      "--require",
+      "/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs",
+      "/tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs",
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "provider-bun",
+      "tests/providers/platform/bun-sqlite-runtime.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "fastSamplingCaveat": false
+  },
+  {
+    "label": "bun-sqlite",
+    "backend": "bun",
+    "command": "/Users/arnaud/.bun/bin/bun --bun --no-install --no-env-file --require /tmp/viborm-v1-bun-vitest-experiment-runtime.cjs /tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs run --workspace vitest.workspace.ts --project provider-bun tests/providers/platform/bun-sqlite-runtime.test.ts --pool threads --maxWorkers=1 --minWorkers=1 --no-file-parallelism",
+    "entry": "/tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs",
+    "forwardedArguments": [
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "provider-bun",
+      "tests/providers/platform/bun-sqlite-runtime.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "limits": {
+      "heapMb": 768,
+      "heapCaveat": "NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.",
+      "wallMs": 60000,
+      "rssMb": 1536
+    },
+    "log": "/tmp/viborm-v1-bun-vitest-experiment-bun-sqlite-bun.log",
+    "code": 0,
+    "wallMs": 2762.645,
+    "peakRssMiB": 279,
+    "teardownVerified": true,
+    "reportedTestSummary": "1 passed (1)",
+    "reportedCounts": {
+      "passed": 1,
+      "failed": 0,
+      "skipped": 0
+    },
+    "runtimeProofs": [
+      {
+        "pid": 11745,
+        "execPath": "/Users/arnaud/.bun/bin/bun",
+        "node": "26.3.0",
+        "bun": "1.4.0",
+        "v8": "14.6.202.34-node.20"
+      }
+    ],
+    "workerRuntimeProofs": [],
+    "logSha256": "9616d67c975ce8cc2a42821ada97ac4fa16909488cfbc725237725b122d10edb",
+    "actualCommandArguments": [
+      "/Users/arnaud/.bun/bin/bun",
+      "--bun",
+      "--no-install",
+      "--no-env-file",
+      "--require",
+      "/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs",
+      "/tmp/viborm-v1-bun-vitest-experiment-checkout/node_modules/vitest/vitest.mjs",
+      "run",
+      "--workspace",
+      "vitest.workspace.ts",
+      "--project",
+      "provider-bun",
+      "tests/providers/platform/bun-sqlite-runtime.test.ts",
+      "--pool",
+      "threads",
+      "--maxWorkers=1",
+      "--minWorkers=1",
+      "--no-file-parallelism"
+    ],
+    "fastSamplingCaveat": false
+  }
+]

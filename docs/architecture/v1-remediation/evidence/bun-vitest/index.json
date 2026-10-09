@@ -1,0 +1,451 @@
+{
+  "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+  "archivedFiles": [
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-receipts.json",
+      "path": "receipts.json.txt",
+      "bytes": 26881,
+      "sha256": "42333d22bc2c34747427edb4bacab5e904dd30175c1736c9d2a78e0aad4e1c0d",
+      "role": "Original enriched per-child receipts"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-summary.json",
+      "path": "summary.json.txt",
+      "bytes": 30236,
+      "sha256": "b71cd79b0a20e5b16d0ae8987cc73b582ee5566d991a1391651bfdbcdd5bcd29",
+      "role": "Original environment and input summary"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-run.mjs",
+      "path": "inputs/run.mjs.txt",
+      "bytes": 2333,
+      "sha256": "ef8dd0ab5f4a358e634e19ee4d86100c4a3f29a0a0c017113f26a94a001449a8",
+      "role": "Final retained scratch source; original extension recorded in originalPath"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs",
+      "path": "inputs/runtime.cjs.txt",
+      "bytes": 186,
+      "sha256": "90a5437e57c817b42ee23b15864096e654cce6c65f00382c69b26623456a3eb4",
+      "role": "Final retained scratch source; original extension recorded in originalPath"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-checkout/bun-compatibility-probe.mjs",
+      "path": "inputs/bun-compatibility-probe.mjs.txt",
+      "bytes": 1321,
+      "sha256": "2b10c3b8aac484caf5ef276eb44231e1b169a0eacf6739899d1e7d8bd4cffc2f",
+      "role": "Final retained scratch source; original extension recorded in originalPath"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-checkout/tests/unit/validation/bun-runtime-refusal-experiment.core.test.ts",
+      "path": "inputs/bun-runtime-refusal-experiment.core.test.ts.txt",
+      "bytes": 520,
+      "sha256": "bdcb44e86ffa33d709fbf40df744da874891ad6b3422186d0a5456ff37be404a",
+      "role": "Final retained scratch source; original extension recorded in originalPath"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-leaf-node.log",
+      "bytes": 449,
+      "sha256": "a4a730cfd3789025f56f517e7ae4997e6dd76a2ace24afd4a572d46cdc9703d6",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-leaf-node.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-leaf-bun.log",
+      "bytes": 2623,
+      "sha256": "f0082294b2c04e9aa857094064b3964406e945e2a3c2a4fb9fcbfe76b67612c8",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-leaf-bun.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-leaf-threads-node.log",
+      "bytes": 448,
+      "sha256": "6da2e69934d173818215b5ec36f72dab5d28b03a87a8b290433ba3fa0237e3ca",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-leaf-threads-node.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-leaf-threads-bun.log",
+      "bytes": 457,
+      "sha256": "6de1fa80a2c6df09d7c15bfad23edcbb1df3098014700f3ea26aeebb50a4ad61",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-leaf-threads-bun.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-worker-failure-node.log",
+      "bytes": 1680,
+      "sha256": "abb50d471c835e79f15060cd8e7778d8a85ec8d24c7684f4dc9312553c916dea",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-worker-failure-node.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-worker-failure-bun.log",
+      "bytes": 1696,
+      "sha256": "97b8158e793a7cef913063eeaa1c1a7d501bdce23606072f58ec626820066211",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-worker-failure-bun.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-core-shard-node.log",
+      "bytes": 610,
+      "sha256": "854832815c091b252be0ddb49d4a3c39b2124814ed29a17a82761348406800c3",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-core-shard-node.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-core-shard-bun.log",
+      "bytes": 619,
+      "sha256": "7c7c1a640245f7ed23ed9c81600f656ef0c1684c0b84ff3333d2d5ec3ba649c3",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-core-shard-bun.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-native-sqlite-node.log",
+      "bytes": 461,
+      "sha256": "b437c61651263135c32b9d2edf9e2384e478ae25a262cbb16e98991cbb27a2cf",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-native-sqlite-node.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-native-sqlite-bun.log",
+      "bytes": 1462,
+      "sha256": "b8ae5f8e68486883fd1058a90021e3b60a06c775d793233e182110b1a3d6b18c",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-native-sqlite-bun.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-native-cause-bun.log",
+      "bytes": 1004,
+      "sha256": "a7b120465f8910ba1f2f6f6dcfea30d6007189cdd187e2639be009e67ab021e5",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-native-cause-bun.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-inspector-node.log",
+      "bytes": 153,
+      "sha256": "1db4ae204999e4ed61e55dfdae8b96fe45977334fd28fc03cdf981a1a148913c",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-inspector-node.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-inspector-bun.log",
+      "bytes": 935,
+      "sha256": "398d7878e8d1ee17181f2646e5deb00617718936f03f15444f13c70f24afc5c0",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-inspector-bun.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-public-coverage-node.log",
+      "bytes": 1464,
+      "sha256": "885a0ad068785632ec1de8076aafc4b5a16811c859dd814d7773c50840e85630",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-public-coverage-node.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-public-coverage-bun.log",
+      "bytes": 2604,
+      "sha256": "2109bab5d7306f425de024380f53f43b322d02e4dcde614ae266a5decf7c111e",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-public-coverage-bun.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-bun-sqlite-node.log",
+      "bytes": 453,
+      "sha256": "1b892f786dac855518a613bce25f2943f9d2eb91dcf6ee16afd35db3cce65fa8",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-bun-sqlite-node.log"
+    },
+    {
+      "originalPath": "/tmp/viborm-v1-bun-vitest-experiment-bun-sqlite-bun.log",
+      "bytes": 460,
+      "sha256": "9616d67c975ce8cc2a42821ada97ac4fa16909488cfbc725237725b122d10edb",
+      "role": "Original child stdout/stderr",
+      "container": "logs.json",
+      "jsonKey": "viborm-v1-bun-vitest-experiment-bun-sqlite-bun.log"
+    }
+  ],
+  "trackedInputs": [
+    {
+      "path": "package.json",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/package.json",
+      "bytes": 14241,
+      "sha256": "5ec9274e3e5c06d7f017780d65ff6691e3a1a5198705014078041e9734d356b0"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/pnpm-lock.yaml",
+      "bytes": 490449,
+      "sha256": "c71db78023184dcd8826ecdd5469473ba23a1824fae72fce9786f1ba7a13136d"
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/pnpm-workspace.yaml",
+      "bytes": 609,
+      "sha256": "cbeef8e2d5f1b14e38ced8fdf3515d3a1b4ae395a2bc6fbbfaaaf1565fc865a0"
+    },
+    {
+      "path": "vitest.config.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/vitest.config.ts",
+      "bytes": 2828,
+      "sha256": "a0e536a68dff32def4967d82dca0df1d61afc5f87961fcaab034117a5ed6fd15"
+    },
+    {
+      "path": "vitest.workspace.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/vitest.workspace.ts",
+      "bytes": 11130,
+      "sha256": "b051fe1ee066a52f1f24eacae1a7d57e2d466b35188e73a1d796b08e4777846b"
+    },
+    {
+      "path": "scripts/bounded-process.mjs",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/scripts/bounded-process.mjs",
+      "bytes": 13470,
+      "sha256": "94d4614f6942820cf381be6d905f2cc1ddb4c6b05cf829c9c817f6a41a86c2b4"
+    },
+    {
+      "path": "scripts/test-run-lock.mjs",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/scripts/test-run-lock.mjs",
+      "bytes": 7238,
+      "sha256": "c7a1dd1213e21ffeeb90ead5ccabc660ffb3bf7dc4cf35f4935f25af1aef01cc"
+    },
+    {
+      "path": "tests/unit/validation/vector.core.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/unit/validation/vector.core.test.ts",
+      "bytes": 2841,
+      "sha256": "590bd36b187af79be6dc605ebfc54bc5895d07854f04d060a82bc29bd34c8d46"
+    },
+    {
+      "path": "tests/unit/validation/json.core.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/unit/validation/json.core.test.ts",
+      "bytes": 6554,
+      "sha256": "0486aa5d84d1ce8414a63e7417b5dbf421b666669443da89088ea5eb65afef91"
+    },
+    {
+      "path": "tests/unit/validation/operand.core.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/unit/validation/operand.core.test.ts",
+      "bytes": 5702,
+      "sha256": "1e1177fab91a1ff928cf389f4850c8588da8e3300867524b0d4ebbda1a5a6603"
+    },
+    {
+      "path": "tests/providers/local/sqlite3-native-type-map.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/providers/local/sqlite3-native-type-map.test.ts",
+      "bytes": 1634,
+      "sha256": "cb3a239a6ba608c59101565c1bcb1807b1abe5b238d5b42d977e5771d29c6478"
+    },
+    {
+      "path": "tests/contracts/architecture/system-clock.core.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/contracts/architecture/system-clock.core.test.ts",
+      "bytes": 1923,
+      "sha256": "6f98006b1f40db26d45bd175a85d15e149dccb0cab4bd8adca3f302b7d68737c"
+    },
+    {
+      "path": "tests/contracts/public-client/config-subpath.core.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/contracts/public-client/config-subpath.core.test.ts",
+      "bytes": 320,
+      "sha256": "210c9f87dc19bfd3f6636a7dd1a1924546e7e3be0ac96df416afcf16319b9cd7"
+    },
+    {
+      "path": "tests/contracts/public-client/public-runtime-surface.core.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/contracts/public-client/public-runtime-surface.core.test.ts",
+      "bytes": 2044,
+      "sha256": "ad6e0ea0c000abfc71996776dabab7c07edb3f09665ec0f460334eaa71e1ddd3"
+    },
+    {
+      "path": "tests/unit/instrumentation/version.core.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/unit/instrumentation/version.core.test.ts",
+      "bytes": 321,
+      "sha256": "ed81c7e175ad3f1ebccceac6953d41bd4db7394de55f1f42bcd28284ad05036d"
+    },
+    {
+      "path": "tests/providers/platform/bun-sqlite-runtime.test.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/providers/platform/bun-sqlite-runtime.test.ts",
+      "bytes": 2028,
+      "sha256": "4a214d7b348235c0e7c1c09f54f94e64f52353bd2a3d4804089cfd7002e4148e"
+    },
+    {
+      "path": "tests/providers/platform/bun-sqlite-runtime-probe.ts",
+      "revision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "url": "https://github.com/beynar/viborm/blob/3a94e1e8a87f1866449217f96b750ef92264b7ff/tests/providers/platform/bun-sqlite-runtime-probe.ts",
+      "bytes": 23364,
+      "sha256": "fd3ff4d9a763831a247b7872a99af43093d7c9df649266f7002b1c9254fc5148"
+    }
+  ],
+  "children": [
+    {
+      "label": "leaf",
+      "backend": "node",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-leaf-node.log"
+    },
+    {
+      "label": "leaf",
+      "backend": "bun",
+      "exitCode": 1,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-leaf-bun.log"
+    },
+    {
+      "label": "leaf-threads",
+      "backend": "node",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-leaf-threads-node.log"
+    },
+    {
+      "label": "leaf-threads",
+      "backend": "bun",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-leaf-threads-bun.log"
+    },
+    {
+      "label": "worker-failure",
+      "backend": "node",
+      "exitCode": 1,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-worker-failure-node.log"
+    },
+    {
+      "label": "worker-failure",
+      "backend": "bun",
+      "exitCode": 1,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-worker-failure-bun.log"
+    },
+    {
+      "label": "core-shard",
+      "backend": "node",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-core-shard-node.log"
+    },
+    {
+      "label": "core-shard",
+      "backend": "bun",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-core-shard-bun.log"
+    },
+    {
+      "label": "native-sqlite",
+      "backend": "node",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-native-sqlite-node.log"
+    },
+    {
+      "label": "native-sqlite",
+      "backend": "bun",
+      "exitCode": 1,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-native-sqlite-bun.log"
+    },
+    {
+      "label": "native-cause",
+      "backend": "bun",
+      "exitCode": 1,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-native-cause-bun.log"
+    },
+    {
+      "label": "inspector",
+      "backend": "node",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-inspector-node.log"
+    },
+    {
+      "label": "inspector",
+      "backend": "bun",
+      "exitCode": 1,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-inspector-bun.log"
+    },
+    {
+      "label": "public-coverage",
+      "backend": "node",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-public-coverage-node.log"
+    },
+    {
+      "label": "public-coverage",
+      "backend": "bun",
+      "exitCode": 1,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-public-coverage-bun.log"
+    },
+    {
+      "label": "bun-sqlite",
+      "backend": "node",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-bun-sqlite-node.log"
+    },
+    {
+      "label": "bun-sqlite",
+      "backend": "bun",
+      "exitCode": 0,
+      "teardownVerified": true,
+      "logContainer": "logs.json",
+      "logJsonKey": "viborm-v1-bun-vitest-experiment-bun-sqlite-bun.log"
+    }
+  ],
+  "historicalSourceNote": "run.mjs.txt is the final retained supervisor, extended to support direct probes during the experiment. Earlier child rows use vitestArguments; later rows use forwardedArguments and actualCommandArguments. Recorded child arguments are authoritative; no earlier runner snapshot is claimed. Historical absolute paths are retained byte-for-byte and resolved to durable paths by archivedFiles.",
+  "containerFiles": [
+    {
+      "path": "logs.json",
+      "bytes": 20205,
+      "sha256": "58017c94c3f7d892de162f90baffe87c3a8bf9b8892abb2096fb326d88f786a0",
+      "encoding": "JSON object; each value decoded as UTF-8 recovers the exact original log bytes"
+    }
+  ]
+}
