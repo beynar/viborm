@@ -53,7 +53,7 @@ await client.post.aggregate({
 });
 ```
 
-`orderBy` only decides which rows a page keeps. With no `take`, `skip` or `cursor`,
-the aggregate (like `count` and `exist`) runs straight over the filtered rows, so the
+`orderBy` only decides which rows a page keeps. `exist` and an unpaged aggregate
+or `count` (no `take`, `skip` or `cursor`) read the filtered table directly, so the
 database can use its own fast paths and indexes; a paged aggregate reads its ordered
 window first.

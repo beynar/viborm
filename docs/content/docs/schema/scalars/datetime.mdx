@@ -107,14 +107,10 @@ await client.user.create({
 });
 ```
 
-### SQLite storage
-
-On SQLite, libSQL, bun:sqlite and D1, a text DateTime is stored as
-`YYYY-MM-DDTHH:mm:ss.sssZ` whatever spelling you pass, and a Time as
-`HH:mm:ss.sss`. Filters and ordering compare that text, so a value written in
-another spelling outside the typed client compares wrongly. `viborm check --db`
-finds such values; see
-[Repairing foreign timestamp and Time text](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text).
+On SQLite-family drivers, text written outside the typed client in another
+spelling compares wrongly; `viborm check --db` finds it, and
+[repairing foreign timestamp and Time text](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text)
+rewrites it.
 
 ## Examples
 

@@ -111,8 +111,9 @@ VibORM has a Prisma-inspired API, with differences documented in the
   filters. Empty logical filters and provider collation differences are explicit
   in the filtering and compatibility guides.
 - Shared database access and native indexes can require an explicit migration
-  decision. Unsupported storage is refused before typed writes rather than
-  silently rewritten.
+  decision. Push and migrate refuse unsupported storage; typed queries do not
+  inspect it, so audit an adopted SQLite database with `viborm check --db`
+  ([SQLite migration guide](docs/content/docs/migration/drivers/sqlite.mdx)).
 
 ## Documentation and development
 

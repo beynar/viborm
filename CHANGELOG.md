@@ -15,8 +15,9 @@ per-operation work that protected nothing.
   Decimal column was surrounded by a catalog read, `BEGIN IMMEDIATE`, a storage
   assertion and `COMMIT`; DateTime and Time columns also scanned the whole table
   twice. A primary-key lookup on a `createdAt` + `updatedAt` model took 82 ms at
-  1k rows and 7.7 s at 100k. D1 refused every such query (`SQLITE_TOOBIG`).
-  One non-canonical timestamp row made the whole model fail with V8003. A typed
+  1k rows and 7.7 s at 100k. D1 refused every query on a model with a text
+  DateTime or Time column (statement too long, or pattern too complex). One
+  non-canonical timestamp row made the whole model fail with V8003. A typed
   statement now sends only its own SQL: one statement per `findUnique`, about
   0.05 ms at 100k rows, and no write lock for reads.
 - **libSQL: a `SQLITE_BUSY` while opening a transaction no longer loses later
@@ -29,13 +30,16 @@ per-operation work that protected nothing.
   only.
 - **Push never renames a table without a named pair.** `lenientResolver` and the
   documented resolver could rename another application's table into a new
-  model, labelled non-destructive. `lenientResolver` now renames columns only,
-  and every table rename is destructive and needs consent.
+  model, labelled non-destructive. `lenientResolver` now renames columns only
+  and leaves table pairs undecided, in push and in `migrate generate` alike:
+  name each table pair in a resolver. Every table rename is destructive and
+  needs consent.
 - **PostgreSQL: adding enum values uses `ALTER TYPE … ADD VALUE [BEFORE …]`
   again.** 1.0.0 recreated the type for an append, rewriting every table using
   it, and failed when a view, rule or CHECK depended on the column. The type is
   replaced only for removals, reorders, and when the same migration uses a new
-  value; a removal still fails on such a dependent object (#85).
+  value; any such replacement still fails on a dependent view, rule or CHECK
+  (#85).
   `apply`, `down` and `reset` commit after a migration that adds enum values.
 - **postgres.js: a `BEGIN` that cannot connect leaves the client usable.** It
   rejects with the retryable V1001 instead of quarantining the client with V5001
@@ -47,16 +51,12 @@ per-operation work that protected nothing.
 
 ### Performance
 
-- **postgres.js prepares statements by default.** A repeated parameterized
-  statement costs one round trip instead of two. VibORM no longer overrides the
-  connection's `prepare` option per query.
-- `count()`, `aggregate()` and `exist()` without `take`, `skip` or `cursor` read
-  the filtered table directly instead of a subquery ordered by primary key:
-  `count()` on 200k rows went from 4.5 ms to 13 µs on SQLite and from 58 ms to
-  10 ms on PGlite.
+- `exist()` and unpaged `count()`/`aggregate()` read the filtered table
+  directly instead of a subquery ordered by primary key: `count()` on 200k rows
+  went from about 1.8 ms to about 30 µs on SQLite and from about 35 ms to 10 ms
+  on PGlite.
 - A supplied libSQL client no longer sends a setup statement before its first
-  query: one Turso round trip less per client, and no first-query crash with
-  `@libsql/client` 0.14.
+  query: one Turso round trip less per client.
 - Nested writes on D1, Neon HTTP and MySQL batch routes no longer send a
   `DELETE` that could never match.
 - bun:sqlite reuses compiled statements through its own `query()` cache.
@@ -73,23 +73,25 @@ per-operation work that protected nothing.
 - **TypeScript 5.9 is the minimum supported version (was 5.8).** On 5.8 a
   three-level include over a 100-model schema fails with TS2589. The package
   gate type-checks that schema as an installed consumer on 5.9.
+- libSQL: a supplied client may use intMode `"number"` or `"bigint"` (1.0.0
+  refused `"number"` with V1004); `"string"` mode is not supported for typed
+  reads.
 - Documentation: the homepage states the V1 status; the configuration and
   Cloudflare KV examples run as written; the Raw SQL page warns about compact
-  ids stored as bytes, and the vector page about hand-made HNSW indexes.
+  ids stored as bytes, and the vector page about hand-made HNSW indexes. The
+  postgres.js page documents its two round trips per query, the
+  `options.prepare` opt-in, and `viborm/pg` as the one-round-trip driver.
 
 ### Upgrading from 1.0.0
 
-- **postgres.js behind a transaction-mode pooler** (Supabase port 6543,
-  PgBouncer without `max_prepared_statements`, RDS Proxy): set
-  `options: { prepare: false }`, or build a supplied client with
-  `postgres(url, { prepare: false, types: vibormTypes })`. 1.0.0 always sent
-  unprepared statements.
 - **SQLite databases written by another tool or by an RC.** Typed queries no
   longer check stored values. Timestamps stored as non-canonical text are
   missed or misordered by filters until repaired. A foreign `DECIMAL(p,s)`
   column that VibORM never pushed or migrated reads whole numbers as scaled
   coefficients (3 reads as 0.03). Run `viborm check --db`, and adopt foreign
   tables through push, migrate or a baseline; see the SQLite migration guide.
+- **PostgreSQL migrations generated by 1.0.1 that add enum values** must be
+  applied, rolled back and reset by 1.0.1 or later.
 
 This release candidate targets npm `next`, not `latest`. Publication requires
 the protected workflow in [RELEASING.md](RELEASING.md).

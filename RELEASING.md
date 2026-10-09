@@ -140,19 +140,19 @@ The publish job may consume only the tarball and digest produced by that gate.
 
 ## Release candidate sequence
 
-1. Merge the `1.0.0-rc.1` release pull request to protected `main`.
+1. Merge the `X.Y.Z-rc.N` release pull request to protected `main`.
 2. Open **Actions → Release**, select `main`, and run the workflow.
 3. Review the completed evidence and approve the `npm-production` deployment.
-4. Wait for registry verification and the immutable `v1.0.0-rc.1` GitHub
+4. Wait for registry verification and the immutable `vX.Y.Z-rc.N` GitHub
    release. Do not create either one manually.
 5. Install `viborm@next` in fresh consumers and rehearse fresh installation,
-   upgrade from `0.1.0`, CLI use, push, generate, apply, down, reset, tampered
-   estate refusal, and interrupted-generation recovery on the declared
-   provider matrix.
-6. If a blocker is found, publish `1.0.0-rc.2` or a later RC. Never replace an
-   existing RC.
+   upgrade from the previous stable release, CLI use, push, generate, apply,
+   down, reset, tampered estate refusal, and interrupted-generation recovery on
+   the declared provider matrix.
+6. If a blocker is found, publish the next RC (`X.Y.Z-rc.N+1`). Never replace
+   an existing RC.
 7. After the final RC has completed the soak and all blockers are closed, merge
-   a release pull request for `1.0.0` and run the same workflow. Only this
+   a release pull request for `X.Y.Z` and run the same workflow. Only this
    stable release moves `latest`.
 
 The workflow is complete only after npm reports the expected version, channel,
