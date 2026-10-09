@@ -8,7 +8,6 @@ import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { UnsupportedOperationError } from "@errors";
 import { compileBindBudgetChunks } from "@query-engine/bind-budget";
-import { createCommandEngine } from "@query-engine/raptor3/commands";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
@@ -231,31 +230,6 @@ describe("adversarial V1 query repairs", () => {
         database.prepare("SELECT id,title FROM v1_singular_entry").all(),
         [{ id: 1, title: "red" }]
       );
-    });
-  });
-  it("publishes exact per-read table footprints without retaining earlier history", async () => {
-    await withWorld(async ({ driver }) => {
-      const kernel = createCommandEngine({
-        schema: { parent, child, tag, owner, book, video, shelf },
-        driver,
-      });
-      const first = kernel.prepare("parent", "findMany", {
-        select: { id: true, children: { select: { id: true } } },
-      });
-      const models = first.read?.models;
-      assert.ok(models);
-      assert.deepEqual([...models].map((model) => model["~"].names.ts).sort(), [
-        "child",
-        "parent",
-      ]);
-      const second = kernel.prepare("tag", "findMany", { select: { id: true } })
-        .read?.models;
-      assert.ok(second);
-      assert.deepEqual(
-        [...second].map((model) => model["~"].names.ts),
-        ["tag"]
-      );
-      assert.equal(models.size, 2);
     });
   });
   it("keeps generated scalar and compound identity sets below SQLite expression depth", async () => {

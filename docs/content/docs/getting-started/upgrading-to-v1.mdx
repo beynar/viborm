@@ -133,8 +133,14 @@ At scale 2, logical `12.34` is SQLite coefficient `1234`; a JSON-backed list
 stores it as `"1234"`. Existing SQLite decimal text or floating-point values
 are not interchangeable with these coefficients. Preserve their logical value
 in a reviewed conversion; never rename their type and assume the stored value
-has changed. Descriptor changes also need review: scale reduction is valid
-only when all discarded digits are zero. See
+has changed. 1.0.0 refused every typed query on a SQLite model whose decimal
+column lacked that storage, at the cost of a catalog read and a write
+transaction around every statement, reads included. 1.0.1 sends each typed
+statement alone. `viborm check --db` reports such a column, and push and
+migrate refuse to adopt it until the reviewed conversion has run; before that,
+its reads fail with `V2006` and writes and filters on it are not protected.
+Descriptor changes also need review: scale reduction is valid only when all
+discarded digits are zero. See
 [Decimal](/docs/schema/scalars/decimal#descriptor-migrations) for provider
 limits and refused conversion paths.
 

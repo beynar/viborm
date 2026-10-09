@@ -1,12 +1,15 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createCheckCommand } from "@src/cli/commands/check";
+import { createClient } from "@src/drivers/sqlite3";
+import { s } from "@src/schema";
 import {
   makeTempProject,
   type TempProject,
   writeConfigFixture,
 } from "@tests/contracts/public-client/cli/_harness";
 import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -70,6 +73,15 @@ async function run(configPath: string, args: string[]) {
   vi.restoreAllMocks();
   return out.join("");
 }
+
+const PRICED = `
+  const item = s.model({
+    id: s.int().id(),
+    price: s.decimal({ precision: 10, scale: 2 }),
+    prices: s.decimal({ precision: 10, scale: 2 }).array(),
+  }).map("item");
+  const schema = { item };
+`;
 
 const TEMPORAL = `
   import { TYPES } from ${JSON.stringify(pathToFileURL(join(SOURCE_ROOT, "schema/index.ts")).href)};
@@ -144,9 +156,7 @@ describe("viborm check", () => {
         '[storage] "event"."at": 1 row(s) of noncanonical DateTime text compare and sort wrongly.'
       );
       expect(output).toContain("Repair with sqliteCanonicalTimeExpression");
-      expect(output).toContain(
-        "Storage audited: 3 temporal text column(s), 3 need repair."
-      );
+      expect(output).toContain("Storage audited: 3 column(s), 3 need repair.");
       expect(process.exitCode).toBe(1);
 
       process.exitCode = undefined;
@@ -189,11 +199,74 @@ describe("viborm check", () => {
     );
   });
 
+  it("--db reports SQLite decimal columns that are not VibORM's checked storage", async () => {
+    project = makeTempProject();
+    writeConfigFixture(project, { dialect: "sqlite3", schemaBody: PRICED });
+    const file = join(project.dir, "app.db");
+    const { readFileSync, writeFileSync } = await import("node:fs");
+    writeFileSync(
+      project.configPath,
+      readFileSync(project.configPath, "utf8").replace(
+        '":memory:"',
+        JSON.stringify(file)
+      )
+    );
+    const db = new Database(file);
+    // Another tool's table: typed queries never inspect it.
+    db.exec(
+      "CREATE TABLE item (id INTEGER PRIMARY KEY, price REAL NOT NULL, prices TEXT NOT NULL)"
+    );
+    try {
+      const output = await run(project.configPath, ["--db"]);
+      expect(output).toContain(
+        '[storage] "item"."price": declared REAL, not the checked scaled-integer decimal storage VibORM writes; typed reads fail and typed writes are not checked.'
+      );
+      expect(output).toContain('[storage] "item"."prices": declared TEXT');
+      expect(output).toContain("Adopt the table through viborm push");
+      expect(output).toContain("Storage audited: 2 column(s), 2 need repair.");
+      expect(process.exitCode).toBe(1);
+
+      process.exitCode = undefined;
+      db.exec("ALTER TABLE item RENAME TO foreign_item");
+      expect(await run(project.configPath, ["--db"])).toContain(
+        '[storage] "item"."price": the column is missing'
+      );
+      expect(process.exitCode).toBe(1);
+
+      process.exitCode = undefined;
+      db.exec("DROP TABLE foreign_item");
+      const item = s
+        .model({
+          id: s.int().id(),
+          price: s.decimal({ precision: 10, scale: 2 }),
+          prices: s.decimal({ precision: 10, scale: 2 }).array(),
+        })
+        .map("item");
+      const owner = createClient({ client: db, schema: { item } });
+      await syncLiveSchema(owner);
+      const result = JSON.parse(
+        await run(project.configPath, ["--db", "--json"])
+      );
+      expect(result.storage).toEqual(
+        ["price", "prices"].map((column) => ({
+          table: "item",
+          column,
+          type: "decimal",
+          declared: column === "price" ? "INTEGER" : "TEXT",
+          checked: true,
+        }))
+      );
+      expect(process.exitCode).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
   it("--db has no SQLite temporal text to audit on other dialects", async () => {
     project = makeTempProject();
     writeConfigFixture(project, { schemaBody: TEMPORAL });
     expect(await run(project.configPath, ["--db"])).toContain(
-      "Storage audited: 0 temporal text column(s), 0 need repair."
+      "Storage audited: 0 column(s), 0 need repair."
     );
     expect(process.exitCode).toBeUndefined();
   });

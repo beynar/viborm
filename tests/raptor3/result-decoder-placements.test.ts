@@ -37,11 +37,7 @@ import assert from "node:assert/strict";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
-import type {
-  Dialect,
-  DriverResultParser,
-  QueryExecutionContext,
-} from "@drivers";
+import type { Dialect, DriverResultParser } from "@drivers";
 import { Driver } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryError } from "@errors";
@@ -888,7 +884,6 @@ describe("the chain that runs is the execution's, at every route", () => {
 
 /** A driver that answers exactly the rows a cell hands it. */
 class ScriptedDriver extends Driver<null, null> {
-  private readonly catalog = new SQLite3Driver();
   readonly adapter = new SQLite3Driver().adapter;
   private readonly rows: unknown[];
   constructor(rows: unknown[]) {
@@ -896,30 +891,15 @@ class ScriptedDriver extends Driver<null, null> {
     this.rows = rows;
   }
   protected async initClient() {
-    await syncLiveSchema(createClient({ schema, driver: this.catalog }));
     return null;
   }
   protected async closeClient() {
-    await this.catalog.disconnect();
+    // Scripted rows own no provider resource.
   }
-  protected async execute<T>(
-    _client: null,
-    statement: string,
-    params: unknown[],
-    context?: QueryExecutionContext
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    if (context?.model === "$schema")
-      return this.catalog._executeRaw<T>(statement, params, context);
+  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
     return { rows: this.rows as T[], rowCount: this.rows.length };
   }
-  protected async executeRaw<T>(
-    _client: null,
-    statement: string,
-    params: unknown[] | undefined,
-    context?: QueryExecutionContext
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    if (context?.model === "$schema")
-      return this.catalog._executeRaw<T>(statement, params, context);
+  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
     return { rows: [], rowCount: 0 };
   }
   protected async transaction<T>(

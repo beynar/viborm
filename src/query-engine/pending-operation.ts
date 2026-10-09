@@ -80,7 +80,6 @@ interface PendingCacheResultAccess {
   readonly controls: AdmittedControls | undefined;
   readonly codec: CacheResultCodec;
   readonly executionContext: QueryExecutionContext;
-  readonly checkStorage: (driver: AnyDriver) => Promise<void>;
 }
 
 type ReadPendingCacheResult = (
@@ -244,10 +243,6 @@ export class PendingOperation<T>
       controls: operation.#inputPreparation?.controls,
       codec: operation.#cacheResultCodec(),
       executionContext: operation.#context.attribution,
-      checkStorage: (driver) =>
-        operation
-          .#resolveRouted()
-          .checkStorage(driver, operation.#context.attribution),
     });
     pendingOperationTransactionOwner = Object.freeze({
       clientId: (operation) => operation.#context.clientId,

@@ -80,7 +80,6 @@ import {
   type ClientOmitResolver,
   createClientOmitResolver,
 } from "./omit";
-import { createPhysicalSchemaCheck } from "./physical-schema";
 import {
   createRawSurface,
   RAW_METHOD_NAMES,
@@ -544,15 +543,10 @@ export class VibORM<C extends VibORMConfig> {
     // validates and registers nothing a second time (B-3).
     this.#engine = new QueryEngine(
       config.driver,
-      createCandidateRoute(
-        this.#schema,
-        config.driver,
-        {
-          index: relations,
-          registry: schemaRegistry,
-        },
-        createPhysicalSchemaCheck(this.#schema, config.driver)
-      )
+      createCandidateRoute(this.#schema, config.driver, {
+        index: relations,
+        registry: schemaRegistry,
+      })
     );
   }
 
@@ -766,7 +760,6 @@ export class VibORM<C extends VibORMConfig> {
           return execute();
         }
         const cacheResult = readPendingCacheResult(pendingOperation);
-        await cacheResult.checkStorage(engine.driver);
         const runtime = officialCacheRuntime();
         const key = runtime.cacheKeyOf(
           cacheResult.args,

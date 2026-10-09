@@ -68,12 +68,7 @@ export interface PreparedBatchOperation<T = unknown> {
  * place it becomes an `Error`.
  */
 export interface PreparedGuardFailure {
-  readonly kind:
-    | "foreignKey"
-    | "nestedWrite"
-    | "notFound"
-    | "query"
-    | "unsupported";
+  readonly kind: "foreignKey" | "nestedWrite" | "notFound" | "query";
   readonly message: string;
   readonly relation?: string;
   readonly raceable: boolean;

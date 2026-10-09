@@ -67,11 +67,10 @@ the compiled row parser establish the returned domain. Invalid provider data
 raises an error; a missing or malformed value is not replaced with a plausible
 zero, empty object, or empty list.
 
-SQLite decimal storage checks read only the catalog of the models an operation
-uses. When a write depends on inspected storage, the corresponding assertion
-runs inside the same atomic unit as the write. Stored temporal text is not
-inspected per statement; `viborm check --db` audits it. Raw SQL stays physical
-and does not receive model-aware decoding.
+Typed operations never inspect physical storage. A schema VibORM pushed or
+migrated is correct by construction; a foreign SQLite decimal column or
+noncanonical temporal text is found by `viborm check --db`, not per statement.
+Raw SQL stays physical and does not receive model-aware decoding.
 
 ## Inspection and verification
 

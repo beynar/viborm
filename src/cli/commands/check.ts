@@ -9,6 +9,7 @@
 
 import { Command } from "commander";
 import { sqliteNoncanonicalTemporalCount } from "../../adapters/databases/sqlite/storage/datetime";
+import { isSqliteDecimalStorage } from "../../adapters/databases/sqlite/storage/decimal";
 import type { AnyDriver } from "../../drivers/driver";
 import { hydrateSchemaNames } from "../../schema/hydration";
 import {
@@ -19,6 +20,7 @@ import {
 import { sqliteDateTimePhysicalForm } from "../../schema/scalars/datetime/physical";
 import type { SchemaValidationIssue } from "../../schema/validation/types";
 import { validateSchema } from "../../schema/validation/validator";
+import { createIdentifierQuoter } from "../../sql/identifiers";
 import { finishCli, loadConfig } from "../utils";
 
 interface CheckCliOptions {
@@ -27,32 +29,89 @@ interface CheckCliOptions {
   readonly db?: boolean;
 }
 
-interface TemporalColumnAudit {
-  readonly table: string;
-  readonly column: string;
-  readonly type: "datetime" | "time";
-  readonly noncanonical: number;
+type ColumnAudit = { readonly table: string; readonly column: string } & (
+  | { readonly type: "datetime" | "time"; readonly noncanonical: number }
+  | {
+      readonly type: "decimal";
+      /** The catalog's declared type; `null` when the column is missing. */
+      readonly declared: string | null;
+      readonly checked: boolean;
+    }
+);
+
+interface CatalogColumn {
+  readonly definition: string | null;
+  readonly name: string;
+  readonly type: string;
+  readonly nullable: boolean;
 }
 
-/** Count each SQLite text DateTime/Time column's noncanonical rows; other dialects store native types. */
-async function auditTemporalText(
+const quote = createIdentifierQuoter('"');
+
+/** One SQLite table's declared columns, each beside the table's stored definition. */
+async function readCatalog(
+  driver: AnyDriver,
+  table: string
+): Promise<CatalogColumn[]> {
+  const { rows } = await driver._executeRaw<
+    Omit<CatalogColumn, "nullable"> & { notnull: number; pk: number }
+  >(
+    `SELECT s.sql AS definition, p.name, p.type, p."notnull", p.pk FROM sqlite_schema AS s JOIN pragma_table_info(s.name) AS p WHERE s.type = 'table' AND s.name = ?`,
+    [table]
+  );
+  // SQLite reports a primary key nullable; VibORM writes it NOT NULL.
+  return rows.map(({ notnull, pk, ...column }) => ({
+    ...column,
+    nullable: Number(notnull) === 0 && Number(pk) === 0,
+  }));
+}
+
+/**
+ * Audit SQLite storage typed queries assume but never inspect: each text
+ * DateTime/Time column's noncanonical rows (one scan each), and whether each
+ * decimal column is the checked scaled-integer storage of its descriptor (one
+ * catalog read per table). Other dialects store native types.
+ */
+async function auditStorage(
   driver: AnyDriver,
   models: Record<string, AnyModel>
-): Promise<TemporalColumnAudit[]> {
+): Promise<ColumnAudit[]> {
   if (driver.dialect !== "sqlite") return [];
-  const audits: TemporalColumnAudit[] = [];
+  const audits: ColumnAudit[] = [];
   for (const [name, model] of Object.entries(models)) {
     const table = getTableName(model, name);
     const state: ModelState = model["~"].state;
+    let catalog: CatalogColumn[] | undefined;
     for (const [field, scalar] of Object.entries(state.scalars)) {
-      const { type, array = false } = scalar["~"].state;
+      const definition = scalar["~"].state;
+      const { type, array = false } = definition;
+      const column = model["~"].getFieldName(field).sql;
+      if (definition.type === "decimal") {
+        catalog ??= await readCatalog(driver, table);
+        const row = catalog.find((entry) => entry.name === column);
+        audits.push({
+          table,
+          column,
+          type: "decimal",
+          declared: row?.type ?? null,
+          checked:
+            row !== undefined &&
+            isSqliteDecimalStorage(
+              row.definition,
+              row,
+              definition.decimal,
+              array ? "list" : "scalar",
+              quote
+            ),
+        });
+        continue;
+      }
       const text =
         type === "time" ||
         (type === "datetime" &&
           (array ||
             sqliteDateTimePhysicalForm(scalar["~"].nativeType) === "text"));
       if (!text) continue;
-      const column = model["~"].getFieldName(field).sql;
       const { rows } = await driver._executeRaw<{ noncanonical: number }>(
         sqliteNoncanonicalTemporalCount(table, column, type, array)
       );
@@ -67,9 +126,20 @@ async function auditTemporalText(
   return audits;
 }
 
-const describeAudit = (audit: TemporalColumnAudit): string => {
+const needsRepair = (audit: ColumnAudit): boolean =>
+  audit.type === "decimal" ? !audit.checked : audit.noncanonical > 0;
+
+const describeAudit = (audit: ColumnAudit): string => {
+  const column = `[storage] "${audit.table}"."${audit.column}"`;
+  if (audit.type === "decimal") {
+    const found =
+      audit.declared === null
+        ? "the column is missing"
+        : `declared ${audit.declared}, not the checked scaled-integer decimal storage VibORM writes`;
+    return `${column}: ${found}; typed reads fail and typed writes are not checked.\n    Adopt the table through viborm push, migrate or baseline: https://viborm.dev/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool`;
+  }
   const kind = audit.type === "time" ? "Time" : "DateTime";
-  return `[storage] "${audit.table}"."${audit.column}": ${audit.noncanonical} row(s) of noncanonical ${kind} text compare and sort wrongly.\n    Repair with sqliteCanonical${kind}Expression from viborm/migrations: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;
+  return `${column}: ${audit.noncanonical} row(s) of noncanonical ${kind} text compare and sort wrongly.\n    Repair with sqliteCanonical${kind}Expression from viborm/migrations: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;
 };
 
 // The repair hint, when the issue has one, goes on its own indented line.
@@ -93,9 +163,9 @@ async function runCheck(options: CheckCliOptions): Promise<void> {
     hydrateSchemaNames(models);
     const result = validateSchema(models);
     const storage = options.db
-      ? await auditTemporalText(config.driver, models)
+      ? await auditStorage(config.driver, models)
       : undefined;
-    const dirty = storage?.filter((audit) => audit.noncanonical > 0) ?? [];
+    const dirty = storage?.filter(needsRepair) ?? [];
     if (options.json) {
       process.stdout.write(
         `${JSON.stringify(storage ? { ...result, storage } : result, null, 2)}\n`
@@ -114,7 +184,7 @@ async function runCheck(options: CheckCliOptions): Promise<void> {
       );
       if (storage)
         process.stdout.write(
-          `Storage audited: ${storage.length} temporal text column(s), ${dirty.length} need repair.\n`
+          `Storage audited: ${storage.length} column(s), ${dirty.length} need repair.\n`
         );
     }
     if (!result.valid || dirty.length > 0) process.exitCode = 1;
@@ -134,7 +204,7 @@ export function createCheckCommand(): Command {
     .option("--json", "Print machine-readable JSON")
     .option(
       "--db",
-      "Also scan stored SQLite DateTime/Time text for noncanonical values"
+      "Also audit SQLite storage: DateTime/Time text and decimal columns"
     )
     .action(runCheck);
 }

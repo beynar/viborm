@@ -177,8 +177,8 @@ shape or add a public batch discriminant.
 
 `_prepare()` retains private typed provenance without running statement
 transforms. Actual batch dispatch observes each prepared entry and runs its
-eligible transforms once before the first provider statement, so protected
-storage assertions run after every application transform. Sequential fallback
+eligible transforms once before the first provider statement, so a refusing
+transform stops the batch before any provider effect. Sequential fallback
 then dispatches and completes each statement separately; a canceled entry
 produces no provider log.
 

@@ -46,11 +46,6 @@ export const DECIMAL_FLOAT_TRANSPORT_EXEMPTIONS = [
   // Exempted by exact spelling: any OTHER Number() in that file still counts,
   // and so does a second use of this one.
   "src/migrations/drivers/mysql/introspect.ts readSrid Number(col.SRS_ID)",
-  // SQLite catalog flags describe nullability and primary-key position, not
-  // decimal values. Each exact call is permitted once in the storage owner;
-  // an amount conversion or a duplicate flag conversion still fails.
-  "src/adapters/databases/sqlite/storage/runtime-check.ts sqliteStorageCheck Number(row.notnull)",
-  "src/adapters/databases/sqlite/storage/runtime-check.ts sqliteStorageCheck Number(row.pk)",
 ] as const;
 
 export const REJECTED_DECIMAL_FLOAT_TRANSPORT_TOKENS = [

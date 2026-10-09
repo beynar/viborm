@@ -2,11 +2,7 @@ import {
   assembleAdapterSelect,
   getAdapterInternals,
 } from "@adapters/adapter-internals";
-import type { PhysicalSchemaCheck } from "@client/physical-schema";
-import {
-  attachCommitCertainty,
-  remapStatementIndex,
-} from "@drivers/driver-error-context";
+import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
 import {
   bindExecutionTransactionPhases,
@@ -40,7 +36,6 @@ import {
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
-import { attributeOperationBatchError } from "../../batch-error-attribution";
 import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
@@ -227,7 +222,6 @@ export interface ObservationPremise {
 }
 export class OperationContext {
   readonly queries: Queries;
-  readonly modelDependencies = new Set<AnyModel>();
   readonly driver: AnyDriver;
   readonly usesBatch: boolean;
   readonly #ownership: ExecutionOwnership;
@@ -409,7 +403,6 @@ export class OperationContext {
    * attribution (g4/unit03/note.md B-4).
    */
   readonly #callerAttribution: QueryExecutionContext | undefined;
-  readonly checkStorage: PhysicalSchemaCheck | undefined;
   constructor(
     schema: EngineSchema,
     factoryDriver: AnyDriver,
@@ -418,11 +411,8 @@ export class OperationContext {
     binding?: ExecutionBinding,
     prepareBatch = false,
     callerAttribution?: QueryExecutionContext,
-    scope?: CallScope,
-    _lineage: object = factoryDriver,
-    checkStorage?: PhysicalSchemaCheck
+    scope?: CallScope
   ) {
-    this.checkStorage = checkStorage;
     this.scope = scope;
     this.schema = schema;
     this.modelName = modelName;
@@ -450,8 +440,7 @@ export class OperationContext {
       schema,
       this.driver.adapter,
       this.driver.result,
-      scope?.domain,
-      this.modelDependencies
+      scope?.domain
     );
   }
   get attribution(): QueryExecutionContext {
@@ -947,147 +936,6 @@ export class OperationContext {
       return Promise.reject(error);
     }
   }
-  /** Catalog observations plan premises; the same atomic unit enforces them. */
-  private async storageGuards(): Promise<{
-    statements: BatchQuery[];
-    guards: PreparedBatchGuard[];
-  }> {
-    const premises = await this.checkStorage?.(
-      this.#transport,
-      this.attribution,
-      this.modelDependencies
-    );
-    const context = deriveStatementExecutionContext(
-      this.attribution,
-      "$schema",
-      "verifyStorage"
-    );
-    const guards: PreparedBatchGuard[] = [];
-    const statements = (premises ?? []).map(
-      ({ query, failure }, queryIndex) => {
-        guards.push({
-          queryIndex,
-          probe: query,
-          premise: "exists",
-          failure: {
-            kind: "unsupported",
-            message: failure.message,
-            raceable: false,
-          },
-          model:
-            typeof failure.meta.model === "string"
-              ? failure.meta.model
-              : this.modelName,
-          operation: this.operation,
-        });
-        const prepared = this.#transport._prepare(
-          this.driver.adapter.assertions.exists(query),
-          context
-        );
-        return transferPreparedStatement(prepared, { ...prepared, context });
-      }
-    );
-    return { statements, guards };
-  }
-  async #executePhysical<T>(
-    statement: Sql,
-    context: QueryExecutionContext,
-    physical?: { statements: BatchQuery[]; guards: PreparedBatchGuard[] }
-  ): Promise<QueryResult<T>> {
-    if (!this.checkStorage)
-      return this.#transport._execute<T>(statement, context);
-    const guards = physical ?? (await this.storageGuards());
-    if (guards.statements.length === 0)
-      return this.#transport._execute<T>(statement, context);
-    const prepared = this.#transport._prepare(statement, context);
-    const results = await this.#executePhysicalBatch<T>(
-      [transferPreparedStatement(prepared, { ...prepared, context })],
-      undefined,
-      context,
-      undefined,
-      guards
-    );
-    const result = results[0];
-    if (!result)
-      throw new TransactionError(
-        `Driver '${this.driver.driverName}' omitted the result for operation '${this.operation}'.`,
-        { meta: this.#errorMeta }
-      );
-    return result;
-  }
-  async #executePhysicalBatch<T>(
-    statements: readonly BatchQuery[],
-    options?: Parameters<AnyDriver["_executeBatch"]>[1],
-    context?: QueryExecutionContext,
-    acknowledged?: () => Promise<void>,
-    physical?: { statements: BatchQuery[]; guards: PreparedBatchGuard[] }
-  ): Promise<QueryResult<T>[]> {
-    if (!this.checkStorage)
-      return this.#transport._executeBatch<T>(
-        [...statements],
-        options,
-        context,
-        acknowledged
-      );
-    const guards = physical ?? (await this.storageGuards());
-    const combined = [...guards.statements, ...statements];
-    try {
-      const results = await this.#transport._executeBatch<T>(
-        combined,
-        options,
-        context,
-        acknowledged
-      );
-      return results.slice(guards.statements.length);
-    } catch (error) {
-      const attributed = await attributeOperationBatchError(
-        error,
-        guards.guards,
-        this.#transport,
-        combined
-      );
-      // Existing mutation attribution reads indices in its own result window.
-      if (
-        attributed === error &&
-        isVibORMError(error) &&
-        typeof error.meta.statementIndex === "number"
-      )
-        throw remapStatementIndex(
-          error,
-          error.meta.statementIndex - guards.statements.length
-        );
-      throw attributed;
-    }
-  }
-  async prepareStorageBatch(): Promise<
-    PreparedBatchOperation<unknown> | undefined
-  > {
-    const operation = this.preparedBatch();
-    if (!(operation && this.checkStorage)) return operation;
-    const physical = await this.storageGuards();
-    if (physical.statements.length === 0) return operation;
-    const offset = physical.statements.length;
-    return {
-      queries: [
-        ...physical.statements.map((statement) =>
-          transferPreparedStatement(statement, {
-            sql: statement.sql,
-            params: statement.params ?? [],
-            context: statement.context ?? this.attribution,
-          })
-        ),
-        ...operation.queries,
-      ],
-      guards: [
-        ...physical.guards,
-        ...(operation.guards ?? []).map((guard) => ({
-          ...guard,
-          queryIndex: guard.queryIndex + offset,
-        })),
-      ],
-      parseResult: (results) => operation.parseResult(results.slice(offset)),
-    };
-  }
   /** Discard the un-executed plan so the body can be constructed again. */
   #restart(attempt = new TransportAttempt()): void {
     this.#attemptStore = attempt;
@@ -1247,8 +1095,7 @@ export class OperationContext {
   private async answer(
     query: Query,
     terminal: boolean,
-    model?: AnyModel,
-    physical?: { statements: BatchQuery[]; guards: PreparedBatchGuard[] }
+    model?: AnyModel
   ): Promise<QueryResult<Input>> {
     const observer = this.#executingMember;
     if (observer && this.#attemptStore?.holdsOtherMemberWrite(observer))
@@ -1257,7 +1104,7 @@ export class OperationContext {
       ? this.statementContext(model, this.operation)
       : this.attribution;
     return this.dispatch(1, terminal, () =>
-      this.#executePhysical<Input>(query.sql, context, physical)
+      this.#transport._execute<Input>(query.sql, context)
     );
   }
   /**
@@ -1314,15 +1161,12 @@ export class OperationContext {
   async publish(read: Read, missing?: () => Error): Promise<unknown> {
     if (this.#ownership === "batch-preparation")
       return this.publishPrepared(read, missing);
-    const physical = this.checkStorage ? await this.storageGuards() : undefined;
     const positional =
-      (!physical || physical.statements.length === 0) &&
-      this.#ownership === "standalone" &&
-      read.value.kind === "collection"
+      this.#ownership === "standalone" && read.value.kind === "collection"
         ? resolvePositionalResultDriver(this.#transport)
         : undefined;
     if (positional) return this.#publishPositional(read, missing, positional);
-    const response = await this.answer(read.query, true, undefined, physical);
+    const response = await this.answer(read.query, true);
     return this.#decideRead(
       read,
       missing,
@@ -1601,7 +1445,7 @@ export class OperationContext {
     let responses: QueryResult<Input>[];
     try {
       responses = await this.dispatch(statements.length, false, () =>
-        this.#executePhysicalBatch<Input>(
+        this.#transport._executeBatch<Input>(
           statements,
           undefined,
           this.attribution,
@@ -2252,7 +2096,7 @@ export class OperationContext {
       try {
         for (const statement of statements)
           results.push(
-            await this.#executePhysical(statement.sql, statement.context)
+            await this.#transport._execute(statement.sql, statement.context)
           );
       } catch (error) {
         // The same sentence {@link submit}'s catch states about its batch: a
@@ -2458,8 +2302,8 @@ export class OperationContext {
           response = await this.executeMember(async () => {
             try {
               return await this.dispatch(1, false, () =>
-                this.#withMemberRollback(() =>
-                  this.#executePhysical(statement, context)
+                this.#withMemberRollback((driver) =>
+                  driver._execute(statement, context)
                 )
               );
             } catch (error) {
@@ -2471,7 +2315,7 @@ export class OperationContext {
           response = await this.executeMember(
             () =>
               this.dispatch(1, false, () =>
-                this.#executePhysical(statement, context)
+                this.#transport._execute(statement, context)
               ),
             row
           );
@@ -2866,7 +2710,7 @@ export class OperationContext {
     if (!this.usesBatch) {
       answered(
         await this.dispatch(1, false, () =>
-          this.#executePhysical(statement, context)
+          this.#transport._execute(statement, context)
         )
       );
       return;
@@ -3083,7 +2927,7 @@ export class OperationContext {
       let response: QueryResult<Input>;
       try {
         response = await this.dispatch(1, false, () =>
-          this.#executePhysical<Input>(statement, context)
+          this.#transport._execute<Input>(statement, context)
         );
       } catch (error) {
         if (producer && error instanceof UniqueConstraintError)
@@ -3344,7 +3188,7 @@ export class OperationContext {
       const projection = q.prepareProjection(model, { select });
       if (!adapter.capabilities.supportsReturning) {
         await this.dispatch(1, false, () =>
-          this.#executePhysical(statement, context)
+          this.#transport._execute(statement, context)
         );
         // This read answers "which row did the UPDATE just write?", and only a
         // CURRENT read can: under REPEATABLE READ a consistent read answers
@@ -3372,7 +3216,7 @@ export class OperationContext {
         return { ...published, ...rows[0] };
       }
       const response = await this.dispatch(1, false, () =>
-        this.#executePhysical<Input>(
+        this.#transport._execute<Input>(
           sql`${statement} ${adapter.mutations.returning(
             sql.join(q.lowerProjection(projection), ", ")
           )}`,
@@ -3480,7 +3324,7 @@ export class OperationContext {
         if (this.usesBatch) this.#queue(remove, context, member);
         else {
           const response = await this.dispatch(1, false, () =>
-            this.#executePhysical(remove, context)
+            this.#transport._execute(remove, context)
           );
           if (response.rowCount !== 1) {
             const failure = new TransactionError(
@@ -3768,7 +3612,7 @@ export class OperationContext {
     if (this.usesBatch) this.#queue(statement, context, member);
     else
       await this.dispatch(1, false, () =>
-        this.#executePhysical(statement, context)
+        this.#transport._execute(statement, context)
       );
   }
 }

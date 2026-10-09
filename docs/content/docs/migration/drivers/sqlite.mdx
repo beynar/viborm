@@ -31,6 +31,20 @@ store coefficient strings so large values remain exact. An unmarked TEXT or REAL
 decimal is refused during adoption; values do not establish a column's scale.
 Typed queries apply logical codecs; raw SQL exposes physical storage.
 
+## Adopting decimal columns from another tool
+
+A schema VibORM pushed or migrated is correct by construction, so typed queries
+never inspect storage: a read sends exactly its own statement. Bring a table
+another tool created under VibORM through `viborm push`, `viborm migrate` or a
+baseline, which refuse a decimal column without VibORM's checked scaled-integer
+storage (`V8001`) until a reviewed conversion stores coefficients, or audit it
+first with `viborm check --db`, which reports each such column and exits
+nonzero. Until then, a foreign `REAL`, `NUMERIC` or text decimal column is
+unprotected: typed reads of its rows fail with `V2006`, a filter on it compares
+scaled coefficients with foreign values and can miss or match the wrong rows,
+and a write stores a scaled coefficient before its returned row fails to
+decode.
+
 ## Defaults and reconstruction
 
 ```ts
@@ -97,8 +111,8 @@ SQL, another writer, or a release candidate that stored string input verbatim
 reads back as the right instant, but comparisons can miss or misorder its rows.
 Typed queries do not inspect storage per statement. Run `viborm check --db` to
 count noncanonical values per column; it exits nonzero when any exist. It
-audits a pushed schema: a model table missing from the database fails the
-audit with V2004, so run `viborm push` or apply migrations first.
+audits a pushed schema: a missing model table fails the audit (V2004, or a
+missing decimal column), so run `viborm push` or apply migrations first.
 
 The manual migration helpers quote a physical column name and return a SQLite
 expression. DateTime conversion uses the same calendar, instant range and

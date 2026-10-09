@@ -12,6 +12,7 @@ import {
   decimalColumnType,
   describeDecimalDomain,
   readStoredDecimalDescriptor,
+  sameDecimalDescriptor,
 } from "../../../../validation/primitives/decimal-codec";
 export type DecimalStorageKind = "scalar" | "list";
 interface PhysicalColumn {
@@ -153,6 +154,30 @@ export function readSqliteDecimalConstraint(
     }
   }
   return found;
+}
+
+/**
+ * Whether one catalog column is the checked scaled-integer storage VibORM
+ * writes for `descriptor`: INTEGER (TEXT for a list) carrying exactly that
+ * descriptor's reserved CHECK. Typed queries never ask; `viborm check --db`
+ * does, for a table VibORM did not create.
+ */
+export function isSqliteDecimalStorage(
+  tableSql: string | null | undefined,
+  column: Pick<PhysicalColumn, "name" | "type" | "nullable">,
+  descriptor: DecimalDescriptor,
+  kind: DecimalStorageKind,
+  escapeIdentifier: (name: string) => string
+): boolean {
+  const stored = readSqliteDecimalConstraint(
+    tableSql,
+    column,
+    escapeIdentifier
+  );
+  return (
+    sameDecimalDescriptor(stored, descriptor) &&
+    sqliteDecimalStorageKind({ type: column.type, decimal: stored }) === kind
+  );
 }
 
 /** One top-level entry of a `CREATE TABLE`'s parenthesized definition list. */

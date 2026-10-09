@@ -5,10 +5,12 @@ import Database from "better-sqlite3";
 import { expect, test, vi } from "vitest";
 
 /**
- * Typed statements on a timestamped SQLite model cost what their own SQL
- * costs. 1.0.0 scanned the whole table for noncanonical DateTime text before
- * every statement (two 147 KB statements per findUnique on this shape), so
- * point operations grew linearly with the table. Medians are bounded well
+ * Typed statements on a timestamped, priced SQLite model cost what their own
+ * SQL costs. 1.0.0 scanned the whole table for noncanonical DateTime text
+ * before every statement (two 147 KB statements per findUnique on this shape),
+ * so point operations grew linearly with the table; and a decimal column
+ * wrapped every statement, reads included, in a catalog read plus
+ * BEGIN IMMEDIATE, a storage assertion and COMMIT. Medians are bounded well
  * above an index lookup and far below one scan of 100k rows.
  */
 const post = s
@@ -18,6 +20,7 @@ const post = s
     body: s.string(),
     views: s.int(),
     published: s.boolean(),
+    price: s.decimal({ precision: 10, scale: 2 }),
     publishedAt: s.dateTime().nullable(),
     createdAt: s.dateTime().now(),
     updatedAt: s.dateTime().updatedAt(),
@@ -37,6 +40,7 @@ const row = (id: number) => ({
   body: `body of post ${id} `.repeat(8),
   views: id % 997,
   published: id % 2 === 0,
+  price: `${id % 1000}.${String(id % 100).padStart(2, "0")}`,
   publishedAt: id % 3 === 0 ? null : new Date(EPOCH + id * 60_000),
   createdAt: new Date(EPOCH + id * 1000),
 });
@@ -46,7 +50,7 @@ const median = (values: number[]) =>
 
 test.each([
   1000, 10_000, 100_000,
-])("point operations on a timestamped model send only their own statement at %i rows", async (rows) => {
+])("operations on a timestamped decimal model send only their own statement at %i rows", async (rows) => {
   const handle = new Database(":memory:");
   const client = createClient({ client: handle, schema: { post } });
   try {
@@ -56,8 +60,9 @@ test.each([
         data: Array.from({ length: BATCH }, (_, offset) => row(start + offset)),
       });
     // A spied prepare also bypasses the driver's statement cache, so every
-    // statement that reaches SQLite is recorded.
+    // statement that reaches SQLite is recorded; transaction control is exec.
     const prepare = vi.spyOn(handle, "prepare");
+    const exec = vi.spyOn(handle, "exec");
     const operations: Record<string, (sample: number) => Promise<unknown>> = {
       findUnique: (sample) =>
         client.post.findUnique({ where: { id: sample * 13 + 1 } }),
@@ -70,10 +75,17 @@ test.each([
             },
           },
         }),
+      findManyDecimal: (sample) =>
+        client.post.findMany({
+          where: { price: { gte: `${sample}.00`, lt: `${sample}.02` } },
+          take: 10,
+        }),
+      count: (sample) =>
+        client.post.count({ where: { price: { gt: `${sample * 100}` } } }),
       update: (sample) =>
         client.post.update({
           where: { id: sample * 13 + 2 },
-          data: { title: "edited" },
+          data: { title: "edited", price: "12.34" },
         }),
       create: (sample) => client.post.create({ data: row(rows + 1 + sample) }),
       delete: (sample) =>
@@ -83,10 +95,12 @@ test.each([
       const timings: number[] = [];
       for (let sample = 0; sample < SAMPLES; sample += 1) {
         prepare.mockClear();
+        exec.mockClear();
         const started = performance.now();
         const result = await operation(sample);
         timings.push(performance.now() - started);
         expect(result, name).toBeTruthy();
+        expect(exec, name).not.toHaveBeenCalled();
         const statements = prepare.mock.calls.map(([source]) => source);
         expect(statements, name).toHaveLength(1);
         expect(statements[0]?.length, name).toBeLessThan(MAX_STATEMENT_CHARS);

@@ -1,103 +1,19 @@
 import { sqliteNoncanonicalTemporalCount } from "@adapters/databases/sqlite/storage/datetime";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
-import { createClient as createCoreClient } from "@client/client";
 import { createClient } from "@drivers/sqlite3";
-import type {
-  LifecycleUnit,
-  ObservationCompletion,
-} from "@extensions/observation";
+import { VibORMErrorCode } from "@errors";
 import {
   sqliteCanonicalDateTimeExpression,
   sqliteCanonicalTimeExpression,
 } from "@migrations";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import Database from "better-sqlite3";
 import { expect, test } from "vitest";
-import { BatchOnlyLibSQLDriver } from "./libsql-fixtures";
 
 const product = s.model({
   id: s.int().id(),
   price: s.decimal({ precision: 10, scale: 2 }),
-});
-const event = s.model({ id: s.int().id(), at: s.dateTime() });
-
-test("storage checks cover only tables used by this operation, including cached reads", async () => {
-  const plain = s.model({ id: s.int().id() });
-  const storage = new MemoryCache();
-  const client = createClient({ schema: { plain, product, event } }).$extends(
-    cache({ driver: storage })
-  );
-  try {
-    await client.$executeRawUnsafe(
-      "CREATE TABLE plain (id INTEGER PRIMARY KEY)"
-    );
-    await client.plain.create({ data: { id: 1 } });
-    expect(await client.$withCache({ ttl: 60 }).plain.count()).toBe(1);
-    expect(await client.$withCache({ ttl: 60 }).plain.count()).toBe(1);
-    expect(await client.plain.deleteMany()).toEqual({ count: 1 });
-  } finally {
-    await client.$disconnect();
-    await storage.disconnect();
-  }
-});
-
-test.each([
-  false,
-  true,
-])("a definition change after admission is refused atomically before the write, observing:%s", async (observing) => {
-  const handle = new Database(":memory:");
-  handle.pragma("foreign_keys = ON");
-  let armed = false;
-  const observed: (string | undefined)[] = [];
-  const statementModels: (string | undefined)[] = [];
-  const client = createClient({
-    client: handle,
-    schema: { product },
-  }).$extends({
-    name: "change-storage-after-admission",
-    ...(observing
-      ? {
-          observe(
-            unit: LifecycleUnit,
-            proceed: () => Promise<ObservationCompletion>
-          ) {
-            if (unit.kind === "statement") statementModels.push(unit.model);
-            return proceed();
-          },
-        }
-      : {}),
-    statement(context) {
-      observed.push(context.model);
-      if (armed) {
-        armed = false;
-        handle.exec(
-          "ALTER TABLE product RENAME TO previous_product; CREATE TABLE product (id INTEGER PRIMARY KEY, price REAL NOT NULL); INSERT INTO product VALUES (1, 89.5)"
-        );
-      }
-      return context.statement;
-    },
-  });
-  try {
-    await syncLiveSchema(client);
-    await client.product.create({ data: { id: 1, price: "89.50" } });
-    observed.length = 0;
-    statementModels.length = 0;
-    armed = true;
-    await expect(client.product.deleteMany()).rejects.toThrow("changed");
-    expect(observed).not.toContain("$schema");
-    if (observing) {
-      expect(statementModels).toContain("$schema");
-      expect(statementModels.filter((model) => model !== "$schema")).toEqual(
-        observed
-      );
-    }
-    expect(handle.prepare("SELECT id FROM product").all()).toEqual([{ id: 1 }]);
-  } finally {
-    await client.$disconnect();
-    handle.close();
-  }
 });
 
 test("safe raw SQL refuses a forged fragment from JSON", async () => {
@@ -111,25 +27,49 @@ test("safe raw SQL refuses a forged fragment from JSON", async () => {
   }
 });
 
-test("foreign decimal filters and writes are refused before their effects", async () => {
+/**
+ * VibORM-owned SQLite schemas are correct by construction and typed queries do
+ * not inspect storage. A decimal column another tool created as REAL is
+ * adopted through push/migrate (which refuse it) or audited with
+ * `viborm check --db`; until then the result codec refuses its values.
+ */
+test("a foreign REAL decimal column fails typed reads closed and is refused by push", async () => {
   const client = createClient({ schema: { product } });
   try {
     await client.$executeRawUnsafe(
-      "CREATE TABLE product (id INTEGER PRIMARY KEY, price DECIMAL(10,2) NOT NULL)"
+      "CREATE TABLE product (id INTEGER PRIMARY KEY, price REAL NOT NULL)"
     );
-    await client.$executeRawUnsafe("INSERT INTO product VALUES (1, 89.5)");
+    await client.$executeRawUnsafe(
+      "INSERT INTO product VALUES (1, 89.5), (2, 3)"
+    );
+    const invalid = { code: VibORMErrorCode.QUERY_RESULT_INVALID };
+    await expect(client.product.findMany()).rejects.toMatchObject(invalid);
     await expect(
-      client.product.findMany({ where: { price: { lt: "50" } } })
-    ).rejects.toThrow("scaled-integer");
+      client.product.findUnique({ where: { id: 2 } })
+    ).rejects.toMatchObject(invalid);
     await expect(
-      client.product.updateMany({ data: { price: "59.98" } })
-    ).rejects.toThrow("scaled-integer");
+      client.product.findMany({ where: { price: { lt: "100" } } })
+    ).rejects.toMatchObject(invalid);
     await expect(
-      client.product.deleteMany({ where: { price: { lt: "50" } } })
-    ).rejects.toThrow("scaled-integer");
-    expect(await client.$queryRawUnsafe("SELECT price FROM product")).toEqual([
-      { price: 89.5 },
-    ]);
+      syncLiveSchema(client, { dryRun: true })
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      message: expect.stringContaining("unmarked REAL storage"),
+    });
+    // The documented gap, which `viborm check --db` reports. A filter compares
+    // the scaled coefficient (200) with the foreign value, so a row it fails
+    // to match is never decoded and the read answers without it.
+    expect(
+      await client.product.findMany({ where: { price: { gt: "2" } } })
+    ).toEqual([]);
+    // A write is not checked against foreign storage either: it stores the
+    // scaled coefficient, and only its RETURNING decode fails.
+    await expect(
+      client.product.create({ data: { id: 3, price: "9.99" } })
+    ).rejects.toMatchObject(invalid);
+    expect(
+      await client.$queryRawUnsafe("SELECT price FROM product WHERE id = 3")
+    ).toEqual([{ price: 999 }]);
   } finally {
     await client.$disconnect();
   }
@@ -152,50 +92,6 @@ test("a declared decimal works in direct, callback and array transactions", asyn
       client.product.count({ where: { price: { lt: "60" } } }),
     ]);
     expect(count).toBe(1);
-  } finally {
-    await client.$disconnect();
-  }
-});
-
-test("native libSQL array preparation cannot bypass the carrier check", async () => {
-  const client = createCoreClient({
-    schema: { product },
-    driver: new BatchOnlyLibSQLDriver({ databaseUrl: "file::memory:" }),
-  });
-  try {
-    await client.$executeRawUnsafe(
-      "CREATE TABLE product (id INTEGER PRIMARY KEY, price REAL NOT NULL)"
-    );
-    await client.$executeRawUnsafe("INSERT INTO product VALUES (1, 89.5)");
-    await expect(
-      client.$transaction([
-        client.product.updateMany({ data: { price: "59.98" } }),
-      ])
-    ).rejects.toThrow("scaled-integer");
-    expect(await client.$queryRawUnsafe("SELECT price FROM product")).toEqual([
-      { price: 89.5 },
-    ]);
-  } finally {
-    await client.$disconnect();
-  }
-});
-
-test("a successful read does not attest a later replacement table", async () => {
-  const client = createClient({ schema: { product } });
-  try {
-    await syncLiveSchema(client);
-    await client.product.create({ data: { id: 1, price: "89.50" } });
-    expect(await client.product.count()).toBe(1);
-    await client.$executeRawUnsafe("ALTER TABLE product RENAME TO old_product");
-    await client.$executeRawUnsafe(
-      "CREATE TABLE product (id INTEGER PRIMARY KEY, price REAL NOT NULL)"
-    );
-    await expect(
-      client.product.create({ data: { id: 2, price: "59.98" } })
-    ).rejects.toThrow("scaled-integer");
-    expect(
-      await client.$queryRawUnsafe("SELECT count(*) AS n FROM product")
-    ).toEqual([{ n: 0 }]);
   } finally {
     await client.$disconnect();
   }

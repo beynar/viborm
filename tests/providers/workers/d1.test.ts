@@ -359,6 +359,7 @@ const timestampedPost = s
     id: s.int().id(),
     title: s.string(),
     views: s.int(),
+    price: s.decimal({ precision: 10, scale: 2 }),
     publishedAt: s.dateTime().nullable(),
     createdAt: s.dateTime().now(),
     updatedAt: s.dateTime().updatedAt(),
@@ -366,22 +367,44 @@ const timestampedPost = s
   .map("viborm_d1_timestamped_posts")
   .index(["createdAt"]);
 
-describe("D1 timestamped model", () => {
+const timestampedPriceCheck = sqliteDecimalCheck(
+  { name: "price", nullable: false },
+  { precision: 10, scale: 2 },
+  "scalar",
+  quoteSqliteIdentifier
+);
+
+describe("D1 timestamped decimal model", () => {
   it("serves typed CRUD and range filters with only small statements", async () => {
     await env.DB.exec(
-      "CREATE TABLE viborm_d1_timestamped_posts (id INTEGER PRIMARY KEY, title TEXT NOT NULL, views INTEGER NOT NULL, publishedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)\nCREATE INDEX viborm_d1_timestamped_posts_createdAt ON viborm_d1_timestamped_posts (createdAt)"
+      `CREATE TABLE viborm_d1_timestamped_posts (id INTEGER PRIMARY KEY, title TEXT NOT NULL, views INTEGER NOT NULL, price INTEGER NOT NULL ${timestampedPriceCheck}, publishedAt TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)\nCREATE INDEX viborm_d1_timestamped_posts_createdAt ON viborm_d1_timestamped_posts (createdAt)`
     );
-    // 1.0.0 prepended a 147 KB storage scan per statement, which D1 refuses.
+    // 1.0.0 prepended a 147 KB storage scan per statement, which D1 refuses,
+    // and sent every read on a decimal model as a catalog read plus a batch.
+    const all: string[] = [];
     const statements: string[] = [];
+    let batches = 0;
     const database = new Proxy(env.DB, {
       get(target, key) {
+        if (key === "batch") batches += 1;
         if (key !== "prepare") return Reflect.get(target, key);
         return (query: string) => {
+          all.push(query);
           statements.push(query);
           return target.prepare(query);
         };
       },
     });
+    /** The provider calls one typed read makes: exactly its own statement. */
+    const alone = async <T>(read: () => Promise<T>): Promise<T> => {
+      statements.length = 0;
+      batches = 0;
+      const value = await read();
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).not.toContain("sqlite_schema");
+      expect(batches).toBe(0);
+      return value;
+    };
     const client = createClient({
       schema: { post: timestampedPost },
       database,
@@ -394,42 +417,72 @@ describe("D1 timestamped model", () => {
             id: start + offset,
             title: `post ${start + offset}`,
             views: start + offset,
+            price: `${start + offset}.25`,
             publishedAt: (start + offset) % 2 === 0 ? null : at(start + offset),
             createdAt: at(start + offset),
           })),
         });
-      expect(await client.post.count()).toBe(TIMESTAMPED_ROWS);
-      expect(
-        await client.post.findUnique({
+      expect(await alone(() => client.post.count())).toBe(TIMESTAMPED_ROWS);
+      const seventh = await alone(() =>
+        client.post.findUnique({
           where: { id: 7 },
-          select: { id: true, createdAt: true, publishedAt: true },
+          select: { id: true, price: true, createdAt: true, publishedAt: true },
         })
-      ).toEqual({ id: 7, createdAt: at(7), publishedAt: at(7) });
+      );
+      expect(seventh).toMatchObject({
+        id: 7,
+        createdAt: at(7),
+        publishedAt: at(7),
+      });
+      expect(seventh?.price.toString()).toBe("7.25");
       expect(
-        await client.post.findMany({
-          where: { createdAt: { gte: at(500), lt: at(510) } },
-          select: { id: true },
-          orderBy: { createdAt: "desc" },
-        })
+        await alone(() =>
+          client.post.findMany({
+            where: { createdAt: { gte: at(500), lt: at(510) } },
+            select: { id: true },
+            orderBy: { createdAt: "desc" },
+          })
+        )
       ).toEqual(
         Array.from({ length: 10 }, (_, offset) => ({ id: 509 - offset }))
       );
-      const updated = await client.post.update({
-        where: { id: 7 },
-        data: { title: "edited" },
-      });
-      expect(updated.updatedAt.getTime()).toBeGreaterThan(at(7).getTime());
-      const created = await client.post.create({
-        data: { id: TIMESTAMPED_ROWS + 1, title: "new", views: 0 },
-      });
-      expect(created.createdAt).toEqual(created.updatedAt);
-      await client.post.delete({ where: { id: TIMESTAMPED_ROWS + 1 } });
       expect(
-        await client.post.count({ where: { createdAt: { lt: at(101) } } })
+        await alone(() =>
+          client.post.findMany({
+            where: { price: { lt: "4" } },
+            select: { id: true },
+          })
+        )
+      ).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
+      const updated = await alone(() =>
+        client.post.update({
+          where: { id: 7 },
+          data: { title: "edited", price: "9.99" },
+        })
+      );
+      expect(updated.price.toString()).toBe("9.99");
+      expect(updated.updatedAt.getTime()).toBeGreaterThan(at(7).getTime());
+      const created = await alone(() =>
+        client.post.create({
+          data: {
+            id: TIMESTAMPED_ROWS + 1,
+            title: "new",
+            views: 0,
+            price: "1",
+          },
+        })
+      );
+      expect(created.createdAt).toEqual(created.updatedAt);
+      await alone(() =>
+        client.post.delete({ where: { id: TIMESTAMPED_ROWS + 1 } })
+      );
+      expect(
+        await alone(() =>
+          client.post.count({ where: { createdAt: { lt: at(101) } } })
+        )
       ).toBe(100);
-      expect(statements.length).toBeGreaterThan(TIMESTAMPED_ROWS / 250);
-      for (const statement of statements)
-        expect(statement.length).toBeLessThan(2048);
+      expect(all.length).toBeGreaterThan(TIMESTAMPED_ROWS / 250);
+      for (const statement of all) expect(statement.length).toBeLessThan(2048);
     } finally {
       await client.$disconnect();
     }

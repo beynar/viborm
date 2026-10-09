@@ -162,15 +162,10 @@ export function snapshotExecutionContext(
  */
 export function deriveStatementExecutionContext(
   context: QueryExecutionContext,
-  model: string,
-  operation?: string
+  model: string
 ): QueryExecutionContext {
   const values = trusted(context) ?? snapshotExternalExecutionContext(context);
-  return createTrustedExecutionContext({
-    ...values,
-    model,
-    ...(operation === undefined ? {} : { operation }),
-  });
+  return createTrustedExecutionContext({ ...values, model });
 }
 
 /** Read only the chain attached by the trusted context owner. */

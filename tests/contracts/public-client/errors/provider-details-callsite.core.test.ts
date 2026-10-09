@@ -1,6 +1,6 @@
 import { inspect } from "node:util";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { remapStatementIndex } from "@drivers/driver-error-context";
+import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { Driver, type QueryResult } from "@drivers/exports";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import {
@@ -84,7 +84,7 @@ describe("opt-in provider diagnostics and deferred callsites", () => {
         params: ["hidden param"],
       },
     });
-    const clone = remapStatementIndex(error, 2);
+    const clone = attachCommitCertainty(error, "may-have-committed");
     const logged = sanitizeErrorForLogging(clone);
     for (const value of [error, clone, logged]) {
       const json = JSON.stringify(value);
@@ -197,7 +197,9 @@ describe("opt-in provider diagnostics and deferred callsites", () => {
       meta: { callsite: "hidden frame" },
     });
     const json = JSON.stringify(
-      sanitizeErrorForLogging(remapStatementIndex(error, 1))
+      sanitizeErrorForLogging(
+        attachCommitCertainty(error, "may-have-committed")
+      )
     );
     expect(json).toContain("Underlying error details redacted");
     expect(json).not.toContain("no such column");

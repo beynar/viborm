@@ -1,4 +1,4 @@
-import { remapStatementIndex } from "@drivers/driver-error-context";
+import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import {
   createClient,
@@ -60,13 +60,13 @@ describe("expected result domain failures", () => {
       expect(failure.isRetryable()).toBe(false);
       expect(failure.message).not.toContain("Driver");
       expect(failure.message).not.toContain("9007199254740993");
-      const clone = remapStatementIndex(failure, 2);
+      const clone = attachCommitCertainty(failure, "may-have-committed");
       expect(clone).toBeInstanceOf(QueryError);
       expect(clone.meta).toMatchObject({
         model: "entry",
         scalarType: "int",
         reason: "the integer is outside the safe range",
-        statementIndex: 2,
+        commitCertainty: "may-have-committed",
       });
       await expect(
         db.entry.findUnique({ where: { id: "safe" } })

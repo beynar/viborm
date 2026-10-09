@@ -850,7 +850,6 @@ export class Queries {
   readonly schema: EngineSchema;
   readonly adapter: DatabaseAdapter;
   #nextAlias = 0;
-  #modelDependencies: Set<AnyModel> | undefined;
   readonly #views: QueryViews;
   /**
    * The DRIVER's own representation rules (D-17). Scalar meaning is owned by
@@ -872,29 +871,13 @@ export class Queries {
     schema: EngineSchema,
     adapter: DatabaseAdapter,
     result?: DriverResultParser,
-    domain?: PreparedDomain,
-    modelDependencies?: Set<AnyModel>
+    domain?: PreparedDomain
   ) {
     this.schema = schema;
     this.adapter = adapter;
     this.#views = schema.queryViews(adapter);
     this.#result = result;
     this.domain = domain;
-    this.#modelDependencies = modelDependencies;
-  }
-  /** Synchronous statement construction publishes its exact persistent models. */
-  captureModels<T>(build: () => T): {
-    value: T;
-    models: ReadonlySet<AnyModel>;
-  } {
-    const previous = this.#modelDependencies;
-    const models = new Set<AnyModel>();
-    this.#modelDependencies = models;
-    try {
-      return { value: build(), models };
-    } finally {
-      this.#modelDependencies = previous;
-    }
   }
   /** This view's `Queries` reading under `domain`. */
   under(domain: PreparedDomain): Queries {
@@ -1014,7 +997,6 @@ export class Queries {
     return this.alias();
   }
   table(model: AnyModel, alias?: string): Sql {
-    this.#modelDependencies?.add(model);
     return this.adapter.identifiers.table(model["~"].names.sql!, alias);
   }
   column(model: AnyModel, field: string, alias?: string): Sql {

@@ -394,15 +394,12 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
         context,
         fallbackOperation
       );
-      // Storage attestations are protected core statements, not user SQL.
-      if (executionContext.model !== "$schema") {
-        transformed = applyStatementTransforms(
-          query,
-          executionContext.model,
-          executionContext.operation ?? fallbackOperation,
-          transforms
-        );
-      }
+      transformed = applyStatementTransforms(
+        query,
+        executionContext.model,
+        executionContext.operation ?? fallbackOperation,
+        transforms
+      );
     }
     assertStatementBindParameterCapacity(
       transformed,
