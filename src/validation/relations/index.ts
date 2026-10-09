@@ -112,7 +112,9 @@ const toManySchemas = <
 ) => {
   const state = relation["~"].state as S;
   return {
-    filter: v.lazy(() => toManyFilterFactory(resolved, targetSchemas)),
+    filter: v.lazy(() =>
+      toManyFilterFactory<Source, Key, S, T>(resolved, targetSchemas)
+    ),
     create: v.lazy(() =>
       toManyCreateFactory<Source, Key, S, T>(resolved, targetSchemas)
     ),
@@ -153,7 +155,7 @@ export type ToManySchemas<
   Key,
   S extends RelationState,
 > = {
-  filter: ToManyFilterSchema<S>;
+  filter: ToManyFilterSchema<Source, Key, S>;
   create: ToManyCreateSchema<Source, Key, S>;
   update: ToManyUpdateSchema<Source, Key, S>;
   select: ToManySelectSchema<Source, Key, S>;

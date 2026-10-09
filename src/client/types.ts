@@ -912,26 +912,39 @@ type WhereModelKeys<M extends Model<any>> =
   | keyof M["~"]["state"]["shape"]
   | WhereLogicalKey;
 
+/** The unknown keys inside the quantifiers `Q` a relation filter spelled. */
+type QuantifiedWhereUnknownKeys<
+  Given,
+  R extends AnyRelation,
+  Seen,
+  Q extends PropertyKey,
+> = {
+  [K in Extract<SpelledClauseKeys<Given>, Q>]: WhereUnknownKeys<
+    ValueAt<Given, K>,
+    GetTargetModel<R>,
+    Seen
+  >;
+}[Extract<SpelledClauseKeys<Given>, Q>];
+
+/**
+ * A spelled `recurse` selects the recursive filter on either cardinality (the
+ * runtime dispatcher's rule), so its quantifiers are walked and its option bag
+ * is sealed exactly as on the select side.
+ */
 type RelationWhereUnknownKeys<
   Given,
   R extends AnyRelation,
   Seen,
 > = TargetKind<R> extends "model"
-  ? Cardinality<R> extends "one"
-    ? [Extract<SpelledClauseKeys<Given>, "is" | "isNot">] extends [never]
-      ? WhereUnknownKeys<Given, GetTargetModel<R>, Seen>
-      : {
-          [Q in Extract<
-            SpelledClauseKeys<Given>,
-            "is" | "isNot"
-          >]: WhereUnknownKeys<ValueAt<Given, Q>, GetTargetModel<R>, Seen>;
-        }[Extract<SpelledClauseKeys<Given>, "is" | "isNot">]
-    : {
-        [Q in Extract<
-          SpelledClauseKeys<Given>,
-          "some" | "every" | "none"
-        >]: WhereUnknownKeys<ValueAt<Given, Q>, GetTargetModel<R>, Seen>;
-      }[Extract<SpelledClauseKeys<Given>, "some" | "every" | "none">]
+  ? "recurse" extends SpelledClauseKeys<Given>
+    ?
+        | QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
+        | MisspelledRecurrenceKeys<ValueAt<Given, "recurse">>
+    : Cardinality<R> extends "one"
+      ? [Extract<SpelledClauseKeys<Given>, "is" | "isNot">] extends [never]
+        ? WhereUnknownKeys<Given, GetTargetModel<R>, Seen>
+        : QuantifiedWhereUnknownKeys<Given, R, Seen, "is" | "isNot">
+      : QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
   : never; // Variant tagged filters require their existing entry discrimination.
 
 type WhereUnknownKeys<
