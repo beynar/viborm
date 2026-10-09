@@ -3161,17 +3161,23 @@ describe("PostgreSQL DDL Generation", () => {
       );
     });
 
-    it("adds values in place unless a later operation of the batch uses one", () => {
+    it("adds values in place unless a later operation of the batch reads one", () => {
       const column = (type: string, fallback?: string): ColumnDef => ({
         name: "state",
         type,
         nullable: false,
         ...(fallback === undefined ? {} : { default: fallback }),
       });
-      const table = (name: string, columns: ColumnDef[]) => ({
+      const index = (where: string) => ({
+        name: "users_state_idx",
+        columns: ["state"],
+        unique: false,
+        where,
+      });
+      const table = (name: string, columns: ColumnDef[], where?: string) => ({
         name,
         columns,
-        indexes: [],
+        indexes: where === undefined ? [] : [index(where)],
         foreignKeys: [],
         uniqueConstraints: [],
       });
@@ -3201,6 +3207,18 @@ describe("PostgreSQL DDL Generation", () => {
             tableName: "users",
             column: column("status_enum", "'inactive'"),
           },
+          {
+            type: "alterColumn",
+            tableName: "users",
+            columnName: "state",
+            from: column("status_enum"),
+            to: column("status_enum[]"),
+          },
+          {
+            type: "createIndex",
+            tableName: "users",
+            index: index(`"state" = 'active'`),
+          },
         ])
       ).toEqual([
         `ALTER TYPE "status_enum" ADD VALUE 'pending' BEFORE 'inactive'`,
@@ -3222,6 +3240,23 @@ describe("PostgreSQL DDL Generation", () => {
         {
           type: "createTable",
           table: table("audits", [column("status_enum", "'archived'")]),
+        },
+        {
+          type: "createTable",
+          table: table("audits", [column("status_enum")], `state = 'pending'`),
+        },
+        {
+          type: "createIndex",
+          tableName: "users",
+          index: index(`"state" = 'archived'`),
+        },
+        // Stored text may already hold an added label.
+        {
+          type: "alterColumn",
+          tableName: "users",
+          columnName: "state",
+          from: column("text"),
+          to: column("status_enum"),
         },
       ];
       for (const use of uses)

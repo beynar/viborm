@@ -29,7 +29,12 @@ import {
   postgresTextToUuidGuard,
 } from "../../identifier-conversion";
 import type { NativeRenameOperation } from "../../native-rename";
-import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
+import type {
+  ColumnDef,
+  IndexDef,
+  SchemaSnapshot,
+  TableDef,
+} from "../../types";
 import { derivedMigrationName } from "../../utils";
 import {
   type AddColumnOperation,
@@ -144,12 +149,17 @@ function snapshotUsesGeoPoint(snapshot: SchemaSnapshot): boolean {
   );
 }
 
+const QUOTED_LITERAL = /^'(.*)'$/s;
+
+const storesEnum = (column: ColumnDef, enumName: string) =>
+  column.type === enumName || column.type === `${enumName}[]`;
+
 /** The labels a default of `enumName`, or of its array, spells. */
 function enumDefaultLabels(
   column: ColumnDef,
   enumName: string
 ): readonly (string | null)[] {
-  if (column.type !== enumName && column.type !== `${enumName}[]`) return [];
+  if (!storesEnum(column, enumName)) return [];
   const literal = column.default
     ?.match(QUOTED_LITERAL)?.[1]
     ?.replaceAll("''", "'");
@@ -158,8 +168,6 @@ function enumDefaultLabels(
     ? [literal]
     : (readArrayLiteralText(literal) ?? []);
 }
-
-const QUOTED_LITERAL = /^'(.*)'$/s;
 
 export class PostgresMigrationDriver extends MigrationDriver {
   readonly dialect = "postgresql" as const;
@@ -1313,21 +1321,39 @@ export class PostgresMigrationDriver extends MigrationDriver {
       before.filter((value) => newValues.includes(value)).join("\0") !==
         newValues.filter((value) => before.includes(value)).join("\0");
     // ADD VALUE only touches the catalog, but PostgreSQL refuses the new value
-    // to every later statement of its transaction (55P04). A default in this
-    // batch naming an added value is such a use; a recreated type admits it.
+    // to every later statement of its transaction (55P04). A later operation
+    // of this batch reads one through a default or a partial-index predicate
+    // naming it, or by casting stored data, which may hold it, into the enum.
+    // A recreated type admits all three.
+    const literals = addValues.map((value) => this.escapeValue(value));
+    const defaultNamesAdded = (column: ColumnDef) => {
+      const labels = enumDefaultLabels(column, enumName);
+      return addValues.some((value) => labels.includes(value));
+    };
+    const predicateNamesAdded = ({ where }: IndexDef) =>
+      literals.some((literal) => where?.includes(literal));
     const usesAddedValue = (context.followingOperations ?? []).some(
-      (operation) =>
-        (operation.type === "createTable"
-          ? operation.table.columns
-          : operation.type === "addColumn"
-            ? [operation.column]
-            : operation.type === "alterColumn"
-              ? [operation.to]
-              : []
-        ).some((column) => {
-          const labels = enumDefaultLabels(column, enumName);
-          return addValues.some((value) => labels.includes(value));
-        })
+      (operation) => {
+        switch (operation.type) {
+          case "createTable":
+            return (
+              operation.table.columns.some(defaultNamesAdded) ||
+              operation.table.indexes.some(predicateNamesAdded)
+            );
+          case "addColumn":
+            return defaultNamesAdded(operation.column);
+          case "alterColumn":
+            return (
+              defaultNamesAdded(operation.to) ||
+              (storesEnum(operation.to, enumName) &&
+                !storesEnum(operation.from, enumName))
+            );
+          case "createIndex":
+            return predicateNamesAdded(operation.index);
+          default:
+            return false;
+        }
+      }
     );
     if (!(removeValues?.length || reordered || usesAddedValue)) {
       const available = new Set(before);

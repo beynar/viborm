@@ -56,16 +56,20 @@ the catalog: tables using the enum are not rewritten, and views, rules and
 CHECK constraints over its columns do not block it.
 
 PostgreSQL forbids using an added value before its transaction commits. When
-the same push or migration makes a new value a default, VibORM instead replaces
-the type in that transaction, which rewrites every table using it. To keep the
-addition catalog-only, add the value in one migration and use it in a later
-one: `apply` and `down` commit after each migration that adds enum values.
+the same push or migration uses a new value, VibORM instead replaces the type
+in that transaction, which rewrites every table using it. A use is a default
+naming the value, a partial-index predicate quoting it, or a column converted
+to the enum, whose stored data may hold it. To keep the addition catalog-only,
+add the value in one migration and use it in a later one: `apply`, `down` and
+`reset` commit after each migration that adds enum values. Reset needs this
+too: before PostgreSQL 17, even a type created in the same transaction refuses
+its added values until they commit.
 
 Removing or reordering values replaces the type in one transaction: dependent
 columns are cast through text, defaults are dropped first and restored after,
-and every table using the enum is rewritten. A view, rule or CHECK constraint
-over such a column blocks the replacement; drop it first and recreate it
-afterwards.
+and every table using the enum is rewritten. A view, rule, CHECK constraint or
+partial-index predicate over such a column blocks the replacement; drop it
+first and recreate it afterwards.
 
 Removed values require explicit per-column mappings, including nullable columns.
 `useNull()` is a deliberate decision. Enum arrays preserve their order and NULL

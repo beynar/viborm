@@ -9,6 +9,7 @@ import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
   groupContiguousAtomicity,
+  stepStatements,
 } from "./compile";
 import {
   appendLedger,
@@ -47,7 +48,6 @@ import {
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
-import { sliceDispatch } from "./sql-blob";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import { eventIdFor } from "./v1-parse";
@@ -208,9 +208,7 @@ export async function applyPathUnderLock(
   const nextPath = marker ? [...marker.path] : [];
   let bootstrapPending = needsBootstrap;
   const statementsOf = ({ transition, blob }: PreparedForwardEdge) =>
-    transition.operations.flatMap((operation) =>
-      operation.steps.map((step) => sliceDispatch(blob, step.execute))
-    );
+    stepStatements(blob, transition.operations);
   for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
     const statements = group.items.flatMap(statementsOf);
     const lifted = liftForeignKeyPragmas(pinned, statements);
@@ -420,12 +418,7 @@ function previewStatements(
   for (const to of path) {
     const transition = parentTransition(graph, from, to);
     const blob = graph.sql.get(graph.states.get(to)!.sqlHash);
-    if (!blob) continue;
-    for (const operation of transition.operations) {
-      for (const step of operation.steps) {
-        statements.push(sliceDispatch(blob, step.execute));
-      }
-    }
+    if (blob) statements.push(...stepStatements(blob, transition.operations));
     from = to;
   }
   return statements;

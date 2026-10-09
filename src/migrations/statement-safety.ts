@@ -847,10 +847,9 @@ function classifyOne(
  * Whether a PostgreSQL migration edge must commit before the next one runs.
  *
  * `ALTER TYPE ... ADD VALUE` cannot be used by a later statement of the
- * transaction that added it (55P04), so apply and rollback end their shared
- * transaction after such an edge. Reset needs no boundary: it replays onto a
- * cleared namespace, and values added to a type created in the same
- * transaction are usable at once.
+ * transaction that added it (55P04), so apply, rollback and reset end their
+ * shared transaction after such an edge. Reset creates the type in its own
+ * transaction, but only PostgreSQL 17 and later exempt such a type's values.
  *
  * The question is PostgreSQL's alone — no other dialect has the statement — so
  * the scan reads PostgreSQL's lexical grammar rather than taking a dialect its

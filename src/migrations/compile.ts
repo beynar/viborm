@@ -40,6 +40,16 @@ export interface CompiledTransition {
   readonly warnings?: readonly string[];
 }
 
+/** The SQL each step of `operations` executes, in order. */
+export function stepStatements(
+  blob: Uint8Array,
+  operations: readonly MigrationOperationV1[]
+): string[] {
+  return operations.flatMap((operation) =>
+    operation.steps.map((step) => sliceDispatch(blob, step.execute))
+  );
+}
+
 /**
  * Contiguous edges of one boundary share a commit, except that an edge adding
  * a PostgreSQL enum value ends its group: a later edge may use that value,
@@ -49,7 +59,7 @@ export function groupContiguousAtomicity<
   T extends { readonly boundary: string },
 >(
   items: readonly T[],
-  statementsOf: (item: T) => readonly string[] = () => []
+  statementsOf: (item: T) => readonly string[]
 ): readonly {
   readonly boundary: T["boundary"];
   readonly items: readonly T[];
@@ -474,13 +484,13 @@ export function classifyStoredAtomicity(
   }
   if (requested === "stepwise") return "stepwise";
   if (driver.dialect === "mysql") return "stepwise";
-  if (blob) {
-    const texts = operations.flatMap((operation) =>
-      operation.steps.map((step) => sliceDispatch(blob, step.execute))
-    );
-    if (texts.some((text) => isNonTransactionalSql(driver, text))) {
-      return "stepwise";
-    }
+  if (
+    blob &&
+    stepStatements(blob, operations).some((text) =>
+      isNonTransactionalSql(driver, text)
+    )
+  ) {
+    return "stepwise";
   }
   return "transactional";
 }
