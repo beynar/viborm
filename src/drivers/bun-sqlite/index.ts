@@ -1,5 +1,8 @@
 import { physicalConnectionQueue } from "../connection-scope";
-import { normalizeSQLiteRawRows } from "../shared/sqlite-utils";
+import {
+  createStatementCache,
+  normalizeSQLiteRawRows,
+} from "../shared/sqlite-utils";
 /**
  * Bun SQLite Driver
  *
@@ -83,6 +86,16 @@ function requireSafeIntegers<T>(
   }
   return stmt;
 }
+
+/**
+ * Every read sets the same mode (safe integers), so one cache serves every
+ * path. `bun:sqlite` is imported only when a database is opened, so the stock
+ * `prepare` is the one the database's own class defines.
+ */
+const cachedStatement = createStatementCache<
+  BunSQLiteStatement,
+  BunSQLiteDatabase
+>((db) => Object.getPrototypeOf(db).prepare);
 
 const UNPAIRED_SURROGATE_PATTERN =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u;
@@ -217,7 +230,7 @@ export class BunSQLiteDriver extends Driver<
     values: unknown[] | undefined,
     typed: boolean
   ): QueryResult<T> {
-    const stmt = db.prepare(sql);
+    const stmt = typed ? cachedStatement(db, sql) : db.prepare(sql);
 
     if (stmt.columnNames.length > 0) {
       // Read once without precision loss, including unsafe raw queries.

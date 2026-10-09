@@ -703,3 +703,56 @@ assert(
 );
 await handleOwner._disconnect();
 console.log("supplied control ownership evidence passed");
+
+// Statement reuse: one native statement per SQL text, reused with unchanged
+// answers; a database whose own `prepare` was replaced sees every call.
+const reuseEntry = s
+  .model({ id: s.int().id(), label: s.string() })
+  .map("bun_sqlite_reuse_entries");
+const reuseOwner = new NativeHandleDriver();
+const reuseHandle = await reuseOwner.borrow();
+reuseHandle.exec(
+  `CREATE TABLE "bun_sqlite_reuse_entries" ("id" INTEGER PRIMARY KEY, "label" TEXT NOT NULL); INSERT INTO "bun_sqlite_reuse_entries" VALUES (7, 'seven')`
+);
+const statementPrototype = Object.getPrototypeOf(
+  reuseHandle.prepare("SELECT 1")
+);
+const safeIntegers = statementPrototype.safeIntegers;
+const readers = new Set<object>();
+statementPrototype.safeIntegers = function (this: object, safe: boolean) {
+  readers.add(this);
+  return safeIntegers.call(this, safe);
+};
+try {
+  const reuseClient = createClient({
+    schema: { reuseEntry },
+    driver: new BunSQLiteDriver({ client: reuseHandle }),
+  });
+  for (let round = 0; round < 3; round++) {
+    const rows = await reuseClient.reuseEntry.findMany();
+    assert(
+      rows.length === 1 && rows[0]?.id === 7 && rows[0]?.label === "seven",
+      `a reused statement changed the answer: ${JSON.stringify(rows)}`
+    );
+  }
+  assert(
+    readers.size === 1,
+    `three identical reads compiled ${readers.size} native statements`
+  );
+  const prepared: string[] = [];
+  const prepare = reuseHandle.prepare.bind(reuseHandle);
+  reuseHandle.prepare = ((text: string) => {
+    prepared.push(text);
+    return prepare(text);
+  }) as typeof reuseHandle.prepare;
+  await reuseClient.reuseEntry.findMany();
+  await reuseClient.reuseEntry.findMany();
+  assert(
+    prepared.length === 2 && prepared[0] === prepared[1],
+    "a replaced prepare did not see every statement"
+  );
+} finally {
+  statementPrototype.safeIntegers = safeIntegers;
+}
+await reuseOwner._disconnect();
+console.log("statement reuse evidence passed");

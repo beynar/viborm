@@ -12,6 +12,7 @@ export const QUERY_ENGINE_CORE_TESTS = Object.freeze([
   "tests/contracts/architecture/gate-inventory-census.core.test.ts",
   "tests/contracts/architecture/geopoint-language-census.core.test.ts",
   "tests/contracts/architecture/system-clock.core.test.ts",
+  "tests/contracts/engine/query/aggregate-window-sql.core.test.ts",
   "tests/contracts/engine/query/batch-attribution-hazard-signature.core.test.ts",
   "tests/contracts/engine/query/bind-budget.core.test.ts",
   "tests/contracts/engine/query/bulk-insert-row-shapes.core.test.ts",

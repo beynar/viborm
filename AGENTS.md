@@ -752,7 +752,7 @@ Query and write core admission is fail-closed in
 or duplicate assignments. Do not replace this manifest with recursive globs,
 because a filename suffix does not prove that a future fixture is provider-free.
 Both halves of the engine are fast layers, not coverage-only lanes:
-`layer-query-engine` executes `QUERY_ENGINE_CORE_TESTS` (77 files) and
+`layer-query-engine` executes `QUERY_ENGINE_CORE_TESTS` (78 files) and
 `layer-write-engine` executes `WRITE_ENGINE_CORE_TESTS` (56 files), so
 `pnpm test:core` and `pnpm test:all` run both. The `coverage-write-engine-core`
 project re-reads those same 56 write files only so the query-core report can

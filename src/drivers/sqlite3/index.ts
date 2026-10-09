@@ -42,6 +42,7 @@ import {
   type TransactionOptionSupport,
 } from "../shared";
 import {
+  createStatementCache,
   normalizeSQLiteRawRows,
   parseSQLiteField,
 } from "../shared/sqlite-utils";
@@ -51,43 +52,17 @@ type SQLite3Database = Database.Database;
 type SQLite3Statement = Database.Statement;
 
 /**
- * Compiling SQL costs about as much as running a small read (~4 µs), and the
- * engine emits the same text for the same query shape, so each database keeps
- * its recent statements: one map for positional reads (raw, safe integers) and
- * one for keyed reads and writes, since a statement's modes are its own state.
- * Only a stock `prepare` is bypassed; a database whose `prepare` was replaced
- * sees every call. Oldest-first eviction bounds the native memory held.
+ * Positional reads (raw rows, safe integers) and keyed reads and writes set
+ * different statement modes, so each keeps its own statement cache.
  */
-const STATEMENT_CACHE_LIMIT = 100;
-const statementCaches = new WeakMap<
-  SQLite3Database,
-  readonly [Map<string, SQLite3Statement>, Map<string, SQLite3Statement>]
->();
 const stockPrepare = Database.prototype.prepare;
-
-function cachedStatement(
-  db: SQLite3Database,
-  sql: string,
-  positional: boolean
-): SQLite3Statement {
-  if (db.prepare !== stockPrepare) return db.prepare(sql);
-  let caches = statementCaches.get(db);
-  if (!caches) {
-    caches = [new Map(), new Map()];
-    statementCaches.set(db, caches);
-  }
-  const cache = caches[positional ? 0 : 1];
-  let statement = cache.get(sql);
-  if (statement === undefined) {
-    statement = db.prepare(sql);
-    if (cache.size === STATEMENT_CACHE_LIMIT)
-      cache.delete(cache.keys().next().value as string);
-  } else {
-    cache.delete(sql);
-  }
-  cache.set(sql, statement);
-  return statement;
-}
+const positionalStatement = createStatementCache<
+  SQLite3Statement,
+  SQLite3Database
+>(() => stockPrepare);
+const keyedStatement = createStatementCache<SQLite3Statement, SQLite3Database>(
+  () => stockPrepare
+);
 
 function convertValuesForSQLite3(values: unknown[]): unknown[] {
   return values.map((parameter) => {
@@ -261,7 +236,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
           return { kind: "borrowed", result };
         }
         const values = convertValuesForSQLite3(params);
-        const prepared = cachedStatement(client, statement, true);
+        const prepared = positionalStatement(client, statement);
         if (!prepared.reader) {
           const result = prepared.run(...values);
           const borrowed = { rows: [], rowCount: result.changes };
@@ -337,7 +312,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     values: unknown[] | undefined,
     typed: boolean
   ): QueryResult<T> {
-    const stmt = typed ? cachedStatement(db, sql, false) : db.prepare(sql);
+    const stmt = typed ? keyedStatement(db, sql) : db.prepare(sql);
 
     if (stmt.reader) {
       // Read once without precision loss. Typed model parsing owns its domain;

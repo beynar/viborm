@@ -399,19 +399,26 @@ describe("FC-05 — one write-outcome composition", () => {
       // Scratch lifetime, unchanged: the write window is ONE batch that
       // creates the scratch, stores the key, binds it, reads it back and drops
       // it; the terminal read is the operation's other window and touches no
-      // scratch at all.
+      // scratch at all. Its batch id is fresh, so the only DELETE is the one
+      // that ends the unit: nothing can be there to clear before the store.
       assert.equal(driver.batches.length, 2, diagnostic);
       const [writeWindow, terminal] = driver.batches;
-      assert.equal(writeWindow!.length, 7, diagnostic);
+      assert.equal(writeWindow!.length, 6, diagnostic);
       assert.equal(
         writeWindow!.filter((statement) =>
           statement.includes("__viborm_batch_refs")
         ).length,
-        6,
+        5,
         diagnostic
       );
-      assert.equal(writeWindow![5], readBacks[0], diagnostic);
-      assert.match(writeWindow![6]!, SCRATCH_CLEANUP, diagnostic);
+      assert.equal(writeWindow![4], readBacks[0], diagnostic);
+      assert.deepEqual(
+        writeWindow!.flatMap((statement, index) =>
+          SCRATCH_CLEANUP.test(statement) ? [index] : []
+        ),
+        [5],
+        diagnostic
+      );
       assert.equal(terminal!.length, 1, diagnostic);
       assert.ok(!terminal![0]!.includes("__viborm_batch_refs"), diagnostic);
     });

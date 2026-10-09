@@ -684,7 +684,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     const capabilities = this.capabilities;
     return {
       setup: withCte.setup,
-      clear: withCte.clear,
       cleanup: withCte.cleanup,
       store: withCte.store,
       read: withCte.read,

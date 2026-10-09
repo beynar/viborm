@@ -44,7 +44,6 @@ export type CastType = "text" | "integer" | "bigint" | "boolean" | "numeric";
  */
 export interface BatchReferenceSqlAdapter {
   setup: (batchId: string) => Sql[];
-  clear: (batchId: string) => Sql;
   cleanup: (batchId: string) => Sql;
   store: (batchId: string, key: string, valueSql: Sql) => Sql;
   read: (batchId: string, key: string) => Sql;

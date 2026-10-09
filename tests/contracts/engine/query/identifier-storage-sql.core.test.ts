@@ -533,7 +533,7 @@ describe("aggregating an identifier column", () => {
     const pgSql = build(pg, user, "aggregate", {
       _min: { id: true },
     }).toStatement("$n");
-    expect(pgSql).toContain(`MIN(CAST("q1"."id" AS TEXT))`);
+    expect(pgSql).toContain(`MIN(CAST("q0"."id" AS TEXT))`);
     expect(pgSql).not.toMatch(BARE_COLUMN_AGGREGATE);
 
     const sqliteSql = build(sqlite, post, "aggregate", {
@@ -542,7 +542,7 @@ describe("aggregating an identifier column", () => {
     // The null guard sits INSIDE the aggregate: SQLite's `hex(NULL)` is the
     // empty string, which would otherwise win every MIN.
     expect(sqliteSql).toContain(
-      `MAX(CASE WHEN "q1"."id" IS NULL THEN NULL ELSE lower(hex("q1"."id")) END)`
+      `MAX(CASE WHEN "q0"."id" IS NULL THEN NULL ELSE lower(hex("q0"."id")) END)`
     );
   });
 
@@ -591,7 +591,7 @@ describe("aggregating an identifier column", () => {
     const statement = build(sqlite, post, "aggregate", {
       _min: { title: true },
     }).toStatement("$n");
-    expect(statement).toContain(`MIN("q1"."title")`);
+    expect(statement).toContain(`MIN("q0"."title")`);
     expect(statement.toUpperCase()).not.toContain("HEX(");
   });
 });

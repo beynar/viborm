@@ -2801,7 +2801,6 @@ export class OperationContext {
     const references = getAdapterInternals(this.driver.adapter).batchRefs;
     attempt.scratchId = crypto.randomUUID();
     for (const setup of references.setup(attempt.scratchId)) this.#queue(setup);
-    this.#queue(references.clear(attempt.scratchId));
     return attempt.scratchId;
   }
   /**

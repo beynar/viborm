@@ -4038,25 +4038,18 @@ export class Queries {
   ): Read {
     switch (operation) {
       case "exist": {
-        const input = this.select(
-          model,
-          { ...args, take: args.take ?? 1 },
-          undefined,
-          {
-            ...ROOT_CANDIDATES,
-            projection: {
-              model,
-              fields: [{ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY }],
-              shape: { kind: "object", fields: {} },
-            },
-          }
-        );
+        // Existence is order-blind and `exist` admits only `where`: the
+        // filtered table itself, with no total order to sort or scan by.
+        const a = this.adapter;
+        const alias = this.#rootAlias();
+        const rows = assembleAdapterSelect(a, {
+          columns: a.literals.true(),
+          from: this.table(model, alias),
+          where: this.lowerWhere(model, args.where, alias),
+        });
         const query: Query = {
-          sql: this.adapter.clauses.select(
-            this.adapter.identifiers.aliased(
-              this.adapter.operators.exists(input.sql),
-              "_count"
-            )
+          sql: a.clauses.select(
+            a.identifiers.aliased(a.operators.exists(rows), "_count")
           ),
           shape: { kind: "object", fields: { _count: BOOLEAN_LEAF } },
           expectedRows: {
@@ -4151,7 +4144,13 @@ export class Queries {
         return unreachable(operation, "read operation");
     }
   }
-  /** One aggregate window: the same filter/order/cursor/page, then aggregates. */
+  /**
+   * One aggregate statement. Aggregates are order-blind, so only a page
+   * (`take`, `skip`, `cursor`) needs a window: the same filter, total order,
+   * cursor and page, aggregated outside it. An unpaged aggregate reads the
+   * filtered table itself, which leaves the provider its count fast path and
+   * covering indexes instead of a key-ordered scan or a sort.
+   */
   private aggregated(
     model: AnyModel,
     args: Arguments,
@@ -4163,6 +4162,25 @@ export class Queries {
     const inner = this.#rootAlias();
     const page = this.#page(model, args, inner, "root");
     const filter = this.lowerWhere(model, args.where, inner);
+    const aggregate = (alias: string, from: Sql, where?: Sql): Query => ({
+      sql: assembleAdapterSelect(a, {
+        columns: sql.join(
+          columns(alias).map(([name, expression]) =>
+            a.identifiers.aliased(expression, name)
+          ),
+          ", "
+        ),
+        from,
+        where,
+      }),
+      shape: shape(alias),
+    });
+    if (
+      page.limit === undefined &&
+      page.offset === undefined &&
+      page.cursor === undefined
+    )
+      return aggregate(inner, this.table(model, inner), filter);
     const window = assembleAdapterSelect(a, {
       columns: fields.length
         ? sql.join(
@@ -4185,18 +4203,7 @@ export class Queries {
       offset: page.offset,
     });
     const outer = this.alias();
-    return {
-      sql: assembleAdapterSelect(a, {
-        columns: sql.join(
-          columns(outer).map(([name, expression]) =>
-            a.identifiers.aliased(expression, name)
-          ),
-          ", "
-        ),
-        from: a.subqueries.correlate(window, outer),
-      }),
-      shape: shape(outer),
-    };
+    return aggregate(outer, a.subqueries.correlate(window, outer));
   }
   /** The admitted aggregate selections, as columns and as decoder leaves. */
   #prepareAggregates(

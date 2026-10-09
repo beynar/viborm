@@ -234,7 +234,6 @@ describe("private adapter seam", () => {
       const [setupStatement] = setup;
       if (!setupStatement) throw new Error("Batch setup statement is absent");
       expectComposable(setupStatement);
-      expectComposable(batchRefs.clear("batch-1"));
       expectComposable(batchRefs.cleanup("batch-1"));
       expectComposable(batchRefs.store("batch-1", "user", sql`SELECT ${1}`));
       expectComposable(batchRefs.read("batch-1", "user"));
