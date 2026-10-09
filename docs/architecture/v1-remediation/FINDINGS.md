@@ -7,12 +7,10 @@ This is a generated reading view of [findings.json](findings.json), the authorit
 | Disposition | Items |
 |---|---:|
 | documented-contract | 92 |
-| implemented-unverified | 2 |
 | not-a-defect | 4 |
 | product-gap | 163 |
 | refuted | 1 |
-| release-pending | 4 |
-| verified-fixed | 289 |
+| verified-fixed | 295 |
 
 ## api-dx
 
@@ -82,7 +80,7 @@ False-default instrumentation diagnostics.includeProviderDetails/includeCallsite
 
 The enum guide now declares one const statusValues tuple, derives StatusValue with indexed access, and passes the same tuple to s.enum().name(). This gives forms and validators an ordinary reusable value/type owner without exposing internal scalar state or adding a second enum API. Documentation validation remains in the final gate.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### api-dx-12: Tenancy recipe: a forgotten tenant compiles, writes cross tenants, and the recipe is copy-paste with a cast
 
@@ -101,9 +99,9 @@ SQLite/PGlite dataDir and the in-memory default remain supported contracts. The 
 
 ### codebase-health-01: npm install viborm installs a 9-month-old 0.1.0 that cannot run the documented quick start
 
-**Disposition:** release-pending. **Review:** high severity; confirmed.
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
 
-V1 metadata and current onboarding are prepared, but the stale-content portion requires verified npm latest publication and matching live documentation. No local package version edit is reported as a published release. A version switcher or archived versioned documentation remains a separate product gap; publication alone does not fix that portion.
+npm latest now resolves to viborm@1.0.0 ([registry record](https://registry.npmjs.org/viborm/1.0.0)). [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607) published the exact tested tarball SHA256 1f5c574ce25f067020945e17b7476ac6c02fdf2cc2d439c9f5cf23b496cb4548 from protected main 3a94e1e8a87f1866449217f96b750ef92264b7ff; registry SRI and decoded [SLSA provenance](https://registry.npmjs.org/-/npm/v1/attestations/viborm@1.0.0) subject/source/workflow match, and the [immutable v1.0.0 release](https://github.com/beynar/viborm/releases/tag/v1.0.0) asset has the same digest. A fresh unversioned install with better-sqlite3 13.0.3 executes the authored SQLite quickstart (one user/post and exact query effects, 3.87s/276.9MiB, verified teardown). [production installation](https://viborm.dev/docs/getting-started) and [production quickstart](https://viborm.dev/docs/getting-started/quick-start) match production deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3; final explicit-Accept readback passes 24/24 checks. The stale-package/content portion is fixed. Archived/versioned documentation and a version switcher remain an explicit product gap.
 
 ### codebase-health-02: Bus factor of one: a single human, no human code review, and no external users
 
@@ -153,15 +151,15 @@ The repository still carries historical evidence and a large engine/test harness
 
 The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### codebase-health-08: Contributor docs are agent work logs: no CONTRIBUTING, stale READMEs, and code comments that cite a private decision log
 
 **Disposition:** verified-fixed. **Review:** low severity; confirmed.
 
-Added concise CONTRIBUTING.md with real safe-runner commands and floor/provider gates; replaced stale large README with a runnable persistent quickstart and links to canonical contracts. Docs/package gate pending.
+Added concise CONTRIBUTING.md with real safe-runner commands and floor/provider gates; replaced stale large README with a runnable persistent quickstart and links to canonical contracts. Final docs and package jobs pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff; [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607) publishes V1, and production deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3 passes the corrected 24/24 public readback.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### codebase-health-09: 83 committed test files (16k lines) are selected by no Vitest project and never run
 
@@ -197,9 +195,9 @@ The repository still carries historical evidence and a large engine/test harness
 
 ### codebase-health-16: Release bookkeeping drift: untagged rc.4, and README and changelog saying rc.5 is unpublished
 
-**Disposition:** implemented-unverified. **Review:** low severity; confirmed.
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
 
-README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+The [immutable v1.0.0 release](https://github.com/beynar/viborm/releases/tag/v1.0.0) resolves to protected main 3a94e1e8a87f1866449217f96b750ef92264b7ff, and [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607) succeeded after protected human approval. The published README says ten extension capabilities and no longer calls V1 unpublished; the October 9 changelog and [production V1 upgrade guide](https://viborm.dev/docs/getting-started/upgrading-to-v1) agree with npm 1.0.0. Production deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3 uses the release docs plus the reviewed one-word six-to-ten callout correction; the served upgrade Markdown SHA256 is e0a6cbafc226c9723575917304c5b67668813ae24d3b983334c98d86861358b4. Final package/source gates, published quickstart and 24/24 production checks pass. Historical missing RC tags remain disclosed; none were fabricated.
 
 ### codebase-health-17: The npm tarball ships 20 stale design specs from the project's first weeks
 
@@ -240,7 +238,7 @@ THIRD_PARTY_NOTICES.md preserves the CUID2 upstream MIT notice. Package files an
 
 **Disposition:** documented-contract. **Review:** high severity; partial.
 
-JSON update schema and query engine now recognize the explicit {set: value} envelope; typed documents validate the contained value. Literal documents with a top-level set key use the explicit envelope to disambiguate. Root admission and engine focused runtime checks passed; final public native type gate remains pending.
+JSON update schema and query engine now recognize the explicit {set: value} envelope; typed documents validate the contained value. Literal documents with a top-level set key use the explicit envelope to disambiguate. Root admission and engine focused runtime checks passed; Final whole-estate native types and installed package consumers pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff; the exact released tarball also passes its Node 22.0 consumer in [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607).
 
 ### data-fidelity-02: SQLite: a top-level JSON integer in [2^53, 2^63) is committed, reported as a failure, and poisons every later read
 
@@ -292,7 +290,7 @@ H16 data/domain mismatch now expected nonretryable QueryError/V2006 at the exist
 
 **Disposition:** verified-fixed. **Review:** medium severity; confirmed.
 
-v.isoTime uses the shared clock domain with integer seconds and canonical millisecond padding. tests/unit/validation/adversarial-values.core.test.ts passed, including second59 fractional values and equivalent spellings; final broad gate pending.
+v.isoTime uses the shared clock domain with integer seconds and canonical millisecond padding. tests/unit/validation/adversarial-values.core.test.ts passed, including second59 fractional values and equivalent spellings; Final core, adapter/provider and coverage jobs pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff.
 
 ### data-fidelity-09: s.time() defaults to timetz but cannot represent an offset; its own NOW() default yields rows it cannot read
 
@@ -455,9 +453,9 @@ PG.JSON.JSON extraction/equality casts to JSONB at the adapter boundary, proven 
 
 **Disposition:** verified-fixed. **Review:** medium severity; confirmed.
 
-Existing adapter text-expression owner casts nontext native PostgreSQL strings for pattern/case operations while preserving native equality and key semantics. XML equality/order are explicit V8003 refusals. Literal equality/membership delegates unwrapped columns to existing exactTextEq/In with native-type hint, preserving MySQL indexed conjunct and preventing doubled collation. Actual PGlite provider8/8 PASS7.35s1949.2MiB within existing2560MiB allowlist, teardown verified; native INET/CIDR/MACADDR/UUID/XML/TSVECTOR/TSQUERY/BIT pattern/fold cases, native MAC/UUID equality and XML equality refusal in tests/providers/local/pglite-adapter-adversarial.test.ts; /tmp/viborm-v1-query-native-string-final.log. Existing focused ordinary predicate SQL/class/list repairs current169 awaiting final driver golden gate; not misrepresented as green.
+Existing adapter text-expression owner casts nontext native PostgreSQL strings for pattern/case operations while preserving native equality and key semantics. XML equality/order are explicit V8003 refusals. Literal equality/membership delegates unwrapped columns to existing exactTextEq/In with native-type hint, preserving MySQL indexed conjunct and preventing doubled collation. Actual PGlite provider8/8 PASS7.35s1949.2MiB within existing2560MiB allowlist, teardown verified; native INET/CIDR/MACADDR/UUID/XML/TSVECTOR/TSQUERY/BIT pattern/fold cases, native MAC/UUID equality and XML equality refusal in tests/providers/local/pglite-adapter-adversarial.test.ts; /tmp/viborm-v1-query-native-string-final.log. The preceding focused/checkpoint counts are historical, not an asserted rerun of the earlier 169-case batch. Later [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff passes core, native-string provider, driver and coverage selections on the final source.
 
-**Additional verification:** Actual PGlite provider8/8 PASS7.35s1949.2MiB within existing2560MiB allowlist, teardown verified; native INET/CIDR/MACADDR/UUID/XML/TSVECTOR/TSQUERY/BIT pattern/fold cases, native MAC/UUID equality and XML equality refusal in tests/providers/local/pglite-adapter-adversarial.test.ts; /tmp/viborm-v1-query-native-string-final.log. Existing focused ordinary predicate SQL/class/list repairs current169 awaiting final driver golden gate; not misrepresented as green.
+**Additional verification:** Actual PGlite provider8/8 PASS7.35s1949.2MiB within existing2560MiB allowlist, teardown verified; native INET/CIDR/MACADDR/UUID/XML/TSVECTOR/TSQUERY/BIT pattern/fold cases, native MAC/UUID equality and XML equality refusal in tests/providers/local/pglite-adapter-adversarial.test.ts; /tmp/viborm-v1-query-native-string-final.log. The preceding focused/checkpoint counts are historical, not an asserted rerun of the earlier 169-case batch. Later [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff passes core, native-string provider, driver and coverage selections on the final source.
 
 ### dialect-features-13: PostgreSQL list has compiles to $1 = ANY(col) and cannot use the GIN index VibORM lets you declare
 
@@ -554,7 +552,7 @@ Consistent asc-null-last/desc-null-first and identity/group-column completion fo
 
 Empty suffix preserves SQL NULL and JSON string predicates call typed stringAtPath rather than serialized whole-document text; PostgreSQL whole-document extract normalizes native json via adapter jsonb owner. Actual SQLite adapter adversarial10/10 (empty non-null suffix, structural JSON scalar/object/array distinctions) and PGlite9/9 (native JSON equality/path strings) passed, plus remote CI3 PostgreSQL/MySQL provider job113368520531. Core7 decoder/operator contracts passed.
 
-**Additional verification:** Engine filter suite passed; root adapter/provider qualification pending.
+**Additional verification:** Historical engine filters and actual SQLite/PGlite provider witnesses passed as recorded in evidence. Final core, adapter/provider and coverage jobs pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff.
 
 ### differential-08: having _min/_max operands are numbers-only for String/DateTime/Boolean: meaningful filters rejected, meaningless ones run with DB-dependent results
 
@@ -645,9 +643,9 @@ Compatibility guide explicitly covers empty/undefined filters, nullable every, e
 
 ### docs-onboarding-01: Every documented install command installs the January 0.1.0 build, which cannot run the docs
 
-**Disposition:** release-pending. **Review:** high severity; confirmed.
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
 
-V1 metadata and current onboarding are prepared, but only verified npm latest publication and the matching released documentation can close this finding. No local package version edit is reported as a published release.
+The unversioned npm install viborm command now selects independently verified 1.0.0 ([registry record](https://registry.npmjs.org/viborm/1.0.0); [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607), source 3a94e1e8a87f1866449217f96b750ef92264b7ff). In a fresh consumer, better-sqlite3 13.0.3 and the exact authored schema/client/config/query fences execute the documented push and quickstart: one user/post, published true, no unpublished posts; 3.87s/276.9MiB, verified teardown. [production installation](https://viborm.dev/docs/getting-started) and [production quickstart](https://viborm.dev/docs/getting-started/quick-start) were read back in HTML and Markdown from production deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3. All 24 production checks and 31 release-content markers pass; the installed package and live onboarding now agree.
 
 ### docs-onboarding-02: The documented `defineConfig({ client })` config file fails to typecheck for every real client
 
@@ -693,13 +691,13 @@ The config/client structural boundary, bundled jiti loader, .env loading, ESM pa
 
 Canonical PGlite configuration now supplies persistent dataDir and explicit model imports, avoiding accidental in-memory schema push and exported enum poisoning.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### docs-onboarding-09: README and docs contradict each other on maturity, transactions, extension capabilities, raw SQL and release status
 
-**Disposition:** implemented-unverified. **Review:** medium severity; confirmed.
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
 
-README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+The released README and production documentation agree on V1 maturity, driver transaction/support tiers, ten extension capabilities (six handlers and four declarative capabilities), raw physical-value semantics and publication status. [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607) and the [immutable v1.0.0 release](https://github.com/beynar/viborm/releases/tag/v1.0.0) bind npm 1.0.0 to source 3a94e1e8a87f1866449217f96b750ef92264b7ff; the fresh published quickstart passes. Deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3 serves the release content plus the reviewed six-to-ten upgrade-callout correction. The [production V1 upgrade guide](https://viborm.dev/docs/getting-started/upgrading-to-v1), [driver matrix](https://viborm.dev/docs/drivers) and [extensions reference](https://viborm.dev/docs/extensions) pass final HTML/Markdown readback, within 24/24 checks and 31 markers. Browser checks confirm SQLite tabs, hydration and the corrected callout with no observed errors. Conditional hosted providers and product gaps remain explicitly limited.
 
 ### docs-onboarding-11: No migrating-from-Prisma/Drizzle guide and no brownfield onboarding path
 
@@ -731,15 +729,15 @@ Maintainer concentration, external adoption, independent human review and commun
 
 **Disposition:** verified-fixed. **Review:** low severity; partial.
 
-Actual immutable artifact6 root/schema strict skipLibCheck:false consumers with only declared runtime dependencies and no optional driver peers pass TS5.8/native (5.45s761.4MiB). Genuine public D1 Session/sqliteResultParser/supplied postgres setup with real worker/postgres and @types/node peers passes both compilers and runtime (5.61s895.9MiB); no fake ambient modules. Named relation emission remains separately H13 pending native rebuild7.
+Actual immutable artifact6 root/schema strict skipLibCheck:false consumers with only declared runtime dependencies and no optional driver peers pass TS5.8/native (5.45s761.4MiB). Genuine public D1 Session/sqliteResultParser/supplied postgres setup with real worker/postgres and @types/node peers passes both compilers and runtime (5.61s895.9MiB); no fake ambient modules. The earlier artifact6 checks are historical. Named cyclic client/factory emission was subsequently qualified by the separate artifact27 118-row matrix and final installed consumers in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff; reconstructing from lossy emitted plain models remains the accepted limitation, not a passing control.
 
 **Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
 
 ### docs-onboarding-10: The live docs (viborm.dev) are two release candidates behind npm and unversioned
 
-**Disposition:** release-pending. **Review:** low severity; partial.
+**Disposition:** verified-fixed. **Review:** low severity; partial.
 
-V1 metadata and current onboarding are prepared, but only verified npm latest publication and the matching released documentation can close this finding. No local package version edit is reported as a published release.
+Production docs now match verified V1 npm latest ([registry record](https://registry.npmjs.org/viborm/1.0.0), [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607), source 3a94e1e8a87f1866449217f96b750ef92264b7ff). Cloudflare deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3 serves the release content plus the reviewed one-word upgrade-callout correction. The canonical build passes with no broken links in 12.37s/1339.6MiB and verified teardown. Final public readback passes 24/24 checks/31 markers in2.033s, including seven release pages in HTML/Markdown, both 404 media types, MCP/card/search and redirects. [production installation](https://viborm.dev/docs/getting-started), [production quickstart](https://viborm.dev/docs/getting-started/quick-start) and [production V1 upgrade guide](https://viborm.dev/docs/getting-started/upgrading-to-v1) are current. The original failed readback is retained; the final harness explicitly requests each intended Accept media type. This fixes stale release content. Archived/versioned docs and a version switcher remain absent and an explicit product gap.
 
 ### docs-onboarding-14: Internal vocabulary leaks into the quick start, docs and CLI
 
@@ -747,7 +745,7 @@ V1 metadata and current onboarding are prepared, but only verified npm latest pu
 
 The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### docs-onboarding-15: The npm README is a stale contributor manual; the advertised agent-first assets don't ship
 
@@ -755,7 +753,7 @@ The obsolete 600+ line query-engine internals page is replaced with the current 
 
 README now starts with executable installation, persistent PGlite schema/client/query and Node CLI usage. Detailed compatibility has one docs owner. No new agent skill/MCP distribution is claimed.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### docs-onboarding-16: The tarball ships 20 obsolete design specs (`readme/`) with retired APIs and broken links
 
@@ -769,7 +767,7 @@ Withdrawn in review Appendix B: published npm-pack artifacts do not ship readme/
 
 The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### docs-onboarding-18: CLI error guidance teaches APIs that don't exist and hides the real error
 
@@ -801,7 +799,7 @@ Quickstart/config/README now use actual package paths, persistent PGlite dataDir
 
 Added a public CLI command reference linked from documentation navigation; configuration now explains skipSchemaValidation and its same-revision viborm-check premise. Existing soft-delete entry documentation remains linked. Documentation validation still required.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### docs-onboarding-22: Positioning is dated and one-sided: Prisma 7 isn't acknowledged, Drizzle is barely mentioned, and the only comparison covers migrations
 
@@ -809,7 +807,7 @@ Added a public CLI command reference linked from documentation navigation; confi
 
 README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### docs-onboarding-24: The upgrade path has no tooling and targets the baseline the registry still serves
 
@@ -987,7 +985,7 @@ Policy model/field/control/mode names fail closed at existing definition/referen
 
 **Disposition:** verified-fixed. **Review:** high severity; confirmed.
 
-JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; full integrated type/package/docs gate remains pending. Multiple-issue aggregation is not claimed.
+JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; final whole-estate types, installed consumers and docs jobs pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff. Multiple-issue aggregation is not claimed.
 
 **Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
 
@@ -1033,9 +1031,9 @@ Default durable invalidation clears whole bound cache scope; opt-out retained. L
 
 ### ecosystem-07: `npm install viborm` installs 0.1.0, which lacks the documented API and entry points
 
-**Disposition:** release-pending. **Review:** medium severity; partial.
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
 
-The prepared package version is1.0.0. Registry latest remains0.1.0 until protected-main Release successfully publishes and is independently verified.
+npm install viborm selects independently verified viborm@1.0.0 ([registry record](https://registry.npmjs.org/viborm/1.0.0)). [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607) publishes the exact tested SHA256 1f5c574ce25f067020945e17b7476ac6c02fdf2cc2d439c9f5cf23b496cb4548 from protected main 3a94e1e8a87f1866449217f96b750ef92264b7ff; registry SRI, decoded [SLSA provenance](https://registry.npmjs.org/-/npm/v1/attestations/viborm@1.0.0) and the [immutable v1.0.0 release](https://github.com/beynar/viborm/releases/tag/v1.0.0) digest/source match. A fresh published consumer executes the exact authored quickstart and verifies 26 documented entry points plus 27 actual public export keys, 3.87s/276.9MiB with teardown verified. The matching [production entry-point reference](https://viborm.dev/docs/getting-started/package-entry-points) passes production HTML/Markdown readback on deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3. The documented V1 API and entry points are now installed from public latest.
 
 ### ecosystem-09: No auth-library adapters (better-auth, Auth.js)
 
@@ -1075,9 +1073,9 @@ Product gap: no cache tag registry or tag-invalidation API was added. Documentat
 
 **Disposition:** verified-fixed. **Review:** medium severity; partial.
 
-Pending model operations now implement the Promise-compatible public surface while retaining lazy operation behavior. tests/types/client/adversarial-results.core.types.ts exercises direct Promise<T> assignment and generic inference through the public client; native15 checked the full estate successfully. Runtime operation/interceptor tests remain selected in core; the next integrated type gate must still pass after unrelated extension representation work.
+Pending model operations now implement the Promise-compatible public surface while retaining lazy operation behavior. tests/types/client/adversarial-results.core.types.ts exercises direct Promise<T> assignment and generic inference through the public client; native15 checked the full estate successfully. Runtime operation/interceptor tests remain selected in core; final types, core and package gates pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff, after the extension representation work.
 
-**Additional verification:** Source implemented; root owns public Promise-position type/runtime qualification; native final gate pending.
+**Additional verification:** The historical public Promise-position source/runtime checks are followed by final native types, core/interceptor runtime tests and installed consumers in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff.
 
 ### ecosystem-19: Standard test doubles do not work on model delegates (vi.spyOn throws, stubs silently ignored)
 
@@ -1163,9 +1161,9 @@ No ERD browser or database/CLI MCP server added. Schema serialization remains av
 
 **Disposition:** verified-fixed. **Review:** low severity; confirmed.
 
-Stale InferDatabase unpublished notice removed; cache prefix examples now use canonical model:operation prefixes and accurately describe whole-scope invalidation. Query owner corrected extension/soft-delete recipes. Documentation validation pending final dependency installation.
+Stale InferDatabase unpublished notice removed; cache prefix examples now use canonical model:operation prefixes and accurately describe whole-scope invalidation. Query owner corrected extension/soft-delete recipes. Final docs and package jobs pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff; [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607) publishes V1, and production deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3 passes the corrected 24/24 public readback.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 
 ## edge-bundle
@@ -1321,7 +1319,7 @@ False-default diagnostics.includeProviderDetails/includeCallsite at existing own
 
 **Disposition:** verified-fixed. **Review:** medium severity; confirmed.
 
-ValidationError now names model.operation when known and includes the path for single-issue failures, without adding caller values. Multiple issues remain available in trusted serialized snapshot. Updated public helper contract pending runtime.
+ValidationError now names model.operation when known and includes the path for single-issue failures, without adding caller values. Multiple issues remain available in trusted serialized snapshot. The earlier focused helper counts remain historical; final public error/core/provider and coverage selections pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff.
 
 **Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
 
@@ -1985,9 +1983,9 @@ Postgres unsafe third query option forwards explicit existing options.prepare:tr
 
 **Disposition:** verified-fixed. **Review:** low severity; confirmed.
 
-MemoryCache defaults1024LRUentries with exact maxEntries option andoneunrefsweep; longTTL uses absolute deadline. LRU,singletimer,above2^31TTL,disconnect,finiteTTL/exact-option runtime regressions passed cache8/8; Native18 subsequently passed. Native18 subsequently passed the current integrated source/public probes; no packaged-backreference completion is inferred.
+MemoryCache defaults1024LRUentries with exact maxEntries option andoneunrefsweep; longTTL uses absolute deadline. LRU,singletimer,above 2^31TTL,disconnect,finiteTTL/exact-option runtime regressions passed cache 8/8; Native18 is a historical source checkpoint. Final types, core/cache coverage and package gates pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff; their separate scope is not reduced to a cache-only proof.
 
-**Additional verification:** LRU,singletimer,above2^31TTL,disconnect,finiteTTL/exact-option runtime regressions passed cache8/8; typecheck pending.
+**Additional verification:** Historical cache 8/8 regressions cover LRU, single timer, TTL above 2^31, disconnect and exact options. Final types, core/cache coverage and installed consumers pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff; no performance or separate packaged-backreference result is inferred from those cache cases.
 
 ### production-ops-20: The built-in logger is a development pretty-printer: ANSI escapes even when not on a TTY, no JSON mode, whole-millisecond durations
 
@@ -2018,7 +2016,7 @@ One canonical DateTime/time boundary and per-operation SQLite storage admission.
 
 Empty suffix preserves SQL NULL and JSON string predicates call typed stringAtPath rather than serialized whole-document text; PostgreSQL whole-document extract normalizes native json via adapter jsonb owner. Actual SQLite adapter adversarial10/10 (empty non-null suffix, structural JSON scalar/object/array distinctions) and PGlite9/9 (native JSON equality/path strings) passed, plus remote CI3 PostgreSQL/MySQL provider job113368520531. Core7 decoder/operator contracts passed.
 
-**Additional verification:** Engine filter suite passed; root adapter/provider qualification pending.
+**Additional verification:** Historical engine filters and actual SQLite/PGlite provider witnesses passed as recorded in evidence. Final core, adapter/provider and coverage jobs pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff.
 
 ### read-api-03: SQLite bigint-list `has` never matches
 
@@ -2181,7 +2179,7 @@ PostgreSQL JSON object assembly chunks50 key/value pairs per jsonb_build_object 
 
 The existing m:n correlation owner lowers target-key IN against the source-filtered junction, preserving parent membership and target-domain predicates. Actual public SQLite include EXPLAIN in sqlite3-adapter-adversarial requires target INTEGER PRIMARY KEY SEARCH, no target SCAN, and source articleId covering-index probe; 7-parent/2-matching-members sliced-page counts remain exact. SQLite provider14/14 then final10/10 passed; /tmp/viborm-v1-query-sqlite-proof-final.log and binary64-final.log. No universal provider cost/timing claim is inferred from this concrete SQLite plan.
 
-**Additional verification:** Existing collection/filter/recursive results passed; real provider plans/timing pending.
+**Additional verification:** Actual public SQLite include EXPLAIN proves a source articleId covering-index probe and target INTEGER PRIMARY KEY SEARCH without target SCAN; sliced-page membership/count assertions remain exact. The unchanged sqlite3-adapter-adversarial fixture passes in the final local-provider job of [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff. Other provider functional selections pass, but universal query-plan guarantees, complexity bounds, per-query latency and an ORM performance comparison were not measured and are not claimed.
 
 ### relations-04: bun-sqlite with a caller-supplied Database never enables foreign keys: referential actions silently do nothing
 
@@ -2321,7 +2319,7 @@ Product/performance gap: the current relation loader is the implemented strategy
 
 **Disposition:** verified-fixed. **Review:** low severity; confirmed.
 
-SchemaValidationError renders existing candidates and repair fields from its frozen issue snapshot; focused text+serialization regression added. Runtime core pending.
+SchemaValidationError renders existing candidates and repair fields from its frozen issue snapshot; focused text+serialization regression added. The historical focused error/rendering checks were followed by final core/schema validation and coverage selections in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff.
 
 **Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
 
@@ -2382,7 +2380,7 @@ No pull/importer was added. Exact baseline authenticates representable physical 
 
 **Disposition:** verified-fixed. **Review:** high severity; confirmed.
 
-JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; full integrated type/package/docs gate remains pending. Multiple-issue aggregation is not claimed.
+JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; final whole-estate types, installed consumers and docs jobs pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff. Multiple-issue aggregation is not claimed.
 
 **Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
 
@@ -2516,9 +2514,9 @@ The fixed decimal descriptor, field-scale average/arithmetic admission, finite n
 
 **Disposition:** verified-fixed. **Review:** low severity; confirmed.
 
-Removed stale README scalar table with invalid s.json(schema)/s.vector(number) forms and obsolete point claim; README uses current public model/query declarations. Package/docs verification pending.
+Removed stale README scalar table with invalid s.json(schema)/s.vector(number) forms and obsolete point claim; README uses current public model/query declarations. Final docs and package jobs pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff; [protected Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607) publishes V1, and production deployment 29a1cd08-daf3-4b5a-b427-eeed32a64bb3 passes the corrected 24/24 public readback.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 
 ## security
@@ -2596,7 +2594,7 @@ Filtering guide explicitly describes omitted undefined values, the unrestricted-
 
 The existing m:n correlation owner lowers target-key IN against the source-filtered junction, preserving parent membership and target-domain predicates. Actual public SQLite include EXPLAIN in sqlite3-adapter-adversarial requires target INTEGER PRIMARY KEY SEARCH, no target SCAN, and source articleId covering-index probe; 7-parent/2-matching-members sliced-page counts remain exact. SQLite provider14/14 then final10/10 passed; /tmp/viborm-v1-query-sqlite-proof-final.log and binary64-final.log. No universal provider cost/timing claim is inferred from this concrete SQLite plan.
 
-**Additional verification:** Existing collection/filter/recursive results passed; real provider plans/timing pending.
+**Additional verification:** Actual public SQLite include EXPLAIN proves a source articleId covering-index probe and target INTEGER PRIMARY KEY SEARCH without target SCAN; sliced-page membership/count assertions remain exact. The unchanged sqlite3-adapter-adversarial fixture passes in the final local-provider job of [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff. Other provider functional selections pass, but universal query-plan guarantees, complexity bounds, per-query latency and an ORM performance comparison were not measured and are not claimed.
 
 ### sql-perf-02: Upsert never uses INSERT ... ON CONFLICT on interactive drivers: 4 statements + BEGIN/COMMIT (6 round trips) instead of 1
 
@@ -2791,9 +2789,9 @@ Stock Neon HTTP 1.2 hosted regression: 6/6 passed; query/transaction .query API,
 
 **Disposition:** verified-fixed. **Review:** low severity; partial.
 
-Confirmed remaining semantics: Sep24 contract drops skipDuplicates with console.warn in borrowed array transactions because members have no rollback grant. The review already knew that warning and proposes refusal instead of dropping; documenting the warning alone is not a repair. Root notified for bounded admission disposition.
+The reviewed Sep24 behavior silently dropped skipDuplicates with a warning in borrowed array members; that historical behavior is superseded. Complete-array/operation plan admission now refuses unsupported suppression before user DML instead of erasing the flag; native SQL skipping and granted interactive savepoints retain support. The exact original no-prefix/effect assertions remain.
 
-**Additional verification:** Dedicated22+array54 passed76/76 on SQLite13.0.3, including zero user DML/earlier array writes before refusal. Old drop-contract suites updated, integrated type/provider qualification pending.
+**Additional verification:** Dedicated22+array54 passed76/76 on SQLite13.0.3, including zero user DML/earlier array writes before refusal. Old drop-contract suites were updated while preserving refusal/no-effect assertions. Final native types, core, local and PostgreSQL/MySQL provider selections pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff.
 
 ### transactions-14: Unsupported transaction options are refused only at runtime, never at the type level
 
@@ -3223,7 +3221,7 @@ Actual Bun SQL on authorized Neon: three separate uniquely named TEMP-only callb
 
 **Disposition:** verified-fixed. **Review:** high severity; confirmed.
 
-D1 binds bigint decimal text, typed SQL CAST/projection retains exact logical values. Direct real Workers/D1 test proves bigint scalar9007199254740993 and negative beyondsafe, bigint PK lookup/filter, foreign-key write and parent/child include both directions. Corrected optional numeric last_row_id metadata: unsafe rounded/sticky ID omitted while exact returned rows remain authoritative; fractional/NaN/infinite metadata refused. Controlled D1 contracts46/46 (/tmp/viborm-v1-d1-meta-final.log); actual affected case1/1 (/tmp/viborm-v1-d1-bigint-final-2.log,5.22s646MiB). Full41 qualification pending current run. Full actual D1 suite41/41 passed5.36s681MiB with verified teardown (/tmp/viborm-v1-d1-all-final.log).
+D1 binds bigint decimal text, typed SQL CAST/projection retains exact logical values. Direct real Workers/D1 test proves bigint scalar9007199254740993 and negative beyondsafe, bigint PK lookup/filter, foreign-key write and parent/child include both directions. Corrected optional numeric last_row_id metadata: unsafe rounded/sticky ID omitted while exact returned rows remain authoritative; fractional/NaN/infinite metadata refused. Controlled D1 contracts46/46 (/tmp/viborm-v1-d1-meta-final.log); actual affected case1/1 (/tmp/viborm-v1-d1-bigint-final-2.log,5.22s646MiB). The earlier single-case checkpoint was followed by the full 41 result recorded below. Full actual D1 suite41/41 passed5.36s681MiB with verified teardown (/tmp/viborm-v1-d1-all-final.log). Final actual Bun/D1 provider and package jobs also pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff.
 
 ### driver-conformance-03: postgres.js: boolean and bigint lists cannot be created, set, pushed or filtered (42804/42883)
 
@@ -3320,7 +3318,7 @@ Existing JsonNull/DbNull identities are admitted for defaults and existing schem
 
 Supported query-call refusal repairs: five caller-only key portability/transition checks, FieldRef scope/domain/hidden tokens, relation/count/distance cursors and rejected recursive cycles use V8003; collection phase order is now L3 V4001 before any DML at all depths. Actual SQLite5/5, engine22/22 within135/135 correction batch, L3+OwnWrite283/283 and D1worker40/40 prove no prefix/success leakage and positive canonical compositions. Native18 passed. Deep static data/operator exactness remains explicitly separated in type-soundness02/type-perf05; new cursor/row-lock/expression-update APIs remain product gaps.
 
-**Additional verification:** Current full-native12 public write and declaration estate proof precedes query taxonomy followup; existing public number/decimal/compound key refusal execution goldens updated, final focused run pending. Root owns schema/declaration taxonomy and physical invalid DDL disposition.
+**Additional verification:** The historical full-native12 and135/135 query correction checkpoints are recorded in evidence; no new focused count is invented. Final types, core, operation schemas, provider and coverage selections pass in [exact-main CI17](https://github.com/beynar/viborm/actions/runs/37908218170) at 3a94e1e8a87f1866449217f96b750ef92264b7ff. Deep static data/operator exactness and unsupported new APIs remain separately scoped; a passing aggregate does not expand that support.
 
 
 ## geo-vector-oracle
@@ -3581,7 +3579,7 @@ Direct collection only/variants envelopes intersect a literal key refusal, prese
 
 README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and ten extension capabilities (six handlers and four declarative capabilities). The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
 
-**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; these are historical checkpoints. Final exact-main CI17 and Release 37908244607 pass; the matching website is deployed as 29a1cd08-daf3-4b5a-b427-eeed32a64bb3, with 24/24 HTTP checks and all 31 release-content markers passing (release-evidence.json).
 
 ### prisma8-horizon-02: No query guardrails: nothing can block an unfiltered deleteMany/updateMany or an unbounded read (Prisma 8 ships lints() and budgets())
 

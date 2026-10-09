@@ -1,0 +1,531 @@
+{
+  "scope": "Observed release evidence, 2026-10-09; historical suites are identified separately. This receipt does not assert untested features or independently verify the Sigstore certificate chain.",
+  "source": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+  "publication": {
+    "observedAtUtc": "2026-10-09T10:44:33.865299+00:00",
+    "version": "1.0.0",
+    "latest": "1.0.0",
+    "npm": "https://www.npmjs.com/package/viborm",
+    "registry": "https://registry.npmjs.org/viborm/1.0.0",
+    "releaseRun": "https://github.com/beynar/viborm/actions/runs/37908244607",
+    "allEightReleaseJobsSuccessful": true,
+    "tarball": {
+      "tarballUrl": "https://registry.npmjs.org/viborm/-/viborm-1.0.0.tgz",
+      "sha256": "1f5c574ce25f067020945e17b7476ac6c02fdf2cc2d439c9f5cf23b496cb4548",
+      "integrity": "sha512-pFxUM1g1yTNTkj+by/27vvqyfXvbeep22tkMF6uHp2chlEhYoi/xJZUU4H8maSKwPJppCYxBEr01tmhiVFUBkg==",
+      "compressedBytes": 2043786,
+      "unpackedBytes": 7937510,
+      "fileCount": 205,
+      "allArchiveIdentityChecksMatch": true,
+      "readmeTenCapabilities": true
+    },
+    "github": {
+      "url": "https://github.com/beynar/viborm/releases/tag/v1.0.0",
+      "tag": "v1.0.0",
+      "tagObjectSha": "2599f7f98dfc0287375354290f7c0177fb2bc295",
+      "resolvedCommit": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+      "immutable": true,
+      "publishedAt": "2026-10-09T10:40:07Z",
+      "archiveAsset": {
+        "url": "https://github.com/beynar/viborm/releases/download/v1.0.0/viborm-1.0.0.tgz",
+        "digest": "sha256:1f5c574ce25f067020945e17b7476ac6c02fdf2cc2d439c9f5cf23b496cb4548",
+        "size": 2043786
+      },
+      "publishedManifestMatchesTestedManifest": true
+    },
+    "provenance": {
+      "url": "https://registry.npmjs.org/-/npm/v1/attestations/viborm@1.0.0",
+      "predicateType": "https://slsa.dev/provenance/v1",
+      "subjectDigestMatchesDownloadedArchive": true,
+      "sourceCommitMatches": true,
+      "workflow": {
+        "ref": "refs/heads/main",
+        "repository": "https://github.com/beynar/viborm",
+        "path": ".github/workflows/release.yml"
+      },
+      "invocationId": "https://github.com/beynar/viborm/actions/runs/37908244607/attempts/1",
+      "sigstoreTransparencyLog": "https://search.sigstore.dev/?logIndex=3162937735",
+      "verificationScope": "Registry serves signed publish and SLSA provenance bundles; decoded subject/source/workflow/run match. Publish job confirms signed provenance and transparency-log publication. This receipt does not independently verify the Sigstore certificate chain."
+    },
+    "packageQualification": {
+      "cases": 33,
+      "groupedCompilerScenarios": 53,
+      "wallSeconds": 227.03,
+      "peakRssMiB": 1208.6,
+      "aggregateRssCeilingMiB": 1536,
+      "exactNodeFloor": "22.0.0",
+      "strictPublint": "passed",
+      "esmAttw": "passed; expected ignored Node10/CommonJS diagnostics remain visible",
+      "teardownVerified": true
+    }
+  },
+  "publishedQuickstart": {
+    "status": "passed",
+    "node": "v24.14.0",
+    "sqlitePeerVersion": "13.0.3",
+    "commands": [
+      "npm install viborm",
+      "npm install better-sqlite3",
+      "npx viborm push"
+    ],
+    "wallSeconds": 3.87,
+    "peakRssMiB": 276.9,
+    "teardownVerified": true,
+    "isolatedConsumer": true,
+    "sourcePages": [
+      {
+        "path": "docs/content/docs/getting-started/index.mdx",
+        "sha256": "4bddb0ba1cf3e2d343cf569c4f87252c4d75ef8e287b8e40c4717b7d67571d87"
+      },
+      {
+        "path": "docs/content/docs/getting-started/quick-start.mdx",
+        "sha256": "abb2eb0ded114125355e2bb0a203c410d8e6114abadf08d8bc7060776699cd98"
+      },
+      {
+        "path": "docs/content/docs/getting-started/package-entry-points.mdx",
+        "sha256": "2a2d8f3617f1d72060f860fddf48762a0fc2dc050a91638ccc519dfe9607e82d"
+      }
+    ],
+    "exactFenceSha256": {
+      "src/db/schema.ts": "7b11b2526f4124ff207b15376309a938098454fbd093b1241dcd6305d695555b",
+      "src/db/client.ts": "536185b8b5b696492c0999c8a72db12ba8295575388f41aa8418887b8e63e20a",
+      "viborm.config.ts": "f8eccd7911659f6155dab2220e7129e891476eaabfdf9dfba4fe85fb670c80e0",
+      "src/index.ts": "06f7807d9fa107efee950eb65f7e84ff894bd0cbadef09314c2782f6acb6f000"
+    },
+    "result": {
+      "version": "1.0.0",
+      "users": 1,
+      "posts": 1,
+      "published": true,
+      "unpublishedPosts": 0,
+      "exactAuthoredQueryFenceExecuted": true,
+      "exports": [
+        ".",
+        "./schema",
+        "./schema/json",
+        "./driver",
+        "./sql",
+        "./pg",
+        "./postgres",
+        "./pglite",
+        "./neon-http",
+        "./bun-sql",
+        "./mysql2",
+        "./planetscale",
+        "./sqlite3",
+        "./libsql",
+        "./d1",
+        "./bun-sqlite",
+        "./cache",
+        "./cache/memory",
+        "./cache/cloudflare-kv",
+        "./migrations",
+        "./migrations/storage/fs",
+        "./config",
+        "./client",
+        "./validation",
+        "./instrumentation",
+        "./soft-delete",
+        "./adapters"
+      ]
+    },
+    "documentedEntryPointsResolved": 26,
+    "scope": "Fresh unversioned public npm install, exact authored SQLite setup/query fences, push into an owned local database. The pre-update include query executed unchanged but its module-local result was not independently asserted."
+  },
+  "documentation": {
+    "origin": "https://viborm.dev",
+    "worker": "viborm-docs-v2",
+    "versionId": "29a1cd08-daf3-4b5a-b427-eeed32a64bb3",
+    "source": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+    "sourceCorrection": {
+      "path": "docs/content/docs/getting-started/upgrading-to-v1.mdx",
+      "change": "six-capability\u2192ten-capability callout only",
+      "sha256": "e0a6cbafc226c9723575917304c5b67668813ae24d3b983334c98d86861358b4",
+      "beforeSha256": "38ea43214a5d8b0c6f7516e5626e1f2e87f9eeb5b73e445065f3421b16176dde"
+    },
+    "validation": "No broken links",
+    "build": {
+      "wallSeconds": 12.37,
+      "peakRssMiB": 1339.6,
+      "rssCeilingMiB": 1536,
+      "teardownVerified": true
+    },
+    "readback": {
+      "startedAt": "2026-10-09T10:52:49.476Z",
+      "completedAt": "2026-10-09T10:52:51.509Z",
+      "passed": true,
+      "checksPassed": 24,
+      "checksAttempted": 24,
+      "releaseContentMarkers": 31,
+      "elapsedSeconds": 2.033,
+      "scriptSha256": "6fd9e292c8f4444ab35225f3ed89a421b8b1db4e8bde83db3fcd90b1c8fdd7db",
+      "receiptSha256": "10ebcef5fe540e8af9465dd0935a20d80c0f6771c037fc0fc6c165b513e848b9",
+      "allManifestInputHashesMatch": true,
+      "retries": 0,
+      "checks": [
+        {
+          "name": "home",
+          "path": "/",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "fcd4d13b0351328ba131aece020556876fdd4eff4b7d7b9596d540221e8a37a2",
+          "passed": true
+        },
+        {
+          "name": "Markdown negotiation",
+          "path": "/docs/schema/scalars/json",
+          "accept": "text/markdown",
+          "status": 200,
+          "sha256": "020ff66beafb7544708f5b4967ed84395a269cf9a86aa0eb6ae279e50f00964b",
+          "passed": true
+        },
+        {
+          "name": "legacy extension redirect",
+          "path": "/docs/client/extensions?from=legacy",
+          "accept": "text/html",
+          "status": 308,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "passed": true
+        },
+        {
+          "name": "page JSON",
+          "path": "/api/docs/pages/docs/schema/scalars/json.json",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "134a4b7e1406e6cd0a159d1065bd705c3fcb78ae81b3ae517440a7f3be3aa75d",
+          "passed": true
+        },
+        {
+          "name": "search",
+          "path": "/api/docs/search?q=JSON",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "6db7da02463f3881c4b1f6a1129581a167a6720e4d20500be2dc555033ee997b",
+          "passed": true
+        },
+        {
+          "name": "blank search problem",
+          "path": "/api/docs/search?q=",
+          "accept": "text/html",
+          "status": 400,
+          "sha256": "f7b00081a19983004be10f471b74095150601f12fe32820c4326ff39e10b8634",
+          "passed": true
+        },
+        {
+          "name": "unknown page HTML",
+          "path": "/docs/no-such-v1-page",
+          "accept": "text/html",
+          "status": 404,
+          "sha256": "403e54b390fb2de6eb4e7ba623d9edcc8db0c6eae4c4ccefa69dc6d39eb6fe4f",
+          "passed": true
+        },
+        {
+          "name": "unknown page problem",
+          "path": "/docs/no-such-v1-page",
+          "accept": "application/problem+json",
+          "status": 404,
+          "sha256": "c4dd500e580898e26974b290b86ebdd7d1bc9483ae65b3d4d9f669c681dc1720",
+          "passed": true
+        },
+        {
+          "name": "MCP server card",
+          "path": "/.well-known/mcp/server-card.json",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "b061c798ab97e2b07ce125622bad5f9bfe8a31b33181743adf6499b3c74d9076",
+          "passed": true
+        },
+        {
+          "name": "MCP initialize (read-only handshake)",
+          "path": "/mcp",
+          "accept": "application/json, text/event-stream",
+          "status": 200,
+          "sha256": "3e901bd7e5c147b8fe7335e670de323147a01773929da3c48937a56aa5cc0a75",
+          "passed": true
+        },
+        {
+          "name": "release page HTML /docs/getting-started",
+          "path": "/docs/getting-started",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "b3123e2b29024f8da75b5f5f1136fd8f20d097343b61619ffb5a839277a83dd0",
+          "passed": true
+        },
+        {
+          "name": "release page Markdown /docs/getting-started",
+          "path": "/docs/getting-started",
+          "accept": "text/markdown",
+          "status": 200,
+          "sha256": "e45f3c59dbf07b21e9f04874557b9b178baabfdecddce6bcad85c9f9c72f0a30",
+          "passed": true
+        },
+        {
+          "name": "release page HTML /docs/getting-started/quick-start",
+          "path": "/docs/getting-started/quick-start",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "b3c849b5c25cb96ffeb005e6876d48860bc6084d7247fca48bd8f106064c154e",
+          "passed": true
+        },
+        {
+          "name": "release page Markdown /docs/getting-started/quick-start",
+          "path": "/docs/getting-started/quick-start",
+          "accept": "text/markdown",
+          "status": 200,
+          "sha256": "15c31701327201433303bc21e497324802c14ed9c682e1a5eb3fde1b1f6b47d2",
+          "passed": true
+        },
+        {
+          "name": "release page HTML /docs/getting-started/upgrading-to-v1",
+          "path": "/docs/getting-started/upgrading-to-v1",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "d4c6f00a2f73bbc4eb7a9d19fabb5bca7b80155ded6c82fd0085fdcfe94e085a",
+          "passed": true
+        },
+        {
+          "name": "release page Markdown /docs/getting-started/upgrading-to-v1",
+          "path": "/docs/getting-started/upgrading-to-v1",
+          "accept": "text/markdown",
+          "status": 200,
+          "sha256": "e0a6cbafc226c9723575917304c5b67668813ae24d3b983334c98d86861358b4",
+          "passed": true
+        },
+        {
+          "name": "release page HTML /docs/getting-started/package-entry-points",
+          "path": "/docs/getting-started/package-entry-points",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "d6ad491638793c9b571666906455c67fe1112af19d8e2567ad3ad5642bc95161",
+          "passed": true
+        },
+        {
+          "name": "release page Markdown /docs/getting-started/package-entry-points",
+          "path": "/docs/getting-started/package-entry-points",
+          "accept": "text/markdown",
+          "status": 200,
+          "sha256": "2a2d8f3617f1d72060f860fddf48762a0fc2dc050a91638ccc519dfe9607e82d",
+          "passed": true
+        },
+        {
+          "name": "release page HTML /docs/drivers",
+          "path": "/docs/drivers",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "562d755fd6372a702eff628ee9512b2f28467bf39556200af2a175d8ce27080e",
+          "passed": true
+        },
+        {
+          "name": "release page Markdown /docs/drivers",
+          "path": "/docs/drivers",
+          "accept": "text/markdown",
+          "status": 200,
+          "sha256": "411424b4c555680216bd8efbff9b3b5561eacffdc697a2acdfcc462037b982fd",
+          "passed": true
+        },
+        {
+          "name": "release page HTML /docs/extensions",
+          "path": "/docs/extensions",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "d9e98df2e391c4face160ccc397325bc31f71e785a7417233d2647aeaf3fac0e",
+          "passed": true
+        },
+        {
+          "name": "release page Markdown /docs/extensions",
+          "path": "/docs/extensions",
+          "accept": "text/markdown",
+          "status": 200,
+          "sha256": "c2e1d5cd07bc244adac217cfa625fa59e0279fdb8c0bab09405b17f2899e40dd",
+          "passed": true
+        },
+        {
+          "name": "release page HTML /docs/client/raw-sql",
+          "path": "/docs/client/raw-sql",
+          "accept": "text/html",
+          "status": 200,
+          "sha256": "c282b6bee221f8f98ebe08533a0fa927af8eb26d155c79e947f64d83616db581",
+          "passed": true
+        },
+        {
+          "name": "release page Markdown /docs/client/raw-sql",
+          "path": "/docs/client/raw-sql",
+          "accept": "text/markdown",
+          "status": 200,
+          "sha256": "dc4700eb05edd7cd1fcc3d804ebe18ba24734c2812a186b77de881ac06a332ef",
+          "passed": true
+        }
+      ]
+    },
+    "verificationCorrection": "Harness requested Accept:text/html while asserting JSON404; corrected request now asks explicitly for application/problem+json and an additional HTML404 check remains.",
+    "browser": "Quick-start SQLite tab and upgrade page rendered and inspected at 1280x720; ten-capability callout verified after final deployment; no console warnings/errors. No whole-site or responsive visual qualification claimed.",
+    "productGap": "Versioned/archived docs and a version switcher remain unimplemented."
+  },
+  "ci": {
+    "url": "https://github.com/beynar/viborm/actions/runs/37908218170",
+    "mainSha": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+    "treeSha": "7be41381a4778e84cc6f807956accc75c64d0776",
+    "allEightRequiredJobsGreen": true,
+    "jobs": [
+      {
+        "name": "Coverage gates",
+        "conclusion": "success",
+        "elapsedSeconds": 892,
+        "url": "https://github.com/beynar/viborm/actions/runs/37908218170/job/113746756287"
+      },
+      {
+        "name": "Bun and D1 providers",
+        "conclusion": "success",
+        "elapsedSeconds": 75,
+        "url": "https://github.com/beynar/viborm/actions/runs/37908218170/job/113746756563"
+      },
+      {
+        "name": "Package contract (Node 22.12.0)",
+        "conclusion": "success",
+        "elapsedSeconds": 305,
+        "url": "https://github.com/beynar/viborm/actions/runs/37908218170/job/113746756566"
+      },
+      {
+        "name": "Core tests",
+        "conclusion": "success",
+        "elapsedSeconds": 216,
+        "url": "https://github.com/beynar/viborm/actions/runs/37908218170/job/113746756593"
+      },
+      {
+        "name": "Types, format, and docs",
+        "conclusion": "success",
+        "elapsedSeconds": 111,
+        "url": "https://github.com/beynar/viborm/actions/runs/37908218170/job/113746756660"
+      },
+      {
+        "name": "PostgreSQL and MySQL providers",
+        "conclusion": "success",
+        "elapsedSeconds": 311,
+        "url": "https://github.com/beynar/viborm/actions/runs/37908218170/job/113746756687"
+      },
+      {
+        "name": "Package contract (Node 24)",
+        "conclusion": "success",
+        "elapsedSeconds": 278,
+        "url": "https://github.com/beynar/viborm/actions/runs/37908218170/job/113746756688"
+      },
+      {
+        "name": "Local providers",
+        "conclusion": "success",
+        "elapsedSeconds": 1468,
+        "url": "https://github.com/beynar/viborm/actions/runs/37908218170/job/113746756716"
+      }
+    ],
+    "localProviders": {
+      "exactStageCount": 97,
+      "parallelLaneCounts": [24, 24, 24, 24],
+      "allTeardownsVerified": true,
+      "unchangedRssCeilings": true,
+      "peakRssMiB": 1829.1,
+      "ordinaryPeakRssMiB": 851.6,
+      "offlineInstalls": {
+        "count": 3,
+        "seconds": [3.9, 3.9, 3.8],
+        "stepSeconds": 12,
+        "frozenLockfile": true,
+        "downloadedPackages": 0
+      },
+      "allFourOverlapSeconds": 780,
+      "testElapsedSeconds": 1418,
+      "baselineSerialSeconds": 2236,
+      "secondsSaved": 818,
+      "percentShorter": 36.58
+    },
+    "baselineRun": "https://github.com/beynar/viborm/actions/runs/37899858525",
+    "baselineWholeJobSeconds": 2260,
+    "currentWholeJobSeconds": 1468,
+    "scope": "One serial Raptor stage plus four isolated 24-stage lanes. Original stage selection, checks, resource ceilings and coverage floors retained. Measures CI throughput, not ORM runtime speed."
+  },
+  "earlierVerification": {
+    "declarations": {
+      "artifact": 27,
+      "rows": 118,
+      "unexpectedFailures": 0,
+      "scope": "Source and separately emitted consumers; original backend retained; full matrix not repeated on release artifact32."
+    },
+    "neon": {
+      "artifact": 29,
+      "passed": 12,
+      "wallSeconds": 7.69,
+      "peakRssMiB": 527.1,
+      "scope": "Actual TCP/HTTP owned/supplied transports, exact values/year zero, rollback, race and lock witness. Relevant runtime source unchanged afterward. Uniquely owned fixtures remain empty; no hosted DROP/TRUNCATE."
+    },
+    "bunExperiment": "bun-vitest-experiment.md"
+  },
+  "physicalLines": {
+    "baselineCommit": "a4a5b8dc607a9a8db506bd60ddb5125519d8ab0b",
+    "measuredTreeCommit": "47db873f36f1dd71d4644a4034607e218745bda5",
+    "sameTreeAsReleaseSource": true,
+    "method": "Physical LF lines, including comments/blanks and partial last lines; every tracked and reviewed task-untracked file in four perimeters. Unchanged binary .DS_Store excluded in both source counts. Moves count in both gross churn sides; generated/ignored files excluded.",
+    "perimeters": {
+      "src/": {
+        "baselineFiles": 461,
+        "currentFiles": 468,
+        "baselineLines": 141375,
+        "currentLines": 147587,
+        "added": 10223,
+        "removed": 4011,
+        "net": 6212,
+        "percent": 4.394,
+        "churnReconciles": true
+      },
+      "tests/": {
+        "baselineFiles": 1455,
+        "currentFiles": 1503,
+        "baselineLines": 445456,
+        "currentLines": 461216,
+        "added": 19592,
+        "removed": 3832,
+        "net": 15760,
+        "percent": 3.5379,
+        "churnReconciles": true
+      },
+      "scripts/": {
+        "baselineFiles": 60,
+        "currentFiles": 60,
+        "baselineLines": 31694,
+        "currentLines": 32092,
+        "added": 455,
+        "removed": 57,
+        "net": 398,
+        "percent": 1.2558,
+        "churnReconciles": true
+      },
+      "docs/content/": {
+        "baselineFiles": 142,
+        "currentFiles": 144,
+        "baselineLines": 23129,
+        "currentLines": 23200,
+        "added": 1443,
+        "removed": 1372,
+        "net": 71,
+        "percent": 0.307,
+        "churnReconciles": true
+      }
+    },
+    "scope": "The later one-word documentation correction adds no physical lines. Remediation reports/evidence lie outside these four perimeters."
+  },
+  "limitations": [
+    "Already-emitted raw cyclic models cannot independently reconstruct an exact inferred client; exported clients/factories preserve inference.",
+    "Product gaps and documented contracts are explicitly retained in findings.json.",
+    "Dependency advisories in development/build tooling remain open; see dependency-triage.md."
+  ],
+  "ledger": {
+    "path": "findings.json",
+    "items": 555,
+    "uniqueIds": 555,
+    "dispositions": {
+      "documented-contract": 92,
+      "not-a-defect": 4,
+      "product-gap": 163,
+      "refuted": 1,
+      "verified-fixed": 295
+    },
+    "scope": "Original review metadata is retained as historical attribution; current status and final evidence own the remediation disposition."
+  }
+}

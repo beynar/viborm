@@ -6,7 +6,16 @@ The original checkout was 19 commits behind that reviewed base; its pre-existing
 changes remain untouched. Session baseline counts must therefore distinguish
 upstream additions from this remediation.
 
-## Current final qualification
+## Release checkpoint
+
+The [final response](RESPONSE.md) and [ledger](FINDINGS.md) own the completed
+release status: exact-main CI17 and Release 37908244607 pass at `3a94e1e8`;
+V1 is published and the production docs are verified. The focused checkpoints
+below retain their chronology, including failures and then-pending work later
+qualified by those final runs. SQLite EXPLAIN proves the concrete membership
+plan described below; no universal provider timing or ORM benchmark is claimed.
+
+## Earlier focused qualification
 
 Final6 completed all four query-engine coverage projects: **3,176/3,176 tests
 across 242 files**, with 107.49s summed bounded wall time and 1,356.9MiB maximum
@@ -51,7 +60,7 @@ requirement, with evidence in [declaration-backends.md](declaration-backends.md)
 | H25, polymorphic-oracle-02 | The existing slot integrity carrier now checks unknown discriminator, incomplete pairs and forbidden all-null required slots. | Unknown/half-null and orphan presence oracles passed. Schema evolution migration guard is migration-owned. |
 | write-api-03/sql-perf-02 | Eligible scalar live upsert reuses existing targeted ON CONFLICT fold. Stamped, conditional, relation-bearing and non-RETURNING forms retain their existing owners. | Dedicated live SQLite upsert emits one ON CONFLICT statement and no SELECT; stamped/relation routes keep fallback. Cross-provider race evidence remains separately owned. |
 | write-api-08/sql-perf quadratic chunking | Geometric local-window probing bounds the oversized compilation work independently of total remaining suffix. Existing compiled bind counts remain authoritative. | 80,000 rows / 1,000 bind budget produces 80 correct windows while inspecting <1.5 million values; regression passed. |
-| relations-03/sql-perf-01/recursive-projections-02 | Junction membership lowers to target-key IN (source-filtered junction query), allowing source membership lookup before target identity lookup. This applies at ordinary and recursive correlation through the one owner. | Expected collection/filter results passed. Real-provider plans and timing pending; duplicated recursive CTE carrier work remains open. |
+| relations-03/sql-perf-01/recursive-projections-02 | Junction membership lowers to target-key IN (source-filtered junction query), allowing source membership lookup before target identity lookup. This applies at ordinary and recursive correlation through the one owner. | Expected collection/filter results passed. Later actual SQLite EXPLAIN proves a source covering-index probe and target primary-key SEARCH without target SCAN. Universal provider timing remains unmeasured; duplicated recursive CTE carrier work remains open. |
 | SQL existence performance | `exist` uses SELECT EXISTS over the same row-window semantics, projecting a statement-local sentinel. It no longer counts every matching row. | Existing exist behavior and dedicated SQL/refusal oracle passed. |
 
 Additional write remediation:

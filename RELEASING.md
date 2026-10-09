@@ -104,8 +104,9 @@ Release does not rerun the source test estate, coverage, or provider jobs.
 The tarball build and documentation build run in parallel with CI verification;
 publication requires all three plus the Node 22.0.0 exact-artifact consumer.
 The registry consumer, provenance checks, protected environment, and immutable
-GitHub release remain mandatory. Shallow sparse checkouts omit historical
-architecture evidence only from release jobs, not from CI qualification.
+GitHub release remain mandatory. Shallow sparse CI checkouts omit the historical
+Raptor receipt archive; release checkouts omit architecture evidence. All
+executable source and test inputs remain in their respective qualification jobs.
 
 Documentation deployment uses `pnpm --dir docs deploy:cloudflare`. The source
 `docs/wrangler.jsonc` owns the existing Worker identity and custom domain;
