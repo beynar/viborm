@@ -66,10 +66,10 @@ not inserted into caller-written statements.
 ## Identifiers stored as bytes
 
 :::warning
-A key declared with `.uuid()`, `.uuidv7()`, `.ulid()` or `.ksuid()` is stored as
-bytes, not as the string the client returns (see
-[String storage](/docs/schema/scalars/string#storage)). Raw SQL binds exactly
-the value you pass, so `WHERE id = ${user.id}` compares a string with bytes:
+A key declared with `.uuid()`, `.uuidv7()`, `.ulid()` or `.ksuid()`, and every
+foreign key that references one, is stored as bytes, not as the string the
+client returns (see [String storage](/docs/schema/scalars/string#storage)).
+Raw SQL binds exactly the value you pass, so `WHERE id = ${user.id}` compares a string with bytes:
 
 - On SQLite (`BLOB`) and MySQL (`BINARY`) it matches no row. A raw `UPDATE` or
   `DELETE` reports 0 affected rows and raises no error.
@@ -77,7 +77,8 @@ the value you pass, so `WHERE id = ${user.id}` compares a string with bytes:
   `V2001`. An unprefixed `.uuid()` or `.uuidv7()` key is a native `uuid` column
   there, and binding its string works.
 
-A raw `SELECT id` returns the stored bytes, not the identifier string.
+A raw `SELECT id` returns the stored bytes, not the identifier string, except
+for an unprefixed `.uuid()` or `.uuidv7()` key on PostgreSQL.
 :::
 
 VibORM has no public helper that converts an identifier to its stored bytes.

@@ -125,7 +125,7 @@ hand:
 CREATE INDEX documents_embedding_idx ON documents USING hnsw (embedding vector_cosine_ops);
 
 -- IVFFlat index (for very large datasets)
-CREATE INDEX documents_embedding_idx ON documents USING ivfflat (embedding vector_cosine_ops)
+CREATE INDEX documents_embedding_ivf_idx ON documents USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 ```
 
