@@ -68,6 +68,48 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
+- Checkpoint8 closes local docs qualification without a resource exception.
+  Vite's installed sharedConfigBuild retains one config graph; Tailwind stops
+  scanning only architecture evidence and generated dependency aliases. The
+  census retains every live content/page/theme source. Final configuration
+  passes cold9.77s/1460.8MiB and warm10.29s/1420.1MiB, under unchanged448MiB
+  heap/1536MiB RSS/300s. The earlier2048MiB proposal was never applied and is
+  no longer needed locally. Link validation passes2.39s/369.0MiB. The source
+  Wrangler config now owns only deployment identity; CI and deployment use
+  Blume's generated entry, asset binding and routing. Dry run passes
+  0.84s/492.3MiB. Actual local Workers passes nine HTTP/MCP checks, and browser
+  tabs/search/navigation and rendered pages pass without console errors.
+  All120 content routes plus the homepage retain navigation and CSS vocabulary;
+  the intentional JSON snippet adds eight highlighted lines. JS137/fonts27/
+  PNG121 hashes match the previous qualified output. Preview was stopped with
+  verified teardown. Receipt:
+  `/tmp/viborm-v1-docs-final-local-qualification.json`.
+- CI7 at e8e5b5d5c passes both package jobs, core, PostgreSQL/MySQL and Bun/D1.
+  Quality fails only at docs RSS1547.2MiB; coverage passes85CLI tests but
+  branches measure99.65% against100%; local providers expose the stale physical
+  SQLite metadata oracle and the120s Raptor aggregate. Current repairs still
+  require Linux CI. The exact CI Node24.21/V8 runtime passes87CLI tests locally
+  with all metrics100%; the failed loader experiment was fully reverted.
+  Failure-only branch diagnostics preserve the floor/throw, print at most20
+  locations, and pass real-map green/one-miss/25-miss controls. Receipts:
+  `/tmp/viborm-v1-cli-coverage-ci7-final87.log` and
+  `/tmp/viborm-v1-coverage-diagnostics-proof.json`.
+- Raptor's original fixed stage passes102files/1331tests in34.16s/1007.3MiB
+  under unchanged120s/768heap/1536RSS. Scalar seed loops use public createMany;
+  each test keeps its own fresh database and every test body/assertion is
+  unchanged. The affected232tests pass21.75s/865.4MiB. Native44 then checks the
+  complete estate, including these helpers and final CLI tests: zero
+  diagnostics35.89s/5925.1MiB, unchanged8192MiB limit and verified teardown.
+  Logs: `/tmp/viborm-v1-raptor-ci7/full-fixed.log` and
+  `/tmp/viborm-v1-native-44.log`. Current source is unchanged from artifact27;
+  no package rebuild is inferred from test/docs/reporter edits.
+- Current whole-perimeter count: source147305 (+5930/+4.1945%), tests459850
+  (+14394/+3.2313%), scripts31874 (+180/+0.5679%), live content23200
+  (+71/+0.3070%). Build/deploy config and workflows are counted separately;
+  no policy ceiling changed. Receipt `/tmp/viborm-v1-checkpoint8-loc.json`.
+
+### Earlier checkpoint history (superseded by the entries above)
+
 - Final immutable artifact27 passes the complete package suites on both
   runtimes: 43/43 on Node24.14 in107.33s/1224.9MiB and Node22.12 in
   118.67s/1110.2MiB. Every previous scenario remains, recursive JSON output is
@@ -103,7 +145,7 @@ when faulty supported behavior remains.
   consumers, six runtime construction checks and literal-link integrity
   assertions. Three bounded fixture families share compiler startup; 43 test
   cases retain the previous 51 scenarios and add recursive JSON results. Full
-  Node22/24 package qualification against artifact27 is next. No test, resource
+  Node22/24 package qualification against artifact27 subsequently passed. No test, resource
   ceiling, compiler version or runtime bundle setting was weakened.
 - Native43 passes the complete estate with zero diagnostics in34.94s at
   6043.6MiB, unchanged8192MiB/300s limits and verified teardown. The exact
@@ -114,7 +156,7 @@ when faulty supported behavior remains.
   independent union/Date/Decimal/function review pass; no client annotation,
   carrier change or alternate value vocabulary is introduced. Source grows
   only5 lines for this owner correction. Package and backend requalification
-  will use the new immutable27 artifact because declarations have changed.
+  subsequently used the new immutable27 artifact because declarations changed.
 - CI6 runtime repairs now pass171/171 across the seven affected files in
   4.15s/608.8MiB. Direct and prepared-array scalar refusals both retain V2006
   metadata, both SQLite collision tests retain exactly two attempts, and
@@ -123,7 +165,8 @@ when faulty supported behavior remains.
   are preserved. Full validation coverage passes3719 tests across four chunks,
   all metrics100%, largest chunk1090.2MiB. Native42 finds one newly exercised
   JSON-result TS2589 and two test-only schema annotations; the annotations are
-  corrected, and the JSON case is under isolated diagnosis. Native42 is red.
+  corrected; the JSON case was subsequently fixed and qualified in native43
+  and immutable27. Native42 remains recorded as red.
 - Immutable artifact26 builds in2.21s/1011.3MiB. All34 declaration files are
   byte-for-byte identical to qualified25, so its118-row type matrix still
   applies; the new runtime/CLI package must be qualified. Archive2,051,167 bytes,
@@ -139,7 +182,8 @@ when faulty supported behavior remains.
   find retired fixture contracts plus a genuine SQLite constraint identity
   mismatch; Linux package work exceeds one30s child and the300s aggregate.
   Local artifact25 package/type results below remain local evidence, not
-  successful protected CI. The pending docs-only2048MiB decision is unchanged.
+  successful protected CI. The then-pending docs-only2048MiB proposal was
+  superseded by the same-cap checkpoint8 correction above.
 - CLI repair restores dependency CJS interop while both config and custom
   migration readers select only authored own defaults. Exact CLI coverage
   passes85/85 with all four metrics100%,4.07s/783.6MiB, unchanged budgets.
@@ -254,7 +298,8 @@ when faulty supported behavior remains.
   archive. The structural declaration-inspection helper is also being hardened
   against local alias/type-query indirection; its independent consumer compiler
   checks remain intact.
-- A docs-only2048MiB RSS exception is pending Arnaud's explicit approval.
+- Historical proposal, now superseded: a docs-only2048MiB RSS exception was
+  submitted for Arnaud's explicit approval.
   The current1536MiB contract is unchanged. Official Node22.19.0 with512MiB
   heap completed all120 authored routes once at1535.8MiB, then its controlled
   cold repeat failed at1559.3MiB. The512 trial was restored to448; no exception

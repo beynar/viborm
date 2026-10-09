@@ -26,9 +26,9 @@ The [555-item ledger](findings.json) accounts for every indexed finding and PB-1
 with its original title, severity, review classification, disposition and evidence.
 A [readable finding-by-finding response](FINDINGS.md) is generated from that ledger.
 A product gap is not a fixed defect; implemented-unverified means work remains.
-The current disposition is289 verified repairs,163 product gaps,92 documented
-contracts,4 release-dependent findings,2 implemented but unverified documentation
-findings,4 non-defects and1 refuted claim. There are no unassigned pending rows.
+The current disposition is 289 verified repairs, 163 product gaps, 92 documented
+contracts, 4 release-dependent findings, 2 implemented but unverified documentation
+findings, 4 non-defects and 1 refuted claim. There are no unassigned pending rows.
 
 **What changed.**
 
@@ -79,7 +79,7 @@ findings,4 non-defects and1 refuted claim. There are no unassigned pending rows.
 
 | Check | Observed result | Remaining qualification |
 |---|---|---|
-| Whole-estate native typecheck | Artifact27 source, exact recursive JSON result regression and permanent compatibility probes pass with zero diagnostics, 34.94s, 6043.6MiB, unchanged 8192MiB/300s limits. The subsequent package-harness edit passes its focused native check | Final CI revision |
+| Whole-estate native typecheck | Native44 includes the final package harness, CLI regressions and Raptor fixture changes: zero diagnostics, 35.89s, 5925.1MiB, unchanged 8192MiB/300s limits, verified teardown | Final CI revision |
 | Core7, four sequential shards | All9624 tests passed; unchanged resource budgets | Final CI revision |
 | Focused driver/instrumentation integration |132/132 passed, including actual OTel, Neon SDK mocks and poisoned-row taxonomy | Final CI revision |
 | CI6 integration repair |171/171 affected tests pass; SQLite selected-key recovery retains exactly two attempts, direct/array scalar failures retain V2006 metadata, and rejected async validators/callbacks remain contained. All3719 validation tests pass with100% coverage | Final CI revision |
@@ -92,11 +92,12 @@ findings,4 non-defects and1 refuted claim. There are no unassigned pending rows.
 | Installed Node22.12/24.14 consumers | All 43 grouped package cases pass on both runtimes, retaining all 51 previous scenarios and adding recursive JSON output. This includes actual value use across 27 public subpaths, CommonJS/SQLite, extension recipes, absent peers and CLI configuration | Final protected CI |
 | Exported declarations and cyclic models | Artifact27 completes 118 compiler/backend checks with zero unexpected failures; direct JS5.9/native7 and both working tsdown paths preserve strict TS5.8/native7 consumers. All emitted clients have exact literal links and zero elisions/getter functions; dense graphs pass through 96 models. Maximum child 3.878s/846.4MiB | Raw-model reconstruction remains lossy; stock native plugin lacks its expected peer and OXC requires annotations. Current JS backend retained; [full comparison](declaration-backends.md) |
 | Full package qualification | Immutable artifact27 passes 43/43 cases on Node22.12 in 118.67s/1110.2MiB and Node24.14 in 107.33s/1224.9MiB, with verified teardown and unchanged 1536MiB/300s limits. All 676 concrete equality controls and all 20 archive/AST integrity regressions pass | Final protected CI |
-| Documentation build | The overwritten prerender setting is corrected. Node22.19/512MiB completed120 pages once at1535.8MiB, but its cold repeat exceeded1536MiB; Linux CI6 also exceeds the ceiling at1537.7MiB. Current output is unqualified | A docs-only2GiB exception awaits approval; then cold/warm build, validation and final-page inspection |
-| Coverage gates | Recorded local coverage passed every unchanged subsystem floor. CI6 exposed six source-through-jiti CLI failures; restored dependency interop plus authored-default selection now passes85/85 with all four CLI metrics100% | Final CI coverage after the current integration repairs |
+| Documentation build and Worker | Final config passes cold 9.77s/1460.8MiB and warm 10.29s/1420.1MiB under the existing 1536MiB ceiling. Link validation, generated-config dry run, nine Worker HTTP/MCP checks, hydrated tabs/search/navigation and visual inspection pass. All 120 content routes and the landing page retain links and CSS vocabulary; JS/font/image hashes match the earlier qualified output | Final Linux CI and production deployment. No resource exception was applied or is needed locally |
+| Coverage gates | CI7 passes all 85 CLI tests but measures 99.65% branches against the unchanged 100% floor. The final 87 tests pass all four metrics at 100% on the exact CI Node24.21/V8 runtime locally; production loader code is unchanged from checkpoint7. Failure diagnostics now print exact uncovered branch locations and retain the failure | Linux-only branch discrepancy remains unconfirmed until the next CI run |
 | Driver coverage |2017 passed,680 explicit conditional skips across62 current chunks;96.65% statements/lines,92.76% branches,96.16% functions | Final CI revision |
 | Query coverage |3176 tests across242 files pass;94.23% statements/lines,94.33% branches,95.37% functions; peak1356.9MiB | Final CI revision |
-| [Remote CI6 at 31466ea13](https://github.com/beynar/viborm/actions/runs/37874673209) | Core, PostgreSQL/MySQL and Bun/D1 passed. That revision's Node24 package exceeded one 30s case; Node22 exceeded the 300s aggregate. Local-provider and CLI coverage failures are repaired and pass their affected gates; the grouped package harness passes locally on both runtimes. Five remaining ordinary local shards pass 75 tests with six intentional Docker skips | Linux docs memory and protected CI on the current integration repairs |
+| Raptor fixed contracts | All 1331 tests across the original 102 files pass in 34.16s/1007.3MiB under the unchanged 120s aggregate. Public createMany seeds scalar fixtures while preserving fresh databases, parent-before-child order and every test body. The 232 affected tests and full strict native check also pass | Final Linux timing |
+| [Remote CI7 at e8e5b5d5c](https://github.com/beynar/viborm/actions/runs/37879850439) | Both package jobs, core, PostgreSQL/MySQL and Bun/D1 pass. Quality exceeds the docs RSS ceiling; coverage misses one CLI branch; local providers hit the Raptor aggregate ceiling and a stale SQLite error oracle. Current docs and Raptor corrections pass locally, with no budget increases or removed assertions | All eight protected checks on the final revision, then exact-main push CI |
 | Actual D1 |41/41 passed after exact bigint metadata repair; catalog followthrough passes1/1 in actual Workers and2/2 SQLite scope cases, excluding protected internal tables while retaining user tables | Final CI revision |
 | Production dependency audit |0 critical,0 high;2 moderate,1 low | Lower advisories remain disclosed |
 | Patched dependency behavior | Real Prisma loader/merge, HTTP cache and Drizzle witnesses passed | CI repeats the same gate |
@@ -110,10 +111,10 @@ postcss-selector-parser and KaTeX; they are not hidden by ignore rules.
 
 **Size and complexity.** The frozen production-source whole-perimeter count is
 147,305 production-source lines versus 141,375 at the reviewed upstream revision:
-+5,930, or 4.19%. Tests grew 3.21%, scripts 0.47%, live documentation 0.31%, and
++5,930, or 4.19%. Tests grew 3.23%, scripts 0.57%, live documentation 0.31%, and
 benchmarks were unchanged. Counts include new files and both sides of moves,
-comments and blank lines. A later resource-policy amendment must be counted
-separately. Root build configuration and workflows are
+comments and blank lines. No resource-policy amendment was applied.
+Root build configuration and workflows are
 separate from production source. This is controlled growth, not LOC parity.
 New behavior remains with existing semantic owners, but the architecture has
 not become small.
@@ -154,9 +155,10 @@ public API and touch the real provider. A thousand passing assertions about an
 internal alias do not compensate for one customer who cannot install the
 package without collecting every optional driver like supermarket stickers.
 
-The documentation build now needs its own resource-policy hearing. Nothing
-says “lightweight ORM” like waiting for the brochure's third build environment
-to finish negotiating with V8.
+The documentation build was scanning sixteen thousand dependency files for
+CSS classes and keeping three configuration graphs alive. Nothing says
+“lightweight ORM” like the brochure requiring a memory investigation before
+the database package can ship.
 
 Zero codegen is still a real advantage. So are the polymorphic model and the
 work already invested in exact value transport. But “zero codegen” is not the

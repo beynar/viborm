@@ -16,6 +16,7 @@ import {
  *   2. defineConfig — the public config-subpath identity helper.
  */
 
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chdir, cwd } from "node:process";
 import { pathToFileURL } from "node:url";
@@ -311,6 +312,42 @@ describe("loadConfig", () => {
     const loaded = await loadConfig({ config: project.configPath });
 
     expect(Object.keys(loaded.models)).toContain("user");
+  });
+
+  it("preserves the named-config fallback for an authored false default", async () => {
+    writeConfigFixture(project, {
+      exportKind: "namedConfig",
+      dialect: "sqlite3",
+      migrationsBlock: 'migrations: { dir: "falsy-default-options" }',
+    });
+    writeFileSync(
+      project.configPath,
+      `${readFileSync(project.configPath, "utf8")}\nexport default false;\n`
+    );
+    const loaded = await loadConfig({ config: project.configPath });
+    try {
+      expect(Object.keys(loaded.models)).toEqual(["user"]);
+      expect(loaded.migrations).toEqual({ dir: "falsy-default-options" });
+      expect(
+        (
+          await loaded.driver._executeRaw<{ ready: number }>(
+            "SELECT 1 AS ready"
+          )
+        ).rows
+      ).toEqual([{ ready: 1 }]);
+    } finally {
+      await loaded.client.$disconnect();
+    }
+  });
+
+  it("refuses an invalid null default before selecting a named config", async () => {
+    writeConfigFixture(project, {
+      rawConfigSource:
+        "export default null; export const config = { client: 1 };",
+    });
+    await expect(
+      loadConfig({ config: project.configPath })
+    ).rejects.toBeInstanceOf(TypeError);
   });
 
   it("falls back to the module itself when there is no default/config export", async () => {

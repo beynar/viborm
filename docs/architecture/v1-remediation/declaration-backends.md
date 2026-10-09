@@ -501,3 +501,11 @@ consumers. The current JS declaration backend is retained; the correction is
 the representation supplied to emitters, with no new runtime graph or caller
 annotation. Plain-model reconstruction remains the separately tested accepted
 limitation above.
+
+Valid source inference is preserved; declaration fidelity is the carrier's
+purpose. A separate ordinary nested-WHERE key guard intentionally tightens
+invalid source calls: misspelled field keys beside valid keys are now refused
+in fresh and held objects through ordinary relation and logical filters.
+This guard does not claim exact scalar-operator or variant-envelope keys;
+those remaining static gaps are pinned separately. Historical compiling-typo
+observations above describe the earlier revisions, not the final guard.

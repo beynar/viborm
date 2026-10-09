@@ -88,6 +88,19 @@ export default defineConfig({
                 plugins: [
                   {
                     name: "viborm:build-without-dev-prebundling",
+                    // Retain one config; each environment keeps its own options.
+                    config: {
+                      order: "post",
+                      handler(config, { command }) {
+                        if (command !== "build") return;
+                        return {
+                          builder: {
+                            ...config.builder,
+                            sharedConfigBuild: true,
+                          },
+                        };
+                      },
+                    },
                     configEnvironment: {
                       order: "post",
                       handler(name, config) {

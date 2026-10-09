@@ -242,45 +242,63 @@ export async function openDeletionFixture(driver: AnyDriver) {
   const statements: SeenStatement[] = [];
   const base = createClient({ schema: deletionSchema(ledger), driver });
   await syncLiveSchema(base);
-  for (const id of [1, 2, 3])
-    await base.author.create({ data: { id, name: `a${id}` } });
-  for (const [id, authorId, deletedAt] of [
-    [10, 1, null],
-    [11, 1, null],
-    [12, 2, T],
-    [13, 2, null],
-    [14, 1, null],
-    [15, 3, null],
-    [16, 3, null],
-  ] as const)
-    await base.post.create({
-      data: { id, authorId, title: `p${id}`, deletedAt },
-    });
-  for (const [id, postId, deletedAt] of [
-    [100, 10, null],
-    [101, 10, T],
-    [102, 12, T],
-  ] as const)
-    await base.comment.create({
-      data: { id, postId, body: `c${id}`, deletedAt },
-    });
+  await base.author.createMany({
+    data: [1, 2, 3].map((id) => ({ id, name: `a${id}` })),
+  });
+  await base.post.createMany({
+    data: (
+      [
+        [10, 1, null],
+        [11, 1, null],
+        [12, 2, T],
+        [13, 2, null],
+        [14, 1, null],
+        [15, 3, null],
+        [16, 3, null],
+      ] as const
+    ).map(([id, authorId, deletedAt]) => ({
+      id,
+      authorId,
+      title: `p${id}`,
+      deletedAt,
+    })),
+  });
+  await base.comment.createMany({
+    data: (
+      [
+        [100, 10, null],
+        [101, 10, T],
+        [102, 12, T],
+      ] as const
+    ).map(([id, postId, deletedAt]) => ({
+      id,
+      postId,
+      body: `c${id}`,
+      deletedAt,
+    })),
+  });
   await base.tag.create({
     data: { id: 1, name: "t1", posts: { connect: [{ id: 13 }] } },
   });
   await base.tag.create({ data: { id: 2, name: "t2" } });
   await base.vote.create({ data: { id: 1, postId: 11 } });
   await base.pin.create({ data: { id: 1, postId: 11 } });
-  for (const [id, postId] of [
-    [1, 15],
-    [2, 16],
-    [3, null],
-    [4, 16],
-  ] as const)
-    await base.note.create({ data: { id, postId } });
-  for (const id of KEYS_OUT_OF_ORDER) {
-    await base.entry.create({ data: { id, body: `e${id}` } });
-    await base.folder.create({ data: { id } });
-  }
+  await base.note.createMany({
+    data: (
+      [
+        [1, 15],
+        [2, 16],
+        [3, null],
+        [4, 16],
+      ] as const
+    ).map(([id, postId]) => ({ id, postId })),
+  });
+  await base.entry.createMany({
+    data: KEYS_OUT_OF_ORDER.map((id) => ({ id, body: `e${id}` })),
+  });
+  await base.folder.createMany({
+    data: KEYS_OUT_OF_ORDER.map((id) => ({ id })),
+  });
   await base.file.create({ data: { id: 1, folderId: "3" } });
   const db = base
     .$extends({

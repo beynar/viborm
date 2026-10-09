@@ -99,7 +99,7 @@ jobs:
         run: >-
           node ../scripts/run-node-safe.mjs 512 60000
           node_modules/wrangler/bin/wrangler.js deploy
-          --dry-run --config wrangler.deploy.jsonc
+          --dry-run --config dist/server/wrangler.json
           --outdir "${RUNNER_TEMP}/viborm-docs-worker"
 
       - name: Check whitespace

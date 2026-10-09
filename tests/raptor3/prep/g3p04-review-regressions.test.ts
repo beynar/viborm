@@ -359,7 +359,8 @@ describe("G3P-04 review regressions", () => {
         "email",
       ]).normalizedError;
       assert.deepEqual(exactConstraint, {
-        columns: ["g3p04_review_users.email"],
+        table: "g3p04_review_users",
+        columns: ["email"],
       });
       const failure = new UniqueConstraintError("exact injected conflict", {
         cause: new Error("native duplicate"),

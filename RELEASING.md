@@ -107,6 +107,12 @@ The registry consumer, provenance checks, protected environment, and immutable
 GitHub release remain mandatory. Shallow sparse checkouts omit historical
 architecture evidence only from release jobs, not from CI qualification.
 
+Documentation deployment uses `pnpm --dir docs deploy:cloudflare`. The source
+`docs/wrangler.jsonc` owns the existing Worker identity and custom domain;
+Blume generates `docs/dist/server/wrangler.json` with the built entry point,
+asset binding and request routing. Both deployment and CI's dry run consume
+that generated config so Markdown negotiation and redirects reach the Worker.
+
 A provider is a required gate when the public support matrix calls its relevant
 surface production-ready. A missing runtime, container, credential, extension,
 or executed test count is a failure for a required provider, not a skip.
