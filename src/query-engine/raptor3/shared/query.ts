@@ -4175,11 +4175,7 @@ export class Queries {
       }),
       shape: shape(alias),
     });
-    if (
-      page.limit === undefined &&
-      page.offset === undefined &&
-      page.cursor === undefined
-    )
+    if (!(page.limit ?? page.offset ?? page.cursor))
       return aggregate(inner, this.table(model, inner), filter);
     const window = assembleAdapterSelect(a, {
       columns: fields.length

@@ -13,6 +13,9 @@
  * test asserts on.
  */
 
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
@@ -23,6 +26,9 @@ import { sql } from "@sql";
 import { Decimal } from "@src/index";
 import { qualifyRawDateCutoff } from "@tests/fixtures/raw-date-cutoff";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+
+/** Bun's global; this probe runs only under Bun, which has no types here. */
+declare const Bun: { gc(force: boolean): void };
 
 const DECIMAL_DOMAIN = { precision: 16, scale: 2 };
 const PAST_DOUBLE = "99999999999999.99";
@@ -751,8 +757,89 @@ try {
     prepared.length === 2 && prepared[0] === prepared[1],
     "a replaced prepare did not see every statement"
   );
+  const BunDatabase = reuseHandle.constructor as new (
+    path: string
+  ) => typeof reuseHandle;
+  const overridden: string[] = [];
+  class OverridingDatabase extends BunDatabase {
+    override prepare<T>(text: string) {
+      overridden.push(text);
+      return super.prepare<T>(text);
+    }
+  }
+  const subclassed = new OverridingDatabase(":memory:");
+  subclassed.exec("PRAGMA foreign_keys = ON");
+  subclassed.exec(
+    `CREATE TABLE "bun_sqlite_reuse_entries" ("id" INTEGER PRIMARY KEY, "label" TEXT NOT NULL)`
+  );
+  const subclassClient = createClient({
+    schema: { reuseEntry },
+    driver: new BunSQLiteDriver({ client: subclassed }),
+  });
+  await subclassClient.reuseEntry.findMany();
+  await subclassClient.reuseEntry.findMany();
+  assert(
+    overridden.length === 2 && overridden[0] === overridden[1],
+    "a subclass overriding prepare did not see every statement"
+  );
+  subclassed.close();
 } finally {
   statementPrototype.safeIntegers = safeIntegers;
 }
 await reuseOwner._disconnect();
+
+// Reused statements die with their database: once the owner closes a supplied
+// database, reads and writes refuse instead of running on a closed handle.
+const closedHandle = await new NativeHandleDriver().borrow();
+closedHandle.exec(
+  `CREATE TABLE "bun_sqlite_reuse_entries" ("id" INTEGER PRIMARY KEY, "label" TEXT NOT NULL)`
+);
+const closedClient = createClient({
+  schema: { reuseEntry },
+  driver: new BunSQLiteDriver({ client: closedHandle }),
+});
+await closedClient.reuseEntry.create({ data: { id: 1, label: "one" } });
+await closedClient.reuseEntry.findMany();
+closedHandle.close();
+for (const [label, run] of [
+  ["read", () => closedClient.reuseEntry.findMany()],
+  [
+    "write",
+    () => closedClient.reuseEntry.create({ data: { id: 1, label: "one" } }),
+  ],
+] as const) {
+  let failure: unknown;
+  try {
+    await run();
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof Error, `a ${label} ran on a closed database`);
+}
+
+// A driver-owned database is released by $disconnect: once collected, no
+// reused statement keeps its file open.
+const openFiles = () => readdirSync("/dev/fd").length;
+const reuseDirectory = mkdtempSync(join(tmpdir(), "viborm-bun-reuse-"));
+try {
+  const filesBefore = openFiles();
+  const fileClient = createClient({
+    schema: { reuseEntry },
+    driver: new BunSQLiteDriver({ dataDir: join(reuseDirectory, "reuse.db") }),
+  });
+  await fileClient.$executeRawUnsafe(
+    `CREATE TABLE "bun_sqlite_reuse_entries" ("id" INTEGER PRIMARY KEY, "label" TEXT NOT NULL)`
+  );
+  await fileClient.reuseEntry.create({ data: { id: 1, label: "one" } });
+  await fileClient.reuseEntry.findMany();
+  await fileClient.reuseEntry.findMany();
+  await fileClient.$disconnect();
+  Bun.gc(true);
+  assert(
+    openFiles() === filesBefore,
+    "a driver-owned database stayed open after $disconnect"
+  );
+} finally {
+  rmSync(reuseDirectory, { recursive: true, force: true });
+}
 console.log("statement reuse evidence passed");
