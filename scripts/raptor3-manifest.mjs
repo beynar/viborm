@@ -242,9 +242,12 @@ export const POST_G3_DELETION_SITE_TESTS = Object.freeze(
 // RETURNING statement-count pin goes; its race twin owns the decline.
 // Extension capabilities v4 U1: rows bound to the call, the tenancy recipe's
 // behaviour (7 cells) on the three SQLite substrates, and its two unique-key
-// race witnesses under a bound domain (+23).
+// race witnesses under a bound domain (+23). Recursive relation filters: a
+// hidden row stops the walk and is no member, the self row is not filtered
+// again, and a soft deleteMany walking its own model (+4 on each of three
+// substrates; the pin had drifted to 103 while the file held 112 cells).
 export const POST_G3_ROW_SCOPE_COUNTS = Object.freeze({
-  "tests/raptor3/post-prep/row-scopes.test.ts": 103,
+  "tests/raptor3/post-prep/row-scopes.test.ts": 124,
 });
 export const POST_G3_ROW_SCOPE_TESTS = Object.freeze(
   Object.keys(POST_G3_ROW_SCOPE_COUNTS)

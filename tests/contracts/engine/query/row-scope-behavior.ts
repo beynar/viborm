@@ -1,6 +1,7 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import {
+  FeatureNotSupportedError,
   ForeignKeyError,
   NestedWriteError,
   NotFoundError,
@@ -27,7 +28,9 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * `connect`, `set`, `update`, `upsert`, `updateMany` and `delete`; and, since
  * milestone 2, to-one projections (ordinary and polymorphic), `is`/`isNot`,
  * to-one order terms and upward recursion, where a hidden target reads as an
- * absent one. `disconnect`, identity re-reads and integrity probes stay
+ * absent one. A recursive filter (`recurse` in `where`) walks the related
+ * domain at every hop, so a hidden row stops the walk below it; its `self` row
+ * is the outer row, which the call's root domain already chose. `disconnect`, identity re-reads and integrity probes stay
  * physical: a missing row is still corruption, a hidden one is not. `base` is
  * the same database without the extension: its answers are the negative
  * control beside each domain answer.
@@ -895,6 +898,104 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
           { id: 4, children: [] },
         ],
       });
+    });
+
+    test("a recursive filter walks the related domain: a tombstoned intermediate stops it, and `with` sees through", async () => {
+      const { base, db } = context;
+      const ordered = { orderBy: { id: "asc" } } as const;
+      // Node 3's ancestors are 2 (a tombstone) and 1: the walk stops at 2.
+      const belowRoot = {
+        where: { parent: { recurse: true, some: { id: 1 } } },
+        ...ordered,
+      } as const;
+      expect(ids(await db.node.findMany(belowRoot))).toEqual([4]);
+      expect(await db.node.count({ where: belowRoot.where })).toBe(1);
+      expect(
+        ids(await db.node.findMany({ ...belowRoot, deleted: "with" }))
+      ).toEqual([2, 3, 4]);
+      expect(ids(await base.node.findMany(belowRoot))).toEqual([2, 3, 4]);
+      // Downward, node 1 reaches the leaf only through the tombstone.
+      const aboveLeaf = {
+        where: {
+          children: { recurse: { depth: false }, some: { label: "leaf" } },
+        },
+        ...ordered,
+      } as const;
+      expect(ids(await db.node.findMany(aboveLeaf))).toEqual([]);
+      expect(
+        ids(await db.node.findMany({ ...aboveLeaf, deleted: "with" }))
+      ).toEqual([1, 2]);
+      expect(ids(await base.node.findMany(aboveLeaf))).toEqual([1, 2]);
+    });
+
+    test("a hidden descendant is not a member of a closure: some, every and none range over visible rows", async () => {
+      const { base, db } = context;
+      const visible = async (where: object) =>
+        ids(await db.node.findMany({ where, orderBy: { id: "asc" } }));
+      const physical = async (where: object) =>
+        ids(await base.node.findMany({ where, orderBy: { id: "asc" } }));
+      const some = { children: { recurse: true, some: { label: "mid" } } };
+      expect(await visible(some)).toEqual([]);
+      expect(await physical(some)).toEqual([1]);
+      // Node 1's visible closure is {4}; physically it is {2, 3, 4}.
+      const every = { children: { recurse: true, every: { label: "side" } } };
+      expect(await visible(every)).toEqual([1, 3, 4]);
+      expect(await physical(every)).toEqual([3, 4]);
+      const none = { children: { recurse: true, none: { label: "leaf" } } };
+      expect(await visible(none)).toEqual([1, 3, 4]);
+      expect(await physical(none)).toEqual([3, 4]);
+    });
+
+    test("a closure's self row is the outer row, never filtered again by the related domain", async () => {
+      const { db } = context;
+      // `only` selects the tombstone 2 at the root; its related domain hides
+      // tombstones, yet `self` keeps the row the call already selected.
+      const tombstoned = (self: boolean) =>
+        db.node.findMany({
+          deleted: "only",
+          where: {
+            parent: {
+              recurse: true,
+              self,
+              some: { deletedAt: { not: null } },
+            },
+          },
+          orderBy: { id: "asc" },
+        });
+      expect(ids(await tombstoned(true))).toEqual([2]);
+      // Without self the closure is {1}, which is live.
+      expect(ids(await tombstoned(false))).toEqual([]);
+    });
+
+    test("a soft deleteMany whose closure walks its own model: tombstones the visible match, refused on MySQL", async () => {
+      const { base, db } = context;
+      const remove = db.node.deleteMany({
+        where: { parent: { recurse: true, some: { id: 1 } } },
+      });
+      const state = async () =>
+        (
+          await base.node.findMany({
+            orderBy: { id: "asc" },
+            select: { id: true, deletedAt: true },
+          })
+        ).map((row) => [row.id, row.deletedAt !== null]);
+      const before = await state();
+      if (!base.$driver.adapter.capabilities.supportsMutationTargetInSubquery) {
+        const refused = await failure(remove);
+        expect(refused).toBeInstanceOf(FeatureNotSupportedError);
+        expect((refused as Error).message).toBe(
+          "where.parent.recurse is not supported. MySQL re-reads a recursive filter's table while its own update or delete changes it, so the walk would see the statement's own writes. Read the matching keys first, then update or delete by key."
+        );
+        expect(await state()).toEqual(before);
+        return;
+      }
+      expect(await remove).toEqual({ count: 1 });
+      expect(await state()).toEqual([
+        [1, false],
+        [2, true],
+        [3, false],
+        [4, true],
+      ]);
     });
 
     test("a hidden polymorphic arm stored on the parent row reads null (R1)", async () => {
