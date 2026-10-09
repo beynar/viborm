@@ -426,7 +426,9 @@ export const internedScalarSchemas = <T extends ScalarVariantSchemas>(
  */
 export const comparableScalar = <K extends ScalarType>(
   kind: K,
-  primitive: (options?: ScalarState<K> | { array: true }) => V.Schema,
+  primitive: (
+    options?: ScalarState<K> | { nullable?: boolean; array: boolean }
+  ) => V.Schema,
   arithmetic: boolean
 ) => {
   const member = once(() => primitive());
@@ -439,14 +441,10 @@ export const comparableScalar = <K extends ScalarType>(
   const listUpdate = listUpdateFamily(member, list);
   const interners = createScalarInterners();
   return (state: ScalarState<K>): never => {
+    // The stored domain, from the intern key's flags alone: it admits what the
+    // column holds, never a create-only rule like an increment's refused zero.
     const filterBase = () =>
-      primitive({
-        ...state,
-        schema: undefined,
-        optional: false,
-        hasDefault: false,
-        default: undefined,
-      });
+      primitive({ nullable: state.nullable, array: state.array });
     const base =
       state.schema === undefined
         ? state.base

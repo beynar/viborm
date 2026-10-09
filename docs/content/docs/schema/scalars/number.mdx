@@ -42,6 +42,11 @@ use `s.bigInt()` for values outside the JavaScript safe-integer domain.
 s.int().id().increment(); // Auto-incrementing primary key
 ```
 
+Creating a row with an explicit `id: 0` is refused (`V4001`): databases
+disagree about what inserting zero into an auto-increment column means. The
+rule is create-only: filters such as `where: { id: 0 }` or `where: { qty: 0 }`
+are ordinary comparisons.
+
 ## Examples
 
 ```ts

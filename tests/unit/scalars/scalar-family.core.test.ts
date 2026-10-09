@@ -15,7 +15,9 @@
  *     the validator built for an `s.int()` field, and every shape assertion in
  *     the estate would still pass: the trees are structurally identical and
  *     differ only in which values they admit. `createScalarInterners()` mints a
- *     private pair per module, and that is the whole defence.
+ *     private pair per module, and that is the whole defence. For the same
+ *     reason an interned schema is built from the key's flags alone: a
+ *     create-only rule (an increment's refused zero) must never reach it.
  *  2. A family factory closes over ONE kind's member and list schemas. Handed
  *     the wrong pair it would still produce the right shape, so the pin has to
  *     be a value the other kind admits and this one must not.
@@ -25,7 +27,7 @@ import { s } from "@schema";
 import type { ScalarState } from "@schema/scalars/common";
 import { parse, type VibSchema } from "@validation";
 import { getScalarSchemas } from "@validation/scalars";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 type OperationSchemas = {
   base: VibSchema;
@@ -87,6 +89,33 @@ describe("every kind owns its intern caches", () => {
     const plain = schemasOf(s.int()["~"].state).filter;
     expect(schemasOf(s.int().nullable()["~"].state).filter).not.toBe(plain);
     expect(schemasOf(s.int().array()["~"].state).filter).not.toBe(plain);
+  });
+
+  test("a create-only rule never reaches the shared filter or update", async () => {
+    // engine-02: an increment field built FIRST interned its zero refusal
+    // under the plain key, so every later `where: { qty: 0 }` threw. Fresh
+    // caches, so the increment field really is the first one built.
+    vi.resetModules();
+    const fresh = (await import("@schema")).s;
+    const { getScalarSchemas: build } = await import("@validation/scalars");
+    const of = (state: ScalarState) =>
+      build(state) as unknown as OperationSchemas;
+    for (const [kind, increment, plain, zero] of [
+      ["int", () => fresh.int().increment(), () => fresh.int(), 0],
+      ["bigInt", () => fresh.bigInt().increment(), () => fresh.bigInt(), 0n],
+    ] as const) {
+      const auto = of(increment()["~"].state);
+      const column = of(plain()["~"].state);
+      expect(auto.filter, kind).toBe(column.filter);
+      expect(auto.update, kind).toBe(column.update);
+      for (const operand of [zero, { equals: zero }, { not: zero }]) {
+        expect(parse(column.filter, operand).issues, kind).toBeUndefined();
+      }
+      expect(parse(column.update, zero).issues, kind).toBeUndefined();
+      expect(parse(auto.create, zero).issues?.[0]?.message, kind).toContain(
+        "Explicit zero"
+      );
+    }
   });
 
   test("the four variants are enumerated in one order", () => {
