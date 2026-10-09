@@ -336,11 +336,13 @@ export class PostgresDriver extends Driver<
   ): Promise<void> {
     // postgres.js can retain a fatal response across reconnect, rejecting the
     // next acquisition before dispatch. Drain that startup error with leases,
-    // never caller SQL; the callback above has provably not entered.
+    // never caller SQL; the callback above has provably not entered. A drain
+    // that cannot connect leaves nothing to quarantine either: no session
+    // reached this driver, so the next lease that connects clears the state.
     const deadline = Date.now() + maxWaitMs;
     for (let attempt = 0; attempt < 2; attempt++) {
       const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
+      if (remaining <= 0) return;
       try {
         const lease = await acquireWithMaxWait(
           () => client.reserve(),
@@ -352,16 +354,9 @@ export class PostgresDriver extends Driver<
         return;
       } catch (cleanup) {
         withSuppressedFailure(primary, cleanup);
-        if (attempt === 1 || !this.isConnectionFailure(cleanup)) break;
+        if (!this.isConnectionFailure(cleanup)) return;
       }
     }
-    // Only this wrapper is quarantined; the shared native pool stays borrowed.
-    this.transactionCleanupFailed(
-      normalizeDriverError(primary, {
-        driverName: this.driverName,
-        dialect: this.dialect,
-      })
-    );
   }
 
   /**
