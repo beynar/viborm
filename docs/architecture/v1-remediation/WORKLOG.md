@@ -1,5 +1,22 @@
 # V1 adversarial remediation
 
+## CI acceleration
+
+The local-provider job is the measured bottleneck: CI12 took 2,198.82 seconds
+across its 97 bounded stages. Four GitHub Actions parallel steps now partition
+96 stages by their original index, preserving commands, selected files,
+memory/time ceilings, workspace locks and teardown checks. The fixed Raptor
+stage runs first without sibling CPU contention inside its unchanged 120-second
+bound. No timing table or scheduler is needed. Independent Git clones and
+private frozen offline dependency installs separate mutable state; Git worktrees
+would retain the shared lock identity. The pnpm store avoids copying roughly
+three full dependency trees, without sharing writable test caches.
+The eight required checks and the exhaustive local `test:all` command remain.
+
+Selection tests prove exact-once coverage and invalid-argument refusal.
+Actual hosted qualification and elapsed-time comparison remain pending; replaying
+old sequential timings is an estimate, not evidence of parallel performance.
+
 ## Final publication documentation correction
 
 PR #84 merged as `02eaf90596a8e80499be091c1d2c72b197841ab0` after all

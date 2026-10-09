@@ -543,3 +543,31 @@ function providerTestFiles(directory, prefix) {
 export const PGLITE_PROVIDER_TESTS = providerTestFiles("local", "pglite");
 export const SQLITE3_PROVIDER_TESTS = providerTestFiles("local", "sqlite3");
 export const LIBSQL_PROVIDER_TESTS = providerTestFiles("local", "libsql");
+
+export const CI_LOCAL_SERIAL_STAGE_LABEL =
+  "Raptor 3 fixed contracts, harness falsifiers and candidate comparison";
+
+/**
+ * Only sharded CI excludes the serial-owned Raptor stage. The exhaustive plans
+ * keep it; CI runs it once before the parallel group. Every remaining whole
+ * stage retains its original order and execution bounds within its shard.
+ */
+export function shardCredentialFreeCIStages(stages, index, count) {
+  const parallelStages = stages.filter(
+    (stage) => stage.label !== CI_LOCAL_SERIAL_STAGE_LABEL
+  );
+  if (
+    !(Number.isSafeInteger(index) && Number.isSafeInteger(count)) ||
+    index < 1 ||
+    count < 1 ||
+    index > count ||
+    count > parallelStages.length
+  ) {
+    throw new Error(
+      "--shard needs N/M with 1 <= N <= M <= the parallel CI-local stage count"
+    );
+  }
+  return parallelStages.filter(
+    (_stage, position) => position % count === index - 1
+  );
+}

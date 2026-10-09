@@ -905,6 +905,15 @@ checks fetch only their comparison commit and materialize all changed files,
 including changed receipts, before linting. The eight required CI jobs still
 own the complete live test estate; `test:all --ci-local` removes only the five
 stages already owned by sibling jobs. Default local `test:all` stays exhaustive.
+The local-provider job uses four GitHub parallel steps with
+`test:all --ci-local --shard=N/4`, after running the fixed Raptor stage once
+without sibling CPU contention. Shards exclude that serial-owned stage;
+round-robin selection preserves every remaining stage and its resource bounds.
+`prepare-ci-local-shards.mjs` creates independent Git repositories and temp
+directories; frozen offline installs give each clone private dependency/cache
+directories through the normal pnpm store. Linked worktrees
+share the verification lock and cannot substitute for these isolated checkouts.
+Each lane remains sequential and must prove process-group teardown.
 Never publish from a worktree, use an
 `NPM_TOKEN`, rebuild between testing and publication, or create the version tag
 by hand.
