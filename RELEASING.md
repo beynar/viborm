@@ -81,12 +81,12 @@ Use one release pull request. It must:
 - pass every required branch check.
 
 The workflow accepts stable `X.Y.Z` versions and `X.Y.Z-rc.N` release
-candidates. The V1 sequence uses these two exact forms:
+candidates:
 
 | Version | npm distribution tag | GitHub tag |
 | --- | --- | --- |
-| `1.0.0-rc.N` | `next` | `v1.0.0-rc.N` |
-| `1.0.0` | `latest` | `v1.0.0` |
+| `X.Y.Z-rc.N` | `next` | `vX.Y.Z-rc.N` |
+| `X.Y.Z` | `latest` | `vX.Y.Z` |
 
 The workflow rejects other prerelease spellings. A version already present on
 npm is immutable and cannot be reused.
