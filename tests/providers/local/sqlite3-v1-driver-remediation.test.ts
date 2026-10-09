@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LibSQLDriver } from "@drivers/libsql";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createClient as createLibSQLTransport } from "@libsql/client";
+import {
+  createClient as createLibSQLTransport,
+  type InStatement,
+} from "@libsql/client";
 import { sql } from "@sql";
 import { createClient, s } from "@src/index";
 import { qualifyRawDateCutoff } from "@tests/fixtures/raw-date-cutoff";
@@ -438,8 +441,11 @@ describe("V1 driver data integrity regressions", () => {
       transaction.mockClear();
       await operation();
       return {
-        statements: execute.mock.calls.map(([statement]) =>
-          typeof statement === "string" ? statement : statement.sql
+        // The spy is typed by execute's last overload; the driver passes a
+        // statement object.
+        statements: execute.mock.calls.map(
+          ([statement]: [InStatement, ...unknown[]]) =>
+            typeof statement === "string" ? statement : statement.sql
         ),
         transactions: transaction.mock.calls.length,
       };
