@@ -215,9 +215,10 @@ They are deliberately not native `Promise` instances.
 ## Rows are driver-native
 
 Raw results are not passed through the ORM's typed read path. A column comes
-back exactly as the driver hands it over — for example LibSQL reads integer
-columns with `intMode: "bigint"`, so an `INTEGER` arrives as a `BigInt` where
-other drivers give a `number`. Convert at the call site when it matters.
+back exactly as the driver hands it over — for example an owned LibSQL client
+reads integer columns with `intMode: "bigint"`, so an `INTEGER` arrives as a
+`BigInt` where other drivers give a `number`; a supplied LibSQL client keeps its
+own `intMode`. Convert at the call site when it matters.
 
 ## Migrating string calls
 

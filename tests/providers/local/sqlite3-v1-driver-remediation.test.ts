@@ -7,6 +7,7 @@ import { createClient as createLibSQLTransport } from "@libsql/client";
 import { sql } from "@sql";
 import { createClient, s } from "@src/index";
 import { qualifyRawDateCutoff } from "@tests/fixtures/raw-date-cutoff";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
 
@@ -404,25 +405,87 @@ describe("V1 driver data integrity regressions", () => {
     }
   });
 
-  it("refuses supplied libSQL number mode before a typed write commits", async () => {
-    const transport = createLibSQLTransport({ url: "file::memory:" });
-    const driver = new LibSQLDriver({ client: transport });
+  it("a supplied number-mode libSQL client needs no setup statement and stays exact above 2^53", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "viborm-libsql-number-"));
+    const file = join(directory, "evidence.sqlite");
+    const url = `file:${file}`;
+    const account = s.model({
+      id: s.bigInt().id(),
+      email: s.string(),
+      balance: s.decimal({ precision: 18, scale: 0 }),
+      score: s.int(),
+      active: s.boolean(),
+      createdAt: s.dateTime().now(),
+      updatedAt: s.dateTime().updatedAt(),
+    });
+    const exact = createLibSQLTransport({ url, intMode: "bigint" });
+    const transport = createLibSQLTransport({ url, intMode: "number" });
+    const execute = vi.spyOn(transport, "execute");
+    const transaction = vi.spyOn(transport, "transaction");
+    const client = createClient({
+      schema: { account },
+      driver: new LibSQLDriver({ client: transport }),
+    });
+    const big = 9_007_199_254_740_993n;
+    const dispatches = async (operation: () => Promise<unknown>) => {
+      execute.mockClear();
+      transaction.mockClear();
+      await operation();
+      return {
+        statements: execute.mock.calls.map(([statement]) =>
+          typeof statement === "string" ? statement : statement.sql
+        ),
+        transactions: transaction.mock.calls.length,
+      };
+    };
+    const read = () => client.account.findMany({ where: { id: big } });
     try {
-      await driver._executeRaw("CREATE TABLE evidence (id INTEGER)");
-      const { sql } = await import("@sql");
-      await expect(
-        driver._execute(sql`INSERT INTO evidence VALUES (${9007199254740993n})`)
-      ).rejects.toMatchObject({ name: "ClientInitializationError" });
-      expect((await driver._executeRaw("SELECT * FROM evidence")).rows).toEqual(
-        []
-      );
+      const setup = createClient({
+        schema: { account },
+        driver: new SQLite3Driver({ dataDir: file }),
+      });
+      await syncLiveSchema(setup);
+      await setup.$disconnect();
+      // The first typed operation of a supplied client dispatches exactly what
+      // every later one does: no per-client admission round trip.
+      const cold = await dispatches(read);
+      const created = await client.account.create({
+        data: {
+          id: big,
+          email: "a@example.com",
+          balance: "900719925474099301",
+          score: 1,
+          active: true,
+        },
+      });
+      expect(await dispatches(read)).toEqual(cold);
+      expect(created).toMatchObject({ id: big, score: 1, active: true });
+      expect(String(created.balance)).toBe("900719925474099301");
+      await client.account.update({
+        where: { id: big },
+        data: { balance: { increment: "1" } },
+      });
+      const [found] = await read();
+      expect(found?.id).toBe(big);
+      expect(String(found?.balance)).toBe("900719925474099302");
+      const totals = await client.account.aggregate({
+        _sum: { balance: true },
+        _max: { id: true },
+      });
+      expect(totals._max.id).toBe(big);
+      expect(String(totals._sum.balance)).toBe("900719925474099302");
+      expect(
+        (await exact.execute("SELECT id, balance FROM account")).rows
+      ).toEqual([{ id: big, balance: 900_719_925_474_099_302n }]);
     } finally {
-      await driver._disconnect();
+      await client.$disconnect();
       transport.close();
+      exact.close();
+      rmSync(directory, { recursive: true, force: true });
     }
   });
 
-  it("quarantines a supplied handle when its integer setup probe is busy", async () => {
+  it("quarantines a shared supplied handle when its first statement is busy", async () => {
     const transport = createLibSQLTransport({
       url: "file::memory:",
       intMode: "bigint",

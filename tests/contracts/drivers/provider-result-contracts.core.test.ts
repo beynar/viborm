@@ -36,14 +36,7 @@ async function captureQueryError(
 
 function createLibSQLDriver(rowsAffected: unknown, rows: unknown[] = []) {
   const client = {
-    execute: vi.fn(async (statement: unknown) =>
-      statement === "SELECT 9007199254740993 AS viborm_integer_precision"
-        ? {
-            rows: [{ viborm_integer_precision: 9007199254740993n }],
-            rowsAffected: 0,
-          }
-        : { rows, rowsAffected }
-    ),
+    execute: vi.fn(async () => ({ rows, rowsAffected })),
     close: vi.fn(),
   } as unknown as NonNullable<
     ConstructorParameters<typeof LibSQLDriver>[0]
