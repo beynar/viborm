@@ -274,7 +274,7 @@ export const PLACEMENT_MATRIX_TABLES: readonly TableSpec[] = Object.freeze([
 export interface ProviderCase {
   readonly name: string;
   readonly model: string;
-  readonly operation: "findMany" | "findUnique" | "update" | "delete";
+  readonly operation: Operations;
   readonly args: Record<string, unknown>;
   /** The public value — or, with `summarize`, what that value reduces to. */
   readonly expected?: unknown;
@@ -564,6 +564,125 @@ export const PROVIDER_CASES: readonly ProviderCase[] = Object.freeze([
     },
   },
 ]);
+
+/**
+ * The recursive SELECT shapes whose provider SQL each provider test pins byte
+ * for byte: the witness that the one walk owner (`#walk`) still spells the
+ * shipped projection — foreign key up and down, junction, bounded and
+ * exhaustive, with and without a per-hop selector.
+ */
+export const SELECT_SQL_PINS: readonly ProviderCase[] = Object.freeze([
+  {
+    name: "foreign key up, bounded",
+    model: "node",
+    operation: "findMany",
+    args: {
+      where: { tenant: "t", code: "beta-child" },
+      select: {
+        label: true,
+        parent: { recurse: { depth: 2 }, select: { label: true } },
+      },
+    },
+    expected: [
+      {
+        label: "Beta child",
+        parent: { label: "Beta", parent: { label: "Root A" } },
+      },
+    ],
+  },
+  {
+    name: "foreign key down, exhaustive, selector",
+    model: "node",
+    operation: "findMany",
+    args: {
+      where: { tenant: "t", code: "root-b" },
+      select: {
+        label: true,
+        children: {
+          recurse: { depth: false },
+          where: { visible: true },
+          select: { label: true },
+        },
+      },
+    },
+    expected: [
+      { label: "Root B", children: [{ label: "Gamma", children: [] }] },
+    ],
+  },
+  {
+    name: "junction, bounded, selector",
+    model: "node",
+    operation: "findMany",
+    args: {
+      where: { tenant: "t", code: "root-a" },
+      select: {
+        label: true,
+        neighbors: {
+          recurse: { depth: 2 },
+          where: { visible: true },
+          orderBy: { code: "asc" },
+          select: { label: true },
+        },
+      },
+    },
+    expected: [
+      {
+        label: "Root A",
+        neighbors: [
+          { label: "Alpha", neighbors: [leaf("Merge")] },
+          { label: "Beta", neighbors: [leaf("Merge")] },
+        ],
+      },
+    ],
+  },
+  {
+    name: "junction, exhaustive",
+    model: "node",
+    operation: "findMany",
+    args: {
+      where: { tenant: "t", code: "root-a" },
+      select: {
+        label: true,
+        neighbors: {
+          recurse: { depth: false },
+          orderBy: { code: "asc" },
+          select: { label: true },
+        },
+      },
+    },
+    expected: [
+      {
+        label: "Root A",
+        neighbors: [
+          { label: "Alpha", neighbors: [{ label: "Merge", neighbors: [] }] },
+          { label: "Beta", neighbors: [{ label: "Merge", neighbors: [] }] },
+        ],
+      },
+    ],
+  },
+]);
+
+/**
+ * Runs each case once, checks its value (or refusal), and answers what it
+ * sent: every provider statement, or the refusal sentence when nothing was
+ * sent. The provider tests compare the answer with their literal pins.
+ */
+export async function sqlPins(
+  engine: CaseEngine,
+  observed: Pick<ObservedStatements, "statements">,
+  cases: readonly ProviderCase[]
+): Promise<Record<string, readonly string[] | string>> {
+  const pins: Record<string, readonly string[] | string> = {};
+  for (const pin of cases) {
+    const start = observed.statements.length;
+    const outcome = await caseOutcome(engine, pin);
+    assert.deepEqual(outcome, owedOutcome(pin), pin.name);
+    const statements = observed.statements.slice(start);
+    if ("failure" in outcome) assert.deepEqual(statements, [], pin.name);
+    pins[pin.name] = "failure" in outcome ? outcome.failure : statements;
+  }
+  return pins;
+}
 
 // ===========================================================================
 // RQ-03 / RQ-04 worlds — provider-neutral tables, cases grouped by falsifier.
