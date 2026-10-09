@@ -45,7 +45,13 @@ export function prepareCiLocalShards(
     "true",
     "Retain the CI sparse checkout; refuse a full historical-evidence checkout"
   );
-  const cone = git(source, "config", "--bool", "core.sparseCheckoutCone");
+  const cone = git(
+    source,
+    "config",
+    "--bool",
+    "--default=false",
+    "core.sparseCheckoutCone"
+  );
   const patterns = readFileSync(
     resolve(
       source,

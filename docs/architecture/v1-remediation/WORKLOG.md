@@ -16,6 +16,11 @@ The eight required checks and the exhaustive local `test:all` command remain.
 Selection tests prove exact-once coverage and invalid-argument refusal.
 Actual hosted qualification and elapsed-time comparison remain pending; replaying
 old sequential timings is an estimate, not evidence of parallel performance.
+The first hosted attempt accepted GitHub's parallel syntax but refused setup:
+Actions leaves the optional non-cone Git setting absent. Preparation now reads
+Git's false default while still rejecting invalid configuration, and the shallow
+fixture reproduces the absent setting. The preceding serial run completed all
+eight checks; its local-provider test step took 37m16s across all 97 stages.
 
 ## Final publication documentation correction
 

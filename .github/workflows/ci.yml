@@ -280,7 +280,8 @@ jobs:
       # Four independent repositories keep workspace locks, dependency caches
       # and outputs private. Each lane runs the existing bounded stages serially.
       # At most four 2560 MiB PGlite groups fit this public 4-core/16 GiB runner;
-      # ordinary groups retain 1536 MiB. No native typecheck or build runs here.
+      # ordinary groups retain 1536 MiB. No native typecheck or package build
+      # runs alongside these lanes.
       - name: Prepare isolated local-provider workspaces
         timeout-minutes: 5
         run: |

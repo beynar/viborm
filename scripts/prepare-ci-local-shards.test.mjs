@@ -22,6 +22,7 @@ const existingTarget = /EEXIST/;
 const ownedWorkspace = /already owns this workspace/;
 const insideSource = /outside the source/;
 const sparseCheckout = /sparse checkout/;
+const configFailure = /Command failed: git/;
 
 function fixture(context, shallow = false) {
   const directory = realpathSync(
@@ -98,6 +99,8 @@ function fixture(context, shallow = false) {
     }
   );
   git("checkout", "--quiet", "--detach", "HEAD");
+  // actions/checkout sets sparse patterns but leaves non-cone mode unset.
+  git("config", "--worktree", "--unset", "core.sparseCheckoutCone");
   writeFileSync(join(source, ".env"), "FAKE_UNCOPIED_FIXTURE=1\n");
   return { directory, source, target: join(directory, "lanes"), git };
 }
@@ -106,6 +109,16 @@ test("depth-one CI source preserves exact sparse source and private tmp/output p
   const { source, target, git } = fixture(context, true);
   assert.equal(git("rev-parse", "--is-shallow-repository"), "true");
   assert.equal(git("rev-list", "--count", "HEAD"), "1");
+  assert.equal(
+    spawnSync("git", [
+      "-C",
+      source,
+      "config",
+      "--bool",
+      "core.sparseCheckoutCone",
+    ]).status,
+    1
+  );
   const result = prepareCiLocalShards(target, source);
   assert.equal(result.head, git("rev-parse", "HEAD"));
   assert.deepEqual(result.workspaces, [
@@ -186,6 +199,10 @@ test("unsafe preparation boundaries refuse before creating outputs", (context) =
     insideSource
   );
   assert(!existsSync(join(source, "..inside")));
+  git("config", "--worktree", "core.sparseCheckoutCone", "invalid-boolean");
+  assert.throws(() => prepareCiLocalShards(target, source), configFailure);
+  assert(!existsSync(target));
+  git("config", "--worktree", "--unset", "core.sparseCheckoutCone");
   git("config", "--worktree", "core.sparseCheckout", "false");
   assert.throws(() => prepareCiLocalShards(target, source), sparseCheckout);
   assert(!existsSync(target));
