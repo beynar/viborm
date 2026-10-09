@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+const kind=process.argv[2];
+if(kind==='native') {
+ const require=createRequire(import.meta.url);
+ const Database=require('better-sqlite3');
+ const db=new Database(':memory:');
+ try {assert.equal(db.prepare('SELECT 7 AS value').get().value,7);console.log('NATIVE_SQLITE_PROOF pass');}finally{db.close();}
+} else if(kind==='inspector') {
+ const {Session}=await import('node:inspector');const session=new Session();session.connect();
+ const post=(method,params={})=>new Promise((resolve,reject)=>session.post(method,params,(e,r)=>e?reject(e):resolve(r)));
+ try {
+  await post('Profiler.enable');await post('Profiler.startPreciseCoverage',{callCount:true,detailed:true});
+  function coverageSentinel(x){return x>0?'positive':'other'}
+  assert.equal(coverageSentinel(1),'positive');
+  const result=await post('Profiler.takePreciseCoverage');
+  const own=result.result.find(s=>s.url.endsWith('bun-compatibility-probe.mjs'));
+  assert(own);assert(own.functions.some(f=>f.functionName==='coverageSentinel'&&f.ranges.some(r=>r.count>0)));
+  await post('Profiler.stopPreciseCoverage');await post('Profiler.disable');console.log('INSPECTOR_PRECISE_COVERAGE_PROOF pass');
+ }finally{session.disconnect();}
+} else {throw new Error('Unknown probe')}

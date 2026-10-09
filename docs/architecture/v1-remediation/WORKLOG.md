@@ -1,5 +1,65 @@
 # V1 adversarial remediation
 
+## Evidence durability follow-through — 2026-10-09
+
+PR87 review identified temporary-only audit receipts in the Bun and dependency
+reports. Their original inputs, results and logs are now archived under
+`evidence/bun-vitest/` and `evidence/dependency-triage/`, with repository-relative
+links, exact-revision source references and byte/hash manifests. The 20-file
+archive totals 228,641 bytes; it copies no dependency trees or build outputs.
+All archived hashes and pinned input identities verify. No experiment, security
+scan, dependency change or runtime modification was made to create the archive.
+
+## Publication, production verification and final ledger — 2026-10-09
+
+The human approval gate cleared. Release `37908244607` completed all eight jobs;
+npm `latest` is `1.0.0`, and the immutable GitHub `v1.0.0` tag resolves to
+`3a94e1e8a87f1866449217f96b750ef92264b7ff`. Public npm, tested and GitHub
+archives share SHA256 `1f5c574ce25f067020945e17b7476ac6c02fdf2cc2d439c9f5cf23b496cb4548`.
+Registry provenance records the same source/workflow/digest. The fresh public
+install executes the authored SQLite quickstart, CLI push and entrypoint checks.
+
+Production docs deploy as Cloudflare version
+`29a1cd08-daf3-4b5a-b427-eeed32a64bb3`: 24/24 HTTP checks, 31 content markers,
+and quickstart/upgrade browser inspection pass. A stale “six-capability” intro
+was corrected to ten, rebuilt and deployed. The initial readback harness's
+HTML-versus-JSON 404 negotiation mistake was corrected without weakening either
+format assertion; failed evidence remains. No runtime or dependency change.
+
+The six publication/documentation rows now close: 555 total, 295 verified repairs,
+163 explicit product gaps, 92 documented contracts, four non-defects, one refuted
+claim, no pending dispositions. `release-evidence.json` records compact durable
+receipts; `RESPONSE.md`, the full ledger, backend and Bun reports retain scope and
+limitations. The entries below are historical checkpoints, not current blockers.
+
+Final documentation follow-through uses the protected main workflow. It does
+not rebuild, replace or retag the published npm artifact.
+
+
+## Exact-main qualification and Bun experiment — 2026-10-09
+
+PR86 merged as `3a94e1e8a87f1866449217f96b750ef92264b7ff`, tree-identical
+to the qualified PR. Exact-main CI17 `37908218170` passed all eight required
+jobs. All 97 local stages retain their commands, limits and teardown checks:
+23m38s test execution versus the 37m16s serial baseline (36.58% shorter).
+The whole local job fell from 37m40s to 24m28s. These are actual hosted runs.
+
+Fresh Release `37908244607` qualified its one exact tarball (33/33 cases),
+Node22.0 consumer and documentation build. SHA256:
+`1f5c574ce25f067020945e17b7476ac6c02fdf2cc2d439c9f5cf23b496cb4548`.
+The corrected packed README matches main. GitHub is waiting for the configured
+human `npm-production` approval. No publication or production deployment is
+claimed; all six dependent ledger rows remain pending.
+
+The requested Bun1.4/Vitest3.1.4 experiment used an isolated checkout and
+private frozen dependencies. Threads passed the same 59-test core selection,
+but the unchanged forks pool, native better-sqlite3 and V8 coverage failed.
+Node remains the CI host; native Bun provider support remains qualified.
+See `bun-vitest-experiment.md`. No dependency or runtime changes were made.
+
+The report and runbook wording are documentation-only local follow-through;
+they do not replace or rebuild the immutable release candidate bytes.
+
 ## CI acceleration
 
 The local-provider job is the measured bottleneck: CI12 took 2,198.82 seconds

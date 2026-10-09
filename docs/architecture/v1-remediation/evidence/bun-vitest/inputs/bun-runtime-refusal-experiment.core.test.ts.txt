@@ -1,0 +1,9 @@
+import { expect, test } from 'vitest';
+test('actual Vitest worker uses the requested runtime', () => {
+  const actual = process.versions.bun ? 'bun' : 'node';
+  console.log('WORKER_RUNTIME_PROOF', JSON.stringify({actual,pid:process.pid,execPath:process.execPath,bun:process.versions.bun??null,node:process.versions.node}));
+  expect(actual).toBe(process.env.VIBORM_EXPERIMENT_RUNTIME);
+});
+test('deliberate assertion failure must exit nonzero', () => {
+  expect('actual assertion').toBe('deliberately wrong value');
+});

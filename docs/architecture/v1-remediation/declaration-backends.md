@@ -1,11 +1,19 @@
 # Declaration backend comparison
 
-Artifact32 retains the qualified client representation and changes migration
-declarations for physical rename projection and generated key naming. Its full
-native source/test check passes; package checks on that artifact remain pending.
-The 118-row backend experiment below was executed on artifact27. It is not a
-claimed repeat on32. CI11 separately passes all 33 package cases on both Node22
-and Node24 for artifact30's source revision.
+The final release source is exact main
+`3a94e1e8a87f1866449217f96b750ef92264b7ff`. All eight exact-main
+[CI17 checks](https://github.com/beynar/viborm/actions/runs/37908218170) pass.
+[Release 37908244607](https://github.com/beynar/viborm/actions/runs/37908244607)
+qualifies the tested archive with 33/33 grouped package cases, 53 compiler/scenario
+pairs, and the exact Node 22.0.0 consumer floor. The published archive matches that
+manifest, and GitHub's immutable `v1.0.0` release targets the same commit.
+
+Artifact32 retained the qualified client representation and changed migration
+declarations for physical rename projection and generated key naming. The
+118-row backend experiment below was executed on artifact27; final release
+qualification does not imply a repeated matrix or a backend switch. CI11
+separately passed all 33 package cases on both Node22 and Node24 for artifact30's
+source revision.
 
 Artifact30 retains artifact27's declaration type expressions. Artifact28 changed
 two generated chunk references and the unused optional parameter label
@@ -91,10 +99,10 @@ compiler-only limitation. That cause remains unsettled.
 
 Evidence: `/tmp/viborm-v1-declaration-backends-20261008/followthrough.md`,
 `annotated-getters/{receipts.json,ts58-receipts.json}` and exact saved producer,
-consumer and emitted files. Arnaud explicitly rejected this annotation requirement for V1: the release is
-held until fully unannotated cyclic emission preserves the original contract.
-The integrated carrier below satisfies that declaration requirement without
-adopting the getter annotations.
+consumer and emitted files. Arnaud explicitly rejected this annotation requirement for V1 and
+held release qualification until fully unannotated cyclic emission preserved the
+original contract. The integrated carrier below satisfies that declaration
+requirement without adopting the getter annotations.
 
 ## Reduced failure boundary
 

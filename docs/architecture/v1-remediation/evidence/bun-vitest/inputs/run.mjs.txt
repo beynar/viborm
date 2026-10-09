@@ -1,0 +1,22 @@
+import {openSync,closeSync,readFileSync,writeFileSync,existsSync} from 'node:fs';
+import {pathToFileURL} from 'node:url';
+const root='/tmp/viborm-v1-bun-vitest-experiment-checkout';
+process.chdir(root);
+const {startBoundedProcess,formatBoundedResourceLine,vitestArgumentsWithSingleWorker}=await import(pathToFileURL(root+'/scripts/bounded-process.mjs'));
+const {acquireTestRunLock}=await import(pathToFileURL(root+'/scripts/test-run-lock.mjs'));
+const release=acquireTestRunLock('isolated Bun versus Node Vitest comparison');
+const [label,backend,...args]=process.argv.slice(2);
+const direct=args[0]==='--probe';
+if(direct) args.shift();
+const forwarded=direct?args:vitestArgumentsWithSingleWorker(args);
+const entry=direct?forwarded.shift():root+'/node_modules/vitest/vitest.mjs';
+const log='/tmp/viborm-v1-bun-vitest-experiment-'+label+'-'+backend+'.log';
+const proof='/tmp/viborm-v1-bun-vitest-experiment-runtime.cjs';
+const fd=openSync(log,'w');
+let outcome;
+try {
+ const run=startBoundedProcess({command:backend==='bun'?'/Users/arnaud/.bun/bin/bun':process.execPath,arguments:[...(backend==='bun'?['--bun','--no-install','--no-env-file']:[]),'--require',proof,entry,...forwarded],env:{...process.env,VIBORM_EXPERIMENT_RUNTIME:backend},heapLimitMb:768,wallLimitMs:60000,label:label+' '+backend,stdio:['ignore',fd,fd]});
+ outcome=await run.completion;
+}finally{closeSync(fd);release();}
+const result={label,backend,command:backend==='bun'?'bun --bun --no-install --no-env-file --require runtime.cjs node_modules/vitest/vitest.mjs':'node --require runtime.cjs node_modules/vitest/vitest.mjs',entry,forwardedArguments:forwarded,limits:{heapMb:768,heapCaveat:backend==='bun'?'NODE_OPTIONS supplied; V8 heap limit is not a proven JSC heap ceiling. External RSS/wall caps are unchanged.':null,wallMs:60000,rssMb:1536},log,code:outcome.code,signal:outcome.signal,stopReason:outcome.stopReason,error:outcome.error?.message,wallMs:outcome.wallMs,peakRssMiB:outcome.peakGroupRssKb/1024,teardownVerified:!outcome.error};
+const receipt='/tmp/viborm-v1-bun-vitest-experiment-receipts.json';const rows=existsSync(receipt)?JSON.parse(readFileSync(receipt,'utf8')):[];rows.push(result);writeFileSync(receipt,JSON.stringify(rows,null,2)+'\n');console.log(formatBoundedResourceLine(label+' '+backend,outcome));console.log(JSON.stringify(result));

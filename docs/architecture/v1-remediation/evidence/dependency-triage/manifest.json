@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "triageRevision": "9fd7b011b75743a3e3ea8de587354e0192e26d44",
+  "releaseSourceRevision": "3a94e1e8a87f1866449217f96b750ef92264b7ff",
+  "evidenceKind": "Existing receipts and static input-identity/closure verification; no new audit or dependency execution",
+  "alertInstances": 29,
+  "uniqueAdvisories": 24,
+  "severityInstances": {
+    "high": 24,
+    "critical": 5
+  },
+  "scopeInstances": {
+    "repositoryDevTestBuild": 28,
+    "docsVercelDependency": 1,
+    "consumerRuntime": 0,
+    "resolvedOptionalPeerClosure": 0
+  },
+  "historicalProductionAudit": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 1,
+      "moderate": 2,
+      "high": 0,
+      "critical": 0
+    },
+    "sourceRevision": "Not recorded by the original audit receipt; do not assign the later triage revision to this earlier run.",
+    "captureTimestampScope": "File modification timestamps preserve existing capture metadata, not a reconstructed audit execution time."
+  },
+  "bytePreservation": "Original receipts and small tracked inputs use .txt suffixes to preserve exact bytes through formatters. Full lockfile remains available at the pinned committed source URL/blob; closure-evidence is a compact selected graph receipt.",
+  "sourceInputs": [
+    {
+      "path": "package.json",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44",
+      "sha256": "5ec9274e3e5c06d7f017780d65ff6691e3a1a5198705014078041e9734d356b0",
+      "bytes": 14241,
+      "gitBlob": "56ff4e3e291ff7e947bd1a0be3c92ecc3df2b3ce",
+      "sourceUrl": "https://github.com/beynar/viborm/blob/9fd7b011b75743a3e3ea8de587354e0192e26d44/package.json",
+      "archive": "inputs/package.json.txt"
+    },
+    {
+      "path": "docs/package.json",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44",
+      "sha256": "269ff54fec52c8120804c7bd29df0374141f3fdae0b6034b8bde206ffc6ca2ab",
+      "bytes": 899,
+      "gitBlob": "148cf56ccbec27c6aed492f7cb3af3fd996cae3a",
+      "sourceUrl": "https://github.com/beynar/viborm/blob/9fd7b011b75743a3e3ea8de587354e0192e26d44/docs/package.json",
+      "archive": "inputs/docs--package.json.txt"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44",
+      "sha256": "c71db78023184dcd8826ecdd5469473ba23a1824fae72fce9786f1ba7a13136d",
+      "bytes": 490449,
+      "gitBlob": "b610124cd82363f4ad22210e3eb26b133e6a7aa7",
+      "sourceUrl": "https://github.com/beynar/viborm/blob/9fd7b011b75743a3e3ea8de587354e0192e26d44/pnpm-lock.yaml"
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44",
+      "sha256": "cbeef8e2d5f1b14e38ced8fdf3515d3a1b4ae395a2bc6fbbfaaaf1565fc865a0",
+      "bytes": 609,
+      "gitBlob": "452d03ca299c7a41f2ee90d165526559b69634af",
+      "sourceUrl": "https://github.com/beynar/viborm/blob/9fd7b011b75743a3e3ea8de587354e0192e26d44/pnpm-workspace.yaml",
+      "archive": "inputs/pnpm-workspace.yaml.txt"
+    },
+    {
+      "path": "tsdown.config.ts",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44",
+      "sha256": "c1d48c0ae45a2929bd1651c62b1ba2bc5be84d16343c1f0ef71679ba910bc0a5",
+      "bytes": 8293,
+      "gitBlob": "302854b2b23b84f9a764bb0b1a25fb00e7db8e9a",
+      "sourceUrl": "https://github.com/beynar/viborm/blob/9fd7b011b75743a3e3ea8de587354e0192e26d44/tsdown.config.ts",
+      "archive": "inputs/tsdown.config.ts.txt"
+    }
+  ],
+  "files": [
+    {
+      "path": "traced-alerts.json.txt",
+      "originalName": "viborm-v1-dependabot-traced-alerts.json",
+      "bytes": 26772,
+      "sha256": "75516cb3ed0d30a0882effa88e67f0797785a7b157bb44a463b2d1bcef9c2a11",
+      "captureFileModifiedAtUtc": "2026-10-09T07:39:49.146633+00:00"
+    },
+    {
+      "path": "critical-high-alerts.jsonl.txt",
+      "originalName": "viborm-v1-dependabot-critical-high.jsonl",
+      "bytes": 18559,
+      "sha256": "3f4b9cf718fde6f40e24c88efea8e518a81cc149c80a586c9497d497aece01c8",
+      "captureFileModifiedAtUtc": "2026-10-09T07:35:46.528576+00:00"
+    },
+    {
+      "path": "prod-audit-patched.json.txt",
+      "originalName": "viborm-v1-prod-audit-patched.json",
+      "bytes": 10110,
+      "sha256": "9a599afa4ea073e16e398b0daf99a418c9cae8cf26af7e26af620c5f93b7ceba",
+      "captureFileModifiedAtUtc": "2026-10-08T11:38:28.028546+00:00"
+    },
+    {
+      "path": "inputs/package.json.txt",
+      "originalName": "package.json",
+      "bytes": 14241,
+      "sha256": "5ec9274e3e5c06d7f017780d65ff6691e3a1a5198705014078041e9734d356b0",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44"
+    },
+    {
+      "path": "inputs/docs--package.json.txt",
+      "originalName": "docs/package.json",
+      "bytes": 899,
+      "sha256": "269ff54fec52c8120804c7bd29df0374141f3fdae0b6034b8bde206ffc6ca2ab",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44"
+    },
+    {
+      "path": "inputs/pnpm-workspace.yaml.txt",
+      "originalName": "pnpm-workspace.yaml",
+      "bytes": 609,
+      "sha256": "cbeef8e2d5f1b14e38ced8fdf3515d3a1b4ae395a2bc6fbbfaaaf1565fc865a0",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44"
+    },
+    {
+      "path": "inputs/tsdown.config.ts.txt",
+      "originalName": "tsdown.config.ts",
+      "bytes": 8293,
+      "sha256": "c1d48c0ae45a2929bd1651c62b1ba2bc5be84d16343c1f0ef71679ba910bc0a5",
+      "revision": "9fd7b011b75743a3e3ea8de587354e0192e26d44"
+    },
+    {
+      "path": "closure-evidence.json.txt",
+      "originalName": "derived subset of viborm-v1-dependabot-lock-index.json + pinned package inputs",
+      "bytes": 35612,
+      "sha256": "69a090c537e0a78fbb15546029e88c50d8fb8620f96e4f5d38eeb8a5395efef0"
+    }
+  ],
+  "releaseInputIdentity": "All five pinned tracked inputs have the same SHA256 at the triage and released source revisions."
+}

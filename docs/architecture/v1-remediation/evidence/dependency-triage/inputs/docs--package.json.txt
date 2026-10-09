@@ -1,0 +1,26 @@
+{
+  "name": "docs",
+  "private": true,
+  "sideEffects": false,
+  "type": "module",
+  "scripts": {
+    "dev": "blume dev --port 3001",
+    "build": "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--max-semi-space-size=4\" MIMALLOC_PURGE_DELAY=0 RAYON_NUM_THREADS=1 ROLLDOWN_WORKER_THREADS=1 ROLLDOWN_MAX_BLOCKING_THREADS=1 node ../scripts/run-node-safe.mjs 384 300000 node_modules/blume/bin/blume.mjs build",
+    "deploy:cloudflare": "pnpm build && wrangler deploy --config dist/server/wrangler.json && wrangler triggers deploy --config dist/server/wrangler.json",
+    "preview": "blume preview",
+    "check": "blume check",
+    "validate": "blume validate",
+    "doctor": "blume doctor"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "blume": "^2.2.1"
+  },
+  "devDependencies": {
+    "@astrojs/cloudflare": "^14.3.4",
+    "astro": "^7.3.7",
+    "wrangler": "^4.148.0"
+  }
+}
