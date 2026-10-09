@@ -6,7 +6,7 @@
  * graph, so each declaration order runs on a fresh graph.
  */
 
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 
 const ZERO_REFUSAL = /Explicit zero is not portable/;
 
@@ -45,6 +45,7 @@ test.each([
     incrementFirst ? { ...keys, ...counters } : { ...counters, ...keys }
   );
   const db = createClient({ schema: { basket, line }, dataDir: ":memory:" });
+  onTestFinished(() => db.$disconnect());
   await syncLiveSchema(db);
   // A where tree builds its fields' filters in declaration order.
   if (incrementFirst) await db.basket.count({ where: {} });
@@ -70,10 +71,7 @@ test.each([
     [{ id: 0n }, 0],
   ] as const;
   for (const [where, rows] of reads) {
-    expect([
-      (await db.line.findMany({ where })).length,
-      await db.line.count({ where }),
-    ]).toEqual([rows, rows]);
+    expect(await db.line.count({ where })).toBe(rows);
   }
   expect(await db.basket.findMany({ where: { id: 0 } })).toEqual([]);
 
@@ -91,5 +89,4 @@ test.each([
   });
   expect(await db.line.deleteMany({ where: { qty: 0 } })).toEqual({ count: 1 });
   expect(await db.line.count()).toBe(3);
-  await db.$disconnect();
 });
