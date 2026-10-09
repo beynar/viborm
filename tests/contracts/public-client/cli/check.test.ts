@@ -175,6 +175,20 @@ describe("viborm check", () => {
     }
   });
 
+  it("--db audits a pushed schema: a missing table fails the audit", async () => {
+    project = makeTempProject();
+    writeConfigFixture(project, { dialect: "sqlite3", schemaBody: TEMPORAL });
+    vi.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`exit ${code}`);
+    });
+    // The config's client is a second module instance here, so the code
+    // prefix and exit 2 of the built CLI are not observable; the message is.
+    await expect(run(project.configPath, ["--db"])).rejects.toThrow("exit");
+    expect(process.stderr.write).toHaveBeenCalledWith(
+      expect.stringContaining("Database table or column does not exist")
+    );
+  });
+
   it("--db has no SQLite temporal text to audit on other dialects", async () => {
     project = makeTempProject();
     writeConfigFixture(project, { schemaBody: TEMPORAL });

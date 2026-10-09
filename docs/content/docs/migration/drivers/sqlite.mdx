@@ -96,7 +96,9 @@ SQL, another writer, or a release candidate that stored string input verbatim
 (`2024-01-15T10:30:00Z`, a `+00:00` offset, SQLite's `datetime('now')`) still
 reads back as the right instant, but comparisons can miss or misorder its rows.
 Typed queries do not inspect storage per statement. Run `viborm check --db` to
-count noncanonical values per column; it exits nonzero when any exist.
+count noncanonical values per column; it exits nonzero when any exist. It
+audits a pushed schema: a model table missing from the database fails the
+audit with V2004, so run `viborm push` or apply migrations first.
 
 The manual migration helpers quote a physical column name and return a SQLite
 expression. DateTime conversion uses the same calendar, instant range and

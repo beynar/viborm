@@ -67,8 +67,10 @@ async function auditTemporalText(
   return audits;
 }
 
-const describeAudit = (audit: TemporalColumnAudit): string =>
-  `[storage] "${audit.table}"."${audit.column}": ${audit.noncanonical} row(s) of noncanonical ${audit.type === "time" ? "Time" : "DateTime"} text compare and sort wrongly.\n    Repair with ${audit.type === "time" ? "sqliteCanonicalTimeExpression" : "sqliteCanonicalDateTimeExpression"} from viborm/migrations: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;
+const describeAudit = (audit: TemporalColumnAudit): string => {
+  const kind = audit.type === "time" ? "Time" : "DateTime";
+  return `[storage] "${audit.table}"."${audit.column}": ${audit.noncanonical} row(s) of noncanonical ${kind} text compare and sort wrongly.\n    Repair with sqliteCanonical${kind}Expression from viborm/migrations: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;
+};
 
 // The repair hint, when the issue has one, goes on its own indented line.
 const describe = (issue: SchemaValidationIssue): string =>
