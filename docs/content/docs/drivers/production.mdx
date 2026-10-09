@@ -61,9 +61,10 @@ users of a supplied handle.
 ## Poolers and edge runtimes
 
 A PostgreSQL pooler endpoint is still a PostgreSQL URL. Its session/transaction
-pooling mode and prepared-statement policy belong to the pooler. A postgres.js
-client VibORM builds defaults to `prepare: false`, and a supplied one keeps its
-own setting; opt in only when the endpoint supports prepared statements.
+pooling mode and prepared-statement policy belong to the pooler. postgres.js
+prepares statements by default; set `prepare: false` when the endpoint is a
+transaction-mode pooler without prepared-statement support (see
+[postgres.js prepared statements](/docs/drivers/postgresql/postgres#prepared-statements)).
 Namespace qualification does not depend on session search_path.
 
 Use [Neon HTTP](/docs/drivers/postgresql/neon-http) for stateless HTTP requests.

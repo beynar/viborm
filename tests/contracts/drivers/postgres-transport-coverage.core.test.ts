@@ -107,7 +107,8 @@ describe("postgres.js controlled transport execution", () => {
       "postgres://user:pass@local.test:6543/viborm"
     );
     const options = postgresProvider.create.mock.calls[0]?.[1];
-    expect(options).toMatchObject({ max: 3, prepare: false });
+    expect(options).toMatchObject({ max: 3 });
+    expect(options).not.toHaveProperty("prepare");
     expect(options?.types.int4).toBe(customType);
     expect(options?.types.timestamp.serialize("2026-08-31 11:12:13")).toBe(
       "2026-08-31 11:12:13"
@@ -185,10 +186,8 @@ describe("postgres.js controlled transport execution", () => {
 
     expect(postgresProvider.create).toHaveBeenCalledTimes(1);
     // No URL means no connection keys at all: postgres.js resolves its own
-    // defaults, and the driver contributes exactly its `types` install and the
-    // unprepared default that transaction-mode poolers need.
+    // defaults, and the driver contributes exactly its `types` install.
     expect(postgresProvider.create.mock.calls[0]?.[0]).toEqual({
-      prepare: false,
       types: expect.any(Object),
     });
   });

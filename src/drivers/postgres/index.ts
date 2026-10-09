@@ -97,9 +97,6 @@ function encodeListParameters(params: unknown[]): unknown[] {
 
 const withVibormTypes = (options: PostgresOptions = {}): PostgresOptions => ({
   ...options,
-  // postgres.js prepares only when the connection AND the query say so; every
-  // query says yes, so this decides. Unprepared suits transaction poolers.
-  prepare: options.prepare ?? false,
   types: { ...vibormTypes, ...options.types },
 });
 
@@ -222,8 +219,8 @@ export class PostgresDriver extends Driver<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
-    // postgres.js unsafe() takes (query, parameters?, queryOptions?)
-    // parameters must be cast as postgres expects specific types
+    // postgres.js prepares only when the connection AND the query say so; every
+    // query says yes, so the connection's `prepare` option decides.
     const result = await client.unsafe<T[]>(
       sqlStr,
       encodeListParameters(params),

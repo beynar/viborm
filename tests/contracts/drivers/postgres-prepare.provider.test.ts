@@ -163,8 +163,25 @@ describe("postgres.js statement preparation", () => {
     }
   });
 
-  it("an owned client with default options keeps the unnamed statement", async () => {
+  it("an owned client prepares by default", async () => {
     const orm = createClient({ schema, databaseUrl: url, options: { max: 1 } });
+    try {
+      const reads = await repeatedReads((id) =>
+        orm.invoice.findUnique({ where: { id } })
+      );
+      expect(reads.amounts).toEqual(AMOUNTS);
+      expect(types(reads.messages)).toBe("BES".repeat(REPEATS));
+    } finally {
+      await orm.$disconnect();
+    }
+  });
+
+  it("an owned client opts out with options.prepare: false", async () => {
+    const orm = createClient({
+      schema,
+      databaseUrl: url,
+      options: { max: 1, prepare: false },
+    });
     try {
       const reads = await repeatedReads((id) =>
         orm.invoice.findUnique({ where: { id } })
@@ -190,23 +207,6 @@ describe("postgres.js statement preparation", () => {
     } finally {
       await orm.$disconnect();
       await sql.end();
-    }
-  });
-
-  it("an owned client opts in with options.prepare", async () => {
-    const orm = createClient({
-      schema,
-      databaseUrl: url,
-      options: { max: 1, prepare: true },
-    });
-    try {
-      const reads = await repeatedReads((id) =>
-        orm.invoice.findUnique({ where: { id } })
-      );
-      expect(reads.amounts).toEqual(AMOUNTS);
-      expect(types(reads.messages)).toBe("BES".repeat(REPEATS));
-    } finally {
-      await orm.$disconnect();
     }
   });
 });
