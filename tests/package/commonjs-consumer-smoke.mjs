@@ -60,7 +60,7 @@ void db.entry.findUnique({ where: { id: 42 } });
         files: ["consumer.cts"],
       })
     );
-    for (const compiler of ["typescript-5-8", "typescript-native"])
+    for (const compiler of ["typescript", "typescript-native"])
       try {
         execFileSync(
           process.execPath,

@@ -73,22 +73,18 @@ const scripts = [
     "../../scripts/consumer-type-floor.mjs",
   ],
   [
-    "supports the documented TypeScript 5.8 consumer floor",
-    "../../scripts/consumer-type-floor.mjs",
-    { VIBORM_TYPESCRIPT_BIN: "node_modules/typescript-5-8/bin/tsc" },
+    "type-checks a 100-model three-level include on the TypeScript 5.9 floor",
+    "./type-floor-scale-smoke.mjs",
   ],
-  ...(["extends10", "query-family"] as const).map(
-    (fixture) =>
-      [
-        `retains TS5.9 public query inference for ${fixture}`,
-        "./declaration-consumer-smoke.mjs",
-        {
-          VIBORM_DECLARATION_COMPILER: "TS5.9",
-          VIBORM_DECLARATION_CASE: fixture,
-        },
-      ] as const
-  ),
-  ...(["TS5.8", "native"] as const).flatMap((compiler) =>
+  [
+    "retains TS5.9 public query inference for extends10",
+    "./declaration-consumer-smoke.mjs",
+    {
+      VIBORM_DECLARATION_COMPILER: "TS5.9",
+      VIBORM_DECLARATION_CASE: "extends10",
+    },
+  ],
+  ...(["TS5.9", "native"] as const).flatMap((compiler) =>
     (
       [
         "core-family",

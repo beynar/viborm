@@ -3,7 +3,7 @@
 A TypeScript ORM for PostgreSQL, MySQL and SQLite. Define models in TypeScript;
 query inputs and results are inferred without a code generation step.
 
-V1 requires Node.js 22+ and TypeScript 5.8+. Bun support depends on the selected
+V1 requires Node.js 22+ and TypeScript 5.9+. Bun support depends on the selected
 driver. Read the [upgrade guide](docs/content/docs/getting-started/upgrading-to-v1.mdx)
 before moving from 0.1 or a release candidate.
 

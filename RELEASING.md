@@ -135,7 +135,7 @@ not proof that a concrete provider ran.
 The publication gate requires CI proof of public types, core behavior and
 coverage, plus release proof of package exports, documentation examples,
 CLI execution, the exact Node 22.0.0
-and TypeScript 5.8 floors, the tarball allowlist, and the package-size budget.
+and TypeScript 5.9 floors, the tarball allowlist, and the package-size budget.
 The publish job may consume only the tarball and digest produced by that gate.
 
 ## Release candidate sequence

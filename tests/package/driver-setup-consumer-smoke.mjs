@@ -60,7 +60,7 @@ console.log('driver-setup-public: pass');
         files: ["consumer.ts"],
       })
     );
-    for (const compiler of ["typescript-5-8", "typescript-native"]) {
+    for (const compiler of ["typescript", "typescript-native"]) {
       try {
         execFileSync(
           process.execPath,

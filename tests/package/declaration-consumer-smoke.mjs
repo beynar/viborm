@@ -117,7 +117,6 @@ void [one, two, three, four, five, six, seven, eight, nine, last];
 `;
 
 const compilers = [
-  ["TS5.8", join(repositoryRoot, "node_modules/typescript-5-8/bin/tsc")],
   ["TS5.9", join(repositoryRoot, "node_modules/typescript/bin/tsc")],
   ["native", join(repositoryRoot, "node_modules/typescript-native/bin/tsc")],
 ];

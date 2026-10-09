@@ -17,7 +17,7 @@ export const user = s.model({ id: s.string(), name: schema.string() });
     rmSync(join(root, "node_modules/better-sqlite3"));
     const typeRoots = join(root, "empty-types");
     mkdirSync(typeRoots);
-    for (const compiler of ["typescript-5-8", "typescript-native"]) {
+    for (const compiler of ["typescript", "typescript-native"]) {
       try {
         execFileSync(
           process.execPath,
