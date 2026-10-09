@@ -68,6 +68,39 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
+- Checkpoint9 responds to exact CI8 evidence. The unchanged1536MiB ceiling
+  still caught Linux docs at1536.8MiB with448heap, so the now-smaller retained
+  build graph is constrained to352heap. Node24.21 fully cold build, with owned
+  runtime/content/OG caches and121 freshly rendered images, passes11.50s/
+  1373.8MiB. Actual-root warm passes10.30s/1376.9MiB. All145HTML semantics,
+ 137JS/2CSS/27fonts/121PNG are identical to the inspected output. The352
+  correction changes one numeric option and zero LOC; no RSS/wall exception.
+  Logs `/tmp/viborm-v1-docs-ci8-heap352-node2421-cold-og.log` and
+  `/tmp/viborm-v1-docs-root352-node2421-warm.log`; compact parity summary is
+  in `/tmp/viborm-v1-docs-ci8-352-parity.json`. Linux qualification remains.
+- CI8 coverage diagnostics identify loadConfig's loadEnvFile branch exactly.
+  The ignored local.env had supplied accidental coverage; a fresh Linux
+  checkout has none. A disposable fixture now proves .env loads before config
+  evaluation and the resulting SQLite client executes a real query. Probe
+  environment/cwd/client lifetimes are restored. The incidental Jiti-null
+  TypeError probe is removed; final87 passes100% on all metrics at4.43s/
+  739.7MiB on exactNode24.21. No production loader change. Receipt:
+  `/tmp/viborm-v1-cli-coverage-ci8-final87.log`.
+- CI8 passes Raptor102files/1331tests remotely in100.69s under120s, and all15
+  ordinary local shards. The next PGlite family exposes five old expectations:
+  clearing verbs precede adding verbs; scalar createMany groups two rows into
+  one INSERT; an absent reflective delegate is undefined. Corrections retain
+  all data/effect oracles and strengthen exact inserted rows, generated-ID
+  order, no-provider-dispatch on missing delegates and a succeeding real read.
+  The original14file/251test family passes15.14s/1672.1MiB under its existing
+  isolated2560MiB allowance. Remaining shared/imported families are running
+  sequentially, with every stage failure retained, before further qualification.
+  `/tmp/viborm-v1-ci8-family-1.log` records the affected success.
+- Checkpoint9 count: source147305 (+5930/+4.1945%), tests459897
+  (+14441/+3.2418%), scripts31874 (+180/+0.5679%), livecontent23200
+  (+71/+0.3070%). `/tmp/viborm-v1-checkpoint9-loc.json`. Source/package
+  artifact27 remains unchanged; finalCI must include the latest test changes.
+
 - Checkpoint8 closes local docs qualification without a resource exception.
   Vite's installed sharedConfigBuild retains one config graph; Tailwind stops
   scanning only architecture evidence and generated dependency aliases. The

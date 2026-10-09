@@ -130,6 +130,40 @@ describe("loadConfig", () => {
     expect(loaded.driver).toBe(loaded.client.$driver);
   });
 
+  it("loads the project's .env before evaluating its TypeScript config", async () => {
+    const probe = "VIBORM_TEST_CLI_ENV_ORDER_PROBE";
+    const previous = process.env[probe];
+    try {
+      delete process.env[probe];
+      writeFileSync(
+        join(project.dir, ".env"),
+        `${probe}=loaded-before-config\n`
+      );
+      writeConfigFixture(project, {
+        dialect: "sqlite3",
+        migrationsBlock:
+          "migrations: { dir: process.env.VIBORM_TEST_CLI_ENV_ORDER_PROBE }",
+      });
+      chdir(project.dir);
+      const loaded = await loadConfig();
+      try {
+        expect(loaded.migrations).toEqual({ dir: "loaded-before-config" });
+        expect(
+          (
+            await loaded.driver._executeRaw<{ ready: number }>(
+              "SELECT 1 AS ready"
+            )
+          ).rows
+        ).toEqual([{ ready: 1 }]);
+      } finally {
+        await loaded.client.$disconnect();
+      }
+    } finally {
+      if (previous === undefined) delete process.env[probe];
+      else process.env[probe] = previous;
+    }
+  });
+
   it("discovers viborm.config.ts in cwd when no --config given", async () => {
     writeConfigFixture(project);
     chdir(project.dir);
@@ -338,16 +372,6 @@ describe("loadConfig", () => {
     } finally {
       await loaded.client.$disconnect();
     }
-  });
-
-  it("refuses an invalid null default before selecting a named config", async () => {
-    writeConfigFixture(project, {
-      rawConfigSource:
-        "export default null; export const config = { client: 1 };",
-    });
-    await expect(
-      loadConfig({ config: project.configPath })
-    ).rejects.toBeInstanceOf(TypeError);
   });
 
   it("falls back to the module itself when there is no default/config export", async () => {

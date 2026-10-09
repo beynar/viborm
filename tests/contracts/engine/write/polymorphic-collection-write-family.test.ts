@@ -1482,10 +1482,12 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
         family.client.shelf.updateMany({
           where: { tenantId: "t1" },
           data: {
-            items: { connect: [], connectOrCreate: [], set: [] },
+            items: { set: [], connect: [], connectOrCreate: [] },
           },
         })
       ).resolves.toEqual({ count: 2 });
+      expect(await bookMembers(family)).toEqual([]);
+      expect(await videoMembers(family)).toEqual([]);
     });
 
     test("non-empty set and connectOrCreate reach the same root membership guard", async () => {
