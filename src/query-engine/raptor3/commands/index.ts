@@ -1,5 +1,4 @@
 import type { Operations } from "@client/types";
-import type { AnyDriver } from "@drivers/exports";
 import type { QueryExecutionContext } from "@drivers/types";
 import { NotFoundError } from "@errors";
 import type { Sql } from "@sql";
@@ -138,8 +137,7 @@ export interface PreparedOperation {
     attribution?: QueryExecutionContext
   ): Promise<unknown>;
   prepareBatch(
-    attribution?: QueryExecutionContext,
-    driver?: AnyDriver
+    attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined>;
   /**
    * The same package as {@link PreparedOperation.prepareBatch}, for the verbs
@@ -324,12 +322,11 @@ class PreparedCommand implements PreparedOperation {
   }
 
   async prepareBatch(
-    attribution?: QueryExecutionContext,
-    driver?: AnyDriver
+    attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined> {
     const context = new OperationContext(
       this.#schema,
-      driver ?? this.#config.driver,
+      this.#config.driver,
       this.#modelName,
       this.#operation,
       undefined,

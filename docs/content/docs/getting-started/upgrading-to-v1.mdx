@@ -137,8 +137,11 @@ has changed. 1.0.0 refused every typed query on a SQLite model whose decimal
 column lacked that storage, at the cost of a catalog read and a write
 transaction around every statement, reads included. 1.0.1 sends each typed
 statement alone. `viborm check --db` reports such a column, and push and
-migrate refuse to adopt it until the reviewed conversion has run; before that,
-its reads fail with `V2006` and writes and filters on it are not protected.
+migrate refuse to adopt it until the reviewed conversion has run. Before that,
+typed queries are not protected against it: values SQLite stores as integers
+read back divided by 10^scale with no error, filters, aggregates and
+`updateMany`/`deleteMany` can answer wrongly or change the wrong rows, and only
+other stored types fail with `V2006`.
 Descriptor changes also need review: scale reduction is valid only when all
 discarded digits are zero. See
 [Decimal](/docs/schema/scalars/decimal#descriptor-migrations) for provider

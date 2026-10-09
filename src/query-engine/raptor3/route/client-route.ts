@@ -72,8 +72,7 @@ export interface RoutedCandidateOperation {
     context: QueryExecutionContext
   ): PreparedBatchOperation<unknown> | undefined;
   prepareBatch(
-    context: QueryExecutionContext,
-    driver?: AnyDriver
+    context: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined>;
   execute<T>(execution: RoutedOperationExecution): Promise<T>;
 }
@@ -195,10 +194,9 @@ class RoutedOperation implements RoutedCandidateOperation {
   }
 
   prepareBatch(
-    context: QueryExecutionContext,
-    driver = this.#factoryDriver
+    context: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined> {
-    return this.#prepared.prepareBatch(context, driver);
+    return this.#prepared.prepareBatch(context);
   }
 
   async execute<T>(execution: RoutedOperationExecution): Promise<T> {

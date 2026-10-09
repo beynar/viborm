@@ -369,13 +369,8 @@ export class PendingOperation<T>
       // result. A verb that needs the asynchronous fold publishes no single
       // query, and the array owner asks it for the package instead.
       prepare: (operation) => operation.#resolveSinglePackage()?.queries[0],
-      prepareBatch: (operation, driver) =>
-        operation
-          .#resolveRouted()
-          .prepareBatch(
-            operation.#context.attribution,
-            driver ?? operation.#engine.driver
-          ),
+      prepareBatch: (operation) =>
+        operation.#resolveRouted().prepareBatch(operation.#context.attribution),
       parseResult: (operation, raw) => {
         const single = operation.#resolveSinglePackage();
         if (!single) {

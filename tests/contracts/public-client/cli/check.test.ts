@@ -213,25 +213,38 @@ describe("viborm check", () => {
     );
     const db = new Database(file);
     // Another tool's table: typed queries never inspect it.
-    db.exec(
-      "CREATE TABLE item (id INTEGER PRIMARY KEY, price REAL NOT NULL, prices TEXT NOT NULL)"
-    );
+    db.exec("CREATE TABLE item (id INTEGER PRIMARY KEY, price REAL NOT NULL)");
     try {
       const output = await run(project.configPath, ["--db"]);
       expect(output).toContain(
-        '[storage] "item"."price": declared REAL, not the checked scaled-integer decimal storage VibORM writes; typed reads fail and typed writes are not checked.'
+        '[storage] "item"."price": declared REAL, not the checked scaled-integer decimal storage VibORM writes; typed reads, filters and writes are not checked against it.'
       );
-      expect(output).toContain('[storage] "item"."prices": declared TEXT');
+      expect(output).toContain(
+        '[storage] "item"."prices": the column is missing'
+      );
       expect(output).toContain("Adopt the table through viborm push");
       expect(output).toContain("Storage audited: 2 column(s), 2 need repair.");
       expect(process.exitCode).toBe(1);
 
       process.exitCode = undefined;
-      db.exec("ALTER TABLE item RENAME TO foreign_item");
-      expect(await run(project.configPath, ["--db"])).toContain(
-        '[storage] "item"."price": the column is missing'
+      db.exec(
+        "DROP TABLE item; CREATE TABLE item (id INTEGER PRIMARY KEY, price DECIMAL(10,2) NOT NULL, prices TEXT NOT NULL)"
       );
+      const prisma = await run(project.configPath, ["--db"]);
+      expect(prisma).toContain('"item"."price": declared DECIMAL(10,2), not');
+      expect(prisma).toContain('"item"."prices": declared TEXT, not');
       expect(process.exitCode).toBe(1);
+
+      // A missing table fails as it fails the temporal scan.
+      process.exitCode = undefined;
+      db.exec("ALTER TABLE item RENAME TO foreign_item");
+      vi.spyOn(process, "exit").mockImplementation((code) => {
+        throw new Error(`exit ${code}`);
+      });
+      await expect(run(project.configPath, ["--db"])).rejects.toThrow("exit");
+      expect(process.stderr.write).toHaveBeenCalledWith(
+        expect.stringContaining("Database table or column does not exist")
+      );
 
       process.exitCode = undefined;
       db.exec("DROP TABLE foreign_item");

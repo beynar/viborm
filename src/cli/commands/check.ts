@@ -59,6 +59,9 @@ async function readCatalog(
     `SELECT s.sql AS definition, p.name, p.type, p."notnull", p.pk FROM sqlite_schema AS s JOIN pragma_table_info(s.name) AS p WHERE s.type = 'table' AND s.name = ?`,
     [table]
   );
+  // A missing table fails here as it fails a temporal scan (V2004).
+  if (rows.length === 0)
+    await driver._executeRaw(`SELECT 1 FROM ${quote(table)} LIMIT 0`);
   // SQLite reports a primary key nullable; VibORM writes it NOT NULL.
   return rows.map(({ notnull, pk, ...column }) => ({
     ...column,
@@ -136,7 +139,7 @@ const describeAudit = (audit: ColumnAudit): string => {
       audit.declared === null
         ? "the column is missing"
         : `declared ${audit.declared}, not the checked scaled-integer decimal storage VibORM writes`;
-    return `${column}: ${found}; typed reads fail and typed writes are not checked.\n    Adopt the table through viborm push, migrate or baseline: https://viborm.dev/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool`;
+    return `${column}: ${found}; typed reads, filters and writes are not checked against it.\n    Adopt the table through viborm push, migrate or baseline: https://viborm.dev/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool`;
   }
   const kind = audit.type === "time" ? "Time" : "DateTime";
   return `${column}: ${audit.noncanonical} row(s) of noncanonical ${kind} text compare and sort wrongly.\n    Repair with sqliteCanonical${kind}Expression from viborm/migrations: https://viborm.dev/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text`;

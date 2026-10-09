@@ -29,10 +29,17 @@ test("safe raw SQL refuses a forged fragment from JSON", async () => {
 
 /**
  * VibORM-owned SQLite schemas are correct by construction and typed queries do
- * not inspect storage. A decimal column another tool created as REAL is
- * adopted through push/migrate (which refuse it) or audited with
- * `viborm check --db`; until then the result codec refuses its values.
+ * not inspect storage. A decimal column another tool created is adopted
+ * through push/migrate (which refuse it) or audited with `viborm check --db`.
+ * Until then it is unprotected: the "documented gap" assertions below record
+ * today's behavior as described in docs/content/docs/migration/drivers/sqlite.mdx,
+ * not a contract to preserve.
  */
+const refusedByPush = (declared: string) => ({
+  code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+  message: expect.stringContaining(`unmarked ${declared} storage`),
+});
+
 test("a foreign REAL decimal column fails typed reads closed and is refused by push", async () => {
   const client = createClient({ schema: { product } });
   try {
@@ -52,24 +59,52 @@ test("a foreign REAL decimal column fails typed reads closed and is refused by p
     ).rejects.toMatchObject(invalid);
     await expect(
       syncLiveSchema(client, { dryRun: true })
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
-      message: expect.stringContaining("unmarked REAL storage"),
-    });
-    // The documented gap, which `viborm check --db` reports. A filter compares
-    // the scaled coefficient (200) with the foreign value, so a row it fails
-    // to match is never decoded and the read answers without it.
+    ).rejects.toMatchObject(refusedByPush("REAL"));
+    // Documented gap: a filter compares the scaled coefficient (200) with the
+    // foreign value, so the row holding 3 is not matched and never decoded.
     expect(
       await client.product.findMany({ where: { price: { gt: "2" } } })
     ).toEqual([]);
-    // A write is not checked against foreign storage either: it stores the
-    // scaled coefficient, and only its RETURNING decode fails.
+    // Documented gap: a write stores the scaled coefficient, and only its
+    // RETURNING decode fails.
     await expect(
       client.product.create({ data: { id: 3, price: "9.99" } })
     ).rejects.toMatchObject(invalid);
     expect(
       await client.$queryRawUnsafe("SELECT price FROM product WHERE id = 3")
     ).toEqual([{ price: 999 }]);
+  } finally {
+    await client.$disconnect();
+  }
+});
+
+test("a foreign DECIMAL(10,2) column is misread without an error and is refused by push", async () => {
+  const client = createClient({ schema: { product } });
+  try {
+    // What other tools declare: NUMERIC affinity stores whole numbers as integers.
+    await client.$executeRawUnsafe(
+      "CREATE TABLE product (id INTEGER PRIMARY KEY, price DECIMAL(10,2) NOT NULL)"
+    );
+    await client.$executeRawUnsafe(
+      "INSERT INTO product VALUES (1, 3), (2, 150), (3, '12.00')"
+    );
+    await expect(
+      syncLiveSchema(client, { dryRun: true })
+    ).rejects.toMatchObject(refusedByPush("DECIMAL(10,2)"));
+    // Documented gap: each stored integer reads as a scaled coefficient.
+    const prices = await client.product.findMany({ orderBy: { id: "asc" } });
+    expect(prices.map(({ price }) => price.toString())).toEqual([
+      "0.03",
+      "1.5",
+      "0.12",
+    ]);
+    const { _sum } = await client.product.aggregate({ _sum: { price: true } });
+    expect(_sum.price?.toString()).toBe("1.65");
+    // Documented gap: a filtered mutation compares coefficients, so `< 100`
+    // (coefficient 10000) also deletes the row holding 150.
+    expect(
+      await client.product.deleteMany({ where: { price: { lt: "100" } } })
+    ).toEqual({ count: 3 });
   } finally {
     await client.$disconnect();
   }
