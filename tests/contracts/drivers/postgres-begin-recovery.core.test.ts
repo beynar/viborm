@@ -75,7 +75,7 @@ describe("postgres.js failed BEGIN recovery", () => {
     expect(reserve).not.toHaveBeenCalled();
   });
 
-  it("retains primary and both terminal acquisition failures, then stays usable because no session was opened", async () => {
+  it("retains primary and both terminal acquisition failures, then stays usable because no live session remains", async () => {
     const { client, end, reserve, driver } = fixture();
     const primary = closed();
     const prior = stale();

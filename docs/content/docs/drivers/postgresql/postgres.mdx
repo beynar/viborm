@@ -139,7 +139,7 @@ using the transaction acquisition budget (five seconds by default). It releases
 each lease without running caller SQL. It never
 replays the callback or closes a supplied pool. If the server is still
 unreachable, the transaction rejects with that retryable connection error and
-the client stays usable: no session was opened, so the next query or
+the client stays usable: no live session remains, so the next query or
 transaction reconnects once the server is back, without `$disconnect()`.
 
 ## Prepared statements
