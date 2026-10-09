@@ -10,6 +10,14 @@ import { type V, v } from "../primitives/v";
 import type { VibSchema } from "../types";
 import { isRecord } from "../value-guards";
 import type { GetTargetSchemas, SchemaGetter } from "./helpers";
+import {
+  type RecurrenceFor,
+  recurrenceSchema,
+  type UnavailableRecurrenceSchema,
+  type UnavailableRecursiveClauseSchema,
+  unavailableRecursiveClause,
+  withRecursiveNode,
+} from "./recurrence";
 
 /**
  * To-one filter. Two spellings are accepted (Prisma parity):
@@ -30,6 +38,12 @@ import type { GetTargetSchemas, SchemaGetter } from "./helpers";
  * Prisma has the same ambiguity and resolves it the same way. The shorthand's
  * input type marks `is`/`isNot` as `never` (Prisma spells this `XOR<…>`), so a
  * collision is a type error rather than a silent reinterpretation.
+ *
+ * `recurse` collides the same way, one step earlier: an object that spells
+ * `recurse` (not `undefined`) IS the recursive filter, on every relation slot,
+ * and never reaches the shorthand. A target field literally named `recurse` is
+ * reached through `{ parent: { is: { recurse: … } } }`; one named `self` is
+ * unaffected, because only `recurse` selects the form.
  *
  * For optional relations, `is` can also be null, and the bare `null`
  * shorthand normalizes to `{ is: null }` (unchanged by the object shorthand).
@@ -60,19 +74,58 @@ type ToOneFilterObjectSchema<
   Source extends AnyModel,
   Key,
   S extends RelationState,
-> = V.Object<{
-  is: () => V.MaybeNullable<
-    GetTargetSchemas<S>["core"]["where"],
-    MayBeEmpty<Source, Key, S>
-  >;
-  isNot: () => V.MaybeNullable<
-    GetTargetSchemas<S>["core"]["where"],
-    MayBeEmpty<Source, Key, S>
-  >;
-}>;
+> = V.Object<
+  {
+    is: () => V.MaybeNullable<
+      GetTargetSchemas<S>["core"]["where"],
+      MayBeEmpty<Source, Key, S>
+    >;
+    isNot: () => V.MaybeNullable<
+      GetTargetSchemas<S>["core"]["where"],
+      MayBeEmpty<Source, Key, S>
+    >;
+  } & NoClosure
+>;
 
 type TargetWhereSchema<S extends RelationState> =
   GetTargetSchemas<S>["core"]["where"];
+
+/**
+ * The recursive filter: a quantifier over the slot's transitive closure from
+ * the filtered row, `self` adding that row itself. `recurse` is the very
+ * language `select`/`include` admit on the slot, so eligibility, bounds and
+ * normalization have one owner. Where the slot cannot recurse the required
+ * `recurse` is `never` and the form is uninhabitable; eligibility stays inside
+ * the required key, as on the select side, so no ordinary filter compares the
+ * cyclic model graph eagerly.
+ */
+type RecursiveFilterSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = V.Object<
+  {
+    recurse: RecurrenceFor<Source, Key, S>;
+    self: V.Boolean;
+    some: () => TargetWhereSchema<S>;
+    every: () => TargetWhereSchema<S>;
+    none: () => TargetWhereSchema<S>;
+    is: UnavailableRecursiveClauseSchema;
+    isNot: UnavailableRecursiveClauseSchema;
+  },
+  { atLeast: ["recurse"] }
+>;
+
+/**
+ * The ordinary forms' statement of the dispatcher's invariant: they never see
+ * a spelled `recurse`, so neither it nor `self` is theirs to accept. Types
+ * only, like the shorthand's `is?: never`; the runtime objects carry no dead
+ * entry, because `withRecursiveNode` routes every spelled `recurse` away.
+ */
+type NoClosure = {
+  recurse: UnavailableRecurrenceSchema;
+  self: UnavailableRecurrenceSchema;
+};
 
 /**
  * The shorthand member: a target-model `where` whose parsed value is wrapped
@@ -85,7 +138,11 @@ type ToOneShorthandFilterSchema<
   Key,
   S extends RelationState,
 > = V.Transform<
-  V.Input<TargetWhereSchema<S>> & { is?: never; isNot?: never },
+  V.Input<TargetWhereSchema<S>> & {
+    is?: never;
+    isNot?: never;
+    recurse?: never;
+  },
   V.Output<ToOneFilterObjectSchema<Source, Key, S>>
 > & { wrapped: TargetWhereSchema<S> };
 
@@ -99,12 +156,14 @@ export type ToOneFilterSchema<
         NullToIsNull,
         ToOneFilterObjectSchema<Source, Key, S>,
         ToOneShorthandFilterSchema<Source, Key, S>,
+        RecursiveFilterSchema<Source, Key, S>,
       ]
     >
   : V.Union<
       readonly [
         ToOneFilterObjectSchema<Source, Key, S>,
         ToOneShorthandFilterSchema<Source, Key, S>,
+        RecursiveFilterSchema<Source, Key, S>,
       ]
     >;
 
@@ -129,6 +188,35 @@ const requireRelationQuantifier = (
     quantifiers.some((quantifier) => value[quantifier] !== undefined)
       ? undefined
       : refusal;
+};
+
+/**
+ * The recursive filter of a slot that can recurse, or `undefined`. Its
+ * `recurse` is the identical schema instance `select`/`include` use.
+ */
+const recursiveFilter = <S extends RelationState, T extends SchemaGetter<S>>(
+  resolved: ResolvedSlot,
+  targetSchemas: T
+) => {
+  const recurrence = recurrenceSchema(resolved);
+  return (
+    recurrence &&
+    v.object(
+      {
+        recurse: recurrence,
+        self: v.boolean(),
+        some: () => targetSchemas().core.where,
+        every: () => targetSchemas().core.where,
+        none: () => targetSchemas().core.where,
+        is: unavailableRecursiveClause("is"),
+        isNot: unavailableRecursiveClause("isNot"),
+      },
+      {
+        atLeast: ["recurse"],
+        refuse: requireRelationQuantifier(resolved, TO_MANY_QUANTIFIERS),
+      }
+    )
+  );
 };
 
 /** The keys that spell the explicit `{ is, isNot }` filter. */
@@ -198,35 +286,51 @@ export const toOneFilterFactory = <
       ? validateSchema(filterObject, value)
       : validateSchema(shorthand, value);
   });
-  (schema as { options?: unknown }).options = members;
-
-  return schema as unknown as ToOneFilterSchema<Source, Key, S>;
+  return withRecursiveNode(
+    Object.assign(schema, { options: members }),
+    recursiveFilter(resolved, targetSchemas)
+  ) as unknown as ToOneFilterSchema<Source, Key, S>;
 };
 
 /**
- * To-many filter: { some?, every?, none? }
+ * To-many filter: { some?, every?, none? }, or the recursive filter.
  * Uses thunks for lazy evaluation - getTargetWhereSchema already returns thunk
  */
 
-export type ToManyFilterSchema<S extends RelationState> = V.Object<{
-  some: () => GetTargetSchemas<S>["core"]["where"];
-  every: () => GetTargetSchemas<S>["core"]["where"];
-  none: () => GetTargetSchemas<S>["core"]["where"];
-}>;
+export type ToManyFilterSchema<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = V.Union<
+  readonly [
+    V.Object<
+      {
+        some: () => TargetWhereSchema<S>;
+        every: () => TargetWhereSchema<S>;
+        none: () => TargetWhereSchema<S>;
+      } & NoClosure
+    >,
+    RecursiveFilterSchema<Source, Key, S>,
+  ]
+>;
 
 export const toManyFilterFactory = <
+  Source extends AnyModel,
+  Key,
   S extends RelationState,
   T extends SchemaGetter<S>,
 >(
   resolved: ResolvedSlot,
   targetSchemas: T
-): ToManyFilterSchema<S> => {
-  return v.object(
-    {
-      some: () => targetSchemas().core.where,
-      every: () => targetSchemas().core.where,
-      none: () => targetSchemas().core.where,
-    },
-    { refuse: requireRelationQuantifier(resolved, TO_MANY_QUANTIFIERS) }
-  ) as unknown as ToManyFilterSchema<S>;
-};
+): ToManyFilterSchema<Source, Key, S> =>
+  withRecursiveNode(
+    v.object(
+      {
+        some: () => targetSchemas().core.where,
+        every: () => targetSchemas().core.where,
+        none: () => targetSchemas().core.where,
+      },
+      { refuse: requireRelationQuantifier(resolved, TO_MANY_QUANTIFIERS) }
+    ),
+    recursiveFilter(resolved, targetSchemas)
+  ) as unknown as ToManyFilterSchema<Source, Key, S>;

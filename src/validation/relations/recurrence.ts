@@ -1,8 +1,16 @@
-import { getModelKeyCatalog } from "@schema/model";
+import { type AnyModel, getModelKeyCatalog } from "@schema/model";
+import type {
+  StaticForeignKeyMembership,
+  StaticJunctionMembership,
+  StaticRecursiveMembership,
+} from "@schema/relation/static-membership";
+import type { RelationState } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { createSchema, fail, ok } from "../primitives/helpers";
 import { validateInteger } from "../primitives/number";
 import v, { type V } from "../primitives/v";
+import type { ValidationResult, VibSchema } from "../types";
+import { isRecord } from "../value-guards";
 
 export interface NormalizedRecurrence {
   readonly depth: number | false;
@@ -151,3 +159,71 @@ export function recurrenceSchema(
   if (!getModelKeyCatalog(slot.source).rowKey) return undefined;
   return edge.kind === "junction" ? graphRecurrence : foreignKeyRecurrence;
 }
+
+/**
+ * The one refusal of `recurse` on a slot that cannot recurse, shared by every
+ * placement that spells the key: a `select`/`include` node and a `where`
+ * relation filter.
+ */
+export const UNAVAILABLE_RECURRENCE =
+  "recurse is available only on an ordinary self relation (a foreign key or a junction, never variant storage) whose model has a complete primary key";
+
+export const unavailableRecurrence = () =>
+  v.optional(v.refused(UNAVAILABLE_RECURRENCE));
+
+export type UnavailableRecurrenceSchema = ReturnType<
+  typeof unavailableRecurrence
+>;
+
+export const unavailableRecursiveClause = (clause: string) =>
+  v.optional(v.refused(`${clause} cannot be combined with recurse`));
+
+export type UnavailableRecursiveClauseSchema = ReturnType<
+  typeof unavailableRecursiveClause
+>;
+
+/**
+ * The static eligibility reader: the recurrence language a slot admits, or
+ * `never` when it cannot recurse, so a recursive form whose `recurse` is
+ * required is uninhabitable there.
+ */
+export type RecurrenceFor<
+  Source extends AnyModel,
+  Key,
+  S extends RelationState,
+> = StaticRecursiveMembership<Source, Key, S> extends StaticForeignKeyMembership
+  ? ForeignKeyRecurrenceSchema
+  : StaticRecursiveMembership<Source, Key, S> extends StaticJunctionMembership
+    ? GraphRecurrenceSchema
+    : never;
+
+/**
+ * The language of a slot that may spell `recurse`. A spelled `recurse` decides
+ * the form, so it meets only the recursive member and that member's own
+ * refusals, or the shared refusal where the slot has no recursive member;
+ * every other value meets the ordinary language exactly as before. JSON Schema
+ * still reads the ordinary alternatives and the recursive member as one union.
+ */
+export const withRecursiveNode = (
+  ordinary: VibSchema<any, any> & { readonly options?: unknown },
+  recursive: VibSchema<any, any> | undefined
+) => {
+  const validateOrdinary = ordinary["~standard"].validate;
+  const validateRecursive = recursive?.["~standard"].validate;
+  const schema = createSchema("union", (value) => {
+    if (!isRecord(value) || value.recurse === undefined) {
+      return validateOrdinary(value) as ValidationResult<unknown>;
+    }
+    return validateRecursive
+      ? (validateRecursive(value) as ValidationResult<unknown>)
+      : fail(UNAVAILABLE_RECURRENCE, ["recurse"]);
+  });
+  // A union lends its alternatives; an object's `options` are its settings,
+  // never a list, so the object itself is the one alternative.
+  const alternatives: readonly unknown[] = Array.isArray(ordinary.options)
+    ? ordinary.options
+    : [ordinary];
+  return Object.assign(schema, {
+    options: [...alternatives, ...(recursive ? [recursive] : [])],
+  });
+};
