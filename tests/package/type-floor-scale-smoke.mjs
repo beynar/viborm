@@ -95,11 +95,5 @@ export async function deep() {
 }
 `,
   },
-  ({ typeCheck }) => {
-    const started = performance.now();
-    typeCheck(["deep.ts"]);
-    console.log(
-      `100-model three-level include type-checked under the floor in ${Math.round(performance.now() - started)} ms`
-    );
-  }
+  ({ typeCheck }) => typeCheck(["deep.ts"])
 );
