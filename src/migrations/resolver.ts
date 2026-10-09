@@ -483,16 +483,18 @@ export const rejectAllResolver: ResolveCallback = async (change) =>
   change.reject();
 
 /**
- * Accepts destructive changes, treats ambiguous changes as renames,
+ * Accepts destructive changes, treats ambiguous column changes as renames,
  * and maps enum value removals to NULL.
- * Useful for development when you know all changes are intentional renames.
+ * A table pair stays undecided, so the plan refuses: the dropped side may be
+ * another application's table, and only a callback naming the pair may
+ * rename it.
  */
 export const lenientResolver: ResolveCallback = async (change) => {
   if (change.type === "destructive") {
     return change.proceed();
   }
   if (change.type === "ambiguous") {
-    return change.rename();
+    return change.operation === "renameColumn" ? change.rename() : undefined;
   }
 
   // enumValueRemoval: set all removed values to null

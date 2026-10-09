@@ -387,8 +387,16 @@ describe("lenientResolver", () => {
     expect(result).toBe("proceed");
   });
 
-  it("should rename ambiguous changes", async () => {
-    const change = createAmbiguousChange({
+  it("renames an ambiguous column but leaves a table pair undecided", async () => {
+    const column = createAmbiguousChange({
+      operation: "renameColumn",
+      table: "users",
+      column: "email",
+      oldName: "mail",
+      newName: "email",
+      description: "Column rename",
+    });
+    const table = createAmbiguousChange({
       operation: "renameTable",
       table: "accounts",
       oldName: "users",
@@ -396,8 +404,8 @@ describe("lenientResolver", () => {
       description: "Table rename",
     });
 
-    const result = await lenientResolver(change);
-    expect(result).toBe("rename");
+    expect(await lenientResolver(column)).toBe("rename");
+    expect(await lenientResolver(table)).toBeUndefined();
   });
 
   it("should use null for enum value removal changes", async () => {

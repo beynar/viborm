@@ -110,7 +110,13 @@ const preview = await migrations.push({
 
     if (change.type === "ambiguous") {
       // Ambiguous changes have: rename(), addAndDrop(), reject()
-      return change.rename();
+      if (change.operation === "renameColumn") return change.rename();
+      // Rename a table only by its named pair: the dropped table may belong
+      // to another application sharing this database.
+      if (change.oldName === "users" && change.newName === "accounts") {
+        return change.rename();
+      }
+      return change.reject();
     }
 
     if (change.type === "enumValueRemoval") {
@@ -213,13 +219,21 @@ const ciPushOptions = {
 | Resolver | Destructive | Ambiguous | Removed enum values |
 | --- | --- | --- | --- |
 | `rejectAllResolver` | Reject | Reject | Reject |
-| `lenientResolver` | Proceed | Rename | Set to `NULL` |
+| `lenientResolver` | Proceed | Rename columns; leave table pairs undecided | Set to `NULL` |
 | `addDropResolver` | Proceed | Add and drop | Set to `NULL` |
 
 The last two policies are intentionally data-destructive. Their enum policy is
 valid only when every affected column is nullable; otherwise the migration is
 refused. Prefer an explicit callback when the mapping depends on the column or
 the old value.
+
+Push cannot tell whether a live table it does not declare was ever yours, so a
+dropped table paired with a new model table is never renamed by policy:
+`lenientResolver` leaves the pair undecided and the plan refuses. Rename a table
+with a callback that names both tables, as in the example above. Every table
+rename is reported as `destructive`, so it also needs the preview's exact
+consent. On a database shared with another application, set `migrations.tables`
+so push never sees that application's tables.
 
 ## Managed tables and CLI decisions
 
@@ -237,7 +251,10 @@ export default defineConfig({
   migrations: {
     tables: ["users", "posts", "users_posts"],
     resolve: async (change) => {
-      if (change.type === "ambiguous") return change.rename();
+      // Rename columns. A table pair is refused until you name it here.
+      if (change.type === "ambiguous" && change.operation === "renameColumn") {
+        return change.rename();
+      }
       return change.reject();
     },
   },
@@ -248,7 +265,8 @@ The same callback resolves `migrate generate` decisions. A missing decision
 refuses the plan. Nullable enum removals still require `mapValues()` or
 `useNull()` explicitly. The CLI confirms the completed plan; it does not infer
 per-column rename or enum mappings. Non-interactive additive plans run without
-a prompt. `--yes` alone never authorizes a destructive plan.
+a prompt. A table rename is never additive: it needs `--accept-data-loss` like
+any destructive plan. `--yes` alone never authorizes a destructive plan.
 
 The programmatic live client accepts the same scope without a storage writer:
 `createMigrationClient(client, { tables: ["users", "posts"] })`.
@@ -427,7 +445,10 @@ const preview = await migrations.push({
 
     // Handle other change types...
     if (change.type === "destructive") return change.proceed();
-    if (change.type === "ambiguous") return change.rename();
+    if (change.type === "ambiguous" && change.operation === "renameColumn") {
+      return change.rename();
+    }
+    return change.reject();
   },
 });
 
