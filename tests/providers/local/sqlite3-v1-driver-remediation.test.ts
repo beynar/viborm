@@ -417,13 +417,19 @@ describe("V1 driver data integrity regressions", () => {
       active: s.boolean(),
       createdAt: s.dateTime().now(),
       updatedAt: s.dateTime().updatedAt(),
+      tags: s.toMany(() => tag),
+    });
+    const tag = s.model({
+      id: s.bigInt().id(),
+      label: s.string(),
+      accounts: s.toMany(() => account),
     });
     const exact = createLibSQLTransport({ url, intMode: "bigint" });
     const transport = createLibSQLTransport({ url, intMode: "number" });
     const execute = vi.spyOn(transport, "execute");
     const transaction = vi.spyOn(transport, "transaction");
     const client = createClient({
-      schema: { account },
+      schema: { account, tag },
       driver: new LibSQLDriver({ client: transport }),
     });
     const big = 9_007_199_254_740_993n;
@@ -441,7 +447,7 @@ describe("V1 driver data integrity regressions", () => {
     const read = () => client.account.findMany({ where: { id: big } });
     try {
       const setup = createClient({
-        schema: { account },
+        schema: { account, tag },
         driver: new SQLite3Driver({ dataDir: file }),
       });
       await syncLiveSchema(setup);
@@ -456,6 +462,12 @@ describe("V1 driver data integrity regressions", () => {
           balance: "900719925474099301",
           score: 1,
           active: true,
+          tags: {
+            create: [
+              { id: big + 1n, label: "a" },
+              { id: big + 2n, label: "b" },
+            ],
+          },
         },
       });
       expect(await dispatches(read)).toEqual(cold);
@@ -468,6 +480,18 @@ describe("V1 driver data integrity regressions", () => {
       const [found] = await read();
       expect(found?.id).toBe(big);
       expect(String(found?.balance)).toBe("900719925474099302");
+      // A nested m2m write reads the junction row it holds; its keys stay exact.
+      const relabelled = await client.account.update({
+        where: { id: big },
+        data: {
+          tags: { updateMany: { where: { label: "b" }, data: { label: "B" } } },
+        },
+        include: { tags: { orderBy: { id: "asc" } } },
+      });
+      expect(relabelled.tags.map(({ id, label }) => [id, label])).toEqual([
+        [big + 1n, "a"],
+        [big + 2n, "B"],
+      ]);
       const totals = await client.account.aggregate({
         _sum: { balance: true },
         _max: { id: true },

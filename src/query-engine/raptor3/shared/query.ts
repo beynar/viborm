@@ -1391,7 +1391,7 @@ export class Queries {
       fields[pair.junctionField] = shape;
       const column = a.identifiers.column(alias, pair.junctionField);
       return a.identifiers.aliased(
-        shape.type === "decimal"
+        shape.type === "decimal" || shape.type === "bigint"
           ? a.expressions.cast(column, "text")
           : transportedIdentifier(a, shape.id, column, shape.nullable),
         pair.junctionField

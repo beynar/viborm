@@ -82,8 +82,9 @@ const client = createClient({ schema, client: transport });
 
 Typed queries read `BigInt` and `Decimal` columns as text, so they stay exact
 with `intMode: "number"` or `"bigint"`, and a supplied client sends no setup
-statement. Raw rows keep the client's own carrier: in libSQL's default number
-mode, a raw read of an integer beyond `2^53` fails, so prefer bigint mode.
+statement; `"string"` mode is not supported for typed reads. Raw rows keep the
+client's own carrier: in libSQL's default number mode, a raw read of an integer
+beyond `2^53` fails, so prefer bigint mode.
 `$disconnect()` leaves the supplied transport open; its owner calls
 `transport.close()`. Owned transports use bigint mode and a 5-second local busy
 timeout. Strings containing NUL bytes are refused before dispatch because the
