@@ -12,9 +12,9 @@ import { buildSchema, ok } from "./helpers";
 // =============================================================================
 export type EnumValues<S extends VibSchema> =
   S extends EnumSchema<infer TValues, any, any> ? TValues : never;
-export type AnyEnumSchema = EnumSchema<string[], any, any>;
+export type AnyEnumSchema = EnumSchema<readonly string[], any, any>;
 export type BaseEnumSchema<
-  TValues extends string[],
+  TValues extends readonly string[],
   Opts extends ScalarOptions<TValues[number], any> | undefined = undefined,
 > = EnumSchema<
   TValues,
@@ -23,7 +23,7 @@ export type BaseEnumSchema<
 >;
 
 export interface EnumSchema<
-  TValues extends string[],
+  TValues extends readonly string[],
   TInput = TValues[number],
   TOutput = TValues[number],
 > extends VibSchema<TInput, TOutput> {
@@ -32,19 +32,18 @@ export interface EnumSchema<
 }
 
 /**
- * Create an enum schema that validates a value is one of the allowed values.
+ * Create an enum schema that validates a value is one of the allowed strings.
  *
- * @param values - Array of allowed values (strings or numbers)
- * @param options - Schema options
+ * The values may be a readonly tuple (`["a", "b"] as const`). The mutable arm
+ * of the constraint keeps an inline literal inferred as a mutable tuple, so
+ * the types of existing schemas do not change.
  *
  * @example
  * const status = v.enum_(["active", "inactive", "pending"]);
- * const level = v.enum_([1, 2, 3]);
- * const mixed = v.enum_(["a", 1, "b", 2]);
  */
 // @__NO_SIDE_EFFECTS__
 export function enum_<
-  const TValues extends string[],
+  const TValues extends string[] | readonly string[],
   const Opts extends
     | ScalarOptions<TValues[number], any>
     | undefined = undefined,

@@ -30,7 +30,7 @@ type EnumOperand<
 
 type EnumFilterBase<
   S extends V.Schema,
-  Values extends string[],
+  Values extends readonly string[],
   C extends V.Operand<any>,
 > = {
   equals: EnumOperand<S, C>;
@@ -44,7 +44,7 @@ type EnumFilterBase<
 
 type EnumFilterSchema<
   S extends V.Schema,
-  Values extends string[],
+  Values extends readonly string[],
   C extends V.Operand<any>,
 > = NegatableFilterSchema<EnumOperand<S, C>, EnumFilterBase<S, Values, C>>;
 
@@ -56,12 +56,12 @@ type EnumFilterSchema<
  */
 type EnumListFilterSchema<
   S extends V.Schema,
-  Values extends string[],
+  Values extends readonly string[],
 > = ListFilterSchema<S, V.Enum<Values>, V.Enum<Values, { array: true }>>;
 
 type EnumListUpdateSchema<
   S extends V.Schema,
-  Values extends string[],
+  Values extends readonly string[],
 > = ListUpdateSchema<S, V.Enum<Values>, V.Enum<Values, { array: true }>>;
 
 // =============================================================================
@@ -84,14 +84,15 @@ const orderedEnumRefusal = (operator: string) =>
     `Filter operation '${operator}' is not supported on an enum field: PostgreSQL orders enum values by their declaration order while MySQL and SQLite compare them as text, so the same query would answer differently per provider. Use 'equals'/'in', or model the field as a string or int if you need ordering.`
   );
 
-const enumBase = <Values extends string[]>(values: Values) => v.enum(values);
+const enumBase = <Values extends readonly string[]>(values: Values) =>
+  v.enum(values);
 
-const enumList = <Values extends string[]>(values: Values) =>
+const enumList = <Values extends readonly string[]>(values: Values) =>
   v.enum(values, { array: true });
 
 const buildEnumFilterSchema = <
   S extends V.Schema,
-  Values extends string[],
+  Values extends readonly string[],
   C extends V.Operand<any>,
 >(
   schema: S,
@@ -114,7 +115,10 @@ const buildEnumFilterSchema = <
   >(filter, operand);
 };
 
-const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
+const buildEnumListFilterSchema = <
+  S extends V.Schema,
+  Values extends readonly string[],
+>(
   schema: S,
   values: Values
 ): EnumListFilterSchema<S, Values> =>
@@ -123,7 +127,10 @@ const buildEnumListFilterSchema = <S extends V.Schema, Values extends string[]>(
     () => enumList(values)
   )(schema);
 
-const buildEnumListUpdateSchema = <S extends V.Schema, Values extends string[]>(
+const buildEnumListUpdateSchema = <
+  S extends V.Schema,
+  Values extends readonly string[],
+>(
   schema: S,
   values: Values
 ): EnumListUpdateSchema<S, Values> =>
@@ -137,7 +144,7 @@ const buildEnumListUpdateSchema = <S extends V.Schema, Values extends string[]>(
 // =============================================================================
 
 export interface EnumSchemas<
-  Values extends string[],
+  Values extends readonly string[],
   F extends ScalarState<"enum">,
   C extends V.Operand<any> = V.Operand<any>,
 > {

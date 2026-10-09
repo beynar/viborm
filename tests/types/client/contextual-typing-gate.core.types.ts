@@ -318,9 +318,29 @@ describe("enum members are keyed", () => {
   // @ts-expect-error - "C" is not a member of this enum
   const _typo = () => s.enum(["A", "B"]).default("C");
 
+  // The reuse recipe in enum.mdx: a readonly tuple is admitted and stays the key set.
+  const statusValues = ["PENDING", "ACTIVE", "INACTIVE"] as const;
+  const Status = s.enum(statusValues).name("status");
+  const order = s.model({
+    id: s.string().id(),
+    status: Status.default("PENDING"),
+    createdAt: s.dateTime().now(),
+    updatedAt: s.dateTime().updatedAt(),
+  });
+  const orders = createClient({
+    schema: { order },
+    driver: new PGliteDriver(),
+  });
+  const _tupleKeyed = () =>
+    orders.order.findMany({ where: { status: "ACTIVE" } });
+  // @ts-expect-error - "TYPO" is not a member of the tuple
+  const _tupleTypo = () => orders.order.findMany({ where: { status: "TYPO" } });
+
   test("the probes above compile (assertions live in @ts-expect-error)", () => {
     expectTypeOf(_keyed).toBeFunction();
     expectTypeOf(_typo).toBeFunction();
+    expectTypeOf(_tupleKeyed).toBeFunction();
+    expectTypeOf(_tupleTypo).toBeFunction();
   });
 });
 

@@ -399,7 +399,7 @@ export namespace V {
    * @example V.Enum<["active", "inactive", "pending"]>
    */
   export type Enum<
-    TValues extends string[],
+    TValues extends readonly string[],
     Opts extends ScalarOptions<TValues[number], any> | undefined = undefined,
   > = EnumSchema<
     TValues,

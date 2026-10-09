@@ -113,7 +113,8 @@ export class EnumScalar<State extends ScalarState<"enum">> {
 }
 
 export const enumScalar = <
-  const T extends string[],
+  // A readonly tuple is admitted; see `enum_` for the mutable arm.
+  const T extends string[] | readonly string[],
   Db extends NativeDialect = never,
   const Given extends ExactNativeTypeMap<Given> = never,
 >(

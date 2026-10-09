@@ -1464,7 +1464,8 @@ export const docsFenceCorpus: DocsFenceCase[] = [
   {
     id: "scalars/enum.mdx#1",
     coded: () => {
-      const Status = s.enum(["PENDING", "ACTIVE", "INACTIVE"]).name("status");
+      const statusValues = ["PENDING", "ACTIVE", "INACTIVE"] as const;
+      const Status = s.enum(statusValues).name("status");
       return {
         user: s.model({
           id: s.string().id(),

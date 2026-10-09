@@ -115,16 +115,35 @@ Distance ordering and selection require a pgvector-enabled PostgreSQL driver, fo
 
 ## Indexing Vectors
 
-For efficient similarity search, create an index:
+VibORM's index declarations cannot express an approximate nearest-neighbour
+index yet. Without one, distance ordering reads the whole table: exact, and
+fine for small tables. For larger tables, pgvector's indexes are created by
+hand:
 
 ```sql
 -- HNSW index (recommended for most cases)
-CREATE INDEX ON documents USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX documents_embedding_idx ON documents USING hnsw (embedding vector_cosine_ops);
 
 -- IVFFlat index (for very large datasets)
-CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops)
+CREATE INDEX documents_embedding_idx ON documents USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 ```
+
+:::warning[A hand-made index blocks migrations]
+Once such an index exists, every `push` and every `migrate` apply in the
+namespace fails with `V8001` before it changes anything, even when the change
+is to another table. VibORM keeps the index but cannot synchronize a table that
+holds an index it cannot declare. Two routes work today:
+
+- Drop the index before you run `push` or `migrate` apply, and create it again
+  afterwards. Rebuilding an HNSW index on a large table takes time.
+- If no foreign key links the vector table to the other tables, leave it out of
+  VibORM's migrations: migrate from a client whose schema omits the vector
+  model, pass the remaining tables as
+  [`tables`](/docs/migration/push#managed-tables-and-cli-decisions), and manage
+  the vector table's DDL yourself. A foreign key across that boundary fails
+  with `V11009`.
+:::
 
 ## When to Use Vector
 
