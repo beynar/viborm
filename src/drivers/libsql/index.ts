@@ -52,7 +52,7 @@ import type { QueryResult } from "../types";
 // EXPORTED OPTIONS
 // ============================================================
 
-// A native autocommit BUSY can leave libSQL's private pooled connection open.
+// A native BUSY can leave libSQL's private pooled connection unusable.
 // The Client API cannot recover that exact handle without affecting borrowers.
 const unsafeLocalClients = new WeakSet<Client>();
 
@@ -238,7 +238,7 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
 
     await this.ensureSuppliedIntegerPrecision(client);
     const tx = await acquireWithMaxWait(
-      () => client.transaction("write"),
+      () => this.quarantineOnBusy(client, () => client.transaction("write")),
       (acquired) => acquired.close(),
       options?.maxWaitMs,
       { driverName: this.driverName, form: "callback" }
@@ -257,13 +257,25 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
     // Transactions own dedicated provider connections, including :memory:.
   }
 
-  private async executeStatement(
+  private executeStatement(
     client: Client | Transaction,
     statement: InStatement
   ): Promise<ResultSet> {
+    return this.quarantineOnBusy(client, () => client.execute(statement));
+  }
+
+  /**
+   * A local BUSY can leave the failed statement unfinished on libSQL's pooled
+   * connection; SQLite then never commits that connection's later autocommit
+   * writes. Statements and transaction acquisition (its BEGIN) both borrow
+   * that connection, so both quarantine this exact client.
+   */
+  private async quarantineOnBusy<R>(
+    client: Client | Transaction,
+    work: () => Promise<R>
+  ): Promise<R> {
     try {
-      const result = await client.execute(statement);
-      return result;
+      return await work();
     } catch (error) {
       if (
         this.serializeTransactions &&

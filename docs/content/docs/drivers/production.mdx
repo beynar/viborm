@@ -51,10 +51,11 @@ when the operation's idempotency and the error's commit certainty make it safe;
 transaction callbacks can include effects outside the database. Authentication,
 configuration and closed-handle refusals require correcting that condition.
 
-Local libSQL `SQLITE_BUSY` quarantines the exact native handle because the SDK can
-retain an uncommitted write after the failure. Further VibORM work on that handle
-is refused. An owned driver can disconnect and create a fresh client; the owner
-of a supplied client must replace it. VibORM does not close or repair unrelated
+Local libSQL `SQLITE_BUSY`, in a statement or while opening a transaction,
+quarantines the exact native handle because the SDK would keep later writes
+uncommitted. Further VibORM work on that handle is refused, so retry the `V5006`
+only after recovery. An owned driver can disconnect and create a fresh client;
+the owner of a supplied client must replace it. VibORM does not close or repair unrelated
 users of a supplied handle.
 
 ## Poolers and edge runtimes
