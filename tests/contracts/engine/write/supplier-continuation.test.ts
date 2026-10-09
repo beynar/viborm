@@ -122,7 +122,23 @@ class ProgressiveBatchOnlyPGliteDriver extends BatchOnlyPGliteDriver {
     this.batches.push(queries.map((query) => query.sql));
     const results = await super.executeBatch<T>(client, queries);
     await committed?.();
-    const statements = queries.map((query) => query.sql);
+    return results;
+  }
+
+  override async _executeBatch<T>(
+    queries: BatchQuery[],
+    options?: Parameters<PGliteDriver["_executeBatch"]>[1],
+    context?: QueryExecutionContext,
+    committed?: CommittedBatchNotification
+  ): Promise<QueryResult<T>[]> {
+    const results = await super._executeBatch<T>(
+      queries,
+      options,
+      context,
+      committed
+    );
+    // Only the completed public batch releases the shared physical queue lease.
+    const statements = this.batches.at(-1) ?? [];
     const hook = this.afterCommittedBatch;
     if (hook?.matches(statements)) {
       this.afterCommittedBatch = undefined;

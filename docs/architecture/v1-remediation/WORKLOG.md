@@ -68,6 +68,53 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
+- Native45 checks the complete integrated source and fixture/harness estate:
+  zero diagnostics,34.84s/5958.1MiB under8192MiB/300s, teardown verified.
+  `/tmp/viborm-v1-native-45.log`. Shared provider reruns now own the runner.
+
+- Artifact28 is built from538 frozen inputs, SHA256
+  `20580d2976056dc737d9baccefb10b428db7da5cd202ffbc7e71718f5b1468a1`,
+  2,051,109bytes. Build2.16s/1026.3MiB, teardown verified. All34declaration
+  files match27 exactly after two generated chunk references and one unused
+  optional parameter label are normalized; no type expression changes. The
+ 118-row backend/type matrix remains applicable by that recorded equivalence.
+  Package gate28 passes33/33 in87.15s/1218.1MiB onNode24.14. All53 expanded
+  compiler/scenario pairs are unchanged from the prior43case harness: original
+ 51 plus recursiveJSON on both compilers. Strict producer emission and separate
+  emitted-only consumers remain intact; the30s/300s/1536MiB limits are unchanged.
+  Receipts `/tmp/viborm-v1-artifact28-declaration-equivalence.json`,
+  `/tmp/viborm-v1-package28-scenario-parity.json`,
+  `/tmp/viborm-v1-package28-node24.log`.
+- CI9 Coverage completes successfully at997e84a1b: CLI87allfourmetrics100%,
+  all coverage floors satisfied. This predates the dispatch runtime fix.
+  Source atcheckpoint10 is147293lines (+5918/+4.186%); tests460058
+  (+14602/+3.278%); scripts31932 (+238, including58temporarydiagnosticlines);
+  livecontent23200 (+71). The dispatch owner correction removes12source lines.
+  Temporary build diagnostics are verified locally (10samples from only the
+  actual buildNode,10.57s/1358.8MiB); Linux evidence and removal follow.
+
+- Checkpoint10 is in preparation. CI9 Quality still exceeds1536MiB:
+  the352heap build completes all three Vite builds and121OG routes, then
+  crosses1548.4MiB during authored HTML at22.42s. A temporary Linux
+  memory diagnostic will identify retained process/heap/native allocations;
+  the RSS/wall ceilings are unchanged. Node22 package qualification hits its
+  unchanged300s aggregate with no assertion failure, so graph fixtures are
+  grouped into independent modules in shared compiler programs. Every original
+  scenario remains and no compiler/consumer boundary is removed.
+- The next shared PGlite family exposes a real lifecycle defect: unobserved
+  array planning runs statement transforms, then fallback dispatch runs them
+  again. The two driver owners now retain private prepared Sql provenance
+  without user effects and materialize it at actual native/sequential dispatch,
+  with or without observers. The original once-only oracle stays intact.
+  Focused39 and boundary122 checks pass; final source/build checks remain.
+  Artifact27 remains historical evidence and must not be published after this
+  runtime change; a newly frozen artifact will replace it.
+- Controlled-race fixtures in supplier-continuation/progressive-parent-rowkey
+  deadlock by awaiting public writes from inside the physical connection lease.
+  Their hooks move to public batch boundaries; original race and final-state
+  assertions remain. Shard2 is red and shard3 explicitly interrupted/incomplete
+  after440.23s with verified teardown, not counted as a passing stage.
+
 - Checkpoint9 responds to exact CI8 evidence. The unchanged1536MiB ceiling
   still caught Linux docs at1536.8MiB with448heap, so the now-smaller retained
   build graph is constrained to352heap. Node24.21 fully cold build, with owned

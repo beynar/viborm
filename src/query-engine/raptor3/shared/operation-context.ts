@@ -505,8 +505,8 @@ export class OperationContext {
     member?: Member
   ): BatchQuery {
     const prepared = this.#transport._prepare(statement, context);
-    // The DRIVER owns this query's identity. When observers are installed it
-    // DEFERS the statement transform and registers the typed `Sql` against the
+    // The DRIVER owns this query's identity. It defers the statement transform
+    // and registers the typed `Sql` against the
     // object it returned (`drivers/driver-transaction-base.ts:246-264`), which
     // the statement onion reads back before dispatch — so a snapshot that does
     // not carry the provenance silently drops every deferred transform.

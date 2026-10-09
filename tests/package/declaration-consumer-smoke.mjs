@@ -133,6 +133,10 @@ const declarationFamilies = {
   "target-family": ["factories", "self-junction", "variants"],
   "modifier-family": ["modifiers", "json"],
 };
+const graphFamilies = {
+  "chain-family": ["chain2", "chain5", "chain30"],
+  "query-family": ["chain100", "chain200", "ring10"],
+};
 const composedFixtures = [
   ["factories", factorySource(), factoryProbe()],
   ["self-junction", selfJunctionSource, selfJunctionProbe],
@@ -157,12 +161,16 @@ const cases = [
   "ring10",
   "json",
   ...Object.keys(declarationFamilies),
+  ...Object.keys(graphFamilies),
 ];
 if (compilerChoice && !compilers.some(([label]) => label === compilerChoice))
   throw new Error(`Unknown declaration compiler: ${compilerChoice}`);
 if (caseChoice && !cases.includes(caseChoice))
   throw new Error(`Unknown declaration case: ${caseChoice}`);
-const includesCase = (name) => !caseChoice || caseChoice === name;
+const includesCase = (name) =>
+  !caseChoice ||
+  caseChoice === name ||
+  graphFamilies[caseChoice]?.includes(name);
 
 withPackedConsumer(
   "viborm-declaration-consumer",
@@ -437,27 +445,19 @@ withPackedConsumer(
             `${label}: exported schema/client emitted ${Buffer.byteLength(declaration)} bytes; downstream positive and negative probes passed`
           );
         }
-        for (const count of [2, 5, 30]) {
-          if (
-            !(
-              includesCase(`chain${count}`) ||
-              (count === 5 &&
-                (includesCase("backreference") || includesCase("lossy-models")))
-            )
-          )
-            continue;
-          const file = `chain${count}.ts`;
-          writeFileSync(join(root, file), chainSource(count));
-          const chainProject = join(
-            root,
-            `tsconfig-${label}-chain${count}.json`
-          );
-          const chainOutput = join(root, `${label}-chain${count}`);
+        const chains = [2, 5, 30].filter(
+          (count) =>
+            includesCase(`chain${count}`) ||
+            (count === 5 &&
+              (includesCase("backreference") || includesCase("lossy-models")))
+        );
+        if (chains.length > 0) {
+          // Independent modules share one strict compiler program. Each keeps
+          // its complete original graph and must emit its own declaration.
+          const chainOutput = join(root, `${label}-chains`);
+          const chainProject = join(root, `tsconfig-${label}-chains.json`);
           const probes = [];
-          if (
-            count === 5 &&
-            (includesCase("backreference") || includesCase("lossy-models"))
-          ) {
+          if (includesCase("backreference") || includesCase("lossy-models")) {
             writeFileSync(
               join(root, "backreference.ts"),
               backreferenceSource()
@@ -468,7 +468,15 @@ withPackedConsumer(
               probes.push("./lossy-control.ts");
             }
           }
-          emitSource(chainProject, chainOutput, [`./${file}`], probes);
+          const producers = chains.map((count) => {
+            const file = `chain${count}.ts`;
+            writeFileSync(join(root, file), chainSource(count));
+            return `./${file}`;
+          });
+          emitSource(chainProject, chainOutput, producers, probes);
+        }
+        for (const count of chains) {
+          const chainOutput = join(root, `${label}-chains`);
           const emitted = readFileSync(
             join(chainOutput, `chain${count}.d.ts`),
             "utf8"
@@ -524,7 +532,7 @@ withPackedConsumer(
         if (includesCase("lossy-models")) {
           const emittedControl = join(
             root,
-            `${label}-chain5`,
+            `${label}-chains`,
             "lossy-control.ts"
           );
           writeFileSync(emittedControl, lossyModelsControl);
@@ -551,6 +559,7 @@ withPackedConsumer(
             `${label}: source-valid emitted-model rebuild control retains the explicit limitation`
           );
         }
+        const queries = [];
         for (const [count, ring] of [
           [100, false],
           // The original JS compiler crash began after120–150 FK hops.
@@ -560,6 +569,9 @@ withPackedConsumer(
           if (!includesCase(`${ring ? "ring" : "chain"}${count}`)) continue;
           const file = `${ring ? "ring" : "chain"}${count}-query.ts`;
           writeFileSync(join(root, file), chainSource(count, ring));
+          queries.push(join(root, file));
+        }
+        if (queries.length > 0) {
           runPackageStage(label, caseChoice ?? "all", "query", () =>
             execFileSync(
               process.execPath,
@@ -577,14 +589,13 @@ withPackedConsumer(
                 "node",
                 "--typeRoots",
                 join(repositoryRoot, "node_modules/@types"),
-                join(root, file),
+                ...queries,
               ],
               { cwd: root, encoding: "utf8", stdio: "pipe" }
             )
           );
-          console.log(
-            `${label}: same-shape ${ring ? "ring" : "chain"}${count} nested public query passed`
-          );
+          for (const file of queries)
+            console.log(`${label}: ${file} nested public query passed`);
         }
       } catch (error) {
         throw new Error(

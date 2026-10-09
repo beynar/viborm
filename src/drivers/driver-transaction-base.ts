@@ -325,25 +325,15 @@ export abstract class DriverTransactionBase<
    * Convert a typed Sql fragment into a driver-ready batch query.
    * Query-engine planners use this so dialect placeholders stay driver-owned.
    */
-  _prepare(query: Sql, context?: QueryExecutionContext): BatchQuery {
-    if (this.hasTrustedObservers(context)) {
-      const statement = new Sql([...query.strings], [...query.values]);
-      const prepared = {
-        sql: this.buildStatement(statement),
-        params: [...statement.values],
-      };
-      registerPreparedStatement(prepared, statement);
-      return prepared;
-    }
-    const transformedQuery = this.applyTrustedStatementTransforms(
-      query,
-      context,
-      "prepare"
-    );
-    return {
-      sql: this.buildStatement(transformedQuery),
-      params: transformedQuery.values,
+  _prepare(query: Sql, _context?: QueryExecutionContext): BatchQuery {
+    // Planning may discard this package. User transforms belong to dispatch.
+    const statement = new Sql([...query.strings], [...query.values]);
+    const prepared = {
+      sql: this.buildStatement(statement),
+      params: [...statement.values],
     };
+    registerPreparedStatement(prepared, statement);
+    return prepared;
   }
 
   /**
@@ -684,16 +674,12 @@ export abstract class DriverTransactionBase<
       let executionQuery = query;
       let diagnosticParams = this.getBatchDiagnosticParameters(query);
       const observed = this.hasTrustedObservers(statementContext);
-      // Unobserved, this is the observed statement with the ungated gate and
-      // no deferred transform to materialize.
       const executeStatement = (gate = ungatedStatementExecution) => {
-        if (observed) {
-          executionQuery = this.materializeTrustedBatchQuery(
-            query,
-            statementContext
-          );
-          diagnosticParams = this.getBatchDiagnosticParameters(executionQuery);
-        }
+        executionQuery = this.materializeTrustedBatchQuery(
+          query,
+          statementContext
+        );
+        diagnosticParams = this.getBatchDiagnosticParameters(executionQuery);
         const { sql, params } = executionQuery;
         const verbatim = isVerbatimBatchQuery(executionQuery);
         return gate.execute(
@@ -792,7 +778,6 @@ export abstract class DriverTransactionBase<
           `Driver '${this.driverName}' cannot acknowledge ordered committed segments.`
         );
       }
-      const hasStatementObservers = this.hasTrustedObservers(executionContext);
       const executeNativeBatch = async (
         sourceQueries: readonly BatchQuery[] = queries,
         gate = ungatedStatementExecution
@@ -870,14 +855,12 @@ export abstract class DriverTransactionBase<
             )
         );
       };
-      const submitNativeBatch = hasStatementObservers
-        ? () =>
-            this.observeTrustedBatchStatements(
-              queries,
-              executionContext,
-              executeNativeBatch
-            )
-        : () => executeNativeBatch();
+      const submitNativeBatch = () =>
+        this.observeTrustedBatchStatements(
+          queries,
+          executionContext,
+          executeNativeBatch
+        );
       if (this.serializeTransactions && !this.inTransaction) {
         this.assertBaseOperationAllowedDuringTransaction(executionContext);
         return this.connectionQueue.enqueue(

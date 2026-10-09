@@ -7,10 +7,12 @@ query and migration work; the root agent integrates, reviews and releases it.
 
 **Release checkpoint: held, not published.** Arnaud requires fully unannotated
 exported clients and client factories to preserve cyclic relation typing through
-declaration emission. The schema-key carrier passes the 118-row final
-compiler/backend/scaling matrix on TypeScript 5.8 and 7. The final tarball passes
-all 43 package cases on Node 22 and 24; the grouped harness retains all previous
-51 scenarios and adds recursive JSON result checks.
+declaration emission. The schema-key carrier passes the 118-row
+compiler/backend/scaling matrix on TypeScript 5.8 and 7. Artifact28 retains the
+same declaration type expressions and passes33 package cases on Node24; its
+grouped harness retains all53 compiler/scenario pairs (the original51 plus
+recursive JSON on both compilers). Final Node22 and protected CI qualification
+remain.
 Caller getter annotations are unnecessary. Rebuilding a client from
 already-emitted cyclic models is an explicitly accepted remaining limitation.
 Version 1.0.0 is prepared, but npm latest
@@ -77,9 +79,21 @@ findings, 4 non-defects and 1 refuted claim. There are no unassigned pending row
 
 **Evidence at this checkpoint.**
 
+The current follow-through found a further runtime defect: fallback array
+planning and execution could invoke statement transforms twice. The driver
+fix defers transforms to dispatch and retains private prepared-statement
+provenance; focused39-test and122-test boundary runs pass. The new runtime
+artifact passes local package checks; race fixtures and final protected checks
+are still being qualified. CI9 also exposes
+two resource failures: Linux docs crosses1548.4MiB during HTML rendering, and
+Node22 package checks reach the300s aggregate without an assertion failure.
+Memory diagnosis is underway; grouped compiler runs reduce the local package
+gate from107.33s to87.15s with exact scenario/source parity;
+no test case, consumer check or resource ceiling has been dropped.
+
 | Check | Observed result | Remaining qualification |
 |---|---|---|
-| Whole-estate native typecheck | Native44 includes the final package harness and checkpoint8 regressions: zero diagnostics, 35.89s, 5925.1MiB, unchanged 8192MiB/300s limits, verified teardown | Final CI also checks the subsequent environment/PGlite test corrections |
+| Whole-estate native typecheck | Native45 includes the dispatch correction and all fixture/package changes: zero diagnostics,34.84s/5958.1MiB, unchanged8192MiB/300s limits, verified teardown | Final protected CI |
 | Core7, four sequential shards | All9624 tests passed; unchanged resource budgets | Final CI revision |
 | Focused driver/instrumentation integration |132/132 passed, including actual OTel, Neon SDK mocks and poisoned-row taxonomy | Final CI revision |
 | CI6 integration repair |171/171 affected tests pass; SQLite selected-key recovery retains exactly two attempts, direct/array scalar failures retain V2006 metadata, and rejected async validators/callbacks remain contained. All3719 validation tests pass with100% coverage | Final CI revision |
@@ -91,13 +105,14 @@ findings, 4 non-defects and 1 refuted claim. There are no unassigned pending row
 | libSQL HTTP rollback |3/3 passed over real HTTP against official sqld0.23.0 | Hosted Turso and newer servers remain unqualified |
 | Installed Node22.12/24.14 consumers | All 43 grouped package cases pass on both runtimes, retaining all 51 previous scenarios and adding recursive JSON output. This includes actual value use across 27 public subpaths, CommonJS/SQLite, extension recipes, absent peers and CLI configuration | Final protected CI |
 | Exported declarations and cyclic models | Artifact27 completes 118 compiler/backend checks with zero unexpected failures; direct JS5.9/native7 and both working tsdown paths preserve strict TS5.8/native7 consumers. All emitted clients have exact literal links and zero elisions/getter functions; dense graphs pass through 96 models. Maximum child 3.878s/846.4MiB | Raw-model reconstruction remains lossy; stock native plugin lacks its expected peer and OXC requires annotations. Current JS backend retained; [full comparison](declaration-backends.md) |
-| Full package qualification | Immutable artifact27 passes 43/43 cases on Node22.12 in 118.67s/1110.2MiB and Node24.14 in 107.33s/1224.9MiB, with verified teardown and unchanged 1536MiB/300s limits. All 676 concrete equality controls and all 20 archive/AST integrity regressions pass | Final protected CI |
-| Documentation build and Worker | The final 352MiB heap passes a fully cold build, including 121 freshly rendered images, in 11.50s/1373.8MiB; the actual checkout warm build passes 10.30s/1376.9MiB on Node24.21. All assets and rendered semantics match the locally inspected output. Link validation, generated-config dry run, nine Worker HTTP/MCP checks and hydrated tabs/search/navigation pass | Linux CI8 still exceeded RSS with the previous 448MiB heap. Final Linux CI and production deployment remain; the 1536MiB ceiling is unchanged |
-| Coverage gates | CI8 identifies the exact missing branch: project .env loading. Local coverage had accidentally inherited the ignored workspace .env. An isolated fixture now proves environment loading before TypeScript config evaluation and a working SQLite client. Final87 passes all four metrics100% on Node24.21,4.43s/739.7MiB; production loader code is unchanged | Final Linux coverage |
+| Full package qualification | Artifact28 passes33/33 onNode24.14 in87.15s/1218.1MiB; all53 compiler/scenario pairs and source/probe hashes are unchanged. Its34 declarations are equivalent to27 apart from two generated chunk references and one optional parameter label; no type expressions changed. Prior676 concrete equality controls and20 integrity regressions therefore remain applicable | Node22 and final protected CI on28 |
+| Documentation build and Worker | The final 352MiB heap passes a fully cold build, including 121 freshly rendered images, in 11.50s/1373.8MiB; the actual checkout warm build passes 10.30s/1376.9MiB on Node24.21. All assets and rendered semantics match the locally inspected output. Link validation, generated-config dry run, nine Worker HTTP/MCP checks and hydrated tabs/search/navigation pass | Linux CI9 still exceeds RSS at1548.4MiB with352heap after all compiler and OG work. Final Linux CI and production deployment remain; the 1536MiB ceiling is unchanged |
+| Coverage gates | CI9 now passes the complete Linux coverage lane, including CLI87/87 and all four CLI metrics100%. The disposable .env fixture proves loading before config evaluation and a real SQLite query; production loader code is unchanged | Repeat on the subsequent dispatch fix |
 | Driver coverage |2017 passed,680 explicit conditional skips across62 current chunks;96.65% statements/lines,92.76% branches,96.16% functions | Final CI revision |
 | Query coverage |3176 tests across242 files pass;94.23% statements/lines,94.33% branches,95.37% functions; peak1356.9MiB | Final CI revision |
 | Raptor and reached PGlite contracts | All 1331 Raptor tests across the original 102 files pass on Linux in 100.69s under the unchanged 120s aggregate. All 15 ordinary local shards also pass. Five later stale PGlite expectations are corrected while retaining effects, generated-ID order and provider refusal assertions; the original 14-file/251-test family passes locally in15.14s/1672.1MiB under its existing isolated-PGlite ceiling | Remaining provider stages and final Linux CI |
 | [Remote CI8 at 1e64a2a83](https://github.com/beynar/viborm/actions/runs/37882838038) | Both package jobs, core, PostgreSQL/MySQL and Bun/D1 pass. Quality exceeds docs RSS with the previous heap; coverage exposes the environment-dependent test gap; local providers reach five stale PGlite oracles after the repaired Raptor stage passes | All eight protected checks on the final revision, then exact-main push CI |
+| [Remote CI9 at997e84a1b](https://github.com/beynar/viborm/actions/runs/37883823754) | Core, coverage, Node24package, PostgreSQL/MySQL and Bun/D1 pass. Docs exceeds RSS during HTML; Node22package reaches300s without an assertion failure; later local provider tests expose the corrected transform duplication and fixture deadlocks | Final revision must pass all eight protected checks, then exact-main push CI |
 | Actual D1 |41/41 passed after exact bigint metadata repair; catalog followthrough passes1/1 in actual Workers and2/2 SQLite scope cases, excluding protected internal tables while retaining user tables | Final CI revision |
 | Production dependency audit |0 critical,0 high;2 moderate,1 low | Lower advisories remain disclosed |
 | Patched dependency behavior | Real Prisma loader/merge, HTTP cache and Drizzle witnesses passed | CI repeats the same gate |
@@ -110,8 +125,9 @@ The audit is unfiltered. Remaining lower advisories concern sprintf-js,
 postcss-selector-parser and KaTeX; they are not hidden by ignore rules.
 
 **Size and complexity.** The frozen production-source whole-perimeter count is
-147,305 production-source lines versus 141,375 at the reviewed upstream revision:
-+5,930, or 4.19%. Tests grew 3.24%, scripts 0.57%, live documentation 0.31%, and
+147,293 production-source lines versus 141,375 at the reviewed upstream revision:
++5,918, or 4.19%. Tests grew 3.28%, scripts 0.75% including the temporary
+58-line memory diagnostic, live documentation 0.31%, and
 benchmarks were unchanged. Counts include new files and both sides of moves,
 comments and blank lines. No resource-policy amendment was applied.
 Root build configuration and workflows are

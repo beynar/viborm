@@ -508,7 +508,12 @@ export abstract class DriverInstrumentationBase<TClient, TTransaction> {
   ): Promise<Result> {
     const observers = getExecutionExtensionChain(context)?.observe;
     if (observers === undefined || observers.length === 0) {
-      return child(queries, undefined);
+      return child(
+        queries.map((query) =>
+          this.materializeTrustedBatchQuery(query, query.context ?? context)
+        ),
+        undefined
+      );
     }
     const gate = this.createOfficialStatementExecutionGate(context);
     let factsAssigned = false;

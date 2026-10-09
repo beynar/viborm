@@ -1,5 +1,13 @@
 # Declaration backend comparison
 
+Artifact28 follow-through changes runtime dispatch only. Its34 declaration files
+are equivalent to artifact27 after normalizing two generated chunk references
+and the unused optional parameter label `context`→`_context`; no type expression
+changes remain. The matrix below describes the executed artifact27 experiment,
+with that exact equivalence recorded in
+`/tmp/viborm-v1-artifact28-declaration-equivalence.json`. Artifact28's grouped
+package gate separately passes all33 cases/all53 expanded scenarios onNode24.
+
 No tested backend alone fixes the exported cyclic inferred-schema backreference. The baseline experiment below retains the existing declaration backend: switching to native emission improves this isolated producer's emission time but preserves the correctness defect. OXC requires changing the unannotated producer contract. That comparison changed no library representation, annotation, dependency, shared build output, or repository source.
 
 Arnaud subsequently supplied and authorized a type-only schema-key link carrier

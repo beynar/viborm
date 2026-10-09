@@ -2042,7 +2042,10 @@ describe("public array lifecycle observers", () => {
       sql`SELECT 0`,
       requireTransactionOperation(base.record.findMany()).context
     );
-    expect(readPreparedStatement(basePrepared)).toBeUndefined();
+    expect(readPreparedStatement(basePrepared)?.toStatement("$n")).toBe(
+      "SELECT 0"
+    );
+    expect(Reflect.ownKeys(basePrepared)).toEqual(["sql", "params"]);
     const client = base.$extends({
       name: "private-statement-provenance",
       statement({ statement }) {
