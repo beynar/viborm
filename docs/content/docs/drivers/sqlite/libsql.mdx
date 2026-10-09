@@ -112,9 +112,8 @@ call reports the retryable `V5006`, but further VibORM work refuses with
 acknowledged; retry only after recovery. For an owned driver, `$disconnect()`
 closes the failed transport; the next operation reconnects. For a supplied
 client, VibORM leaves it open: its owner must close it and create a replacement
-client and wrapper. Merely
-calling `$disconnect()` on a borrowed wrapper cannot establish recovery.
-Remote clients keep their native execution path.
+client and wrapper. Merely calling `$disconnect()` on a borrowed wrapper cannot
+establish recovery. Remote clients keep their native execution path.
 
 ## Migrations
 
