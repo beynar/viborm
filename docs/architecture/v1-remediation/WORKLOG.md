@@ -7,7 +7,7 @@ across its 97 bounded stages. Four GitHub Actions parallel steps now partition
 96 stages by their original index, preserving commands, selected files,
 memory/time ceilings, workspace locks and teardown checks. The fixed Raptor
 stage runs first without sibling CPU contention inside its unchanged 120-second
-bound. No timing table or scheduler is needed. Independent Git clones and
+bound. No timing table or scheduler is needed. Independent Actions checkouts and
 private frozen offline dependency installs separate mutable state; Git worktrees
 would retain the shared lock identity. The pnpm store avoids copying roughly
 three full dependency trees, without sharing writable test caches.
@@ -16,11 +16,13 @@ The eight required checks and the exhaustive local `test:all` command remain.
 Selection tests prove exact-once coverage and invalid-argument refusal.
 Actual hosted qualification and elapsed-time comparison remain pending; replaying
 old sequential timings is an estimate, not evidence of parallel performance.
-The first hosted attempt accepted GitHub's parallel syntax but refused setup:
-Actions leaves the optional non-cone Git setting absent. Preparation now reads
-Git's false default while still rejecting invalid configuration, and the shallow
-fixture reproduces the absent setting. The preceding serial run completed all
-eight checks; its local-provider test step took 37m16s across all 97 stages.
+Two hosted attempts accepted GitHub's parallel syntax but refused custom clone
+setup: an absent optional setting, then the source's missing promisor blobs.
+That helper and its dedicated tests were removed. Pinned Actions checkouts now
+own the shallow/partial format for all four sibling repositories. Neither failed
+attempt ran provider stages or establishes a speedup. The preceding serial run
+completed all eight checks; its local-provider test step took 37m16s across all
+97 stages.
 
 ## Final publication documentation correction
 

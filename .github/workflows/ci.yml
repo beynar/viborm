@@ -190,9 +190,7 @@ jobs:
         run: pnpm test:coverage:policy
 
       - name: Check CI stage ownership
-        run: |
-          node scripts/run-node-safe.mjs 512 60000 scripts/credential-free-ci.test.mjs
-          node scripts/run-node-safe.mjs 512 60000 scripts/prepare-ci-local-shards.test.mjs
+        run: node scripts/run-node-safe.mjs 512 60000 scripts/credential-free-ci.test.mjs
 
       - name: Run coverage gates
         run: pnpm test:coverage
@@ -249,6 +247,9 @@ jobs:
   local-providers:
     name: Local providers
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
     # Retain the existing aggregate ceiling. Only unique bounded local stages
     # run here; other required jobs own the five removed duplicate stages.
     timeout-minutes: 125
@@ -256,6 +257,41 @@ jobs:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: source
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Check out local-provider shard 2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: shard-2
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Check out local-provider shard 3
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: shard-3
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Check out local-provider shard 4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: shard-4
+          ref: ${{ github.sha }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -273,21 +309,25 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Four independent repositories keep workspace locks, dependency caches
-      # and outputs private. Each lane runs the existing bounded stages serially.
+      # Four sibling repositories keep workspace locks, dependency caches and
+      # outputs private. Each lane runs the existing bounded stages serially.
       # At most four 2560 MiB PGlite groups fit this public 4-core/16 GiB runner;
       # ordinary groups retain 1536 MiB. No native typecheck or package build
       # runs alongside these lanes.
-      - name: Prepare isolated local-provider workspaces
+      - name: Prepare private shard dependencies and temporary directories
         timeout-minutes: 5
         run: |
-          node scripts/run-node-safe.mjs 512 120000 scripts/prepare-ci-local-shards.mjs "${RUNNER_TEMP}/viborm-ci-local"
+          mkdir "${RUNNER_TEMP}/viborm-ci-local"
+          for lane in 1 2 3 4; do
+            mkdir "${RUNNER_TEMP}/viborm-ci-local/tmp-${lane}"
+          done
           for lane in 2 3 4; do
-            pnpm --dir "${RUNNER_TEMP}/viborm-ci-local/${lane}" install --offline --frozen-lockfile
+            pnpm --dir "${GITHUB_WORKSPACE}/shard-${lane}" install --offline --frozen-lockfile
           done
 
       # This stage uses about 100 of its 120 seconds. Keep it free of sibling
@@ -304,19 +344,19 @@ jobs:
             run: pnpm test:all --ci-local --shard=1/4
 
           - name: Run local-provider shard 2/4
-            working-directory: ${{ runner.temp }}/viborm-ci-local/2
+            working-directory: ${{ github.workspace }}/shard-2
             env:
               TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-2
             run: pnpm test:all --ci-local --shard=2/4
 
           - name: Run local-provider shard 3/4
-            working-directory: ${{ runner.temp }}/viborm-ci-local/3
+            working-directory: ${{ github.workspace }}/shard-3
             env:
               TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-3
             run: pnpm test:all --ci-local --shard=3/4
 
           - name: Run local-provider shard 4/4
-            working-directory: ${{ runner.temp }}/viborm-ci-local/4
+            working-directory: ${{ github.workspace }}/shard-4
             env:
               TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-4
             run: pnpm test:all --ci-local --shard=4/4

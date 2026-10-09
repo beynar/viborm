@@ -909,9 +909,9 @@ The local-provider job uses four GitHub parallel steps with
 `test:all --ci-local --shard=N/4`, after running the fixed Raptor stage once
 without sibling CPU contention. Shards exclude that serial-owned stage;
 round-robin selection preserves every remaining stage and its resource bounds.
-`prepare-ci-local-shards.mjs` creates independent Git repositories and temp
-directories; frozen offline installs give each clone private dependency/cache
-directories through the normal pnpm store. Linked worktrees
+Pinned Actions checkouts create sibling repositories at the same exact SHA;
+frozen offline installs give each checkout private dependency/cache directories
+through the normal pnpm store. Temporary directories are private too. Linked worktrees
 share the verification lock and cannot substitute for these isolated checkouts.
 Each lane remains sequential and must prove process-group teardown.
 Never publish from a worktree, use an

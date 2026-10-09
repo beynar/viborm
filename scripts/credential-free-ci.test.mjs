@@ -15,6 +15,10 @@ const jobBoundary = /^ {2}[\w-]+:\n/m;
 const localParallelGroup = /^ {6}- parallel:\s*$/gm;
 const localRunCommand = /^\s+run: (pnpm test:all --ci-local(?: .*)?)$/gm;
 const conditionalChild = /^\s+(?:if|continue-on-error):/m;
+const checkoutPath = /^\s+path: (\S+)$/m;
+const checkoutRef = /^\s+ref: \$\{\{ github\.sha \}\}$/m;
+const workingDirectory = /^\s+working-directory: (.+)$/m;
+const temporaryDirectory = /^\s+TMPDIR: (.+)$/m;
 const serialCommand = "pnpm test:all --ci-local --only 'Raptor 3 fixed'";
 const duplicatedStages = new Set([
   "pnpm test:types",
@@ -47,6 +51,45 @@ test("workflow keeps every delegated check and shallow sparse checkout", () => {
     assert.deepEqual(commands(group).toSorted(), expected);
     assert.equal(new Set(commands(group)).size, 4);
     assert.doesNotMatch(group, conditionalChild);
+    const checkouts = localJob
+      .split("\n      - ")
+      .filter((step) => step.includes("uses: actions/checkout@"));
+    assert.equal(checkouts.length, 4);
+    assert.deepEqual(
+      checkouts.map((step) => step.match(checkoutPath)?.[1]).toSorted(),
+      ["shard-2", "shard-3", "shard-4", "source"]
+    );
+    for (const checkout of checkouts) {
+      assert(
+        checkout.includes(
+          "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+        )
+      );
+      assert.match(checkout, checkoutRef);
+      assert(checkout.includes("fetch-depth: 1"));
+      assert(checkout.includes("sparse-checkout-cone-mode: false"));
+      assert(checkout.includes("!/docs/architecture/raptor3-evidence/"));
+    }
+    assert(
+      localJob.includes(
+        "defaults:\n      run:\n        working-directory: source"
+      )
+    );
+    const lanes = group.split("\n          - ").slice(1);
+    assert.equal(lanes.length, 4);
+    assert.equal(lanes[0].match(workingDirectory), null);
+    for (const [index, lane] of lanes.entries()) {
+      if (index > 0) {
+        assert.equal(
+          lane.match(workingDirectory)?.[1],
+          `\${{ github.workspace }}/shard-${index + 1}`
+        );
+      }
+      assert.equal(
+        lane.match(temporaryDirectory)?.[1],
+        `\${{ runner.temp }}/viborm-ci-local/tmp-${index + 1}`
+      );
+    }
   }
 
   const workflow = readFileSync(
