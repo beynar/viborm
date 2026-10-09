@@ -657,78 +657,121 @@ export abstract class DriverTransactionBase<
     _options?: BatchTransactionOptions
   ): Promise<QueryResult<T>[]> {
     const batchContext = context ?? { operation: "executeBatch" };
-    const results: QueryResult<T>[] = [];
-    for (
-      let statementIndex = 0;
-      statementIndex < queries.length;
-      statementIndex += 1
-    ) {
-      const query = queries[statementIndex];
-      if (!query) continue;
-      const statementContext = query.context
-        ? this.resolveExecutionContext(
-            query.context,
-            query.context.operation ?? "executeBatch"
-          )
-        : batchContext;
-      let executionQuery = query;
-      let diagnosticParams = this.getBatchDiagnosticParameters(query);
-      const observed = this.hasTrustedObservers(statementContext);
-      const executeStatement = (gate = ungatedStatementExecution) => {
-        executionQuery = this.materializeTrustedBatchQuery(
-          query,
-          statementContext
-        );
-        diagnosticParams = this.getBatchDiagnosticParameters(executionQuery);
-        const { sql, params } = executionQuery;
-        const verbatim = isVerbatimBatchQuery(executionQuery);
-        return gate.execute(
-          {
-            context: statementContext,
-            forceErrorContext: true,
-            params: diagnosticParams,
-            sql,
-          },
-          () =>
-            this.executeNormalizedStatement(
-              sql,
-              diagnosticParams,
-              statementContext,
-              () =>
-                verbatim
-                  ? this.executeRaw<T>(client, sql, params, statementContext)
-                  : this.execute<T>(
-                      client,
-                      sql,
-                      params ?? [],
-                      statementContext
-                    ),
-              true
+    const statements: {
+      execute(): Promise<QueryResult<T>>;
+      cancel(failure: unknown): Promise<QueryResult<T>>;
+    }[] = [];
+    try {
+      // Every transform belongs to its statement observation, but must finish
+      // before the first effect: a later transform can change storage checked
+      // by an earlier protected assertion in this same atomic batch.
+      for (const [statementIndex, query] of queries.entries()) {
+        if (!query) continue;
+        const statementContext = query.context
+          ? this.resolveExecutionContext(
+              query.context,
+              query.context.operation ?? "executeBatch"
             )
+          : batchContext;
+        let executionQuery = query;
+        let diagnosticParams = this.getBatchDiagnosticParameters(query);
+        const normalizeFailure = (error: unknown) =>
+          normalizeDriverError(error, {
+            driverName: this.driverName,
+            dialect: this.dialect,
+            model: statementContext.model,
+            operation: statementContext.operation,
+            correlationId: statementContext.correlationId,
+            statementIndex,
+            query: executionQuery.sql,
+            params: diagnosticParams,
+            diagnostics: this.getErrorDisclosure(statementContext),
+            forceContext: true,
+          });
+        statements.push(
+          await new Promise<(typeof statements)[number]>((ready, failed) => {
+            let resolveResult!: (result: QueryResult<T>) => void;
+            let rejectResult!: (failure: unknown) => void;
+            const result = new Promise<QueryResult<T>>((resolve, reject) => {
+              resolveResult = resolve;
+              rejectResult = reject;
+            });
+            const completion = this.observeTrustedStatement(
+              statementContext,
+              (gate = ungatedStatementExecution) => {
+                executionQuery = this.materializeTrustedBatchQuery(
+                  query,
+                  statementContext
+                );
+                diagnosticParams =
+                  this.getBatchDiagnosticParameters(executionQuery);
+                const { sql, params } = executionQuery;
+                const verbatim = isVerbatimBatchQuery(executionQuery);
+                ready({
+                  execute: async () => {
+                    try {
+                      resolveResult(
+                        await gate.execute(
+                          {
+                            context: statementContext,
+                            forceErrorContext: true,
+                            params: diagnosticParams,
+                            sql,
+                          },
+                          () =>
+                            this.executeNormalizedStatement(
+                              sql,
+                              diagnosticParams,
+                              statementContext,
+                              () =>
+                                verbatim
+                                  ? this.executeRaw<T>(
+                                      client,
+                                      sql,
+                                      params,
+                                      statementContext
+                                    )
+                                  : this.execute<T>(
+                                      client,
+                                      sql,
+                                      params ?? [],
+                                      statementContext
+                                    ),
+                              true
+                            )
+                        )
+                      );
+                    } catch (error) {
+                      rejectResult(normalizeFailure(error));
+                    }
+                    return completion;
+                  },
+                  cancel: (failure) => {
+                    rejectResult(failure);
+                    return completion;
+                  },
+                });
+                return result;
+              }
+            );
+            // This handles a transform/readiness failure before the entry is
+            // ready, and also observes canceled tail entries without dispatch.
+            completion.catch(failed);
+          }).catch((failure: unknown) => {
+            throw normalizeFailure(failure);
+          })
         );
-      };
-      try {
-        results.push(
-          await (observed
-            ? this.observeTrustedStatement(statementContext, executeStatement)
-            : executeStatement())
-        );
-      } catch (error) {
-        throw normalizeDriverError(error, {
-          driverName: this.driverName,
-          dialect: this.dialect,
-          model: statementContext.model,
-          operation: statementContext.operation,
-          correlationId: statementContext.correlationId,
-          statementIndex,
-          query: executionQuery.sql,
-          params: diagnosticParams,
-          diagnostics: this.getErrorDisclosure(statementContext),
-          forceContext: true,
-        });
       }
+      const results: QueryResult<T>[] = [];
+      for (const statement of statements)
+        results.push(await statement.execute());
+      return results;
+    } catch (failure) {
+      await Promise.allSettled(
+        statements.map((entry) => entry.cancel(failure))
+      );
+      throw failure;
     }
-    return results;
   }
 
   /**

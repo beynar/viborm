@@ -2,6 +2,10 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient as createCoreClient } from "@client/client";
 import { createClient } from "@drivers/sqlite3";
+import type {
+  LifecycleUnit,
+  ObservationCompletion,
+} from "@extensions/observation";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
@@ -35,18 +39,35 @@ test("storage checks cover only tables used by this operation, including cached 
 });
 
 test.each([
-  "definition",
-  "temporal",
-])("a %s change after admission is refused atomically before the write", async (change) => {
+  { change: "definition", observing: false },
+  { change: "temporal", observing: false },
+  { change: "definition", observing: true },
+  { change: "temporal", observing: true },
+])("a $change change after admission is refused atomically before the write, observing:$observing", async ({
+  change,
+  observing,
+}) => {
   const handle = new Database(":memory:");
   handle.pragma("foreign_keys = ON");
   let armed = false;
   const observed: (string | undefined)[] = [];
+  const statementModels: (string | undefined)[] = [];
   const client = createClient({
     client: handle,
     schema: { product, event },
   }).$extends({
     name: "change-storage-after-admission",
+    ...(observing
+      ? {
+          observe(
+            unit: LifecycleUnit,
+            proceed: () => Promise<ObservationCompletion>
+          ) {
+            if (unit.kind === "statement") statementModels.push(unit.model);
+            return proceed();
+          },
+        }
+      : {}),
     statement(context) {
       observed.push(context.model);
       if (armed) {
@@ -67,6 +88,7 @@ test.each([
     await client.product.create({ data: { id: 1, price: "89.50" } });
     await client.event.create({ data: { id: 1, at: "2024-01-01T12:00:00Z" } });
     observed.length = 0;
+    statementModels.length = 0;
     armed = true;
     await expect(
       change === "definition"
@@ -74,6 +96,12 @@ test.each([
         : client.event.deleteMany()
     ).rejects.toThrow("changed");
     expect(observed).not.toContain("$schema");
+    if (observing) {
+      expect(statementModels).toContain("$schema");
+      expect(statementModels.filter((model) => model !== "$schema")).toEqual(
+        observed
+      );
+    }
     expect(
       handle
         .prepare(

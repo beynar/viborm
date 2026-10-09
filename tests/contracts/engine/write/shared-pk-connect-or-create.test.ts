@@ -1,9 +1,9 @@
 import { createClient } from "@client/client";
-import type { BatchQuery, QueryResult } from "@drivers";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
-
+import type { CommittedBatchNotification } from "@src/drivers/types";
 import {
   registerSharedPkConnectOrCreateBehavior,
   sharedPkConnectOrCreateSchema,
@@ -28,15 +28,26 @@ class BeforeBatchPGliteDriver extends PGliteDriver {
     this.hook = hook;
   }
 
-  protected override async executeBatch<T>(
-    client: PGlite | Transaction,
-    queries: BatchQuery[]
+  override async _executeBatch<T = Record<string, unknown>>(
+    queries: BatchQuery[],
+    options?: Parameters<PGliteDriver["_executeBatch"]>[1],
+    context?: QueryExecutionContext,
+    committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
+    // Interleave after planning, before the public batch acquires its shared
+    // physical lease: the competing public write needs that same lease.
     const hook = this.hook;
     if (hook && batchIsAtomicUnit(queries)) {
       this.hook = undefined;
       await hook();
     }
+    return super._executeBatch<T>(queries, options, context, committed);
+  }
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
     return this.transaction(client, async (transaction) => {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {

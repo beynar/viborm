@@ -426,10 +426,10 @@ export class EngineSchema {
     };
     for (const field of ["targetWhere", "setWhere"] as const) {
       const input = envelope[field];
-      if (isRecord(input) && Object.keys(input).length)
-        conditions[field] = record(
-          parseValidated(schemas.core.where, input, "upsert", field)
-        );
+      if (input === undefined) continue;
+      const parsed = parseValidated(schemas.core.where, input, "upsert", field);
+      if (isRecord(parsed) && Object.keys(parsed).length)
+        conditions[field] = record(parsed);
     }
     const create = createHasRelations
       ? parseValidated(schemas.core.create, envelope.create, "create", "data")

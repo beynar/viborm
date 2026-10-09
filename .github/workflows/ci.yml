@@ -81,11 +81,7 @@ jobs:
         run: pnpm --dir docs validate
 
       - name: Build documentation under the project resource ceiling
-        env:
-          VIBORM_DOCS_MEMORY_DIAGNOSTIC: "1"
-        run: >-
-          NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--import=$PWD/scripts/docs-memory-diagnostic.mjs"
-          pnpm --dir docs build
+        run: pnpm --dir docs build
 
       - name: Preserve the exact documentation build for render verification
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

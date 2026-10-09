@@ -7,7 +7,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   backreferenceSource,
   chainSource,
@@ -123,6 +123,7 @@ const compilers = [
 ];
 
 const TYPESCRIPT_DIAGNOSTIC_CODE = /\bTS(\d+):/g;
+const TYPESCRIPT_FILE_DIAGNOSTIC = /^(.+)\(\d+,\d+\): error TS(\d+):/gm;
 const LOSSY_REBUILD_DIAGNOSTICS = new Set([
   2322, 2339, 2344, 2345, 2353, 2578, 18_047, 18_048,
 ]);
@@ -211,7 +212,7 @@ withPackedConsumer(
       run("runtime.ts", "declaration topology");
       writeFileSync(join(root, "use-source.ts"), downstream);
     }
-    const checkFile = (compiler, file) =>
+    const checkFile = (compiler, ...files) =>
       runPackageStage(
         compilers.find((entry) => entry[1] === compiler)[0],
         caseChoice ?? "all",
@@ -233,7 +234,7 @@ withPackedConsumer(
               "node",
               "--typeRoots",
               join(repositoryRoot, "node_modules/@types"),
-              file,
+              ...files,
             ],
             {
               cwd: root,
@@ -489,10 +490,12 @@ withPackedConsumer(
             const backreference = backreferenceSource();
             const emittedProbe = join(chainOutput, "backreference.ts");
             writeFileSync(emittedProbe, backreference);
-            checkFile(compiler, emittedProbe);
-            console.log(
-              `${label}: source and emitted backreference domains passed`
-            );
+            if (!includesCase("lossy-models")) {
+              checkFile(compiler, emittedProbe);
+              console.log(
+                `${label}: source and emitted backreference domains passed`
+              );
+            }
           }
           console.log(
             `${label}: unannotated related chain${count} emitted ${Buffer.byteLength(emitted)} bytes`
@@ -538,14 +541,28 @@ withPackedConsumer(
           writeFileSync(emittedControl, lossyModelsControl);
           let rejected = false;
           try {
-            checkFile(compiler, emittedControl);
+            // One declaration-only program checks both independent consumers.
+            // Every diagnostic must belong to the negative control, so a
+            // broken positive probe cannot hide behind its expected failure.
+            checkFile(
+              compiler,
+              join(root, `${label}-chains`, "backreference.ts"),
+              emittedControl
+            );
           } catch (error) {
+            const diagnostics = [
+              ...(error.stdout ?? "").matchAll(TYPESCRIPT_FILE_DIAGNOSTIC),
+            ];
             const codes = [
               ...(error.stdout ?? "").matchAll(TYPESCRIPT_DIAGNOSTIC_CODE),
             ].map((match) => Number(match[1]));
             if (
               error.status !== (label === "native" ? 1 : 2) ||
               codes.length === 0 ||
+              diagnostics.length !== codes.length ||
+              diagnostics.some(
+                (match) => resolve(root, match[1]) !== emittedControl
+              ) ||
               codes.some((code) => !LOSSY_REBUILD_DIAGNOSTICS.has(code))
             )
               throw error;
@@ -556,7 +573,7 @@ withPackedConsumer(
               "Lossy emitted-model rebuild control no longer reproduces; reassess its documented limitation"
             );
           console.log(
-            `${label}: source-valid emitted-model rebuild control retains the explicit limitation`
+            `${label}: emitted client probes passed; source-valid emitted-model rebuild control retains the explicit limitation`
           );
         }
         const queries = [];

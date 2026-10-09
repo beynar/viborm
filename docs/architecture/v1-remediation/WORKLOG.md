@@ -68,6 +68,106 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
+- The next original provider groups complete with failures on frozen artifact30:
+  shared6 has116 passes/44 failures across14 files (14.79s/1750.6MiB), and
+  shared7 has223 passes/5 failures across14 files (13.98s/1767.3MiB). Both
+  verify teardown. The retained logs are `/tmp/viborm-v1-ci8-tail/stage-5.log`
+  and `stage-6.log`. Migration operation-count/prefix assertions, cache scope,
+  path-bearing errors and combined-write ordering are assigned separately;
+  the same-ID upsert/deleteMany case needs a schedule witness before changing
+  its expected result. These groups are not qualified by the earlier passes.
+
+- Final checkpoint11 candidate is artifact30, after fixing the confirmed
+  upsert admission gap: supplied non-record targetWhere/setWhere had silently
+  erased guards before arm selection. The existing core.where parser now owns
+  every supplied clause; empty/undefined and valid conditional semantics stay
+  intact. Original shared5 passes241/14 in13.26s/2192.1MiB, including both clauses,
+  five invalid input kinds, found/absent zero-effect cases, and legal positives.
+- Artifact30 builds2.09s/951.4MiB; archive SHA256
+  `24b77855cb4405d4b80f5ad113eff6c6adbfd15f0571ff779fb5716f97fec222`,
+  2,051,795bytes from538 frozen inputs. Compared with29, all34 declarations are
+  exactly equal after two generated chunk references and three specific JSDoc
+  corrections; no type expression changes. Native48 passes the complete final
+  source/test estate: zero diagnostics,34.35s/5950.1MiB, teardown verified.
+  Receipts `/tmp/viborm-v1-diagnostic-artifact-30/receipt.json`,
+  `/tmp/viborm-v1-artifact30-declaration-equivalence.json`,
+  `/tmp/viborm-v1-native-48.log`. Remaining original provider groups run on30.
+
+- Checkpoint11 preparation: package29 passes all33 installed-consumer cases in
+  83.18s/1244.6MiB, teardown verified. An independent Sol6.1 review finds no
+  blocker in sequential preparation, cancellation or official logging. Exact
+  origin/main remainsa4a5b8dc6. No merge, tag, publish, or production deploy.
+- The next original provider stages exposed stale cache/default-invalidations
+  and path-bearing error expectations, plus one more same-lease race hook.
+  Four fixtures are corrected without production changes; a bounded census of
+  281 selected/imported files finds no further equivalent public same-transport
+  hook among17 protected-batch files. Hook test-body AST parity is recorded;
+  malformed targetWhere now proves rejection before effects and a legal positive.
+  Original shared4 passes205/14 in12.36s/1644.8MiB. Original shared5's deadlocked
+  run was terminated through its active bounded owner at89.07s/2233.4MiB and is
+  explicitly incomplete; the subsequent full rerun passes as recorded above.
+  The stale cache
+  guide sentence is reconciled with default namespace-wide invalidation; that
+  Markdown-only change does not affect artifact29's executable source.
+
+- Artifact29 contains the final qualified sequential-batch fix. Build passes in
+  2.27s/991.6MiB under the unchanged package limits; archive SHA256
+  `3a0ac467f614f5f7063c9469faa6d54386159c55bbfbf6cf0245ea6bd2203d2f`,
+  2,051,919bytes. Its34declarations are byte-identical to28; the118-row matrix
+  remains applicable by recorded equivalence, not a claimed rerun. All53 package
+  scenario/source pairs remain unchanged. Focused60/60 and boundary122/122 pass
+  in4.22s/527.8MiB and4.18s/753.1MiB with verified teardown. The required
+  preparation-order oracle now expects no SQL if a later transform fails; exact
+  observer counts, BEGIN/ROLLBACK, per-statement logs and error context remain.
+- Native46 reports one test-only logging callback returning Array.push's number
+  instead of void. Both callbacks are corrected without changing runtime effects;
+  native47 passes the final frozen source/tests with zero diagnostics in
+  33.73s/6003.6MiB, under the existing8192MiB allowance, teardown verified.
+  Final Neon qualification on the same source passes12/12 in7.69s/527.1MiB;
+  owned fixtures remain empty, no DROP/TRUNCATE or secret disclosure. Logs
+  `/tmp/viborm-v1-native-47.log`, `/tmp/viborm-v1-neon-artifact29-final.log`.
+  Source count147336
+  (+5961/+4.2164%); tests460348 (+14892/+3.3431%); scripts31874
+  (+180/+0.5679%) after removing the58-line temporary sampler and CI preload.
+- Both forced-GC approaches fail genuine cold builds and are rejected. Original
+  docs config with384heap passes cold in10.20s/1394.0MiB; the otherwise-identical
+  immediate-native-purge candidate passes10.14s/1389.1MiB. All145HTML semantics,
+  137JS/2CSS/27fonts/121PNG agree with the inspected output. The4.9MiB difference
+  is inconclusive on macOS. The saved draft build uses384heap (within the original
+  768 allowance) and MIMALLOC_PURGE_DELAY=0 for Linux qualification, retaining
+  1536MiB RSS/300s. MiMalloc's actual arena multiplier is4, not the stale comment's
+  10. No allocator benefit is claimed before the Linux gate; no production deploy.
+  Receipt `/tmp/viborm-v1-docs-purge384-comparison-receipt.json`.
+
+- CI10 atf861f224b passes Core, Node24package, PostgreSQL/MySQL and Bun/D1.
+  It exposes a real SQLite guard-ordering defect after the dispatch correction:
+  a later user transform can change storage after an earlier protected guard.
+  The reviewed sequential owner now prepares every transform inside its own
+  observation before any provider effect, then dispatches and completes forward.
+  The +43-line owner change and observed/unobserved race/failure regressions are
+  frozen pending focused qualification; artifact28 is not a release candidate.
+- CI10 Node22 hits the unchanged30s case deadline in lossy-models after its
+  strict producer and positive consumer pass. Positive and expected-lossy
+  consumers now share one emitted-only compiler program; every diagnostic must
+  belong to the negative control. TS5.8/native checks pass locally onNode22 in
+  7.17s/823.8MiB and2.51s/749.5MiB. Deliberately poisoning the positive consumer
+  with an allowed diagnostic code correctly fails both, preserving the oracle.
+  Logs `/tmp/viborm-v1-lossy-combined-ts58-node22.log`,
+  `/tmp/viborm-v1-lossy-combined-native-node22.log`, and receipt
+  `/tmp/viborm-v1-lossy-combined-negative-oracle-proof.json`.
+- Corrected original shared-PGlite shard2 passes190tests+5conditional skips
+  across14files in12.91s/1812.4MiB; shard3 passes154/14 in12.20s/1671.2MiB.
+  Both retain the isolated2560MiB ceiling and verified teardown. The physical
+  dispatch oracles now observe the actual provider call; pure preparation and
+  exact-once transform checks remain. Original red/incomplete receipts remain
+  recorded. Remaining provider stages await the new frozen runtime.
+- Linux docs CI10 reaches1536.6MiB in26.62s. Its diagnostic shows the mainNode
+  owns nearly all memory, with substantial native allocation before OG rendering;
+  there is no child-process fleet. A scratch SSR-hook collection preserves exact
+  output and saves30.5MiB RSS in a warm run, but the cold run OOMs before that
+  hook. An earlier supported client-build collection is being tested. No shared
+  docs change, memory-ceiling increase, or production deployment has occurred.
+
 - Native45 checks the complete integrated source and fixture/harness estate:
   zero diagnostics,34.84s/5958.1MiB under8192MiB/300s, teardown verified.
   `/tmp/viborm-v1-native-45.log`. Shared provider reruns now own the runner.

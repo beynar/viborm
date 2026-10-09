@@ -90,8 +90,8 @@ the SQL namespace never appears in a public cache key or an operation argument.
 
 Official `$invalidate` and mutation `cache.invalidate` accept relative exact
 keys or `*` suffix prefixes. Validate the complete target list before starting
-any delete or clear. `autoInvalidate` clears `${modelName}:`, including the
-delimiter, inside the exact official namespace.
+any delete or clear. By default, `autoInvalidate` clears the entire bound
+official namespace, including cached relation reads; `false` opts out.
 
 ## Result snapshots
 

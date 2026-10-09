@@ -166,7 +166,7 @@ describe("official cache mutation ownership", () => {
       "cache",
       "public:committed",
     ]);
-    expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.one}:user:`]);
+    expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.one}:`]);
   });
 
   test("refuses a request patch that names the cache control, in either order, before any provider work", async () => {
@@ -411,13 +411,13 @@ describe("official cache mutation ownership", () => {
       await tx.$transaction(async (nested) => {
         await nested.user.create({
           data: { id: "u2", name: "Grace" },
-          cache: { invalidate: ["user:all"] },
+          cache: { autoInvalidate: false, invalidate: ["user:all"] },
         });
       });
       expect(cacheDriver.invalidations).toEqual([]);
     });
     expect(cacheDriver.invalidations).toEqual([
-      `clear:${NAMESPACE.tx}:user:`,
+      `clear:${NAMESPACE.tx}:`,
       `delete:${NAMESPACE.tx}:user:all,${NAMESPACE.tx}:user:all:reval`,
     ]);
 
@@ -459,9 +459,7 @@ describe("official cache mutation ownership", () => {
       expect(before).toBe(0);
       expect(created).toMatchObject({ id: "u1" });
       expect(raw).toEqual([{ value: 7 }]);
-      expect(cacheDriver.invalidations).toEqual([
-        `clear:${NAMESPACE[mode]}:user:`,
-      ]);
+      expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE[mode]}:`]);
     });
   }
 
@@ -498,13 +496,15 @@ describe("official cache mutation ownership", () => {
       data: { id: "v1", title: "Exact video" },
       cache: { autoInvalidate: true },
     });
-    expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.A}:video:`]);
+    expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.A}:`]);
 
     cacheDriver.invalidations.length = 0;
     await first.user.create({
       data: { id: "u1", name: "Ada" },
       cache: {},
     });
+    expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.A}:`]);
+    cacheDriver.invalidations.length = 0;
     await first.$invalidate();
     expect(cacheDriver.invalidations).toEqual([]);
   });
@@ -602,7 +602,7 @@ describe("official cache mutation ownership", () => {
       originalCause: expect.any(Error),
     });
     expect(cacheDriver.invalidations).toEqual([
-      `clear:${NAMESPACE.ambiguous}:user:`,
+      `clear:${NAMESPACE.ambiguous}:`,
     ]);
     expect(certainties).toEqual(["may-have-committed"]);
   });
@@ -644,6 +644,6 @@ describe("official cache mutation ownership", () => {
       originalCause: expect.any(Error),
     });
     expect(failure.originalCause).not.toBe(hostileFailure);
-    expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.one}:user:`]);
+    expect(cacheDriver.invalidations).toEqual([`clear:${NAMESPACE.one}:`]);
   });
 });

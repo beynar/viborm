@@ -68,7 +68,7 @@ describe("E5-U3 the upsert envelope", () => {
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.prismaCode).toBe("P2009");
     expect(error.message).toBe(
-      "Validation failed for upsert: Missing required field: update"
+      "Validation failed for upsert: update: Missing required field: update"
     );
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
@@ -86,7 +86,7 @@ describe("E5-U3 the upsert envelope", () => {
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.prismaCode).toBe("P2009");
     expect(error.message).toBe(
-      "Validation failed for upsert: Expected object, received string"
+      "Validation failed for upsert: update: Expected object, received string"
     );
     expect(error.issues?.[0]?.path).toBe("update");
     expect(await client.account.count({})).toBe(0);
@@ -105,7 +105,7 @@ describe("E5-U3 the upsert envelope", () => {
     );
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.message).toBe(
-      "Validation failed for upsert: Expected object, received array"
+      "Validation failed for upsert: update: Expected object, received array"
     );
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
@@ -121,7 +121,7 @@ describe("E5-U3 the upsert envelope", () => {
     );
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.message).toBe(
-      "Validation failed for upsert: Unknown key: nonsense"
+      "Validation failed for upsert: nonsense: Unknown key: nonsense"
     );
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
@@ -159,16 +159,104 @@ describe("E5-U3 the upsert envelope", () => {
       })
     );
     expect(projection.message).toBe(
-      "Validation failed for upsert: Expected object"
+      "Validation failed for upsert: select: Expected object"
     );
-    // …and a non-object `targetWhere`, which the engine ACCEPTS today (measured), is
-    // still accepted: the move did not start refusing it.
+    // targetWhere owns its object admission too, before either arm can write.
+    const target = await refusal(
+      client.account.upsert({
+        where: { id: "a7" },
+        create: { id: "a7", email: "a7@x" },
+        update: { label: "y" },
+        targetWhere: "x",
+      })
+    );
+    expect(target.constructor.name).toBe("ValidationError");
+    expect(target.message).toBe(
+      "Validation failed for upsert: targetWhere: Expected object"
+    );
+    expect(target.issues?.[0]?.path).toBe("targetWhere");
+    expect(await client.account.count({ where: { id: "a7" } })).toBe(0);
     await client.account.upsert({
       where: { id: "a7" },
       create: { id: "a7", email: "a7@x" },
       update: { label: "y" },
-      targetWhere: "x",
+      targetWhere: { id: "a7" },
     });
     expect(await client.account.count({ where: { id: "a7" } })).toBe(1);
+  }, 120_000);
+
+  test("both supplied conditional filters reject non-objects before either arm writes", async () => {
+    await client.account.create({
+      data: {
+        id: "conditional-found",
+        email: "conditional-found@x",
+        label: "before",
+      },
+    });
+    for (const field of ["targetWhere", "setWhere"] as const) {
+      for (const value of ["x", 0, false, [], null]) {
+        for (const id of ["conditional-found", "conditional-absent"]) {
+          const error = await refusal(
+            client.account.upsert({
+              where: { id },
+              create: { id, email: `${id}@x`, label: "created" },
+              update: { label: "updated" },
+              [field]: value,
+            })
+          );
+          expect(error.constructor.name).toBe("ValidationError");
+          expect(error.code).toBe("V4001");
+          expect(error.prismaCode).toBe("P2009");
+          expect(error.issues?.[0]?.path).toBe(field);
+          expect(error.message).toBe(
+            `Validation failed for upsert: ${field}: Expected object`
+          );
+          expect(
+            await client.account.findUnique({
+              where: { id: "conditional-found" },
+            })
+          ).toMatchObject({ label: "before" });
+          expect(
+            await client.account.count({ where: { id: "conditional-absent" } })
+          ).toBe(0);
+        }
+      }
+    }
+  }, 120_000);
+
+  test("undefined, empty and legal conditional filters preserve create/update/skip behavior", async () => {
+    for (const field of ["targetWhere", "setWhere"] as const) {
+      for (const [index, value] of [
+        undefined,
+        {},
+        { label: "created" },
+      ].entries()) {
+        const id = `conditional-${field}-${index}`;
+        const created = await client.account.upsert({
+          where: { id },
+          create: { id, email: `${id}@x`, label: "created" },
+          update: { label: "updated" },
+          [field]: value,
+        });
+        expect(created).toMatchObject({ id, label: "created" });
+        const updated = await client.account.upsert({
+          where: { id },
+          create: { id, email: `${id}@x`, label: "unused" },
+          update: { label: "updated" },
+          [field]: value,
+        });
+        expect(updated).toMatchObject({ id, label: "updated" });
+        const skipped = await client.account.upsert({
+          where: { id },
+          create: { id, email: `${id}@x`, label: "unused" },
+          update: { label: "must-not-write" },
+          [field]: { label: "does-not-match" },
+        });
+        expect(skipped).toMatchObject({ id, label: "updated" });
+        expect(
+          await client.account.findUnique({ where: { id } })
+        ).toMatchObject({ label: "updated" });
+      }
+    }
   }, 120_000);
 });

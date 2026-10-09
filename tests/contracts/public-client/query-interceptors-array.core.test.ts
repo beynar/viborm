@@ -1975,7 +1975,7 @@ describe("public array lifecycle observers", () => {
     ).rejects.toBeInstanceOf(QueryError);
     await Promise.resolve();
     expect(driver.events[0]).toBe("BEGIN");
-    expect(providerStatements(driver.events)).toHaveLength(1);
+    expect(providerStatements(driver.events)).toEqual([]);
     expect(driver.events.at(-1)).toBe("ROLLBACK");
     expect(timeline.indexOf("statement:in:1")).toBeLessThan(
       timeline.indexOf("transform:1")
@@ -1983,16 +1983,16 @@ describe("public array lifecycle observers", () => {
     expect(timeline.indexOf("statement:in:2")).toBeLessThan(
       timeline.indexOf("transform:2")
     );
-    expect(timeline).toEqual(
-      expect.arrayContaining([
-        "statement:in:1",
-        "transform:1",
-        "statement:out:1:success",
-        "statement:in:2",
-        "transform:2",
-        "statement:out:2:failure",
-      ])
-    );
+    expect(statementUnits).toBe(2);
+    expect(transformCalls).toBe(2);
+    expect(timeline).toEqual([
+      "statement:in:1",
+      "transform:1",
+      "statement:in:2",
+      "transform:2",
+      "statement:out:2:failure",
+      "statement:out:1:failure",
+    ]);
   });
 
   test("orders native statement onions before transforms and submits nothing on failure", async () => {

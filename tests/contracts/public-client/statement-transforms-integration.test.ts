@@ -1,13 +1,24 @@
+import { createClient } from "@client/client";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
+import type {
+  BatchQuery,
+  QueryExecutionContext,
+  QueryResult,
+} from "@drivers/exports";
+import { PGliteDriver } from "@drivers/pglite";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { QueryError, UnsupportedOperationError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { createOperationExecutionContext } from "@query-engine/execution-context";
 import { s } from "@schema";
 import { raw, type Sql, sql } from "@sql";
 import { defineExtension } from "@src/index";
-import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
+import {
+  BatchOnlyPGliteDriver,
+  usePGliteSchemaFamily,
+} from "@tests/fixtures/drivers/pglite";
 import { readTestTransactionOperation } from "@tests/fixtures/transaction-operation";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, onTestFinished, test, vi } from "vitest";
 
 const author = s.model({
   id: s.string().id(),
@@ -63,6 +74,32 @@ function operationContext(operation: unknown) {
 
 const transactionFamily = usePGliteSchemaFamily(schema);
 const nativeBatchFamily = usePGliteSchemaFamily(schema, "atomicBatch");
+
+class DispatchRecordingBatchDriver extends BatchOnlyPGliteDriver {
+  readonly physicalBatches: string[][] = [];
+
+  protected override executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
+    this.physicalBatches.push(queries.map((query) => query.sql));
+    return super.executeBatch<T>(client, queries);
+  }
+}
+
+class DispatchRecordingDriver extends PGliteDriver {
+  readonly physicalStatements: string[] = [];
+
+  protected override execute<T>(
+    client: PGlite | Transaction,
+    statement: string,
+    params: unknown[],
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    this.physicalStatements.push(statement);
+    return super.execute<T>(client, statement, params, context);
+  }
+}
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -190,8 +227,15 @@ describe("integrated statement transforms", () => {
   });
 
   test("transforms native prepared entries but leaves marked verbatim raw exact", async () => {
-    const { client, driver, namespace } = nativeBatchFamily();
+    const { database, namespace } = nativeBatchFamily();
+    const driver = new DispatchRecordingBatchDriver({
+      client: database,
+      namespace,
+    });
+    onTestFinished(() => driver.disconnect());
+    const client = createClient({ schema, driver });
     await client.author.create({ data: { id: "a1", name: "Ada" } });
+    driver.physicalBatches.length = 0;
     const calls: StatementCall[] = [];
     const derived = client.$extends(
       recordingExtension("native", raw("/* native */ "), calls)
@@ -223,12 +267,13 @@ describe("integrated statement transforms", () => {
       "$executeRaw",
     ]);
     expect(executeBatch).toHaveBeenCalledOnce();
-    const submitted = executeBatch.mock.calls[0]?.[0] ?? [];
-    expect(submitted[0]?.sql).toContain("/* native */");
-    expect(submitted[1]?.sql).toContain("/* native */");
-    expect(submitted[2]?.sql).toBe(unsafeSql);
-    expect(submitted[3]?.sql).toContain("/* native */");
-    expect(submitted[4]?.sql).toBe(unsafeExecuteSql);
+    expect(driver.physicalBatches).toHaveLength(1);
+    const submitted = driver.physicalBatches[0] ?? [];
+    expect(submitted[0]).toContain("/* native */");
+    expect(submitted[1]).toContain("/* native */");
+    expect(submitted[2]).toBe(unsafeSql);
+    expect(submitted[3]).toContain("/* native */");
+    expect(submitted[4]).toBe(unsafeExecuteSql);
   });
 
   test("transforms tagged raw and preserves unsafe strings byte-for-byte", async () => {
@@ -374,7 +419,9 @@ describe("integrated statement transforms", () => {
   });
 
   test("ignores a caller-spoofed chain and keeps trusted provenance hidden", async () => {
-    const { driver } = transactionFamily();
+    const { database, namespace } = transactionFamily();
+    const driver = new DispatchRecordingDriver({ client: database, namespace });
+    onTestFinished(() => driver.disconnect());
     const calls: StatementCall[] = [];
     const chain = appendResolvedExtension(
       undefined,
@@ -408,7 +455,11 @@ describe("integrated statement transforms", () => {
     await driver.withTransaction(
       async (transactionDriver) => {
         const prepared = transactionDriver._prepare(sql`SELECT 1 AS value`);
-        expect(prepared.sql).toContain("/* trusted */");
+        expect(prepared.sql).toBe("SELECT 1 AS value");
+        expect(calls).toEqual([]);
+        await expect(
+          transactionDriver._executeBatch([prepared])
+        ).resolves.toMatchObject([{ rows: [{ value: 1 }] }]);
       },
       undefined,
       trustedContext
@@ -418,5 +469,8 @@ describe("integrated statement transforms", () => {
       model: "$transaction",
       operation: "$transaction(callback)",
     });
+    expect(driver.physicalStatements).toHaveLength(2);
+    expect(driver.physicalStatements[0]).toBe("SELECT 1 AS value");
+    expect(driver.physicalStatements[1]).toContain("/* trusted */");
   });
 });
