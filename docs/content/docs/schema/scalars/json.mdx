@@ -125,7 +125,7 @@ const orderData = s.json().schema(orderSchema);
 
 ## Querying JSON
 
-JSON scalars support path-based filtering — see [JSON Filters](/docs/client/filtering/json) for the full operator list and per-database caveats. A path filter names its operator explicitly. Updates take the replacement document directly:
+JSON scalars support path-based filtering — see [JSON Filters](/docs/client/filtering/json) for the full operator list and per-database caveats. A path filter names its operator explicitly. Updates accept the replacement document directly or an explicit `{ set: value }` envelope:
 
 ```ts
 // Filter by nested value (must use { equals: value })
@@ -145,10 +145,21 @@ await client.user.update({
     preferences: { theme: "dark", fontSize: 16 },
   },
 });
+
+// The explicit envelope writes the same document
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    preferences: { set: { theme: "dark", fontSize: 16 } },
+  },
+});
 ```
 
-`{ set: value }` is an ordinary JSON document and stores the `set` property.
-It is not a JSON update envelope. The point scalar accepts a `{ set }` envelope.
+Both forms validate the replacement document against `.schema(...)` when present.
+A one-key `{ set: value }` object is an update envelope. To store a literal
+one-key document with a `set` property, wrap it as `{ set: { set: value } }`;
+the inner document must satisfy the declared schema. An invalid envelope value
+fails validation rather than being stored as a literal document.
 
 ## Writing null
 

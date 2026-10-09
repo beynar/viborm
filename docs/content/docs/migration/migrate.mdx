@@ -550,7 +550,7 @@ No provider inherits a guarantee from its dialect name. Effectful work requires 
 | MySQL2 | Stepwise | DDL implicitly commits. Nominal transactions do not create rollback. Progress is recorded per dispatch. |
 | Neon HTTP | Read-only / offline | No interactive session to hold a lock. Generation, check, status, log, and push dry-run stay available. Effectful apply/down/reset/verify/push refuse. |
 | PlanetScale | Read-only / offline | VTGate routing does not prove containment. Same offline/read-only split. |
-| D1, D1 HTTP | Effectful refused until proven | Table recreation, foreign keys, native-batch atomicity, and marker CAS are not proven together. |
+| D1 | Effectful refused until proven | Table recreation, foreign keys, native-batch atomicity, and marker CAS are not proven together. |
 | LibSQL | Effectful refused until proven | Existing-row constraint validation and safe table reconstruction are not proven. |
 
 `CREATE INDEX CONCURRENTLY` and other forbidden-in-transaction PostgreSQL operations are classified stepwise or refused before effect.

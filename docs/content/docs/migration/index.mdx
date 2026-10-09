@@ -127,7 +127,7 @@ MySQL DDL is the documented stepwise exception because each statement commits:
 | **PGlite, pg, postgres.js, Bun SQL** | Transaction when every statement permits it | Same guarantee |
 | **SQLite3, Bun SQLite** | One writer boundary; transactional where supported | Same guarantee |
 | **MySQL2** | Stepwise — a failed run can leave earlier statements applied | Same limitation, with durable progress evidence |
-| **Neon HTTP, PlanetScale, D1, D1 HTTP, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
+| **Neon HTTP, PlanetScale, D1, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
 
 On the atomic paths, a successful migration applies every statement and a
 failed one applies none. The portable API exposes no transaction isolation

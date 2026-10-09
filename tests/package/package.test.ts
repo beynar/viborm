@@ -6,7 +6,10 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { REPOSITORY_ROOT } from "@tests/fixtures/repo-paths";
 import { afterAll, beforeAll, describe, it } from "vitest";
-import { packedArchive } from "./packed-consumer.mjs";
+import {
+  assertBuiltPublicDistMatchesArchive,
+  packedArchive,
+} from "./packed-consumer.mjs";
 
 const execute = promisify(execFile);
 
@@ -124,6 +127,7 @@ describe("built package", () => {
     // repeats identical work and consumes the aggregate qualification budget.
     archiveRoot = mkdtempSync(join(tmpdir(), "viborm-package-suite-"));
     archive = packedArchive(archiveRoot);
+    assertBuiltPublicDistMatchesArchive(archive, REPOSITORY_ROOT);
   });
   afterAll(() => {
     if (archiveRoot) rmSync(archiveRoot, { recursive: true, force: true });

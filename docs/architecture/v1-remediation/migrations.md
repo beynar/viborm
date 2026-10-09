@@ -1,5 +1,44 @@
 # Migration remediation evidence
 
+## Qualified CI5 follow-through (2026-10-09)
+
+The CI5 migration policy failure was test placement, not a new core exception.
+Four real SQLite GeoPoint convergence/apply/down/reset witnesses moved intact
+from `geopoint-ddl.core.test.ts` to
+`tests/unit/migrations/geopoint-sqlite-convergence.test.ts`. The original file
+retains its provider-free DDL and recording-driver checks. The new file is
+selected by the extended estate, migration coverage manifest and existing
+adapter-storage coverage project. Source ownership, coverage denominators,
+floors and the finite core provider-exception census are unchanged.
+
+CI5's two local staleness failures were obsolete SQL counters after single-key
+capture became `NOT (q.id IN (?, ...))`. The fixture now counts only placeholders
+in that precise negated captured-id list, excluding connected-membership
+subqueries and other filters. The mutation-batch race injector is unchanged.
+The five tests retain planted-member counts, fresh recovery capture counts,
+retry limits, rollback/readback and progress/cache assertions.
+
+Qualification:
+
+- Coverage policy **11/11 passed**, 72.69ms; changed-file Biome passed.
+- Moved SQLite four plus staleness five: **9/9 passed**, **3.39s / 553.1 MiB**,
+  [receipt](/tmp/viborm-v1-ci5-migration-staleness-replay.log), teardown verified.
+- Final staleness helper after its assertion-placement lint correction:
+  **5/5 passed**, **3.97s / 488.9 MiB**,
+  [receipt](/tmp/viborm-v1-ci5-staleness-final.log), teardown verified.
+
+The supported D1 read-only catalog boundary is also repaired: SQLite
+enumeration skips the provider-owned literal `_cf_` prefix only when bound to
+the shipped `d1` driver. Non-D1 user tables and D1 `_cfX_notes` remain visible.
+Actual Workers catalog/offline-generate/dry-run/status and pre-SQL live-push
+refusal pass **1/1**, **11.84s / 655.5 MiB**
+([receipt](/tmp/viborm-v1-d1-catalog-workers-final-2.log)); SQLite provider-scope
+and scratch exclusion pass **2/2**, **16.68s / 440.7 MiB**
+([receipt](/tmp/viborm-v1-d1-catalog-sqlite.log)). Teardown is verified for both.
+The production correction is **+6 net lines**. Effectful D1 migrations remain
+a product gap; these checks establish local read-only behavior, not hosted
+qualification or a green full final coverage/CI gate.
+
 Working tree: `/Users/arnaud/.codex/worktrees/v1-review-remediation/viborm`, based on report revision `a4a5b8dc6`. The original checkout and its pre-existing work are preserved.
 
 ## Implemented corrections

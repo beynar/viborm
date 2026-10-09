@@ -22,12 +22,58 @@ export interface Links<L> {
   readonly " vibLinks"?: L;
 }
 
+// Equality compares the supplied models; inferring them again can recursively
+// traverse identical getter graphs and overflow the TS5.8 compiler stack.
 type IsIdentical<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+  (<T>() => T extends NoInfer<A> ? 1 : 2) extends <T>() => T extends NoInfer<B>
+    ? 1
+    : 2
     ? true
     : false;
+// A necessary field-name projection rejects mismatches before comparing the full
+// model. Following singular slots alone avoids expanding both sides of a chain;
+// matching projections never establish identity. Bidirectional assignability
+// is sufficient for this negative filter; full model equality decides matches.
+type SingularFieldTree<M> = M extends {
+  readonly "~": { readonly state: { readonly shape: infer Fields } };
+}
+  ? {
+      [F in keyof Fields]: Fields[F] extends {
+        readonly "~": {
+          readonly state: {
+            readonly cardinality: "one";
+            readonly target: infer Target;
+          };
+        };
+      }
+        ? Target extends {
+            readonly kind: "model";
+            readonly getter: () => infer Next;
+          }
+          ? SingularFieldTree<Next>
+          : Target extends {
+                readonly kind: "variants";
+                readonly entries: infer Entries;
+              }
+            ? {
+                [V in keyof Entries]: Entries[V] extends {
+                  readonly getter: () => infer Next;
+                }
+                  ? SingularFieldTree<Next>
+                  : never;
+              }
+            : never
+        : true;
+    }
+  : never;
 type SchemaKeyOf<S, T> = {
-  [J in keyof S]-?: IsIdentical<S[J], T> extends true ? J : never;
+  [J in keyof S]-?: [SingularFieldTree<S[J]>] extends [SingularFieldTree<T>]
+    ? [SingularFieldTree<T>] extends [SingularFieldTree<S[J]>]
+      ? IsIdentical<S[J], T> extends true
+        ? J
+        : never
+      : never
+    : never;
 }[keyof S];
 type TargetLinks<S, Target> = Target extends {
   readonly kind: "model";

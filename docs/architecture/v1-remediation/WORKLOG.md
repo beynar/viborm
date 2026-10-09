@@ -68,6 +68,265 @@ when faulty supported behavior remains.
 
 ## Latest integration checkpoint
 
+- Final artifact25 compiler/backend matrix is complete:118 distinct rows,
+  one immutable archive hash, zero unexpected failures. The ten expected
+  refusals are eight already-lossy raw-model controls, the installed native
+  plugin's absent peer and OXC's required annotations. Every successful
+  client emission has zero elisions/getter functions and its complete exact
+  literal link table. Maximum child5.248s/1049.0MiB; all teardown verified.
+  Direct and bundled consumers are strict TS5.8/native7. Dense12/24/48/96
+  source, emission and consumers all pass. Current declaration backend retained.
+  Aggregate proof: `/tmp/viborm-v1-linked-client-20261008/final25/verified-summary.json`.
+- Finishing ledger review found and repaired stale authored JSON update prose:
+  explicit one-key `{set:value}` is supported, invalid envelopes cannot fall
+  back to literal storage, and a literal one-key set document is double wrapped.
+  Runtime/tests were already correct and remain unchanged. All555 rows now
+  have dispositions:289 verified-fixed,163 product-gap,92 documented-contract,
+  4 release-pending,2 implemented-unverified,4 not-a-defect,1 refuted. The two
+  remaining documentation rows and four publication rows still need their gates.
+- Final current physical counts: source147279(+5904/+4.1761%), tests459403
+  (+13947/+3.1309%), scripts31844(+150/+0.4733%), authored docs23200
+  (+71/+0.3070%). Formatter checks576 tracked and5 new code/config files;
+  secret-safe scan of673 changed files reports zero high-confidence findings.
+- Immutable artifact25 passes all51 package cases on both supported CI Node
+  lines:22.12.0 in203.02s/1384.9MiB and24.14.0 in187.93s/1433.6MiB. Both
+  preserve the1536MiB RSS,300s aggregate and30s per-consumer ceilings, with
+  verified teardown. These include the unchanged200-model cases and emitted
+  client/factory/modifier consumers. Final118-row declaration/backend matrix
+  is running serially against this same archive.
+- Frozen artifact25 integrates the two `NoInfer` equality operands. A bounded
+  TypeScript5.8 trace located602 recursive inference frames comparing the same
+  model types; the failed accessor-only trial was discarded. All676 concrete
+  original/candidate equality answers, actual model/union controls, strict
+  backreference/factory/modifier consumers and three fresh Node22 chain200
+  processes pass. Independent review confirms the full identity comparison
+  remains authoritative; no compiler flags, limits or caller annotations changed.
+- Artifact25 builds in2.11s/1035.8MiB. The2,050,717-byte archive SHA256 is
+  `5370aa3d244db77aebff9fb347d73df7ae102e5a39ad670a6d4839979013a5b9`;
+  source-manifest SHA256 is
+  `cc208fb939bad29b6fbdf86e05e41477c83474aa467aee5512353af948c2eae4`.
+  All89 runtime `.mjs` files are byte-identical to artifact22. Whole-estate
+  native gate41 passes zero diagnostics in35.51s/6143.9MiB with verified teardown
+  under the existing8192MiB allowance. The final118-row compiler/backend matrix
+  and exact-revision protected CI remain required.
+- Artifact24's full Node22 suite passes35 cases, then TS5.8 chain200
+  crashes with `RangeError: Maximum call stack size exceeded` in recursive
+  type inference (166.40s total/1196.9MiB). The same immutable archive passes
+  focused direct and Vitest runs, then fails the first fresh-process repeat.
+  Its client declaration chunk is byte-identical to the patched23 candidate;
+  this is intermittent stack exhaustion, not an archive mismatch. The narrow
+  field-tree accessor trial did not fix it and was discarded. No
+  compiler, stack limit, model count or resource ceiling is being changed.
+- The final Node22 cost correction preserves the original full-model identity
+  comparator and uses tuple-wrapped bidirectional assignability only as the
+  necessary field-tree rejection filter. The exact Node22 chain200 probe now
+  passes in7.76s on5.9 and7.63s on5.8; original-comparator alias, cycle,
+  variant, actual union-target and metadata controls all pass. Strict
+  backreference/modifier round trips pass on5.8/7. The change is integrated
+  with permanent controls and independent review.
+- Frozen artifact24 builds in1.99s/998.0MiB, and native whole-estate gate40
+  passes with zero diagnostics in35.91s/6112.9MiB. All89 runtime `.mjs`
+  outputs are byte-identical to23. Source-manifest SHA256:
+  `ae139857c133035115bfd6a468bfaa858d38303832b58311040b4b057ca96720`.
+  The2,050,712-byte archive SHA256 is
+  `ebf7487db6d351048fb46b4bc3e4e497476065b8034e54e8d8bbb2c029c5faa9`.
+  Both local package environments now match that archive exactly; the full
+  Node22 rerun is active. Final24 package/compiler matrix evidence remains
+  pending, so earlier candidate checks are not release qualification.
+- Artifact23's complete Node24 package suite passes51/51 in238.76s,
+  1388.1MiB under unchanged limits. The exact Node22.12 suite passes21 then
+  hits its30s child deadline on the original TS5.9 chain200 source-only
+  probe; remaining cases were not run after fail-fast. No diagnostic or
+  widening was reported, but that is not a passing Node22 gate. The type
+  owner has the sole runner for a narrow isolated cost correction while root
+  continues reporting/release preparation. Logs:
+  `/tmp/viborm-v1-package23-node24.log` and
+  `/tmp/viborm-v1-package23-node22.log`.
+- Native whole-estate gate39 passes with zero diagnostics in36.82s,
+  6175.0MiB under the existing8192MiB allowance, with verified teardown.
+  It includes the integrated model-state correction and its permanent
+  compatibility probes. The20 strengthened package artifact/declaration
+  integrity regressions pass in1.93s at346.3MiB. Final23's24 source checks
+  across5.8/7 pass for the original chain, factories, self/junction, variants
+  and complete modifier case. Full Node24 package qualification is running;
+  the separate Node22 fixture is refreshed and aligned to the exact archive,
+  with its ABI127 SQLite binary unchanged.
+- The final indexed-model correction is integrated: six fluent return
+  signatures materialize their completed state inline, and the public
+  `UpdateState` alias uses the same representation so existing explicit model
+  annotations retain exact link identity. Parameters and runtime bodies are
+  unchanged; the correction adds48 net source lines. Isolated full modifier
+  source/emission/strict-consumer checks pass on TS5.8 and native7, including
+  cyclic `.extends()` before and after mapping, optional/readonly metadata,
+  generic assignments and legacy annotation controls. Permanent probes are
+  saved. Final whole-estate and package qualification remains pending.
+- Isolated build23 passes in2.24s at1008.4MiB under the unchanged1536MiB cap.
+  Its source manifest is
+  `61b37d90b6c093459873caaa330f69f6a36ee15ae4575dc3ba5f26949d9250bd`;
+  the2,050,710-byte archive SHA256 is
+  `b07c20362dd73d5ce25a1fcdf4b21685d6e07ad4ee68b02f646e1c51a20bd70c`.
+  Final source, emitter and strict-consumer measurements use this immutable
+  archive. The structural declaration-inspection helper is also being hardened
+  against local alias/type-query indirection; its independent consumer compiler
+  checks remain intact.
+- A docs-only2048MiB RSS exception is pending Arnaud's explicit approval.
+  The current1536MiB contract is unchanged. Official Node22.19.0 with512MiB
+  heap completed all120 authored routes once at1535.8MiB, then its controlled
+  cold repeat failed at1559.3MiB. The512 trial was restored to448; no exception
+  has been applied or executed. A narrow unapplied proposal is preserved at
+  `/tmp/viborm-v1-docs-rss-exception.patch` for review. All test/package caps,
+  the docs300s wall and current448 heap would remain unchanged.
+- The remaining before-case dense12 declaration measurement is complete on
+  artifact20: JS5.9 refuses emission with TS7056; native7 emits2,894,234bytes
+  containing23 client elisions, then both strict5.8/7 consumers fail semantic
+  probes. Timings, instantiations and exact receipt are now recorded in
+  `declaration-backends.md`. This is baseline evidence, not final-carrier
+  qualification. The root measurement runner finished with verified teardown.
+- The TS5.8 first-limit frequency profile now identifies the repeated owner:
+  at the existing five-million limit, `InitialModelState` and the original
+  shape each instantiate about1.43 million times, while the `Omit`/`UpdateState`
+  chain contributes about367,000 each. Schema snapshots/re-linking are small
+  triggers. Payload checking alone reproduces the defect; result traversal,
+  static recurrence, guard reordering, target-model admission, distinct keys
+  and schema tuple reads are not causal. Their isolated substitutions were
+  rejected. The profile retains only278 declaration counters and522 pairs,
+  preserves the checker limits and verifies teardown. Evidence:
+  `/tmp/viborm-v1-ts58-frequency-profile/compiler.log`.
+- The final environment hook demonstrably applies prerender `treeshake:false`,
+  with Worker/client settings preserved, but this does not qualify docs:
+  current448,384, client-esbuild and client-unminified trials still exceed
+  the1536MiB RSS ceiling. All diagnostic/minifier/heap changes were restored.
+  Content sync already closes its temporary Vite server; no unsupported reset
+  or forced GC is introduced. CI5 used Node24.21.0, so another24.x comparison
+  would not establish a new supported-engine result. A separately installed
+  minimum-supported Node22.19.0 comparison is being prepared without changing
+  project dependencies or resource limits.
+- Formatting currently passes across581 checked files in the673-file changed
+  perimeter; no fixes were applied. `origin/main` remains the reviewed
+  `a4a5b8dc607a9a8db506bd60ddb5125519d8ab0b` after a fresh fetch.
+- The indexed-query investigation rejected the result-surface accessor,
+  homomorphic `UpdateState` materializer and once-derived link-table default:
+  none repairs the exact TS5.8 fixture. All remain scratch-only. The next
+  candidate delays model inspection until a caller actually supplies the
+  corresponding guarded clause; the existing admission rules stay intact.
+- The isolated Astro output-array lifetime trial also failed before rendering
+  (22.03s,1539.2MiB), and the original installed file and inode were restored
+  exactly. No dependency patch is retained. Installed Astro code reveals a
+  concrete configuration error: it replaces the prerender `build` object,
+  dropping our intended `treeshake:false`. The next trial moves that same
+  disposable-bundle policy into the supported final environment hook and will
+  verify the effective options. Worker and client optimization remain required.
+- The plain indexed producer with the exact nested query also fails on
+  original artifact20 (4.99s,912.5MiB), before the schema-key carrier. This
+  corrects the earlier regression classification: the supported indexed-query
+  failure is pre-existing and remains in V1 repair scope. Extensions, default
+  omit and cache are unnecessary to reproduce it. The original trace's producer,
+  probe and library inputs are now preserved with hashes under
+  `/tmp/viborm-v1-index-depth-trace/original-inputs`; baseline evidence is
+  `/tmp/viborm-v1-modifier-plain-baseline20/plain-original20.log`.
+- The original permanent200-model TS5.9 query now passes under the unchanged
+  30-second child limit:26.68s,970.4MiB, verified teardown. The host load fell
+  materially between runs; source, assertions and the single compiler call are
+  unchanged. The receipt names immutable artifact22 explicitly and hashes the
+  current harness (whose unused AST-library load is now lazy):
+  `/tmp/viborm-v1-original22-chain200-quiet-receipt.json`.
+- The indexed modifier trace reaches TypeScript's5,000,000-instantiation count
+  limit at depth25, not its depth limit. No attempted tuple-owner, flat-index,
+  static-comparison prefilter or carrier-state-accessor change fixed it; all
+  remain rejected scratch experiments. The next bounded candidate targets the
+  existing result-surface helper, which currently compares a full fluent model
+  only to read its scalar/relation key sets. Source remains frozen pending proof.
+- The docs plugin's root optimizer hook was superseded by Astro's later
+  environment defaults. The supported post `configEnvironment` hook fixes that
+  configuration error, but warm and controlled cold-runtime builds still exceed
+  RSS before prerendering (1563.0MiB/15.21s and1564.3MiB/13.97s). Runtime-cache
+  cleanup is therefore not adopted as a fix. Earlier cold448 success also lacked
+  an OG cache and lacks full launch metadata; it remains an observed success,
+  not a controlled explanation. All failed build outputs are unqualified.
+- Repeating the final docs build after the D1 prose edits exposes unreliable
+  qualification: the saved448MiB build exceeds the unchanged1536MiB RSS ceiling
+  at1563.6MiB after17.98s, before page rendering. All150 prepared source/config
+  hashes remain unchanged during the run. The earlier clean-cache success is
+  retained as evidence, but the current partial dist is unqualified and cannot
+  be rendered as final output or deployed. Validate/dry-run were not rerun after
+  this failure. Migrations owns the bounded cache/allocation investigation.
+  Receipts:`/tmp/viborm-v1-docs-final-build.log` and
+  `/tmp/viborm-v1-docs-final-qualification.json`.
+- Artifact22 acceptance exposes a concrete TS5.8 indexed-modifier source
+  failure. The original pre-index fixture passes source/emission/consumer
+  (20.63s,964.5MiB); adding its three indexes while keeping the original probes
+  produces TS2589 at the valid nested include (15.04s,940.3MiB). Removing the new
+  metadata/identity witnesses does not remove that failure. Native7 passes the
+  complete indexed case (5.44s,1136.0MiB). Query owns a bounded correction at the
+  index tuple type owner; no assertion is removed. Artifact22 backreference
+  integrity/source/emission/strict-consumer checks pass on5.8 (17.44s,1052.2MiB)
+  and7 (6.38s,779.8MiB). The unchanged200-model TS5.9 source probe reaches the
+  30s wall without a diagnostic or heap failure (30.16s,1046.9MiB); qualification
+  is still required. Host contention remains measurable, so this wall result
+  alone is not attributed to an algorithmic regression. Full51 is held until
+  the concrete source defect is repaired.
+- Artifact22 freezes the integrated exact-identity cost correction and D1 catalog
+  repair. The full native source gate passes with zero diagnostics in79.22s at
+  6212.8MiB under the unchanged8192MiB/300s limits. The isolated package build
+  passes in4.11s at1029.8MiB; its2,050,296-byte tarball has SHA256
+  `cd07567d7e9392a25f0d785b059125ad0c6f8ca5ef710f8884735e23804c9cf2`.
+  The13 dedicated packed-dist/declaration-integrity controls pass in4.79s at
+  399.8MiB, including wrong/union/any/missing link keys and client elisions.
+  Those new runtime controls were added after native38 and are independently
+  qualified. Full package and final backend/scaling qualification remain pending.
+  Receipts:`/tmp/viborm-v1-native-38.log`,
+  `/tmp/viborm-v1-package-build-22.log`,
+  `/tmp/viborm-v1-packed22-integrity-consistency.log`.
+- The link lookup now rejects unequal field-name/singular-target trees before
+  invoking the unchanged exact full-model identity comparator. It never uses
+  the projection to establish equality. The original100-model query plus exact
+  first/middle/back link literals passes in11.18s at958.6MiB. Small controls
+  preserve aliases, identical separate models, external targets, both variant
+  cardinalities and a genuine singular cycle. No depth cap, target-key widening
+  or runtime state is introduced. This correction adds43 production lines and
+  131 lines of persistent small-graph type controls; full-package200 still
+  requires its own receipt.
+- The clean-cache docs build now completes all120 pages and renders121 fresh
+  OG cards in45.66s with1210.7MiB sampled peak RSS under the unchanged1536MiB/300s
+  ceiling. The temporary prerender
+  bundle skips tree-shaking; published Worker/client optimizations stay enabled.
+  Build-only browser dependency prebundling is disabled, rendering stays serial,
+  and the Node heap is448MiB (within the ordinary768MiB contract). The512MiB warm
+  trial passed, but its clean-cache counterpart exceeded RSS, so448 is the
+  qualified setting. Diagnostic hooks are removed. Link validation passes with
+  no broken links; Wrangler dry-run packages19 modules/1055 assets at771.65KiB
+  gzip. Browser inspection verifies the quick-start cards, driver admonition,
+  feature table and D1 limitation text without browser errors. A subsequent
+  bounded D1 introspection repair changes that last paragraph and needs fresh
+  build/render verification; exact-revision Linux CI is still required.
+  Receipts:`/tmp/viborm-v1-docs-cold448.log`,
+  `/tmp/viborm-v1-docs-final-validate.log`,
+  `/tmp/viborm-v1-docs-worker-cold448.log`.
+- The JS declaration harness now checks producer and source-probe roots once
+  through the selected compiler API, then emits only producer roots. All14
+  TS5.8/5.9 cases pass (151.70s aggregate,1064.9MiB peak); both removed-error
+  controls fail before emitting declarations. Separate emitted consumers remain
+  independent programs. This removes17 redundant compiler invocations from the
+  full package suite without changing assertions or limits; full-suite timing
+  still needs qualification after the chain100 identity-cost repair.
+- Checkpoint5 is committed/pushed as `400a9ce041c94ec6bc6d8a5be45951b919c9b8b6`.
+  CI run37850821772 passes core, PostgreSQL/MySQL and Bun/D1. Coverage policy
+  exposed four real SQLite witnesses in a provider-free migration file; they
+  now live in the extended estate with migration and adapter coverage selection
+  preserved. Policy11/11 and the four moved witnesses pass. Local CI exposed
+  two stale equality-SQL counters after captured-key compaction to `IN`; the
+  exact placeholder matcher now preserves all five race/readback assertions.
+  The combined SQLite/staleness replay passes9/9 in3.39s at553.1MiB; the final
+  staleness-only replay passes5/5 in3.97s at488.9MiB. Exact-revision coverage and
+  local-provider CI still need to repeat these repaired fixtures.
+  Both package jobs time out on the repeated TS5.9 ten-extension compiler work;
+  harness reuse is being qualified without removing source or emitted-consumer
+  assertions. Linux docs also exceed1536MiB, so platform substitution alone is
+  not a solution. No publication or deployment has occurred.
+- The first cached identity-predicate optimization was rejected and reverted.
+  Although its100-model query used less memory, exact literal schema-key probes
+  caught widened target unions. Further candidates must first preserve exact
+  link keys; field-domain/no-any checks alone do not prove model identity.
 - Full package qualification of artifact21 reaches20 passing cases, then the
   existing TS5.9 chain100 probe exhausts its unchanged768MiB heap. The runner
   completes teardown at57.13s and1226.5MiB sampled RSS. This is a blocking

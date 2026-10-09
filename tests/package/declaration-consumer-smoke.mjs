@@ -22,6 +22,7 @@ import {
   variantProbe,
   variantSource,
 } from "./declaration-fixtures.mjs";
+import { assertChain5ClientIntegrity } from "./emitted-client-integrity.mjs";
 import { repositoryRoot, withPackedConsumer } from "./packed-consumer.mjs";
 
 const db = `import { createClient, defineExtension, s } from "viborm";
@@ -228,6 +229,39 @@ withPackedConsumer(
           files: ["./db.ts"],
         })
       );
+      // Source probes participate in the producer's strict emission program.
+      // Their downstream copies are checked separately beside declarations only.
+      const emitSource = (projectFile, outDir, producers, probes = []) => {
+        const options = JSON.parse(readFileSync(project, "utf8"));
+        options.compilerOptions.outDir = outDir;
+        if (probes.length > 0) {
+          options.compilerOptions.types = ["node"];
+          options.compilerOptions.typeRoots = [
+            join(repositoryRoot, "node_modules/@types"),
+          ];
+        }
+        options.files = [...producers, ...probes];
+        writeFileSync(projectFile, JSON.stringify(options));
+        const arguments_ =
+          label === "native" || probes.length === 0
+            ? [compiler, "--project", projectFile]
+            : [
+                join(
+                  repositoryRoot,
+                  "tests/package/check-and-emit-producer.mjs"
+                ),
+                compiler,
+                projectFile,
+                ...producers,
+              ];
+        execFileSync(process.execPath, arguments_, {
+          cwd: root,
+          encoding: "utf8",
+          stdio: "pipe",
+          timeout: 30_000,
+          killSignal: "SIGKILL",
+        });
+      };
       try {
         if (includesCase("extends10")) {
           const extensionProject = join(
@@ -235,51 +269,14 @@ withPackedConsumer(
             `tsconfig-${label}-extends10.json`
           );
           const extensionOutput = join(root, `${label}-extends10`);
-          const options = JSON.parse(readFileSync(project, "utf8"));
-          options.compilerOptions.outDir = extensionOutput;
-          options.files = ["./extends10.ts"];
-          writeFileSync(extensionProject, JSON.stringify(options));
-          const check = (file) =>
-            execFileSync(
-              process.execPath,
-              [
-                compiler,
-                "--strict",
-                "--noEmit",
-                "--target",
-                "ES2022",
-                "--module",
-                "ESNext",
-                "--moduleResolution",
-                "Bundler",
-                "--types",
-                "node",
-                "--typeRoots",
-                join(repositoryRoot, "node_modules/@types"),
-                file,
-              ],
-              {
-                cwd: root,
-                encoding: "utf8",
-                stdio: "pipe",
-                timeout: 30_000,
-                killSignal: "SIGKILL",
-              }
-            );
-          check(join(root, "use-extensions.ts"));
-          execFileSync(
-            process.execPath,
-            [compiler, "--project", extensionProject],
-            {
-              cwd: root,
-              encoding: "utf8",
-              stdio: "pipe",
-              timeout: 30_000,
-              killSignal: "SIGKILL",
-            }
+          emitSource(
+            extensionProject,
+            extensionOutput,
+            ["./extends10.ts"],
+            ["./use-extensions.ts"]
           );
           writeFileSync(join(extensionOutput, "use.ts"), extensionConsumer);
-          check(join(extensionOutput, "use.ts"));
+          checkFile(compiler, join(extensionOutput, "use.ts"));
           console.log(
             `${label}: ten dependent $extends layers source/emission/downstream passed`
           );
@@ -354,38 +351,22 @@ withPackedConsumer(
             `tsconfig-${label}-chain${count}.json`
           );
           const chainOutput = join(root, `${label}-chain${count}`);
-          writeFileSync(
-            chainProject,
-            JSON.stringify({
-              compilerOptions: {
-                strict: true,
-                target: "ES2022",
-                module: "ESNext",
-                moduleResolution: "Bundler",
-                declaration: true,
-                emitDeclarationOnly: true,
-                composite: true,
-                skipLibCheck: false,
-                outDir: chainOutput,
-                types: [],
-                lib: ["ES2022", "DOM"],
-              },
-              files: [`./${file}`],
-            })
-          );
+          const probes = [];
           if (
             count === 5 &&
             (includesCase("backreference") || includesCase("lossy-models"))
           ) {
-            const sourceProbe = join(root, "backreference.ts");
-            writeFileSync(sourceProbe, backreferenceSource());
-            checkFile(compiler, sourceProbe);
+            writeFileSync(
+              join(root, "backreference.ts"),
+              backreferenceSource()
+            );
+            probes.push("./backreference.ts");
+            if (includesCase("lossy-models")) {
+              writeFileSync(join(root, "lossy-control.ts"), lossyModelsControl);
+              probes.push("./lossy-control.ts");
+            }
           }
-          execFileSync(
-            process.execPath,
-            [compiler, "--project", chainProject],
-            { cwd: root, encoding: "utf8", stdio: "pipe" }
-          );
+          emitSource(chainProject, chainOutput, [`./${file}`], probes);
           const emitted = readFileSync(
             join(chainOutput, `chain${count}.d.ts`),
             "utf8"
@@ -394,6 +375,7 @@ withPackedConsumer(
             count === 5 &&
             (includesCase("backreference") || includesCase("lossy-models"))
           ) {
+            assertChain5ClientIntegrity(emitted);
             const backreference = backreferenceSource();
             const emittedProbe = join(chainOutput, "backreference.ts");
             writeFileSync(emittedProbe, backreference);
@@ -422,26 +404,16 @@ withPackedConsumer(
             constructionSource(fixture)
           );
           run(`${fixture}-runtime.ts`, `${fixture} topology`);
-          checkFile(compiler, sourceProbe);
           const fixtureOutput = join(root, `${label}-${fixture}`);
           const fixtureProject = join(
             root,
             `tsconfig-${label}-${fixture}.json`
           );
-          const options = JSON.parse(readFileSync(project, "utf8"));
-          options.compilerOptions.outDir = fixtureOutput;
-          options.files = [`./${fixture}.ts`];
-          writeFileSync(fixtureProject, JSON.stringify(options));
-          execFileSync(
-            process.execPath,
-            [compiler, "--project", fixtureProject],
-            {
-              cwd: root,
-              encoding: "utf8",
-              stdio: "pipe",
-              timeout: 30_000,
-              killSignal: "SIGKILL",
-            }
+          emitSource(
+            fixtureProject,
+            fixtureOutput,
+            [`./${fixture}.ts`],
+            [`./${fixture}-probe.ts`]
           );
           const consumerProbe = join(fixtureOutput, "consumer.ts");
           writeFileSync(consumerProbe, probe);
@@ -451,9 +423,6 @@ withPackedConsumer(
           );
         }
         if (includesCase("lossy-models")) {
-          const sourceControl = join(root, "lossy-control.ts");
-          writeFileSync(sourceControl, lossyModelsControl);
-          checkFile(compiler, sourceControl);
           const emittedControl = join(
             root,
             `${label}-chain5`,

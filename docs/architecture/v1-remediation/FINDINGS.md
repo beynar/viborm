@@ -9,11 +9,10 @@ This is a generated reading view of [findings.json](findings.json), the authorit
 | documented-contract | 92 |
 | implemented-unverified | 2 |
 | not-a-defect | 4 |
-| pending | 3 |
 | product-gap | 163 |
 | refuted | 1 |
 | release-pending | 4 |
-| verified-fixed | 286 |
+| verified-fixed | 289 |
 
 ## api-dx
 
@@ -104,7 +103,7 @@ SQLite/PGlite dataDir and the in-memory default remain supported contracts. The 
 
 **Disposition:** release-pending. **Review:** high severity; confirmed.
 
-V1 metadata and current onboarding are prepared, but only verified npm latest publication and the matching released documentation can close this finding. No local package version edit is reported as a published release.
+V1 metadata and current onboarding are prepared, but the stale-content portion requires verified npm latest publication and matching live documentation. No local package version edit is reported as a published release. A version switcher or archived versioned documentation remains a separate product gap; publication alone does not fix that portion.
 
 ### codebase-health-02: Bus factor of one: a single human, no human code review, and no external users
 
@@ -184,9 +183,9 @@ Enabled repository secret scanning, push protection, Dependabot alerts/security 
 
 ### codebase-health-13: Types are gated only on TypeScript 7; the repo fails under its own pinned TypeScript 5.9.3
 
-**Disposition:** pending. **Review:** low severity; partial.
+**Disposition:** documented-contract. **Review:** low severity; partial.
 
-The native whole-estate check passes at revision26. Installed JS TypeScript5.9.3 remains necessary for Compiler API build tooling; native checking is not a drop-in replacement for that API. Strict supported consumer probes use TS5.8.3 and native7.0.2, with selected JS5.9 producer comparisons. The full JS5.9 estate has not passed the unchanged768MiB heap budget, and the cyclic emitted-consumer contract remains broken across JS/native backends. Do not equate native checking, library declaration generation and downstream consumer emission. Final disposition awaits the unannotated declaration repair and final affected gates.
+Native TypeScript7 is the whole-estate checker; JavaScript TypeScript5.9.3 remains a separate Compiler API dependency for build/tooling. Full JS5.9 source-estate qualification is not claimed. Public installed declarations are checked on supported TS5.8/native7 consumers and emitted with both JS5.9 and native7. Immutable artifact25 (SHA256 5370aa3d244db77aebff9fb347d73df7ae102e5a39ad670a6d4839979013a5b9) passes all51 package cases on Node22.12 (203.02s/1384.9MiB) and Node24.14 (187.93s/1433.6MiB), retaining1536MiB RSS/300s aggregate/30s child limits. Full native gate41 passes zero diagnostics in35.51s/6143.9MiB under the existing8192MiB allowance. The final118-row source/emitter/strict-consumer matrix has zero unexpected failures: TS5.8/native7 preserve input rejection, result domains, relation traversal and not-any guards for exported clients/factories, self/junctions, variants, modifiers and dense12/24/48/96 graphs. Every successful client emission has zero elisions/getter functions and the complete literal link table. Current JS declaration generation is retained; native emission alone did not solve the original defect, and installed OXC requires annotations. Separate raw-model reconstruction controls still fail semantically as the explicitly accepted limitation. Exact-revision protected CI and publication remain separate gates.
 
 ### codebase-health-15: A bespoke, hard-to-learn test harness: 42 projects, hand-pinned manifests, about 125 gate modes, and tests that police documentation wording
 
@@ -903,7 +902,7 @@ Bounded driver/supplied-client/lifecycle contracts, native SQLite/libSQL, hosted
 
 **Disposition:** product-gap. **Review:** medium severity; partial.
 
-Interactive/pinned migration protocols are not implemented for D1, remote libSQL, NeonHTTP or PlanetScale. Local libSQL runtime execution is qualified separately. Unsupported migration APIs fail explicitly; this is not a claim of edge migration support. Accepted expansion boundary; not marked fixed by documentation.
+The confirmed D1 introspection defect is repaired: the bound SQLite migration driver filters the exact D1-owned _cf_ prefix at catalog enumeration before forbidden PRAGMAs. Ordinary SQLite user tables with that prefix and similarly named D1 user tables remain visible. SQLite2/2 (16.68s,440.7MiB) and actual Workers D1 1/1 (11.84s,655.5MiB) pass, including introspection, offline generate, dry-run push/status and live-push refusal before SQL. Deleted D1 HTTP references are removed from authored driver, migration and decimal docs. Interactive/pinned effectful migration protocols remain absent for D1, remote libSQL, Neon HTTP and PlanetScale; this row retains product-gap status for that explicit expansion boundary. drivers.md and migrations.md record exact receipts; final docs publication remains separate.
 
 ### drivers-16: Peer ranges lag the driver ecosystem (libSQL, better-sqlite3, workers-types, PlanetScale) - with PlanetScale SDK 2.0 the driver fails every query
 
@@ -2801,17 +2800,17 @@ Stock Neon HTTP 1.2 hosted regression: 6/6 passed; query/transaction .query API,
 
 ### type-perf-04: Models and clients cannot be declaration-emitted (TS2742/TS4023/TS7056), which blocks composite/monorepo db packages
 
-**Disposition:** pending. **Review:** high severity; confirmed.
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
 
-The schema-key carrier is integrated as a type-only representation at createClient, including all driver factories. Immutable candidate6 preserves the original unannotated cyclic backreference and the compound/omit/cache/transaction case through direct JS5.9 and native7 declaration emission and eight separate strict TS5.8/7 consumers; its tsdown JS backreference also passes both consumers. Exporting an inferred client or factory is the accepted contract. Rebuilding a client from already-emitted raw models/schema remains lossy and is an explicitly accepted semantic-failure control. Whole-source qualification exposed generic raw-config annotation and driver covariance regressions. The focused homomorphic-key correction passes those source contracts on TS5.8/7, but candidate9 reintroduces emitter alias retention and is rejected pending joint source/declaration proof. The existing backend remains; no caller annotations, any masking, weakened probes or runtime schema replacement is accepted. The final extended backend matrix, dense scaling, whole-estate typecheck, installed package gates and protected CI remain required. Historical backend-only and getter-annotation evidence is preserved in declaration-backends.md; WORKLOG.md records immutable artifact hashes and current receipts.
+Immutable artifact25 (SHA256 5370aa3d244db77aebff9fb347d73df7ae102e5a39ad670a6d4839979013a5b9) passes all51 package cases on Node22.12 (203.02s/1384.9MiB) and Node24.14 (187.93s/1433.6MiB), retaining1536MiB RSS/300s aggregate/30s child limits. Full native gate41 passes zero diagnostics in35.51s/6143.9MiB under the existing8192MiB allowance. The final118-row source/emitter/strict-consumer matrix has zero unexpected failures: TS5.8/native7 preserve input rejection, result domains, relation traversal and not-any guards for exported clients/factories, self/junctions, variants, modifiers and dense12/24/48/96 graphs. Every successful client emission has zero elisions/getter functions and the complete literal link table. Current JS declaration generation is retained; native emission alone did not solve the original defect, and installed OXC requires annotations. Separate raw-model reconstruction controls still fail semantically as the explicitly accepted limitation. Exact-revision protected CI and publication remain separate gates.
 
 ### type-perf-05: Perf-driven type-safety ceiling: typos in nested include.where, where.some, select.select, nested create, AND[] items and operators compile
 
 **Disposition:** product-gap. **Review:** high severity; partial.
 
-Product typing gap: direct root write names and selected literal polymorphic projection keys are sealed, while deeper nested mutation/filter/operator/combinator key exactness remains incomplete. Runtime strict admission and visible public compiler pins remain the boundaries; no graph-wide editor exactness or new recursive type-performance proof is claimed.
+Direct root create/update/createMany/upsert field names and selected literal polymorphic only/variants keys are sealed. Ordinary nested-WHERE model field names are also sealed through caller-written logical arrays and ordinary toOne/toMany relation filters, including held and optional values; declared fields named AND/OR/NOT retain their existing precedence. Scalar operator bags, variant-filter arms, nested select/include projections and nested mutation data retain explicit static key-exactness gaps. Runtime strict admission and remaining public compiler pins are retained; this is partial repair, not graph-wide editor exactness. Complete source guard gate passes40.63s/6102.9MiB, zero diagnostics, unchanged8192MiB/300s limits. StrictTS5.8/native7 packed source/emitted probes pass fresh/held/optional/logical/shorthand/isNot/empty/undefined/named-combinator cases: /tmp/viborm-v1-where-guard-estate-2.log and /tmp/viborm-v1-where-guard-packed11-combinators.log. The newly refused deliberate AND typo pin is strengthened; remaining operator/variant/projection/mutation pins are not erased. The later immutable artifact25 passes both complete51-case Node22.12/24.14 package suites under unchanged limits, including the original chain100/200 probes; the final118-row compiler matrix has no unexpected failures.
 
-**Additional verification:** Whole native14 green8.45s5820.7MiB includes fresh+held root-write and only/variants negatives beside real keys plus valid declarations. Packed strictTS5.8/native write probes are driver-owned build6 pending. Historical full-recursive data guard cost172s/TS2589 and per-clause5.8 crash remain recorded in public contextual-typing gate; newest bounded root guard avoids recursive payload keyof and is retained only with current public compiler proof. No new successful whole-nested guard benchmark claimed.
+**Additional verification:** Complete source guard gate passes40.63s/6102.9MiB, zero diagnostics, unchanged8192MiB/300s limits. StrictTS5.8/native7 packed source/emitted probes pass fresh/held/optional/logical/shorthand/isNot/empty/undefined/named-combinator cases: /tmp/viborm-v1-where-guard-estate-2.log and /tmp/viborm-v1-where-guard-packed11-combinators.log. The newly refused deliberate AND typo pin is strengthened; remaining operator/variant/projection/mutation pins are not erased. The later immutable artifact25 passes both complete51-case Node22.12/24.14 package suites under unchanged limits, including the original chain100/200 probes; the final118-row compiler matrix has no unexpected failures.
 
 ### type-perf-01: At 100-300 models, type-checking is 3-4x slower than Drizzle wall-clock, with 5-14x the check time and 8-30x the instantiations of Drizzle/Prisma
 
@@ -2886,15 +2885,15 @@ Actual immutable artifact8 strictTS5.8/native public composite producer and down
 
 **Disposition:** product-gap. **Review:** high severity; confirmed.
 
-Product typing gap: direct root write names and selected literal polymorphic projection keys are sealed, while deeper nested mutation/filter/operator/combinator key exactness remains incomplete. Runtime strict admission and visible public compiler pins remain the boundaries; no graph-wide editor exactness or new recursive type-performance proof is claimed.
+Direct root create/update/createMany/upsert field names and selected literal polymorphic only/variants keys are sealed. Ordinary nested-WHERE model field names are also sealed through caller-written logical arrays and ordinary toOne/toMany relation filters, including held and optional values; declared fields named AND/OR/NOT retain their existing precedence. Scalar operator bags, variant-filter arms, nested select/include projections and nested mutation data retain explicit static key-exactness gaps. Runtime strict admission and remaining public compiler pins are retained; this is partial repair, not graph-wide editor exactness. Complete source guard gate passes40.63s/6102.9MiB, zero diagnostics, unchanged8192MiB/300s limits. StrictTS5.8/native7 packed source/emitted probes pass fresh/held/optional/logical/shorthand/isNot/empty/undefined/named-combinator cases: /tmp/viborm-v1-where-guard-estate-2.log and /tmp/viborm-v1-where-guard-packed11-combinators.log. The newly refused deliberate AND typo pin is strengthened; remaining operator/variant/projection/mutation pins are not erased. The later immutable artifact25 passes both complete51-case Node22.12/24.14 package suites under unchanged limits, including the original chain100/200 probes; the final118-row compiler matrix has no unexpected failures.
 
-**Additional verification:** Whole native14 green8.45s5820.7MiB includes fresh+held root-write and only/variants negatives beside real keys plus valid declarations. Packed strictTS5.8/native write probes are driver-owned build6 pending. Historical full-recursive data guard cost172s/TS2589 and per-clause5.8 crash remain recorded in public contextual-typing gate; newest bounded root guard avoids recursive payload keyof and is retained only with current public compiler proof. No new successful whole-nested guard benchmark claimed.
+**Additional verification:** Complete source guard gate passes40.63s/6102.9MiB, zero diagnostics, unchanged8192MiB/300s limits. StrictTS5.8/native7 packed source/emitted probes pass fresh/held/optional/logical/shorthand/isNot/empty/undefined/named-combinator cases: /tmp/viborm-v1-where-guard-estate-2.log and /tmp/viborm-v1-where-guard-packed11-combinators.log. The newly refused deliberate AND typo pin is strengthened; remaining operator/variant/projection/mutation pins are not erased. The later immutable artifact25 passes both complete51-case Node22.12/24.14 package suites under unchanged limits, including the original chain100/200 probes; the final118-row compiler matrix has no unexpected failures.
 
 ### type-soundness-03: Exporting a VibORM schema or client from a package that emits .d.ts fails (TS2742/TS4023/TS7056; TS2883 on TS 7)
 
-**Disposition:** pending. **Review:** high severity; confirmed.
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
 
-The schema-key carrier is integrated as a type-only representation at createClient, including all driver factories. Immutable candidate6 preserves the original unannotated cyclic backreference and the compound/omit/cache/transaction case through direct JS5.9 and native7 declaration emission and eight separate strict TS5.8/7 consumers; its tsdown JS backreference also passes both consumers. Exporting an inferred client or factory is the accepted contract. Rebuilding a client from already-emitted raw models/schema remains lossy and is an explicitly accepted semantic-failure control. Whole-source qualification exposed generic raw-config annotation and driver covariance regressions. The focused homomorphic-key correction passes those source contracts on TS5.8/7, but candidate9 reintroduces emitter alias retention and is rejected pending joint source/declaration proof. The existing backend remains; no caller annotations, any masking, weakened probes or runtime schema replacement is accepted. The final extended backend matrix, dense scaling, whole-estate typecheck, installed package gates and protected CI remain required. Historical backend-only and getter-annotation evidence is preserved in declaration-backends.md; WORKLOG.md records immutable artifact hashes and current receipts.
+Immutable artifact25 (SHA256 5370aa3d244db77aebff9fb347d73df7ae102e5a39ad670a6d4839979013a5b9) passes all51 package cases on Node22.12 (203.02s/1384.9MiB) and Node24.14 (187.93s/1433.6MiB), retaining1536MiB RSS/300s aggregate/30s child limits. Full native gate41 passes zero diagnostics in35.51s/6143.9MiB under the existing8192MiB allowance. The final118-row source/emitter/strict-consumer matrix has zero unexpected failures: TS5.8/native7 preserve input rejection, result domains, relation traversal and not-any guards for exported clients/factories, self/junctions, variants, modifiers and dense12/24/48/96 graphs. Every successful client emission has zero elisions/getter functions and the complete literal link table. Current JS declaration generation is retained; native emission alone did not solve the original defect, and installed OXC requires annotations. Separate raw-model reconstruction controls still fail semantically as the explicitly accepted limitation. Exact-revision protected CI and publication remain separate gates.
 
 ### type-soundness-04: Typed JSON re-runs the write schema on every read: transforms are double-applied, type-changing transforms commit then throw, one bad row fails the whole query
 
@@ -2906,9 +2905,11 @@ Physical JSON reads never rerun input schemas; native integer JSON carrier follo
 
 ### type-soundness-05: The documented JSON update `{ set: value }` is a type error for typed JSON and silently stores `{"set": ...}` in untyped JSON
 
-**Disposition:** documented-contract. **Review:** high severity; confirmed.
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
 
-JSON update schema and query engine now recognize the explicit {set: value} envelope; typed documents validate the contained value. Literal documents with a top-level set key use the explicit envelope to disambiguate. Root admission and engine focused runtime checks passed; final public native type gate remains pending.
+JSON updates accept direct replacement or an explicit one-key {set:value} envelope; typed JSON validates the contained document. An invalid envelope cannot fall back to literal storage. Literal one-key set documents use {set:{set:value}}; multi-key documents retain direct replacement. Existing JSON scalar defaults/update tests and engine/provider JSON replacement witnesses pass in the recorded core/coverage/provider gates; full native gate41 also passes. Relevant witnesses: tests/unit/scalars/json-defaults.core.test.ts, json-scalar-schemas.core.test.ts, tests/contracts/engine/query/parity-assignments.core.test.ts and tests/contracts/drivers/behaviors/nested-write-json-envelope-behavior.ts. Finishing review corrected the stale authored JSON warning and this ledger resolution to the actual implemented contract. Final documentation build/render remains gated separately.
+
+**Additional verification:** Existing JSON scalar defaults/update tests and engine/provider JSON replacement witnesses pass in the recorded core/coverage/provider gates; full native gate41 also passes. Relevant witnesses: tests/unit/scalars/json-defaults.core.test.ts, json-scalar-schemas.core.test.ts, tests/contracts/engine/query/parity-assignments.core.test.ts and tests/contracts/drivers/behaviors/nested-write-json-envelope-behavior.ts. Finishing review corrected the stale authored JSON warning and this ledger resolution to the actual implemented contract. Final documentation build/render remains gated separately.
 
 ### type-soundness-07: No typed computed or virtual fields
 

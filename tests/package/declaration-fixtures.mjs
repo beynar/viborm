@@ -172,11 +172,14 @@ export const author = s.model({ id: s.string().id(), name: s.string(), posts: s.
 export const post = s.model({ id: s.string().id(), title: s.string(), authorId: s.string(), author: s.toOne(() => author).fields("authorId").references("id"), comments: s.toMany(() => comment).name("subject") });
 export const video = s.model({ id: s.string().id(), duration: s.int(), comments: s.toMany(() => comment).name("subject") });
 export const comment = s.model({ id: s.string().id(), body: s.string(), subject: s.toOne({ post: () => post, video: () => video }, { values: { post: "content.post.v1", video: "content.video.v1" } }).name("subject") });
-export const schema = { author, post, video, comment };
+export const collection = s.model({ id: s.string().id(), label: s.string(), items: s.toMany({ post: () => post, video: () => video }, { values: { post: "collection.post.v1", video: "collection.video.v1" } }) });
+export const schema = { author, post, video, comment, collection };
 export const db = createClient({ schema, driver: new SQLite3Driver() });
 `;
 
 export const variantProbe = `import { db } from "./variants.js";
+type IsAny<T> = 0 extends (1 & T) ? true : false;
+type AssertFalse<T extends false> = T;
 void db.comment.findMany({ where: { subject: { type: "post", is: { author: { is: { id: "author" } } } } } });
 void db.comment.findMany({ where: { subject: { type: "video", is: { id: "video" } } } });
 // @ts-expect-error - variants retain their declared compatible string ID domain
@@ -199,6 +202,39 @@ export async function variantResults() {
   void subject.data.title;
   return { id, duration, wrongId };
 }
+void db.collection.findMany({ where: { items: { some: { type: "post", is: { author: { is: { id: "author" } } } } } } });
+void db.collection.findMany({ where: { items: { some: { type: "video", is: { id: "video" } } } } });
+// @ts-expect-error - collection variants retain their string ID input domain
+void db.collection.findMany({ where: { items: { some: { type: "video", is: { id: 123 } } } } });
+// @ts-expect-error - a collection cannot invent a discriminator
+void db.collection.findMany({ where: { items: { some: { type: "podcast", is: { id: "wrong" } } } } });
+export async function collectionVariantResults() {
+  const rows = await db.collection.findMany({ include: { items: { variants: { post: { include: { author: true } }, video: true } } } });
+  const item = rows[0]!.items[0]!;
+  type ItemNotAny = AssertFalse<IsAny<typeof item>>;
+  type DiscriminatorNotAny = AssertFalse<IsAny<typeof item.type>>;
+  type DataNotAny = AssertFalse<IsAny<typeof item.data>>;
+  if (item.type === "post") {
+    const id: string = item.data.id;
+    const title: string = item.data.title;
+    const authorId: string = item.data.author.id;
+    type PostIdNotAny = AssertFalse<IsAny<typeof item.data.id>>;
+    type AuthorIdNotAny = AssertFalse<IsAny<typeof item.data.author.id>>;
+    // @ts-expect-error - the post collection arm cannot gain video fields
+    void item.data.duration;
+    // @ts-expect-error - a collection backreference keeps its declared ID output
+    const wrongAuthorId: number = item.data.author.id;
+    return { id, title, authorId, wrongAuthorId };
+  }
+  const id: string = item.data.id;
+  const duration: number = item.data.duration;
+  type VideoIdNotAny = AssertFalse<IsAny<typeof item.data.id>>;
+  // @ts-expect-error - the video collection arm cannot gain post fields
+  void item.data.title;
+  // @ts-expect-error - collection member IDs cannot widen to number
+  const wrongId: number = item.data.id;
+  return { id, duration, wrongId };
+}
 `;
 
 // The same complete probe first passes on producer source, then demonstrates
@@ -216,13 +252,34 @@ import { defaultOmit } from "viborm/client";
 import { cache } from "viborm/cache";
 import { MemoryCache } from "viborm/cache/memory";
 import { SQLite3Driver } from "viborm/sqlite3";
-export const parent = s.model({ tenantId: s.string(), localId: s.string(), email: s.string(), name: s.string(), modelSecret: s.string(), children: s.toMany(() => child) }).id(["tenantId", "localId"], { name: "parent_pk" }).unique(["tenantId", "email"], { name: "tenant_email" }).omit({ modelSecret: true }).map("linked_parents");
-export const child = s.model({ id: s.string().id(), tenantId: s.string(), parentId: s.string(), title: s.string(), secret: s.string(), parent: s.toOne(() => parent).fields("tenantId", "parentId").references("tenantId", "localId") }).map("linked_children");
+export const parent = s.model({ tenantId: s.string(), localId: s.string(), email: s.string(), name: s.string(), modelSecret: s.string(), children: s.toMany(() => child) }).id(["tenantId", "localId"], { name: "parent_pk" }).unique(["tenantId", "email"], { name: "tenant_email" }).omit({ modelSecret: true }).index(["name"], { name: "parent_name", type: "btree" }).index(["tenantId", "name"], { name: "parent_tenant_name", unique: true }).map("linked_parents");
+export const child = s.model({ id: s.string().id(), tenantId: s.string(), parentId: s.string(), title: s.string(), secret: s.string(), parent: s.toOne(() => parent).fields("tenantId", "parentId").references("tenantId", "localId") }).index(["tenantId", "parentId"], { name: "child_parent" }).map("linked_children");
 export const schema = { parent, child };
 export const db = createClient({ schema, driver: new SQLite3Driver() }).$extends(defaultOmit<typeof schema>()({ child: { secret: true } })).$extends(defineExtension({ name: "ready", client: () => ({ $ready: () => true }) })).$extends(cache({ driver: new MemoryCache() }));
 `;
 
 export const modifierProbe = `import { db } from "./modifiers.js";
+import type { RelationLinks } from "viborm";
+type IsAny<T> = 0 extends (1 & T) ? true : false;
+type AssertFalse<T extends false> = T;
+type Assert<T extends true> = T;
+type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+type ClientLinks = RelationLinks<typeof db.$schema>;
+type ChildrenTarget = Assert<Same<ClientLinks["parent"]["children"], "child">>;
+type ParentTarget = Assert<Same<ClientLinks["child"]["parent"], "parent">>;
+// @ts-expect-error - index state cannot widen the literal target key
+const wrongChildKey: ClientLinks["parent"]["children"] = "parent";
+type ParentIndexes = typeof db.$schema.parent["~"]["state"]["indexes"];
+type LastTwo = ParentIndexes extends [...unknown[], infer A, infer B] ? [A, B] : never;
+type FirstIndexKeys = Assert<Same<LastTwo[0]["fields"], ["name"]>>;
+type SecondIndexKeys = Assert<Same<LastTwo[1]["fields"], ["tenantId", "name"]>>;
+type FirstIndexName = Assert<Same<LastTwo[0]["options"]["name"], string>>;
+type FirstIndexKind = Assert<Same<LastTwo[0]["options"]["type"], "btree">>;
+type SecondIndexName = Assert<Same<LastTwo[1]["options"]["name"], string>>;
+type SecondIndexUnique = Assert<Same<LastTwo[1]["options"]["unique"], true>>;
+type ChildIndexes = typeof db.$schema.child["~"]["state"]["indexes"];
+type LastChild = ChildIndexes extends [...unknown[], infer I] ? I : never;
+type ChildIndexKeys = Assert<Same<LastChild["fields"], ["tenantId", "parentId"]>>;
 const ready: boolean = db.$ready();
 const table: "linked_parents" = db.$schema.parent["~"].state.tableName;
 void db.parent.findUnique({ where: { parent_pk: { tenantId: "tenant", localId: "parent" } } });
@@ -233,6 +290,10 @@ export async function modifiedResults() {
   const rows = await db.parent.findMany({ include: { children: { include: { parent: true } } } });
   const nested = rows[0]!.children[0]!.parent;
   const id: string = nested.localId;
+  type ParentNotAny = AssertFalse<IsAny<typeof nested>>;
+  type IdNotAny = AssertFalse<IsAny<typeof nested.localId>>;
+  // @ts-expect-error - indexed backreferences retain their exact ID domain
+  const wrongId: number = nested.localId;
   // @ts-expect-error - model omit is preserved through linked backreferences
   void nested.modelSecret;
   // @ts-expect-error - official default omit applies to included children
@@ -301,6 +362,13 @@ try {
   assert.equal(extended.$ready(), true);
   assert.equal(fixture.db.$schema.parent["~"].state.tableName, "linked_parents");
   assert.equal(fixture.db.$schema.child["~"].state.tableName, "linked_children");
+  assert.deepEqual(fixture.parent["~"].state.indexes, [
+    { fields: ["name"], options: { name: "parent_name", type: "btree" } },
+    { fields: ["tenantId", "name"], options: { name: "parent_tenant_name", unique: true } },
+  ]);
+  assert.deepEqual(fixture.child["~"].state.indexes, [
+    { fields: ["tenantId", "parentId"], options: { name: "child_parent" } },
+  ]);
   assert.equal(typeof fixture.db.$withCache, "function");
   const cached = fixture.db.$withCache();
   assert.notEqual(cached, fixture.db);

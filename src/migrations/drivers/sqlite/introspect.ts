@@ -180,7 +180,8 @@ function mapReferentialAction(rule: string): ReferentialAction {
 
 export async function introspect(
   executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
-  managedTables?: readonly string[]
+  managedTables?: readonly string[],
+  excludeD1SystemTables = false
 ): Promise<SchemaSnapshot> {
   // Get all tables. `sql` rides along on the query that was already being made
   // — the reserved decimal constraints are read out of it, and a second live
@@ -189,6 +190,9 @@ export async function introspect(
   // user's schema: it is TEMP where the transport admits temporary objects and
   // never appears here, but on D1 it is an ordinary table in `main`, and a
   // snapshot that carried it would have push and diff plan its drop.
+  // D1 also exposes provider-owned `_cf_` tables but forbids their PRAGMAs.
+  // Filter that exact reserved prefix only for D1; GLOB treats `_` literally,
+  // and an ordinary SQLite application's similarly named tables stay visible.
   const tablesResult = await executeRaw<SqliteTable>(
     `
     SELECT name, sql
@@ -196,6 +200,7 @@ export async function introspect(
     WHERE type = 'table'
       AND name NOT LIKE 'sqlite_%'
       AND name <> ?
+      ${excludeD1SystemTables ? "AND name NOT GLOB '_cf_*'" : ""}
     ORDER BY name
   `,
     [BATCH_REFS_TABLE]

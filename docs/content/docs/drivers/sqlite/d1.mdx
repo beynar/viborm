@@ -181,8 +181,7 @@ refuses temporary objects, so on D1 it is an ordinary table,
 - it is empty between batches — each batch deletes the rows it stored, keyed by
   its own batch id, before it ends, and a failed batch rolls them back;
 - VibORM's SQLite introspection leaves it out of the snapshot, so a `diff`
-  over a database file that holds it does not plan its drop (introspection over
-  the D1 binding itself does not run yet, see Migrations below);
+  over a database that holds it does not plan its drop;
 - dropping it while no request is running is harmless: the next batch that
   needs it creates it again.
 
@@ -198,15 +197,11 @@ Offline `generate` and `check` and estate-only inspection do not read the
 database. `apply({ dryRun: true })` and `down({ dryRun: true })` read the live
 marker without a lock and require a working D1 binding. `reset({ dryRun: true })`
 previews the estate's root-to-target path without database reads, after target
-and read-only capability admission. Admission of a read-only path is not a
-promise that live introspection succeeds. The local Workers runtime evidence
-does not claim hosted Cloudflare migration qualification. See
+and read-only capability admission. Read-only introspection over the binding
+excludes D1-owned `_cf_` system tables before reading table metadata. User
+tables remain visible. Local Workers evidence does not establish hosted
+Cloudflare migration qualification. See
 [migration atomicity](/docs/migration#atomicity).
-
-Live introspection over the D1 binding does not work yet: D1 lists its internal
-`_cf_METADATA` table in `sqlite_master` and refuses `PRAGMA table_info` on it
-(`SQLITE_AUTH`), so a read-only command that introspects the database fails
-with a `QueryError`.
 
 ## Capabilities
 

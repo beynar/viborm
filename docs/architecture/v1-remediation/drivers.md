@@ -1,5 +1,47 @@
 # Driver and transaction remediation
 
+## D1 read-only catalog repair (2026-10-09)
+
+The confirmed introspection defect within `drivers-15` is repaired. A migration
+driver bound to the shipped `d1` transport excludes provider-owned `_cf_` tables
+at the SQLite catalog enumeration query, before their forbidden PRAGMAs. The
+literal GLOB prefix preserves `_cfX_notes`; ordinary SQLite still exposes
+application tables named `_cf_METADATA` or `_cf_KV`. No deleted D1 HTTP alias or
+new migration capability was introduced.
+
+Final scope review removed obsolete D1 HTTP prose from the migration overview,
+migrate guide, migration internals and decimal guide. The authored content
+contains no remaining D1 HTTP reference. Existing D1 and libSQL capability
+limits are preserved; final documentation build/render qualification remains
+with the integration owner.
+
+The actual local Workers witness
+`tests/providers/workers/d1-migrations.test.ts` passes **1/1**, **11.84s /
+655.5 MiB**, with verified teardown. It observes protected `_cf_METADATA`, reads
+the exact user catalog, executes offline generation and public dry-run/status,
+and proves live push still refuses before SQL. The first attempts exposed two
+fixture errors: the driver-specific client wrapper lacked its database binding,
+and status lacked an estate descriptor. Correcting those fixtures required no
+additional production change.
+
+The in-memory SQLite scope witness in
+`tests/unit/migrations/sqlite-batch-refs-introspection.test.ts` passes **2/2**,
+**16.68s / 440.7 MiB**, teardown verified. It verifies D1-only exclusion and
+non-D1 table preservation. Registration uses the existing Workers glob,
+credential-free extended estate and migration coverage manifest.
+
+Receipts: [/tmp/viborm-v1-d1-catalog-workers-final-2.log](/tmp/viborm-v1-d1-catalog-workers-final-2.log)
+and [/tmp/viborm-v1-d1-catalog-sqlite.log](/tmp/viborm-v1-d1-catalog-sqlite.log).
+The bounded commands select `provider-d1` with the new Workers file and
+`extended-local` with the existing SQLite file through
+`scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts`.
+
+Effectful D1 V1 migrations remain a **product gap**: live push/apply/down/reset
+and locked verify still refuse. Local read-only evidence is not hosted
+Cloudflare migration qualification. This six-file correction adds **6 net
+production lines and 96 test lines**, and removes **5 net live-doc lines**;
+full CI and the affected documentation build remain root-owned gates.
+
 Status: driver implementation complete for assigned bounded fixes; integrated
 qualification and release decisions remain with root. Scalar runtime follow-through is verified as recorded below; latest vector
 dimension and public type/declaration changes await integration under source freeze. Original review

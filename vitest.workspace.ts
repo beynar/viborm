@@ -208,6 +208,7 @@ export default defineWorkspace([
     "tests/unit/migrations/decimal-list-defaults.core.test.ts",
     "tests/unit/migrations/native-type-map-ddl.core.test.ts",
     "tests/unit/migrations/geopoint-ddl.core.test.ts",
+    "tests/unit/migrations/geopoint-sqlite-convergence.test.ts",
     "tests/unit/migrations/v1-push.core.test.ts",
     "tests/providers/local/sqlite3-storage-admission.test.ts",
     "tests/providers/local/sqlite3-adapter-adversarial.test.ts",

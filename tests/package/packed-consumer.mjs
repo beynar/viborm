@@ -10,6 +10,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   mkdtempSync,
@@ -47,6 +48,62 @@ export function packedArchive(into) {
     throw new Error(`Expected one packed archive, found ${archives.length}`);
   }
   return join(into, archives[0]);
+}
+
+/** Built-only probes must observe the exact published bytes supplied to the suite. */
+export function assertBuiltPublicDistMatchesArchive(
+  archive,
+  builtRoot = repositoryRoot
+) {
+  const snapshot = mkdtempSync(join(tmpdir(), "viborm-package-dist-"));
+  const digest = (file) =>
+    createHash("sha256").update(readFileSync(file)).digest("hex");
+  const publicFiles = (directory, published) => {
+    const files = new Map();
+    const walk = (prefix) => {
+      for (const entry of readdirSync(join(directory, prefix), {
+        withFileTypes: true,
+      })) {
+        const path = join(prefix, entry.name);
+        if (prefix === "" && entry.name === "internal") {
+          if (published)
+            throw new Error(
+              "Published dist includes the private benchmark friend"
+            );
+          continue;
+        }
+        if (entry.isDirectory()) walk(path);
+        else if (entry.isFile()) files.set(path, digest(join(directory, path)));
+        else throw new Error(`Public dist must contain regular files: ${path}`);
+      }
+    };
+    walk("");
+    return files;
+  };
+  try {
+    execFileSync(
+      "tar",
+      ["-xzf", archive, "-C", snapshot, "--strip-components=1"],
+      { stdio: "pipe" }
+    );
+    const packed = publicFiles(join(snapshot, "dist"), true);
+    const built = publicFiles(join(builtRoot, "dist"), false);
+    if (packed.size === 0) throw new Error("Published dist is empty");
+    for (const [path, hash] of packed) {
+      if (!built.has(path))
+        throw new Error(`Built public dist is missing ${path}`);
+      if (built.get(path) !== hash)
+        throw new Error(
+          `Built public dist differs from supplied archive: ${path}`
+        );
+    }
+    for (const path of built.keys()) {
+      if (!packed.has(path))
+        throw new Error(`Built public dist has extra ${path}`);
+    }
+  } finally {
+    rmSync(snapshot, { recursive: true, force: true });
+  }
 }
 
 /**

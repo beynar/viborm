@@ -251,7 +251,7 @@ Live descriptor changes follow the Migration V1 provider-admission matrix:
 - PlanetScale has no admitted VibORM effectful-DDL route. Marker creation and
   alter survival are proved on the MySQL dialect substrate; a hosted
   PlanetScale connection can introspect the marker when credentials exist.
-- D1 and D1 HTTP support ordinary decimal reads and writes, and libSQL supports
+- D1 supports ordinary decimal reads and writes, and libSQL supports
   the same SQLite coefficient representation. Migration V1 keeps their offline
   generation and read-only inspection paths, but refuses every effectful
   `push` or migration command before SQL until each provider proves the complete

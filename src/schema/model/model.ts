@@ -171,10 +171,18 @@ export const mergeIndexDefinitions = <
   return [...state.indexes, index] as UpdateIndexDefinition<State, Index>;
 };
 
+// Publish the same completed state as fluent returns so a legacy explicit
+// Model<UpdateState<...>> annotation retains exact relation-link identity.
 export type UpdateState<
   State extends ModelState,
   Update extends Partial<ModelState>,
-> = Omit<State, keyof Update> & Update;
+> = {
+  [P in keyof (Omit<State, keyof Update> & Update)]: (Omit<
+    State,
+    keyof Update
+  > &
+    Update)[P];
+};
 
 /**
  * The keys a proposed `.omit()` names that this model does NOT have as a
@@ -350,13 +358,18 @@ export class Model<State extends ModelState> {
     this.#state = state;
   }
 
+  // Materialize each completed modifier state inline before a recursive getter
+  // captures it. A helper alias retains the whole prior modifier chain.
   /**
    * Maps the model to a specific database table name
    */
   map<Name extends string>(tableName: Name) {
-    return new Model({ ...this.#state, tableName }) as unknown as Model<
-      UpdateState<State, { tableName: Name }>
-    >;
+    return new Model({ ...this.#state, tableName }) as unknown as Model<{
+      [KState in keyof UpdateState<State, { tableName: Name }>]: UpdateState<
+        State,
+        { tableName: Name }
+      >[KState];
+    }>;
   }
 
   /**
@@ -392,7 +405,12 @@ export class Model<State extends ModelState> {
     return new Model({
       ...this.#state,
       omit: items,
-    }) as unknown as Model<UpdateState<State, { omit: Record<Hidden, true> }>>;
+    }) as unknown as Model<{
+      [KState in keyof UpdateState<
+        State,
+        { omit: Record<Hidden, true> }
+      >]: UpdateState<State, { omit: Record<Hidden, true> }>[KState];
+    }>;
   }
 
   index<
@@ -401,24 +419,30 @@ export class Model<State extends ModelState> {
   >(
     fields: Keys,
     options?: ExactOptions<O, OrdinaryIndexOptions>
-  ): Model<
-    UpdateState<
+  ): Model<{
+    [KState in keyof UpdateState<
       State,
       { indexes: UpdateIndexDefinition<State, { fields: Keys; options: O }> }
-    >
-  >;
+    >]: UpdateState<
+      State,
+      { indexes: UpdateIndexDefinition<State, { fields: Keys; options: O }> }
+    >[KState];
+  }>;
   index<
     const Key extends NonNullablePointScalarKeys<State["scalars"]>,
     const O extends GeoPointSpatialIndexOptions,
   >(
     fields: [Key],
     options: ExactOptions<O, GeoPointSpatialIndexOptions>
-  ): Model<
-    UpdateState<
+  ): Model<{
+    [KState in keyof UpdateState<
       State,
       { indexes: UpdateIndexDefinition<State, { fields: [Key]; options: O }> }
-    >
-  >;
+    >]: UpdateState<
+      State,
+      { indexes: UpdateIndexDefinition<State, { fields: [Key]; options: O }> }
+    >[KState];
+  }>;
   index(fields: string[], options: IndexOptions = {}): Model<any> {
     const storedFields = snapshotModelKeyMembers(fields, "Index");
     refuseDuplicateModelKeyMembers(storedFields, "Index");
@@ -453,8 +477,8 @@ export class Model<State extends ModelState> {
       ...this.#state.compoundId,
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.#state, compoundId }) as unknown as Model<
-      UpdateState<
+    return new Model({ ...this.#state, compoundId }) as unknown as Model<{
+      [KState in keyof UpdateState<
         State,
         {
           compoundId: MergeCompound<
@@ -466,8 +490,20 @@ export class Model<State extends ModelState> {
             }
           >;
         }
-      >
-    >;
+      >]: UpdateState<
+        State,
+        {
+          compoundId: MergeCompound<
+            State["compoundId"],
+            {
+              [K in CompoundKeyName<Keys, O>]: ObjectSchema<{
+                [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
+              }>;
+            }
+          >;
+        }
+      >[KState];
+    }>;
   }
 
   unique<
@@ -491,8 +527,8 @@ export class Model<State extends ModelState> {
       ...this.#state.compoundUniques,
       [name]: v.object(fieldsRecord, { partial: false }),
     } as any;
-    return new Model({ ...this.#state, compoundUniques }) as unknown as Model<
-      UpdateState<
+    return new Model({ ...this.#state, compoundUniques }) as unknown as Model<{
+      [KState in keyof UpdateState<
         State,
         {
           compoundUniques: MergeCompound<
@@ -504,8 +540,20 @@ export class Model<State extends ModelState> {
             }
           >;
         }
-      >
-    >;
+      >]: UpdateState<
+        State,
+        {
+          compoundUniques: MergeCompound<
+            State["compoundUniques"],
+            {
+              [K in CompoundKeyName<Keys, O>]: ObjectSchema<{
+                [K2 in Keys[number]]: State["scalars"][K2]["~"]["state"]["base"];
+              }>;
+            }
+          >;
+        }
+      >[KState];
+    }>;
   }
 
   extends<ETShape extends DeclaredModelShape>(shape: ETShape) {

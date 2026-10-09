@@ -174,7 +174,7 @@ Effectful work is admitted only when lock and marker CAS are proven.
 | SQLite3, Bun SQLite | Effectful when lock/CAS is proven. |
 | MySQL2 | Stepwise. DDL implicitly commits; nominal transactions do not roll back. |
 | Neon HTTP, PlanetScale | Read-only / offline for effectful work. Generation, check, status, and push dry-run remain. |
-| D1, D1 HTTP, LibSQL | Effectful refused until proven. |
+| D1, LibSQL | Effectful refused until proven. |
 
 No provider inherits a guarantee from its dialect name.
 

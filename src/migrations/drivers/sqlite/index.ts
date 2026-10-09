@@ -279,7 +279,8 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   introspect(
     executeRaw: Parameters<typeof introspect>[0]
   ): Promise<SchemaSnapshot> {
-    return introspect(executeRaw, this.target?.tables);
+    const provider = this.executionDriver?.driverName;
+    return introspect(executeRaw, this.target?.tables, provider === "d1");
   }
 
   // ===========================================================================
