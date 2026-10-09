@@ -3,9 +3,7 @@
  *
  * Driver implementation for postgres.js - a modern, fast PostgreSQL client.
  *
- * Generated statements use unsafe(query, values, queryOptions). Preparation
- * defaults to false for pooler compatibility; options.prepare: true opts into
- * the provider's prepared-statement reuse on compatible sessions.
+ * Generated statements use unsafe(query, values, queryOptions).
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
@@ -97,8 +95,15 @@ function encodeListParameters(params: unknown[]): unknown[] {
   );
 }
 
+/** postgres.js prepares only when the connection AND the query say so, and
+ * an unprepared parameterized statement costs a second round trip. Queries say
+ * yes, so the connection's `prepare` decides; an owned one stays unprepared
+ * unless asked, for transaction-mode poolers (PgBouncer, Supavisor). */
+const CONNECTION_DECIDES = { prepare: true };
+
 const withVibormTypes = (options: PostgresOptions = {}): PostgresOptions => ({
   ...options,
+  prepare: options.prepare ?? false,
   types: { ...vibormTypes, ...options.types },
 });
 
@@ -226,7 +231,7 @@ export class PostgresDriver extends Driver<
     const result = await client.unsafe<T[]>(
       sqlStr,
       encodeListParameters(params),
-      { prepare: this.driverOptions.options?.prepare === true }
+      CONNECTION_DECIDES
     );
     return {
       rows: result,
@@ -249,9 +254,7 @@ export class PostgresDriver extends Driver<
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "executeRaw";
-    const result = await client.unsafe<T[]>(sqlStr, params, {
-      prepare: this.driverOptions.options?.prepare === true,
-    });
+    const result = await client.unsafe<T[]>(sqlStr, params, CONNECTION_DECIDES);
     return {
       rows: result,
       rowCount: normalizePostgresRowCount(

@@ -69,6 +69,8 @@ VibORM checks supplied temporal parser configuration before using the client.
 `vibormTypes` keeps PostgreSQL dates and timestamps as text so typed queries
 decode them consistently, including years before 100 and timezone offsets.
 `$disconnect()` leaves this supplied client open; its owner calls `sql.end()`.
+The client's own `prepare` setting applies — see
+[Prepared statements](#prepared-statements).
 
 ### With pgvector
 
@@ -144,8 +146,19 @@ transaction reconnects once the server is back, without `$disconnect()`.
 
 ## Prepared statements
 
-Generated and raw statements default to `prepare: false`, which avoids session
-prepared statements on transaction poolers. On a direct or session-pooled
-connection that supports prepared statements, set `options: { prepare: true }`
-to opt into postgres.js statement reuse. This forwards the provider's supported
-query option; it does not promise preparation for every statement shape.
+The connection's own postgres.js `prepare` option decides whether generated and
+raw statements are prepared; VibORM does not override it per query.
+
+Without preparation, postgres.js sends every statement that has parameters in
+two round trips: it parses and describes the statement, waits for the server's
+parameter types, then binds and executes. A prepared statement is parsed once
+per connection and costs one round trip after that. Statements without
+parameters always take one.
+
+- **Client from `databaseUrl` or `options`:** defaults to `prepare: false`, so
+  it works behind transaction-mode poolers (PgBouncer, Supavisor) that cannot
+  keep session prepared statements. On a direct or session-pooled connection,
+  set `options: { prepare: true }`.
+- **Supplied client:** its own setting applies, and postgres.js defaults to
+  `prepare: true`. Behind a transaction-mode pooler, build it with
+  `postgres(url, { prepare: false, types: vibormTypes })`.

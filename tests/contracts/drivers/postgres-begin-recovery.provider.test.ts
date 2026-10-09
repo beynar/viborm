@@ -1,87 +1,18 @@
-import { once } from "node:events";
-import { createServer, type Server, type Socket } from "node:net";
 import { createClient as createDriverClient } from "@client/client";
 import { createClient, PostgresDriver, vibormTypes } from "@drivers/postgres";
-import type { PGlite } from "@electric-sql/pglite";
 import { isRetryableError, VibORMErrorCode } from "@errors";
 import { s } from "@schema";
 import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
+import { pgliteWireServer } from "@tests/fixtures/pglite-wire-server";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
- * postgres.js against a real server that goes away and comes back.
- *
- * The server is PGlite behind a minimal PostgreSQL wire bridge on a fixed
- * loopback port: `stop()` refuses every connection the way a restarting server
- * does, `start()` serves the same database again, and `killSessionOn(text)`
- * kills the session that sends `text` before answering it. One connection at a
- * time (`max: 1`), because PGlite is a single session.
+ * postgres.js against a real server that goes away and comes back: PGlite
+ * behind the wire bridge, which `stop()`s refusing connections, `start()`s
+ * serving the same database again, and kills a session on demand.
  */
-const STARTUP_PROTOCOL = 196_608;
-
-function wireServer(database: PGlite) {
-  const sockets = new Set<Socket>();
-  // PGlite is one session, so every connection's messages share one queue.
-  let replies = Promise.resolve();
-  let server: Server | undefined;
-  let fatal: string | undefined;
-  const serve = (socket: Socket) => {
-    sockets.add(socket);
-    socket.on("close", () => sockets.delete(socket));
-    socket.on("error", () => undefined);
-    let pending = Buffer.alloc(0);
-    socket.on("data", (chunk) => {
-      pending = Buffer.concat([pending, chunk]);
-      for (;;) {
-        const startup =
-          pending.length >= 8 && pending.readInt32BE(4) === STARTUP_PROTOCOL;
-        const length = startup
-          ? pending.readInt32BE(0)
-          : pending.length >= 5
-            ? pending.readInt32BE(1) + 1
-            : Number.POSITIVE_INFINITY;
-        if (pending.length < length) return;
-        const message = pending.subarray(0, length);
-        pending = pending.subarray(length);
-        if (fatal && message.includes(fatal)) {
-          // PostgreSQL ends a dead session's transaction.
-          replies = replies.then(async () => {
-            await database.exec("ROLLBACK");
-          });
-          socket.destroy();
-          return;
-        }
-        replies = replies.then(async () => {
-          const reply = await database.execProtocolRaw(message);
-          if (!socket.destroyed) socket.write(reply);
-        });
-      }
-    });
-  };
-  return {
-    start: (port = 0) =>
-      new Promise<number>((resolve) => {
-        const listening = createServer(serve);
-        server = listening;
-        listening.listen(port, "127.0.0.1", () => {
-          const address = listening.address();
-          resolve(typeof address === "object" && address ? address.port : port);
-        });
-      }),
-    stop: async () => {
-      await Promise.all([
-        ...[...sockets].map((socket) => once(socket.destroy(), "close")),
-        new Promise((resolve) => server?.close(resolve)),
-      ]);
-      await replies;
-    },
-    killSessionOn: (text: string) => {
-      fatal = text;
-    },
-  };
-}
 
 const invoice = s
   .model({
@@ -100,7 +31,7 @@ const SEEDED = 10_000;
 const SEED_CHUNK = 2000;
 
 const database = openTestPGlite();
-const server = wireServer(database);
+const server = pgliteWireServer(database);
 let port = 0;
 
 beforeAll(async () => {
