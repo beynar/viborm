@@ -532,8 +532,7 @@ const typoProbes = () => {
         // @ts-expect-error - unknown inverse operation beside a real one
         conenct: { id: "comment-2" },
       },
-      // Reachability pin: generic mutation data cannot yet seal model-field
-      // names without crossing the measured TS2589/type-cost boundary.
+      // @ts-expect-error - unknown root field beside the declared comments
       commments: { create: { id: "comment-3", body: "third" } },
     },
   } satisfies OperationPayload<"create", typeof optionalArticle>);

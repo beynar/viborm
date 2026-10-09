@@ -344,7 +344,9 @@ describe("statement-transform failures", () => {
     ];
 
     for (const [extension, value] of malformed) {
-      expect(isSql(value)).toBe(true);
+      if (extension === "unreadable-renderer")
+        expect(() => isSql(value)).toThrow("renderer accessor failed");
+      else expect(isSql(value)).toBe(extension === "throwing-renderer");
       const error = captureQueryError(() =>
         applyStatementTransforms(sql`SELECT 1`, "post", "findMany", [
           transformReturning(extension, value),
@@ -352,9 +354,28 @@ describe("statement-transform failures", () => {
       );
       expect(error.message).toContain(`Extension "${extension}"`);
       expect(error.message).toContain("post.findMany");
-      expect(error.message).toContain("returned an unreadable value");
+      expect(error.message).toContain(
+        extension === "missing-renderer" ||
+          extension === "non-callable-renderer"
+          ? "returned a non-Sql value"
+          : "returned an unreadable value"
+      );
       expect(error.originalCause).toBeInstanceOf(Error);
     }
+  });
+
+  test("rejects a native Sql instance with a tampered renderer", () => {
+    const tampered = Object.defineProperty(sql`SELECT 1`, "toStatement", {
+      value: 42,
+    });
+    const failure = captureQueryError(() =>
+      applyStatementTransforms(sql`SELECT 1`, "post", "findMany", [
+        transformReturning("tampered-native-renderer", tampered),
+      ])
+    );
+    expect(failure.message).toContain("returned an unreadable value");
+    expect(failure.originalCause).toBeInstanceOf(Error);
+    expect(failure.message).toContain("tampered-native-renderer");
   });
 });
 

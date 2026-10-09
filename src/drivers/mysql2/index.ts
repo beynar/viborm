@@ -10,6 +10,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -230,10 +231,13 @@ function resolveMySQL2Configuration(
 ): MySQL2Configuration {
   const explicit = resolveNamespaceOption(options);
   const databaseUrl = options.databaseUrl;
+  const urlOptions = databaseUrl
+    ? parseMySQL2ConfiguredUrl(databaseUrl)
+    : undefined;
   const captured = {
-    urlOptions: databaseUrl ? parseMySQL2ConfiguredUrl(databaseUrl) : undefined,
+    urlOptions,
     suppliedPool: options.pool,
-    connectionOptions: { ...options.options },
+    connectionOptions: { ...options.options, ...urlOptions },
   };
   return {
     namespace: explicit ?? deriveMySQL2Namespace(captured),
@@ -377,10 +381,18 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
-    const [result, fields] = await client.execute(
+    const [result, fields] = await client.query({
       sql,
-      convertValuesForMySQL(params)
-    );
+      values: convertValuesForMySQL(params),
+      // Per-statement decoding also covers borrowed pools without mutating
+      // their connection options. Text protocol avoids a statement per IN size.
+      typeCast: (field, next) =>
+        ["DATE", "DATETIME", "TIMESTAMP", "LONGLONG", "NEWDECIMAL"].includes(
+          field.type
+        )
+          ? field.string()
+          : next(),
+    });
     return toQueryResult<T>(result, fields, operation);
   }
 
@@ -516,7 +528,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: MySQL2ClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, MySQL2DriverOptions, S>
-): VibORMClient<C & { driver: MySQL2Driver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: MySQL2Driver }
+  >]: LinkedClientConfig<C & { driver: MySQL2Driver }>[P];
+}> {
   const { pool, options = {}, databaseUrl } = config;
   const attestation = resolveMigrationNamespaceAttestationOption(config);
   const namespace = resolveNamespaceOption(config);
@@ -536,7 +552,5 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
 
   const driver = new MySQL2Driver(driverOptions);
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: MySQL2Driver }
-  >;
+  return createClientFromDriverConfig<S, C, MySQL2Driver>(config, driver);
 }

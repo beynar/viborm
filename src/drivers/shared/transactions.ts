@@ -19,6 +19,9 @@ export function unsupportedCallbackTransactionError(
   );
 }
 
+// A broken provider lifecycle cannot prove whether its handle remains safe.
+export class ProviderTransactionContractError extends TransactionError {}
+
 type LifecycleStep = () => unknown | Promise<unknown>;
 
 export interface TransactionLifecycle<T> {
@@ -68,7 +71,7 @@ export async function runProviderManagedTransaction<T, TTransaction>(
     await lifecycle.run((tx) => {
       callbackCallCount++;
       if (callbackCallCount > 1) {
-        throw new TransactionError(
+        throw new ProviderTransactionContractError(
           "Transaction provider invoked the transaction callback more than once."
         );
       }
@@ -107,7 +110,7 @@ export async function runProviderManagedTransaction<T, TTransaction>(
     const cleanupFailures: unknown[] = [];
     if (providerSettledBeforeCallback) {
       cleanupFailures.push(
-        new TransactionError(
+        new ProviderTransactionContractError(
           "Transaction provider settled before the transaction callback settled."
         )
       );
@@ -135,7 +138,7 @@ export async function runProviderManagedTransaction<T, TTransaction>(
   const contractFailures: TransactionError[] = [];
   if (callbackCallCount !== 1) {
     contractFailures.push(
-      new TransactionError(
+      new ProviderTransactionContractError(
         callbackCallCount === 0
           ? "Transaction provider completed without invoking the transaction callback."
           : "Transaction provider invoked the transaction callback more than once."
@@ -144,14 +147,14 @@ export async function runProviderManagedTransaction<T, TTransaction>(
   }
   if (providerSettledBeforeCallback) {
     contractFailures.push(
-      new TransactionError(
+      new ProviderTransactionContractError(
         "Transaction provider completed before the transaction callback settled."
       )
     );
   }
   if (settledOutcome.status === "rejected") {
     contractFailures.push(
-      new TransactionError(
+      new ProviderTransactionContractError(
         "Transaction provider resolved after the transaction callback rejected."
       )
     );
@@ -170,7 +173,9 @@ export async function runProviderManagedTransaction<T, TTransaction>(
   }
   if (settledOutcome.status !== "fulfilled") {
     return throwAfterCleanup(
-      new TransactionError("Transaction callback outcome was not recorded."),
+      new ProviderTransactionContractError(
+        "Transaction callback outcome was not recorded."
+      ),
       [lifecycle.close]
     );
   }

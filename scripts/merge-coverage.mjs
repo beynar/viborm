@@ -100,6 +100,36 @@ export function mergeSubsystemCoverageRuns({
     }
   }
   if (failures.length) {
+    // Keep Linux-only misses observable even when CI does not upload the map.
+    if (
+      summary.branches.pct <
+      (subsystem.metricTargets?.branches ?? subsystem.target)
+    ) {
+      let omitted = 0;
+      let printed = 0;
+      for (const file of merged.files()) {
+        const data = merged.fileCoverageFor(file).toJSON();
+        for (const [id, counts] of Object.entries(data.b)) {
+          for (const [index, count] of counts.entries()) {
+            if (count !== 0) continue;
+            if (printed >= 20) {
+              omitted++;
+              continue;
+            }
+            const branch = data.branchMap[id];
+            const location = branch.locations[index] ?? branch.loc;
+            process.stderr.write(
+              `Uncovered branch: ${sourcePath(projectRoot, file)}:${location.start.line}:${location.start.column + 1} (${branch.type})\n`
+            );
+            printed++;
+          }
+        }
+      }
+      if (omitted)
+        process.stderr.write(
+          `Additional uncovered branches omitted: ${omitted}\n`
+        );
+    }
     throw new Error(`Coverage policy failed:\n${failures.join("\n")}`);
   }
   return merged;

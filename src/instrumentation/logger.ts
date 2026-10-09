@@ -51,100 +51,40 @@ export interface Logger {
   isLevelEnabled(level: LogLevel): boolean;
 }
 
-/**
- * ANSI color codes for pretty output
- */
-const colors = {
-  reset: "\x1b[0m",
-  dim: "\x1b[2m",
-  cyan: "\x1b[36m",
-  yellow: "\x1b[33m",
-  red: "\x1b[31m",
-  green: "\x1b[32m",
-  magenta: "\x1b[35m",
-  blue: "\x1b[34m",
-} as const;
-
-const backgrounds = {
-  bgRed: (...args: string[]) => `\x1b[41m${args.join(" ")}\x1b[0m`,
-  bgGreen: (...args: string[]) => `\x1b[42m${args.join(" ")}\x1b[0m`,
-  bgYellow: (...args: string[]) => `\x1b[43m${args.join(" ")}\x1b[0m`,
-  bgBlue: (...args: string[]) => `\x1b[44m${args.join(" ")}\x1b[0m`,
-};
-
-/**
- * Format duration with color based on speed
- */
-function formatDuration(ms: number | undefined): string {
-  if (ms === undefined) return "";
-  const color = ms < 10 ? colors.green : ms < 100 ? colors.yellow : colors.red;
-  return `${color}${ms}ms${colors.reset}`;
-}
-
-/**
- * Default pretty console formatter
- */
+/** Console output stays plain in terminals, captured logs and edge runtimes. */
 function prettyLog(event: LogEvent): void {
-  const time = `${colors.dim}${event.timestamp.toISOString()}${colors.reset}`;
-  const duration = formatDuration(event.duration);
+  const time = event.timestamp.toISOString();
+  const duration = event.duration === undefined ? "" : `${event.duration}ms`;
+  const target = event.model
+    ? [event.model, event.operation].filter(Boolean).join(".")
+    : (event.operation ?? "");
 
   // biome-ignore lint/style/useDefaultSwitchClause: LogLevel makes this switch exhaustive.
   switch (event.level) {
-    case "query": {
-      const target = event.model
-        ? `${colors.cyan}${event.model}${colors.reset}.${colors.magenta}${event.operation}${colors.reset}`
-        : `${colors.magenta}${event.operation ?? "query"}${colors.reset}`;
-      const prefix = `${backgrounds.bgBlue(`${colors.blue}[QUERY]${colors.reset}`)}`;
-      const parts = [prefix, time, target, duration].filter(Boolean);
-      console.log(parts.join(" "));
-      if (event.sql) {
-        console.log(`  ${colors.dim}${event.sql}${colors.reset}`);
-      }
-      if (event.params?.length) {
-        console.log(
-          `  ${colors.dim}params: ${JSON.stringify(event.params)}${colors.reset}`
-        );
-      }
-      break;
-    }
-    case "cache": {
-      const prefix = `${backgrounds.bgGreen(`${colors.green}[CACHE]${colors.reset}`)}`;
-      const cacheEvent = isString(event.meta?.event)
-        ? event.meta.event
-        : "unknown";
-      const status = isString(event.meta?.status)
-        ? `(${event.meta.status})`
-        : "";
+    case "query":
       console.log(
-        prefix,
+        ["[QUERY]", time, target || "query", duration].filter(Boolean).join(" ")
+      );
+      if (event.sql) console.log(`  ${event.sql}`);
+      if (event.params?.length)
+        console.log(`  params: ${JSON.stringify(event.params)}`);
+      break;
+    case "cache":
+      console.log(
+        "[CACHE]",
         time,
-        `${colors.magenta}${cacheEvent}${colors.reset}`,
-        status
+        isString(event.meta?.event) ? event.meta.event : "unknown",
+        isString(event.meta?.status) ? `(${event.meta.status})` : ""
       );
       break;
-    }
-    case "warning": {
-      const prefix = `${colors.yellow}${backgrounds.bgYellow("[WARN]")}${colors.reset}`;
-      const target = event.model
-        ? `${colors.cyan}${event.model}${colors.reset}`
-        : "";
-      console.warn(prefix, time, target, formatDiagnostic(event.meta));
+    case "warning":
+      console.warn("[WARN]", time, target, formatDiagnostic(event.meta));
       break;
-    }
-    case "error": {
-      const prefix = `${colors.red}${backgrounds.bgRed("[ERROR]")}${colors.reset}`;
-      const target = event.model
-        ? `${colors.cyan}${event.model}${colors.reset}.${colors.magenta}${event.operation}${colors.reset}`
-        : "";
-      console.error(`\x1b[41m${prefix}\x1b[0m`, time, target, duration);
-      if (event.error) {
-        console.error(`  ${colors.red}${event.error.message}${colors.reset}`);
-      }
-      if (event.sql) {
-        console.error(`  ${colors.dim}${event.sql}${colors.reset}`);
-      }
+    case "error":
+      console.error("[ERROR]", time, target, duration);
+      if (event.error) console.error(`  ${event.error.message}`);
+      if (event.sql) console.error(`  ${event.sql}`);
       break;
-    }
   }
 }
 

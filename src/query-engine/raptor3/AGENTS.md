@@ -921,21 +921,13 @@ unique failure after successful rollback. A plain `borrowed-transaction`
 binding owns no such region even when its driver supports savepoints: neither
 the payload nor transport capability grants that authority.
 
-Where the operation owns no member rollback region (a batch-only driver
-standalone, batch preparation, or a `borrowed-transaction` binding without
-`memberRollback`), the skip is DROPPED, never refused (Arnaud, 2026-09-24,
-"Warn, drop skipDuplicates"). `OperationContext.admitsSuppression` is the one
-rule and the one sentence: it answers whether the member may be skipped and, when
-it may not, warns once per client lineage and model (the official
-instrumentation extension's `warn` when it routes warnings, `console.warn`
-otherwise) and the member runs as a plain member.
-A duplicate then fails with the ordinary `UniqueConstraintError`, and members an
-earlier segment committed stay committed, exactly as for the same `createMany`
-without `skipDuplicates`. The rule is asked where the skip would be spent — at
-`executeSkippableMember` for a record series and at the MySQL
-`recoverableUniqueError` scalar path — so an arm that never runs never warns;
-there is no construction-time refusal, payload walker, public permission, or
-operation-local policy flag.
+Where the operation owns no member rollback region (a batch-only driver,
+batch preparation, or a borrowed binding without `memberRollback`), member
+suppression is refused with `UnsupportedOperationError`. Plan construction asks
+the existing `admitsSuppression` owner for root relation-bearing, nested, and
+MySQL recoverable per-row shapes before any effects; execution asks the same
+owner when spending the capability. No skip flag is dropped and no warning
+registry exists. Native root scalar conflict skipping remains supported.
 
 Failed-INSERT producer attribution is evidence, not replay authority. The scope
 is stated once, by `OperationContext.recoveryRejection`, and that statement is
@@ -1007,12 +999,9 @@ active path seeded by the outer row; the live cache stores and restores them
 through `recursiveRelationCodec`. Its carrier checks refuse through
 `InvalidScalarResult`, whose `scalarType` names the kind of check
 (`recursive depth`, `recursive edge endpoint`, …), so a carrier refused
-there reaches the caller as the operation's one malformed-result
-`QueryEngineError`, as a malformed ordinary row does (except as a member of
-a `$transaction([...])` array on a batch-only transport: the array owner
-parses that member's result and, like an ordinary malformed member, it
-surfaces as `QueryError` V2001); the FK-cycle refusal, a property of the
-data, is its own `QueryEngineError`. The output key
+there reaches the caller as the operation's non-retryable
+`QueryError` V2006 (`QUERY_RESULT_INVALID`), as a malformed ordinary row does.
+The FK-cycle invariant refusal remains its own `QueryEngineError`. The output key
 `_distance` has one producer, the selected distance: schema validation refuses
 a member of that name (F010, as for `_count`), so neither `prepareProjection`
 nor `relationShape` checks for a scalar, relation or recursive slot competing
@@ -1271,7 +1260,7 @@ rule, so a provider that decodes `'null'` into the JSON null document still
 writes a NOT NULL `json` column. Object shapes carry nullability — a carrier the
 statement always builds cannot decode as `null` — members are read with
 `Object.hasOwn`, and the decoder's structural failures are
-`InvalidScalarResult`, which `run` publishes as the public `QueryEngineError`.
+`InvalidScalarResult`, which `run` publishes as non-retryable public `QueryError` V2006 (`QUERY_RESULT_INVALID`).
 **And the member LIST of a decoded document is the PROJECTION's fact, not the
 row's** (P1, ruling D-61): `prepareProjection` states `shape.fields` once and
 freezes it, and the decoder reads it — `Object.entries(shape.fields)`, OWN
@@ -1345,23 +1334,16 @@ as a refusal, and whether a sparse list should be refused is an open policy
 question the plan records (`docs/architecture/raptor3-compiled-list-decoder-plan.md`
 § "Known baseline issue"). Do not change it as a side effect of a decoder
 edit.
-**And a `json` FIELD's own output schema runs at that same boundary** (Arnaud's
-D-33): `s.json().schema(…)` is a Standard Schema the caller wrote, the engine
-replaced ran it on every read (`result/ResultParser.ts:721` into
-`scalar-structured-parser.ts:78`), and the accepted cost is one run per JSON
-field per row read. The fact travels on the projection's own leaf —
-`Leaf.jsonSchema`, filled once per (adapter, model, field) by `Queries.leaf`
-beside `decimal`, `dateTime`, `enumValues` and `dimension` — so nothing walks a
-projection looking for JSON columns, and `compileScalar`'s `json` arm asks it
-once per VALUE: the JSON value domain, then the schema, then the value domain
-again over the schema's OUTPUT, which is what keeps a transforming schema's
-answer inside the domain and prototype-safe. The engine is only the CALLER:
-`parse` (`validation/index.ts`) is the estate's one owner of that protocol —
-asynchronous schemas refused, a throwing schema caught, a malformed result
-refused — and a refusal is `InvalidScalarResult("json", "custom output schema
-rejected the value")` with NO issue detail, because those messages describe a
-STORED document. The cache route materializes from its snapshot, which holds
-the DECODED value, and therefore must never run the schema a second time.
+**Custom JSON schemas run only at write admission.** `s.json().schema(…)`
+validates and transforms the supplied document once; its output must remain
+inside the JSON value domain before physical encoding. `compileScalar`'s
+`json` arm decodes and validates the stored physical JSON domain without
+replaying arbitrary user schemas. Live reads, write RETURNING rows, prepared
+batches and cached reads therefore publish the stored document without a
+second transform. Existing documents remain readable after a write-schema
+change. Invalid physical values raise `InvalidScalarResult`; custom schema
+refusals belong to write admission. The cache materializes the already decoded
+value from its snapshot and never runs the write schema.
 
 **A polymorphic membership the parent claims whose row is gone is refused, not
 read as absent.** A variant ROW carrier's arm is lowered as "claimed ⇒ a
@@ -1927,16 +1909,14 @@ the same operation. The two facts are `PreparedSelector.uniqueValues` and
 `Assignments.known`, the pair `CommandExecution.matchesSelectedConstraint`
 already reads together.
 
-The one-recovery allowance is an ATTRIBUTION and PROGRESS fact, never a
-transport fact. `OperationContext.recoveryRejection` asks only whether this
-standalone operation's exact failed INSERT (or its atomic assertion) is the
-error in hand and whether anything has been acknowledged — the shipped
-`hasCommittedRecordSeriesProgress` (`write-engine/routing.ts:197`), which this
-context states once as `committedProgress`: `committedSegments === 0` and
-`!mayHaveCommittedSegment`. It no longer asks `usesBatch`, and — Arnaud's
-D-25 — it asks about ATTRIBUTION and PROGRESS only. (This SUPERSEDES the earlier
-sentence "it answers `undefined` unless the ownership is standalone AND the
-route is the physical batch".)
+The one-recovery allowance requires exact failed-INSERT attribution, a conflict
+on the choice's selected constraint, and no acknowledged progress. It applies
+to a standalone operation or an interactive callback operation whose granted
+operation region has rolled back. The callback's existing savepoint owner
+re-enters the operation with the same admitted arguments; borrowed array scopes
+receive no such grant and never retry in place. `CommandExecution` owns the
+selected-constraint matcher; `OperationContext` owns the single allowance and
+region lifetime. Public error metadata is not the rollback proof.
 
 A rejected INSERT is ATTRIBUTED under the bound its OWN route's recovery needs,
 and that bound belongs to the site that RECORDS the producer, never to the
@@ -1959,8 +1939,8 @@ change.
 
 Which recovery REPLAYS and which RE-PLANS is a fact about the ROUTE, not about
 the kind of rejection. Exactly one replays: `CommandExecution.recover`, the
-in-place path, available only where this operation opened no region of its own
-(`replaysInPlace`) — its `complete` loop re-runs the SAME occurrence tree, which
+in-place path, available only on a standalone operation that opened no region
+of its own (`replaysInPlace`) — its `complete` loop re-runs the SAME occurrence tree, which
 is why a missing winner there is not permission to attempt the INSERT again. The
 other three RE-PLAN, because each re-enters the body `commands/index.ts` builds:
 the REGION re-entry (`regionAttempt` — the INSERT recovery on every

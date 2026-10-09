@@ -7,7 +7,7 @@ import type { CastType, DatabaseAdapter } from "../database-adapter";
 
 type StandardLiterals = Pick<
   DatabaseAdapter["literals"],
-  "value" | "null" | "list" | "dateTime"
+  "value" | "null" | "list"
 >;
 
 type ComparisonOperators = Pick<
@@ -75,11 +75,6 @@ export const createStandardLiterals = (): StandardLiterals => ({
     if (values.length === 0) return sql.raw("()");
     return sql`(${sql.join(values, ", ")})`;
   },
-  // A temporal column accepts ISO-8601 directly, and the declared native type
-  // never changes that: every PostgreSQL and MySQL datetime native type names a
-  // column that reads this spelling. SQLite has no temporal type at all, so its
-  // adapter overrides this to honor the physical form its field declared.
-  dateTime: (iso: string): Sql => sql`${iso}`,
 });
 
 export const createComparisonOperators = (): ComparisonOperators => ({
@@ -274,7 +269,7 @@ export const createSubqueries = (
   scalar: (query: Sql): Sql => sql`(${query})`,
 
   correlate: (query: Sql, alias: string): Sql =>
-    sql`(${query}) AS ${sql.raw`${quoteIdent(alias)}`}`,
+    sql`(${query}) AS ${sql.raw(quoteIdent(alias))}`,
 
   existsCheck: (from: Sql, where: Sql): Sql =>
     sql`SELECT 1 FROM ${from} WHERE ${where}`,
@@ -314,7 +309,7 @@ export const createInsertStatement =
     source: Sql[][] | { readonly select: Sql },
     prefix?: Sql
   ): Sql => {
-    const cols = columns.map((c) => sql.raw`${quoteIdent(c)}`);
+    const cols = columns.map((c) => sql.raw(quoteIdent(c)));
     const body = Array.isArray(source)
       ? sql`VALUES ${sql.join(
           source.map((row) => sql`(${sql.join(row, ", ")})`),
@@ -429,7 +424,7 @@ export const createCommonExpressions = (): Pick<
 export const createCastExpression =
   (typeMap: Record<CastType, string>): DatabaseAdapter["expressions"]["cast"] =>
   (expr: Sql, type: CastType): Sql =>
-    sql`CAST(${expr} AS ${sql.raw`${typeMap[type]}`})`;
+    sql`CAST(${expr} AS ${sql.raw(typeMap[type])})`;
 
 export const createCoreJoins = (): Pick<
   DatabaseAdapter["joins"],
@@ -451,10 +446,10 @@ export const createLateralJoins = (
   quoteIdent: IdentifierQuoter
 ): Pick<DatabaseAdapter["joins"], "lateral" | "lateralLeft"> => ({
   lateral: (subquery: Sql, alias: string): Sql =>
-    sql`JOIN LATERAL (${subquery}) AS ${sql.raw`${quoteIdent(alias)}`} ON TRUE`,
+    sql`JOIN LATERAL (${subquery}) AS ${sql.raw(quoteIdent(alias))} ON TRUE`,
 
   lateralLeft: (subquery: Sql, alias: string): Sql =>
-    sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw`${quoteIdent(alias)}`} ON TRUE`,
+    sql`LEFT JOIN LATERAL (${subquery}) AS ${sql.raw(quoteIdent(alias))} ON TRUE`,
 });
 
 /**

@@ -1,4 +1,5 @@
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
+import { SQLITE_GEO_POINT_TYPE } from "@adapters/databases/sqlite/storage/geo-point";
 import type { Schema } from "@client/types";
 import { VibORMErrorCode } from "@errors";
 import { diff } from "@migrations/differ";
@@ -7,7 +8,6 @@ import { getMigrationDriver } from "@migrations/drivers";
 import { mysqlMigrationDriver } from "@migrations/drivers/mysql";
 import { postgresMigrationDriver } from "@migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
-import { SQLITE_GEO_POINT_TYPE } from "@migrations/drivers/sqlite/geo-point";
 import { serializeModels } from "@migrations/serializer";
 import type { SchemaSnapshot } from "@migrations/types";
 import { s } from "@schema";
@@ -169,6 +169,57 @@ describe("GeoPoint physical schema", () => {
 describe("PostGIS migration preflight", () => {
   const pointSnapshot = snapshot(postgresMigrationDriver, pointSchema());
 
+  it("normalizes a catalog failure without implying that PostGIS was proved", async () => {
+    const execution = new RecordingDriver(
+      "postgresql",
+      "pg",
+      new PostgresAdapter("geo", true)
+    );
+    execution.respond = (sql) =>
+      sql.includes("st_makepoint") ? new Error("catalog unavailable") : [];
+    await expect(
+      getMigrationDriver(execution).preflightSchemaRequirements(
+        [pointSnapshot],
+        (sql, params) => execution._executeRaw(sql, params)
+      )
+    ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_INVALID_STATE });
+    expect(
+      execution.statements.filter((sql) => sql.includes("st_makepoint"))
+    ).toHaveLength(1);
+    await execution.disconnect();
+  });
+
+  it("refuses unsupported or unreadable PostgreSQL enum versions before DDL", async () => {
+    const execution = new RecordingDriver(
+      "postgresql",
+      "pg",
+      new PostgresAdapter("geo", true)
+    );
+    const command = getMigrationDriver(execution);
+    for (const version of ["110000", "unreadable"]) {
+      execution.serverVersionAnswer = [{ version }];
+      await expect(
+        command.preflightSchemaRequirements(
+          [{ tables: [], enums: [{ name: "Role", values: ["one"] }] }],
+          (sql, params) => execution._executeRaw(sql, params)
+        )
+      ).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+      });
+    }
+    execution.serverVersionAnswer = [{ version: "120000" }];
+    await expect(
+      command.preflightSchemaRequirements(
+        [{ tables: [], enums: [{ name: "Role", values: ["one"] }] }],
+        (sql, params) => execution._executeRaw(sql, params)
+      )
+    ).resolves.toBeUndefined();
+    expect(execution.statements.some((sql) => sql.startsWith("ALTER"))).toBe(
+      false
+    );
+    await execution.disconnect();
+  });
+
   it("proves every exact function spelling once and skips non-point snapshots", async () => {
     const execution = new RecordingDriver(
       "postgresql",
@@ -183,7 +234,12 @@ describe("PostGIS migration preflight", () => {
     const calls = execution.statements.filter(
       (statement) => statement !== "<connect>"
     );
-    expect(calls).toHaveLength(1);
+    expect(
+      calls.filter((statement) => statement.includes("st_makepoint"))
+    ).toHaveLength(1);
+    expect(
+      calls.filter((statement) => statement.includes("relation.relkind"))
+    ).toHaveLength(1);
     for (const signature of [
       "st_makepoint(double precision,double precision)",
       "st_setsrid(geometry,integer)",
@@ -193,7 +249,9 @@ describe("PostGIS migration preflight", () => {
       "st_intersects(geography,geography)",
       "&&(geography,geography)",
     ]) {
-      expect(calls[0]).toContain(signature);
+      expect(
+        calls.find((statement) => statement.includes("st_makepoint"))
+      ).toContain(signature);
     }
 
     await command.preflightSchemaRequirements([{ tables: [] }], () => {

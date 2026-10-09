@@ -29,7 +29,7 @@ import type { Dialect, DriverResultParser } from "@drivers";
 import { Driver } from "@drivers";
 import { resolvePositionalResultDriver } from "@drivers/positional-result";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { QueryEngineError } from "@errors";
+import { QueryEngineError, QueryError } from "@errors";
 import {
   InvalidScalarResult,
   Queries,
@@ -171,9 +171,9 @@ describe("the public client answers through the one decoder", () => {
     );
     try {
       const failure = await rejection(client.post.findMany());
-      expect(failure).toBeInstanceOf(QueryEngineError);
+      expect(failure).toBeInstanceOf(QueryError);
       expect(failure.message).toBe(
-        'Driver "sqlite3" returned a malformed int scalar for operation "findMany": the value is not a canonical integer.'
+        'The "findMany" result is incompatible with the int scalar domain: the value is not a canonical integer.'
       );
       expect(failure.meta).toMatchObject({
         driver: "sqlite3",
@@ -385,16 +385,16 @@ describe("a parser's failure keeps its identity", () => {
 
       failWith = "scalar";
       const scalar = await read();
-      expect(scalar).toBeInstanceOf(QueryEngineError);
+      expect(scalar).toBeInstanceOf(QueryError);
       expect(scalar.message).toBe(
-        'Driver "sqlite3" returned a malformed custom scalar for operation "findMany": the parser\'s own reason.'
+        'The "findMany" result is incompatible with the custom scalar domain: the parser\'s own reason.'
       );
 
       failWith = "foreign";
       const foreign = await read();
-      expect(foreign).toBeInstanceOf(QueryEngineError);
+      expect(foreign).toBeInstanceOf(QueryError);
       expect(foreign.message).toBe(
-        'Driver "sqlite3" returned a malformed string scalar for operation "findMany": provider scalar decoding failed.'
+        'The "findMany" result is incompatible with the string scalar domain: provider scalar decoding failed.'
       );
       expect(foreign.meta).toMatchObject({ scalarType: "string" });
     } finally {
@@ -546,9 +546,9 @@ describe("SQL NULL, absence and own keys are row facts, answered before the chai
     const missing = await rejection(
       absent.item.findMany({ select: { id: true, title: true } })
     );
-    expect(missing).toBeInstanceOf(QueryEngineError);
+    expect(missing).toBeInstanceOf(QueryError);
     expect(missing.message).toBe(
-      'Driver "scripted" returned a malformed string scalar for operation "findMany": the value is absent.'
+      'The "findMany" result is incompatible with the string scalar domain: the value is absent.'
     );
     expect(asked).toEqual(["int"]);
     await absent.$disconnect();
@@ -559,7 +559,7 @@ describe("SQL NULL, absence and own keys are row facts, answered before the chai
       required.item.findMany({ select: { id: true, title: true } })
     );
     expect(nullTitle.message).toBe(
-      'Driver "scripted" returned a malformed string scalar for operation "findMany": a required scalar is null.'
+      'The "findMany" result is incompatible with the string scalar domain: a required scalar is null.'
     );
     expect(asked).toEqual(["int"]);
     await required.$disconnect();
@@ -585,7 +585,7 @@ describe("SQL NULL, absence and own keys are row facts, answered before the chai
       root.item.findMany({ select: { id: true, title: true } })
     );
     expect(atRoot.message).toBe(
-      'Driver "scripted" returned a malformed string scalar for operation "findMany": the value is absent.'
+      'The "findMany" result is incompatible with the string scalar domain: the value is absent.'
     );
     await root.$disconnect();
 
@@ -598,7 +598,7 @@ describe("SQL NULL, absence and own keys are row facts, answered before the chai
       })
     );
     expect(inDocument.message).toBe(
-      'Driver "scripted" returned a malformed string scalar for operation "findMany": the value is absent.'
+      'The "findMany" result is incompatible with the string scalar domain: the value is absent.'
     );
     await nested.$disconnect();
   });
@@ -786,13 +786,13 @@ describe("one document rule at every object placement", () => {
     };
     expect(await read('{"tags":2}')).toEqual([{ id: 1, _count: { tags: 2 } }]);
     expect((await rejection(read(null))).message).toBe(
-      'Driver "scripted" returned a malformed row scalar for operation "findMany": a document the statement always builds is null.'
+      'The "findMany" result is incompatible with the row scalar domain: a document the statement always builds is null.'
     );
     expect((await rejection(read([]))).message).toBe(
-      'Driver "scripted" returned a malformed row scalar for operation "findMany": a requested document is not a provider row.'
+      'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.'
     );
     expect((await rejection(read(Object.create({ tags: 2 })))).message).toBe(
-      'Driver "scripted" returned a malformed int scalar for operation "findMany": the value is absent.'
+      'The "findMany" result is incompatible with the int scalar domain: the value is absent.'
     );
   });
 
@@ -808,10 +808,10 @@ describe("one document rule at every object placement", () => {
     expect(await read('{"rank":3}')).toEqual({ _sum: { rank: 3 } });
     for (const malformed of [5, []])
       expect((await rejection(read(malformed))).message).toBe(
-        'Driver "scripted" returned a malformed row scalar for operation "aggregate": a requested document is not a provider row.'
+        'The "aggregate" result is incompatible with the row scalar domain: a requested document is not a provider row.'
       );
     expect((await rejection(read(Object.create({ rank: 3 })))).message).toBe(
-      'Driver "scripted" returned a malformed int scalar for operation "aggregate": the value is absent.'
+      'The "aggregate" result is incompatible with the int scalar domain: the value is absent.'
     );
 
     const counted = scripted([{ _count: [] }]);
@@ -819,7 +819,7 @@ describe("one document rule at every object placement", () => {
       (await rejection(counted.item.aggregate({ _count: { id: true } })))
         .message
     ).toBe(
-      'Driver "scripted" returned a malformed row scalar for operation "aggregate": a requested document is not a provider row.'
+      'The "aggregate" result is incompatible with the row scalar domain: a requested document is not a provider row.'
     );
     await counted.$disconnect();
   });
@@ -836,10 +836,10 @@ describe("one document rule at every object placement", () => {
       }
     };
     expect((await rejection(read([[]]))).message).toBe(
-      'Driver "scripted" returned a malformed row scalar for operation "findMany": a requested document is not a provider row.'
+      'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.'
     );
     expect((await rejection(read([Object.create({ id: 5 })]))).message).toBe(
-      'Driver "scripted" returned a malformed int scalar for operation "findMany": the value is absent.'
+      'The "findMany" result is incompatible with the int scalar domain: the value is absent.'
     );
 
     const arrayRow = scripted([{ id: 1 }], {
@@ -849,7 +849,7 @@ describe("one document rule at every object placement", () => {
       (await rejection(arrayRow.item.findMany({ select: { id: true } })))
         .message
     ).toBe(
-      'Driver "scripted" returned a malformed row scalar for operation "findMany": a requested document is not a provider row.'
+      'The "findMany" result is incompatible with the row scalar domain: a requested document is not a provider row.'
     );
     await arrayRow.$disconnect();
   });
@@ -1035,9 +1035,9 @@ describe("compatibility choices, as ruled on 2026-09-25", () => {
       const failure = await rejection(
         client.remark.findMany({ select: { id: true, subject: true } })
       );
-      expect(failure).toBeInstanceOf(QueryEngineError);
+      expect(failure).toBeInstanceOf(QueryError);
       expect(failure.message).toBe(
-        'Driver "scripted" returned a malformed polymorphic slot scalar for operation "findMany": the slot is not an object.'
+        'The "findMany" result is incompatible with the polymorphic slot scalar domain: the slot is not an object.'
       );
       await client.$disconnect();
     }
@@ -1063,9 +1063,9 @@ describe("compatibility choices, as ruled on 2026-09-25", () => {
       const failure = await rejection(
         client.shelf.findMany({ select: { id: true, subject: true } })
       );
-      expect(failure).toBeInstanceOf(QueryEngineError);
+      expect(failure).toBeInstanceOf(QueryError);
       expect(failure.message).toBe(
-        'Driver "scripted" returned a malformed polymorphic slot scalar for operation "findMany": the integrity entry is not an object.'
+        'The "findMany" result is incompatible with the polymorphic slot scalar domain: the integrity entry is not an object.'
       );
       await client.$disconnect();
     }

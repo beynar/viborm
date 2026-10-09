@@ -175,6 +175,13 @@ Sequential transaction fallback preserves statement semantics: model and safe
 verbatim raw statements use raw execution. Do not infer rawness from a public
 shape or add a public batch discriminant.
 
+`_prepare()` retains private typed provenance without running statement
+transforms. Actual batch dispatch observes each prepared entry and runs its
+eligible transforms once before the first provider statement, so protected
+storage assertions run after every application transform. Sequential fallback
+then dispatches and completes each statement separately; a canceled entry
+produces no provider log.
+
 Provider transport is borrowed by default. Only the exact stock SQLite3 driver
 with unchanged typed execution/parser surfaces hands out its provider's own
 positional rows (`src/drivers/positional-result.ts`). A subclass, execution

@@ -14,6 +14,18 @@ export function preflightModelRegistrationIdentity(
 ): SchemaValidationIssue | undefined {
   const claimedInThisPass = new Map<Model<any>, string>();
   for (const [modelKey, model] of registrations) {
+    if (
+      model === null ||
+      typeof model !== "object" ||
+      !model["~"]?.names ||
+      !model["~"]?.state?.scalars
+    )
+      return {
+        code: "M008",
+        message: `Schema entry '${modelKey}' is not a model; pass an explicit object containing only s.model() definitions`,
+        severity: "error",
+        model: modelKey,
+      };
     const claimed = model["~"].names.ts ?? claimedInThisPass.get(model);
     if (claimed !== undefined && claimed !== modelKey)
       return doubleRegistrationIssue(claimed, modelKey);

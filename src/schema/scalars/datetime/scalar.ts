@@ -7,6 +7,8 @@ import {
   createDefaultState,
   type DefaultValueInput,
   generatorDefault,
+  nullableDefault,
+  refuseListGenerator,
   type ScalarState,
   updateState,
 } from "../common";
@@ -38,14 +40,16 @@ export class DateTimeScalar<State extends ScalarState<"datetime">> {
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         base: v.isoTimestamp<{
           nullable: true;
           array: State["array"];
+          schema: State["schema"];
         }>({
           nullable: true,
           array: this.state.array,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType
@@ -53,15 +57,22 @@ export class DateTimeScalar<State extends ScalarState<"datetime">> {
   }
 
   array() {
+    if (
+      this.state.autoGenerate?.kind === "now" ||
+      this.state.autoGenerate?.kind === "updatedAt"
+    )
+      refuseListGenerator("s.dateTime");
     return new DateTimeScalar(
       updateState(this, {
         array: true,
         base: v.isoTimestamp<{
           nullable: State["nullable"];
           array: true;
+          schema: State["schema"];
         }>({
           nullable: this.state.nullable,
           array: true,
+          schema: this.state.schema,
         }),
       }),
       this._nativeType
@@ -119,6 +130,7 @@ export class DateTimeScalar<State extends ScalarState<"datetime">> {
   }
 
   now() {
+    if (this.state.array) refuseListGenerator("s.dateTime");
     return new DateTimeScalar(
       updateState(this, {
         hasDefault: true,
@@ -131,6 +143,7 @@ export class DateTimeScalar<State extends ScalarState<"datetime">> {
   }
 
   updatedAt() {
+    if (this.state.array) refuseListGenerator("s.dateTime");
     return new DateTimeScalar(
       updateState(this, {
         hasDefault: true,

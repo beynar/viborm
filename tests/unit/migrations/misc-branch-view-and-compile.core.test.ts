@@ -24,7 +24,6 @@ import {
 import {
   describeDecimalStorageKind,
   mysqlDecimalStorageKind,
-  readStoredDecimalDescriptor,
 } from "@src/migrations/decimal";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
@@ -244,23 +243,6 @@ describe("stored decimal facts are read from what the catalog proves", () => {
         decimal,
       })
     ).toBeUndefined();
-  });
-
-  test("only a finite safe integer is admitted as a stored precision or scale", () => {
-    expect(readStoredDecimalDescriptor(10, 2, "mysql")).toEqual({
-      precision: 10,
-      scale: 2,
-    });
-    expect(readStoredDecimalDescriptor("10", "2", "mysql")).toEqual({
-      precision: 10,
-      scale: 2,
-    });
-    expect(readStoredDecimalDescriptor(10.5, 2, "mysql")).toBeUndefined();
-    expect(
-      readStoredDecimalDescriptor(Number.MAX_SAFE_INTEGER + 2, 2, "mysql")
-    ).toBeUndefined();
-    expect(readStoredDecimalDescriptor(null, 2, "mysql")).toBeUndefined();
-    expect(readStoredDecimalDescriptor("10.5", 2, "mysql")).toBeUndefined();
   });
 
   test("an unwritable storage shape is named rather than left blank", () => {

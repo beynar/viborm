@@ -9,13 +9,14 @@ import { cancel, confirm, isCancel, note, outro } from "@clack/prompts";
 import { Command } from "commander";
 import { createMigrationClient } from "../../migrations/client";
 import type { PushPreview } from "../../migrations/push-v1";
-import { failCli, loadConfig } from "../utils";
+import { finishCli, loadConfig } from "../utils";
 
 interface PushCliOptions {
   readonly config?: string;
   readonly dryRun?: boolean;
   readonly forceReset?: boolean;
   readonly yes?: boolean;
+  readonly acceptDataLoss?: boolean;
   readonly json?: boolean;
 }
 
@@ -50,16 +51,44 @@ function printPlan(preview: PushPreview): void {
 
 async function runPush(options: PushCliOptions): Promise<void> {
   let orm: { $disconnect(): Promise<void> } | undefined;
+  let failure: { value: unknown } | undefined;
   try {
     const config = await loadConfig({ config: options.config });
     orm = config.client;
-    const migrations = createMigrationClient(config.client);
+    const migrations =
+      config.migrations?.tables === undefined
+        ? createMigrationClient(config.client)
+        : createMigrationClient(config.client, {
+            tables: config.migrations.tables,
+          });
     // `force` is confined to the inert planning arm. The authenticated apply
     // arm below receives only the consent bound to this exact preview.
     const preview = await migrations.push({
       dryRun: true,
       ...(options.forceReset === true ? { forceReset: true } : {}),
+      ...(config.migrations?.resolve
+        ? { resolve: config.migrations.resolve }
+        : {}),
     });
+
+    if (
+      !options.json &&
+      config.driver?.dialect === "sqlite" &&
+      ["sqlite3", "bun-sqlite", "bun-sql"].includes(config.driver.driverName)
+    ) {
+      const databases = await config.driver._executeRaw<{
+        name: string;
+        file: string;
+      }>("PRAGMA database_list");
+      if (
+        databases.rows.some(
+          (database) => database.name === "main" && database.file === ""
+        )
+      )
+        process.stderr.write(
+          "warning: SQLite reports an in-memory main database. Use a persistent target for durable schema changes.\n"
+        );
+    }
 
     if (options.dryRun) {
       if (options.json) printJson(preview);
@@ -69,10 +98,22 @@ async function runPush(options: PushCliOptions): Promise<void> {
 
     if (!options.json) printPlan(preview);
 
-    if (preview.outcome !== "noop" && !options.yes) {
-      if (options.json) {
-        throw new Error("Non-interactive push requires --yes to apply a plan");
-      }
+    if (
+      preview.destructive &&
+      !options.acceptDataLoss &&
+      (options.yes || options.json || !process.stdin.isTTY)
+    ) {
+      throw new Error(
+        "Destructive push requires --accept-data-loss; --yes does not authorize data loss. Inspect --dry-run first."
+      );
+    }
+    if (
+      preview.outcome !== "noop" &&
+      !options.yes &&
+      !options.acceptDataLoss &&
+      !options.json &&
+      process.stdin.isTTY
+    ) {
       const accepted = await confirm({
         message: preview.destructive
           ? "Apply this destructive push plan?"
@@ -92,9 +133,9 @@ async function runPush(options: PushCliOptions): Promise<void> {
         result.outcome === "noop" ? "Schema is up to date." : "Push applied."
       );
   } catch (error) {
-    failCli(error);
+    failure = { value: error };
   } finally {
-    await orm?.$disconnect();
+    await finishCli(orm, failure, options.json);
   }
 }
 
@@ -104,7 +145,11 @@ export function createPushCommand(): Command {
     .option("--config <path>", "Path to viborm.config.ts")
     .option("--dry-run", "Preview without changing the database")
     .option("--force-reset", "Plan a rebuild from an empty database")
-    .option("-y, --yes", "Apply without an interactive consent prompt")
+    .option("-y, --yes", "Skip prompts for non-destructive plans")
+    .option(
+      "--accept-data-loss",
+      "Explicitly accept the previewed destructive plan"
+    )
     .option("--json", "Print machine-readable JSON")
     .action(runPush);
 }

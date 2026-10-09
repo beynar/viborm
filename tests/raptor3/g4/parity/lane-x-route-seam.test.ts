@@ -1,16 +1,5 @@
-/**
- * Parity lane X — U5.5 and U7 falsifiers, on the planning fixture only.
- *
- * U5.5: an affected-row count is execution semantics. A driver that
- * acknowledges fewer rows than were submitted has not written the request, and
- * the operation refuses instead of publishing the shortfall as its answer.
- *
- * The restored `bulk-create-plan` short-window pin, as a ONE-SIDED pin: the
- * deleted cross-engine cell asserted the deleted engine's own "is unresolved"
- * sentence; what it PROTECTED is that a truncated provider result window raises
- * instead of silently reporting a wrong count. That is this engine's own
- * sentence, asserted against this engine alone.
- */
+/** Affected counts may be smaller than submissions because a trigger can
+ * suppress rows. Missing physical result windows remain a protocol failure. */
 
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
@@ -48,23 +37,18 @@ class CountingDriver extends PlanningDriver {
 }
 
 describe("lane X — route seam and affected-row counts", () => {
-  it("refuses a createMany the driver acknowledged short", async () => {
+  it("publishes the affected count when the provider suppressed rows", async () => {
     const driver = new CountingDriver(1);
     const client = createClient({ schema, driver });
     try {
-      await assert.rejects(
-        async () => {
-          await client.row.createMany({
-            data: [
-              { code: "a", label: "first" },
-              { code: "b", label: "second" },
-            ],
-          });
-        },
-        (error: unknown) =>
-          error instanceof Error &&
-          error.message ===
-            "Driver 'lane-x-counting' reported 1 of 2 inserted rows for operation 'createMany'."
+      assert.deepEqual(
+        await client.row.createMany({
+          data: [
+            { code: "a", label: "first" },
+            { code: "b", label: "second" },
+          ],
+        }),
+        { count: 1 }
       );
     } finally {
       await client.$disconnect();

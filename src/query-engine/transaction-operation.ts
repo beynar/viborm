@@ -1,4 +1,8 @@
-import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
+import type {
+  AnyDriver,
+  QueryExecutionContext,
+  QueryResult,
+} from "@drivers/exports";
 import { InvalidTransactionInputError } from "@errors";
 import type { ObservationCompletionFactsReader } from "@extensions/observation";
 import type {
@@ -16,7 +20,7 @@ export interface TransactionOperationOwner<Owner extends object = object> {
   operation(owner: Owner): string;
   context(owner: Owner): QueryExecutionContext;
   requiresInterception(owner: Owner): boolean;
-  prepareAdmission(owner: Owner): void;
+  prepareAdmission(owner: Owner, phase?: "input" | "plan"): void;
   stagePackageWriteOutcomes(
     owner: Owner,
     outcomes: TransactionWriteOutcomes

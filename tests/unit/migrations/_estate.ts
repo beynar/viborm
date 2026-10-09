@@ -97,6 +97,8 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
    */
   lockAnswers: { acquire?: unknown[] | Error; release?: unknown[] | Error } =
     {};
+  /** An explicit version probe answer; stock recording estates emulate PG17. */
+  serverVersionAnswer: unknown[] | Error | undefined;
 
   constructor(
     dialect: Dialect,
@@ -208,10 +210,12 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
 
   /** The provider answer for a lock statement, or undefined for anything else. */
   private simulateLockAnswer(sql: string): unknown[] | Error | undefined {
-    if (sql.includes("pg_advisory_lock") || sql.includes("GET_LOCK")) {
+    if (sql === "SELECT current_setting('server_version_num') AS version")
+      return this.serverVersionAnswer ?? [{ version: "170000" }];
+    if (sql.includes("pg_try_advisory_lock") || sql.includes("GET_LOCK")) {
       return (
         this.lockAnswers.acquire ??
-        (this.dialect === "mysql" ? [{ acquired: 1 }] : [{ acquired: "" }])
+        (this.dialect === "mysql" ? [{ acquired: 1 }] : [{ acquired: true }])
       );
     }
     if (sql.includes("pg_advisory_unlock") || sql.includes("RELEASE_LOCK")) {

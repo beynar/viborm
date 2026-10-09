@@ -110,8 +110,8 @@ export class TestTransactionOperation<T> implements PromiseLike<T> {
       context: (operation) => operation.#owner.context(operation.#capability),
       requiresInterception: (operation) =>
         operation.#owner.requiresInterception(operation.#capability),
-      prepareAdmission: (operation) =>
-        operation.#owner.prepareAdmission(operation.#capability),
+      prepareAdmission: (operation, phase) =>
+        operation.#owner.prepareAdmission(operation.#capability, phase),
       stagePackageWriteOutcomes: (operation, outcomes) =>
         operation.#owner.stagePackageWriteOutcomes(
           operation.#capability,

@@ -493,11 +493,8 @@ export function runSoftDeleteBehavior(provider: SoftDeleteProvider): void {
         // The post entries were invalidated: both modes read again.
         expect(ids(await live())).toEqual(["p1", "p5", "p6"]);
         expect(ids(await bin())).toEqual(["p2", "p3", "p4", "p7"]);
-        // A user entry is another model's, as after a hard delete: stale.
-        expect((await authors())[0]?.posts).toEqual([
-          { id: "p1" },
-          { id: "p2" },
-        ]);
+        // Whole-scope durable invalidation also refreshes related-model includes.
+        expect((await authors())[0]?.posts).toEqual([{ id: "p1" }]);
         await base.post.update({
           where: { id: "p2" },
           data: { deletedAt: null, deletedById: null },

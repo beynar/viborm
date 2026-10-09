@@ -22,8 +22,10 @@ Enums support `.nullable()`, `.array()`, `.default()`, and `.map()` — but **no
 By default, VibORM generates enum type names based on the table and column (e.g., `user_status_enum`). Use `.name()` to create a shared enum type that can be reused across multiple tables:
 
 ```ts
-// Define a named enum at the top level
-const Status = s.enum(["PENDING", "ACTIVE", "INACTIVE"]).name("status");
+// Reuse the same values in forms, validators, and the schema.
+const statusValues = ["PENDING", "ACTIVE", "INACTIVE"] as const;
+type StatusValue = (typeof statusValues)[number];
+const Status = s.enum(statusValues).name("status");
 
 // Use it in multiple models - same PostgreSQL enum type
 const user = s.model({
@@ -130,3 +132,10 @@ const priority = s.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
 | Migrations  | Requires migration to add values | No migration needed    |
 
 Use an enum for a fixed set of values that rarely changes (statuses, roles, tiers) and needs database-level enforcement. Use a string when values change frequently or are user-defined.
+
+## Ordering across databases
+
+PostgreSQL and MySQL native enums sort by declaration order. SQLite stores
+enum values as text and sorts lexically. `orderBy`, grouped output ordering and
+minimum/maximum therefore follow the provider; enum range predicates are not a
+portable substitute for a shared application order.

@@ -20,6 +20,7 @@ import {
   validateResolveResult,
 } from "../resolver";
 import { serializeResolvedModels } from "../serializer";
+import { MANAGED_TABLES } from "../target";
 import {
   type AmbiguousChange,
   type AmbiguousResolveChange,
@@ -53,6 +54,7 @@ import {
 export interface MigrationClient {
   $driver: AnyDriver;
   $schema: Record<string, AnyModel>;
+  readonly [MANAGED_TABLES]?: readonly string[];
 }
 
 export interface PushOptions {
@@ -120,7 +122,7 @@ export interface PushPlan {
 export function getPushMigrationDriver(
   client: MigrationClient
 ): BoundMigrationDriver {
-  return getMigrationDriver(client.$driver);
+  return getMigrationDriver(client.$driver, client[MANAGED_TABLES]);
 }
 
 /**
@@ -217,6 +219,9 @@ export async function planRebuildFromEmpty(
   );
   const current = emptyManagedSnapshot();
   const diffOptions: DiffOptions = {
+    projectRename: migrationDriver.projectNativeRename.bind(migrationDriver),
+    refuseConstraintNameChurn:
+      migrationDriver.capabilities.introspectionReadsConstraintNames,
     matchConstraintsByShape:
       !migrationDriver.capabilities.introspectionReadsConstraintNames,
   };
@@ -252,6 +257,7 @@ export async function planPush(
   // file-based generate(), where both serialized snapshots are available.
   const current = await introspectSchema(client.$driver, migrationDriver);
   const diffOptions: DiffOptions = {
+    projectRename: migrationDriver.projectNativeRename.bind(migrationDriver),
     canonicalizeIndexPredicate: buildIndexPredicateCanonicalizer(
       client.$driver,
       migrationDriver
@@ -259,6 +265,8 @@ export async function planPush(
     // `current` was just introspected. Where that introspection cannot read a
     // constraint's name back, the name it carries is a synthesis and matching
     // on it would make every unchanged constraint read as a change.
+    refuseConstraintNameChurn:
+      migrationDriver.capabilities.introspectionReadsConstraintNames,
     matchConstraintsByShape:
       !migrationDriver.capabilities.introspectionReadsConstraintNames,
   };
@@ -289,12 +297,6 @@ async function resolvePushOperations(
     diffResult.operations,
     current
   );
-  const autoResolvableRemovals = allEnumRemovals.filter(
-    (removal) => removal.isNullable
-  );
-  const enumRemovalsNeedingResolution = allEnumRemovals.filter(
-    (removal) => !removal.isNullable
-  );
 
   if (options.resolve) {
     return resolveWithCallback(
@@ -302,8 +304,7 @@ async function resolvePushOperations(
       current,
       desired,
       diffOptions,
-      enumRemovalsNeedingResolution,
-      autoResolvableRemovals,
+      allEnumRemovals,
       options.resolve,
       force
     );
@@ -320,12 +321,8 @@ async function resolvePushOperations(
     return applyForceEnumResolutions(resolvedOperations, allEnumRemovals);
   }
 
-  rejectUnresolvedChanges(diffResult, enumRemovalsNeedingResolution);
-
-  return applyForceEnumResolutions(
-    [...diffResult.operations],
-    autoResolvableRemovals
-  );
+  rejectUnresolvedChanges(diffResult, allEnumRemovals);
+  return [...diffResult.operations];
 }
 
 async function resolveWithCallback(
@@ -334,7 +331,6 @@ async function resolveWithCallback(
   desired: SchemaSnapshot,
   diffOptions: DiffOptions,
   enumRemovals: EnumRemoval[],
-  autoResolvableRemovals: EnumRemoval[],
   resolve: ResolveCallback,
   force = false
 ): Promise<DiffOperation[]> {
@@ -387,12 +383,8 @@ async function resolveWithCallback(
   const resolvedEnumRemovals = retargetEnumRemovals(
     enumRemovals,
     current,
-    resolvedOperations
-  );
-  const resolvedAutoRemovals = retargetEnumRemovals(
-    autoResolvableRemovals,
-    current,
-    resolvedOperations
+    resolvedOperations,
+    diffOptions.projectRename
   );
   const finalOperations = await resolveDestructiveOperations(
     resolvedOperations.filter((op) => op.type !== "alterEnum"),
@@ -410,20 +402,19 @@ async function resolveWithCallback(
     ...applyResolvedEnumMappings(resolvedOperations, enumColumnMappings)
   );
 
-  return sortOperations(
-    applyForceEnumResolutions(finalOperations, resolvedAutoRemovals)
-  );
+  return sortOperations(finalOperations);
 }
 
 function retargetEnumRemovals(
   removals: EnumRemoval[],
   current: SchemaSnapshot,
-  operations: DiffOperation[]
+  operations: DiffOperation[],
+  projectRename: typeof applyNativeRename = applyNativeRename
 ): EnumRemoval[] {
   let renamedCurrent = current;
   for (const operation of operations) {
     if (operation.type === "renameTable" || operation.type === "renameColumn") {
-      renamedCurrent = applyNativeRename(renamedCurrent, operation);
+      renamedCurrent = projectRename(renamedCurrent, operation);
     }
   }
 
@@ -547,7 +538,7 @@ function rejectUnresolvedChanges(
 
   throw new MigrationError(
     `Changes requiring resolution detected:\n${descriptions.join("\n")}\n\n` +
-      "Use --force to auto-accept or provide a resolve callback.",
+      "Provide a resolve callback to choose each change explicitly.",
     VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
   );
 }
@@ -566,6 +557,13 @@ function operationToResolveChange(op: DiffOperation): DestructiveResolveChange {
         table: op.tableName,
         column: op.columnName,
         description: `Drop column "${op.columnName}" from table "${op.tableName}" (data will be lost)`,
+      });
+    case "addColumn":
+      return createDestructiveChange({
+        operation: "addColumn",
+        table: op.tableName,
+        column: op.column.name,
+        description: `Add required column "${op.tableName}.${op.column.name}" without a backfill default (fails on populated tables)`,
       });
     case "alterColumn":
       return createDestructiveChange({

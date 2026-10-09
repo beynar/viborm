@@ -44,7 +44,10 @@ export interface SqliteIndex {
 export interface SqliteIndexColumn {
   seqno: SqliteInt;
   cid: SqliteInt;
-  name: string;
+  name: string | null;
+  desc: SqliteInt;
+  coll: string;
+  key: SqliteInt;
 }
 
 export interface SqliteForeignKey {

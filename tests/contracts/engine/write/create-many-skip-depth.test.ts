@@ -1,12 +1,11 @@
 import { PGliteDriver } from "@drivers/pglite";
-import { UniqueConstraintError } from "@errors";
+import { UniqueConstraintError, UnsupportedOperationError } from "@errors";
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
 import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { droppedSkipWarning } from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test, vi } from "vitest";
 
 /**
@@ -68,11 +67,18 @@ async function runDroppedAndPlain(
 ) {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
   let dropped: unknown;
+  let before: unknown;
   let warnings: unknown[][];
   try {
-    dropped = await runObserved("batch", seed, op(true), snap).catch(
-      (error: unknown) => error
-    );
+    dropped = await runObserved(
+      "batch",
+      async (client) => {
+        await seed(client);
+        before = await snap(client);
+      },
+      op(true),
+      snap
+    ).catch((error: unknown) => error);
     warnings = warn.mock.calls;
   } finally {
     warn.mockRestore();
@@ -83,7 +89,7 @@ async function runDroppedAndPlain(
     (error: unknown) => error
   );
   const keptPlain = await snap(getFamily().client as AnyClient);
-  return { dropped, warnings, keptDropped, plain, keptPlain };
+  return { dropped, warnings, before, keptDropped, plain, keptPlain };
 }
 
 async function runObserved(
@@ -193,13 +199,11 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a located update t
   });
 
   // G3P-04: the borrowed member has no operation-owned rollback region here.
-  test("batch drops the skip with one warning and keeps what the plain createMany keeps", async () => {
+  test("batch refuses unsupported suppression before writes", async () => {
     const outcome = await runDroppedAndPlain(seed, update);
-    expect(outcome.dropped).toBeInstanceOf(UniqueConstraintError);
-    expect(outcome.warnings).toEqual([
-      [droppedSkipWarning("pglite", "node.update")],
-    ]);
-    expect(outcome.keptDropped).toEqual(kept);
+    expect(outcome.dropped).toBeInstanceOf(UnsupportedOperationError);
+    expect(outcome.warnings).toEqual([]);
+    expect(outcome.keptDropped).toEqual(outcome.before);
     expect(outcome.plain).toBeInstanceOf(UniqueConstraintError);
     expect(outcome.keptPlain).toEqual(kept);
   });
@@ -276,13 +280,11 @@ describe("X1b mechanism 3 — createMany skipDuplicates under a fresh create at 
   });
 
   // G3P-04: the borrowed member has no operation-owned rollback region here.
-  test("batch drops the skip with one warning and keeps what the plain createMany keeps", async () => {
+  test("batch refuses unsupported suppression before writes", async () => {
     const outcome = await runDroppedAndPlain(seed, update);
-    expect(outcome.dropped).toBeInstanceOf(UniqueConstraintError);
-    expect(outcome.warnings).toEqual([
-      [droppedSkipWarning("pglite", "node.update")],
-    ]);
-    expect(outcome.keptDropped).toEqual(kept);
+    expect(outcome.dropped).toBeInstanceOf(UnsupportedOperationError);
+    expect(outcome.warnings).toEqual([]);
+    expect(outcome.keptDropped).toEqual(outcome.before);
     expect(outcome.plain).toBeInstanceOf(UniqueConstraintError);
     expect(outcome.keptPlain).toEqual(kept);
   });

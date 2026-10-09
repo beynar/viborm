@@ -3,6 +3,7 @@ import {
   MAX_DATETIME_EPOCH_MILLISECONDS,
   MIN_DATETIME_EPOCH_MILLISECONDS,
 } from "@validation/primitives/datetime-values";
+import { createIdentifierQuoter } from "../../../../sql/identifiers";
 
 const MILLISECONDS_PER_DAY = 86_400_000;
 const UNIX_EPOCH_JULIAN_DAY = 2_440_587.5;
@@ -216,4 +217,46 @@ export function sqliteDateTimeCopyExpression(
     `WHEN ${exact} THEN ${value} ` +
     `ELSE abs(${SQLITE_MIN_INTEGER}) END`
   );
+}
+
+/** A reviewed manual-migration expression; the argument is a physical column name. */
+export function sqliteCanonicalDateTimeExpression(columnName: string): string {
+  const source = createIdentifierQuoter('"')(columnName);
+  const epoch = textToEpochMilliseconds(source);
+  const value = epochMillisecondsToText(epoch);
+  return `CASE WHEN ${source} IS NULL THEN NULL WHEN ${sourceIsExact(source, "text", epoch)} AND ${targetIsExact(epoch, "text", value)} THEN ${value} ELSE abs(${SQLITE_MIN_INTEGER}) END`;
+}
+
+/** The Time writer and both admission/repair consumers share one physical grammar. */
+function timeSource(source: string): { valid: string; value: string } {
+  const shapes = [
+    ISO_TIME,
+    `${ISO_TIME}.[0-9]`,
+    `${ISO_TIME}.[0-9][0-9]`,
+    `${ISO_TIME}.[0-9][0-9][0-9]`,
+  ];
+  const valid = `typeof(${source}) = 'text' AND (${shapes.map((shape) => `${source} GLOB '${shape}'`).join(" OR ")}) AND CAST(substr(${source},1,2) AS INTEGER) BETWEEN 0 AND 23 AND CAST(substr(${source},4,2) AS INTEGER) BETWEEN 0 AND 59 AND CAST(substr(${source},7,2) AS INTEGER) BETWEEN 0 AND 59`;
+  const value = `substr(${source},1,8) || '.' || substr(CASE WHEN length(${source}) = 8 THEN '000' ELSE substr(${source},10) || '000' END,1,3)`;
+  return { valid, value };
+}
+
+/** Canonical millisecond Time storage; malformed source rows abort the statement. */
+export function sqliteCanonicalTimeExpression(columnName: string): string {
+  const source = createIdentifierQuoter('"')(columnName);
+  const { valid, value } = timeSource(source);
+  return `CASE WHEN ${source} IS NULL THEN NULL WHEN ${valid} THEN ${value} ELSE abs(${SQLITE_MIN_INTEGER}) END`;
+}
+
+/** Exact canonical runtime carrier predicates: NULL passes, unknown/malformed does not. */
+export function sqliteCanonicalDateTimePredicate(columnName: string): string {
+  const source = createIdentifierQuoter('"')(columnName);
+  const epoch = textToEpochMilliseconds(source);
+  const value = epochMillisecondsToText(epoch);
+  return `CASE WHEN ${source} IS NULL THEN 1 WHEN ${sourceIsExact(source, "text", epoch)} AND ${targetIsExact(epoch, "text", value)} AND ${source} = ${value} THEN 1 ELSE 0 END`;
+}
+
+export function sqliteCanonicalTimePredicate(columnName: string): string {
+  const source = createIdentifierQuoter('"')(columnName);
+  const { valid, value } = timeSource(source);
+  return `CASE WHEN ${source} IS NULL THEN 1 WHEN ${valid} AND ${source} = ${value} THEN 1 ELSE 0 END`;
 }

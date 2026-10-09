@@ -1,9 +1,10 @@
-import { type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
+import { JsonNull, type JsonNullKind, jsonNullKindOf } from "@schema/json-null";
 import type { ScalarState } from "@schema/scalars/common";
 import { lazyScalarSchemas } from "../lazy";
-import { createSchema, fail, ok } from "../primitives/helpers";
+import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
+import { isRecord } from "../value-guards";
 import { requireFilterOperation } from "./negatable-filter";
 
 // =============================================================================
@@ -115,9 +116,14 @@ type JsonWriteOperand<
 type JsonUpdateSchema<
   F extends ScalarState<"json">,
   S extends V.Schema,
-> = V.Coerce<
-  JsonWriteOperand<F, S>,
-  { set: JsonWriteOperand<F, S>[" vibInferred"]["1"] }
+> = V.Union<
+  readonly [
+    V.Object<{ set: JsonWriteOperand<F, S> }, { partial: false }>,
+    V.Coerce<
+      JsonWriteOperand<F, S>,
+      { set: JsonWriteOperand<F, S>[" vibInferred"]["1"] }
+    >,
+  ]
 >;
 
 // =============================================================================
@@ -355,12 +361,23 @@ const buildJsonUpdateSchema = <
 >(
   state: F,
   schema: S
-): JsonUpdateSchema<F, S> =>
-  v.coerce(buildJsonWriteOperand(state, schema), (value) => {
-    return {
-      set: value,
-    };
+): JsonUpdateSchema<F, S> => {
+  const operand = buildJsonWriteOperand(state, schema);
+  const explicit = v.object({ set: operand }, { partial: false });
+  const direct = v.shorthandUpdate(operand);
+  const update = v.union([explicit, direct]);
+  // A one-key `set` envelope is an operation, even when its value is invalid.
+  // Never retry it as a document and silently persist a failed operation bag.
+  Object.defineProperty(update["~standard"], "validate", {
+    value: (value: unknown) =>
+      isRecord(value) &&
+      Object.hasOwn(value, "set") &&
+      Object.keys(value).length === 1
+        ? validateSchema(explicit, value)
+        : validateSchema(direct, value),
   });
+  return update;
+};
 
 // =============================================================================
 // JSON SCHEMA BUILDER
@@ -370,7 +387,7 @@ export interface JsonSchemas<F extends ScalarState<"json">> {
   base: F["base"];
   create: JsonWriteOperand<F, V.Json<F>>;
   update: JsonUpdateSchema<F, F["base"]>;
-  filter: JsonFilterSchema<F["base"]>;
+  filter: JsonFilterSchema<V.Json>;
 }
 
 export const buildJsonSchema = <F extends ScalarState<"json">>(
@@ -378,8 +395,33 @@ export const buildJsonSchema = <F extends ScalarState<"json">>(
 ): JsonSchemas<F> => {
   return lazyScalarSchemas<JsonSchemas<F>>({
     base: state.base,
-    create: () => buildJsonWriteOperand(state, v.json(state)),
+    create: () => {
+      const operand = buildJsonWriteOperand(state, v.json(state));
+      const validate = operand["~standard"].validate;
+      Object.defineProperty(operand["~standard"], "validate", {
+        value: (value: unknown) => {
+          if (value !== undefined || !state.hasDefault) return validate(value);
+          let defaultValue: unknown;
+          try {
+            defaultValue =
+              typeof state.default === "function"
+                ? state.default()
+                : state.default;
+          } catch {
+            return fail("JSON default failed");
+          }
+          if (defaultValue === undefined)
+            return fail("JSON default must resolve to a value");
+          // Omission preserves SQL NULL for nullable fields; an explicit JSON
+          // null default uses the same sentinel admitted by ordinary writes.
+          if (defaultValue === null)
+            return state.nullable ? ok(null) : validate(JsonNull);
+          return validate(defaultValue);
+        },
+      });
+      return operand;
+    },
     update: () => buildJsonUpdateSchema<F, F["base"]>(state, state.base),
-    filter: () => buildJsonFilterSchema<F["base"]>(state.base),
+    filter: () => buildJsonFilterSchema(v.json()),
   });
 };

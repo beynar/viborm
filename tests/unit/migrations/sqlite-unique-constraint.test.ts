@@ -161,11 +161,11 @@ describe("a unique constraint added to an existing SQLite table", () => {
     );
 
     const planned = [
-      (await syncLiveSchema(after)).operations.map((op) => op.label),
+      (await syncLiveSchema(after)).operations.map((op) => op.type),
       // Push #3 is the one that died on `index … already exists`, and push #4
       // proves the quiet is stable rather than alternating.
-      (await syncLiveSchema(after)).operations.map((op) => op.label),
-      (await syncLiveSchema(after)).operations.map((op) => op.label),
+      (await syncLiveSchema(after)).operations.map((op) => op.type),
+      (await syncLiveSchema(after)).operations.map((op) => op.type),
     ];
 
     expect(planned[0]).toEqual(["addUniqueConstraint"]);
@@ -193,7 +193,7 @@ describe("a unique constraint added to an existing SQLite table", () => {
     ).rejects.toThrow();
   });
 
-  it("heals a database the old standalone-index add wrote", async () => {
+  it("preserves an equivalent standalone unique index without needless rebuilding", async () => {
     const driver = createInMemorySQLite3Driver();
     const before = createClient({
       schema: { plainUser, plainPost } as never,
@@ -211,23 +211,32 @@ describe("a unique constraint added to an existing SQLite table", () => {
     );
 
     const planned = [
-      (await syncLiveSchema(after)).operations.map((op) => op.label),
-      (await syncLiveSchema(after)).operations.map((op) => op.label),
+      (await syncLiveSchema(after)).operations.map((op) => op.type),
+      (await syncLiveSchema(after)).operations.map((op) => op.type),
     ];
 
-    // The add rebuilds the table with the constraint inline; the stale index is
-    // re-created by the rebuild and then dropped by the same batch.
-    expect(planned[0]).toEqual(["addUniqueConstraint", "dropIndex"]);
+    // A total btree unique index already enforces the declared columns. Its
+    // physical spelling does not authorize replacement or a table rebuild.
+    expect(planned[0]).toEqual([]);
     expect(planned[1]).toEqual([]);
 
-    expect(await createTableSql(driver, "uq_posts")).toContain(
+    expect(await createTableSql(driver, "uq_posts")).not.toContain(
       'CONSTRAINT "uq_posts_slug_tenant_key" UNIQUE ("slug", "tenant")'
     );
     expect(
       (await indexList(driver, "uq_posts")).filter(
         (index) => index.name === "uq_posts_slug_tenant_key"
       )
-    ).toEqual([]);
+    ).toHaveLength(1);
+    await driver._executeRaw(`INSERT INTO "uq_users" ("id") VALUES ('u1')`);
+    await driver._executeRaw(
+      `INSERT INTO "uq_posts" ("id", "authorId", "slug", "tenant") VALUES ('p1', 'u1', 's', 't')`
+    );
+    await expect(
+      driver._executeRaw(
+        `INSERT INTO "uq_posts" ("id", "authorId", "slug", "tenant") VALUES ('p2', 'u1', 's', 't')`
+      )
+    ).rejects.toThrow();
   });
 });
 
@@ -241,8 +250,8 @@ describe("a real change to a compound unique on SQLite", () => {
     expect(await ownedUniqueColumns(driver, "uq_order")).toEqual([["a", "b"]]);
 
     const planned = [
-      (await syncLiveSchema(ba)).operations.map((op) => op.label),
-      (await syncLiveSchema(ba)).operations.map((op) => op.label),
+      (await syncLiveSchema(ba)).operations.map((op) => op.type),
+      (await syncLiveSchema(ba)).operations.map((op) => op.type),
     ];
 
     // Before the fix this pair emitted `DROP INDEX "sqlite_autoindex_uq_order_2"`,

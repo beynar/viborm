@@ -27,6 +27,7 @@ export function sqliteBinaryToUint8Array(value: SQLiteBinaryValue): Uint8Array {
  * in their standard Web API form; each provider owns any narrower conversion.
  */
 export function convertValueForSQLite(value: unknown): unknown {
+  if (value instanceof Date) return value.toISOString();
   if (typeof value === "boolean") return value ? 1 : 0;
   if (value === undefined) return null;
   return value;
@@ -75,4 +76,22 @@ export function parseSQLiteField(
     return next(JSON.parse(value), scalarType);
   }
   return next(value, scalarType);
+}
+
+/** Raw INTEGER leaves retain exact values; only safe-range values become numbers. */
+export function normalizeSQLiteRawRows<T>(rows: T[]): T[] {
+  return rows.map((row) => {
+    if (row === null || typeof row !== "object") return row;
+    const normalized = { ...row };
+    for (const key of Object.keys(normalized)) {
+      const value: unknown = Reflect.get(normalized, key);
+      if (
+        typeof value === "bigint" &&
+        value >= BigInt(Number.MIN_SAFE_INTEGER) &&
+        value <= BigInt(Number.MAX_SAFE_INTEGER)
+      )
+        Reflect.set(normalized, key, Number(value));
+    }
+    return normalized;
+  });
 }

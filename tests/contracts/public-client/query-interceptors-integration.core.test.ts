@@ -1057,7 +1057,7 @@ describe("public query-interceptor integration", () => {
     expect(certainties).toEqual(["may-have-committed"]);
   });
 
-  test("labels direct write post-work as committed but not reads or rolled-back callbacks", async () => {
+  test("preserves hook failure identity across direct reads, writes and rolled-back callbacks", async () => {
     const postWorkFailure = new Error("post-work failed");
     const { client: base } = integrationClient();
     const client = base.$extends({
@@ -1080,20 +1080,13 @@ describe("public query-interceptor integration", () => {
       () => undefined,
       (error: unknown) => error
     );
-    expect(directWrite).toBeInstanceOf(QueryError);
-    expect(directWrite).toMatchObject({
-      meta: expect.objectContaining({ commitCertainty: "committed" }),
-      originalCause: expect.any(Error),
-    });
+    expect(directWrite).toBe(postWorkFailure);
 
     const directRead = await client.record.findMany().then(
       () => undefined,
       (error: unknown) => error
     );
-    expect(directRead).toBeInstanceOf(QueryError);
-    expect(directRead).not.toMatchObject({
-      meta: expect.objectContaining({ commitCertainty: expect.any(String) }),
-    });
+    expect(directRead).toBe(postWorkFailure);
 
     const callbackWrite = await client
       .$transaction(async (tx) => tx.record.deleteMany())
@@ -1101,10 +1094,7 @@ describe("public query-interceptor integration", () => {
         () => undefined,
         (error: unknown) => error
       );
-    expect(callbackWrite).toBeInstanceOf(QueryError);
-    expect(callbackWrite).not.toMatchObject({
-      meta: expect.objectContaining({ commitCertainty: expect.any(String) }),
-    });
+    expect(callbackWrite).toBe(postWorkFailure);
   });
 
   test("retains undefined cache and listener failures from one commit callback", async () => {

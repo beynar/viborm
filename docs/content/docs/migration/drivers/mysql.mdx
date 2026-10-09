@@ -23,12 +23,12 @@ icon: server
 | `number()` | `DOUBLE` |
 | `decimal({ precision, scale })` | `DECIMAL(precision,scale)` |
 | `boolean()` | `TINYINT(1)` |
-| `datetime()` | `DATETIME(3)` |
+| `s.dateTime()` | `DATETIME(3)` |
 | `date()` | `DATE` |
 | `time()` | `TIME(3)` |
 | `json()` | `JSON` |
 | `blob()` | `BLOB` |
-| `enumScalar()` | Inline `ENUM('a', 'b', ...)` |
+| `s.enum()` | Inline `ENUM('a', 'b', ...)` |
 | Array scalars | `JSON` |
 
 `DATETIME(3)` and `TIME(3)` preserve JavaScript `Date` millisecond precision.
@@ -109,9 +109,9 @@ deliberately; a code upgrade alone does not change existing schema semantics.
 `AUTO_INCREMENT` requires an integer column type (`TINYINT`, `SMALLINT`, `MEDIUMINT`, `INT`, `BIGINT`); the driver rejects it on anything else:
 
 ```ts
-const User = model("users", {
-  id: int().primaryKey().autoIncrement(),
-});
+const user = s.model({
+  id: s.int().id().autoIncrement(),
+}).map("users");
 ```
 
 Generates:
@@ -127,9 +127,9 @@ CREATE TABLE `users` (
 MySQL has no standalone enum type — the `ENUM` is part of the column definition:
 
 ```ts
-const User = model("users", {
-  status: enumScalar(["active", "inactive", "pending"]),
-});
+const user = s.model({
+  status: s.enum(["active", "inactive", "pending"]),
+}).map("users");
 ```
 
 Generates:
@@ -139,6 +139,10 @@ CREATE TABLE `users` (
   `status` ENUM('active', 'inactive', 'pending') NOT NULL
 );
 ```
+
+An explicit enum `.name()` affects PostgreSQL type identity only; MySQL always
+keeps the inline `ENUM(...)`. Removing values requires explicit mappings, including
+nullable columns.
 
 Changing an enum's values therefore issues a `MODIFY COLUMN` for every column using it.
 
@@ -152,11 +156,11 @@ The driver generates and introspects btree (default), `FULLTEXT`, and `SPATIAL` 
 
 ## Indexed TEXT Columns
 
-InnoDB can't index a `TEXT` column without an explicit key length. When a `string()` column participates in a primary key, unique constraint, index, or foreign key, the driver maps it to `VARCHAR(191)` instead (191 × 4 bytes fits the 767-byte InnoDB key limit).
+InnoDB cannot directly index an unbounded `TEXT` column through this column-list DSL. A bare `string()` participating in a primary key, unique constraint, index, or foreign key maps to the conservative `VARCHAR(191)` default. This limits stored values to 191 characters; adding a key to existing TEXT can narrow the column and is labeled destructive. Choose an explicit native `MYSQL.STRING.VARCHAR(length)` for a different bound, subject to the provider's index-byte limits. Strict mode and typed `ValueTooLongError` prevent silent truncation, but do not add upstream length validation.
 
 ## Column Defaults
 
-MySQL doesn't allow `DEFAULT` values on `TEXT`, `BLOB`, `JSON`, or spatial columns; the driver omits defaults for those types.
+MySQL requires expression defaults for TEXT, BLOB and JSON. The driver retains represented literal defaults and wraps them in parentheses, including JSON objects and list containers. Declared bigint and Date/DateTime literals also become database defaults; DateTime uses the same naive UTC physical encoder as model writes. Function defaults and unsupported application generators remain application-only. Adding a required column to a populated table without a database default requires an explicit manual data migration; push refuses before effects instead of inventing values. Spatial defaults have no supported literal declaration.
 
 ## Limitations
 
@@ -171,12 +175,12 @@ MySQL doesn't allow `DEFAULT` values on `TEXT`, `BLOB`, `JSON`, or spatial colum
 <CardGroup>
   <Card
     title="PostgreSQL Driver"
-    description="PostgreSQL-specific features"
-    href="/docs/migration/drivers/postgresql"
-  />
+    href="/docs/migration/drivers/postgresql">
+    PostgreSQL-specific features
+  </Card>
   <Card
     title="SQLite Driver"
-    description="SQLite-specific features and limitations"
-    href="/docs/migration/drivers/sqlite"
-  />
+    href="/docs/migration/drivers/sqlite">
+    SQLite-specific features and limitations
+  </Card>
 </CardGroup>

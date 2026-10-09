@@ -193,8 +193,10 @@ ordering, pagination, cursor, and selection clauses describe a larger query.
 over a signed `BigInt` coefficient and a scale, the accepted literal grammar,
 canonicalization, and the one canonical rendering. It admits a `Decimal`, a
 string, or a whole `bigint`; a JavaScript number is a double and is refused. It has
-no statics and no configuration, its state is a private field the constructor
-alone installs, and it imports nothing. Three seams are exported for the codec
+no statics and no configuration, its arithmetic state is private, and it imports
+nothing. Its own immutable enumerable `value` is derived canonical text for
+deep equality and clone transport; plain cloned records do not acquire the
+private construction brand. Three seams are exported for the codec
 beside it and for nothing else: the admission rule `admitDecimal`
 (a string through the grammar, anything else through the brand), the
 canonical-text reader `canonicalDecimalText` —

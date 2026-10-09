@@ -1,3 +1,4 @@
+import { normalizeType } from "./push-fingerprint";
 /**
  * Marker and ledger control tables. Two tables, one validated base name.
  * Read-only commands never bootstrap. Parsers in v1-parse own row truth.
@@ -73,6 +74,23 @@ function placeholder(
   return dialect === "postgresql" ? `$${index}` : "?";
 }
 
+const STATE_CONTROL_DEFINITION = `(
+      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+      payload TEXT NOT NULL
+    )`;
+
+/** Exact writer-owned state definition; the control owner authenticates its contents separately. */
+export function isSqliteStateControlDefinition(
+  name: string,
+  sql: string | null
+): boolean {
+  return (
+    name === controlTableNames(DEFAULT_CONTROL_BASE).state &&
+    sql !== null &&
+    sqliteDefinitionBody(sql) === sqliteDefinitionBody(STATE_CONTROL_DEFINITION)
+  );
+}
+
 export function createControlTableSQL(
   driver: BoundMigrationDriver,
   base: string
@@ -81,10 +99,7 @@ export function createControlTableSQL(
   const state = qualifyControl(driver, names.state);
   const log = qualifyControl(driver, names.log);
   return {
-    state: `CREATE TABLE IF NOT EXISTS ${state} (
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      payload TEXT NOT NULL
-    )`,
+    state: `CREATE TABLE IF NOT EXISTS ${state} ${STATE_CONTROL_DEFINITION}`,
     log:
       driver.target.dialect === "mysql"
         ? `CREATE TABLE IF NOT EXISTS ${log} (
@@ -318,7 +333,7 @@ function hasExpectedStateTableShape(
   return (
     table.columns.length === 2 &&
     singleton?.name === "singleton" &&
-    singleton.type === singletonType &&
+    normalizeType(singleton.type) === normalizeType(singletonType) &&
     singleton.nullable === false &&
     singleton.default === undefined &&
     singleton.autoIncrement !== true &&

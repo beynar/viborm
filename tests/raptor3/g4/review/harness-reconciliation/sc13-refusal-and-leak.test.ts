@@ -1,36 +1,16 @@
-/**
- * Review probe — G4 harness reconciliation, follow-up round (after REVISE).
- *
- * The repair seeded SC-13's world with one raw-SQL row and moved the WRITE half
- * onto `EMBEDDINGS[1]`, "a row the seed did not write, so a duplicate key can
- * never stand in for the capability refusal". That sentence is an argument, so
- * these cells measure it:
- *
- *   1. the refusal a SEEDED world raises for the vector write has the same
- *      identity as the one an UNSEEDED world raises — the seed did not change
- *      which failure SC-13 reads;
- *   2. the identity is the same for the id the seed DID write, so identity
- *      alone cannot tell a duplicate key from the capability failure: the
- *      repair's choice of an unwritten row is load-bearing, not decoration;
- *   3. what that identity actually is — `QueryError` "Query execution failed"
- *      (code `V2001`), the generic provider-execution failure, raised AFTER the
- *      INSERT is emitted and its vector parameter is refused by the driver. It
- *      is NOT the `FeatureNotSupportedError` of `unsupportedVector`
- *      (`src/errors/query.ts:442`, whose members are `literal` / `l2` /
- *      `cosine`, none of which a parameterized write reaches). SC-13's doc
- *      comment says "the WRITE is where the capability is asked"; measured,
- *      the capability tier is never consulted on this path. The parity the
- *      cell asserts is real, but it is driver-level, not tier-level;
- *   4. SC-13's read expectation is sensitive to a leaked row — with two rows
- *      present the exact expectation the cell states fails, which is what makes
- *      "a refused write that leaked a row would show up as a second member"
- *      true rather than decorative.
- */
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: fixture assertion helpers run only within registered Vitest cells or their setup hooks.
+/** SC-13 distinguishes JSON value storage, duplicate identity, and vector-domain refusal. */
 import assert from "node:assert/strict";
 import type Database from "better-sqlite3";
 import { describe, it } from "vitest";
-import { EMBEDDINGS, VECTOR_TABLE, vectorWorldSchema } from "../../codec-schema";
+import {
+  EMBEDDINGS,
+  VECTOR_TABLE,
+  vectorWorldSchema,
+} from "../../codec-schema";
 import { createWitnessWorld, type WitnessWorld } from "../../witness-world";
+
+const VECTOR_INSERT = /^INSERT INTO "g4_codec_vectors"/;
 
 interface Refusal {
   readonly constructorName: string;
@@ -64,80 +44,93 @@ const seedRow = (index: number) => (database: Database.Database) => {
     .run(row.id, row.name, JSON.stringify(row.embedding));
 };
 
-async function writeRefusals(
+async function write(
   world: WitnessWorld,
-  index: number
-): Promise<{ shipped: Refusal; candidate: Refusal }> {
+  index: number,
+  engine: "shipped" | "candidate"
+) {
   const row = EMBEDDINGS[index];
   assert.ok(row);
-  const shipped = await refusalOf(() =>
-    Promise.resolve(world.shipped.embedded?.create?.({ data: { ...row } }))
-  );
-  const candidate = await refusalOf(() =>
-    world.candidate.execute("embedded", "create", { data: { ...row } })
-  );
-  return { shipped, candidate };
+  return engine === "shipped"
+    ? world.shipped.embedded?.create?.({ data: { ...row } })
+    : world.candidate.execute("embedded", "create", { data: { ...row } });
 }
 
 describe("review probe: what SC-13's write half actually measures", () => {
-  it("the seeded and unseeded worlds refuse the same write with the same identity", async () => {
-    const unseeded = await createWitnessWorld(vectorWorldSchema());
-    const seeded = await createWitnessWorld(vectorWorldSchema(), {
-      seed: seedRow(0),
-    });
-    try {
-      const withoutSeed = await writeRefusals(unseeded, 1);
-      const withSeed = await writeRefusals(seeded, 1);
-      assert.equal(withSeed.shipped.constructorName, withoutSeed.shipped.constructorName);
-      assert.equal(withSeed.candidate.constructorName, withoutSeed.candidate.constructorName);
-      assert.equal(withSeed.candidate.constructorName, withSeed.shipped.constructorName);
-    } finally {
-      await unseeded.close();
-      await seeded.close();
-    }
-  });
-
-  it("identity alone cannot tell a duplicate key from the capability failure", async () => {
-    const world = await createWitnessWorld(vectorWorldSchema(), {
-      seed: seedRow(0),
-    });
-    try {
-      const onSeededId = await writeRefusals(world, 0);
-      const onFreshId = await writeRefusals(world, 1);
-      // Same class on both, which is precisely why SC-13 must write a row the
-      // seed did not: a duplicate key would satisfy the parity assertion.
-      assert.equal(onSeededId.shipped.constructorName, onFreshId.shipped.constructorName);
-      assert.equal(onSeededId.candidate.constructorName, onFreshId.candidate.constructorName);
-      const counted = world.database
-        .prepare(`SELECT COUNT(*) AS n FROM "${VECTOR_TABLE}"`)
-        .get() as { n: number };
-      assert.equal(counted.n, 1, "no attempted write may have landed");
-    } finally {
-      await world.close();
-    }
-  });
-
-  it("the asserted identity is the generic provider failure, not the vector tier's refusal", async () => {
-    const world = await createWitnessWorld(vectorWorldSchema(), {
-      seed: seedRow(0),
-    });
-    try {
-      const { shipped, candidate } = await writeRefusals(world, 1);
-      for (const refusal of [shipped, candidate]) {
-        assert.equal(refusal.constructorName, "QueryError");
-        assert.equal(refusal.message, "Query execution failed");
-        assert.equal(refusal.code, "V2001");
-        // `unsupportedVector` would say so, and does not fire here.
-        assert.doesNotMatch(refusal.name, /FeatureNotSupported/);
-        assert.doesNotMatch(refusal.message, /vector/i);
+  it("fresh vectors write identically in seeded and unseeded worlds", async () => {
+    for (const engine of ["shipped", "candidate"] as const) {
+      for (const seeded of [false, true]) {
+        const world = await createWitnessWorld(
+          vectorWorldSchema(),
+          seeded ? { seed: seedRow(0) } : {}
+        );
+        try {
+          assert.deepEqual(await write(world, 1, engine), EMBEDDINGS[1]);
+          const stored = world.database
+            .prepare(
+              `SELECT embedded_vector FROM "${VECTOR_TABLE}" WHERE id = 2`
+            )
+            .get();
+          assert.deepEqual(stored, { embedded_vector: "[0,1,0]" });
+        } finally {
+          await world.close();
+        }
       }
-      // Both engines really do emit the INSERT: the capability is not refused
-      // before the statement is built.
+    }
+  });
+
+  it("a duplicate key is a constraint refusal while the fresh vector is stored", async () => {
+    for (const engine of ["shipped", "candidate"] as const) {
+      const world = await createWitnessWorld(vectorWorldSchema(), {
+        seed: seedRow(0),
+      });
+      try {
+        const duplicate = await refusalOf(() =>
+          Promise.resolve(write(world, 0, engine))
+        );
+        assert.equal(duplicate.constructorName, "UniqueConstraintError");
+        assert.equal(duplicate.code, "V2003");
+        assert.deepEqual(await write(world, 1, engine), EMBEDDINGS[1]);
+        assert.deepEqual(
+          world.database
+            .prepare(
+              `SELECT embedded_vector FROM "${VECTOR_TABLE}" ORDER BY id`
+            )
+            .all(),
+          [{ embedded_vector: "[1,0,0]" }, { embedded_vector: "[0,1,0]" }]
+        );
+      } finally {
+        await world.close();
+      }
+    }
+  });
+
+  it("invalid vector dimensions are refused before an INSERT on either seam", async () => {
+    const world = await createWitnessWorld(vectorWorldSchema(), {
+      seed: seedRow(0),
+    });
+    try {
+      const args = { data: { id: 2, name: "invalid", embedding: [1, 0] } };
+      const shipped = await refusalOf(() =>
+        Promise.resolve(world.shipped.embedded?.create?.(args))
+      );
+      const candidate = await refusalOf(() =>
+        world.candidate.execute("embedded", "create", args)
+      );
+      assert.deepEqual(candidate, shipped);
+      assert.equal(shipped.constructorName, "ValidationError");
+      assert.equal(shipped.code, "V4001");
       assert.equal(
-        world.statements.filter((statement) => /^INSERT INTO "g4_codec_vectors"/.test(statement.sql))
-          .length,
-        2,
-        "one attempted INSERT per engine"
+        world.statements.filter((statement) =>
+          VECTOR_INSERT.test(statement.sql)
+        ).length,
+        0
+      );
+      assert.deepEqual(
+        world.database
+          .prepare(`SELECT embedded_vector FROM "${VECTOR_TABLE}"`)
+          .all(),
+        [{ embedded_vector: "[1,0,0]" }]
       );
     } finally {
       await world.close();

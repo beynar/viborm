@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { sqliteDecimalCheck } from "@adapters/databases/sqlite/storage/decimal";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
+import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
 import { AnyNull, DbNull, JsonNull } from "@schema/json-null";
-import { s } from "@schema";
+import { createIdentifierQuoter } from "@src/sql/identifiers";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 import {
@@ -15,6 +17,9 @@ import {
   seedPost,
   type World,
 } from "./world";
+
+const SAME_DECIMAL_DOMAIN_REQUIRED =
+  /Two decimals compare exactly only when they declare the same precision and scale\.$/;
 
 /**
  * Repair-3 witnesses (review follow-up-2 findings H, I and J). All three are
@@ -40,7 +45,10 @@ async function outcomes(
     const client = createClient({
       schema,
       driver: shippedWorld.driver,
-    }) as unknown as Record<string, Record<string, (input: unknown) => unknown>>;
+    }) as unknown as Record<
+      string,
+      Record<string, (input: unknown) => unknown>
+    >;
     return {
       shipped: await capture(() => client[model]![operation]!(args)),
       candidate: await capture(() =>
@@ -202,18 +210,20 @@ async function ledgerOutcomes(
 ): Promise<{ shipped: unknown; candidate: unknown }> {
   const build = (): { db: Database.Database; driver: SQLite3Driver } => {
     const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    const quote = createIdentifierQuoter('"');
     db.exec(
       `CREATE TABLE g4r3_ledger(
          id INTEGER PRIMARY KEY,
-         cents TEXT NOT NULL,
-         micros TEXT NOT NULL,
-         alsoCents TEXT NOT NULL,
+         cents INTEGER NOT NULL ${sqliteDecimalCheck({ name: "cents", nullable: false }, { precision: 12, scale: 2 }, "scalar", quote)},
+         micros INTEGER NOT NULL ${sqliteDecimalCheck({ name: "micros", nullable: false }, { precision: 12, scale: 4 }, "scalar", quote)},
+         alsoCents INTEGER NOT NULL ${sqliteDecimalCheck({ name: "alsoCents", nullable: false }, { precision: 12, scale: 2 }, "scalar", quote)},
          tally INTEGER NOT NULL,
          otherTally INTEGER NOT NULL
        );
        INSERT INTO g4r3_ledger VALUES
-         (1,'1.20','1.2000','1.20',7,7),
-         (2,'2.00','9.0000','3.00',1,2);`
+         (1,120,12000,120,7,7),
+         (2,200,90000,300,1,2);`
     );
     return { db, driver: new SQLite3Driver({ client: db }) };
   };
@@ -258,7 +268,9 @@ describe("G4-01 repair 3 — decimal field-reference domains (finding J, SC-04)"
   });
 
   it("refuses a reference between two decimals of DIFFERENT domains", async () => {
-    const seen = await ledgerOutcomes(where({ cents: { equals: refs.micros } }));
+    const seen = await ledgerOutcomes(
+      where({ cents: { equals: refs.micros } })
+    );
     assert.equal(
       message(seen.candidate),
       message(seen.shipped),
@@ -271,7 +283,9 @@ describe("G4-01 repair 3 — decimal field-reference domains (finding J, SC-04)"
   });
 
   it("names the two columns in the order the filter asked them", async () => {
-    const seen = await ledgerOutcomes(where({ micros: { equals: refs.cents } }));
+    const seen = await ledgerOutcomes(
+      where({ micros: { equals: refs.cents } })
+    );
     assert.equal(message(seen.candidate), message(seen.shipped));
     assert.equal(
       message(seen.shipped),
@@ -285,10 +299,7 @@ describe("G4-01 repair 3 — decimal field-reference domains (finding J, SC-04)"
         where({ cents: { [operator]: refs.micros } })
       );
       assert.equal(message(seen.candidate), message(seen.shipped), operator);
-      assert.match(
-        message(seen.shipped),
-        /Two decimals compare exactly only when they declare the same precision and scale\.$/
-      );
+      assert.match(message(seen.shipped), SAME_DECIMAL_DOMAIN_REQUIRED);
     }
   });
 

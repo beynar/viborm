@@ -204,37 +204,53 @@ const narrowDelete = {
 export async function openRowScopeFixture(driver: AnyDriver) {
   const base = createClient({ schema: rowScopeSchema(), driver });
   await syncLiveSchema(base);
-  for (const [id, deletedAt] of [
-    [1, null],
-    [2, null],
-    [3, T],
-    [4, null],
-    [5, null],
-  ] as const)
-    await base.author.create({ data: { id, name: `n${id}`, deletedAt } });
-  for (const [id, authorId, title, deletedAt] of [
-    [10, 1, "a", null],
-    [11, 1, "b", T],
-    [12, 2, "a", T],
-    [13, 2, "c", null],
-    [14, 1, "d", null],
-    [15, 2, "e", T],
-    [16, 2, "f", T],
-    [17, 5, "g", T],
-  ] as const)
-    await base.post.create({
-      data: { id, authorId, title, slug: `s${id}`, deletedAt },
-    });
-  for (const [id, postId, deletedAt] of [
-    [100, 10, null],
-    [101, 10, T],
-    [102, 13, null],
-    [103, 11, null],
-    [104, 11, T],
-  ] as const)
-    await base.comment.create({
-      data: { id, postId, body: `c${id}`, deletedAt },
-    });
+  await base.author.createMany({
+    data: (
+      [
+        [1, null],
+        [2, null],
+        [3, T],
+        [4, null],
+        [5, null],
+      ] as const
+    ).map(([id, deletedAt]) => ({ id, name: `n${id}`, deletedAt })),
+  });
+  await base.post.createMany({
+    data: (
+      [
+        [10, 1, "a", null],
+        [11, 1, "b", T],
+        [12, 2, "a", T],
+        [13, 2, "c", null],
+        [14, 1, "d", null],
+        [15, 2, "e", T],
+        [16, 2, "f", T],
+        [17, 5, "g", T],
+      ] as const
+    ).map(([id, authorId, title, deletedAt]) => ({
+      id,
+      authorId,
+      title,
+      slug: `s${id}`,
+      deletedAt,
+    })),
+  });
+  await base.comment.createMany({
+    data: (
+      [
+        [100, 10, null],
+        [101, 10, T],
+        [102, 13, null],
+        [103, 11, null],
+        [104, 11, T],
+      ] as const
+    ).map(([id, postId, deletedAt]) => ({
+      id,
+      postId,
+      body: `c${id}`,
+      deletedAt,
+    })),
+  });
   await base.tag.create({
     data: { id: 1, name: "x", posts: { connect: [{ id: 10 }, { id: 11 }] } },
   });
@@ -271,8 +287,12 @@ export async function openRowScopeFixture(driver: AnyDriver) {
   await base.node.create({
     data: { id: 2, label: "mid", parentId: 1, deletedAt: T },
   });
-  await base.node.create({ data: { id: 3, label: "leaf", parentId: 2 } });
-  await base.node.create({ data: { id: 4, label: "side", parentId: 1 } });
+  await base.node.createMany({
+    data: [
+      { id: 3, label: "leaf", parentId: 2 },
+      { id: 4, label: "side", parentId: 1 },
+    ],
+  });
   await base.pin.create({
     data: {
       id: 1,
@@ -297,8 +317,7 @@ export async function openRowScopeFixture(driver: AnyDriver) {
     });
   await base.audit.create({ data: { id: 1, note: "x" } });
   await base.cover.create({ data: { id: 1, postId: 10 } });
-  await base.photo.create({ data: { id: 1 } });
-  await base.photo.create({ data: { id: 2 } });
+  await base.photo.createMany({ data: [{ id: 1 }, { id: 2 }] });
   await base.album.create({
     data: {
       id: 1,
@@ -1006,7 +1025,7 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
             include: { album: true },
           })
         )
-      ).toBeInstanceOf(QueryEngineError);
+      ).toMatchObject({ name: "QueryError", code: "V2006" });
     });
 
     test("the control on a model no entry governs: a no-op where no relation reaches it, `only` reads related rows as `without`", async () => {

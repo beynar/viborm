@@ -1,4 +1,14 @@
 import assert from "node:assert/strict";
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import test from "node:test";
 import {
   assertBoundedProcessPlatform,
@@ -357,3 +367,95 @@ test("normal leader exit still tears down inherited descendants", async () => {
   assert.equal(outcome.code, 0);
   assert.ok(outcome.wallMs < 5000);
 });
+
+const PACKAGE_BAIL = /name: "package",[\s\S]*?bail: 1,/;
+
+for (const mode of ["sync", "async"]) {
+  test(`${mode} timed-out package smoke fails fast with its compiler in the aggregate group`, async () => {
+    assert.match(readFileSync("vitest.workspace.ts", "utf8"), PACKAGE_BAIL);
+    const root = realpathSync(
+      mkdtempSync(join(tmpdir(), "viborm-package-timeout-"))
+    );
+    try {
+      symlinkSync(resolve("node_modules"), join(root, "node_modules"), "dir");
+      const observation = join(root, "observation.json");
+      const successor = join(root, "successor");
+      const script = join(root, "smoke.mjs");
+      writeFileSync(
+        script,
+        `import { spawn, execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+const compiler = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+const group = Number(execFileSync("ps", ["-o", "pgid=", "-p", String(process.pid)], { encoding: "utf8" }).trim());
+writeFileSync(${JSON.stringify(observation)}, JSON.stringify({ smoke: process.pid, compiler: compiler.pid, group }));
+setInterval(() => {}, 1000);
+`
+      );
+      writeFileSync(
+        join(root, "timeout.test.ts"),
+        `import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
+import { readFileSync, writeFileSync } from "node:fs";
+import { it } from "vitest";
+it("fails a timed-out smoke", async () => {
+  try {
+    ${mode === "async" ? "await promisify(execFile)" : "execFileSync"}(process.execPath, [${JSON.stringify(script)}], { timeout: 1000, killSignal: "SIGKILL" });
+  } catch (error) {
+    const state = JSON.parse(readFileSync(${JSON.stringify(observation)}, "utf8"));
+    const processes = execFileSync("ps", ["-axo", "pid=,pgid=,stat="], { encoding: "utf8" }).trim().split("\\n").map(line => line.trim().split(/\\s+/));
+    const compiler = processes.find(row => Number(row[0]) === state.compiler);
+    state.orphanAlive = !!compiler && !compiler[2].startsWith("Z");
+    state.compilerGroup = Number(compiler?.[1]);
+    state.timeout = error.code;
+    state.signal = error.signal;
+    writeFileSync(${JSON.stringify(observation)}, JSON.stringify(state));
+    throw error;
+  }
+});
+it("must not start a successor", () => { writeFileSync(${JSON.stringify(successor)}, "started"); });
+`
+      );
+      // Exercise project-level bail as installed, not a global CLI shortcut.
+      const config = join(root, "vitest.config.mjs");
+      writeFileSync(
+        config,
+        `export default { root: ${JSON.stringify(root)}, test: { pool: "forks", maxWorkers: 1, minWorkers: 1, fileParallelism: false } };`
+      );
+      const workspace = join(root, "vitest.workspace.mjs");
+      writeFileSync(
+        workspace,
+        `export default [{ test: { root: ${JSON.stringify(root)}, name: "package", include: ["timeout.test.ts"], bail: 1 } }];`
+      );
+      const outcome = await startBoundedProcess({
+        command: process.execPath,
+        arguments: [
+          resolve("node_modules/vitest/vitest.mjs"),
+          "run",
+          "--config",
+          config,
+          "--workspace",
+          workspace,
+          "--project",
+          "package",
+        ],
+        heapLimitMb: 768,
+        label: "package timeout ownership witness",
+        stdio: "inherit",
+        wallLimitMs: 15_000,
+      }).completion;
+      assert.notEqual(outcome.code, 0);
+      assert.equal(outcome.stopReason, undefined);
+      assert.equal(outcome.error, undefined);
+      const state = JSON.parse(readFileSync(observation, "utf8"));
+      if (mode === "sync") assert.equal(state.timeout, "ETIMEDOUT");
+      assert.equal(state.signal, "SIGKILL");
+      assert.equal(state.orphanAlive, true);
+      assert.equal(state.compilerGroup, state.group);
+      assert.throws(() => readFileSync(successor), { code: "ENOENT" });
+      // Existing bounded-process teardown ignores zombies and verifies that no
+      // live member of this original aggregate group survives completion.
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}

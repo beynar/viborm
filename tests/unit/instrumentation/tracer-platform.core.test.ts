@@ -228,7 +228,7 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
 
     expect(spans).toEqual([
       { name: SPAN_EXECUTE, calls: ["attr:db.system.name=d1", "end"] },
-      { name: SPAN_OPERATION, calls: ["end"] },
+      { name: SPAN_OPERATION, calls: ["attr:error.type=Error", "end"] },
     ]);
   });
 
@@ -251,8 +251,8 @@ describe("tracing.tracer: spans start through the handed tracer", () => {
 
     expect(spans.map(({ calls }) => calls)).toEqual([
       [OK, "end"],
-      [ERROR, EXCEPTION, "end"],
-      [ERROR, EXCEPTION, "end"],
+      ["attr:error.type=Error", ERROR, EXCEPTION, "end"],
+      ["attr:error.type=Error", ERROR, EXCEPTION, "end"],
     ]);
   });
 
@@ -369,8 +369,8 @@ describe("tracing.tracer: the application callback runs exactly once", () => {
     expect(spans.map(({ calls }) => calls)).toEqual([
       [OK, "end"],
       [OK, "end"],
-      [ERROR, EXCEPTION, "end"],
-      [ERROR, EXCEPTION, "end"],
+      ["attr:error.type=Error", ERROR, EXCEPTION, "end"],
+      ["attr:error.type=Error", ERROR, EXCEPTION, "end"],
     ]);
   });
 

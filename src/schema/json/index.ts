@@ -107,10 +107,10 @@ export function attachFieldSchemas(
 /**
  * The client a schema with non-literal model keys produces.
  *
- * It is honest, not accidental. Model access is stringly — any name
- * type-checks, and an unknown one is refused at runtime — while the operation
- * set stays exact. Arguments and results degrade to `any` rather than `never`,
- * so nothing type-level crashes and nothing static refuses a bad payload; the
- * runtime validators built from the real schema state do all the refusing.
+ * Model names are not statically known. This alias preserves the operation
+ * surface but cannot recover field argument or result types from runtime JSON.
+ * It is not an assignable supertype of every concrete client and does not make
+ * query arguments `any`. Keep a literal TypeScript schema for typed queries;
+ * runtime schema validation still owns admission for loaded documents.
  */
 export type UntypedClient = VibORMClient<VibORMConfig>;

@@ -16,8 +16,9 @@
  */
 
 import { officialCacheRuntime } from "@cache/capability";
+import type { PhysicalSchemaCheck } from "@client/physical-schema";
 import type { Operations } from "@client/types";
-import type { AnyDriver, QueryExecutionContext } from "@drivers";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import { UnsupportedOperationError } from "@errors";
 import type { Schema } from "@schema/hydration";
 import type { AnyModel } from "@schema/model";
@@ -61,6 +62,10 @@ export interface RoutedCandidateOperation {
    */
   buildStatement(): Sql | undefined;
   cacheResultCodec(): CacheResultCodec;
+  checkStorage(
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<void>;
   /**
    * The prepared package when this operation prepares to it synchronously —
    * a read, whose preparation reaches no driver. It is the SAME package
@@ -72,7 +77,8 @@ export interface RoutedCandidateOperation {
     context: QueryExecutionContext
   ): PreparedBatchOperation<unknown> | undefined;
   prepareBatch(
-    context: QueryExecutionContext
+    context: QueryExecutionContext,
+    driver?: AnyDriver
   ): Promise<PreparedBatchOperation<unknown> | undefined>;
   execute<T>(execution: RoutedOperationExecution): Promise<T>;
 }
@@ -134,18 +140,21 @@ class RoutedOperation implements RoutedCandidateOperation {
   readonly #modelName: string;
   readonly #requestedOperation: string;
   readonly #prepared: PreparedOperation;
+  readonly #checkStorage: PhysicalSchemaCheck | undefined;
   #codec: CacheResultCodec | undefined;
 
   constructor(
     factoryDriver: AnyDriver,
     modelName: string,
     requestedOperation: string,
-    prepared: PreparedOperation
+    prepared: PreparedOperation,
+    checkStorage: PhysicalSchemaCheck | undefined
   ) {
     this.#factoryDriver = factoryDriver;
     this.#modelName = modelName;
     this.#requestedOperation = requestedOperation;
     this.#prepared = prepared;
+    this.#checkStorage = checkStorage;
   }
 
   get preparedArgs(): Record<string, unknown> {
@@ -173,7 +182,7 @@ class RoutedOperation implements RoutedCandidateOperation {
     const read = this.#prepared.read;
     if (!read)
       throw new UnsupportedOperationError(
-        `The Raptor 3 route cannot encode a cached result for '${this.#requestedOperation}' on model '${this.#modelName}': the verb publishes no prepared read.`,
+        `Cannot cache '${this.#requestedOperation}' on model '${this.#modelName}': the operation has no readable result.`,
         {
           meta: {
             model: this.#modelName,
@@ -187,19 +196,29 @@ class RoutedOperation implements RoutedCandidateOperation {
     ));
   }
 
+  async checkStorage(
+    driver: AnyDriver,
+    context: QueryExecutionContext
+  ): Promise<void> {
+    const read = this.#prepared.read;
+    if (read) await this.#checkStorage?.(driver, context, read.models);
+  }
+
   prepareSingle(
     context: QueryExecutionContext
   ): PreparedBatchOperation<unknown> | undefined {
-    return this.#prepared.prepareSingle(context);
+    const prepared = this.#prepared.prepareSingle(context);
+    return this.#checkStorage ? undefined : prepared;
   }
 
-  prepareBatch(
-    context: QueryExecutionContext
+  async prepareBatch(
+    context: QueryExecutionContext,
+    driver = this.#factoryDriver
   ): Promise<PreparedBatchOperation<unknown> | undefined> {
-    return this.#prepared.prepareBatch(context);
+    return this.#prepared.prepareBatch(context, this.#checkStorage, driver);
   }
 
-  execute<T>(execution: RoutedOperationExecution): Promise<T> {
+  async execute<T>(execution: RoutedOperationExecution): Promise<T> {
     try {
       const outcome = execution.isWrite
         ? routeWriteOutcome(execution)
@@ -209,13 +228,15 @@ class RoutedOperation implements RoutedCandidateOperation {
           this.#prepared,
           execution,
           this.#factoryDriver,
-          outcome
+          outcome,
+          this.#checkStorage
         );
       return runCandidate(
         this.#prepared,
         execution,
         this.#factoryDriver,
-        undefined
+        undefined,
+        this.#checkStorage
       ) as Promise<T>;
     } catch (error) {
       return Promise.reject(error);
@@ -236,7 +257,8 @@ class RoutedOperation implements RoutedCandidateOperation {
 export function createCandidateRoute(
   schema: Schema,
   factoryDriver: AnyDriver,
-  resolved?: ResolvedSchemaViews
+  resolved?: ResolvedSchemaViews,
+  checkStorage?: PhysicalSchemaCheck
 ): ClientOperationRoute {
   const engine = createCommandEngine({
     schema,
@@ -259,7 +281,8 @@ export function createCandidateRoute(
         factoryDriver,
         modelName,
         requestedOperation,
-        engine.prepare(modelName, operation, args, rows)
+        engine.prepare(modelName, operation, args, rows),
+        checkStorage
       );
     },
   };
@@ -269,13 +292,15 @@ async function runWriteCandidate<T>(
   prepared: PreparedOperation,
   execution: RoutedOperationExecution,
   factoryDriver: AnyDriver,
-  outcome: RouteWriteOutcome
+  outcome: RouteWriteOutcome,
+  checkStorage?: PhysicalSchemaCheck
 ): Promise<T> {
   const value = await runCandidate(
     prepared,
     execution,
     factoryDriver,
-    outcome.seam
+    outcome.seam,
+    checkStorage
   );
   // A transport that never separated commit from success — every direct
   // statement and every borrowed scope — leaves the operation's own success as
@@ -314,19 +339,22 @@ function runCandidate(
   prepared: PreparedOperation,
   execution: RoutedOperationExecution,
   factoryDriver: AnyDriver,
-  writeOutcome: WriteOutcomeSeam | undefined
+  writeOutcome: WriteOutcomeSeam | undefined,
+  checkStorage?: PhysicalSchemaCheck
 ): Promise<unknown> {
   const { context, driverOverride, engineDriver } = execution;
   if (driverOverride) {
     return prepared.execute(
       { driver: driverOverride, kind: "borrowed-transaction", writeOutcome },
-      context
+      context,
+      checkStorage
     );
   }
   if (engineDriver === factoryDriver)
     return prepared.execute(
       writeOutcome ? { kind: "standalone", writeOutcome } : undefined,
-      context
+      context,
+      checkStorage
     );
   return prepared.execute(
     {
@@ -338,6 +366,7 @@ function runCandidate(
         engineDriver.withTransaction(execute, undefined, scoped),
       writeOutcome,
     },
-    context
+    context,
+    checkStorage
   );
 }

@@ -25,24 +25,7 @@ type PostFilter = DB["post"]["Where"];
 type FindPosts = DB["post"]["FindMany"];
 ```
 
-**Package availability:** `InferDatabase` is a new type-only export prepared for
-the next package release; it is not yet in the published npm package. Until that
-release, define the same helper in your application using the existing exports:
-
-```ts
-import type { OperationPayload, OperationResult, Schema } from "viborm/client";
-import type { ModelCoreInput } from "viborm/validation";
-
-export type InferDatabase<S extends Schema> = {
-  [K in keyof S]: {
-    Row: OperationResult<"findMany", S[K], Record<never, never>>[number];
-    Create: ModelCoreInput<S[K], "create">;
-    Update: ModelCoreInput<S[K], "update">;
-    Where: ModelCoreInput<S[K], "where">;
-    FindMany: OperationPayload<"findMany", S[K]>;
-  };
-};
-```
+`InferDatabase` is exported by `viborm/client` in V1.
 
 `Row` is the default scalar result, not a row with every relation loaded.
 Schema-level `.omit()` is respected. Client extensions and `defaultOmit()` are
@@ -89,6 +72,11 @@ type PostTitle = OperationResult<
 // { title: string }
 ```
 
+`OperationPayload` retains optional operation arguments: use `NonNullable` when
+indexing a payload or one of its optional clauses. It does not package the
+client's generic exactness guards into a universal forwarding helper. A concrete
+query function keeps its inferred arguments and result without widening the schema.
+
 For results affected by a concrete client's extensions or defaults, infer from
 an application query function with `Awaited<ReturnType<typeof loadPosts>>`.
 
@@ -117,6 +105,14 @@ const validation = createPost["~standard"].validate({
 
 `InferOutput` means the normalized output of **validation**, not a record read
 from the database. Use `OperationResult` for query results.
+
+These helpers return VibORM validation schemas implementing Standard Schema.
+They do not generate Zod or Valibot objects, a database row validator, or those
+libraries' `pick` and `extend` APIs. A scalar's `.schema()` can consume a
+Standard Schema validator; that is distinct from generating one from a model.
+BigInt inputs remain JavaScript `bigint` values. Convert a validated decimal
+string at a JSON boundary instead of passing a JSON number, which may already
+have lost integer precision.
 
 To validate a full payload selected by model and operation:
 

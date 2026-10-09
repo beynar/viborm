@@ -1,5 +1,6 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { readSuppressedFailures } from "@drivers/shared";
 import { Driver, TransactionBoundDriver } from "@src/drivers/driver";
 import { SavepointQueue } from "@src/drivers/savepoint-queue";
 import type { QueryResult } from "@src/drivers/types";
@@ -441,7 +442,11 @@ describe("nested transaction failure contracts", () => {
       "RELEASE",
     ]);
     expect(() => txDriver.assertTransactionCommittable()).toThrow(thrown);
-    await expect(txDriver._executeRaw("SELECT 1")).rejects.toBe(thrown);
+    const later = await txDriver
+      ._executeRaw("SELECT 1")
+      .catch((error: unknown) => error);
+    expect(later).toMatchObject({ name: "TransactionError", code: "V5001" });
+    expect(readSuppressedFailures(later)).toContain(thrown);
   });
 
   test("ordinary callback rollback leaves the parent scope usable", async () => {
@@ -473,8 +478,9 @@ describe("nested transaction failure contracts", () => {
     expect(driver.statements.map(statementKind)).toEqual(["SAVEPOINT"]);
     expect(() => txDriver.assertTransactionCommittable()).toThrow();
     await expect(txDriver._executeRaw("SELECT 1")).rejects.toMatchObject({
-      name: "QueryError",
-      code: "V2001",
+      name: "TransactionError",
+      code: "V5001",
+      message: expect.stringContaining("rollback-only"),
     });
   });
 

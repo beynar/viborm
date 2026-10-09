@@ -8,7 +8,8 @@ import type { DiagnosticDisclosure } from "./diagnostics";
 export type ConnectionErrorCode =
   | typeof VibORMErrorCode.CONNECTION_FAILED
   | typeof VibORMErrorCode.CONNECTION_TIMEOUT
-  | typeof VibORMErrorCode.CONNECTION_CLOSED;
+  | typeof VibORMErrorCode.CONNECTION_CLOSED
+  | typeof VibORMErrorCode.CONNECTION_CAPACITY;
 
 /**
  * Connection-related errors
@@ -55,6 +56,7 @@ export class ClientInitializationError extends VibORMError {
     message: string,
     options?: {
       cause?: Error | undefined;
+      diagnostics?: DiagnosticDisclosure | undefined;
       meta?: VibORMErrorMeta | undefined;
     }
   ) {
@@ -84,6 +86,9 @@ export type QueryErrorCode =
   | typeof VibORMErrorCode.QUERY_FAILED
   | typeof VibORMErrorCode.QUERY_TIMEOUT
   | typeof VibORMErrorCode.QUERY_SYNTAX
+  | typeof VibORMErrorCode.QUERY_SCHEMA_MISMATCH
+  | typeof VibORMErrorCode.QUERY_OUT_OF_RANGE
+  | typeof VibORMErrorCode.QUERY_RESULT_INVALID
   | typeof VibORMErrorCode.INVALID_INPUT;
 
 /**

@@ -39,7 +39,17 @@ describe("PGlite controlled transport execution", () => {
     });
     expect(query).toHaveBeenCalledWith(
       "SELECT id FROM events WHERE id > $1",
-      [4]
+      [4],
+      {
+        parsers: expect.objectContaining({
+          1082: expect.any(Function),
+          1114: expect.any(Function),
+          1184: expect.any(Function),
+          1182: expect.any(Function),
+          1115: expect.any(Function),
+          1185: expect.any(Function),
+        }),
+      }
     );
   });
 });

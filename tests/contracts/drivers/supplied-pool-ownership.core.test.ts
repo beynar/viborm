@@ -39,7 +39,7 @@ import { BunSQLDriver } from "@drivers/bun-sql";
 import { MySQL2Driver, type MySQL2DriverOptions } from "@drivers/mysql2";
 import { PgDriver, type PgDriverOptions } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
-import { PostgresDriver } from "@drivers/postgres";
+import { PostgresDriver, vibormTypes } from "@drivers/postgres";
 import { readSuppressedFailures } from "@drivers/shared";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { PGlite } from "@electric-sql/pglite";
@@ -221,7 +221,16 @@ const suppliedClientDrivers: readonly SuppliedClientDriver[] = [
   {
     name: "postgres.js",
     build: (options) => new PostgresDriver(options as never),
-    shape: (transport) => transport,
+    shape: (transport) =>
+      Object.assign(transport, {
+        options: {
+          parsers: {
+            1082: vibormTypes.timestamp?.parse,
+            1114: vibormTypes.timestamp?.parse,
+            1184: vibormTypes.timestamp?.parse,
+          },
+        },
+      }),
   },
   {
     name: "Bun SQL",
@@ -284,6 +293,7 @@ function suppliedTransport(subject: SuppliedClientDriver) {
   const rows: unknown[] = [];
   Object.assign(rows, { count: 0, command: "SELECT" });
   const transport = subject.shape({
+    pragma: () => 1,
     end: () => {
       state.closed += 1;
       return Promise.resolve();
@@ -737,7 +747,7 @@ describe("pg listens only on the pool it owns", () => {
     // The current acquisition is the requested action and stays primary. The
     // background failure is the half no request-scoped channel could surface,
     // so it remains inspectable beside the primary rather than replacing it.
-    expect(readPath(thrown, "code")).toBe("V1001");
+    expect(readPath(thrown, "code")).toBe("V1005");
     expect(readPath(thrown, "meta", "providerCode")).toBe("53300");
     expect(readPath(thrown, "originalCause", "code")).toBe("53300");
     const [background] = readSuppressedFailures(thrown);

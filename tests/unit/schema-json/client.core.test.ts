@@ -12,8 +12,6 @@ import { SchemaValidationError } from "@schema/validation/error";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { describe, expect, it } from "vitest";
 
-const UNKNOWN_MODEL = /not found in schema/;
-
 import { z } from "zod";
 
 const BLOG = {
@@ -51,12 +49,14 @@ describe("parsed schema client boundary", () => {
     expect(typeof client.post?.create).toBe("function");
   });
 
-  it("refuses an unknown model name at runtime", () => {
+  it("does not expose an unknown model at runtime", () => {
     const client = createClient({
       schema: parseSchema(BLOG),
       driver: new PlanningDriver("sqlite"),
     });
-    expect(() => client.ghost?.findMany()).toThrow(UNKNOWN_MODEL);
+    expect(client.ghost).toBeUndefined();
+    expect("ghost" in client).toBe(false);
+    expect(Object.hasOwn(client, "ghost")).toBe(false);
   });
 
   /**

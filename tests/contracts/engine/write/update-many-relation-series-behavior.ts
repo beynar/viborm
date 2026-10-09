@@ -176,10 +176,8 @@ export function registerUpdateManySeriesBehavior(
 
     test("count is the CAPTURED root count even when no column changes", async () => {
       await seedBins();
-      // §5.2 names this case: MySQL reports ZERO affected rows for an assignment that
-      // changes nothing (mysql2 does not set CLIENT_FOUND_ROWS), so a provider count
-      // would answer 0 here on one dialect and 2 on the others. The captured count is
-      // the same number everywhere.
+      // The series owns its captured count. Stock mysql2 also counts matches
+      // through CLIENT_FOUND_ROWS; caller-supplied connection flags need not.
       const result = await client.bin.updateMany({
         where: { id: { in: [1, 2] } },
         data: { label: undefined, shelf: { disconnect: true } },

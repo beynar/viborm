@@ -88,7 +88,11 @@ function createBunBinaryFixture() {
     values: vi.fn(() => []),
   };
   const database = {
-    query: vi.fn(() => statement),
+    query: vi.fn((sql: string) =>
+      sql === "PRAGMA foreign_keys"
+        ? { get: () => ({ foreign_keys: 1 }) }
+        : statement
+    ),
     prepare: vi.fn(() => statement),
     run: vi.fn(),
     exec: vi.fn(),
@@ -166,6 +170,7 @@ describe("D1 Worker binary values", () => {
         )
       ).toBe(true);
     } finally {
+      vi.unstubAllGlobals();
       await client.$disconnect();
     }
   });
@@ -183,6 +188,7 @@ describe("local SQLite binary values", () => {
     };
     const database = {
       prepare: () => statement,
+      pragma: vi.fn(() => 1),
       exec: vi.fn(),
       close: vi.fn(),
     };
@@ -197,6 +203,9 @@ describe("local SQLite binary values", () => {
     const batchQueries = [{ sql: statementSql, params: parameters }];
     Object.freeze(parameters);
     Object.freeze(batchQueries);
+    // Prime Node/Vitest's lazy module loader before removing a Node global.
+    // These assertions own byte conversion, not Node's startup requirements.
+    await driver._transaction(async () => undefined);
     vi.stubGlobal("Buffer", undefined);
 
     try {
@@ -224,6 +233,7 @@ describe("local SQLite binary values", () => {
       }
       expect(parameters).toEqual([true, false, undefined, null, buffer, view]);
     } finally {
+      vi.unstubAllGlobals();
       await driver.disconnect();
     }
   });
@@ -238,6 +248,7 @@ describe("local SQLite binary values", () => {
     const batchQueries = [{ sql: statementSql, params: parameters }];
     Object.freeze(parameters);
     Object.freeze(batchQueries);
+    await fixture.driver._transaction(async () => undefined);
     vi.stubGlobal("Buffer", undefined);
 
     try {
@@ -267,6 +278,7 @@ describe("local SQLite binary values", () => {
       }
       expect(parameters).toEqual([true, false, undefined, null, bytes, view]);
     } finally {
+      vi.unstubAllGlobals();
       await fixture.driver.disconnect();
     }
   });

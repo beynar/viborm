@@ -17,6 +17,7 @@ export function generateDDLStatements(
       destination: "live",
       currentSchema,
       precedingOperations: operations.slice(0, position),
+      followingOperations: operations.slice(position + 1),
     };
     statements.push(
       ...migrationDriver.compileStatements(operation, ddlContext)

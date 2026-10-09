@@ -13,7 +13,11 @@
 
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import type { BatchQuery, QueryResult } from "@drivers/types";
+import type {
+  BatchQuery,
+  QueryExecutionContext,
+  QueryResult,
+} from "@drivers/types";
 import { ForeignKeyError, NotFoundError } from "@errors";
 import { appendResolvedExtension } from "@extensions/chain";
 import { callRows } from "@extensions/rows";
@@ -24,6 +28,8 @@ import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import type Database from "better-sqlite3";
 import { afterEach, describe, expect, test, vi } from "vitest";
+
+const UNKNOWN_MODEL_PATTERN = /unknown model/;
 
 // Every call's row facts are resolved through this spy, a passthrough: it
 // counts the resolutions one call makes across its attempts.
@@ -300,7 +306,7 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
     ).toBeUndefined();
   });
 
-  test("a row predicate is bound as written: raw shorthand filters rows end to end, and a model the schema lacks is ignored", async () => {
+  test("raw shorthand filters rows end to end and an unknown policy model is refused", async () => {
     const base = createClient({
       schema,
       driver: createInMemorySQLite3Driver(),
@@ -324,10 +330,24 @@ describe("a chain's rows and deletion resolve to one call's facts", () => {
             no: { root: { archivedAt: null, hidden: false } },
             yes: { root: { NOT: { archivedAt: null } } },
           },
-          ghost: { no: { root: { gone: 1 } } },
         },
       },
     });
+    expect(() =>
+      base.$extends({
+        name: "invalid-model",
+        rows: {
+          control: "archived",
+          default: "no",
+          models: {
+            // @ts-expect-error the whole model map is refused when any key is unknown
+            item: { no: { root: { hidden: false } } },
+            // @ts-expect-error runtime falsifier: unknown policy models fail admission
+            ghost: { no: { root: { gone: 1 } } },
+          },
+        },
+      })
+    ).toThrow(UNKNOWN_MODEL_PATTERN);
     const ids = (rows: readonly { readonly id: number }[]) =>
       rows.map((row) => row.id);
     expect(ids(await db.item.findMany({ orderBy: { id: "asc" } }))).toEqual([
@@ -378,16 +398,19 @@ const POST_READ = /^\s*SELECT\b[\s\S]*\bFROM "post"/i;
 
 /** Runs one statement right after the first read of `post` once armed. */
 class AfterLockSQLite3Driver extends SQLite3Driver {
+  // Pin this fixture's budget; its keyed-versus-range oracles exercise999 binds.
+  override readonly maxBindParametersPerStatement = 999;
   afterRead: string | undefined;
 
   protected override async execute<T>(
     client: Database.Database,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const result = await super.execute<T>(client, sql, params);
     const pending = this.afterRead;
-    if (pending && POST_READ.test(sql)) {
+    if (pending && context?.model !== "$schema" && POST_READ.test(sql)) {
       this.afterRead = undefined;
       await this.executeRaw(client, pending);
     }
@@ -542,7 +565,7 @@ describe("a limited soft delete takes exactly the rows it locked", () => {
   // counted against half the budget before anything is compiled, so the
   // window takes the key range instead.
   test("a window of keys past half the budget is never compiled", async () => {
-    const { base, db } = await fixture();
+    const { base, db } = await fixture(new AfterLockSQLite3Driver());
     await base.author.create({ data: { id: 9, name: "a9" } });
     await base.post.createMany({
       data: Array.from({ length: 995 }, (_, index) => ({

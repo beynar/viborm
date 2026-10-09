@@ -231,6 +231,7 @@ for (const { name, createDriver, verbatimTable } of DIALECTS) {
         const { client } = await setup();
 
         await expect(
+          // @ts-expect-error - exercise runtime refusal for an invalid JS call
           client.$queryRaw(sql`SELECT 1`, "stray")
         ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });
       });
@@ -614,9 +615,9 @@ for (const { name, createDriver, verbatimTable } of DIALECTS) {
 }
 
 /**
- * The other half of the invalid-Date boundary. Only PostgreSQL binds a Date at
- * all — better-sqlite3 refuses every Date object, valid or not — so a valid one
- * is proven to retain its instant where it is a legal parameter. The focused
+ * The other half of the invalid-Date boundary: PostgreSQL's bound Date retains
+ * its instant, while raw temporal results remain provider text. SQLite binds
+ * valid raw Dates as ISO text through its shared parameter encoder. The focused
  * fake-driver client contract pins detached provider identity.
  */
 describe("valid Date parameters (pglite)", () => {
@@ -627,11 +628,17 @@ describe("valid Date parameters (pglite)", () => {
       await syncLiveSchema(client);
       const at = new Date("2024-01-02T03:04:05.000Z");
 
-      const rows = await client.$queryRaw<{
-        v: Date;
-      }>`SELECT ${at}::timestamptz AS v`;
+      const rows = await client.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL TIME ZONE 'UTC'");
+        return tx.$queryRaw<{ v: string; epochMs: string }>`
+          SELECT ${at}::timestamptz AS v,
+            (EXTRACT(EPOCH FROM ${at}::timestamptz) * 1000)::bigint::text AS "epochMs"
+        `;
+      });
 
-      expect(rows).toEqual([{ v: at }]);
+      expect(rows).toEqual([
+        { v: "2024-01-02 03:04:05+00", epochMs: String(at.getTime()) },
+      ]);
     } finally {
       await client.$disconnect();
     }
@@ -739,6 +746,7 @@ describe("raw SQL in a native array transaction", () => {
       await expect(
         client.$transaction([
           client.$executeRaw`UPDATE ${raw(pgliteVerbatimTable())} SET qty = ${77}`,
+          // @ts-expect-error - invalid JS array members must fail before writes
           client.$queryRaw(sql`SELECT 1`, "stray"),
         ])
       ).rejects.toMatchObject({ code: VibORMErrorCode.INVALID_INPUT });

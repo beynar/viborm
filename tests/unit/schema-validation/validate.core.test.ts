@@ -451,12 +451,36 @@ describe("model and field rules", () => {
     const badTable = s.model({ id: s.string().id() }).map("bad table");
     const result = validateSchema({
       "bad-name": badKey,
-      select: reserved,
+      then: reserved,
       ok: badTable,
     });
     expect(codes(result)).toEqual(
       expect.arrayContaining(["M005", "M006", "M007"])
     );
+  });
+
+  it.each([
+    "order",
+    "group",
+    "key",
+    "index",
+    "table",
+    "column",
+    "field",
+    "model",
+    "default",
+    "select",
+    "create",
+    "delete",
+  ])("admits quoted SQL keyword %s as a model name, with or without mapping", (name) => {
+    expect(
+      validateSchema({ [name]: s.model({ id: s.int().id() }) }).errors
+    ).toEqual([]);
+    expect(
+      validateSchema({
+        [name]: s.model({ id: s.int().id() }).map(`${name}_rows`),
+      }).errors
+    ).toEqual([]);
   });
 
   it("errors F002 when two fields are marked .id()", () => {

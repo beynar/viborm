@@ -2,6 +2,7 @@ import type { ResolvedExtensionChain } from "@extensions/chain";
 import type { QueryExecutionContext } from "./types";
 
 interface TrustedExecutionContext {
+  readonly callsite?: string;
   readonly correlationId?: string;
   readonly correlationIdGetter?: () => string;
   readonly extensionChain?: ResolvedExtensionChain;
@@ -50,7 +51,8 @@ const trusted = (context: object) => TrustedSnapshot.values(context);
 export function createExecutionContext(
   values: QueryExecutionContext,
   correlationIdFactory?: () => string,
-  extensionChain?: ResolvedExtensionChain
+  extensionChain?: ResolvedExtensionChain,
+  callsite?: string
 ): QueryExecutionContext {
   if (!correlationIdFactory) {
     return snapshotExecutionContext(
@@ -67,6 +69,7 @@ export function createExecutionContext(
     return correlationId;
   };
   return createTrustedExecutionContext({
+    callsite,
     correlationIdGetter,
     extensionChain,
     model: readString(values, "model"),
@@ -103,6 +106,7 @@ export function snapshotExecutionContext(
     contextValues.extensionChain ??
     boundValues.extensionChain ??
     extensionChainOverride;
+  const callsite = contextValues.callsite ?? boundValues.callsite;
   const transactionPhases =
     contextValues.transactionPhases ?? boundValues.transactionPhases;
 
@@ -116,7 +120,8 @@ export function snapshotExecutionContext(
       correlationId,
       correlationIdGetter,
       extensionChain,
-      transactionPhases
+      transactionPhases,
+      callsite
     )
   ) {
     return context;
@@ -131,13 +136,15 @@ export function snapshotExecutionContext(
       correlationId,
       correlationIdGetter,
       extensionChain,
-      transactionPhases
+      transactionPhases,
+      callsite
     )
   ) {
     return boundContext;
   }
 
   return createTrustedExecutionContext({
+    callsite,
     correlationId,
     correlationIdGetter,
     extensionChain,
@@ -155,10 +162,15 @@ export function snapshotExecutionContext(
  */
 export function deriveStatementExecutionContext(
   context: QueryExecutionContext,
-  model: string
+  model: string,
+  operation?: string
 ): QueryExecutionContext {
   const values = trusted(context) ?? snapshotExternalExecutionContext(context);
-  return createTrustedExecutionContext({ ...values, model });
+  return createTrustedExecutionContext({
+    ...values,
+    model,
+    ...(operation === undefined ? {} : { operation }),
+  });
 }
 
 /** Read only the chain attached by the trusted context owner. */
@@ -167,6 +179,13 @@ export function getExecutionExtensionChain(
 ): ResolvedExtensionChain | undefined {
   if (!context) return undefined;
   return trusted(context)?.extensionChain;
+}
+
+/** The origin belongs to the exact deferred operation, never caller-spoofed metadata. */
+export function getExecutionCallsite(
+  context: QueryExecutionContext | undefined
+): string | undefined {
+  return context ? trusted(context)?.callsite : undefined;
 }
 
 /** Attach private lifecycle notifications without accepting caller-spoofed state. */
@@ -237,9 +256,11 @@ function representsExecutionContext(
   correlationId: string | undefined,
   correlationIdGetter: (() => string) | undefined,
   extensionChain: ResolvedExtensionChain | undefined,
-  transactionPhases: TransactionPhaseNotifications | undefined
+  transactionPhases: TransactionPhaseNotifications | undefined,
+  callsite: string | undefined
 ): boolean {
   return (
+    values.callsite === callsite &&
     values.model === model &&
     values.operation === operation &&
     values.correlationId === correlationId &&

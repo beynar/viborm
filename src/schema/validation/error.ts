@@ -23,8 +23,16 @@ export class SchemaValidationError extends VibORMError {
         )
       )
     );
-    const messages = snapshot.map(
-      (issue) => `[${issue.code}] ${issue.message}`
+    const messages = snapshot.map((issue) =>
+      [
+        `[${issue.code}] ${issue.message}`,
+        issue.candidates?.length
+          ? `Candidates: ${issue.candidates.join(", ")}`
+          : "",
+        issue.repair ?? "",
+      ]
+        .filter(Boolean)
+        .join("\n")
     );
     super(
       `Schema validation failed:\n${messages.join("\n")}`,

@@ -208,6 +208,8 @@ export interface EnumFieldDocument extends NativeScalarFieldModifiers {
  */
 export interface GenerateDocument {
   kind: AutoGenerateType;
+  /** String format generation choice; absence preserves legacy generation. */
+  generate?: boolean;
   prefix?: string;
   length?: number;
   /**

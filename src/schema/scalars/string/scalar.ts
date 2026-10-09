@@ -5,10 +5,16 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { hasIdPrefix, refuseId } from "@validation/primitives/id-formats";
 import v from "@validation/primitives/v";
 import {
+  type AutoGenerate,
   createDefaultState,
   type DefaultValueInput,
+  type GeneratorDefaultBrand,
   generatorDefault,
+  isGeneratorDefault,
+  nullableDefault,
+  refuseListGenerator,
   type ScalarState,
+  type UpdateState,
   updateState,
 } from "../common";
 import { admitNativeType } from "../native-catalog";
@@ -27,6 +33,111 @@ import {
   defaultUuidV7,
 } from "./autogenerate";
 
+interface FormatOptions {
+  prefix?: string;
+  generate?: true;
+}
+interface NanoidOptions extends FormatOptions {
+  length?: number;
+}
+interface KeyOptions {
+  generate: false;
+  prefix?: string;
+}
+type IdentifierKind = "uuid" | "uuidv7" | "ulid" | "ksuid" | "nanoid" | "cuid";
+type ExactOptions<Given, Allowed> = Given extends string | number | undefined
+  ? unknown
+  : Record<Exclude<keyof Given, keyof Allowed>, never>;
+type GenerationRequested<
+  State extends ScalarState<"string">,
+  Given,
+> = Given extends { generate: true }
+  ? true
+  : Given extends { generate: false }
+    ? false
+    : State["autoGenerate"] extends { generate: false }
+      ? false
+      : State["autoGenerate"] extends { generate: true }
+        ? true
+        : State["isId"];
+type GenerationChoice<
+  State extends ScalarState<"string">,
+  Given,
+> = Given extends { generate: true }
+  ? true
+  : Given extends { generate: false }
+    ? false
+    : State["autoGenerate"] extends {
+          generate: infer Choice extends boolean | undefined;
+        }
+      ? Choice
+      : undefined;
+type HasCustomDefault<State extends ScalarState<"string">> =
+  State["default"] extends GeneratorDefaultBrand ? false : State["hasDefault"];
+type FormatState<
+  State extends ScalarState<"string">,
+  Given,
+  Kind extends IdentifierKind = IdentifierKind,
+> = {
+  autoGenerate: AutoGenerate & {
+    kind: Kind;
+    implicit?: undefined;
+    generate: GenerationChoice<State, Given>;
+  };
+  hasDefault: HasCustomDefault<State> extends true
+    ? true
+    : GenerationRequested<State, Given>;
+  optional: HasCustomDefault<State> extends true
+    ? true
+    : GenerationRequested<State, Given>;
+  default: HasCustomDefault<State> extends true
+    ? State["default"]
+    : GenerationRequested<State, Given> extends true
+      ? (() => string) & GeneratorDefaultBrand
+      : undefined;
+};
+type KeyState<State extends ScalarState<"string">, Given> = Omit<
+  FormatState<UpdateState<State, { isId: true }>, Given>,
+  "autoGenerate"
+> & {
+  isId: true;
+  isUnique: true;
+  autoGenerate: State["autoGenerate"] extends AutoGenerate
+    ? Omit<State["autoGenerate"], "generate"> & {
+        generate: GenerationChoice<State, Given>;
+      }
+    : {
+        kind: "ulid";
+        implicit: true;
+        prefix?: string;
+        generate: GenerationChoice<State, Given>;
+      };
+};
+
+function identifierGenerator(declaration: AutoGenerate): () => string {
+  const { kind, prefix, length } = declaration;
+  switch (kind) {
+    case "uuid":
+      return defaultUuid(prefix);
+    case "uuidv7":
+      return defaultUuidV7(prefix);
+    case "ulid":
+      return defaultUlid(prefix);
+    case "ksuid":
+      return defaultKsuid(prefix);
+    case "nanoid":
+      return defaultNanoid(length, prefix);
+    case "cuid":
+      return defaultCuid(prefix);
+    default:
+      return refuseId(
+        "s.string",
+        "generate",
+        "This generator is not a string identifier format"
+      );
+  }
+}
+
 const stringBase = v.string();
 
 export class StringScalar<State extends ScalarState<"string">> {
@@ -43,7 +154,7 @@ export class StringScalar<State extends ScalarState<"string">> {
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         base: v.string<{
           nullable: true;
@@ -60,6 +171,7 @@ export class StringScalar<State extends ScalarState<"string">> {
   }
 
   array() {
+    if (isGeneratorDefault(this.state.default)) refuseListGenerator("s.string");
     return new StringScalar(
       updateState(this, {
         array: true,
@@ -77,47 +189,18 @@ export class StringScalar<State extends ScalarState<"string">> {
     );
   }
 
-  /**
-   * Marks this field as the model's primary key, and — only when no generator
-   * has been declared yet — installs a ULID.
-   *
-   * `.id()` is a KEY declaration that carries a convenience default, not a
-   * generator of its own, so it never replaces one the caller already spelled:
-   * `.uuid("a").id()` is a prefixed UUID primary key, exactly like
-   * `.id().uuid("a")`. A PREFIX passed after a generator is refused instead of
-   * silently winning or silently losing — `.uuid("a").id("b")` names two
-   * prefixes for one field and only its author knows which was meant. What
-   * counts as a prefix is `hasIdPrefix`'s answer, here as everywhere: `.id("")`
-   * names none, so it contradicts nothing and is a plain key declaration.
-   *
-   * `hasDefault` is part of the declaration: a field whose id the runtime
-   * generates must be optional in the create TYPE too.
-   */
-  id(prefix?: string) {
+  id<const Given extends string | KeyOptions | undefined = undefined>(
+    options?: Given & ExactOptions<Given, KeyOptions>
+  ): StringScalar<UpdateState<State, KeyState<State, Given>>>;
+  id(options?: string | KeyOptions): StringScalar<ScalarState<"string">> {
+    const generate = typeof options === "object" ? options.generate : undefined;
+    const prefix = typeof options === "string" ? options : options?.prefix;
     const declared = this.state.autoGenerate;
-    if (declared !== undefined) {
-      if (hasIdPrefix(prefix)) refuseSecondIdPrefix(declared);
-      return new StringScalar(
-        updateState(this, {
-          isId: true,
-          isUnique: true,
-          hasDefault: true,
-          optional: true,
-        }),
-        this._nativeType
-      );
-    }
-    return new StringScalar(
-      updateState(this, {
-        isId: true,
-        isUnique: true,
-        hasDefault: true,
-        autoGenerate: { kind: "ulid", prefix, implicit: true },
-        default: generatorDefault(defaultUlid(prefix)),
-        optional: true,
-      }),
-      this._nativeType
-    );
+    if (declared && hasIdPrefix(prefix)) refuseSecondIdPrefix(declared);
+    const declaration: AutoGenerate = declared
+      ? { ...declared, generate: generate ?? declared.generate }
+      : { kind: "ulid", prefix, implicit: true, generate };
+    return this.withIdentifier(declaration, true);
   }
 
   unique() {
@@ -168,73 +251,93 @@ export class StringScalar<State extends ScalarState<"string">> {
     );
   }
 
-  uuid(prefix?: string) {
-    return new StringScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: generatorDefault(defaultUuid(prefix)),
-        autoGenerate: { kind: "uuid", prefix },
-        optional: true,
-      }),
-      this._nativeType
+  uuid<const Given extends string | FormatOptions | undefined = undefined>(
+    options?: Given & ExactOptions<Given, FormatOptions>
+  ): StringScalar<UpdateState<State, FormatState<State, Given, "uuid">>>;
+  uuid(options?: string | FormatOptions): StringScalar<ScalarState<"string">> {
+    return this.withFormat("uuid", options);
+  }
+
+  uuidv7<const Given extends string | FormatOptions | undefined = undefined>(
+    options?: Given & ExactOptions<Given, FormatOptions>
+  ): StringScalar<UpdateState<State, FormatState<State, Given, "uuidv7">>>;
+  uuidv7(
+    options?: string | FormatOptions
+  ): StringScalar<ScalarState<"string">> {
+    return this.withFormat("uuidv7", options);
+  }
+
+  ksuid<const Given extends string | FormatOptions | undefined = undefined>(
+    options?: Given & ExactOptions<Given, FormatOptions>
+  ): StringScalar<UpdateState<State, FormatState<State, Given, "ksuid">>>;
+  ksuid(options?: string | FormatOptions): StringScalar<ScalarState<"string">> {
+    return this.withFormat("ksuid", options);
+  }
+
+  ulid<const Given extends string | FormatOptions | undefined = undefined>(
+    options?: Given & ExactOptions<Given, FormatOptions>
+  ): StringScalar<UpdateState<State, FormatState<State, Given, "ulid">>>;
+  ulid(options?: string | FormatOptions): StringScalar<ScalarState<"string">> {
+    return this.withFormat("ulid", options);
+  }
+
+  cuid<const Given extends string | FormatOptions | undefined = undefined>(
+    options?: Given & ExactOptions<Given, FormatOptions>
+  ): StringScalar<UpdateState<State, FormatState<State, Given, "cuid">>>;
+  cuid(options?: string | FormatOptions): StringScalar<ScalarState<"string">> {
+    return this.withFormat("cuid", options);
+  }
+
+  nanoid<const Given extends number | NanoidOptions | undefined = undefined>(
+    options?: Given & ExactOptions<Given, NanoidOptions>,
+    prefix?: string
+  ): StringScalar<UpdateState<State, FormatState<State, Given, "nanoid">>>;
+  nanoid(
+    options?: number | NanoidOptions,
+    prefix?: string
+  ): StringScalar<ScalarState<"string">> {
+    return this.withFormat(
+      "nanoid",
+      typeof options === "number"
+        ? { length: options, prefix }
+        : (options ?? { prefix })
     );
   }
 
-  uuidv7(prefix?: string) {
-    return new StringScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: generatorDefault(defaultUuidV7(prefix)),
-        autoGenerate: { kind: "uuidv7", prefix },
-        optional: true,
-      }),
-      this._nativeType
+  private withFormat(kind: IdentifierKind, options?: string | NanoidOptions) {
+    const configuration: NanoidOptions | undefined =
+      typeof options === "string" ? { prefix: options } : options;
+    return this.withIdentifier(
+      {
+        kind,
+        prefix: configuration?.prefix,
+        length: kind === "nanoid" ? configuration?.length : undefined,
+        generate: configuration?.generate ?? this.state.autoGenerate?.generate,
+      },
+      this.state.isId
     );
   }
 
-  ksuid(prefix?: string) {
+  private withIdentifier(declaration: AutoGenerate, isId: boolean) {
+    const generator = identifierGenerator(declaration);
+    const customDefault =
+      this.state.hasDefault && !isGeneratorDefault(this.state.default);
+    const generate =
+      declaration.generate === true || (isId && declaration.generate !== false);
+    const installed = generate && !customDefault;
+    if (this.state.array && installed) refuseListGenerator("s.string");
     return new StringScalar(
       updateState(this, {
-        hasDefault: true,
-        default: generatorDefault(defaultKsuid(prefix)),
-        autoGenerate: { kind: "ksuid", prefix },
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
-  ulid(prefix?: string) {
-    return new StringScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: generatorDefault(defaultUlid(prefix)),
-        autoGenerate: { kind: "ulid", prefix },
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
-  nanoid(length?: number, prefix?: string) {
-    return new StringScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: generatorDefault(defaultNanoid(length, prefix)),
-        autoGenerate: { kind: "nanoid", prefix, length },
-        optional: true,
-      }),
-      this._nativeType
-    );
-  }
-
-  cuid(prefix?: string) {
-    return new StringScalar(
-      updateState(this, {
-        hasDefault: true,
-        default: generatorDefault(defaultCuid(prefix)),
-        autoGenerate: { kind: "cuid", prefix },
-        optional: true,
+        isId,
+        isUnique: isId || this.state.isUnique,
+        autoGenerate: declaration,
+        hasDefault: customDefault || installed,
+        optional: customDefault || installed,
+        default: installed
+          ? generatorDefault(generator)
+          : customDefault
+            ? this.state.default
+            : undefined,
       }),
       this._nativeType
     );

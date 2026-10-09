@@ -350,6 +350,11 @@ type NumericFilterOps = AggregateFilterOps<
   }>
 >;
 
+type AggregateNullFilter = V.Object<
+  { equals: V.Literal<null>; not: V.Literal<null> },
+  { optional: true }
+>;
+
 /**
  * A decimal aggregate's operands are DECIMALS, not doubles.
  *
@@ -374,13 +379,14 @@ type DecimalFilterOps = AggregateFilterOps<
  */
 export type HavingAggregateScalarSchema<
   Ops extends V.Schema = NumericFilterOps,
+  ValueOps extends V.Schema = Ops,
 > = V.Object<
   {
     _count: NumericFilterOps;
     _avg: Ops;
     _sum: Ops;
-    _min: Ops;
-    _max: Ops;
+    _min: ValueOps;
+    _max: ValueOps;
   },
   { optional: true }
 >;
@@ -414,9 +420,18 @@ type DecimalScalarKeys<M extends AnyModel> = {
     : never;
 }[keyof ModelStateOf<M>["scalars"]];
 
-type HavingAggregateOf<M extends AnyModel, K> = K extends DecimalScalarKeys<M>
+type HavingAggregateOf<
+  M extends AnyModel,
+  K,
+  S extends V.Schema,
+> = K extends DecimalScalarKeys<M>
   ? HavingAggregateScalarSchema<DecimalFilterOps>
-  : HavingAggregateScalarSchema;
+  : HavingAggregateScalarSchema<
+      K extends NumericScalarKeys<ModelStateOf<M>["scalars"]>
+        ? NumericFilterOps
+        : AggregateValueRefusalSchema,
+      V.Union<readonly [S, AggregateNullFilter]>
+    >;
 
 type ScalarFilterBundle = {
   scalars: Record<string, { filter: V.Schema }>;
@@ -457,7 +472,7 @@ type HavingScalarSchema<
   S extends V.Schema,
 > = K extends ListScalarKeys<M>
   ? ListHavingFilterSchema<S>
-  : V.Union<readonly [HavingAggregateOf<M, K>, S]>;
+  : V.Union<readonly [HavingAggregateOf<M, K, S>, S]>;
 
 export type HavingSchemaEntries<
   M extends AnyModel,
@@ -522,6 +537,11 @@ const buildAggregateFilterOps = (
 const numericFilterOps = buildAggregateFilterOps(
   () => v.number(),
   () => v.number({ nullable: true })
+);
+
+const aggregateNullFilter = v.object(
+  { equals: v.literal(null), not: v.literal(null) },
+  { optional: true }
 );
 
 type RuntimeListFilterSchema = V.Union<
@@ -597,22 +617,28 @@ const sumOperandDomain = (
 /**
  * The aggregate filter object for ONE scalar, in that scalar's own domain.
  *
- * Non-decimal scalars keep the shared numeric operand — an `_avg` of ints is a
- * fraction and an `_avg` of floats is a float, both of which a JavaScript
- * number names exactly as well as anything else. A decimal is the case where
- * the number is a lossy name for the value, so its four value aggregates take
- * decimal operands built from the field's descriptor.
+ * Min/max keep the field's filter domain. Numeric aggregates use their result
+ * domain, including the widened exact decimal domain for sums.
  */
-const havingAggregateSchema = (state: ScalarState | undefined) => {
+const havingAggregateSchema = (
+  state: ScalarState | undefined,
+  filter: V.Schema
+) => {
   const descriptor = state?.type === "decimal" ? state.decimal : undefined;
   if (!descriptor) {
     return v.object(
       {
         _count: numericFilterOps,
-        _avg: numericFilterOps,
-        _sum: numericFilterOps,
-        _min: numericFilterOps,
-        _max: numericFilterOps,
+        _avg:
+          state && isSummableScalar(state)
+            ? numericFilterOps
+            : v.refused("Only numeric scalars support '_avg' in having."),
+        _sum:
+          state && isSummableScalar(state)
+            ? numericFilterOps
+            : v.refused("Only numeric scalars support '_sum' in having."),
+        _min: v.union([filter, aggregateNullFilter]),
+        _max: v.union([filter, aggregateNullFilter]),
       },
       { optional: true }
     );
@@ -662,10 +688,13 @@ export function getHavingSchema(
     entries[name] =
       state?.array === true
         ? listHavingSchema(schemas.filter)
-        : v.union([
-            havingAggregateSchema(state),
-            v.noOperandExpression(schemas.filter, "'having'"),
-          ]);
+        : v.noOperandExpression(
+            v.union([
+              havingAggregateSchema(state, schemas.filter),
+              schemas.filter,
+            ]),
+            "'having'"
+          );
   }
 
   // AND/OR/NOT recurse into the same schema through thunks — `.extend` returns

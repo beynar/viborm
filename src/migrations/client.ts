@@ -35,6 +35,7 @@ import {
   isMigrationStorageReader,
   isMigrationStorageWriter,
 } from "./storage/contract";
+import { MANAGED_TABLES, normalizeManagedTables } from "./target";
 import type {
   ApplyV1Options,
   BaselineOptions,
@@ -52,10 +53,11 @@ export interface MigrationClientOptions<
   S extends MigrationStorageReader = MigrationStorageReader,
 > {
   readonly storage: S;
+  readonly tables?: readonly string[];
 }
 
 type NoExtraMigrationClientOptionKeys<Given> = Record<
-  Exclude<keyof Given, "storage">,
+  Exclude<keyof Given, "storage" | "tables">,
   never
 >;
 
@@ -77,6 +79,8 @@ export interface ResolveResult {
   readonly outcome: ResolveV1Options["outcome"];
 }
 export interface ResetResult {
+  /** Physical tables selected for a read-only reset preview. */
+  readonly tables?: readonly string[];
   readonly preview: boolean;
   readonly path: readonly string[];
 }
@@ -117,31 +121,50 @@ export function createMigrationClient<
   client: MigrationClient,
   options: Options & NoExtraMigrationClientOptionKeys<Options>
 ): ReadableMigrations;
+export function createMigrationClient<
+  Options extends { readonly tables: readonly string[] },
+>(
+  client: MigrationClient,
+  options: Options & Record<Exclude<keyof Options, "tables">, never>
+): LiveMigrations;
 export function createMigrationClient(
   client: MigrationClient,
   options?: undefined
 ): LiveMigrations;
 export function createMigrationClient(
   client: MigrationClient,
-  options?: MigrationClientOptions
+  options?: MigrationClientOptions | { readonly tables: readonly string[] }
 ): LiveMigrations | ReadableMigrations | WritableMigrations {
+  const record =
+    options === undefined
+      ? undefined
+      : snapshotExactRecord(
+          options,
+          ["storage", "tables"],
+          "migration client options",
+          refuseClientOptions
+        );
+  const tables = normalizeManagedTables(record?.tables);
+  const executionClient: MigrationClient =
+    tables === undefined
+      ? client
+      : {
+          $driver: client.$driver,
+          $schema: client.$schema,
+          [MANAGED_TABLES]: tables,
+        };
   const live: LiveMigrations = Object.freeze({
-    log: () => logV1(client),
+    log: () => logV1(executionClient),
     push<O extends PushOptionsV1>(
       pushOptions?: ExactPushOptions<O>
     ): Promise<PushResultFor<O>> {
-      return pushV1(client, pushOptions);
+      return pushV1(executionClient, pushOptions);
     },
   });
-  if (options === undefined) return live;
-  const record = snapshotExactRecord(
-    options,
-    ["storage"],
-    "migration client options",
-    refuseClientOptions
-  );
+  if (record === undefined) return live;
   const storage = record.storage;
   if (storage === undefined) {
+    if (tables !== undefined) return live;
     return refuseClientOptions(
       "migration client options must include storage when supplied"
     );
@@ -172,14 +195,16 @@ export function createMigrationClient(
     },
     graph: async () =>
       migrationGraphResult(await loadMigrationGraph(readableStorage)),
-    status: () => statusV1(client, readableStorage),
-    verify: () => verifyV1(client, readableStorage),
-    apply: (applyOptions) => applyV1(client, readableStorage, applyOptions),
-    down: (downOptions) => downV1(client, readableStorage, downOptions),
+    status: () => statusV1(executionClient, readableStorage),
+    verify: () => verifyV1(executionClient, readableStorage),
+    apply: (applyOptions) =>
+      applyV1(executionClient, readableStorage, applyOptions),
+    down: (downOptions) =>
+      downV1(executionClient, readableStorage, downOptions),
     baseline: (baselineOptions) =>
-      baselineV1(client, readableStorage, baselineOptions),
+      baselineV1(executionClient, readableStorage, baselineOptions),
     resolve: (resolveOptions) =>
-      resolveV1(client, readableStorage, resolveOptions),
+      resolveV1(executionClient, readableStorage, resolveOptions),
   });
   let writableStorage: MigrationStorageWriter;
   try {
@@ -195,8 +220,9 @@ export function createMigrationClient(
   return Object.freeze({
     ...readable,
     generate: (generateOptions) =>
-      generateV1(client, writableStorage, generateOptions),
-    reset: (resetOptions) => resetV1(client, writableStorage, resetOptions),
+      generateV1(executionClient, writableStorage, generateOptions),
+    reset: (resetOptions) =>
+      resetV1(executionClient, writableStorage, resetOptions),
   });
 }
 

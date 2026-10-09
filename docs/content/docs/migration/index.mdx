@@ -127,7 +127,7 @@ MySQL DDL is the documented stepwise exception because each statement commits:
 | **PGlite, pg, postgres.js, Bun SQL** | Transaction when every statement permits it | Same guarantee |
 | **SQLite3, Bun SQLite** | One writer boundary; transactional where supported | Same guarantee |
 | **MySQL2** | Stepwise — a failed run can leave earlier statements applied | Same limitation, with durable progress evidence |
-| **Neon HTTP, PlanetScale, D1, D1 HTTP, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
+| **Neon HTTP, PlanetScale, D1, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
 
 On the atomic paths, a successful migration applies every statement and a
 failed one applies none. The portable API exposes no transaction isolation
@@ -153,27 +153,27 @@ refuses a spatial index before effects. See
 <CardGroup>
   <Card
     title="Push"
-    description="Direct schema synchronization for development"
-    href="/docs/migration/push"
-  />
+    href="/docs/migration/push">
+    Direct schema synchronization for development
+  </Card>
   <Card
     title="Migrate"
-    description="Authenticated migration history for production"
-    href="/docs/migration/migrate"
-  />
+    href="/docs/migration/migrate">
+    Authenticated migration history for production
+  </Card>
   <Card
     title="Compared with Prisma and Drizzle"
-    description="How the history, integrity, recovery, and push models differ"
-    href="/docs/migration/comparison"
-  />
+    href="/docs/migration/comparison">
+    How the history, integrity, recovery, and push models differ
+  </Card>
   <Card
     title="Storage Drivers"
-    description="Where migration estate artifacts are stored"
-    href="/docs/migration/storage"
-  />
+    href="/docs/migration/storage">
+    Where migration estate artifacts are stored
+  </Card>
   <Card
     title="Migration Drivers"
-    description="Database-specific DDL generation"
-    href="/docs/migration/drivers"
-  />
+    href="/docs/migration/drivers">
+    Database-specific DDL generation
+  </Card>
 </CardGroup>

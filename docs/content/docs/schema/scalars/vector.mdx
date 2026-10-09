@@ -20,6 +20,11 @@ s.vector().nullable()    // number[] | null
 
 Stored as a pgvector `vector(n)` column. Vectors support `.nullable()`, `.default()`, `.map()`, and `.dimension(n)` — but **not** `.array()`, `.id()`, `.unique()`, or `.schema()`. See the [support matrix](/docs/schema/scalars).
 
+Components must be finite numbers. PostgreSQL components must also fit float32;
+an out-of-range value is refused before dispatch. Cosine distance is `null`
+when either vector has zero norm; L2 distance remains defined for zero vectors.
+A nullable source vector produces a nullable distance for either metric.
+
 ## PostgreSQL Setup
 
 Enable the pgvector extension:

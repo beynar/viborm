@@ -66,7 +66,7 @@ const MODES: Mode[] = ["batch", "transaction"];
 
 describe("$transaction([...]) mutation cache invalidation", () => {
   for (const mode of MODES) {
-    test(`${mode}: a batched autoInvalidate write clears the model's cached reads`, async () => {
+    test(`${mode}: a batched write invalidates cached reads by default`, async () => {
       const { client, settle } = await boot(mode);
 
       const warm = await client
@@ -78,7 +78,6 @@ describe("$transaction([...]) mutation cache invalidation", () => {
       await client.$transaction([
         client.user.create({
           data: { id: "2", name: "Bob", email: "bob@test.com" },
-          cache: { autoInvalidate: true },
         }),
       ]);
 
@@ -98,7 +97,7 @@ describe("$transaction([...]) mutation cache invalidation", () => {
       await client.$transaction([
         client.user.create({
           data: { id: "2", name: "Bob", email: "bob@test.com" },
-          cache: { invalidate: ["user:findMany:*"] },
+          cache: { autoInvalidate: false, invalidate: ["user:findMany:*"] },
         }),
       ]);
 
@@ -113,7 +112,7 @@ describe("$transaction([...]) mutation cache invalidation", () => {
       );
     });
 
-    test(`${mode}: a batched write with no cache options invalidates nothing`, async () => {
+    test(`${mode}: a batched write opting out of automatic invalidation leaves cached reads warm`, async () => {
       const { client, settle } = await boot(mode);
 
       expect(
@@ -124,11 +123,12 @@ describe("$transaction([...]) mutation cache invalidation", () => {
       await client.$transaction([
         client.user.create({
           data: { id: "2", name: "Bob", email: "bob@test.com" },
+          cache: { autoInvalidate: false },
         }),
       ]);
 
-      // `autoInvalidate` defaults to false: the entry stays warm, exactly as on
-      // the direct-await path.
+      // The explicit opt-out preserves the warm entry, exactly as on the
+      // direct-await path; omitted options invalidate automatically.
       expect(
         await client.$withCache({ key: "user:all" }).user.findMany()
       ).toHaveLength(1);

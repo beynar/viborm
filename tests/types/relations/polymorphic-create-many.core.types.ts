@@ -90,20 +90,10 @@ const requiredNestedCreateManyUpdatePayload = {
   },
 } satisfies OperationPayload<"update", typeof parent>;
 
-/**
- * PINNED AS COMPILING WITH THE TYPO (Package J1 labelled this; it was an
- * unlabelled pin before). `secondary` sits beside the real `subject` and is NOT a
- * compile error, because `data` is one of the MEASURED-unguarded clauses:
- * `tests/types/client/contextual-typing-gate.core.types.ts` records that naming
- * `data` in `NoExtraOperationKeys` turns six estate sites into TS2589 and takes the
- * estate type-check from 34s to 172s. The refusal that DOES answer is the runtime
- * one — the row schema is a strict object, so an unknown key beside a real key
- * fails the parse (`nested-args.core.test.ts`, "an unknown key BESIDE a real
- * relation key still refuses"). When a future TypeScript can carry the deeper form
- * this line turns red: delete `secondary` and move it to a `@ts-expect-error`.
- */
+/** Root write names are sealed directly from model State, including variants. */
 const rootRequiredConnect = () =>
   client.requiredChild.createMany({
+    // @ts-expect-error - unknown secondary beside the declared subject
     data: [
       {
         id: "child-1",

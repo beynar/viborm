@@ -306,7 +306,7 @@ describe("G4-02 review follow-up 2 — the contract that must still fire", () =>
     );
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
+      "UnsupportedOperationError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
     );
   });
 
@@ -319,7 +319,7 @@ describe("G4-02 review follow-up 2 — the contract that must still fire", () =>
     );
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Cannot divide primary key field 'id' by zero."
+      "UnsupportedOperationError: Cannot divide primary key field 'id' by zero."
     );
   });
 
@@ -335,7 +335,7 @@ describe("G4-02 review follow-up 2 — the contract that must still fire", () =>
     );
     assert.equal(
       outcome.answer,
-      "QueryEngineError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
+      "UnsupportedOperationError: Arithmetic updates are not portable for number primary key field 'id'. Use an explicit set value."
     );
   });
 });

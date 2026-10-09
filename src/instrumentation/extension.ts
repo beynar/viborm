@@ -1,3 +1,4 @@
+import { sanitizeErrorForLogging } from "@errors";
 import { OFFICIAL_INSTRUMENTATION_NAME } from "@extensions/chain";
 import {
   type LifecycleUnit,
@@ -32,6 +33,7 @@ import {
   SPAN_CONNECT,
   SPAN_DISCONNECT,
   SPAN_EXECUTE,
+  SPAN_OPERATION,
   SPAN_TRANSACTION,
   type VibORMSpanName,
 } from "./spans";
@@ -99,6 +101,8 @@ function wants(
   need: ObservationNeed
 ): boolean {
   switch (need) {
+    case "operation":
+      return traces(context, SPAN_OPERATION);
     case "statement":
       return traces(context, SPAN_EXECUTE);
     // Savepoints present under the transaction span name; there is no other.
@@ -213,7 +217,7 @@ function observeOfficialInstrumentation(
             context,
             dispatch.start,
             createLifecycleSpanOptions(dispatch),
-            () => observeLifecycleCompletion(completion)
+            () => observeLifecycleCompletion(completion, unit)
           )
     );
   }
@@ -234,7 +238,7 @@ function observeOfficialInstrumentation(
             );
           }
         }
-        if (failure !== undefined) {
+        if (failure !== undefined && completionFacts.skipLog !== true) {
           context.logger?.error(
             createOperationErrorLogEvent(
               facts,
@@ -246,7 +250,12 @@ function observeOfficialInstrumentation(
           );
         }
       }
-      if (outcome.status === "failure") throw createObservedFailure();
+      if (outcome.status === "failure")
+        throw createObservedFailure(
+          completionFacts?.kind === "operation"
+            ? completionFacts.failure
+            : undefined
+        );
     });
   };
 
@@ -346,7 +355,10 @@ async function observeStatementCompletion(
 ): Promise<void> {
   const outcome = await completion;
   const completionFacts = readProtectedLifecycleCompletionFacts(unit);
-  if (completionFacts?.kind === "statement") {
+  if (
+    completionFacts?.kind === "statement" &&
+    completionFacts.skipLog !== true
+  ) {
     // instrumentation() registers every capability it creates; one registered
     // any other way (a test-only observer) presents no statement log.
     const attributed = instrumentationContexts.get(completionFacts.capability);
@@ -361,17 +373,28 @@ async function observeStatementCompletion(
       attributed?.logger?.error(event);
     }
   }
-  if (outcome.status === "failure") throw createObservedFailure();
+  if (outcome.status === "failure")
+    throw createObservedFailure(
+      completionFacts?.kind === "statement"
+        ? completionFacts.failure
+        : undefined
+    );
 }
 
 async function observeLifecycleCompletion(
-  completion: Promise<ObservationCompletion>
+  completion: Promise<ObservationCompletion>,
+  unit?: LifecycleUnit
 ): Promise<void> {
   const outcome = await completion;
-  if (outcome.status === "failure") throw createObservedFailure();
+  const facts = unit && readProtectedLifecycleCompletionFacts(unit);
+  if (outcome.status === "failure")
+    throw createObservedFailure(
+      facts?.kind === "driver-lifecycle" ? facts.failure : undefined
+    );
 }
 
-function createObservedFailure(): Error {
+function createObservedFailure(source?: Error): Error {
+  if (source) return sanitizeErrorForLogging(source);
   const failure = new Error("Operation failed");
   failure.stack = undefined;
   return failure;

@@ -1,3 +1,5 @@
+import { physicalConnectionQueue } from "../connection-scope";
+import { normalizeSQLiteRawRows } from "../shared/sqlite-utils";
 /**
  * Bun SQLite Driver
  *
@@ -9,11 +11,12 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { FeatureNotSupportedError } from "@errors";
+import { ClientInitializationError, FeatureNotSupportedError } from "@errors";
 import {
   Driver,
   type DriverResultParser,
@@ -40,6 +43,7 @@ interface BunSQLiteDatabase {
   prepare<T = unknown>(sql: string): BunSQLiteStatement<T>;
   run(sql: string, ...params: unknown[]): void;
   exec(sql: string): void;
+  readonly inTransaction: boolean;
   close(): void;
   transaction<T>(fn: () => T): () => T;
 }
@@ -80,9 +84,17 @@ function requireSafeIntegers<T>(
   return stmt;
 }
 
+const UNPAIRED_SURROGATE_PATTERN =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u;
+
 function convertValuesForBunSQLite(values: unknown[]): unknown[] {
   return values.map((parameter) => {
     const value = convertValueForSQLite(parameter);
+    if (typeof value === "string" && UNPAIRED_SURROGATE_PATTERN.test(value)) {
+      throw new TypeError(
+        "bun:sqlite cannot preserve unpaired UTF-16 surrogates; the parameter was refused before dispatch."
+      );
+    }
     if (value instanceof Uint8Array || !isSQLiteBinaryValue(value)) {
       return value;
     }
@@ -119,22 +131,39 @@ export class BunSQLiteDriver extends Driver<
   BunSQLiteDatabase
 > {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
-  readonly maxBindParametersPerStatement: number | undefined = 999;
+  readonly maxBindParametersPerStatement: number | undefined = 32_766;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: BunSQLiteDriverOptions;
+  private readonly suppliedClient: BunSQLiteDatabase | undefined;
 
   constructor(options: BunSQLiteDriverOptions = {}) {
     super("sqlite", "bun-sqlite");
     this.driverOptions = options;
 
-    if (options.client) {
-      this.client = options.client;
+    this.suppliedClient = options.client;
+    if (this.suppliedClient) {
+      const enabled = this.suppliedClient.query("PRAGMA foreign_keys").get();
+      if (
+        !enabled ||
+        typeof enabled !== "object" ||
+        Reflect.get(enabled, "foreign_keys") !== 1
+      ) {
+        throw new ClientInitializationError(
+          "A supplied bun:sqlite Database must enable PRAGMA foreign_keys = ON before wrapping.",
+          { meta: { driver: "bun-sqlite" } }
+        );
+      }
+      this.client = this.suppliedClient;
+      Object.defineProperty(this, "connectionQueue", {
+        value: physicalConnectionQueue(this.suppliedClient),
+      });
     }
   }
 
   protected async initClient(): Promise<BunSQLiteDatabase> {
+    if (this.suppliedClient) return this.suppliedClient;
     // Dynamic import for bun:sqlite
     const { Database } = await import("bun:sqlite");
 
@@ -154,21 +183,23 @@ export class BunSQLiteDriver extends Driver<
     // dangling FK write report success while sqlite3 and libsql refuse it.
     // Enforcement is a viborm guarantee, not an inherited library default.
     db.exec("PRAGMA foreign_keys = ON");
+    db.exec("PRAGMA busy_timeout = 5000");
 
     return db;
   }
 
   protected async closeClient(db: BunSQLiteDatabase): Promise<void> {
-    db.close();
+    if (db !== this.suppliedClient) db.close();
   }
 
   protected async execute<T>(
     client: BunSQLiteDatabase,
     sql: string,
-    params: unknown[]
+    params: unknown[],
+    context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const values = convertValuesForBunSQLite(params);
-    return this.runStatement<T>(client, sql, values, true);
+    return this.runStatement<T>(client, sql, values, context?.model !== "$raw");
   }
 
   protected async executeRaw<T>(
@@ -177,8 +208,6 @@ export class BunSQLiteDriver extends Driver<
     params?: unknown[]
   ): Promise<QueryResult<T>> {
     const values = params ? convertValuesForBunSQLite(params) : undefined;
-    // Raw results bypass the result parser — keep bun:sqlite's plain numbers
-    // instead of surfacing BigInt to raw callers, matching sqlite3
     return this.runStatement<T>(client, sql, values, false);
   }
 
@@ -186,18 +215,18 @@ export class BunSQLiteDriver extends Driver<
     db: BunSQLiteDatabase,
     sql: string,
     values: unknown[] | undefined,
-    safeIntegers: boolean
+    typed: boolean
   ): QueryResult<T> {
     const stmt = db.prepare(sql);
 
     if (stmt.columnNames.length > 0) {
-      if (safeIntegers) {
-        // INTEGER columns come back as BigInt so values >2^53 survive; the
-        // result parser converts int columns back to number
-        requireSafeIntegers(stmt).safeIntegers(true);
-      }
+      // Read once without precision loss, including unsafe raw queries.
+      requireSafeIntegers(stmt).safeIntegers(true);
       const rows = (values ? stmt.all(...values) : stmt.all()) as T[];
-      return { rows, rowCount: rows.length };
+      return {
+        rows: typed ? rows : normalizeSQLiteRawRows(rows),
+        rowCount: rows.length,
+      };
     }
 
     const result = values ? stmt.run(...values) : stmt.run();
@@ -226,27 +255,16 @@ export class BunSQLiteDriver extends Driver<
     fn: (tx: BunSQLiteDatabase) => Promise<T>,
     context?: QueryExecutionContext
   ): Promise<T> {
-    let shouldClose = false;
-    const executeOrClose = (statement: string) => {
-      try {
-        client.exec(statement);
-      } catch (error) {
-        shouldClose = true;
-        throw error;
-      }
-    };
     return runTransactionLifecycle({
-      begin: () => executeOrClose("BEGIN"),
+      begin: () => client.exec("BEGIN IMMEDIATE"),
       callback: () => fn(client),
-      commit: () => executeOrClose("COMMIT"),
-      rollback: () => executeOrClose("ROLLBACK"),
-      phases: getExecutionTransactionPhases(context),
-      close: () => {
-        if (shouldClose) {
-          client.close();
-          this.client = null;
-        }
+      commit: () => client.exec("COMMIT"),
+      // A failed BEGIN never grants rollback ownership. After a failed COMMIT,
+      // successful rollback restores this same database, including :memory:.
+      rollback: () => {
+        if (client.inTransaction) client.exec("ROLLBACK");
       },
+      phases: getExecutionTransactionPhases(context),
     });
   }
 }
@@ -259,12 +277,14 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: BunSQLiteClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, BunSQLiteDriverOptions, S>
-): VibORMClient<C & { driver: BunSQLiteDriver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: BunSQLiteDriver }
+  >]: LinkedClientConfig<C & { driver: BunSQLiteDriver }>[P];
+}> {
   const { client, dataDir, options } = config;
 
   const driver = new BunSQLiteDriver({ client, dataDir, options });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: BunSQLiteDriver }
-  >;
+  return createClientFromDriverConfig<S, C, BunSQLiteDriver>(config, driver);
 }

@@ -1,5 +1,6 @@
 import { VibORMErrorCode } from "@src/errors";
 import { getMigrationDriver } from "@src/migrations/drivers";
+import { introspectPostgresSchema } from "@src/migrations/drivers/postgres/introspect";
 import { describe, expect, test } from "vitest";
 import { pgEstateDriver } from "./_estate";
 
@@ -85,6 +86,295 @@ function foreignKey(
 }
 
 describe("provider-free PostgreSQL catalog reconstruction", () => {
+  test.each([
+    "outbound",
+    "inbound",
+    "unselected",
+  ])("managed scope authenticates %s cross-schema references", async (direction) => {
+    const crossing = {
+      constraint_name: "boundary_fk",
+      owning_schema: direction === "inbound" ? "external" : "billing",
+      owning_table: direction === "unselected" ? "unselected" : "account",
+      referenced_schema: direction === "inbound" ? "billing" : "external",
+      referenced_table: "account",
+    };
+    const execution = catalogDriver({
+      tables: [{ table_name: "account" }],
+      columns: [column("id", "integer", "int4", "integer")],
+      crossingForeignKeys: [crossing],
+    });
+    const read = introspectPostgresSchema(
+      (sql, params) => execution._executeRaw(sql, params),
+      {
+        namespace: "billing",
+        tables: ["account"],
+        admittedExtensionTypes: new Set(),
+      }
+    );
+    if (direction === "unselected")
+      await expect(read).resolves.toMatchObject({
+        tables: [
+          { name: "account", columns: [{ name: "id", type: "integer" }] },
+        ],
+      });
+    else
+      await expect(read).rejects.toMatchObject({
+        code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+        message: expect.stringContaining(
+          direction === "inbound" ? "into" : "out of"
+        ),
+      });
+    expect(
+      execution.statements.some(
+        (sql) => sql.startsWith("ALTER") || sql.startsWith("DROP")
+      )
+    ).toBe(false);
+  });
+
+  test("empty tables and unconstrained numeric arrays remain representable observations", async () => {
+    const execution = catalogDriver({
+      tables: [{ table_name: "empty" }, { table_name: "account" }],
+      columns: [column("amounts", "ARRAY", "_numeric", "numeric[]")],
+    });
+    const observed = await getMigrationDriver(execution).introspect(
+      (sql, params) => execution._executeRaw(sql, params)
+    );
+    expect(observed.tables[0]?.columns).toEqual([]);
+    expect(observed.tables[1]?.columns).toMatchObject([
+      { name: "amounts", type: "numeric[]", decimal: undefined },
+    ]);
+  });
+
+  test("an unsupported index method refuses even when its key structure is plain", async () => {
+    const execution = catalogDriver({
+      tables: [{ table_name: "account" }],
+      columns: [column("id", "integer", "int4")],
+      indexes: [
+        {
+          table_name: "account",
+          index_name: "hnsw_idx",
+          column_name: "id",
+          ordinal_position: 1,
+          index_type: "hnsw",
+          unsupported_structure: false,
+          is_unique: false,
+        },
+      ],
+    });
+    await expect(
+      getMigrationDriver(execution).introspect((sql, params) =>
+        execution._executeRaw(sql, params)
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      meta: { table: "account", indexName: "hnsw_idx" },
+    });
+  });
+  test("unselected native columns and indexes do not poison the managed scope", async () => {
+    const execution = catalogDriver({
+      tables: [
+        { table_name: "account", relation_kind: "p", is_partition: true },
+      ],
+      columns: [
+        {
+          ...column("native_array", "ARRAY", "_external_type"),
+          generated_kind: "s",
+          column_default: "foreign_expression()",
+        },
+        {
+          ...column("amount", "numeric", "numeric"),
+          numeric_precision: 5000,
+          numeric_scale: 1000,
+        },
+      ],
+      indexes: [
+        {
+          table_name: "account",
+          index_name: "foreign_brin",
+          column_name: "amount",
+          ordinal_position: 1,
+          index_type: "brin",
+          unsupported_structure: true,
+          is_unique: false,
+        },
+        {
+          table_name: "account",
+          index_name: "foreign_expression",
+          column_name: null,
+          ordinal_position: 1,
+          index_type: "btree",
+          unsupported_structure: true,
+          is_unique: false,
+        },
+        {
+          table_name: "account",
+          index_name: "foreign_plain",
+          column_name: "amount",
+          ordinal_position: 1,
+          index_type: "btree",
+          unsupported_structure: false,
+          is_unique: false,
+        },
+        ...["hash", "gin", "gist"].map((index_type) => ({
+          table_name: "account",
+          index_name: `foreign_${index_type}`,
+          column_name: "amount",
+          ordinal_position: 1,
+          index_type,
+          unsupported_structure: false,
+          is_unique: false,
+        })),
+      ],
+    });
+    const observed = await introspectPostgresSchema(
+      (sql, params) => execution._executeRaw(sql, params),
+      {
+        namespace: "billing",
+        tables: ["managed"],
+        admittedExtensionTypes: new Set(),
+      }
+    );
+    expect(observed.tables[0]?.columns).toMatchObject([
+      { type: "external_type[]", default: undefined, decimal: undefined },
+      { type: "numeric", decimal: undefined },
+    ]);
+    expect(observed.tables[0]?.indexes.map((index) => index.name)).toEqual([
+      "foreign_plain",
+      "foreign_hash",
+      "foreign_gin",
+      "foreign_gist",
+    ]);
+    expect(
+      execution.statements.some(
+        (sql) => sql.startsWith("ALTER") || sql.startsWith("DROP")
+      )
+    ).toBe(false);
+    await execution.disconnect();
+  });
+  test.each([
+    "generated",
+    "partitioned",
+  ])("refuses selected %s semantics without poisoning excluded tables", async (kind) => {
+    const execution = catalogDriver({
+      tables: [
+        {
+          table_name: "account",
+          relation_kind: kind === "partitioned" ? "p" : "r",
+          is_partition: false,
+        },
+      ],
+      columns: [
+        {
+          ...column("id", "integer", "int4"),
+          generated_kind: kind === "generated" ? "s" : "",
+        },
+      ],
+    });
+    await expect(
+      getMigrationDriver(execution).introspect((sql, params) =>
+        execution._executeRaw(sql, params)
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining(
+        kind === "generated" ? "generated" : "partition"
+      ),
+    });
+    await expect(
+      introspectPostgresSchema(
+        (sql, params) => execution._executeRaw(sql, params),
+        {
+          namespace: "billing",
+          tables: ["external"],
+          admittedExtensionTypes: new Set(),
+        }
+      )
+    ).resolves.toMatchObject({ tables: [{ name: "account" }] });
+  });
+
+  test("view collision catalog parameters use explicit escaped PostgreSQL array text", async () => {
+    const execution = catalogDriver({});
+    const calls: unknown[][] = [];
+    execution.respond = (sql, params) => {
+      if (sql.includes("relation.relkind IN ('v','m')")) {
+        calls.push(params ?? []);
+        return [{ name: "mapped_view" }];
+      }
+      return [];
+    };
+    await expect(
+      getMigrationDriver(execution).preflightSchemaRequirements(
+        [
+          {
+            tables: [
+              {
+                name: "mapped_view",
+                columns: [],
+                primaryKey: undefined,
+                uniqueConstraints: [],
+                indexes: [],
+                foreignKeys: [],
+              },
+            ],
+          },
+        ],
+        (sql, params) => execution._executeRaw(sql, params)
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining("view"),
+    });
+    expect(calls).toEqual([["billing", '{"mapped_view"}']]);
+  });
+
+  test.each([
+    "btree",
+    "hnsw",
+  ])("refuses unrepresentable %s index metadata in owned scope and leaves external scope alone", async (method) => {
+    const execution = catalogDriver({
+      tables: [{ table_name: "account" }],
+      columns: [column("id", "integer", "int4")],
+      indexes: [
+        {
+          table_name: "account",
+          index_name: "foreign_semantics",
+          column_name: "id",
+          is_unique: false,
+          index_type: method,
+          unsupported_structure: true,
+          filter_condition: null,
+          ordinal_position: 1,
+        },
+      ],
+    });
+    await expect(
+      getMigrationDriver(execution).introspect((query, params) =>
+        execution._executeRaw(query, params)
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      message: expect.stringContaining("account.foreign_semantics"),
+    });
+    await expect(
+      introspectPostgresSchema(
+        (query, params) => execution._executeRaw(query, params),
+        {
+          namespace: "billing",
+          tables: ["other"],
+          admittedExtensionTypes: new Set(),
+        }
+      )
+    ).resolves.toBeDefined();
+    expect(
+      execution.statements.every(
+        (statement) =>
+          statement === "<connect>" ||
+          statement.startsWith("SELECT") ||
+          statement.trimStart().startsWith("SELECT")
+      )
+    ).toBe(true);
+  });
+
   // `push` reads the catalog on its ONE pinned session: node-postgres queues
   // overlapping queries on a connection and warns it will refuse them in
   // pg@9, so the reads go one at a time.
@@ -120,22 +410,27 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
           column_default: "nextval('billing.account_id_seq'::regclass)",
         },
         {
-          ...column("label", "character varying", "varchar"),
+          ...column(
+            "label",
+            "character varying",
+            "varchar",
+            "character varying(40)"
+          ),
           character_maximum_length: 40,
           is_nullable: "YES",
         },
         {
-          ...column("code", "character", "bpchar"),
+          ...column("code", "character", "bpchar", "character(3)"),
           character_maximum_length: 3,
         },
         {
-          ...column("amount", "numeric", "numeric"),
+          ...column("amount", "numeric", "numeric", "numeric(10,2)"),
           numeric_precision: 10,
           numeric_scale: 2,
           column_default: "'-1.2'::numeric",
         },
         {
-          ...column("sequence", "numeric", "numeric"),
+          ...column("sequence", "numeric", "numeric", "numeric(8,0)"),
           numeric_precision: 8,
           numeric_scale: null,
           column_default: "next_value()",
@@ -172,6 +467,7 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
           column_name: "label",
           is_unique: false,
           index_type: "gin",
+          unsupported_structure: false,
           filter_condition: "(label IS NOT NULL)",
           ordinal_position: 2,
         },
@@ -181,6 +477,7 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
           column_name: "code",
           is_unique: false,
           index_type: "gin",
+          unsupported_structure: false,
           filter_condition: "(label IS NOT NULL)",
           ordinal_position: 1,
         },
@@ -219,12 +516,15 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
       expect.arrayContaining([
         expect.objectContaining({
           name: "id",
-          type: "int4",
+          type: "integer",
           default: undefined,
           autoIncrement: true,
         }),
-        expect.objectContaining({ name: "label", type: "varchar(40)" }),
-        expect.objectContaining({ name: "code", type: "char(3)" }),
+        expect.objectContaining({
+          name: "label",
+          type: "character varying(40)",
+        }),
+        expect.objectContaining({ name: "code", type: "character(3)" }),
         expect.objectContaining({
           name: "amount",
           type: "numeric(10,2)",
@@ -233,7 +533,7 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
         }),
         expect.objectContaining({
           name: "sequence",
-          type: "numeric(8)",
+          type: "numeric(8,0)",
           default: "next_value()",
           decimal: { precision: 8, scale: 0 },
         }),

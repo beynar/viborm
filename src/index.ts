@@ -39,6 +39,7 @@ export {
   renderSchemaType,
   validateOperationPayload,
 } from "./client/schema-introspection.js";
+export type { NoControls, PlacedControl } from "./extensions/controls.js";
 export {
   type ClientExtension,
   defineExtension,
@@ -48,6 +49,15 @@ export {
   type StatementContext,
   type StatementHandler,
 } from "./extensions/index.js";
+export type {
+  AccumulatedExtensionState,
+  ClientExtensionState,
+  EmptyClientExtensionState,
+  ExtensionCacheState,
+  ExtensionContributionState,
+  ExtensionResultConsumerState,
+  MergeExtensionState,
+} from "./extensions/methods";
 // Pending operations (for transaction batching)
 export {
   isPendingOperation,
@@ -55,6 +65,62 @@ export {
   type UnwrapPendingOperation,
   type UnwrapPendingOperations,
 } from "./query-engine/pending-operation.js";
+// Inferred exported schemas must name these types through a public entry.
+export type {
+  AnyModel,
+  AnyRelation,
+  AutoGenerate,
+  BigIntScalar,
+  BigIntSchema,
+  BlobScalar,
+  BlobSchema,
+  BooleanScalar,
+  BooleanSchema,
+  DateScalar,
+  DateTimeScalar,
+  DecimalDescriptor,
+  DecimalScalar,
+  DecimalSchema,
+  EnumScalar,
+  EnumSchema,
+  GeneratorDefaultBrand,
+  Getter,
+  InitialModelState,
+  InitialScalarState,
+  IntegerSchema,
+  IntScalar,
+  IsoDateSchema,
+  IsoTimeSchema,
+  IsoTimestampSchema,
+  JsonScalar,
+  JsonValueSchema,
+  Model,
+  ModelInternal,
+  ModelShape,
+  ModelState,
+  ModelToManyRelation,
+  ModelToOneRelation,
+  ModelUpdateState,
+  NumberScalar,
+  NumberSchema,
+  NumericScalar,
+  PointScalar,
+  PointSchema,
+  ReferencesStage,
+  ReferentialAction,
+  RelationCardinality,
+  RelationSlot,
+  Scalar,
+  ScalarState,
+  ScalarUpdateState,
+  StringScalar,
+  StringSchema,
+  TimeScalar,
+  VariantToManyRelation,
+  VariantToOneRelation,
+  VectorScalar,
+  VectorSchema,
+} from "./schema/exports.js";
 // Field references (`{ gt: (ctx) => ctx.fields.likes }`) — column-to-column filters.
 // `createModelFieldRefs` is the token factory the callback uses internally, and with
 // `client.$fields` gone (D-8) it is the only way to hold a token WITHOUT a callback —
@@ -121,20 +187,40 @@ export {
 
 export {
   // Specific errors
+  CacheConfigurationError,
+  CacheInvalidKeyError,
+  CacheInvalidTTLError,
+  CacheOperationNotCacheableError,
   CheckConstraintError,
   ClientInitializationError,
   ConnectionError,
   type DiagnosticDisclosure,
   FeatureNotSupportedError,
   ForeignKeyError,
+  InvalidTransactionInputError,
+  isCheckConstraintError,
+  isClientInitializationError,
+  isForeignKeyError,
+  isMigrationError,
+  isNotFoundError,
+  isNotNullConstraintError,
+  isPendingOperationError,
   // Utilities
   isRetryableError,
+  isUniqueConstraintError,
+  isUnsupportedOperationError,
+  isValidationError,
+  isValueTooLongError,
   isVibORMError,
+  MigrationError,
+  NestedWriteAssertionError,
   NestedWriteError,
   NotFoundError,
   NotNullConstraintError,
+  PendingOperationError,
   // Prisma error-code compatibility (`error.prismaCode`)
   type PrismaErrorCode,
+  QueryEngineError,
   QueryError,
   TransactionError,
   toPrismaErrorCode,
@@ -153,9 +239,17 @@ export {
 // SCHEMA UTILITIES
 // =============================================================================
 
+export type {
+  ClientSchema,
+  FlatSchema,
+  Linked,
+  LinkedClientConfig,
+  Links,
+  RelationLinks,
+} from "./client/schema-links.js";
+export type { IndexDefinition, IndexOptions } from "./schema/model/index.js";
 // Schema introspection
 export { getSchemas } from "./schema/schemas.js";
-
 export type {
   SchemaValidationIssue,
   Severity,
@@ -168,3 +262,4 @@ export {
   validateSchema,
   validateSchemaOrThrow,
 } from "./schema/validation/index.js";
+export type { ObjectSchema, VibSchema } from "./validation/index.js";

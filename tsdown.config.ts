@@ -1,6 +1,8 @@
-import { defineConfig } from "tsdown";
+import { readFileSync } from "node:fs";
+import { defineConfig, type Rolldown, type UserConfig } from "tsdown";
+import ts from "typescript";
 
-export default defineConfig({
+const runtime = {
   // Multiple entry points for tree-shaking
   entry: {
     // Main entry
@@ -72,11 +74,7 @@ export default defineConfig({
   // Add "cjs" if you need CommonJS support for older tooling
   format: ["esm"],
 
-  // Generate .d.ts declaration files
-  // DISABLED: rolldown-plugin-dts can't handle complex inferred types (TS7056)
-  // VibORM's type inference relies on these complex types - using VibSchema
-  // would break the inference chain from schema → query → result types.
-  // Use tsc separately: pnpm tsc --emitDeclarationOnly --declaration --outDir dist
+  // Runtime name preservation must not inject JavaScript helpers into declarations.
 
   // Clean output directory before build
   clean: true,
@@ -117,7 +115,138 @@ export default defineConfig({
   // Shims for Node.js builtins when targeting edge runtimes
   shims: true,
   minify: true,
-  dts: true,
+  outputOptions: { keepNames: true },
+  dts: false,
   // Enable tree-shaking
   treeshake: true,
-});
+} satisfies UserConfig;
+
+function namedExports(source: ts.SourceFile) {
+  return source.statements.flatMap((statement) =>
+    ts.isExportDeclaration(statement) &&
+    statement.exportClause &&
+    ts.isNamedExports(statement.exportClause)
+      ? statement.exportClause.elements.map((member) => ({
+          name: member.name.text,
+          typeOnly: statement.isTypeOnly || member.isTypeOnly,
+          position: member.getStart(source),
+        }))
+      : []
+  );
+}
+
+// rolldown-plugin-dts restores type markers by final export name across modules.
+// A renamed function can collide with an unrelated type export (defineExtension
+// becomes V, also the validation namespace type). Its own declaration proves
+// that the shared binding is a value; public entries retain explicit type intent.
+function restoreSharedFunctionValues(source: ts.SourceFile, code: string) {
+  const functions = new Set(
+    source.statements.flatMap((statement) =>
+      ts.isFunctionDeclaration(statement) && statement.name
+        ? [statement.name.text]
+        : []
+    )
+  );
+  const printer = ts.createPrinter();
+  let repaired = code;
+  for (const statement of [...source.statements].reverse()) {
+    if (
+      !(
+        ts.isExportDeclaration(statement) &&
+        !statement.moduleSpecifier &&
+        statement.exportClause &&
+        ts.isNamedExports(statement.exportClause) &&
+        statement.exportClause.elements.some(
+          (member) =>
+            (statement.isTypeOnly || member.isTypeOnly) &&
+            functions.has((member.propertyName ?? member.name).text)
+        )
+      )
+    )
+      continue;
+    const members = statement.exportClause.elements.map((member) =>
+      ts.factory.updateExportSpecifier(
+        member,
+        (statement.isTypeOnly || member.isTypeOnly) &&
+          !functions.has((member.propertyName ?? member.name).text),
+        member.propertyName,
+        member.name
+      )
+    );
+    const replacement = ts.factory.updateExportDeclaration(
+      statement,
+      statement.modifiers,
+      false,
+      ts.factory.updateNamedExports(statement.exportClause, members),
+      statement.moduleSpecifier,
+      statement.attributes
+    );
+    repaired = `${repaired.slice(0, statement.getStart(source))}${printer.printNode(ts.EmitHint.Unspecified, replacement, source)}${repaired.slice(statement.end)}`;
+  }
+  return repaired;
+}
+
+// Shared declaration chunking loses explicit type-only class reexports.
+// Recover only each public entry's own source declarations, including aliases.
+const declarationExportKinds: Rolldown.Plugin = {
+  name: "preserve-public-type-export-kinds",
+  generateBundle(_options, bundle) {
+    for (const chunk of Object.values(bundle)) {
+      if (chunk.type !== "chunk" || !chunk.fileName.endsWith(".d.mts"))
+        continue;
+      const entry = Object.entries(runtime.entry).find(
+        ([name]) => chunk.fileName === `${name}.d.mts`
+      );
+      const declaration = ts.createSourceFile(
+        chunk.fileName,
+        chunk.code,
+        ts.ScriptTarget.Latest,
+        true
+      );
+      if (!entry) {
+        chunk.code = restoreSharedFunctionValues(declaration, chunk.code);
+        continue;
+      }
+      const source = ts.createSourceFile(
+        entry[1],
+        readFileSync(entry[1], "utf8"),
+        ts.ScriptTarget.Latest,
+        true
+      );
+      const names = new Set(
+        namedExports(source)
+          .filter((member) => member.typeOnly)
+          .map((member) => member.name)
+      );
+      const positions = namedExports(declaration)
+        .filter((member) => !member.typeOnly && names.has(member.name))
+        .map((member) => member.position)
+        .sort((left, right) => right - left);
+      for (const position of positions)
+        chunk.code = `${chunk.code.slice(0, position)}type ${chunk.code.slice(position)}`;
+    }
+  },
+};
+
+const { "soft-delete": softDelete, ...runtimeEntries } = runtime.entry;
+
+export default defineConfig([
+  { ...runtime, entry: runtimeEntries },
+  {
+    ...runtime,
+    entry: { "soft-delete": softDelete },
+    clean: false,
+    // This type-only consumer has no runtime imports. Preserve that boundary
+    // instead of retaining a shared name-preservation helper after minification.
+    outputOptions: { keepNames: false },
+  },
+  {
+    ...runtime,
+    clean: false,
+    minify: false,
+    sourcemap: false,
+    outputOptions: { keepNames: false },
+    dts: { emitDtsOnly: true },
+    plugins: [declarationExportKinds],
+  },
+]);

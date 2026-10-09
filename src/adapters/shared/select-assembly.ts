@@ -101,7 +101,7 @@ export const assembleDistinctOnEmulation = (
   noLimitValue?: Sql
 ): Sql => {
   // ORDER BY for ROW_NUMBER() - use provided orderBy or default to distinct columns
-  const rowNumberOrder = parts.orderBy || distinct;
+  const rowNumberOrder = parts.distinctOrderBy ?? parts.orderBy ?? distinct;
 
   const selectColumns: Sql[] = [
     parts.columns,

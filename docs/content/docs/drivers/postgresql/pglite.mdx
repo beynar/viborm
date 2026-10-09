@@ -238,3 +238,10 @@ unaffected — a plan choice changes the cost, never the rows.
 - Some PostgreSQL extensions not available
 - `enable_seqscan` is `off` at startup on PGlite 0.3 — see the section above
   before reading any `EXPLAIN` taken there as a statement about production
+
+Interactive transactions serialize work on their connection. In Node and Bun,
+originating-client reentry is detected immediately; use the callback transaction
+client. In a browser without async-context support, unrelated work still queues,
+while originating-client reentry reaches a 5-second queue timeout. An explicit
+transaction `maxWait` overrides that wait. Timeout cleanup closes nested scopes
+and drains in-flight provider statements before releasing the connection.

@@ -140,7 +140,7 @@ const MODEL_KEYS = ["table", "fields", "indexes", "ids", "uniques", "omit"];
 const INDEX_KEYS = ["fields", "name", "unique", "type", "where"];
 const COMPOUND_KEYS = ["fields", "name"];
 const NATIVE_KEYS = ["db", "type"];
-const GENERATE_KEYS = ["kind", "prefix", "length", "implicit"];
+const GENERATE_KEYS = ["kind", "prefix", "length", "implicit", "generate"];
 const JUNCTION_KEYS = [
   "table",
   "source",
@@ -1061,6 +1061,23 @@ function readGenerateNode(
     return;
   }
   const declaration: GenerateDocument = { kind };
+  const generated = member(node, "generate", path, issues);
+  if (generated !== undefined) {
+    const flag = asBoolean(
+      generated,
+      pointer(path, "generate"),
+      issues,
+      "`generate`"
+    );
+    if (kind === "now" || kind === "updatedAt" || kind === "increment") {
+      addIssue(
+        issues,
+        pointer(path, "generate"),
+        "J004",
+        "An explicit generation choice belongs only to string identifier formats"
+      );
+    } else if (flag !== undefined) declaration.generate = flag;
+  }
   const prefix = member(node, "prefix", path, issues);
   if (prefix !== undefined) {
     const text = asString(prefix, pointer(path, "prefix"), issues, "`prefix`");

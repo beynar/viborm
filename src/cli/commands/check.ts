@@ -11,7 +11,7 @@ import { Command } from "commander";
 import { hydrateSchemaNames } from "../../schema/hydration";
 import type { SchemaValidationIssue } from "../../schema/validation/types";
 import { validateSchema } from "../../schema/validation/validator";
-import { failCli, loadConfig } from "../utils";
+import { finishCli, loadConfig } from "../utils";
 
 interface CheckCliOptions {
   readonly config?: string;
@@ -25,11 +25,15 @@ const describe = (issue: SchemaValidationIssue): string =>
     .join("\n    ");
 
 async function runCheck(options: CheckCliOptions): Promise<void> {
+  let client: { $disconnect(): Promise<void> } | undefined;
+  let failure: { value: unknown } | undefined;
   try {
-    const { models } = await loadConfig({
+    const config = await loadConfig({
       config: options.config,
       skipValidation: true,
     });
+    client = config.client;
+    const { models } = config;
     // The identifier and identity checks hydration runs, whatever the
     // configured client skipped.
     hydrateSchemaNames(models);
@@ -49,7 +53,9 @@ async function runCheck(options: CheckCliOptions): Promise<void> {
     }
     if (!result.valid) process.exitCode = 1;
   } catch (error) {
-    failCli(error);
+    failure = { value: error };
+  } finally {
+    await finishCli(client, failure, options.json);
   }
 }
 

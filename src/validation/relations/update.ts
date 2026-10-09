@@ -19,7 +19,11 @@ import { createSchema, fail, ok, validateSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
 import type { VibSchema } from "../types";
 import type { NestedCreateManySchema } from "./create";
-import type { GetTargetSchemas, SchemaGetter } from "./helpers";
+import {
+  type GetTargetSchemas,
+  refuseCollectionVerbOrder,
+  type SchemaGetter,
+} from "./helpers";
 import {
   nestedRelationDataProjection,
   type ProjectedNestedCreate,
@@ -478,17 +482,20 @@ export const toManyUpdateFactory = <
       }
     : {};
 
-  return v.object({
-    create: () => v.singleOrArray(getCreateSchema()),
-    createMany: createManySchema,
-    connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
-    ...disconnectEntry,
-    delete: () => v.singleOrArray(targetSchemas().core.whereUniqueExtended),
-    connectOrCreate: v.singleOrArray(connectOrCreateSchema),
-    set: () => v.singleOrArray(targetSchemas().core.whereUnique),
-    update: v.singleOrArray(updateSchema),
-    updateMany: v.singleOrArray(updateManySchema),
-    upsert: v.singleOrArray(upsertSchema),
-    deleteMany: () => v.singleOrArray(targetSchemas().core.where),
-  }) as unknown as ToManyUpdateSchema<Source, Key, S>;
+  return v.object(
+    {
+      create: () => v.singleOrArray(getCreateSchema()),
+      createMany: createManySchema,
+      connect: () => v.singleOrArray(targetSchemas().core.whereUnique),
+      ...disconnectEntry,
+      delete: () => v.singleOrArray(targetSchemas().core.whereUniqueExtended),
+      connectOrCreate: v.singleOrArray(connectOrCreateSchema),
+      set: () => v.singleOrArray(targetSchemas().core.whereUnique),
+      update: v.singleOrArray(updateSchema),
+      updateMany: v.singleOrArray(updateManySchema),
+      upsert: v.singleOrArray(upsertSchema),
+      deleteMany: () => v.singleOrArray(targetSchemas().core.where),
+    },
+    { refuse: refuseCollectionVerbOrder }
+  ) as unknown as ToManyUpdateSchema<Source, Key, S>;
 };

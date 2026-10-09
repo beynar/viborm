@@ -383,6 +383,22 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  test("runtime: min/max HAVING uses the field domain; sum/avg require numbers", () => {
+    for (const having of [
+      { name: { _min: { gte: "Alice" }, _max: { equals: "Zoe" } } },
+      { active: { _min: { equals: false }, _max: { equals: true } } },
+    ]) {
+      expect(parse(schema, { by: "active", having }).issues).toBeUndefined();
+    }
+    for (const having of [
+      { name: { _min: { equals: 12 } } },
+      { name: { _sum: { gt: 1 } } },
+      { active: { _avg: { gt: 0 } } },
+    ]) {
+      expect(parse(schema, { by: "active", having }).issues).toBeDefined();
+    }
+  });
+
   test("runtime: accepts with orderBy", () => {
     const result = parse(schema, {
       by: "active",
@@ -579,6 +595,25 @@ describe("GroupBy Args - aggregate name collisions", () => {
 
 describe("GroupBy Args - having AND/OR/NOT", () => {
   const schema = simpleSchemas.args.groupBy;
+
+  test("HAVING refuses a callback without executing caller code", () => {
+    let invocations = 0;
+    const result = parse(schema, {
+      by: "active",
+      having: {
+        age: {
+          _avg: {
+            gte: () => {
+              invocations++;
+              return 18;
+            },
+          },
+        },
+      },
+    });
+    expect(result.issues?.[0]?.message).toContain("A filter callback");
+    expect(invocations).toBe(0);
+  });
 
   test("type: accepts OR of aggregate conditions", () => {
     type Input = InferInput<typeof simpleSchemas.args.groupBy>;

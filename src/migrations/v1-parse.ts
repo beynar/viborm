@@ -1,3 +1,4 @@
+import { normalizeManagedTables } from "./target";
 /**
  * Hostile parsers and hash owners for Migration V1 estate, dispatch,
  * state, and transition artifacts.
@@ -49,8 +50,8 @@ export {
 } from "./v1-parse-snapshot";
 
 const ESTATE_KEYS = ["format", "hash", "target"] as const;
-const PG_TARGET_KEYS = ["dialect", "namespace"] as const;
-const DIALECT_ONLY_TARGET_KEYS = ["dialect"] as const;
+const PG_TARGET_KEYS = ["dialect", "namespace", "tables"] as const;
+const DIALECT_ONLY_TARGET_KEYS = ["dialect", "tables"] as const;
 const CHECK_KEYS = ["equals", "id", "kind", "query"] as const;
 const PROVEN_STEP_KEYS = ["execute", "postcheck", "precheck", "retry"] as const;
 const OPAQUE_STEP_KEYS = ["execute", "retry"] as const;
@@ -97,6 +98,18 @@ const TRANSITION_HASH_KEYS = [
   "rollback",
 ] as const;
 
+function parseManagedTables(value: unknown, label: string): readonly string[] {
+  try {
+    const tables = normalizeManagedTables(value);
+    if (tables !== undefined) return tables;
+  } catch {
+    refuse(
+      `${label}.tables must be a sorted, unique array of physical table names`
+    );
+  }
+  return refuse(`${label}.tables must be an array`);
+}
+
 export function parseMigrationTarget(
   value: unknown,
   label: string
@@ -104,20 +117,31 @@ export function parseMigrationTarget(
   if (!isRecord(value)) refuse(`${label} must be an object`);
   const dialect = value.dialect;
   if (dialect === "postgresql") {
-    const record = exactObject(value, PG_TARGET_KEYS, PG_TARGET_KEYS, label);
+    const record = exactObject(
+      value,
+      PG_TARGET_KEYS,
+      ["dialect", "namespace"],
+      label
+    );
     if (!isString(record.namespace) || record.namespace.length === 0) {
       refuse(`${label}.namespace must be a non-empty string`);
     }
-    return { dialect: "postgresql", namespace: record.namespace };
+    return {
+      dialect: "postgresql",
+      namespace: record.namespace,
+      ...(value.tables === undefined
+        ? {}
+        : { tables: parseManagedTables(value.tables, label) }),
+    };
   }
   if (dialect === "mysql" || dialect === "sqlite") {
-    exactObject(
-      value,
-      DIALECT_ONLY_TARGET_KEYS,
-      DIALECT_ONLY_TARGET_KEYS,
-      label
-    );
-    return { dialect };
+    exactObject(value, DIALECT_ONLY_TARGET_KEYS, ["dialect"], label);
+    return {
+      dialect,
+      ...(value.tables === undefined
+        ? {}
+        : { tables: parseManagedTables(value.tables, label) }),
+    };
   }
   refuse(`${label}.dialect is not a V1 migration target`);
 }

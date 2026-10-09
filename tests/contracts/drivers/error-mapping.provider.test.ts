@@ -2,7 +2,6 @@ import { createClient } from "@client/client";
 import { PGliteDriver } from "@drivers/pglite";
 import {
   CheckConstraintError,
-  ClientInitializationError,
   ForeignKeyError,
   NotFoundError,
   NotNullConstraintError,
@@ -14,7 +13,7 @@ import type { LogEvent } from "@instrumentation/types";
 import { s } from "@schema";
 import { getFieldSqlName, getModelSqlName } from "@schema/hydration";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 const user = s.model({
   id: s.string().id(),
@@ -221,18 +220,25 @@ describe("Prisma-style catch on live PGlite errors", () => {
     });
   });
 
-  test("a construction fault is not misfiled as one of the query codes", () => {
+  test("an absent delegate is an ordinary property fault before provider dispatch", async () => {
     const driver = createDriver();
     const client = createClient({ schema, driver });
-    let caught: unknown;
+    const execute = vi.spyOn(driver, "_execute");
     try {
-      (
-        client as unknown as { ghost: { findMany: () => unknown } }
-      ).ghost.findMany();
-    } catch (error) {
-      caught = error;
+      expect(Reflect.get(client, "ghost")).toBeUndefined();
+      let caught: unknown;
+      try {
+        Reflect.get(client, "ghost").findMany();
+      } catch (error) {
+        caught = error;
+      }
+      expect(classifyLikePrisma(caught)).toBe("unhandled:undefined");
+      expect(caught).toBeInstanceOf(TypeError);
+      expect(execute).not.toHaveBeenCalled();
+      await expect(client.user.findMany()).resolves.toEqual([]);
+      expect(execute).toHaveBeenCalledTimes(1);
+    } finally {
+      execute.mockRestore();
     }
-    expect(classifyLikePrisma(caught)).toBe("unhandled:P1012");
-    expect(caught).toBeInstanceOf(ClientInitializationError);
   });
 });

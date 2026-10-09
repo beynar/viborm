@@ -7,15 +7,13 @@
  * ```ts
  * // viborm.config.ts
  * import { defineConfig } from "viborm/config";
- * import { driver } from "./src/db";
- * import * as schema from "./src/schema";
+ * import { client } from "./src/db";
  *
  * export default defineConfig({
- *   driver,
- *   schema,
+ *   client,
  * });
  * ```
  */
 
-export type { VibORMConfig } from "./cli/utils";
+export type { MigrationConfig, VibORMConfig } from "./cli/utils";
 export { defineConfig } from "./cli/utils";

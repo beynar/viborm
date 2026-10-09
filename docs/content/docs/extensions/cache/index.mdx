@@ -123,7 +123,7 @@ await client.user.update({
   data: { name: "Alice" },
   cache: {
     autoInvalidate: true,
-    invalidate: ["dashboard:*"],
+    invalidate: ["post:findMany:*"],
   },
 });
 ```
@@ -138,9 +138,14 @@ rollback or savepoint rollback publishes no invalidation. A committed or
 possibly committed write attempts cache invalidation before later public
 write-outcome listeners, while retaining all failures in order.
 
-`autoInvalidate` clears the canonical `<model>:` prefix inside the extension's
-namespace. Manual invalidation validates every target before starting any
-backend delete or clear, so an invalid mixed list has no partial effects.
+`autoInvalidate` clears the bound extension's entire cache scope, including
+reads whose nested relations depend on the mutation. Manual invalidation uses
+exact canonical relative keys or a trailing `*` for a prefix; it is not a glob
+or tag system. Custom read keys are suffixes of the canonical query identity,
+so a custom key such as `dashboard` does not create a `dashboard:*` prefix.
+Use the model/operation prefix above, or `*` for the entire scope. Manual
+invalidation validates every target before starting backend work, so an invalid
+mixed list has no partial effects.
 
 ## Deliberate bypasses
 

@@ -1,4 +1,3 @@
-import type { CacheExecutionOptions, WithCacheOptions } from "@cache";
 import {
   bindOfficialCacheChain,
   getOfficialCacheChainCapability,
@@ -6,9 +5,11 @@ import {
   type OfficialCacheQueryContribution,
   officialCacheRuntime,
 } from "@cache/capability";
-import type { AnyDriver } from "@drivers";
+import type { CacheExecutionOptions } from "@cache/driver";
+import type { WithCacheOptions } from "@cache/schema";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "@drivers/async-dispose";
 import { readDriverIdentity } from "@drivers/driver-identity";
+import type { AnyDriver } from "@drivers/exports";
 import type {
   BatchTransactionOptions,
   TransactionOptions,
@@ -20,7 +21,6 @@ import {
   lookupResolvedExtensionHandlers,
   type ResolvedExtensionChain,
 } from "@extensions/chain";
-import type { AdmittedControls } from "@extensions/controls";
 import type {
   ClientExtension,
   ContextualExtensionDefinition,
@@ -29,15 +29,16 @@ import type {
   SchemaBoundExtensionAdmission,
 } from "@extensions/definition";
 import {
+  type AccumulatedExtensionState,
   type BoundExtensionMethods,
   bindExtensionMethods,
   type EmptyClientExtensionState,
   type EnableExtensionCache,
   type ExtensionModelClient,
   type ExtensionStateConstraint,
+  type ExtensionStateContributionOf,
   type HasExtensionCache,
   type HasResultConsumingExtension,
-  type MergeExtensionState,
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
@@ -51,7 +52,10 @@ import {
 } from "@query-engine/pending-operation";
 import { QueryEngine } from "@query-engine/query-engine";
 import { createCandidateRoute } from "@query-engine/raptor3/route/client-route";
-import { isWriteOperation } from "@query-engine/routed-operations";
+import {
+  isWriteOperation,
+  ROUTED_OPERATIONS,
+} from "@query-engine/routed-operations";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames } from "@schema/hydration";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
@@ -76,12 +80,14 @@ import {
   type ClientOmitResolver,
   createClientOmitResolver,
 } from "./omit";
+import { createPhysicalSchemaCheck } from "./physical-schema";
 import {
   createRawSurface,
   RAW_METHOD_NAMES,
   type RawOperation,
   type RawSurface,
 } from "./raw";
+import type { ClientSchema, LinkedClientConfig } from "./schema-links";
 import type {
   CachedClient,
   Client,
@@ -90,6 +96,16 @@ import type {
   Operations,
   Schema,
 } from "./types";
+
+export type {
+  ClientSchema,
+  FlatSchema,
+  Linked,
+  LinkedClientConfig,
+  Links,
+  RelationLinks,
+} from "./schema-links";
+
 import { assertNonEmptyUniqueWhere } from "./unique-where-guard";
 
 interface OfficialReadCache {
@@ -115,32 +131,48 @@ function createModelProxy<S extends Schema, R>(
   >,
   path: string[] = []
 ): unknown {
-  // Memoize child proxies: model/operation names are a small finite set, so
-  // `client.user.findUnique` resolves to the same proxy every time instead of
-  // allocating two fresh Proxy objects (+ path arrays) per query.
+  const members = new Set(
+    path.length === 0
+      ? Object.keys(schema)
+      : path.length === 1
+        ? [...ROUTED_OPERATIONS, ...Object.keys(modelMethods?.[path[0]!] ?? {})]
+        : []
+  );
   const children = new Map<string, unknown>();
-  // biome-ignore lint: <it's ok>
-  return new Proxy(() => {}, {
-    get(_target, key) {
-      if (typeof key !== "string") return undefined;
-      // Prevent Promise-like behavior - return undefined for 'then'
-      // This allows the proxy to be returned from async functions without
-      // being treated as a thenable
-      if (key === "then") return undefined;
-      if (path.length === 1) {
-        const method = modelMethods?.[path[0]!]?.[key];
-        if (method) return method;
-      }
-      let child = children.get(key);
-      if (child === undefined) {
-        child = createModelProxy(schema, createOperation, modelMethods, [
-          ...path,
-          key,
-        ]);
-        children.set(key, child);
-      }
-      return child;
-    },
+  const readMember = (key: string | symbol): unknown => {
+    if (typeof key !== "string" || key === "then" || !members.has(key))
+      return undefined;
+    if (path.length === 1) {
+      const method = modelMethods?.[path[0]!]?.[key];
+      if (method) return method;
+    }
+    let child = children.get(key);
+    if (child === undefined) {
+      child = createModelProxy(schema, createOperation, modelMethods, [
+        ...path,
+        key,
+      ]);
+      children.set(key, child);
+    }
+    return child;
+  };
+  return new Proxy(path.length === 2 ? () => undefined : {}, {
+    get: (target, key) =>
+      Object.hasOwn(target, key) ? Reflect.get(target, key) : readMember(key),
+    has: (target, key) =>
+      Object.hasOwn(target, key) ||
+      (typeof key === "string" && members.has(key)),
+    ownKeys: (target) => [...new Set([...Reflect.ownKeys(target), ...members])],
+    getOwnPropertyDescriptor: (target, key) =>
+      Reflect.getOwnPropertyDescriptor(target, key) ??
+      (typeof key === "string" && members.has(key)
+        ? {
+            configurable: true,
+            enumerable: true,
+            writable: true,
+            value: readMember(key),
+          }
+        : undefined),
     apply(_target, _thisArg, [args]) {
       const modelName = path[0] as keyof S;
       const operation = path[1] as Operations;
@@ -260,7 +292,7 @@ type AppliedExtensionState<
   ? EnableExtensionCache<X>
   : Definition extends OfficialDefaultOmitExtension
     ? X
-    : MergeExtensionState<X, Definition>;
+    : AccumulatedExtensionState<X, ExtensionStateContributionOf<Definition>>;
 
 /**
  * The keys a proposed config names that the surface does not have: the typos.
@@ -302,7 +334,7 @@ export type TransactionClient<
   X extends ExtensionStateConstraint = EmptyClientExtensionState,
 > = ExtensionModelClient<C, X> &
   RawSurface & {
-    readonly $schema: C["schema"];
+    readonly $schema: ClientSchema<C>;
     $transaction: {
       <T>(
         fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
@@ -354,7 +386,7 @@ interface VibORMClientMembers<
   /** Access the underlying driver */
   $driver: AnyDriver;
   /** Access the schema (models) */
-  $schema: C["schema"];
+  $schema: ClientSchema<C>;
   /**
    * Run operations in a transaction or batch
    *
@@ -477,7 +509,7 @@ export type ExtendedOperationResult<
 > = Client extends VibORMClient<infer C, infer X>
   ? ContextualOperationResult<
       C,
-      ModelName & keyof C["schema"],
+      ModelName & keyof ClientSchema<C>,
       O,
       Args,
       ClientRowsContext<C, X["rows"]>
@@ -488,7 +520,7 @@ export type ExtendedOperationResult<
  * VibORM Client
  */
 export class VibORM<C extends VibORMConfig> {
-  readonly #schema: C["schema"];
+  readonly #schema: ClientSchema<C>;
   readonly #engine: QueryEngine;
   readonly #relations: ResolvedRelationIndex;
   /** One resolved declarative omit per authenticated capability on this client. */
@@ -504,7 +536,7 @@ export class VibORM<C extends VibORMConfig> {
    *   copies it (§10E.10, §11.4.10).
    */
   constructor(config: C, { relations, schemaRegistry }: PreparedSchema) {
-    this.#schema = config.schema as C["schema"];
+    this.#schema = config.schema as ClientSchema<C>;
     this.#relations = relations;
 
     // The Raptor 3 route is the ONE operation owner (C-01). The two resolved
@@ -512,10 +544,15 @@ export class VibORM<C extends VibORMConfig> {
     // validates and registers nothing a second time (B-3).
     this.#engine = new QueryEngine(
       config.driver,
-      createCandidateRoute(this.#schema, config.driver, {
-        index: relations,
-        registry: schemaRegistry,
-      })
+      createCandidateRoute(
+        this.#schema,
+        config.driver,
+        {
+          index: relations,
+          registry: schemaRegistry,
+        },
+        createPhysicalSchemaCheck(this.#schema, config.driver)
+      )
     );
   }
 
@@ -545,7 +582,7 @@ export class VibORM<C extends VibORMConfig> {
   /** Build one model operation through the common lazy client preparation path. */
   #prepareModelOperation(
     engine: QueryEngine,
-    modelName: keyof C["schema"],
+    modelName: keyof ClientSchema<C>,
     operation: Operations,
     args: unknown,
     clientOmit: ClientOmitResolver | undefined,
@@ -729,6 +766,7 @@ export class VibORM<C extends VibORMConfig> {
           return execute();
         }
         const cacheResult = readPendingCacheResult(pendingOperation);
+        await cacheResult.checkStorage(engine.driver);
         const runtime = officialCacheRuntime();
         const key = runtime.cacheKeyOf(
           cacheResult.args,
@@ -889,9 +927,10 @@ export class VibORM<C extends VibORMConfig> {
   }
 
   /** Create one root view: the shared ladder plus the root-only utilities. */
-  #createRootView<X extends ExtensionStateConstraint>(
-    engine: QueryEngine
-  ): VibORMClient<C, X> {
+  #createRootView<
+    X extends ExtensionStateConstraint,
+    ViewConfig extends VibORMConfig = C,
+  >(engine: QueryEngine): VibORMClient<ViewConfig, X> {
     const chain = engine.extensionChain;
     const clientOmit =
       chain === undefined ? undefined : this.#resolveClientOmit(chain);
@@ -954,7 +993,10 @@ export class VibORM<C extends VibORMConfig> {
   /**
    * Create the full client with all utility methods
    */
-  static create<C extends VibORMConfig>(config: C): VibORMClient<C> {
+  static create<
+    C extends VibORMConfig,
+    ViewConfig extends VibORMConfig = LinkedClientConfig<C>,
+  >(config: C): VibORMClient<ViewConfig> {
     if (!config.driver) {
       throw new ClientInitializationError(
         "Driver is required to create a client. Pass a driver in createClient options."
@@ -997,7 +1039,9 @@ export class VibORM<C extends VibORMConfig> {
       return new VibORM<C>(config, prepared);
     });
 
-    return orm.#createRootView<EmptyClientExtensionState>(orm.#engine);
+    return orm.#createRootView<EmptyClientExtensionState, ViewConfig>(
+      orm.#engine
+    );
   }
 }
 
@@ -1107,11 +1151,16 @@ export const createClient = <S extends Schema, Config extends VibORMConfig<S>>(
   // `Config` captures the whole literal for the result types. The structural
   // refusal rejects unknown keys for fresh and held configuration values.
   config: Config & VibORMConfig<S> & NoExtraConfigKeys<Config, VibORMConfig<S>>
-): VibORMClient<Config> => {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<Config>]: LinkedClientConfig<Config>[P];
+}> => {
   // Explicit `Config`: the parameter's refusal members (`NoExtraConfigKeys`) are
   // there to reject typo'd keys, not to be threaded into the client's result
   // types — inferring `C` from the intersection would carry them along.
-  return VibORM.create<Config>(config);
+  return VibORM.create<
+    Config,
+    { [P in keyof LinkedClientConfig<Config>]: LinkedClientConfig<Config>[P] }
+  >(config);
 };
 
 /**
@@ -1126,13 +1175,22 @@ export const createClientFromDriverConfig = <
   config: C,
   driver: D
 ): VibORMClient<{
-  schema: C["schema"];
-  driver: D;
+  [P in keyof LinkedClientConfig<C & { driver: D }>]: LinkedClientConfig<
+    C & { driver: D }
+  >[P];
 }> => {
   const { schema, skipSchemaValidation } = config;
-  return VibORM.create({
+  const coreConfig = {
     schema,
     driver,
     ...(skipSchemaValidation === undefined ? {} : { skipSchemaValidation }),
-  });
+  };
+  return VibORM.create<
+    typeof coreConfig,
+    {
+      [P in keyof LinkedClientConfig<C & { driver: D }>]: LinkedClientConfig<
+        C & { driver: D }
+      >[P];
+    }
+  >(coreConfig);
 };

@@ -1,3 +1,5 @@
+import { isDestructiveOperation } from "./differ";
+import { formatOperation } from "./push/format";
 /**
  * History-free push plan: live diff or force-reset rebuild, compiled
  * statements, and plan hash. This module does not execute SQL.
@@ -55,18 +57,6 @@ import type {
   PushStatementPreview,
   PushTargetIdentity,
 } from "./v1-types";
-
-const DESTRUCTIVE_OPERATIONS = new Set<DiffOperation["type"]>([
-  "dropTable",
-  "dropColumn",
-  "alterColumn",
-  "dropIndex",
-  "dropForeignKey",
-  "dropUniqueConstraint",
-  "dropPrimaryKey",
-  "dropEnum",
-  "alterEnum",
-]);
 
 export interface PlannedStatement {
   readonly kind: "clear" | "effect";
@@ -160,6 +150,41 @@ export async function buildPushPlan(
     current = planned.currentSchema;
     operations = planned.operations;
   }
+  if (!options.forceReset)
+    for (const operation of operations) {
+      if (
+        operation.type !== "addColumn" ||
+        operation.column.nullable ||
+        operation.column.default !== undefined ||
+        operation.column.autoIncrement
+      )
+        continue;
+      const rename = operations.find(
+        (candidate) =>
+          candidate.type === "renameTable" &&
+          candidate.to === operation.tableName
+      );
+      const tableName =
+        rename?.type === "renameTable" ? rename.from : operation.tableName;
+      if (!current.tables.some((table) => table.name === tableName)) continue;
+      const reference = producer.adapter.identifiers.table(tableName);
+      const populated = await producer._executeRaw(
+        `SELECT 1 AS present FROM ${reference.toStatement()} LIMIT 1`
+      );
+      if (populated.rows.length > 0)
+        throw new MigrationError(
+          `Cannot add required column "${operation.tableName}.${operation.column.name}" without a database default to a populated table. Application function/generator defaults do not backfill stored rows. Author a manual data migration that adds a nullable column, fills it, and then makes it required. No migration effects were executed.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          {
+            meta: {
+              table: operation.tableName,
+              column: operation.column.name,
+              command: "push",
+              hint: "Use a reviewed manual migration for explicit backfill before making the column required.",
+            },
+          }
+        );
+    }
   const resolutions = controller.finish();
   const target = await pushTargetIdentity(client, producer, command);
   const sourceFingerprint = await fingerprintLive(current, command, producer);
@@ -174,8 +199,8 @@ export async function buildPushPlan(
   const reportedOperations: PushOperation[] = operations.map(
     (operation, index) => ({
       id: `${operation.type}:${index}`,
-      label: operation.type,
-      risk: DESTRUCTIVE_OPERATIONS.has(operation.type) ? "destructive" : "safe",
+      label: formatOperation(operation),
+      risk: isDestructiveOperation(operation) ? "destructive" : "safe",
     })
   );
   const atomicity = classifyPlanAtomicity(command, operations);
@@ -257,6 +282,7 @@ export function compilePlanStatements(
       destination: "live",
       currentSchema,
       precedingOperations: operations.slice(0, operationIndex),
+      followingOperations: operations.slice(operationIndex + 1),
     };
     const statements = driver.compileStatements(operation, context);
     for (const [statementIndex, sql] of statements.entries()) {

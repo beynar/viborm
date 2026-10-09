@@ -289,7 +289,7 @@ describe("migration v1 compiler", () => {
           removeValues: [],
         },
       ])
-    ).toBe("stepwise");
+    ).toBe("transactional");
     expect(classifyStoredAtomicity(sqlite, "stepwise", [])).toBe("stepwise");
     for (const statement of [
       "CREATE INDEX CONCURRENTLY ix_user_email ON user (email)",
@@ -312,7 +312,7 @@ describe("migration v1 compiler", () => {
           rebindDispatches(compiled.operations, sealed.dispatches),
           sealed.bytes
         )
-      ).toBe("stepwise");
+      ).toBe(statement.includes("CONCURRENTLY") ? "stepwise" : "transactional");
     }
     expect(() =>
       assertTransactionalBoundaryHonored(false, "transactional")

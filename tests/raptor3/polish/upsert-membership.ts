@@ -1,9 +1,12 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
 import { isRecord } from "@validation/value-guards";
 import type Database from "better-sqlite3";
 import type { ScenarioDefinition } from "../harness/protocol";
+
+const TRANSACTION_BEGIN = /^BEGIN(?: IMMEDIATE)?$/;
 
 export const upsertMembershipScenario: ScenarioDefinition = {
   id: "g25-nested-upsert-member-lost",
@@ -99,7 +102,7 @@ export const upsertMembershipScenario: ScenarioDefinition = {
           if (
             !detached &&
             memberCaptured &&
-            sql.trim().toUpperCase() === "BEGIN"
+            TRANSACTION_BEGIN.test(sql.trim().toUpperCase())
           ) {
             assert.equal(database.inTransaction, false);
             assert.deepEqual(inspect(database), initial);
@@ -135,7 +138,10 @@ export const upsertMembershipScenario: ScenarioDefinition = {
         } else if (
           completion.parameters.includes("selected") &&
           completion.rows.some(
-            (row) => isRecord(row) && row.id === 10n && row.parentId === 1n
+            (row) =>
+              isRecord(row) &&
+              (row.id === 10n || row.id === 10) &&
+              (row.parentId === 1n || row.parentId === 1)
           )
         )
           memberCaptured = true;

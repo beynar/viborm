@@ -10,10 +10,12 @@
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
+import { readArrayLiteralText } from "@adapters/databases/postgres/array-literal";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { s } from "@schema";
 import { MYSQL, PG, SQLITE } from "@schema/scalars/native-types";
+import { sql } from "@sql";
 import type { IdDomain } from "@validation/primitives/id-codec";
 import { describe, expect, test } from "vitest";
 
@@ -76,4 +78,44 @@ describe("SQLite DateTime from one map", () => {
       "2026-01-15 10:30:00.789",
     ]);
   });
+});
+
+test("PostgreSQL native strings preserve equality and lower text predicates explicitly", () => {
+  const column = sql.raw`value`;
+  for (const type of [PG.STRING.CITEXT, PG.STRING.XML, PG.STRING.UUID]) {
+    const native = s.string({ pg: type })["~"].nativeType;
+    expect(
+      pg.expressions.caseSensitiveText(column, native, true).toStatement()
+    ).toBe(type === PG.STRING.CITEXT ? "value" : "CAST(value AS TEXT)");
+    if (type === PG.STRING.XML) {
+      expect(() => pg.expressions.caseSensitiveText(column, native)).toThrow(
+        "XML has no equality"
+      );
+    } else {
+      expect(pg.expressions.caseSensitiveText(column, native)).toBe(column);
+    }
+  }
+  expect(pg.expressions.caseSensitiveText(column, undefined, true)).toBe(
+    column
+  );
+});
+
+test("PostgreSQL array transport distinguishes nulls, quoted values and escapes", () => {
+  expect(readArrayLiteralText("{}")).toEqual([]);
+  expect(
+    readArrayLiteralText(String.raw`{NULL,"NULL","",42,"a,b","a\\b","a\"b"}`)
+  ).toEqual([null, "NULL", "", "42", "a,b", "a\\b", 'a"b']);
+  for (const malformed of [
+    "[]",
+    "{a",
+    "{{a}}",
+    '{a"b}',
+    "{a}b}",
+    '{"open}',
+    '{"closed"x}',
+    "{a,}",
+    String.raw`{a\}`,
+  ]) {
+    expect(readArrayLiteralText(malformed)).toBeUndefined();
+  }
 });

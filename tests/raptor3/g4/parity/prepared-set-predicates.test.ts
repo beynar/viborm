@@ -86,6 +86,22 @@ const complementOf = (guard: string) => guard.slice(guard.indexOf("NOT ("));
 const excluded = (column: string) =>
   new RegExp(`"q\\d+"\\."${column}"(?: COLLATE \\w+)? = \\?`, "g");
 
+/** Single-key captures use one IN list; compound captures retain equalities. */
+const excludedCount = (guard: string, column: string) => {
+  const comparisonCount = (guard.match(excluded(column)) ?? []).length;
+  const membership = new RegExp(
+    `"q\\d+"\\."${column}"(?: COLLATE \\w+)? IN \\(([^)]+)\\)`,
+    "g"
+  );
+  return (
+    comparisonCount +
+    [...guard.matchAll(membership)].reduce(
+      (count, match) => count + (match[1]?.match(/\?/g) ?? []).length,
+      0
+    )
+  );
+};
+
 const CHANGED = (verb: string) =>
   `${verb} selected-row cardinality changed during its locked mutation.`;
 
@@ -151,10 +167,7 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
     ]);
     // The premise really ran: this is the statement that used to be refused.
     assert.equal(complements().length, 1);
-    assert.equal(
-      (complementOf(complements()[0]!).match(excluded("id")) ?? []).length,
-      1
-    );
+    assert.equal(excludedCount(complementOf(complements()[0]!), "id"), 1);
   });
 
   it("a selected bulk delete filters by the scalar named OR while the complement excludes the captured identities", async () => {
@@ -174,10 +187,7 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
     assert.deepEqual(await items(client), [{ id: 1, NOT: 10 }]);
     assert.equal(complements().length, 1);
     // Both captured rows are excluded, by their key.
-    assert.equal(
-      (complementOf(complements()[0]!).match(excluded("id")) ?? []).length,
-      2
-    );
+    assert.equal(excludedCount(complementOf(complements()[0]!), "id"), 2);
   });
 
   it("a selected bulk update writes the scalar named NOT and publishes the rows it wrote", async () => {
@@ -317,10 +327,7 @@ describe("FC-03: the captured set's complement is prepared, not spelled", () => 
     assert.deepEqual(await items(client), [{ id: 1, NOT: 10 }]);
     // The series' own complement: "connected ∧ filter ∧ key ∉ captured".
     assert.equal(complements().length, 1);
-    assert.equal(
-      (complementOf(complements()[0]!).match(excluded("id")) ?? []).length,
-      2
-    );
+    assert.equal(excludedCount(complementOf(complements()[0]!), "id"), 2);
   });
 
   it("an EMPTY nested capture still rides its guard on the batch, stating no complement", async () => {

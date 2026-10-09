@@ -4,7 +4,7 @@ import { createTestClock } from "@tests/fixtures/test-clock";
 import { describe, expect, it } from "vitest";
 
 describe("Cache", () => {
-  it("keeps the memory driver constructor option-free", () => {
+  it("refuses unknown memory bounds without invoking getters", () => {
     let reads = 0;
     const hostile = new Proxy(
       {},

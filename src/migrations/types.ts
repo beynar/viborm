@@ -131,6 +131,8 @@ export interface ColumnDef {
    * bytes. Live introspection cannot recover this logical fact and omits it.
    */
   dateTime?: DateTimePhysicalForm | undefined;
+  /** SQLite writer CHECK version; physical metadata, never a public point language. */
+  geoPointEncoding?: "legacy" | "binary64" | undefined;
 }
 
 export interface PrimaryKeyDef {
@@ -333,6 +335,7 @@ interface BaseResolveChange {
   operation:
     | "dropTable"
     | "dropColumn"
+    | "addColumn"
     | "alterColumn"
     | "renameTable"
     | "renameColumn";
@@ -520,7 +523,7 @@ export type ResolveCallback = (
  * Create a destructive change object with resolution methods.
  */
 export function createDestructiveChange(props: {
-  operation: "dropTable" | "dropColumn" | "alterColumn";
+  operation: "dropTable" | "dropColumn" | "addColumn" | "alterColumn";
   table: string;
   column?: string;
   description: string;
@@ -603,7 +606,8 @@ export type Dialect = "postgresql" | "sqlite" | "mysql";
  * The live destination is the adapter's namespace, which MySQL reads at its
  * live boundary and never persists here.
  */
-export type MigrationTarget =
+export type MigrationTarget = (
   | { readonly dialect: "postgresql"; readonly namespace: string }
   | { readonly dialect: "mysql" }
-  | { readonly dialect: "sqlite" };
+  | { readonly dialect: "sqlite" }
+) & { readonly tables?: readonly string[] };

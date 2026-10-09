@@ -30,6 +30,13 @@ const client = createClient({
 | `namespace` | `string` | MySQL database for VibORM-owned objects |
 | `migrationNamespaceAttestation` | `"non-redirecting"` | Caller assertion required for effectful migrations |
 
+URL credentials and the database path are percent-decoded, and URL query
+options are preserved. `sslmode=require`, `verify-ca`, and `verify-full` enable
+verified TLS; weaker or unrecognized TLS URL settings are refused. Use
+`options.ssl` for certificate settings. Typed commands use MySQL text protocol
+with per-command date and exact-integer decoding, including supplied pools;
+VibORM does not fill mysql2's server prepared-statement cache.
+
 ### Using Pool Options
 
 ```typescript

@@ -151,7 +151,11 @@ export interface DatabaseAdapter {
      * then refuses. The dialects that DO have a temporal type ignore it — their
      * own native types all name a column that accepts this same spelling.
      */
-    dateTime: (iso: string, nativeType?: NativeTypeDeclaration) => Sql;
+    dateTime: (
+      iso: string,
+      nativeType?: NativeTypeDeclaration,
+      member?: boolean
+    ) => Sql;
     /**
      * Decimal operand from a canonical decimal string, in the DOMAIN it is
      * being compared or assigned against.
@@ -239,7 +243,11 @@ export interface DatabaseAdapter {
      * answers are not the same shape, and the measurements that forced that
      * are recorded in `docs/architecture/query-performance-plan.md`, §7.3.
      */
-    startsWithPrefix: (column: Sql, value: string) => Sql;
+    startsWithPrefix: (
+      column: Sql,
+      value: string,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql;
 
     /**
      * `column = value` and `column IN (values)` on a TEXT column, under the
@@ -259,8 +267,16 @@ export interface DatabaseAdapter {
      * routes a reference to the plain comparison, which has no index lookup to
      * preserve.
      */
-    exactTextEq: (column: Sql, value: Sql) => Sql;
-    exactTextIn: (column: Sql, values: Sql) => Sql;
+    exactTextEq: (
+      column: Sql,
+      value: Sql,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql;
+    exactTextIn: (
+      column: Sql,
+      values: Sql,
+      nativeType?: NativeTypeDeclaration
+    ) => Sql;
 
     // Set membership
     in: (column: Sql, values: Sql) => Sql;
@@ -321,7 +337,11 @@ export interface DatabaseAdapter {
     /** Fold ASCII A-Z to a-z without provider-native Unicode case folding. */
     asciiCaseFold: (expr: Sql) => Sql;
     /** Force exact text comparison semantics independent of column/database collation. */
-    caseSensitiveText: (expr: Sql) => Sql;
+    caseSensitiveText: (
+      expr: Sql,
+      nativeType?: NativeTypeDeclaration,
+      textOperation?: boolean
+    ) => Sql;
 
     /** Cast a deferred value into one fixed-decimal field's exact domain. */
     decimalCast: (expr: Sql, descriptor: DecimalDescriptor) => Sql;
@@ -381,8 +401,8 @@ export interface DatabaseAdapter {
     countDistinct: (expr: Sql) => Sql;
     sum: (expr: Sql) => Sql;
     avg: (expr: Sql) => Sql;
-    min: (expr: Sql) => Sql;
-    max: (expr: Sql) => Sql;
+    min: (expr: Sql, boolean?: boolean) => Sql;
+    max: (expr: Sql, boolean?: boolean) => Sql;
     /**
      * The average of an EXACT decimal column, in the column's own physical
      * domain and quantized to the field's scale with round-half-to-even.
@@ -416,10 +436,14 @@ export interface DatabaseAdapter {
    * Database-specific JSON building and extraction
    */
   json: {
+    /** Structural JSON equality: object key order is insignificant. */
+    equals: (left: Sql, right: Sql) => Sql;
     /** Convert a SQL predicate into a JSON boolean value. */
     boolean: (condition: Sql) => Sql;
     /** Preserve a SQL expression as a JSON document when embedding it in JSON. */
     document: (expression: Sql) => Sql;
+    /** Carry a finite number through JSON without losing binary precision. */
+    number: (expression: Sql) => Sql;
     /** Build JSON object from key-value pairs */
     object: (pairs: [string, Sql][]) => Sql;
     /** Build JSON array from items */
@@ -497,7 +521,7 @@ export interface DatabaseAdapter {
      * format: native array param (PG), CAST(? AS JSON) (MySQL), canonical
      * JSON text param (SQLite). Used for list writes and equals/not filters.
      */
-    value: (values: unknown[]) => Sql;
+    value: (values: unknown[], temporal?: "date" | "datetime") => Sql;
     /**
      * Parameterized value for a complete ENUM list.
      *
@@ -521,10 +545,10 @@ export interface DatabaseAdapter {
     /** Check if array is empty */
     isEmpty: (column: Sql) => Sql;
     /**
-     * Project a DECIMAL list column in the physical spelling its decode reads.
+     * Project a numeric list without a provider/JSON carrier rounding members.
      *
-     * A decimal list is the one list whose members cannot survive the ordinary
-     * projection. On a native-array dialect the members are exact decimals, and
+     * Decimal, bigint and floating-point lists share this transport boundary.
+     * On a native-array dialect the members are exact text, and
      * the whole-column TEXT cast every other decimal projection uses yields the
      * dialect's own array literal (`{1.20,-0.03}`) rather than an array of
      * members — while embedding the column in a JSON carrier uncast yields JSON
@@ -535,9 +559,9 @@ export interface DatabaseAdapter {
      * than as a driver-parsed document.
      *
      * One name, one meaning, three dialect spellings — the query engine asks for
-     * a readable decimal list and never for a cast.
+     * a readable numeric list and never for a dialect cast.
      */
-    decimalProjection: (column: Sql) => Sql;
+    exactNumericProjection: (column: Sql) => Sql;
     /** Get array length. Reserved — not called by the query engine yet. */
     length: (column: Sql) => Sql;
     /** Get element at index. Reserved — not called by the query engine yet. */

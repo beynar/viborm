@@ -94,13 +94,22 @@ describe("the tagged collection verb grammar", () => {
     // several verbs legitimately coexist and an empty bag is inert.
     expect(
       accepts("update", {
-        connect: [{ type: "photo", where: { id: "p" } }],
         disconnect: [{ type: "article", where: { id: "a" } }],
         deleteMany: [{ type: "photo", where: { caption: { equals: "x" } } }],
+        connect: [{ type: "photo", where: { id: "p" } }],
       })
     ).toBe(true);
     expect(accepts("update", {})).toBe(true);
     expect(accepts("create", {})).toBe(true);
+  });
+
+  test("collection admission rejects a late clearing verb", () => {
+    expect(
+      accepts("update", {
+        connect: [{ type: "photo", where: { id: "p" } }],
+        disconnect: [{ type: "article", where: { id: "a" } }],
+      })
+    ).toBe(false);
   });
 
   test("the CREATE bag offers four supply verbs and nothing else", () => {
@@ -396,10 +405,10 @@ describe("both inverse collection arities take the ordinary write families", () 
     expect(
       parse(inverseRegistry.proxy.clip.core.update, {
         shelves: {
-          connect: [{ id: "s1" }],
           disconnect: [{ id: "s2" }],
-          create: [{ id: "s3", label: "L" }],
           deleteMany: [{ id: { equals: "s4" } }],
+          connect: [{ id: "s1" }],
+          create: [{ id: "s3", label: "L" }],
         },
       }).issues
     ).toBeUndefined();

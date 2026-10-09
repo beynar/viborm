@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -192,7 +193,7 @@ const changedDependency: ScenarioDefinition = {
         args,
         control: { initialDefault: 1, selectedMemberDefaults: [1, 2] },
       },
-      requiredCuts: ["s2-selected-members-captured"],
+      requiredCuts: [],
       seed(database) {
         database.exec(`
           CREATE TABLE s2_shelves (id INTEGER PRIMARY KEY, label TEXT NOT NULL);
@@ -252,127 +253,15 @@ const changedDependency: ScenarioDefinition = {
         assert.deepEqual(observation.initial, initial);
         assert.equal(observation.outcome.kind, "failure");
         if (observation.outcome.kind !== "failure") return;
-        // RE-EXPRESSED (FC-01, 2026-09-21). This cell recorded
-        // `NestedWriteError` V7001 "Nested operation 'set' on relation
-        // 'targets' depends on an earlier 'connectOrCreate' target write in
-        // the same nested write. Split these operations into separate
-        // queries." FC-01 deleted the operation-global veto that produced it
-        // (`Commands.expanded`) and places a fresh series member's ordered
-        // observation at its consumer's execution point instead, so the
-        // composition now EXECUTES. What it executes is unchanged and is the
-        // engine's own canonical relation order (`collectionMutationOrder`:
-        // `connectOrCreate` before `set`, whatever order the payload's keys
-        // are in — the sibling `relation key order` cell runs both). TWO
-        // physical orders run, one per selected bin, because FC-01 moves a
-        // reader only where a write of the same series proposes the id that
-        // reader reads. Bin 10's create resolves its id to the literal 1,
-        // statically disjoint from the 2 that `set` looks up, so its lookup
-        // never reaches `depend`: it keeps placement `before` and runs FIRST,
-        // ahead of the connectOrCreate's look for target 99 (absent, and
-        // nothing here creates it), the INSERT of the create arm's target,
-        // its link, `set`'s clear of the bin's links, and the final link to
-        // target 2. Bin 10 therefore completes. Only bin 11, whose create
-        // proposes exactly the 2 `set` reads, has its lookup MOVED — behind
-        // the create arm and its link, ahead of the clear — and there it is
-        // never taken: bin 11 draws 2, s2_targets already holds row 2 from
-        // the seed, and the create arm violates the table's PRIMARY KEY
-        // first. No order avoids that: this payload deletes only
-        // s2_bin_targets rows, never a target, so row 2 is present whenever
-        // the create runs. The placement itself is pinned by
-        // tests/raptor3/g4/parity/fresh-member-placement.test.ts.
-        assert.equal(observation.outcome.failure.name, "UniqueConstraintError");
-        assert.equal(observation.outcome.failure.code, "V3001");
+        // V1 refuses the caller's adding-before-clearing spelling before
+        // capturing or committing any relation-series member.
+        assert.equal(observation.outcome.failure.name, "ValidationError");
+        assert.equal(observation.outcome.failure.code, "V4001");
         assert.equal(
           observation.outcome.failure.message,
-          "Unique constraint violation"
+          "Validation failed for update: data.bins.updateMany: Value did not match any union member: Collection mutation must spell clearing verb 'set' before adding verb 'connectOrCreate'., Expected array"
         );
-        assert(isRecord(observation.outcome.failure.meta));
-        // The violated constraint is the target table's own key, not a
-        // membership: the create arm, not the `set`, is what collides.
-        assert.deepEqual(observation.outcome.failure.meta.columns, [
-          "s2_targets.id",
-        ]);
-        // The retired `verifyChangedDependencyCommandsProgress` adjudicator
-        // carried this literal — the engine's OWN published progress at the
-        // failure — inside a two-armed comparison, and it ran at one profile
-        // only (`sqlite-atomic-batch`; the interactive profile publishes no
-        // segment progress). Restated here, one-sided, so this scenario pins
-        // the record again. Re-expressed with the cell (FC-01): the refusal
-        // was raised while the member at index 1 (bin 11) was still being
-        // PLANNED, with only the root's segment behind it; the executed run
-        // commits the root segment AND bin 10's before that same member fails
-        // in its own member phase, so the two committed counts and the
-        // completed-member count each advance by one. The located pair is
-        // unchanged — the failing member is the same one, index 1 of 2.
-        if (controls.profile === "sqlite-atomic-batch") {
-          const progress =
-            observation.outcome.failure.meta.recordSeriesProgress;
-          assert(isRecord(progress));
-          const { memberPath, totalMembers, ...segment } = progress;
-          assert.deepEqual(segment, {
-            atomicity: "segment",
-            phase: "member",
-            committedSegments: 2,
-            committedWriteMembers: 2,
-            completedMembers: 1,
-          });
-          // The deleted `program/` specimen published this same segment record
-          // WITHOUT the located pair, so the pair could only be pinned where it
-          // appeared. Every engine that remains publishes it; the pin is
-          // unconditional now, which is strictly the stronger record.
-          assert.deepEqual(
-            { memberPath, totalMembers },
-            { memberPath: [1], totalMembers: 2 }
-          );
-        }
-        // One draw for the template before the capture cut, then one per
-        // member built from the admitted payload — the fixture's declared
-        // `initialDefault: 1` and `selectedMemberDefaults: [1, 2]`. The
-        // interactive profile adds two: its rejection aborts the region it
-        // opened, so the region owner spends its one recovery and re-runs the
-        // operation; the template's commands are reused (no fourth template
-        // draw) while both members are rebuilt, and this generator answers 2
-        // to every draw after the second, so bin 10 now collides too and the
-        // spent budget lets the violation surface.
-        assert.deepEqual(
-          observation.defaults,
-          controls.profile === "sqlite-interactive"
-            ? [
-                { name: "target.id", value: 1 },
-                { name: "target.id", value: 1 },
-                { name: "target.id", value: 2 },
-                { name: "target.id", value: 2 },
-                { name: "target.id", value: 2 },
-              ]
-            : [
-                { name: "target.id", value: 1 },
-                { name: "target.id", value: 1 },
-                { name: "target.id", value: 2 },
-              ]
-        );
-        // Interactive: one transaction, both attempts rolled back, nothing at
-        // all. Atomic batch: segment atomicity, so the root's segment (the
-        // shelf's label) and bin 10's segment stand — target 1 created and
-        // left orphaned by `set`'s clear, and bin 10 holding exactly target 2
-        // — while bin 11 contributes nothing. Bin 12 belongs to shelf 2 and is
-        // never selected, so its membership is untouched either way.
-        assert.deepEqual(
-          observation.final,
-          controls.profile === "sqlite-interactive"
-            ? initial
-            : {
-                shelves: [
-                  { id: 1, label: "before-series" },
-                  { id: 2, label: "untouched" },
-                ],
-                bins: initial.bins,
-                targets: [{ id: 1 }, { id: 2 }, { id: 8 }],
-                memberships: [
-                  { binId: 10, targetId: 2 },
-                  { binId: 12, targetId: 8 },
-                ],
-              }
-        );
+        assert.deepEqual(observation.final, initial);
       },
     };
   },

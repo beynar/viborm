@@ -7,10 +7,13 @@
 
 export interface PgTable {
   table_name: string;
+  relation_kind?: string;
+  is_partition?: boolean;
 }
 
 export interface PgColumn {
   table_name: string;
+  generated_kind?: string;
   column_name: string;
   data_type: string;
   /**
@@ -70,7 +73,8 @@ export interface PgPrimaryKey {
 export interface PgIndex {
   table_name: string;
   index_name: string;
-  column_name: string;
+  column_name: string | null;
+  unsupported_structure: boolean;
   is_unique: boolean;
   index_type: string;
   filter_condition: string | null;

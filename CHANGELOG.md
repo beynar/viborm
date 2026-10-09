@@ -3,7 +3,26 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## Unreleased
+## 1.0.0 — 2026-10-09
+
+- Repair the confirmed transaction, driver lifecycle, SQLite storage, scalar,
+  nested-write, cache, type and migration defects from the October 8 adversarial
+  review. Provider qualification and remaining product gaps are recorded in the
+  remediation report.
+- Support Neon serverless 1.2 and libSQL 0.18; require a fixed SQLite library floor.
+  Raw SQL remains physical, while typed DateTime, Decimal, ID and vector values
+  have explicit admission and decoding contracts.
+- Refuse unsafe schema/index adoption before effects; preserve migration atomicity,
+  canonical temporal defaults and JSON null distinctions.
+- Load TypeScript config and project environment files in the CLI; correct the
+  installation and persistence recipes. Ship third-party license notices.
+- Preserve exact cyclic relation types when applications export inferred clients
+  or client factories and emit declarations. No getter annotations or codegen
+  are required. Rebuilding a client from separately emitted raw cyclic models
+  retains its documented limitation.
+- Keep PostgreSQL migration rename planning, generated constraint names and
+  rollback consistent. Apply accepted table and column renames before enum
+  changes that use their new names, retaining enum array and default metadata.
 
 - **Fixed: an unlimited soft delete no longer reads every candidate key to
   lock them.** Before tombstoning a model that a restricting relation
@@ -34,7 +53,7 @@ Versioning.
   transaction now rejects with that failure, never commits after it, and
   releases the client so the pool destroys it.
 
-## 1.0.0-rc.5 — Release candidate (not yet published)
+## 1.0.0-rc.5 — Release candidate
 
 - **Performance: a client created per request.** Clients built over the same
   schema object share the schema's validation, registries and prepared

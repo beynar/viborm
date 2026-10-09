@@ -15,6 +15,8 @@ export interface QueryParts {
   offset?: Sql;
   /** DISTINCT ON columns (PostgreSQL), or simulated via ROW_NUMBER() (MySQL/SQLite) */
   distinct?: Sql;
+  /** Logical representative order, before a backward page reverses presentation. */
+  distinctOrderBy?: Sql;
   /** Column alias names for outer SELECT when using DISTINCT simulation (MySQL/SQLite) */
   distinctColumnAliases?: string[];
   /**

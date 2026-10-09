@@ -221,7 +221,7 @@ describe("E1 U1 — the lookup fold's provenance", () => {
           data: { author: { connect: { email: "target@x" } } },
         })
       ).rejects.toThrow(
-        'Driver "pglite" returned a malformed int scalar for operation "update": a required scalar is null.'
+        'The "update" result is incompatible with the int scalar domain: a required scalar is null.'
       );
       await expect(
         stateClient.book.findUnique({ where: { id: 2 } })
@@ -252,15 +252,24 @@ class BeforeBatchLookupDriver extends PGliteDriver {
     this.beforeBatch = beforeBatch;
   }
 
-  protected override async executeBatch<T>(
-    client: PGlite | Transaction,
-    queries: BatchQuery[]
+  override async _executeBatch<T>(
+    queries: BatchQuery[],
+    options?: Parameters<PGliteDriver["_executeBatch"]>[1],
+    context?: QueryExecutionContext,
+    committed?: Parameters<PGliteDriver["_executeBatch"]>[3]
   ): Promise<QueryResult<T>[]> {
     const hook = this.beforeBatch;
     if (hook && batchIsAtomicUnit(queries)) {
       this.beforeBatch = undefined;
       await hook();
     }
+    return super._executeBatch<T>(queries, options, context, committed);
+  }
+
+  protected override async executeBatch<T>(
+    client: PGlite | Transaction,
+    queries: BatchQuery[]
+  ): Promise<QueryResult<T>[]> {
     return this.transaction(client, async (transaction) => {
       const results: QueryResult<T>[] = [];
       for (const query of queries) {

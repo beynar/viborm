@@ -1,5 +1,10 @@
 import { createClient } from "@client/client";
-import { TransactionError } from "@errors";
+import {
+  FeatureNotSupportedError,
+  TransactionError,
+  UnsupportedOperationError,
+} from "@errors";
+import { s } from "@schema";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { nestedWriteBehaviorSchema } from "@tests/fixtures/nested-write-behavior-schema";
 import { describe, expect, test } from "vitest";
@@ -84,4 +89,50 @@ describe("operation executor atomic-capability refusal", () => {
       expect(thrown.meta.operation).toBe(operationName);
     });
   }
+});
+
+class VectorDistanceProbeDriver extends PlanningDriver {
+  requests = 0;
+  protected override async execute<T>(): Promise<{
+    rows: T[];
+    rowCount: number;
+  }> {
+    this.requests++;
+    return { rows: [], rowCount: 0 };
+  }
+}
+
+test("public vector distance admission distinguishes unsupported tiers and invalid dimensions", async () => {
+  const embedding = s.model({
+    id: s.int().id(),
+    value: s.vector().dimension(3).nullable(),
+  });
+  const supported = new VectorDistanceProbeDriver("postgresql");
+  supported.adapter.capabilities.supportsVector = true;
+  const db = createClient({ schema: { embedding }, driver: supported });
+  const refused = await db.embedding
+    .findMany({
+      select: { value: { _distance: { to: [1, 2], metric: "l2" } } },
+    })
+    .catch((failure: unknown) => failure);
+  expect(refused).toBeInstanceOf(UnsupportedOperationError);
+  expect(refused).toMatchObject({ code: "V8003" });
+  expect(supported.requests).toBe(0);
+  expect(
+    await db.embedding.findMany({
+      select: { value: { _distance: { to: [1, 2, 3], metric: "l2" } } },
+    })
+  ).toEqual([]);
+  expect(supported.requests).toBe(1);
+  const unsupported = new VectorDistanceProbeDriver("sqlite");
+  const unavailable = createClient({
+    schema: { embedding },
+    driver: unsupported,
+  });
+  await expect(
+    unavailable.embedding.findMany({
+      select: { value: { _distance: { to: [1, 2, 3], metric: "l2" } } },
+    })
+  ).rejects.toBeInstanceOf(FeatureNotSupportedError);
+  expect(unsupported.requests).toBe(0);
 });

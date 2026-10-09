@@ -1,3 +1,9 @@
+import { readSuppressedFailures } from "@src/drivers/shared/suppressed-failure";
+import {
+  MigrationError,
+  UnsupportedOperationError,
+  VibORMErrorCode,
+} from "@src/errors";
 /**
  * Unit tests for `src/cli/utils.ts` — the CLI's pure/config layer.
  *
@@ -10,11 +16,17 @@
  *   2. defineConfig — the public config-subpath identity helper.
  */
 
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chdir, cwd } from "node:process";
 import { pathToFileURL } from "node:url";
-import { defineConfig, failCli, loadConfig } from "@src/cli/utils";
-import { SchemaValidationError } from "@src/schema/validation";
+import {
+  defineConfig,
+  failCli,
+  finishCli,
+  loadCliModule,
+  loadConfig,
+} from "@src/cli/utils";
 import {
   makeTempProject,
   type TempProject,
@@ -24,8 +36,6 @@ import { SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const MISSING_CONFIG_FILE_PATTERN = /Could not find VibORM configuration file/;
-const TS_LOADER_HINT_PATTERN =
-  /Make sure you're running with a TypeScript loader/;
 const MISSING_CLIENT_PATTERN = /Missing "client"/;
 const INVALID_CLIENT_PATTERN = /Invalid "client"/;
 const NO_MODELS_PATTERN = /No models found in client schema/;
@@ -50,7 +60,66 @@ describe("loadConfig", () => {
     project.cleanup();
   });
 
+  it.each([
+    {
+      name: "named config",
+      source: "export const config = { marker: 'named' };",
+      ownDefault: false,
+      expected: { config: { marker: "named" } },
+    },
+    {
+      name: "module exports",
+      source: "export const client = { marker: 'module' };",
+      ownDefault: false,
+      expected: { client: { marker: "module" } },
+    },
+    {
+      name: "authored default",
+      source: "export default { marker: 'authored' };",
+      ownDefault: true,
+      expected: { marker: "authored" },
+    },
+  ])("distinguishes the $name from a synthetic loader default", async (entry) => {
+    writeConfigFixture(project, { rawConfigSource: entry.source });
+    const module = await loadCliModule<{ default?: unknown }>(
+      project.configPath
+    );
+    expect(Object.hasOwn(module, "default")).toBe(entry.ownDefault);
+    expect(module.default).toBeDefined();
+    expect(entry.ownDefault ? module.default : module).toEqual(entry.expected);
+  });
+
+  it("refuses an invalid authored default instead of choosing a named config", async () => {
+    writeConfigFixture(project, {
+      rawConfigSource:
+        "export default { migrations: {} }; export const config = { client: 1 };",
+    });
+    await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
+      MISSING_CLIENT_PATTERN
+    );
+  });
+
   // --- config file discovery ---------------------------------------------
+
+  it.each([
+    "namedConfig",
+    "moduleItself",
+  ] as const)("loads the supported %s module export", async (exportKind) => {
+    writeConfigFixture(project, {
+      exportKind,
+      dialect: "sqlite3",
+      migrationsBlock: 'migrations: { dir: "named-options" }',
+    });
+    const loaded = await loadConfig({ config: project.configPath });
+    expect(Object.keys(loaded.models)).toEqual(["user"]);
+    if (exportKind === "namedConfig")
+      expect(loaded.migrations).toEqual({ dir: "named-options" });
+    expect(
+      (await loaded.driver._executeRaw<{ ready: number }>("SELECT 1 AS ready"))
+        .rows
+    ).toEqual([{ ready: 1 }]);
+    await loaded.client.$disconnect();
+  });
 
   it("loads an existing file given by absolute --config path", async () => {
     writeConfigFixture(project);
@@ -59,6 +128,40 @@ describe("loadConfig", () => {
 
     expect(Object.keys(loaded.models)).toEqual(["user"]);
     expect(loaded.driver).toBe(loaded.client.$driver);
+  });
+
+  it("loads the project's .env before evaluating its TypeScript config", async () => {
+    const probe = "VIBORM_TEST_CLI_ENV_ORDER_PROBE";
+    const previous = process.env[probe];
+    try {
+      delete process.env[probe];
+      writeFileSync(
+        join(project.dir, ".env"),
+        `${probe}=loaded-before-config\n`
+      );
+      writeConfigFixture(project, {
+        dialect: "sqlite3",
+        migrationsBlock:
+          "migrations: { dir: process.env.VIBORM_TEST_CLI_ENV_ORDER_PROBE }",
+      });
+      chdir(project.dir);
+      const loaded = await loadConfig();
+      try {
+        expect(loaded.migrations).toEqual({ dir: "loaded-before-config" });
+        expect(
+          (
+            await loaded.driver._executeRaw<{ ready: number }>(
+              "SELECT 1 AS ready"
+            )
+          ).rows
+        ).toEqual([{ ready: 1 }]);
+      } finally {
+        await loaded.client.$disconnect();
+      }
+    } finally {
+      if (previous === undefined) delete process.env[probe];
+      else process.env[probe] = previous;
+    }
   });
 
   it("discovers viborm.config.ts in cwd when no --config given", async () => {
@@ -120,26 +223,24 @@ describe("loadConfig", () => {
     expect(message).toContain("viborm.config.mjs");
   });
 
-  it("re-throws the TypeScript-loader hint when a .ts config fails to import", async () => {
-    // A .ts file whose import blows up hits the endsWith(.ts) branch of
-    // importModule, which swallows the raw error and returns the loader hint.
+  it("preserves the original error from a TypeScript config", async () => {
     writeConfigFixture(project, {
       rawConfigSource: "throw new Error('boom inside config');",
     });
 
     await expect(loadConfig({ config: project.configPath })).rejects.toThrow(
-      "bun --bun viborm push"
+      "boom inside config"
     );
   });
 
-  it("re-throws the TypeScript-loader hint when a discovered .mts config fails", async () => {
+  it("preserves the original error from a discovered .mts config", async () => {
     writeConfigFixture(project, {
       configName: "viborm.config.mts",
       rawConfigSource: "throw new Error('boom inside mts config');",
     });
     chdir(project.dir);
 
-    await expect(loadConfig()).rejects.toThrow(TS_LOADER_HINT_PATTERN);
+    await expect(loadConfig()).rejects.toThrow("boom inside mts config");
   });
 
   it("preserves a JavaScript config import failure", async () => {
@@ -177,8 +278,8 @@ describe("loadConfig", () => {
       (error: unknown) => error
     );
 
-    expect(thrown).toBeInstanceOf(SchemaValidationError);
-    if (!(thrown instanceof SchemaValidationError)) {
+    expect(thrown).toMatchObject({ name: "SchemaValidationError" });
+    if (!(thrown instanceof Error && "issues" in thrown)) {
       throw new Error("expected the original SchemaValidationError");
     }
     expect(thrown.issues).toEqual(
@@ -213,8 +314,8 @@ describe("loadConfig", () => {
       (error: unknown) => error
     );
 
-    expect(thrown).toBeInstanceOf(SchemaValidationError);
-    if (!(thrown instanceof SchemaValidationError)) {
+    expect(thrown).toMatchObject({ name: "SchemaValidationError" });
+    if (!(thrown instanceof Error && "issues" in thrown)) {
       throw new Error("expected the original SchemaValidationError");
     }
     expect(thrown.issues).toContainEqual(
@@ -245,6 +346,32 @@ describe("loadConfig", () => {
     const loaded = await loadConfig({ config: project.configPath });
 
     expect(Object.keys(loaded.models)).toContain("user");
+  });
+
+  it("preserves the named-config fallback for an authored false default", async () => {
+    writeConfigFixture(project, {
+      exportKind: "namedConfig",
+      dialect: "sqlite3",
+      migrationsBlock: 'migrations: { dir: "falsy-default-options" }',
+    });
+    writeFileSync(
+      project.configPath,
+      `${readFileSync(project.configPath, "utf8")}\nexport default false;\n`
+    );
+    const loaded = await loadConfig({ config: project.configPath });
+    try {
+      expect(Object.keys(loaded.models)).toEqual(["user"]);
+      expect(loaded.migrations).toEqual({ dir: "falsy-default-options" });
+      expect(
+        (
+          await loaded.driver._executeRaw<{ ready: number }>(
+            "SELECT 1 AS ready"
+          )
+        ).rows
+      ).toEqual([{ ready: 1 }]);
+    } finally {
+      await loaded.client.$disconnect();
+    }
   });
 
   it("falls back to the module itself when there is no default/config export", async () => {
@@ -373,6 +500,50 @@ describe("defineConfig", () => {
 });
 
 describe("CLI failure boundary", () => {
+  it("keeps trusted codes and untrusted JSON/string/object failures distinct", () => {
+    const sentinel = new Error("exited");
+    const output: string[] = [];
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk) => {
+        output.push(String(chunk));
+        return true;
+      });
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw sentinel;
+    });
+    const cases: readonly (readonly [unknown, number])[] = [
+      [
+        new MigrationError(
+          "decision",
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        ),
+        20,
+      ],
+      [new UnsupportedOperationError("unsupported"), 2],
+      [new Error("ordinary"), 1],
+      ["string", 1],
+      [42, 1],
+    ];
+    try {
+      for (const [failure, code] of cases) {
+        expect(() => failCli(failure, true)).toThrow(sentinel);
+        expect(JSON.parse(output.pop()!)).toMatchObject({ exitCode: code });
+        expect(exit).toHaveBeenLastCalledWith(code);
+        expect(() => failCli(failure)).toThrow(sentinel);
+        expect(output.pop()).toContain(
+          failure === 42
+            ? "CLI operation failed"
+            : failure instanceof Error
+              ? failure.message
+              : String(failure)
+        );
+      }
+    } finally {
+      stderr.mockRestore();
+      exit.mockRestore();
+    }
+  });
   it("prints Error and non-Error failures before exiting unsuccessfully", () => {
     const exitSentinel = new Error("process exited");
     const stderr = vi
@@ -442,5 +613,60 @@ export default { client: { $driver: {}, $schema: schema } };
     } finally {
       project.cleanup();
     }
+  });
+});
+
+describe("CLI finalization", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it("awaits disconnect before reporting the trusted primary and preserves cleanup evidence", async () => {
+    const primary = new MigrationError(
+      "Rename decision required",
+      VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+    );
+    const cleanup = new Error("close failed");
+    const order: string[] = [];
+    const client = {
+      $disconnect: async () => {
+        order.push("cleanup");
+        throw cleanup;
+      },
+    };
+    const output: string[] = [];
+    vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    const sentinel = new Error("exited");
+    vi.spyOn(process, "exit").mockImplementation(() => {
+      order.push("exit");
+      throw sentinel;
+    });
+    await expect(finishCli(client, { value: primary }, true)).rejects.toBe(
+      sentinel
+    );
+    expect(order).toEqual(["cleanup", "exit"]);
+    expect(JSON.parse(output.join(""))).toMatchObject({
+      error: { code: "V11010", message: "Rename decision required" },
+      exitCode: 20,
+    });
+    expect(readSuppressedFailures(primary)).toEqual([cleanup]);
+  });
+  it("reports a failed close even without an operation failure", async () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const sentinel = new Error("exited");
+    const exit = vi.spyOn(process, "exit").mockImplementation(() => {
+      throw sentinel;
+    });
+    await expect(
+      finishCli(
+        {
+          $disconnect: async () => {
+            throw new Error("close");
+          },
+        },
+        undefined
+      )
+    ).rejects.toBe(sentinel);
+    expect(exit).toHaveBeenCalledWith(1);
   });
 });

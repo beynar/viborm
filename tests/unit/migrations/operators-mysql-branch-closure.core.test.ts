@@ -156,6 +156,7 @@ function estateServer(
       tables.delete(dropped[1]);
       return [];
     }
+    if (sql.includes("information_schema.VIEWS")) return [];
     if (sql.includes("TABLE_NAME AS name")) {
       return [...tables].map((name) => ({ name }));
     }

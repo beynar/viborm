@@ -38,7 +38,7 @@ import { RecordingSQLiteDriver } from "../unit02/world";
 const INSERT_STATEMENT = /^\s*insert\b/i;
 const RETURNING_CLAUSE = /returning/i;
 const INTERACTIVE_REFUSAL =
-  /Raptor 3 interactive output requires RETURNING or one generated increment field/;
+  /Returning generated values requires RETURNING support or one generated increment field/;
 const CREATE_MANY_REFUSAL =
   /cannot locate one selected createMany row after insertion/;
 

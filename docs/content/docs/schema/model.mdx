@@ -153,7 +153,7 @@ const membership = s.model({
   role: s.string(),
 }).id(["orgId", "userId"]);
 
-// With custom constraint name
+// With custom selector name
 .id(["orgId", "userId"], { name: "membership_pk" })
 ```
 
@@ -168,9 +168,15 @@ const user = s.model({
   orgId: s.string(),
 }).unique(["email", "orgId"]);
 
-// With custom constraint name
+// With custom selector name
 .unique(["email", "orgId"], { name: "user_email_org_unique" })
 ```
+
+The `name` option controls the compound key used in `where`, cursors and other
+unique selectors. It does not declare the database constraint's physical name;
+VibORM generates that name. PostgreSQL/MySQL synchronization refuses an existing
+equivalent constraint with a different, unrepresentable physical name before
+applying effects, rather than dropping and recreating it solely to rename it.
 
 ### `.extends(fields)`
 

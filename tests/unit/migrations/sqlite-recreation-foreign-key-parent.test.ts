@@ -134,7 +134,7 @@ describe("recreating a SQLite table a foreign key points at", () => {
         await syncLiveSchema(
           createClient({ schema: uniqued as never, driver }) as never
         )
-      ).operations.map((op) => op.label);
+      ).operations.map((op) => op.type);
       expect(planned).toEqual(["addUniqueConstraint"]);
 
       // The constraint landed inline, so SQLite reads it back as a constraint.
@@ -180,7 +180,7 @@ describe("recreating a SQLite table a foreign key points at", () => {
       await syncLiveSchema(
         createClient({ schema: wide as never, driver }) as never
       )
-    ).operations.map((op) => op.label);
+    ).operations.map((op) => op.type);
     expect(planned).toEqual(["alterColumn"]);
 
     expect(await rows(driver, `SELECT "id", "width" FROM "fk_parent"`)).toEqual(
@@ -205,7 +205,7 @@ describe("recreating a SQLite table a foreign key points at", () => {
       await syncLiveSchema(
         createClient({ schema: plain as never, driver }) as never
       )
-    ).operations.map((op) => op.label);
+    ).operations.map((op) => op.type);
     expect(planned).toEqual(["dropUniqueConstraint"]);
 
     expect(await createTableSql(driver, "fk_parent")).not.toContain("UNIQUE");

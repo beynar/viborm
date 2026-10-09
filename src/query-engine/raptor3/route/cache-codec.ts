@@ -81,14 +81,21 @@ function shapeCodec(
       const fields = new Map<string, ValueCodec>();
       for (const [name, field] of Object.entries(shape.fields))
         fields.set(name, shapeCodec(field, requestedOperation));
-      return recordCodec(fields);
+      const record = recordCodec(fields);
+      return shape.nullable === false ? record : nullableCodec(record);
     }
     case "collection":
       return arrayCodec(shapeCodec(shape.row, requestedOperation));
     case "variants": {
       const arms = new Map<string, ValueCodec>();
       for (const [type, arm] of Object.entries(shape.arms))
-        arms.set(type, shapeCodec(arm, requestedOperation));
+        arms.set(
+          type,
+          shapeCodec(
+            shape.many && arm.kind === "collection" ? arm.row : arm,
+            requestedOperation
+          )
+        );
       const tagged = taggedRelationCodec(arms);
       return shape.many ? arrayCodec(tagged) : nullableCodec(tagged);
     }
@@ -143,7 +150,7 @@ function leafCodec(leaf: Leaf, requestedOperation: string): ValueCodec {
   else if (leaf.type === "number") value = numberCodec();
   else
     throw new EngineInvariantError(
-      `The Raptor 3 route cannot encode a cached '${leaf.type}' result for '${requestedOperation}': the leaf publishes no declaring scalar.`
+      `Cannot cache a '${leaf.type}' result for '${requestedOperation}': its scalar declaration is missing.`
     );
   return leaf.nullable ? nullableCodec(value) : value;
 }

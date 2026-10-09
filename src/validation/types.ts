@@ -4,6 +4,7 @@ import { inferred } from "./inferred";
 import type { JsonSchemaConverter } from "./json-schema/types";
 import type { ArgsSchemas, ModelSchemas, ScalarSchemas } from "./model";
 import type { IdDomain } from "./primitives/id-codec";
+import type { JsonValue } from "./primitives/json";
 
 // =============================================================================
 // Core Type Utilities
@@ -21,7 +22,9 @@ export type Simplify<T> = { [K in keyof T]: T[K] } & {};
  * Recursively prettifies nested objects for cleaner type display.
  * Use sparingly - mapped types are expensive!
  *
- * `Date` is the one VALUE type short-circuited here: mapping it would expand
+ * Preserve the recursive JSON domain by identity before distributing unions;
+ * recursively mapping it has no display benefit and exceeds compiler depth.
+ * `Date` is also short-circuited here: mapping it would expand
  * every member onto a fresh object type for no reader's benefit. The other
  * value type a result leaf can carry, `Decimal`, needs no arm of its own and
  * deliberately has none — `decimal-value.ts` publishes it as an INTERFACE
@@ -31,13 +34,15 @@ export type Simplify<T> = { [K in keyof T]: T[K] } & {};
  * `tests/types/client/decimal-update-public-boundary.core.types.ts` is where
  * that stops compiling if the class ever becomes the published type.
  */
-export type Prettify<T> = T extends (...args: any[]) => any
-  ? T // Preserve functions as-is
-  : T extends object
-    ? T extends Date
-      ? T
-      : { [K in keyof T]: Prettify<T[K]> } & {}
-    : T;
+export type Prettify<T> = JsonValue extends T
+  ? T
+  : T extends (...args: any[]) => any
+    ? T // Preserve functions as-is
+    : T extends object
+      ? T extends Date
+        ? T
+        : { [K in keyof T]: Prettify<T[K]> } & {}
+      : T;
 
 // =============================================================================
 // Schema Interfaces (using interface for caching)
@@ -178,12 +183,12 @@ type BoolKey<T, K extends keyof T> = T[K] extends true ? "t" : "f";
 
 /**
  * Extract the effective input type considering schema.
- * If a schema is provided, use its input type; otherwise use base type.
+ * A custom schema narrows the input that the physical base already admits.
  */
 type EffectiveInput<
   T,
   Opts extends ScalarOptions<any, any, any>,
-> = Opts["schema"] extends StandardSchemaV1<infer I, any> ? I : T;
+> = Opts["schema"] extends StandardSchemaV1<infer I, any> ? T & I : T;
 
 /**
  * Compute input type using lookup pattern (fewer conditionals).

@@ -58,12 +58,20 @@ import { createClient } from "viborm/pg";
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
+pool.on("error", (error) => {
+  console.error("PostgreSQL idle connection failed", error);
+});
 
 const client = createClient({
   pool,
   schema,
 });
 ```
+
+A supplied pool remains owned by your application. Install its idle-connection
+error listener before passing it to VibORM and close it once with `pool.end()`.
+VibORM applies temporal parsers per command and leaves supplied pool listeners
+and lifecycle under your control.
 
 ### With pgvector
 
@@ -127,6 +135,9 @@ namespace-bound migration estate:
 import { Pool } from "pg";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+pool.on("error", (error) => {
+  console.error("PostgreSQL idle connection failed", error);
+});
 
 const acme = createClient({ pool, namespace: "tenant_acme", schema: acmeModels });
 const globex = createClient({ pool, namespace: "tenant_globex", schema: globexModels });

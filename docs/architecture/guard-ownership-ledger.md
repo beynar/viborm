@@ -2262,7 +2262,7 @@ record", "names the offending key", "refuses a coordinate removed while the poin
 is read").
 
 **Kept normalization: longitude `-180` becomes `180`** (`validateGeoPoint`).
-Consumers: the SQLite CHECK in `src/migrations/drivers/sqlite/geo-point.ts`
+Consumers: the SQLite CHECK in `src/adapters/databases/sqlite/storage/geo-point.ts`
 (`longitude > -180`, so the physical `-180` spelling is refused by the
 database) and the meridian arms of `src/adapters/shared/geo-point.ts`, which
 assume the `+180` spelling.

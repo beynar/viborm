@@ -1,10 +1,12 @@
 // Vector Scalar
 // Standalone scalar class with State generic pattern
 
+import { ValidationError } from "@errors";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
   type DefaultValueInput,
+  nullableDefault,
   type ScalarState,
   updateState,
 } from "../common";
@@ -32,11 +34,11 @@ export class VectorScalar<State extends ScalarState<"vector">> {
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         base: v.vector<{
           nullable: true;
-        }>(undefined, {
+        }>(this.state.dimension, {
           nullable: true,
         }),
       }),
@@ -66,8 +68,22 @@ export class VectorScalar<State extends ScalarState<"vector">> {
   }
 
   dimension(dim: number) {
+    if (!Number.isSafeInteger(dim) || dim <= 0) {
+      throw new ValidationError(
+        { kind: "schema-builder", builder: "s.vector", path: "dimension" },
+        [
+          {
+            path: "dimension",
+            message: "Vector dimension must be a positive safe integer",
+          },
+        ]
+      );
+    }
     return new VectorScalar(
-      updateState(this, { dimension: dim }),
+      updateState(this, {
+        dimension: dim,
+        base: v.vector(dim, { nullable: this.state.nullable }),
+      }),
       this._nativeType
     );
   }

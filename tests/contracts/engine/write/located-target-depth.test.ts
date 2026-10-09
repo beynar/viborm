@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { PGliteDriver } from "@drivers/pglite";
-import type { PGlite, Transaction } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
@@ -22,9 +22,11 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
     super(options);
     this.hook = hook;
   }
-  protected override async executeBatch<T>(
-    client: PGlite | Transaction,
-    queries: BatchQuery[]
+  override async _executeBatch<T>(
+    queries: BatchQuery[],
+    options?: Parameters<PGliteDriver["_executeBatch"]>[1],
+    context?: Parameters<PGliteDriver["_executeBatch"]>[2],
+    committed?: Parameters<PGliteDriver["_executeBatch"]>[3]
   ): Promise<QueryResult<T>[]> {
     const hook = this.hook;
     // Fire before the operation's compiled ATOMIC UNIT, not the first batch of
@@ -34,7 +36,7 @@ class BeforeBatchDriver extends BatchOnlyPGliteDriver {
       this.hook = undefined;
       await hook();
     }
-    return super.executeBatch<T>(client, queries);
+    return super._executeBatch<T>(queries, options, context, committed);
   }
 }
 

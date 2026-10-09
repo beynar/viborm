@@ -14,6 +14,7 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { Driver } from "@drivers/driver";
+import { createExecutionContext } from "@drivers/execution-context";
 import { readPreparedStatement } from "@drivers/prepared-statement-provenance";
 import {
   runTransactionLifecycle,
@@ -25,9 +26,17 @@ import type {
   QueryExecutionContext,
   QueryResult,
 } from "@drivers/types";
+import { UnsupportedOperationError } from "@errors";
+import { appendResolvedExtension } from "@extensions/chain";
+import type {
+  LifecycleUnit,
+  ObservationCompletion,
+} from "@extensions/observation";
+import type { StatementContext } from "@extensions/statement";
 import { sql } from "@sql";
+import { instrumentation } from "@src/instrumentation/exports";
 import { createOfficialTestExecutionContext } from "@tests/unit/instrumentation/_official-context";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 interface FakeSession {
   readonly id: string;
@@ -292,6 +301,13 @@ describe("queue-bounded maxWait", () => {
 });
 
 describe("batch execution inside an open transaction", () => {
+  test("an empty batch opens no transaction or statement boundary", async () => {
+    const driver = new RecordingDriver();
+    await expect(driver._executeBatch([])).resolves.toEqual([]);
+    expect(driver.statements).toEqual([]);
+    expect(driver.batches).toEqual([]);
+  });
+
   test("runs on the open transaction instead of opening a second one", async () => {
     const driver = new RecordingDriver();
 
@@ -382,7 +398,7 @@ describe("native batch commit acknowledgement", () => {
   });
 });
 
-describe("_prepare provenance under trusted observers", () => {
+describe("_prepare typed provenance", () => {
   test("detaches the statement and keeps its typed provenance for later transforms", () => {
     const driver = new RecordingDriver();
     const context = createOfficialTestExecutionContext(
@@ -403,13 +419,288 @@ describe("_prepare provenance under trusted observers", () => {
     expect(provenance?.strings).toEqual([...statement.strings]);
   });
 
-  test("carries no provenance when nothing is observing", () => {
+  test("retains detached provenance when nothing is observing", () => {
     const driver = new RecordingDriver();
     const statement = sql`SELECT ${1}`;
 
     const prepared = driver._prepare(statement, { operation: "findMany" });
 
     expect(prepared.sql).toBe("SELECT $1");
-    expect(readPreparedStatement(prepared)).toBeUndefined();
+    expect(readPreparedStatement(prepared)?.values).toEqual([1]);
+    expect(readPreparedStatement(prepared)).not.toBe(statement);
+  });
+
+  test.each([
+    { native: false, observed: false },
+    { native: false, observed: true },
+    { native: true, observed: false },
+    { native: true, observed: true },
+  ])("transforms only dispatched statements, native:$native observed:$observed", async ({
+    native,
+    observed,
+  }) => {
+    const driver = new RecordingDriver({ supportsBatch: native });
+    const calls: string[] = [];
+    const chain = appendResolvedExtension(
+      undefined,
+      {
+        name: "dispatch-only",
+        statement({ statement }: StatementContext) {
+          calls.push("transform");
+          return sql`${statement} /* transformed */`;
+        },
+        ...(observed
+          ? {
+              observe(unit: LifecycleUnit) {
+                if (unit.kind === "statement") calls.push("observe");
+              },
+            }
+          : {}),
+      },
+      {}
+    );
+    const context = createExecutionContext(
+      { model: "entry", operation: "findMany" },
+      undefined,
+      chain
+    );
+    driver._prepare(sql`SELECT ${0}`, context); // An abandoned plan must be inert.
+    const first = driver._prepare(sql`SELECT ${1}`, context);
+    const second = driver._prepare(sql`SELECT ${2}`, context);
+    expect(calls).toEqual([]);
+    expect(first.sql).toBe("SELECT $1");
+
+    await driver._executeBatch([first, second], undefined, context);
+
+    expect(calls).toEqual(
+      observed
+        ? ["observe", "transform", "observe", "transform"]
+        : ["transform", "transform"]
+    );
+    const executed = native
+      ? driver.batches[0]?.map((query) => query.sql)
+      : driver.sqlOf().filter((statement) => statement.startsWith("SELECT"));
+    expect(executed).toEqual([
+      "SELECT $1 /* transformed */",
+      "SELECT $1 /* transformed */",
+    ]);
+  });
+
+  test.each([
+    0, 1, 2,
+  ])("settles sequential statements separately, failed provider:%s", async (failAt) => {
+    const events: string[] = [];
+    const logs: { level: string; operation?: string; sql?: string }[] = [];
+    class FailingDriver extends RecordingDriver {
+      protected override execute<T>(
+        client: FakeSession,
+        statement: string
+      ): Promise<QueryResult<T>> {
+        events.push(`provider:${statement}`);
+        if (statement.includes(`statement${failAt}`)) {
+          return Promise.reject(new Error("provider failure"));
+        }
+        return super.execute<T>(client, statement);
+      }
+    }
+    const driver = new FailingDriver();
+    const official = appendResolvedExtension(
+      undefined,
+      instrumentation({
+        logging: {
+          query: (event) => {
+            logs.push(event);
+          },
+          error: (event) => {
+            logs.push(event);
+          },
+          includeSql: true,
+        },
+      }),
+      {}
+    );
+    const chain = appendResolvedExtension(
+      official,
+      {
+        name: "prepared-sequential-completion",
+        statement({ statement, operation }: StatementContext) {
+          events.push(`transform:${operation}`);
+          return sql`${statement} /* ${sql.raw(operation ?? "unknown")} */`;
+        },
+        observe(
+          unit: LifecycleUnit,
+          proceed: () => Promise<ObservationCompletion>
+        ) {
+          if (unit.kind !== "statement") return;
+          events.push(`observe:${unit.operation}`);
+          return proceed().then((completion) => {
+            events.push(`complete:${unit.operation}:${completion.status}`);
+          });
+        },
+      },
+      {}
+    );
+    const contexts = [1, 2, 3].map((index) =>
+      createExecutionContext(
+        { model: "entry", operation: `statement${index}` },
+        undefined,
+        chain
+      )
+    );
+    const batch = contexts.map((context) => {
+      const query = driver._prepare(sql`SELECT ${1}`, context);
+      query.context = context;
+      return query;
+    });
+    const execution = driver._executeBatch(batch, undefined, contexts[0]);
+    if (failAt > 0) {
+      await expect(execution).rejects.toMatchObject({
+        meta: { statementIndex: failAt - 1, operation: `statement${failAt}` },
+      });
+    } else await expect(execution).resolves.toHaveLength(3);
+    const executedCount = failAt || 3;
+    await vi.waitFor(() => expect(logs).toHaveLength(executedCount));
+    expect(events.slice(0, 6)).toEqual([
+      "observe:statement1",
+      "transform:statement1",
+      "observe:statement2",
+      "transform:statement2",
+      "observe:statement3",
+      "transform:statement3",
+    ]);
+    expect(events.filter((event) => event.startsWith("complete:"))).toEqual([
+      `complete:statement1:${failAt === 1 ? "failure" : "success"}`,
+      `complete:statement2:${failAt === 0 ? "success" : "failure"}`,
+      `complete:statement3:${failAt === 0 ? "success" : "failure"}`,
+    ]);
+    expect(
+      logs.map(({ level, operation, sql: statement }) => ({
+        level,
+        operation,
+        statement,
+      }))
+    ).toEqual(
+      Array.from({ length: executedCount }, (_, index) => ({
+        level: failAt > 0 && index + 1 === failAt ? "error" : "query",
+        operation: `statement${index + 1}`,
+        statement: `SELECT $1 /* statement${index + 1} */`,
+      }))
+    );
+    expect(driver.sqlOf()).toEqual(
+      failAt === 1
+        ? ["BEGIN", "ROLLBACK"]
+        : failAt === 2
+          ? ["BEGIN", "SELECT $1 /* statement1 */", "ROLLBACK"]
+          : [
+              "BEGIN",
+              "SELECT $1 /* statement1 */",
+              "SELECT $1 /* statement2 */",
+              "SELECT $1 /* statement3 */",
+              "COMMIT",
+            ]
+    );
+  });
+
+  test.each([
+    { observing: false, failure: "throw" },
+    { observing: true, failure: "throw" },
+    { observing: false, failure: "capacity" },
+    { observing: true, failure: "capacity" },
+  ])("refuses preparation failure:$failure before prior SQL, observing:$observing", async ({
+    observing,
+    failure,
+  }) => {
+    class LimitedDriver extends RecordingDriver {
+      override readonly maxBindParametersPerStatement = 1;
+    }
+    const driver = new LimitedDriver();
+    const completions: string[] = [];
+    const transformed: string[] = [];
+    const chain = appendResolvedExtension(
+      undefined,
+      {
+        name: "preparation-failure",
+        statement({ statement, model }: StatementContext) {
+          transformed.push(model ?? "unknown");
+          if (model === "second") {
+            if (failure === "throw")
+              throw new UnsupportedOperationError("transform refused");
+            return sql`${statement}, ${2}`;
+          }
+          return statement;
+        },
+        ...(observing
+          ? {
+              observe(
+                unit: LifecycleUnit,
+                proceed: () => Promise<ObservationCompletion>
+              ) {
+                if (unit.kind !== "statement") return;
+                return proceed().then((completion) => {
+                  completions.push(`${unit.model}:${completion.status}`);
+                });
+              },
+            }
+          : {}),
+      },
+      {}
+    );
+    const contexts = ["first", "second", "third"].map((model) =>
+      createExecutionContext({ model, operation: "findMany" }, undefined, chain)
+    );
+    const batch = contexts.map((context) => {
+      const query = driver._prepare(sql`SELECT ${1}`, context);
+      query.context = context;
+      return query;
+    });
+    await expect(
+      driver._executeBatch(batch, undefined, contexts[0])
+    ).rejects.toMatchObject({
+      name: failure === "throw" ? "QueryError" : "UnsupportedOperationError",
+      meta: { statementIndex: 1 },
+    });
+    expect(transformed).toEqual(["first", "second"]);
+    expect(driver.sqlOf()).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(completions).toEqual(
+      observing ? ["second:failure", "first:failure"] : []
+    );
+  });
+
+  test.each([
+    false,
+    true,
+  ])("refuses transformed prepared bind growth before effects, native:%s", async (native) => {
+    class LimitedDriver extends RecordingDriver {
+      override readonly maxBindParametersPerStatement = 1;
+    }
+    const driver = new LimitedDriver({ supportsBatch: native });
+    let calls = 0;
+    const chain = appendResolvedExtension(
+      undefined,
+      {
+        name: "bind-growth",
+        statement({ statement }: StatementContext) {
+          calls++;
+          return sql`${statement}, ${1}, ${2}`;
+        },
+      },
+      {}
+    );
+    const context = createExecutionContext(
+      { model: "entry", operation: "findMany" },
+      undefined,
+      chain
+    );
+    const prepared = driver._prepare(sql`SELECT 1`, context);
+    expect(calls).toBe(0);
+    await expect(
+      driver._executeBatch([prepared], undefined, context)
+    ).rejects.toBeInstanceOf(UnsupportedOperationError);
+    expect(calls).toBe(1);
+    expect(driver.statements.filter(({ kind }) => kind === "execute")).toEqual(
+      []
+    );
+    if (native) expect(driver.batches).toEqual([]);
+    else expect(driver.sqlOf()).toEqual(["BEGIN", "ROLLBACK"]);
   });
 });

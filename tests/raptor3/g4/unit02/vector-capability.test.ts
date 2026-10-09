@@ -1,23 +1,11 @@
-/**
- * G4-02 author check — SC-13's property: the vector crossings of a provider
- * that declares NO vector tier answer identically on both engines.
- *
- * The witness cell `tests/raptor3/g4/read-codecs.test.ts` "SC-13 refuses a
- * vector write and read identically" also requires the READ to refuse. Neither
- * engine refuses it: the shipped result parser decodes a vector column with no
- * capability check, and with both writes refused the witness's table is empty,
- * so `observeFailure` fails on the SHIPPED read before the candidate is
- * consulted. That is a witness defect; the requested change is recorded in
- * `g4/unit02/note.md` §P.11. What SC-13 is about — one identity, not a silent
- * degradation, and the candidate identical to the shipped engine — is asserted
- * here on both crossings.
- */
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: fixture assertion helpers run only within registered Vitest cells or their setup hooks.
+/** SQLite stores JSON vector values; distance support is an independent provider tier. */
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -62,6 +50,7 @@ describe("G4-02 SC-13 — the vector crossings without a provider tier", () => {
 
   beforeEach(async () => {
     database = new Database(":memory:");
+    database.pragma("foreign_keys = ON");
     driver = new SQLite3Driver({ client: database });
     client = createVectorClient(driver);
     assert.equal((await syncLiveSchema(client)).applied, true);
@@ -72,62 +61,50 @@ describe("G4-02 SC-13 — the vector crossings without a provider tier", () => {
     database?.close();
   });
 
-  it("refuses the write with one identity on both seams and decodes the read identically", async () => {
+  it("writes JSON vector values on both seams and decodes both stored rows", async () => {
     const write = { id: 1, name: "unit-x", embedding: [1, 0, 0] };
-    const shippedWrite = await observe(() =>
-      Promise.resolve(
-        (
-          client as unknown as Record<
-            string,
-            { create(args: unknown): Promise<unknown> }
-          >
-        ).embedded!.create({ data: write })
-      )
-    );
+    const candidateWrite = { id: 2, name: "unit-y", embedding: [0, 1, 0] };
+    assert.deepEqual(await client.embedded.create({ data: write }), write);
     const engine = createTestCommandEngine({ schema, driver });
-    const candidateWrite = await observe(() =>
-      engine.execute("embedded", "create", { data: write })
-    );
-    assert.equal(shippedWrite.failed, true, "the shipped write must refuse");
     assert.deepEqual(
-      {
-        failed: candidateWrite.failed,
-        constructorName: candidateWrite.constructorName,
-        message: candidateWrite.message,
-      },
-      {
-        failed: shippedWrite.failed,
-        constructorName: shippedWrite.constructorName,
-        message: shippedWrite.message,
-      },
-      `the candidate raised ${candidateWrite.constructorName} (${candidateWrite.message}) where the shipped engine raises ${shippedWrite.constructorName} (${shippedWrite.message})`
+      await engine.execute("embedded", "create", { data: candidateWrite }),
+      candidateWrite
     );
     assert.deepEqual(
-      database.prepare(`SELECT id FROM ${TABLE}`).all(),
-      [],
-      "a refused vector write stores nothing on either engine"
+      database
+        .prepare(`SELECT embedded_vector FROM ${TABLE} ORDER BY id`)
+        .all(),
+      [{ embedded_vector: "[1,0,0]" }, { embedded_vector: "[0,1,0]" }]
     );
-
-    // The read crossing, over a row the provider already holds.
-    database
-      .prepare(
-        `INSERT INTO ${TABLE} (id, embedded_name, embedded_vector) VALUES (9,'seeded','[1,0,0]')`
-      )
-      .run();
+    const args = {
+      orderBy: { id: "asc" as const },
+      select: { embedding: true as const },
+    };
     const shippedRead = await observe(() =>
-      Promise.resolve(
-        (
-          client as unknown as Record<
-            string,
-            { findMany(args: unknown): Promise<unknown> }
-          >
-        ).embedded!.findMany({ select: { embedding: true } })
-      )
+      Promise.resolve(client.embedded.findMany(args))
     );
     const candidateRead = await observe(() =>
-      engine.execute("embedded", "findMany", { select: { embedding: true } })
+      engine.execute("embedded", "findMany", args)
     );
-    assert.deepEqual(shippedRead, { failed: false, value: [{ embedding: [1, 0, 0] }] });
+    assert.deepEqual(shippedRead, {
+      failed: false,
+      value: [{ embedding: [1, 0, 0] }, { embedding: [0, 1, 0] }],
+    });
     assert.deepEqual(candidateRead, shippedRead);
+  });
+
+  it("invalid vector dimensions refuse before either seam stores a row", async () => {
+    const args = { data: { id: 1, name: "invalid", embedding: [1, 0] } };
+    const engine = createTestCommandEngine({ schema, driver });
+    const shipped = await observe(() =>
+      Promise.resolve(client.embedded.create(args))
+    );
+    const candidate = await observe(() =>
+      engine.execute("embedded", "create", args)
+    );
+    assert.equal(shipped.failed, true);
+    assert.equal(shipped.constructorName, "ValidationError");
+    assert.deepEqual(candidate, shipped);
+    assert.deepEqual(database.prepare(`SELECT id FROM ${TABLE}`).all(), []);
   });
 });

@@ -11,8 +11,92 @@
 
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
-import type { MigrationTarget } from "./types";
+import { controlTableNames, DEFAULT_CONTROL_BASE } from "./control";
+import { snapshotExactArray } from "./input-boundary";
+import type { MigrationTarget, SchemaSnapshot } from "./types";
 import { normalizeDialect } from "./utils";
+
+export const MANAGED_TABLES = Symbol("migration managed tables");
+
+/** Exact physical membership, authenticated as part of the estate target. */
+export function normalizeManagedTables(
+  value: unknown
+): readonly string[] | undefined {
+  if (value === undefined) return;
+  const entries = snapshotExactArray(value, "managed tables", (message) => {
+    throw new MigrationError(message, VibORMErrorCode.MIGRATION_INVALID_STATE);
+  });
+  const names: string[] = [];
+  for (const name of entries) {
+    if (typeof name !== "string" || name.length === 0 || name.includes("\0"))
+      throw new MigrationError(
+        "Managed tables must contain non-empty physical names",
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    if (names.includes(name))
+      throw new MigrationError(
+        `Managed table "${name}" is repeated`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    names.push(name);
+  }
+  return Object.freeze(names.sort());
+}
+
+export function selectManagedSnapshot(
+  snapshot: SchemaSnapshot,
+  target: MigrationTarget,
+  desired = false
+): SchemaSnapshot {
+  const names = target.tables;
+  if (names === undefined) return snapshot;
+  const control = controlTableNames(DEFAULT_CONTROL_BASE);
+  // Control authenticity reads the same inventory, independently of user scope.
+  const selected = (name: string) =>
+    names.includes(name) || name === control.state || name === control.log;
+  if (desired && snapshot.tables.some((table) => !names.includes(table.name)))
+    throw new MigrationError(
+      "The schema declares a physical table outside the authenticated managed-table list",
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
+  for (const table of snapshot.tables)
+    for (const fk of table.foreignKeys) {
+      if (selected(table.name) !== selected(fk.referencedTable))
+        throw new MigrationError(
+          `Foreign key "${table.name}.${fk.name}" crosses the managed-table boundary`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+    }
+  const tables = snapshot.tables.filter((table) => selected(table.name));
+  const used = new Set(
+    tables.flatMap((table) =>
+      table.columns.map((column) =>
+        column.type.endsWith("[]") ? column.type.slice(0, -2) : column.type
+      )
+    )
+  );
+  const enums = snapshot.enums?.filter((item) => used.has(item.name));
+  for (const table of snapshot.tables.filter(
+    (table) => !selected(table.name)
+  )) {
+    if (
+      target.dialect === "postgresql" &&
+      table.columns.some((column) =>
+        enums?.some(
+          (item) =>
+            (column.type.endsWith("[]")
+              ? column.type.slice(0, -2)
+              : column.type) === item.name
+        )
+      )
+    )
+      throw new MigrationError(
+        `Table "${table.name}" shares a managed enum across the managed-table boundary`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+  }
+  return { ...snapshot, tables, ...(enums === undefined ? {} : { enums }) };
+}
 
 /**
  * The live namespace the adapter is bound to, or undefined when the adapter
@@ -201,6 +285,12 @@ export function assertEstateTargetMatches(
   stored: MigrationTarget,
   live: MigrationTarget
 ): void {
+  if (JSON.stringify(stored.tables) !== JSON.stringify(live.tables)) {
+    throw new MigrationError(
+      "Estate managed-table scope does not match this client",
+      VibORMErrorCode.MIGRATION_DIALECT_MISMATCH
+    );
+  }
   if (stored.dialect !== live.dialect) {
     throw new MigrationError(
       "Estate target dialect does not match this client",

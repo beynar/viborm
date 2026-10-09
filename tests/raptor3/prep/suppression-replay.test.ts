@@ -507,201 +507,121 @@ describe("G3P-04 exact suppression and replay scopes", () => {
     }
   });
 
-  it("drops borrowed and batch-only suppression with one warning and runs plain members", async () => {
-    // Owner decision 2026-09-24 ("Warn, drop skipDuplicates"): with no member
-    // rollback region the skip is dropped, not refused — one warning per
-    // client and model, every member runs as a plain member, and a duplicate
-    // fails with the ordinary unique-constraint error.
+  it("refuses borrowed and batch-only nested skipping without executing a prefix", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const schema = rootSeriesSchema();
-    const database = new Database(":memory:");
-    const world = await migratedWorld(
-      schema,
-      new WitnessSQLiteDriver({ client: database })
-    );
-    const member = (id: number, author: string) => ({
-      data: [{ id, title: `post-${id}`, author: { create: { name: author } } }],
-      skipDuplicates: true,
-    });
     try {
-      await world.client.author.create({ data: { name: "existing-author" } });
-      world.driver.resetObservations();
-      await world.driver.withTransaction(async (driver) => {
-        await expect(
-          world.candidate.execute("post", "createMany", member(1, "created"), {
-            kind: "borrowed-transaction",
-            driver,
-          })
-        ).resolves.toEqual({ count: 1 });
-      });
-      await expect(
-        world.driver.withTransaction((driver) =>
-          world.candidate.execute(
-            "post",
-            "createMany",
-            member(1, "must-roll-back"),
-            { kind: "borrowed-transaction", driver }
-          )
-        )
-      ).rejects.toBeInstanceOf(UniqueConstraintError);
-      assert.deepEqual(world.driver.controlStatements, []);
-      expect(warn.mock.calls).toEqual([
-        [
-          `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${world.driver.driverName}" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
-        ],
-      ]);
-      await expect(
-        world.client.post.findMany({ select: { id: true, title: true } })
-      ).resolves.toEqual([{ id: 1, title: "post-1" }]);
-      await expect(
-        world.client.author.findMany({
-          select: { name: true },
-          orderBy: { name: "asc" },
-        })
-      ).resolves.toEqual([{ name: "created" }, { name: "existing-author" }]);
+      for (const batch of [false, true]) {
+        const database = new Database(":memory:");
+        database.pragma("foreign_keys = ON");
+        const world = await migratedWorld(
+          rootSeriesSchema(),
+          batch
+            ? new BatchOnlySQLiteDriver({ client: database })
+            : new WitnessSQLiteDriver({ client: database })
+        );
+        try {
+          const author = await world.client.author.create({
+            data: { name: "existing" },
+          });
+          world.driver.resetObservations();
+          const args = {
+            data: [
+              { id: 1, title: "valid prefix", authorId: author.id },
+              { id: 2, title: "nested", author: { create: { name: "new" } } },
+            ],
+            skipDuplicates: true,
+          };
+          if (batch)
+            await expect(
+              world.candidate.execute("post", "createMany", args)
+            ).rejects.toMatchObject({ code: "V8003" });
+          else
+            await expect(
+              world.driver.withTransaction((driver) =>
+                world.candidate.execute("post", "createMany", args, {
+                  kind: "borrowed-transaction",
+                  driver,
+                })
+              )
+            ).rejects.toMatchObject({ code: "V8003" });
+          assert.deepEqual(world.driver.controlStatements, []);
+          await expect(world.client.post.findMany()).resolves.toEqual([]);
+          await expect(
+            world.client.author.findMany({ select: { name: true } })
+          ).resolves.toEqual([{ name: "existing" }]);
+        } finally {
+          await closeWorld(world);
+          database.close();
+        }
+      }
+      expect(warn).not.toHaveBeenCalled();
     } finally {
-      await closeWorld(world);
-      database.close();
-    }
-
-    warn.mockClear();
-    const batchDatabase = new Database(":memory:");
-    const batch = await migratedWorld(
-      rootSeriesSchema(),
-      new BatchOnlySQLiteDriver({ client: batchDatabase })
-    );
-    try {
-      batch.driver.resetObservations();
-      batch.driver.batchCalls = 0;
-      await expect(
-        batch.candidate.execute("post", "createMany", member(1, "created"))
-      ).resolves.toEqual({ count: 1 });
-      assert.equal(batch.driver.batchCalls, 1);
-      await expect(
-        batch.candidate.execute(
-          "post",
-          "createMany",
-          member(1, "must-roll-back")
-        )
-      ).rejects.toBeInstanceOf(UniqueConstraintError);
-      expect(warn.mock.calls).toEqual([
-        [
-          `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${batch.driver.driverName}" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
-        ],
-      ]);
-      await expect(
-        batch.client.post.findMany({ select: { id: true, title: true } })
-      ).resolves.toEqual([{ id: 1, title: "post-1" }]);
-      await expect(
-        batch.client.author.findMany({ select: { name: true } })
-      ).resolves.toEqual([{ name: "created" }]);
-    } finally {
-      await closeWorld(batch);
-      batchDatabase.close();
       warn.mockRestore();
     }
   });
 
-  it("warns once per client lineage: a derived view shares it, an independent client on the same driver does not", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const schema = rootSeriesSchema();
+  it("refuses unsupported skipping on derived and independent client views", async () => {
     const database = new Database(":memory:");
+    database.pragma("foreign_keys = ON");
+    const schema = rootSeriesSchema();
     const driver = new BatchOnlySQLiteDriver({ client: database });
     const world = await migratedWorld(schema, driver);
-    const member = (id: number) => ({
-      data: [
-        { id, title: `post-${id}`, author: { create: { name: `a-${id}` } } },
-      ],
-      skipDuplicates: true,
-    });
-    const dropped = () =>
-      warn.mock.calls.filter(
-        ([message]) =>
-          typeof message === "string" &&
-          message.startsWith("[viborm] createMany skipDuplicates")
-      ).length;
+    const derived = world.client.$extends(
+      defineExtension<typeof schema>()({ name: "derived-view" })
+    );
+    const independent = createClient({ schema, driver });
     try {
-      await world.client.post.createMany(member(1));
-      expect(dropped()).toBe(1);
-      const derived = world.client.$extends(
-        defineExtension<typeof schema>()({ name: "derived-view" })
-      );
-      await derived.post.createMany(member(2));
-      expect(dropped()).toBe(1);
-      const independent = createClient({ schema, driver });
-      await independent.post.createMany(member(3));
-      expect(dropped()).toBe(2);
+      for (const client of [world.client, derived, independent])
+        await expect(
+          client.post.createMany({
+            data: [
+              { id: 1, title: "nested", author: { create: { name: "new" } } },
+            ],
+            skipDuplicates: true,
+          })
+        ).rejects.toMatchObject({ code: "V8003" });
+      await expect(world.client.post.findMany()).resolves.toEqual([]);
+      await expect(world.client.author.findMany()).resolves.toEqual([]);
     } finally {
       await closeWorld(world);
       database.close();
-      warn.mockRestore();
     }
   });
 
-  it("routes the dropped-skip warning through the client's logger once, and to the console when warnings are not logged", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const member = (id: number) => ({
-      data: [
-        { id, title: `post-${id}`, author: { create: { name: `a-${id}` } } },
-      ],
-      skipDuplicates: true,
-    });
-    const message = (driver: string) =>
-      `createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`;
+  it("does not downgrade unsupported skipping to a logged or console warning", async () => {
     const database = new Database(":memory:");
+    database.pragma("foreign_keys = ON");
     const world = await migratedWorld(
       rootSeriesSchema(),
       new BatchOnlySQLiteDriver({ client: database })
     );
-    try {
-      const events: LogEvent[] = [];
-      const logged = world.client.$extends(
-        instrumentation({
-          logging: {
-            warning: (event) => {
-              events.push(event);
-            },
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const events: LogEvent[] = [];
+    const logged = world.client.$extends(
+      instrumentation({
+        logging: {
+          warning: (event) => {
+            events.push(event);
           },
-        })
-      );
-      await expect(logged.post.createMany(member(1))).resolves.toEqual({
-        count: 1,
-      });
-      await expect(logged.post.createMany(member(2))).resolves.toEqual({
-        count: 1,
-      });
-      expect(events).toMatchObject([
-        {
-          level: "warning",
-          model: "post",
-          operation: "createMany",
-          meta: { notice: message(world.driver.driverName) },
         },
-      ]);
+      })
+    );
+    try {
+      for (const client of [world.client, logged])
+        await expect(
+          client.post.createMany({
+            data: [
+              { id: 1, title: "nested", author: { create: { name: "new" } } },
+            ],
+            skipDuplicates: true,
+          })
+        ).rejects.toMatchObject({ code: "V8003" });
+      expect(events).toEqual([]);
       expect(warn).not.toHaveBeenCalled();
+      await expect(world.client.post.findMany()).resolves.toEqual([]);
     } finally {
       await closeWorld(world);
       database.close();
-    }
-
-    const quietDatabase = new Database(":memory:");
-    const quiet = await migratedWorld(
-      rootSeriesSchema(),
-      new BatchOnlySQLiteDriver({ client: quietDatabase })
-    );
-    try {
-      const queriesOnly = quiet.client.$extends(
-        instrumentation({ logging: { query: () => undefined } })
-      );
-      await expect(queriesOnly.post.createMany(member(1))).resolves.toEqual({
-        count: 1,
-      });
-      expect(warn.mock.calls).toEqual([
-        [`[viborm] ${message(quiet.driver.driverName)}`],
-      ]);
-    } finally {
-      await closeWorld(quiet);
-      quietDatabase.close();
       warn.mockRestore();
     }
   });

@@ -72,7 +72,11 @@ function createBunIntegerFixture({
     ...(supportsSafeIntegers ? { safeIntegers } : {}),
   };
   const database = {
-    query: vi.fn(() => statement),
+    query: vi.fn((sql: string) =>
+      sql === "PRAGMA foreign_keys"
+        ? { get: () => ({ foreign_keys: 1 }) }
+        : statement
+    ),
     prepare: vi.fn(() => {
       // Each real prepare creates a fresh statement whose integer mode starts
       // in provider-native mode.
@@ -123,7 +127,11 @@ function createBunMutationFixture() {
     values: vi.fn(() => []),
   };
   const database = {
-    query: vi.fn(() => statement),
+    query: vi.fn((sql: string) =>
+      sql === "PRAGMA foreign_keys"
+        ? { get: () => ({ foreign_keys: 1 }) }
+        : statement
+    ),
     prepare: vi.fn(() => statement),
     run: vi.fn(),
     exec: vi.fn(),
@@ -159,25 +167,22 @@ describe("Bun SQLite integer safety", () => {
     }
   });
 
-  test("the raw path stays driver-native, exactly as sqlite3 does", async () => {
+  test("the raw path retains wide INTEGER values exactly, as sqlite3 does", async () => {
     const { driver, safeIntegers } = createBunIntegerFixture();
 
     try {
-      const result = await driver._executeRaw<{ views: number }>(
+      const result = await driver._executeRaw<{ views: bigint }>(
         `SELECT "views" FROM "measurements"`
       );
 
-      // Raw rows bypass the result parser, so they keep the provider's own
-      // numbers. This is the same boundary sqlite3 has, kept identical on
-      // purpose: $queryRawUnsafe answers the same way on both drivers.
-      expect(safeIntegers).not.toHaveBeenCalled();
-      expect(result.rows[0]?.views).toBe(ROUNDED);
+      expect(safeIntegers).toHaveBeenCalledWith(true);
+      expect(result.rows[0]?.views).toBe(EXACT);
     } finally {
       await driver.disconnect();
     }
   });
 
-  test("tagged and verbatim raw keep their integer modes in a fallback batch", async () => {
+  test("safe and verbatim raw share exact INTEGER meaning in a fallback batch", async () => {
     const { driver } = createBunIntegerFixture();
     const client = createClient({ schema: { measurement }, driver });
 
@@ -187,14 +192,14 @@ describe("Bun SQLite integer safety", () => {
       });
       const taggedDirect = await client.$queryRaw<{
         views: bigint;
-      }>`SELECT "views"`;
-      const unsafeDirect = await client.$queryRawUnsafe<{ views: number }>(
+      }>(sql`SELECT "views"`);
+      const unsafeDirect = await client.$queryRawUnsafe<{ views: bigint }>(
         `SELECT "views"`
       );
 
       expect(typedDirect[0]?.views).toBe(EXACT);
       expect(taggedDirect[0]?.views).toBe(EXACT);
-      expect(unsafeDirect[0]?.views).toBe(ROUNDED);
+      expect(unsafeDirect[0]?.views).toBe(EXACT);
 
       const batch = await driver._executeBatch<{ views: bigint | number }>([
         prepareOperation(
@@ -202,18 +207,18 @@ describe("Bun SQLite integer safety", () => {
           driver
         ),
         prepareOperation(
-          client.$queryRawUnsafe<{ views: number }>(`SELECT "views"`),
+          client.$queryRawUnsafe<{ views: bigint }>(`SELECT "views"`),
           driver
         ),
         prepareOperation(
-          client.$queryRaw<{ views: bigint }>`SELECT "views"`,
+          client.$queryRaw<{ views: bigint }>(sql`SELECT "views"`),
           driver
         ),
       ]);
 
       expect(batch.map((result) => result.rows[0]?.views)).toEqual([
         EXACT,
-        ROUNDED,
+        EXACT,
         EXACT,
       ]);
     } finally {

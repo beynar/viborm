@@ -66,19 +66,47 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # Cheap gates first for fast feedback.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+
+      - name: Verify patched dependency behavior
+        run: node scripts/run-node-safe.mjs 512 60000 tests/package/security-dependencies-smoke.mjs
+
       - name: Check changed formatting and lint rules
-        run: >-
-          pnpm exec biome check --changed --since="${QUALITY_BASE_SHA}"
-          --no-errors-on-unmatched
+        run: |
+          git diff --name-only --diff-filter=ACMRT -z "${QUALITY_BASE_SHA}" HEAD |
+            xargs -0 -r pnpm exec biome check --no-errors-on-unmatched
 
       - name: Check documentation
         run: pnpm --dir docs validate
+
+      - name: Build documentation under the project resource ceiling
+        run: pnpm --dir docs build
+
+      - name: Preserve the exact documentation build for render verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: viborm-docs-${{ github.sha }}
+          path: docs/dist/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+
+      - name: Verify the documentation worker without deploying
+        working-directory: docs
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: >-
+          node ../scripts/run-node-safe.mjs 512 60000
+          node_modules/wrangler/bin/wrangler.js deploy
+          --dry-run --config dist/server/wrangler.json
+          --outdir "${RUNNER_TEMP}/viborm-docs-worker"
 
       - name: Check whitespace
         run: git diff --check "${QUALITY_BASE_SHA}" HEAD
 
       # The complete lane: every file the root tsconfig intends, checked as
-      # ONE native TypeScript 7 program by scripts/run-typecheck.mjs (~6 s,
+      # ONE native TypeScript 7 program by scripts/run-typecheck.mjs (serial,
       # 8192 MiB allowlisted ceiling). It is the same check `pnpm test` runs.
       - name: Check public types
         run: pnpm test:types
@@ -86,10 +114,8 @@ jobs:
   core:
     name: Core tests
     runs-on: ubuntu-latest
-    # 10 = the 300000 ms (5 min) default wall ceiling run-vitest-safe.mjs puts
-    # on this single Vitest run, + 5 min setup. The run cannot honestly take
-    # longer, because the launcher kills it first. Measured 41s. The former 30
-    # bounded nothing the launcher was not already bounding six times tighter.
+    # Sequential Vitest shards retain the aggregate 5-minute wall ceiling and
+    # the ordinary per-process memory ceiling, plus 5 minutes for setup.
     timeout-minutes: 10
     steps:
       - name: Check out the exact revision

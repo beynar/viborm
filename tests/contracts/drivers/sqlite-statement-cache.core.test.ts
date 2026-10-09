@@ -1,7 +1,7 @@
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
-import { sql } from "@sql";
+import { raw, sql } from "@sql";
 import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 
@@ -36,6 +36,36 @@ describe("SQLite3 statement reuse", () => {
       expect(keyed.rows).toEqual([{ id: 7n }]);
     } finally {
       statement.all = all;
+      database.close();
+    }
+  });
+
+  test("refreshes hits so a hot statement survives eviction of a cold statement", async () => {
+    const database = seededDatabase();
+    const prototype = Object.getPrototypeOf(database.prepare("SELECT 1"));
+    const all = prototype.all;
+    let used: object | undefined;
+    prototype.all = function (this: object, ...values: unknown[]) {
+      used = this;
+      return all.apply(this, values);
+    };
+    const driver = new SQLite3Driver({ client: database });
+    try {
+      await driver._execute(raw("SELECT 0"));
+      const hot = used;
+      await driver._execute(raw("SELECT 1"));
+      const cold = used;
+      for (let id = 2; id < 100; id++)
+        await driver._execute(raw(`SELECT ${id}`));
+      await driver._execute(raw("SELECT 0"));
+      expect(used).toBe(hot);
+      await driver._execute(raw("SELECT 100"));
+      await driver._execute(raw("SELECT 0"));
+      expect(used).toBe(hot);
+      await driver._execute(raw("SELECT 1"));
+      expect(used).not.toBe(cold);
+    } finally {
+      prototype.all = all;
       database.close();
     }
   });

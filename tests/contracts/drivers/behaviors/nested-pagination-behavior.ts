@@ -435,7 +435,13 @@ export function runNestedPaginationBehavior({
         expect(ids(found?.posts)).toEqual(["a1-p3"]);
       });
 
-      test("composes with a negative take", async () => {
+      test("negative take preserves the forward distinct representatives", async () => {
+        const forward = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: { orderBy: { id: "asc" }, distinct: ["topic"] },
+          },
+        });
         const found = await client.author.findUnique({
           where: { id: "a1" },
           include: {
@@ -443,9 +449,18 @@ export function runNestedPaginationBehavior({
           },
         });
 
-        // distinct over the reversed order keeps p5/p4/p2; the last two of that
-        // set in logical order are p4 and p5
-        expect(ids(found?.posts)).toEqual(["a1-p4", "a1-p5"]);
+        const wholeBackwards = await client.author.findUnique({
+          where: { id: "a1" },
+          include: {
+            posts: { orderBy: { id: "asc" }, distinct: ["topic"], take: -3 },
+          },
+        });
+
+        // Direction windows the distinct set; it does not choose new survivors.
+        expect(ids(forward?.posts)).toEqual(["a1-p1", "a1-p3", "a1-p5"]);
+        expect(ids(wholeBackwards?.posts)).toEqual(["a1-p1", "a1-p3", "a1-p5"]);
+        expect(ids(found?.posts)).toEqual(["a1-p3", "a1-p5"]);
+        expect(found?.posts.map((row) => row.topic)).toEqual(["beta", "gamma"]);
       });
 
       test("composes with a nested where", async () => {

@@ -1137,10 +1137,10 @@ describe("ToMany Update - Required (Author.posts)", () => {
 
     test("runtime: accepts combined operations", () => {
       const input = {
-        create: { id: "new-post", title: "New", content: "C" },
-        connect: { id: "existing-post" },
         set: { id: "retained-post" },
         delete: { id: "deleted-post" },
+        create: { id: "new-post", title: "New", content: "C" },
+        connect: { id: "existing-post" },
       };
       const result = parse(schema, input);
       expect(result.issues).toBeUndefined();

@@ -1,0 +1,3 @@
+/* Keep live docs and Blume's explicit theme sources, not evidence or installs. */
+@source not "./architecture";
+@source not "./.blume/node_modules";

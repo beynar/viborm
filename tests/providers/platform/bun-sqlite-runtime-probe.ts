@@ -17,9 +17,11 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { BunSQLiteDriver } from "@drivers/bun-sqlite";
-import { ForeignKeyError } from "@errors";
+import { ClientInitializationError, ForeignKeyError } from "@errors";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { Decimal } from "@src/index";
+import { qualifyRawDateCutoff } from "@tests/fixtures/raw-date-cutoff";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 
 const DECIMAL_DOMAIN = { precision: 16, scale: 2 };
@@ -131,7 +133,6 @@ const geoMarker = s
 // one past Number.MAX_SAFE_INTEGER, so it rounds down to 9007199254740992 the
 // moment it travels as a JS number.
 const VIEWS = 9_007_199_254_740_993n;
-const ROUNDED_VIEWS = 9_007_199_254_740_992;
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -166,7 +167,7 @@ await client.measurement.create({
 });
 
 // 1. The typed read path: exact, because the driver opts the statement into
-//    safeIntegers. Without that opt-in this is ROUNDED_VIEWS.
+//    safeIntegers. Without that opt-in the wide value would be rounded.
 const row = await client.measurement.findUnique({ where: { id: "m-1" } });
 assert(
   typeof row?.views === "bigint",
@@ -205,28 +206,19 @@ assert(
 //    it is exact too — same answer sqlite3 gives.
 const tagged = await client.$queryRaw<{
   views: number | bigint;
-}>`SELECT "views" FROM "bun_sqlite_runtime_measurements"`;
+}>(sql`SELECT "views" FROM "bun_sqlite_runtime_measurements"`);
 assert(
   tagged[0]?.views === VIEWS,
   `tagged $queryRaw gave ${tagged[0]?.views}, expected ${VIEWS}`
 );
 
-// 5. The witness: `$queryRawUnsafe` is the one path that does NOT opt in —
-//    hand-written statements bypass the result parser and stay driver-native,
-//    exactly as on sqlite3. It comes back ROUNDED. That rounding is what every
-//    read on this driver used to do, so this assertion both documents the
-//    remaining boundary and fails loudly if the typed path is ever collapsed
-//    back into the raw one.
+// 5. Unsafe raw shares the same exact wide INTEGER representation.
 const unsafe = await client.$queryRawUnsafe<{ views: number | bigint }>(
   `SELECT "views" FROM "bun_sqlite_runtime_measurements"`
 );
 assert(
-  typeof unsafe[0]?.views === "number",
-  `$queryRawUnsafe gave ${typeof unsafe[0]?.views}, expected number`
-);
-assert(
-  unsafe[0]?.views === ROUNDED_VIEWS,
-  `$queryRawUnsafe gave ${unsafe[0]?.views}, expected the rounded ${ROUNDED_VIEWS}`
+  unsafe[0]?.views === VIEWS,
+  `$queryRawUnsafe gave ${unsafe[0]?.views}, expected exact ${VIEWS}`
 );
 
 // 6. Referential integrity: bun:sqlite keeps SQLite's foreign_keys default
@@ -387,7 +379,7 @@ const physicalDecimals = await client.$queryRaw<{
   amounts: string;
   amountStorage: string;
   amountsStorage: string;
-}>`
+}>(sql`
   SELECT
     CAST(amount AS TEXT) AS amount,
     amounts,
@@ -395,7 +387,7 @@ const physicalDecimals = await client.$queryRaw<{
     typeof(amounts) AS amountsStorage
   FROM bun_sqlite_runtime_decimals
   WHERE id = ${"exact"}
-`;
+`);
 assert(
   physicalDecimals[0]?.amount === "9999999999999998",
   `physical decimal scalar gave ${physicalDecimals[0]?.amount}, expected 9999999999999998`
@@ -531,9 +523,9 @@ const extendedPointClient = client.$extends({
 });
 await extendedPointClient.geoPlace.findMany({ select: { id: true } });
 assert(pointRequestCalls === 1, "GeoPoint request extension did not run once");
-const taggedPoint = await client.$queryRaw<{ location: string }>`
+const taggedPoint = await client.$queryRaw<{ location: string }>(sql`
   SELECT location FROM bun_sqlite_runtime_geo_places WHERE id = ${"london"}
-`;
+`);
 const unsafePoint = await client.$queryRawUnsafe<{ location: string }>(
   "SELECT location FROM bun_sqlite_runtime_geo_places WHERE id = 'london'"
 );
@@ -566,12 +558,11 @@ assert(
   byAlias?.id === generated.id && byAlias.marks[0]?.id === mark.id,
   "a lowercase ULID did not address the row its canonical spelling does"
 );
-// `$queryRaw` opts this driver into safeIntegers, so `length()` answers a
-// bigint here and 16 alone would never equal it.
+// Raw INTEGER reads are lossless; safe-range values use ordinary numbers.
 const storedId = await client.$queryRaw<{
   t: string;
   n: number | bigint;
-}>`SELECT typeof(id) AS t, length(id) AS n FROM bun_sqlite_runtime_ids`;
+}>(sql`SELECT typeof(id) AS t, length(id) AS n FROM bun_sqlite_runtime_ids`);
 assert(
   storedId[0]?.t === "blob" && Number(storedId[0]?.n) === 16,
   `stored identifier was ${storedId[0]?.t} of ${storedId[0]?.n} bytes, expected a 16-byte blob`
@@ -579,7 +570,9 @@ assert(
 const storedFk = await client.$queryRaw<{
   t: string;
   n: number | bigint;
-}>`SELECT typeof(ownerId) AS t, length(ownerId) AS n FROM bun_sqlite_runtime_id_marks`;
+}>(
+  sql`SELECT typeof(ownerId) AS t, length(ownerId) AS n FROM bun_sqlite_runtime_id_marks`
+);
 assert(
   storedFk[0]?.t === "blob" && Number(storedFk[0]?.n) === 16,
   `the derived foreign key was ${storedFk[0]?.t} of ${storedFk[0]?.n} bytes`
@@ -588,4 +581,125 @@ assert(
 console.log("fixed-decimal evidence passed");
 console.log("native identifier evidence passed");
 
+// All raw entry points expose one exact INTEGER vocabulary.
+const rawIntegerText = "SELECT 7 AS small, 9007199254740993 AS large";
+const rawIntegerQuery = sql`SELECT 7 AS small, 9007199254740993 AS large`;
+const checkRawInteger = (rows: unknown) => {
+  if (!Array.isArray(rows)) throw new Error("raw integer rows missing");
+  assert(
+    rows[0]?.small === 7 && rows[0]?.large === 9007199254740993n,
+    "raw integer entry changed number/bigint meaning"
+  );
+};
+checkRawInteger(await client.$queryRaw(rawIntegerQuery));
+checkRawInteger(await client.$queryRawUnsafe(rawIntegerText));
+const rawIntegerBatch = await client.$transaction([
+  client.$queryRaw(rawIntegerQuery),
+  client.$queryRawUnsafe(rawIntegerText),
+]);
+for (const rows of rawIntegerBatch) checkRawInteger(rows);
+await client.$transaction(async (tx) => {
+  checkRawInteger(await tx.$queryRaw(rawIntegerQuery));
+  checkRawInteger(await tx.$queryRawUnsafe(rawIntegerText));
+});
+console.log("raw integer parity evidence passed");
+
+await qualifyRawDateCutoff(client);
+console.log("raw Date cutoff evidence passed");
+for (const hostile of ["\uD800", "\uDC00"]) {
+  let failure: unknown;
+  try {
+    await client.$executeRaw(
+      sql`INSERT INTO bun_sqlite_runtime_measurements (id, views) VALUES (${hostile}, ${0n})`
+    );
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof Error, "bun:sqlite accepted an unpaired surrogate");
+}
+const validSurrogatePair = "surrogate-\uD83D\uDE00";
+await client.measurement.create({
+  data: { id: validSurrogatePair, views: 0n },
+});
+const validSurrogateRow = await client.measurement.findUnique({
+  where: { id: validSurrogatePair },
+});
+assert(
+  validSurrogateRow?.id === validSurrogatePair,
+  "a valid surrogate pair failed roundtrip"
+);
+const surrogateEffect = await client.$queryRaw<{
+  n: number;
+}>`SELECT COUNT(*) AS n FROM bun_sqlite_runtime_measurements WHERE id IN (${"\uFFFD"}, ${""})`;
+assert(
+  surrogateEffect[0]?.n === 0,
+  "a refused surrogate write left provider effects"
+);
+console.log("surrogate refusal evidence passed");
 await client.$disconnect();
+
+// PB-4: failed BEGIN on a supplied native handle must not roll back or close
+// its owner's independently opened transaction.
+class NativeHandleDriver extends BunSQLiteDriver {
+  borrow() {
+    return this.getClient();
+  }
+}
+const handleOwner = new NativeHandleDriver();
+const suppliedHandle = await handleOwner.borrow();
+suppliedHandle.exec("PRAGMA foreign_keys = OFF");
+let uncheckedFailure: unknown;
+try {
+  new BunSQLiteDriver({ client: suppliedHandle });
+} catch (error) {
+  uncheckedFailure = error;
+}
+assert(
+  uncheckedFailure instanceof ClientInitializationError &&
+    uncheckedFailure.code === "V1004",
+  "a supplied handle with disabled foreign keys was not refused during initialization"
+);
+assert(
+  suppliedHandle.query<{ foreign_keys: number }>("PRAGMA foreign_keys").get()
+    ?.foreign_keys === 0,
+  "refusing a supplied handle changed its owner's foreign-key setting or closed it"
+);
+suppliedHandle.exec("PRAGMA foreign_keys = ON");
+console.log("supplied foreign-key refusal evidence passed");
+suppliedHandle.exec("CREATE TABLE borrowed_control (value INTEGER NOT NULL)");
+suppliedHandle.exec("BEGIN");
+suppliedHandle.exec("INSERT INTO borrowed_control VALUES (7)");
+const borrower = new BunSQLiteDriver({ client: suppliedHandle });
+let callbackEntered = false;
+let failedBegin = false;
+try {
+  await borrower._transaction(async () => {
+    callbackEntered = true;
+  });
+} catch {
+  failedBegin = true;
+}
+assert(
+  failedBegin && !callbackEntered,
+  "supplied BEGIN conflict did not fail before callback"
+);
+assert(
+  suppliedHandle.inTransaction,
+  "failed BEGIN rolled back its owner's transaction"
+);
+await borrower._disconnect();
+assert(
+  suppliedHandle
+    .query<{ value: number }>("SELECT value FROM borrowed_control")
+    .get()?.value === 7,
+  "supplied disconnect closed or changed caller handle"
+);
+suppliedHandle.exec("ROLLBACK");
+assert(
+  suppliedHandle
+    .query<{ n: number }>("SELECT COUNT(*) AS n FROM borrowed_control")
+    .get()?.n === 0,
+  "owner rollback failed after supplied control error"
+);
+await handleOwner._disconnect();
+console.log("supplied control ownership evidence passed");

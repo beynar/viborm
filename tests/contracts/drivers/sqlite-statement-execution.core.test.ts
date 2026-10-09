@@ -36,7 +36,11 @@ function createBunStatementDriver(
     values: vi.fn(() => []),
   };
   const database = {
-    query: vi.fn(() => statement),
+    query: vi.fn((sql: string) =>
+      sql === "PRAGMA foreign_keys"
+        ? { get: () => ({ foreign_keys: 1 }) }
+        : statement
+    ),
     prepare: vi.fn(() => statement),
     run: vi.fn(),
     exec: vi.fn(),

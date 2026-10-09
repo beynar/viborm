@@ -1,21 +1,18 @@
-import type {
-  CacheDriver,
-  CacheInvalidationOptions,
-  WithCacheOptions,
-} from "@cache";
-import {
-  type CacheExecutionOptions,
-  cacheInvalidationSchema,
-  withCacheSchema,
-} from "@cache";
+import type { CacheDriver, CacheExecutionOptions } from "@cache/driver";
 import {
   type DetachedCacheResultCodec,
   executeCachedWithResultCodec,
   invalidateOfficialCache,
   type WaitUntilFn,
 } from "@cache/driver";
-import type { QueryExecutionContext } from "@drivers";
+import {
+  type CacheInvalidationOptions,
+  cacheInvalidationSchema,
+  type WithCacheOptions,
+  withCacheSchema,
+} from "@cache/schema";
 import type { DriverIdentity } from "@drivers/driver-identity";
+import type { QueryExecutionContext } from "@drivers/exports";
 import {
   CacheConfigurationError,
   CacheOperationNotCacheableError,

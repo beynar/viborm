@@ -76,6 +76,8 @@ describe("createInstrumentationContext — tracer", () => {
     expect(ctx.logger).toBeUndefined();
     expect(ctx.config).not.toBe(config);
     expect(ctx.config.diagnostics).toEqual({
+      includeProviderDetails: false,
+      includeCallsite: false,
       includeParams: false,
       includeSql: false,
     });
@@ -104,6 +106,8 @@ describe("createInstrumentationContext — tracer", () => {
     await ctx.tracer.startActiveSpan({ name: SPAN_CONNECT }, () => undefined);
 
     expect(ctx.config.diagnostics).toEqual({
+      includeProviderDetails: false,
+      includeCallsite: false,
       includeParams: true,
       includeSql: false,
     });
@@ -135,6 +139,8 @@ describe("createInstrumentationContext — tracer", () => {
     expect(ctx.tracer).toBe(getNoopTracer());
     expect(ctx.logger).toBeUndefined();
     expect(ctx.config.diagnostics).toEqual({
+      includeProviderDetails: false,
+      includeCallsite: false,
       includeParams: false,
       includeSql: false,
     });

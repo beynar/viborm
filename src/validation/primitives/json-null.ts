@@ -5,6 +5,7 @@
 import {
   type AnyJsonNullSentinel,
   isJsonNullSentinel,
+  JsonNull,
   type JsonNullKind,
   type JsonNullSentinel,
 } from "@schema/json-null";
@@ -167,7 +168,14 @@ export function jsonWrite<
       return checkSentinel(value, allowed, where) as never;
     }
     if (value === null) return fail(nullRefusal) as never;
-    return validateSchema(wrapped, value) as never;
+    const result = validateSchema(wrapped, value);
+    // A supplied document transformed to null is JSON null; omitted nullable
+    // defaults keep their separate SQL NULL path.
+    return (
+      !result.issues && result.value === null && value !== undefined
+        ? checkSentinel(JsonNull, allowed, where)
+        : result
+    ) as never;
   }) as JsonWriteSchema<TAllowed, TSchema>;
 
   copyOptionality(schema, wrapped, allowed);

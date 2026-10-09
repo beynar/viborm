@@ -638,7 +638,7 @@ describeIf("MySQL2 concurrency policy", () => {
   // === 3. Borrowed execution =============================================
 
   describe("borrowed execution", () => {
-    test("a lost race inside the caller's transaction is the caller's to handle", async () => {
+    test("a selected-constraint lost race recovers inside the caller's transaction", async () => {
       const planter = boot(new RecordingMySQL2Driver());
       let planted = false;
       const borrowedDriver = new RecordingMySQL2Driver({
@@ -653,26 +653,24 @@ describeIf("MySQL2 concurrency policy", () => {
       });
       const borrower = boot(borrowedDriver);
 
-      // The operation runs inside a transaction the CALLER opened. The engine
-      // owns no region here, so it spends no recovery allowance: the rejection
-      // is reported to the caller, whose own rollback is the one that happens.
-      await expect(
-        borrower.$transaction(async (tx) => {
-          await tx.tag.upsert({
-            where: { name: "contested" },
-            create: {
-              id: "borrowed",
-              name: "contested",
-              slug: "borrowed-slug",
-              count: 1,
-            },
-            update: { count: 42 },
-          });
-        })
-      ).rejects.toBeInstanceOf(UniqueConstraintError);
+      // Recovery rolls back the failed member's savepoint, re-observes the
+      // selected unique identity once, and preserves the caller's transaction.
+      const recovered = await borrower.$transaction(async (tx) => {
+        return await tx.tag.upsert({
+          where: { name: "contested" },
+          create: {
+            id: "borrowed",
+            name: "contested",
+            slug: "borrowed-slug",
+            count: 1,
+          },
+          update: { count: 42 },
+        });
+      });
+      expect(recovered).toMatchObject({ id: "winner", count: 42 });
 
       const statements = borrowedDriver.statements;
-      // No retry and no replacement transaction: ONE create attempt, and every
+      // No second INSERT and no replacement transaction: ONE create attempt; every
       // statement of the borrowed operation on the ONE pooled connection the
       // caller's transaction holds.
       expect(matching(borrowedDriver, "INSERT", TAG_TABLE)).toHaveLength(1);
@@ -685,36 +683,35 @@ describeIf("MySQL2 concurrency policy", () => {
         )
       ).toBe(true);
 
-      // The only savepoint traffic is the member's OWN rollback scope, opened
-      // and released around the failed write under one name. A savepoint that
-      // outlived the member, or a second one, would be the engine holding
-      // recovery authority the caller never gave it.
+      // Only the failed member attempt is rolled back. Its one fresh recovery
+      // region uses a second savepoint; neither replaces the outer transaction.
       const savepoints = statements.filter((statement) =>
         ANY_SAVEPOINT.test(statement)
       );
-      expect(savepoints).toHaveLength(3);
+      expect(savepoints).toHaveLength(5);
       expect(SAVEPOINT_OPEN.test(savepoints[0] ?? "")).toBe(true);
       expect(SAVEPOINT_ROLLBACK.test(savepoints[1] ?? "")).toBe(true);
       expect(SAVEPOINT_RELEASE.test(savepoints[2] ?? "")).toBe(true);
+      expect(SAVEPOINT_OPEN.test(savepoints[3] ?? "")).toBe(true);
+      expect(SAVEPOINT_RELEASE.test(savepoints[4] ?? "")).toBe(true);
       const names = new Set(
         savepoints.map((statement) => statement.split(WHITESPACE).pop())
       );
-      expect(names.size).toBe(1);
+      expect(names.size).toBe(2);
 
-      // Nothing of the failed operation is committed; the winner is untouched.
+      // The losing INSERT contributes no row; the winner receives the update.
       const rows = await planter.tag.findMany({});
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
         id: "winner",
         slug: "winner-slug",
-        count: 0,
+        count: 42,
       });
     });
 
-    test("the caller's transaction survives the rejection it was handed", async () => {
-      // The other half of ownership: because the member rolled back to its own
-      // savepoint and nothing else, the transaction the caller opened is still
-      // the caller's to continue or abandon.
+    test("the caller's transaction remains usable after lost-race recovery", async () => {
+      // The member's savepoint recovery leaves the caller free to continue
+      // and commit later writes in the same outer transaction.
       const planter = boot(new RecordingMySQL2Driver());
       let planted = false;
       const borrowedDriver = new RecordingMySQL2Driver({
@@ -740,7 +737,7 @@ describeIf("MySQL2 concurrency policy", () => {
             },
             update: { count: 42 },
           })
-        ).rejects.toBeInstanceOf(UniqueConstraintError);
+        ).resolves.toMatchObject({ id: "winner", count: 42 });
         // The caller keeps going and COMMITS: the engine neither took the
         // transaction over nor condemned it.
         await tx.tag.create({
@@ -750,7 +747,7 @@ describeIf("MySQL2 concurrency policy", () => {
 
       const rows = await planter.tag.findMany({ orderBy: { id: "asc" } });
       expect(rows.map((row) => row.id)).toEqual(["callers-own", "winner"]);
-      expect(rows.find((row) => row.id === "winner")?.count).toBe(0);
+      expect(rows.find((row) => row.id === "winner")?.count).toBe(42);
     });
   });
 

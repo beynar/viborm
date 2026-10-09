@@ -24,6 +24,7 @@ import {
   refusePartialControl,
   unfinishedAttempts,
 } from "./control";
+import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
 import { executeDispatch } from "./execute-dispatch";
 import { assertForeignKeysIntact, liftForeignKeyPragmas } from "./foreign-keys";
@@ -186,11 +187,18 @@ export async function pushV1(
       if (accepted) assertAcceptedPlan(accepted, plan);
       await assertPushControlInterlock(pinned, command, plan);
       if (plan.destructive) {
-        const preview = publicPreview(plan);
         throw new MigrationError(
-          "Destructive or force-reset push requires exact preview consent",
+          "Destructive or force-reset push requires exact preview consent. Call push({ dryRun: true }), review the plan, then pass its consent unchanged to push({ consent }).",
           VibORMErrorCode.MIGRATION_CONSENT_REQUIRED,
-          { meta: { planHash: plan.planHash, preview } }
+          {
+            meta: {
+              command: "push",
+              dialect: plan.target.dialect,
+              expectedChecksum: plan.planHash,
+              expectedStatementCount: plan.statements.length,
+              hint: "Review push({ dryRun: true }) and pass the returned consent unchanged to push({ consent }).",
+            },
+          }
         );
       }
       return executeLockedPlan(pinned, command, plan);
@@ -362,7 +370,7 @@ async function attestFinalFingerprint(
   const expected = await fingerprintLive(plan.desiredSchema, command, producer);
   if (fingerprint !== expected) {
     throw new MigrationError(
-      "Push completed its statements but the final live fingerprint does not match the desired schema",
+      `Push completed its statements but the final live fingerprint does not match the desired schema: ${JSON.stringify(await diff(finalSnapshot, plan.desiredSchema))}`,
       VibORMErrorCode.MIGRATION_DRIFT,
       {
         meta: {

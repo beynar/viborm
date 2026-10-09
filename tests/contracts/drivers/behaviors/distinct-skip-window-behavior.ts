@@ -202,7 +202,7 @@ export function runDistinctSkipWindowBehavior({
         expect(fromString.map((p) => p.id)).toEqual(["p3", "p1"]);
       });
 
-      test("negative take flips the order before distinct, as on findMany", async () => {
+      test("negative take reverses the page while preserving each distinct representative", async () => {
         const c = requireClient(client);
         const first = await c.post.findFirst({
           distinct: "authorId",
@@ -215,12 +215,11 @@ export function runDistinctSkipWindowBehavior({
           take: -1,
         });
 
-        // The window is reversed (views asc: p2 50, p1 100, p3 200) and only
-        // THEN deduplicated, so u1's surviving row is p2 — not p1, which is
-        // what "dedupe forward, take the last" would give. findFirst must
-        // compose exactly as findMany does.
-        expect(many.map((p) => p.id)).toEqual(["p2"]);
-        expect(first?.id).toBe("p2");
+        // The forward representative of u1 remains p1 (100 views). Reversing
+        // the page moves that same representative ahead of u2; it cannot adopt
+        // p2 merely because direction changed. Both public methods agree.
+        expect(many.map((p) => p.id)).toEqual(["p1"]);
+        expect(first?.id).toBe("p1");
         expect(first).toEqual(many[0]);
       });
 

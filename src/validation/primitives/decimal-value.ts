@@ -221,6 +221,8 @@ function partsOfCanonical(canonical: string): [bigint, number] {
  * new Decimal("1").div("3", 5).toString(); // "0.33333"
  */
 export interface Decimal {
+  /** Immutable canonical text retained by deep equality and structured cloning. */
+  readonly value: string;
   /** This value plus `other`, exactly. */
   plus(other: Decimal | DecimalPrimitive): Decimal;
   /** This value minus `other`, exactly. */
@@ -308,6 +310,7 @@ let textOf: (value: ExactDecimal) => string;
 class ExactDecimal implements Decimal {
   readonly #c: bigint;
   readonly #scale: number;
+  readonly value: string;
 
   constructor(value: Decimal | DecimalPrimitive, scale?: number) {
     // A `bigint` is a coefficient: a public one is a whole number (scale 0),
@@ -322,23 +325,26 @@ class ExactDecimal implements Decimal {
       }
       this.#c = coefficient;
       this.#scale = coefficient === 0n ? 0 : places;
-      return;
-    }
-    // The BRAND, not `instanceof`: a prototype is forgeable and a private field
-    // is not, so a value that only wears the prototype falls through to the
-    // refusal below instead of failing on a field it does not have.
-    if (owns(value)) {
+    } else if (owns(value)) {
+      // The BRAND, not `instanceof`: a prototype is forgeable and a private field
+      // is not, so a value that only wears the prototype falls through to the
+      // refusal below instead of failing on a field it does not have.
       this.#c = value.#c;
       this.#scale = value.#scale;
-      return;
+    } else {
+      const canonical = admitDecimal(value);
+      if (canonical === undefined) {
+        throw new TypeError(DECIMAL_CONSTRUCTOR_REFUSAL);
+      }
+      const [coefficient, places] = partsOfCanonical(canonical);
+      this.#c = coefficient;
+      this.#scale = places;
     }
-    const canonical = admitDecimal(value);
-    if (canonical === undefined) {
-      throw new TypeError(DECIMAL_CONSTRUCTOR_REFUSAL);
-    }
-    const [coefficient, places] = partsOfCanonical(canonical);
-    this.#c = coefficient;
-    this.#scale = places;
+    this.value = renderParts(this.#c, this.#scale);
+    Object.defineProperty(this, "value", {
+      writable: false,
+      configurable: false,
+    });
   }
 
   static {
@@ -444,6 +450,10 @@ class ExactDecimal implements Decimal {
 
   toJSON(): string {
     return this.toString();
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return `Decimal("${this.value}")`;
   }
 }
 

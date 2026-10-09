@@ -1,6 +1,6 @@
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import type { AnyDriver } from "@drivers";
-import { QueryEngineError } from "@errors";
+import type { AnyDriver } from "@drivers/exports";
+import { UnsupportedOperationError } from "@errors";
 import { hydrateSchemaNames, type Schema } from "@schema/hydration";
 import { type AnyModel, getModelKeyCatalog } from "@schema/model";
 import {
@@ -181,10 +181,9 @@ export class EngineSchema {
     ClearableMembership
   >();
   readonly #restrictingSlotViews = new WeakMap<AnyModel, readonly string[]>();
-  constructor(
-    readonly schema: Schema,
-    resolved?: ResolvedSchemaViews
-  ) {
+  readonly schema: Schema;
+  constructor(schema: Schema, resolved?: ResolvedSchemaViews) {
+    this.schema = schema;
     if (resolved) {
       this.index = resolved.index;
       this.registry = resolved.registry;
@@ -284,7 +283,7 @@ export class EngineSchema {
         (operation) => update[operation] !== undefined
       );
       if (named.length !== 1)
-        return new QueryEngineError(
+        return new UnsupportedOperationError(
           `Primary key field '${keyField}' accepts exactly one update operation; received ${named.join(", ") || "none"}.`
         );
       const operation = named[0]!;
@@ -294,11 +293,11 @@ export class EngineSchema {
         scalarType === "number" ||
         (scalarType === "decimal" && ROUNDING_KEY_UPDATES.includes(operation))
       )
-        return new QueryEngineError(
+        return new UnsupportedOperationError(
           `Arithmetic updates are not portable for ${scalarType} primary key field '${keyField}'. Use an explicit set value.`
         );
       if (update.divide === 0 || update.divide === 0n)
-        return new QueryEngineError(
+        return new UnsupportedOperationError(
           `Cannot divide primary key field '${keyField}' by zero.`
         );
     }
@@ -372,11 +371,13 @@ export class EngineSchema {
         (operation) => update[operation] !== undefined
       );
       if (named.length !== 1)
-        return new QueryEngineError(
+        return new UnsupportedOperationError(
           `Cannot determine the updated primary key for model '${model["~"].names.ts!}' because field '${keyField}' uses an unsupported operation.`
         );
       if (update.divide === 0 || update.divide === 0n)
-        return new QueryEngineError("Cannot divide a primary key by zero.");
+        return new UnsupportedOperationError(
+          "Cannot divide a primary key by zero."
+        );
     }
     return undefined;
   }
@@ -425,10 +426,10 @@ export class EngineSchema {
     };
     for (const field of ["targetWhere", "setWhere"] as const) {
       const input = envelope[field];
-      if (isRecord(input) && Object.keys(input).length)
-        conditions[field] = record(
-          parseValidated(schemas.core.where, input, "upsert", field)
-        );
+      if (input === undefined) continue;
+      const parsed = parseValidated(schemas.core.where, input, "upsert", field);
+      if (isRecord(parsed) && Object.keys(parsed).length)
+        conditions[field] = record(parsed);
     }
     const create = createHasRelations
       ? parseValidated(schemas.core.create, envelope.create, "create", "data")

@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Scenario protocol assertions execute through runSQLiteWorld inside the test runner.
+
 import assert from "node:assert/strict";
 import { s } from "@schema";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
@@ -115,6 +117,7 @@ function rootPeerScenario(): ScenarioDefinition {
         afterStatement(_database, completion) {
           if (firstWriteAdmissions === undefined && isWrite(completion))
             firstWriteAdmissions = admissions.length;
+          return undefined;
         },
         assert(observation) {
           requireSuccess(observation, { count: 2 });
@@ -253,6 +256,7 @@ function nestedPeerScenario(): ScenarioDefinition {
             completion.sql.includes("cs03_scope_targets")
           )
             phases.push("effect:target-create");
+          return undefined;
         },
         assert(observation) {
           requireSuccess(observation, { count: 2 });
@@ -528,6 +532,7 @@ function surroundingReadScenario(): ScenarioDefinition {
             dependentWrite = true;
             phases.push("effect:reader");
           }
+          return undefined;
         },
         assert(observation) {
           // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'update' on

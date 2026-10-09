@@ -232,47 +232,23 @@ describe("N5: a captured identity is re-bound through the admitted wire form", (
       );
     });
 
-  it("FC-02B: two spellings of ONE instant stay two addresses, each captured by its own bytes", async () => {
+  it("two spellings of one timestamp name one canonical identity", async () => {
     const client = await capturing();
     await client.instant!.create({ data: { id: CANONICAL, tag: "a", n: 0 } });
-    await client.instant!.create({ data: { id: OFFSET, tag: "b", n: 0 } });
-
-    // Capturing ONE of them addresses only it: the capture carries that row's
-    // bytes, so the sibling that names the same instant is never conflated
-    // with it.
-    const one = await client.instant!.updateMany({
-      where: { tag: "a" },
+    await assert.rejects(
+      client.instant!.create({ data: { id: OFFSET, tag: "b", n: 0 } }),
+      { code: "V3001" }
+    );
+    const updated = await client.instant!.updateMany({
+      where: { id: OFFSET },
       data: { n: 1 },
       select: { id: true },
     });
-    assert.equal(one.length, 1);
+    assert.equal(updated.length, 1);
+    assert.equal((updated[0]!.id as Date).getTime(), INSTANT);
     assert.deepEqual(
-      (await client.instant!.findMany({ orderBy: { tag: "asc" } })).map(
-        (row) => [row.tag, row.n]
-      ),
-      [
-        ["a", 1],
-        ["b", 0],
-      ]
-    );
-
-    // Capturing BOTH at once addresses both, each by its own spelling, and the
-    // complement premise that protects a whole captured set still holds.
-    const both = await client.instant!.updateMany({
-      where: { n: { lt: 9 } },
-      data: { n: 2 },
-      select: { id: true },
-    });
-    assert.equal(both.length, 2);
-    const rows = await client.instant!.findMany({ orderBy: { tag: "asc" } });
-    assert.deepEqual(
-      rows.map((row) => row.n),
-      [2, 2]
-    );
-    // Both rows decode to the SAME public instant while remaining two rows.
-    assert.deepEqual(
-      rows.map((row) => (row.id as Date).getTime()),
-      [INSTANT, INSTANT]
+      (await client.instant!.findMany()).map((row) => [row.tag, row.n]),
+      [["a", 1]]
     );
   });
 

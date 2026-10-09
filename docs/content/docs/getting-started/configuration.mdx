@@ -22,9 +22,9 @@ The client is created in your application code:
 
 ```ts title="src/db.ts"
 import { createClient } from "viborm/pglite";
-import * as schema from "./schema";
+import { user, post } from "./schema";
 
-export const client = createClient({ schema });
+export const client = createClient({ schema: { user, post }, dataDir: "./data" });
 ```
 
 :::info[File Names]
@@ -122,18 +122,19 @@ Then import it when creating your client:
 
 ```ts title="src/db.ts"
 import { createClient } from "viborm/pg";
-import * as schema from "./schema";
-// schema = { Status, user, post }
+import { user, post } from "./schema";
 
-// VibORM extracts only the model definitions
 export const client = createClient({
-  schema,
+  schema: { user, post },
   databaseUrl: process.env.DATABASE_URL,
 });
 ```
 
-:::info[Model Extraction]
-VibORM automatically extracts model definitions from your schema object. Non-model exports (like enums, utilities, or types) are filtered out.
+:::info[Model-only schema]
+`createClient` takes an object containing only model definitions. When a module
+also exports enums or utilities, import its models explicitly. The CLI's schema
+loader filters module exports; client construction reports a named schema error
+for non-model entries.
 :::
 
 ## Environment Variables
@@ -142,7 +143,7 @@ Use environment variables for sensitive configuration:
 
 ```ts title="src/db.ts"
 import { createClient } from "viborm/pg";
-import * as schema from "./schema";
+import { user, post } from "./schema";
 
 export const client = createClient({
   schema,
@@ -161,14 +162,14 @@ DATABASE_URL=postgresql://user:password@localhost:5432/mydb
 The CLI automatically loads your config file:
 
 ```bash
-# Force Bun's TypeScript runtime instead of the CLI's Node shebang
-bun --bun viborm push
+# Using the installed CLI on Node.js
+pnpm exec viborm push
 
-# Using npx with tsx
-npx tsx node_modules/.bin/viborm push
+# Using npm
+npx viborm push
 
 # With custom config path
-bun --bun viborm push --config ./config/viborm.config.ts
+pnpm exec viborm push --config ./config/viborm.config.ts
 ```
 
 ## Multiple Environments
@@ -179,7 +180,7 @@ For different environments, you can use environment variables or multiple config
   <Tab title="Environment Variables">
 ```ts title="src/db.ts"
 import { createClient } from "viborm/pg";
-import * as schema from "./schema";
+import { user, post } from "./schema";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -204,14 +205,14 @@ export default defineConfig({
   <Tab title="Multiple Configs">
 ```ts title="src/db.dev.ts"
 import { createClient } from "viborm/pglite";
-import * as schema from "./schema";
+import { user, post } from "./schema";
 
-export const client = createClient({ schema });
+export const client = createClient({ schema: { user, post }, dataDir: "./data" });
 ```
 
 ```ts title="src/db.prod.ts"
 import { createClient } from "viborm/pg";
-import * as schema from "./schema";
+import { user, post } from "./schema";
 
 export const client = createClient({
   schema,
@@ -235,10 +236,10 @@ export default defineConfig({ client });
 
 ```bash
 # Development
-bun --bun viborm push --config viborm.config.dev.ts
+pnpm exec viborm push --config viborm.config.dev.ts
 
 # Production
-bun --bun viborm push --config viborm.config.prod.ts
+pnpm exec viborm push --config viborm.config.prod.ts
 ```
   </Tab>
 </Tabs>
@@ -248,17 +249,28 @@ bun --bun viborm push --config viborm.config.prod.ts
 <CardGroup>
   <Card
     title="Push"
-    description="Sync your schema directly to the database"
-    href="/docs/migration/push"
-  />
+    href="/docs/migration/push">
+    Sync your schema directly to the database
+  </Card>
   <Card
     title="Migrate"
-    description="Generate and apply migration files"
-    href="/docs/migration/migrate"
-  />
+    href="/docs/migration/migrate">
+    Generate and apply migration files
+  </Card>
   <Card
     title="Schema"
-    description="Learn how to define your schema"
-    href="/docs/schema"
-  />
+    href="/docs/schema">
+    Learn how to define your schema
+  </Card>
 </CardGroup>
+
+
+## Prevalidated schemas
+
+`createClient({ schema, driver, skipSchemaValidation: true })` is for a schema
+validated by `viborm check` in the same build or CI revision. It skips repeat
+schema-definition checks; it does not disable operation input validation,
+provider result parsing, or relation resolution. Do not enable it for a schema
+that is assembled dynamically from unchecked input. The default is `false`.
+
+See the [CLI reference](/docs/cli) for non-interactive and JSON output options.

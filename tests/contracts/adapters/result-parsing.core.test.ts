@@ -19,6 +19,7 @@
  *   `tests/contracts/adapters/internals-and-geo.core.test.ts`.
  */
 
+import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import {
   COUNT_RESULT_KEY,
   parseIntegerBoolean,
@@ -104,4 +105,14 @@ describe("COUNT_RESULT_KEY", () => {
   test("is the expected value", () => {
     expect(COUNT_RESULT_KEY).toBe("0viborm_count_result");
   });
+});
+
+test("MySQL Boolean expressions cross exact LONGLONG text at their physical boundary", () => {
+  const adapter = new MySQLAdapter();
+  const next = (value?: unknown) => value;
+  expect(adapter.result.parseField("1", "boolean", next)).toBe(true);
+  expect(adapter.result.parseField("0", "boolean", next)).toBe(false);
+  expect(adapter.result.parseField("01", "boolean", next)).toBeUndefined();
+  expect(adapter.result.parseField("true", "boolean", next)).toBeUndefined();
+  expect(parseIntegerBoolean("1")).toBeUndefined();
 });

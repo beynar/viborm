@@ -304,6 +304,49 @@ describe("Nullable Vector Scalar", () => {
 // =============================================================================
 
 describe("Dimension Property", () => {
+  test("fixed dimensions constrain create/set/filters through both nullable orders", () => {
+    for (const scalar of [
+      vector().dimension(2),
+      vector().dimension(2).nullable(),
+      vector().nullable().dimension(2),
+    ]) {
+      const schemas = getScalarSchemas(scalar["~"].state);
+      for (const value of [
+        [1],
+        [1, 2, 3],
+        [1, Number.POSITIVE_INFINITY],
+        [1, Number.NaN],
+      ]) {
+        expect(parse(schemas.create, value).issues).toBeDefined();
+        expect(parse(schemas.update, { set: value }).issues).toBeDefined();
+        expect(parse(schemas.filter, { equals: value }).issues).toBeDefined();
+      }
+      expect(parse(schemas.create, [1, 2]).issues).toBeUndefined();
+      expect(parse(schemas.update, { set: [1, 2] }).issues).toBeUndefined();
+      expect(parse(schemas.filter, { equals: [1, 2] }).issues).toBeUndefined();
+    }
+    expect(
+      parse(
+        getScalarSchemas(vector().dimension(2).default([1])["~"].state).create,
+        undefined
+      ).issues
+    ).toBeDefined();
+  });
+
+  test("invalid dimensions fail at declaration", () => {
+    for (const dimension of [
+      0,
+      -1,
+      1.5,
+      Number.POSITIVE_INFINITY,
+      Number.NaN,
+      Number.MAX_SAFE_INTEGER + 1,
+    ]) {
+      expect(() => vector().dimension(dimension)).toThrow(
+        "Vector dimension must be a positive safe integer"
+      );
+    }
+  });
   describe("dimension set via chain", () => {
     const scalar = vector().dimension(128);
     const state = scalar["~"].state;

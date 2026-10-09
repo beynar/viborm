@@ -75,6 +75,69 @@ export default defineConfig({
     output: "server",
     site: "https://viborm.dev",
   }),
+  integrations: [
+    {
+      name: "viborm:build-resources",
+      hooks: {
+        "astro:config:setup": ({ command, updateConfig }) => {
+          // Parallel page/OG rendering overlaps native allocations after bundling.
+          updateConfig({ build: { concurrency: 1 } });
+          if (command === "build") {
+            updateConfig({
+              vite: {
+                plugins: [
+                  {
+                    name: "viborm:build-without-dev-prebundling",
+                    // Retain one config; each environment keeps its own options.
+                    config: {
+                      order: "post",
+                      handler(config, { command }) {
+                        if (command !== "build") return;
+                        return {
+                          builder: {
+                            ...config.builder,
+                            sharedConfigBuild: true,
+                          },
+                        };
+                      },
+                    },
+                    configEnvironment: {
+                      order: "post",
+                      handler(name, config) {
+                        if (name === "prerender") {
+                          // Astro replaces environment build options before this
+                          // hook. Only its discarded prerender bundle skips
+                          // tree-shaking; the Worker and client stay optimized.
+                          config.build = {
+                            ...config.build,
+                            rolldownOptions: {
+                              ...config.build?.rolldownOptions,
+                              treeshake: false,
+                            },
+                          };
+                        }
+                        // Astro's build-time content server adds dev entries
+                        // after root defaults; clear each final environment.
+                        // Production bundles already own these dependencies.
+                        config.optimizeDeps = {
+                          ...config.optimizeDeps,
+                          noDiscovery: true,
+                          include: [],
+                        };
+                      },
+                    },
+                  },
+                ],
+              },
+            });
+          }
+        },
+        "astro:config:done": ({ config, logger }) => {
+          logger.info(`Prerender concurrency: ${config.build.concurrency}`);
+        },
+      },
+    },
+  ],
   agents: {
     agentReadability: true,
     llmsTxt: true,

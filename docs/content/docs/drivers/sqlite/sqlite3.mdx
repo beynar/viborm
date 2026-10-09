@@ -9,6 +9,10 @@ description: SQLite driver using better-sqlite3
 pnpm add better-sqlite3
 ```
 
+VibORM supports `better-sqlite3` 12.11.1 or later in the 12.x series, and
+13.0.3 or later in the 13.x series. These minimum versions include the SQLite
+optimizer fixes needed for relation-filtered pagination.
+
 ## Configuration
 
 ```typescript
@@ -55,6 +59,7 @@ import Database from "better-sqlite3";
 import { createClient } from "viborm/sqlite3";
 
 const db = new Database("./database.sqlite");
+db.pragma("foreign_keys = ON");
 
 const client = createClient({
   client: db,
@@ -62,9 +67,14 @@ const client = createClient({
 });
 ```
 
+Supplied databases must already enforce foreign keys. VibORM checks the pragma
+without changing caller state and leaves the database open on `$disconnect()`.
+The caller closes it with `db.close()`. Wrappers sharing one database serialize
+transactions and base queries through the same connection queue.
+
 ## Transactions
 
-better-sqlite3 supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
+better-sqlite3 supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions). VibORM begins write transactions with `BEGIN IMMEDIATE`; owned databases use a 5-second busy timeout.
 
 ## Features
 
@@ -86,3 +96,8 @@ relations, transactions, and cache are supported. Polygon, distance,
 - JSON columns return as strings and are parsed automatically
 - Boolean values stored as integers (0/1)
 - Node.js only (native module)
+
+Raw INTEGER results use `number` within JavaScript’s safe integer range and
+`bigint` outside it. Safe Sql fragments, unsafe SQL, array transactions and
+callback transactions share this rule; values are read losslessly once.
+Typed model fields continue to use their declared scalar result domain.

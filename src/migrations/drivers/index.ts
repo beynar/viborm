@@ -7,7 +7,7 @@
 
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
-import { resolveMigrationEstate } from "../target";
+import { resolveMigrationEstate, selectManagedSnapshot } from "../target";
 import type { MigrationTarget } from "../types";
 import type { MigrationDriver } from "./base";
 import type { Dialect } from "./types";
@@ -101,8 +101,15 @@ export interface BoundMigrationDriver extends MigrationDriver {
  * @throws MigrationError if no implementation is registered, or if the estate
  *   target cannot be proven
  */
-export function getMigrationDriver(driver: AnyDriver): BoundMigrationDriver {
-  const { target, namespace } = resolveMigrationEstate(driver);
+export function getMigrationDriver(
+  driver: AnyDriver,
+  tables?: readonly string[]
+): BoundMigrationDriver {
+  const { target: baseTarget, namespace } = resolveMigrationEstate(driver);
+  const target =
+    tables === undefined
+      ? baseTarget
+      : Object.freeze({ ...baseTarget, tables });
   const implementation = findMigrationDriver(driver.driverName, target.dialect);
 
   const bound: BoundMigrationDriver = Object.create(implementation);
@@ -110,6 +117,17 @@ export function getMigrationDriver(driver: AnyDriver): BoundMigrationDriver {
     target: { value: target, enumerable: true },
     executionDriver: { value: driver, enumerable: true },
     namespace: { value: namespace, enumerable: true },
+    introspect: {
+      async value(
+        this: MigrationDriver,
+        executeRaw: Parameters<MigrationDriver["introspect"]>[0]
+      ) {
+        return selectManagedSnapshot(
+          await implementation.introspect.call(this, executeRaw),
+          target
+        );
+      },
+    },
   });
   Object.freeze(bound);
   return bound;

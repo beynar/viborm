@@ -45,16 +45,26 @@ export class Assignments {
     string,
     { readonly value: FieldValue; readonly holder: Assignments }
   >();
-  #refusal: (Error) | undefined;
+  #refusal: Error | undefined;
+  readonly model: AnyModel;
+  readonly operation: "create" | "update" | "select";
+  readonly captured: Assignments | undefined;
+  private readonly forwarded: Assignments[];
+  readonly deferred: boolean;
   constructor(
-    readonly model: AnyModel,
-    readonly operation: "create" | "update" | "select",
+    model: AnyModel,
+    operation: "create" | "update" | "select",
     values: Input = {},
     explicit: Input = values,
-    readonly captured?: Assignments,
-    private readonly forwarded: Assignments[] = [],
-    readonly deferred = false
+    captured?: Assignments,
+    forwarded: Assignments[] = [],
+    deferred = false
   ) {
+    this.model = model;
+    this.operation = operation;
+    this.captured = captured;
+    this.forwarded = forwarded;
+    this.deferred = deferred;
     for (const [field, value] of Object.entries(values)) {
       this.#writes.set(field, literal(value));
       if (explicit[field] !== undefined) this.#requested.add(field);
@@ -82,6 +92,10 @@ export class Assignments {
       return assignment;
     const whole = wholeValue(assignment.value);
     return whole ? { ...assignment, value: whole.value } : undefined;
+  }
+  /** Whether the caller spelled this value, independently of generated defaults. */
+  isRequested(field: string): boolean {
+    return this.#requested.has(field);
   }
   /**
    * What this field will hold, as far as the payload states it: the named

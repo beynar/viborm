@@ -26,8 +26,10 @@ import {
 import type { AnyModel } from "@schema/model";
 import type { ScalarType } from "@schema/scalars/common";
 import { isSql, type Sql, sql } from "@sql";
+import { discardAsyncValidationResult } from "../parse-failure";
 import type { InferInput, InferOutput, VibSchema } from "../types";
 import { isFunction, isRecord } from "../value-guards";
+import { limitFilterDepth } from "./filter-depth";
 import { createSchema, fail, ok, validateSchema } from "./helpers";
 
 // =============================================================================
@@ -127,7 +129,7 @@ export function scopeOperands<S extends VibSchema<any, any>>(
   const inner = standard.validate;
   standard.validate = (value: unknown) =>
     runInOperandScope(model, () => inner(value));
-  return schema;
+  return limitFilterDepth(schema);
 }
 
 /** The context for the model in scope, or `undefined` outside any filter. */
@@ -219,6 +221,7 @@ function resolveCallback(
     return ok(returned);
   }
   if (isRecord(returned) && isFunction(returned.then)) {
+    discardAsyncValidationResult(returned);
     return fail(
       `${RETURN_REFUSAL}; it returned a promise. Validation is synchronous, so a filter callback cannot be async.`
     );
@@ -355,10 +358,21 @@ function closeOperands<TSchema extends VibSchema<any, any>>(
   where: string,
   fragments: boolean
 ): NoFieldRefSchema<TSchema> {
+  const standard = wrapped["~standard"];
+  const captured = {
+    "~standard": {
+      version: standard.version,
+      vendor: standard.vendor,
+      validate: standard.validate,
+    },
+  };
   const schema = createSchema<InferInput<TSchema>, InferOutput<TSchema>>(
     "no_field_ref",
     (value) => {
-      const result = validateSchema(wrapped, value);
+      const inputOperand = findOpaqueOperand(value, fragments);
+      if (inputOperand)
+        return fail(`${inputOperand} is not supported in ${where}.`);
+      const result = validateSchema(captured, value);
       if (result.issues) return result as never;
       const found = findOpaqueOperand(
         (result as { value: unknown }).value,
@@ -443,6 +457,7 @@ function findOpaqueOperand(
 
   while (pending.length > 0) {
     const value = pending.pop();
+    if (fragments && typeof value === "function") return "A filter callback";
     if (typeof value !== "object" || value === null) continue;
     if (isFieldRef(value)) {
       const payload = fieldRefPayload(value);

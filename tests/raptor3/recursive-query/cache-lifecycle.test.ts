@@ -36,7 +36,7 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";
 import { defaultOmit } from "@client/default-omit-extension";
-import { QueryEngineError, ValidationError } from "@errors";
+import { UnsupportedOperationError, ValidationError } from "@errors";
 import { s } from "@schema";
 import { ClockedMemoryCache } from "@tests/fixtures/clocked-memory-cache";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -398,24 +398,25 @@ describe("RQ-05 recursive reads through the official cache", () => {
     const before = await call(cached.node, "findMany", args);
     await state.settle();
 
-    // A mutation that asks for nothing invalidates nothing: no stronger
-    // freshness is claimed for a recursive entry than for any other.
+    // Default durable invalidation applies to recursive entries too.
     await call(extended.node, "update", {
       where: { id: "a1x" },
       data: { label: "moved" },
     });
     await state.settle();
-    assert.deepEqual(cacheDriver.clears, []);
-    assert.deepStrictEqual(await call(cached.node, "findMany", args), before);
+    assert.equal(cacheDriver.clears.length, 1);
+    const refreshed = await call(cached.node, "findMany", args);
+    assert.notDeepStrictEqual(refreshed, before);
+    assert.equal(JSON.stringify(refreshed).includes("moved"), true);
 
-    // The model's automatic invalidation clears it like any other entry.
+    // Explicit automatic invalidation uses the same whole-scope owner.
     await call(extended.node, "update", {
       where: { id: "b" },
       data: { label: "B2" },
       cache: { autoInvalidate: true },
     });
     await state.settle();
-    assert.equal(cacheDriver.clears.length, 1);
+    assert.equal(cacheDriver.clears.length, 2);
     const reads = recursiveReads(driver);
     const after = await call(cached.node, "findMany", args);
     assert.equal(recursiveReads(driver), reads + 1);
@@ -692,7 +693,9 @@ describe("RQ-05 recursive reads through the official cache", () => {
       await assert.rejects(
         call(cached.node, "findMany", tree(true)),
         (error: unknown) =>
-          error instanceof QueryEngineError && FK_CYCLE.test(error.message)
+          error instanceof UnsupportedOperationError &&
+          error.code === "V8003" &&
+          FK_CYCLE.test(error.message)
       );
       await state.settle();
     }

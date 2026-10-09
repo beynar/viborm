@@ -1,0 +1,82 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index fd6e471747a8e90495073b224a7ebe64d15da4ed..66b591f6542f6d4547d104d624aac82457ae2278 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -478,33 +478,14 @@ function mergeRecordsGeneral(values, utils, meta) {
+  * @param utils - The utils.
+  * @param meta - The meta data.
+  */
+-function mergeMaps$1(values, utils, meta) {
++function mergeMaps$1(values) {
++    // Prisma's existing plain deepmerge caller retains v7's last-entry-wins Maps.
+     const result = new Map();
+-    const valuesByKey = new Map();
+     for (const map of values) {
+         for (const [key, value] of map) {
+-            const mut_keyValues = valuesByKey.get(key);
+-            if (mut_keyValues === undefined) {
+-                valuesByKey.set(key, [value]);
+-            }
+-            else {
+-                mut_keyValues.push(value);
+-            }
++            result.set(key, value);
+         }
+     }
+-    for (const [key, keyValues] of valuesByKey) {
+-        const updatedMeta = utils.metaDataUpdater(meta, {
+-            key,
+-            parents: values,
+-            values: keyValues,
+-            result,
+-        });
+-        const keyResult = mergeUnknowns(keyValues, utils, updatedMeta);
+-        if (keyResult === actions.skip) {
+-            continue;
+-        }
+-        result.set(key, keyResult);
+-    }
+     return result;
+ }
+ /**
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 002bb7fdc9861c69de3b0d06081521cbc701c210..066aca445281c4f152cd0af4cb539da15a70866b 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -476,33 +476,14 @@ function mergeRecordsGeneral(values, utils, meta) {
+  * @param utils - The utils.
+  * @param meta - The meta data.
+  */
+-function mergeMaps$1(values, utils, meta) {
++function mergeMaps$1(values) {
++    // Prisma's existing plain deepmerge caller retains v7's last-entry-wins Maps.
+     const result = new Map();
+-    const valuesByKey = new Map();
+     for (const map of values) {
+         for (const [key, value] of map) {
+-            const mut_keyValues = valuesByKey.get(key);
+-            if (mut_keyValues === undefined) {
+-                valuesByKey.set(key, [value]);
+-            }
+-            else {
+-                mut_keyValues.push(value);
+-            }
++            result.set(key, value);
+         }
+     }
+-    for (const [key, keyValues] of valuesByKey) {
+-        const updatedMeta = utils.metaDataUpdater(meta, {
+-            key,
+-            parents: values,
+-            values: keyValues,
+-            result,
+-        });
+-        const keyResult = mergeUnknowns(keyValues, utils, updatedMeta);
+-        if (keyResult === actions.skip) {
+-            continue;
+-        }
+-        result.set(key, keyResult);
+-    }
+     return result;
+ }
+ /**

@@ -96,27 +96,10 @@ export function applyResolutions(
   for (const change of changes) {
     const resolution = resolutions.get(change);
     if (!resolution) {
-      // If no resolution provided, default to add+drop (safer)
-      if (change.type === "ambiguousColumn") {
-        operations.push(
-          {
-            type: "dropColumn",
-            tableName: change.tableName,
-            columnName: change.droppedColumn.name,
-          },
-          {
-            type: "addColumn",
-            tableName: change.tableName,
-            column: change.addedColumn,
-          }
-        );
-      } else if (change.type === "ambiguousTable") {
-        operations.push(
-          { type: "dropTable", tableName: change.droppedTable },
-          { type: "createTable", table: change.addedTableDef }
-        );
-      }
-      continue;
+      throw new MigrationError(
+        `Missing resolution for ${formatAmbiguousChange(change)}`,
+        VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+      );
     }
 
     if (change.type === "ambiguousColumn") {
@@ -199,7 +182,12 @@ export async function resolveAmbiguousChanges(
       }
       resolvedAmbiguities.add(key);
 
-      const resolution = resolutions.get(change) ?? { type: "addAndDrop" };
+      const resolution = resolutions.get(change);
+      if (!resolution)
+        throw new MigrationError(
+          `Missing resolution for ${formatAmbiguousChange(change)}`,
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        );
       const operations = applyResolutions(
         [change],
         new Map([[change, resolution]])
@@ -207,7 +195,11 @@ export async function resolveAmbiguousChanges(
       resolutionOperations.push(...operations);
 
       for (const operation of operations) {
-        workingSnapshot = applyResolutionEffect(workingSnapshot, operation);
+        workingSnapshot = applyResolutionEffect(
+          workingSnapshot,
+          operation,
+          options.projectRename
+        );
         if (operation.type === "renameTable") {
           const liveName = liveTableNames.get(operation.from) ?? operation.from;
           liveTableNames.delete(operation.from);
@@ -249,10 +241,11 @@ function optionsForWorkingSnapshot(
 
 function applyResolutionEffect(
   snapshot: SchemaSnapshot,
-  operation: DiffOperation
+  operation: DiffOperation,
+  projectRename: typeof applyNativeRename = applyNativeRename
 ): SchemaSnapshot {
   if (operation.type === "renameTable" || operation.type === "renameColumn") {
-    return applyNativeRename(snapshot, operation);
+    return projectRename(snapshot, operation);
   }
   if (operation.type === "dropTable") {
     return {
@@ -380,9 +373,10 @@ export const strictResolver: Resolver = async (changes) => {
       return `Table "${change.droppedTable}" was removed and "${change.addedTable}" was added`;
     });
 
-    throw new Error(
+    throw new MigrationError(
       `Ambiguous changes detected that require resolution:\n${descriptions.join("\n")}\n\n` +
-        "Use a custom resolver or the CLI interactive mode to resolve these changes."
+        "Supply a resolve callback choosing rename() or addAndDrop() for each change.",
+      VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
     );
   }
   return new Map();

@@ -1,3 +1,4 @@
+import { physicalConnectionQueue } from "../connection-scope";
 /**
  * SQLite3 Driver
  *
@@ -10,10 +11,12 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
+import { ClientInitializationError } from "@errors";
 import type { Sql } from "@sql";
 import Database from "better-sqlite3";
 import {
@@ -38,7 +41,10 @@ import {
   sqliteResultParser,
   type TransactionOptionSupport,
 } from "../shared";
-import { parseSQLiteField } from "../shared/sqlite-utils";
+import {
+  normalizeSQLiteRawRows,
+  parseSQLiteField,
+} from "../shared/sqlite-utils";
 import type { QueryResult } from "../types";
 
 type SQLite3Database = Database.Database;
@@ -76,8 +82,10 @@ function cachedStatement(
     statement = db.prepare(sql);
     if (cache.size === STATEMENT_CACHE_LIMIT)
       cache.delete(cache.keys().next().value as string);
-    cache.set(sql, statement);
+  } else {
+    cache.delete(sql);
   }
+  cache.set(sql, statement);
   return statement;
 }
 
@@ -123,7 +131,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     SQLite3Driver.prototype.executePositional;
   private static readonly canonicalNativePrepare = Database.prototype.prepare;
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
-  readonly maxBindParametersPerStatement: number | undefined = 999;
+  readonly maxBindParametersPerStatement: number | undefined = 32_766;
   readonly result: DriverResultParser = sqliteResultParser;
   protected override readonly serializeTransactions = true;
 
@@ -150,7 +158,16 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     this.suppliedClient = options.client;
 
     if (this.suppliedClient) {
+      if (this.suppliedClient.pragma("foreign_keys", { simple: true }) !== 1) {
+        throw new ClientInitializationError(
+          "A supplied SQLite database must enable PRAGMA foreign_keys = ON before wrapping.",
+          { meta: { driver: "sqlite3" } }
+        );
+      }
       this.client = this.suppliedClient;
+      Object.defineProperty(this, "connectionQueue", {
+        value: physicalConnectionQueue(this.suppliedClient),
+      });
     }
     if (SQLite3Driver.isPositionalCandidate(this)) {
       registerPositionalResultDriver(
@@ -176,6 +193,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     // better-sqlite3 happens to enable this already; stated explicitly so FK
     // enforcement is a viborm guarantee, not an inherited library default.
     db.pragma("foreign_keys = ON");
+    db.pragma("busy_timeout = 5000");
     return db;
   }
 
@@ -196,7 +214,12 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const values = convertValuesForSQLite3(params);
-    return this.runStatement<T>(client, sql, values, true);
+    return this.runStatement<T>(
+      client,
+      sql,
+      values,
+      _context?.model !== "$raw"
+    );
   }
 
   protected async executeRaw<T>(
@@ -205,8 +228,6 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     params?: unknown[]
   ): Promise<QueryResult<T>> {
     const values = params ? convertValuesForSQLite3(params) : undefined;
-    // Raw results bypass the result parser — keep better-sqlite3's plain
-    // numbers instead of surfacing BigInt to raw callers
     return this.runStatement<T>(client, sql, values, false);
   }
 
@@ -314,22 +335,19 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     db: SQLite3Database,
     sql: string,
     values: unknown[] | undefined,
-    safeIntegers: boolean
+    typed: boolean
   ): QueryResult<T> {
-    // Raw SQL keeps a fresh statement: its integer mode is the database's own
-    // default, which a cached statement would not follow.
-    const stmt = safeIntegers
-      ? cachedStatement(db, sql, false)
-      : db.prepare(sql);
+    const stmt = typed ? cachedStatement(db, sql, false) : db.prepare(sql);
 
     if (stmt.reader) {
-      if (safeIntegers) {
-        // INTEGER columns come back as BigInt so values >2^53 survive; the
-        // result parser converts int columns back to number
-        stmt.safeIntegers(true);
-      }
+      // Read once without precision loss. Typed model parsing owns its domain;
+      // raw results expose safe integers as numbers and wider integers as bigint.
+      stmt.safeIntegers(true);
       const rows = (values ? stmt.all(...values) : stmt.all()) as T[];
-      return { rows, rowCount: rows.length };
+      return {
+        rows: typed ? rows : normalizeSQLiteRawRows(rows),
+        rowCount: rows.length,
+      };
     }
 
     const result = values ? stmt.run(...values) : stmt.run();
@@ -388,34 +406,16 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     fn: (tx: SQLite3Database) => Promise<T>,
     context?: QueryExecutionContext
   ): Promise<T> {
-    let shouldClose = false;
-    const executeOrClose = (statement: string) => {
-      try {
-        client.exec(statement);
-      } catch (error) {
-        shouldClose = true;
-        throw error;
-      }
-    };
     return runTransactionLifecycle({
-      begin: () => executeOrClose("BEGIN"),
+      begin: () => client.exec("BEGIN IMMEDIATE"),
       callback: () => fn(client),
-      commit: () => executeOrClose("COMMIT"),
-      rollback: () => executeOrClose("ROLLBACK"),
-      phases: getExecutionTransactionPhases(context),
-      // Containment for a transaction whose control statement failed, through
-      // the one place that decides whether a transport may be closed at all:
-      // ending the caller's database to contain VibORM's transaction would be
-      // a far larger effect than the one being contained.
-      close: async () => {
-        if (shouldClose) {
-          try {
-            await this.closeClient(client);
-          } finally {
-            this.client = null;
-          }
-        }
+      commit: () => client.exec("COMMIT"),
+      // A failed BEGIN never grants rollback ownership. After a failed COMMIT,
+      // successful rollback restores this same database, including :memory:.
+      rollback: () => {
+        if (client.inTransaction) client.exec("ROLLBACK");
       },
+      phases: getExecutionTransactionPhases(context),
     });
   }
 }
@@ -428,12 +428,14 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: SQLite3ClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, SQLite3DriverOptions, S>
-): VibORMClient<C & { driver: SQLite3Driver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: SQLite3Driver }
+  >]: LinkedClientConfig<C & { driver: SQLite3Driver }>[P];
+}> {
   const { client, dataDir, options } = config;
 
   const driver = new SQLite3Driver({ client, dataDir, options });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: SQLite3Driver }
-  >;
+  return createClientFromDriverConfig<S, C, SQLite3Driver>(config, driver);
 }

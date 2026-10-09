@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -26,7 +27,7 @@ export const conditionalUpsertScenarios: ConditionalUpsertScenario[] =
     const stableSkip = id === "g2-upsert-setwhere-skip";
     const conditionsMatch = id === "g2-upsert-conditions-match";
     const missingCreate = id === "g2-upsert-conditions-missing-create";
-    const stale = !unknown && !stableSkip && !conditionsMatch && !missingCreate;
+    const stale = !(unknown || stableSkip || conditionsMatch || missingCreate);
     return {
       id,
       profiles: stale ? ["sqlite-atomic-batch"] : G0_PROFILES,
@@ -129,12 +130,12 @@ export const conditionalUpsertScenarios: ConditionalUpsertScenario[] =
         const final = stale
           ? {
               users: [
-                ...(!deleted
-                  ? [
+                ...(deleted
+                  ? []
+                  : [
                       { id: 1, email: "moved", count: 10 },
                       { id: 2, email: "wanted", count: matched ? 10 : 999 },
-                    ]
-                  : []),
+                    ]),
                 initial.users[1]!,
               ],
               posts: initial.posts,
@@ -359,7 +360,7 @@ export const conditionalUpsertScenarios: ConditionalUpsertScenario[] =
             assert.equal(
               failure.message,
               matched
-                ? "query-engine-v2 top-level upsert setWhere match premise changed before the atomic batch."
+                ? "The upsert setWhere match premise changed before the atomic batch."
                 : "No user record found for upsert"
             );
             assert(failure.meta !== null && typeof failure.meta === "object");

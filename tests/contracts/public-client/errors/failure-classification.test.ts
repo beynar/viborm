@@ -88,7 +88,7 @@ const CENSUS: Array<{
     kind: "failure",
     retryable: false,
   },
-  // Contention — the two the database itself asks you to re-run.
+  // Transient transaction failures retain their distinct provider meanings.
   {
     label: "TransactionError (deadlock)",
     error: new TransactionError("d", { code: VibORMErrorCode.DEADLOCK }),
@@ -99,6 +99,14 @@ const CENSUS: Array<{
     label: "TransactionError (serialization)",
     error: new TransactionError("s", {
       code: VibORMErrorCode.SERIALIZATION_FAILURE,
+    }),
+    kind: "failure",
+    retryable: true,
+  },
+  {
+    label: "TransactionError (contention)",
+    error: new TransactionError("locked", {
+      code: VibORMErrorCode.TRANSACTION_CONTENTION,
     }),
     kind: "failure",
     retryable: true,
@@ -121,7 +129,7 @@ const CENSUS: Array<{
     label: "ConnectionError (refused)",
     error: new ConnectionError("cf"),
     kind: "failure",
-    retryable: false,
+    retryable: true,
   },
   {
     label: "QueryError (timeout)",
@@ -269,16 +277,19 @@ describe("the retry policy reads the same switch", () => {
     }
   });
 
-  it("keeps the retryable set at exactly the four codes it has always been", () => {
+  it("keeps the retryable set aligned with transient connection, query and transaction failures", () => {
     const retryable = Object.values(VibORMErrorCode).filter((code) =>
       new VibORMError("probe", code).isRetryable()
     );
     expect(retryable.sort()).toEqual(
       [
+        VibORMErrorCode.CONNECTION_FAILED,
+        VibORMErrorCode.CONNECTION_CAPACITY,
         VibORMErrorCode.CONNECTION_TIMEOUT,
         VibORMErrorCode.QUERY_TIMEOUT,
         VibORMErrorCode.DEADLOCK,
         VibORMErrorCode.SERIALIZATION_FAILURE,
+        VibORMErrorCode.TRANSACTION_CONTENTION,
       ].sort()
     );
   });

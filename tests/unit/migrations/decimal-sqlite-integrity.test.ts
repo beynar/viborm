@@ -7,9 +7,9 @@
  * effects SQLite must propagate to foreign keys outside the rebuilt table.
  */
 
+import { sqliteDecimalCheck } from "@adapters/databases/sqlite/storage/decimal";
 import { createClient } from "@client/client";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
-import { sqliteDecimalCheck } from "@migrations/drivers/sqlite/decimal";
 import {
   assertForeignKeysIntact,
   liftForeignKeyPragmas,

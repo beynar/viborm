@@ -8,6 +8,7 @@ import type { MigrationClient } from "@migrations/push/planner";
 import type { ResolveCallback } from "@migrations/types";
 
 interface SyncLiveSchemaOptions {
+  readonly tables?: readonly string[];
   readonly dryRun?: boolean;
   readonly force?: boolean;
   readonly forceReset?: boolean;
@@ -23,7 +24,10 @@ export async function syncLiveSchema(
     ? async (change) =>
         (await options.resolve?.(change)) ?? addDropResolver(change)
     : options.resolve;
-  const migrations = createMigrationClient(client);
+  const migrations =
+    options.tables === undefined
+      ? createMigrationClient(client)
+      : createMigrationClient(client, { tables: options.tables });
   const preview = await migrations.push({
     dryRun: true,
     forceReset: options.forceReset,
@@ -38,7 +42,7 @@ export async function syncLiveSchema(
     applied: outcome.outcome === "applied",
     operations: outcome.operations.map((operation) => ({
       ...operation,
-      type: operation.label,
+      type: operation.id.slice(0, operation.id.indexOf(":")),
     })),
     sql: outcome.statements.map((statement) => statement.sql),
   };

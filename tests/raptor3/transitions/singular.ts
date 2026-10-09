@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -170,16 +171,16 @@ function childHeldScenario(
                           },
                         ]
                       : []),
-                    ...(!deleting
-                      ? [
+                    ...(deleting
+                      ? []
+                      : [
                           {
                             id: "b1",
                             tag: "incumbent",
                             rank: 1,
                             stationId: null,
                           },
-                        ]
-                      : []),
+                        ]),
                   ],
                 },
             JSON.stringify(observation.outcome)
@@ -368,7 +369,7 @@ function parentHeldScenario(
           assert.equal(
             observation.outcome.failure.message,
             validationRefused
-              ? "Validation failed for update: Unsupported to-one operation combination: create, update"
+              ? "Validation failed for update: data.depot: Unsupported to-one operation combination: create, update"
               : "Nested operation 'connect' on relation 'depot' depends on an earlier 'delete' target write in the same nested write. Split these operations into separate queries."
           );
           if (validationRefused)

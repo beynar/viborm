@@ -311,13 +311,12 @@ describe("G2.7 private execution ownership", () => {
       assert.equal(failure.meta.constraint, "g27_records_pkey");
       assert.equal(failure.meta.statementIndex, 0);
       assert.equal(failure.meta.table, "g27_records");
-      assert.equal(selectorLookups, 1);
-      assert.equal(selectorAbsences, 1);
+      assert.equal(selectorLookups, 0);
+      assert.equal(selectorAbsences, 0);
       assert.equal(insertAttempts, 1);
-      assert.equal(attemptedStatements.length, 2);
-      assert.match(attemptedStatements[0]!, /^SELECT /);
-      assert.match(attemptedStatements[1]!, INSERT);
-      assert.equal(borrowed.driver.executeCalls, 1);
+      assert.equal(attemptedStatements.length, 1);
+      assert.match(attemptedStatements[0]!, INSERT);
+      assert.equal(borrowed.driver.executeCalls, 0);
       assert.equal(borrowed.driver.transactionCalls, 1);
       assert.equal(borrowed.driver.controlStatements.length, 0);
       assert.equal(borrowed.driver.disconnectCalls, 0);

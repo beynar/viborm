@@ -27,14 +27,12 @@ function completeSurface(): Schema {
   const user = s
     .model({
       id: s.string().id(),
-      uid: s.string().uuid("u"),
-      uid7: s.string().uuidv7("v"),
-      ksuid: s.string().ksuid(),
-      nano: s.string().nanoid(8, "n"),
-      cuid: s.string().cuid("c"),
-      // Two order pins. `.nullable()` installs `default: null` as a side
-      // effect, so an explicit default must be applied AFTER it; `.id()`
-      // installs a ULID, so a declared generator must be applied AFTER that.
+      uid: s.string().uuid({ prefix: "u", generate: true }),
+      uid7: s.string().uuidv7({ prefix: "v", generate: true }),
+      ksuid: s.string().ksuid({ generate: true }),
+      nano: s.string().nanoid({ length: 8, prefix: "n", generate: true }),
+      cuid: s.string().cuid({ prefix: "c", generate: true }),
+      // Defaults survive `.nullable()`, and key/format order commutes.
       // The three tagged defaults below (`big`, `bytes`, `when`) are the
       // codec's leaves; `when` is a `Date`, which `$date` keeps apart from the
       // ISO string that spells it.
@@ -148,7 +146,7 @@ const COMPLETE_SURFACE: SchemaDocument = {
         clock: { type: "time", withoutTimezone: true },
         price: { type: "decimal", precision: 10, scale: 2, default: "1.5" },
         meta: { type: "json", default: { a: [1, null, true] } },
-        blank: { type: "json", default: null },
+        blank: { type: "json", default: { $jsonNull: "JsonNull" } },
         bytes: { type: "blob", default: { $bytes: "AQID" } },
         vec: { type: "vector", dimension: 3 },
         spot: { type: "point" },
@@ -489,6 +487,47 @@ describe("a key is not a domain", () => {
   const idDomainOf = (schema: Schema, model: string, field: string) =>
     schema[model]?.["~"].state.scalars[field]?.["~"].state.autoGenerate;
 
+  it("retains an explicit non-generating format on a primary key", () => {
+    const schema = {
+      user: s.model({ id: s.string().uuid().id({ generate: false }) }),
+    };
+    const document = serializeSchema(schema);
+    const parsed = parseSchema(document);
+    expect(idDomainOf(parsed, "user", "id")).toMatchObject({
+      kind: "uuid",
+      generate: false,
+    });
+    expect(parsed.user?.["~"].state.scalars.id?.["~"].state.hasDefault).toBe(
+      false
+    );
+    expect(serializeSchema(parsed)).toEqual(document);
+  });
+
+  it.each([
+    "now",
+    "updatedAt",
+    "increment",
+  ])("refuses a format-generation switch on %s", (kind) => {
+    expect(() =>
+      parseSchema({
+        version: 1,
+        models: {
+          user: {
+            fields: {
+              id: { type: "int", id: true },
+              value: {
+                type: kind === "increment" ? "int" : "datetime",
+                generate: { kind, generate: false },
+              },
+            },
+          },
+        },
+      })
+    ).toThrow(
+      "An explicit generation choice belongs only to string identifier formats"
+    );
+  });
+
   it("states a bare `.id()` as the key it is, with no generator node", () => {
     const document = serializeSchema({
       user: s.model({ id: s.string().id() }),
@@ -512,6 +551,7 @@ describe("a key is not a domain", () => {
     expect(idDomainOf(parsed, "user", "id")).toEqual({
       kind: "ulid",
       prefix: "usr",
+      generate: undefined,
       implicit: true,
     });
     expect(serializeSchema(parsed)).toEqual(document);
@@ -530,6 +570,8 @@ describe("a key is not a domain", () => {
     expect(idDomainOf(parsed, "user", "id")).toEqual({
       kind: "ulid",
       prefix: "usr",
+      length: undefined,
+      generate: true,
     });
     expect(serializeSchema(parsed)).toEqual(document);
   });
@@ -552,6 +594,7 @@ describe("a key is not a domain", () => {
     expect(idDomainOf(parsed, "user", "id")).toEqual({
       kind: "ulid",
       prefix: undefined,
+      generate: undefined,
       implicit: true,
     });
   });
@@ -616,6 +659,8 @@ describe("a key is not a domain", () => {
     expect(idDomainOf(parsed, "user", "id")).toEqual({
       kind: "ulid",
       prefix: undefined,
+      length: undefined,
+      generate: true,
     });
   });
 });

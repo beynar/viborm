@@ -66,9 +66,51 @@ const client = createClient({
 });
 ```
 
+### Using an existing client
+
+```typescript
+import { createClient as createTransport } from "@libsql/client";
+import { createClient } from "viborm/libsql";
+
+const transport = createTransport({
+  url: "file:./local.db",
+  intMode: "bigint",
+  timeout: 5000,
+});
+const client = createClient({ schema, client: transport });
+```
+
+Use `intMode: "bigint"` or `"string"` on a supplied client. A read-only integer
+probe checks this before typed execution or transaction acquisition; number mode
+is refused before a typed write can commit and then lose its exact result.
+`$disconnect()` leaves the supplied transport open; its owner calls
+`transport.close()`. Owned transports use bigint mode and a 5-second local busy
+timeout. Strings containing NUL bytes are refused before dispatch because the
+local provider truncates them.
+
 ## Transactions
 
-LibSQL supports full transactions with savepoints for nested transactions — see [Transactions](/docs/client/transactions).
+LibSQL supports transactions with savepoints for nested transactions — see
+[Transactions](/docs/client/transactions). Callback transactions use the provider's dedicated write transaction;
+standalone typed and raw statements keep native provider execution.
+
+V1 qualification covers local libSQL 0.18 rollback and supplied-client ownership,
+and actual HTTP/Hrana rollback with `@libsql/client` 0.18 against isolated official
+libSQL server `sqld` 0.23.0. Callback and array failures roll back their prefixes;
+committed callbacks remain visible, and disconnect leaves a supplied HTTP client
+usable. Controlled lifecycle tests additionally cover commit and cleanup failures.
+Hosted Turso rollback and newer server versions remain unqualified in this release
+campaign; the localhost network proof does not establish those guarantees.
+
+Raw SQL keeps physical SQLite behavior, including `PRAGMA` and `VACUUM`. A
+local `SQLITE_BUSY` quarantines that exact native client because libSQL can
+retain an uncommitted write after the failure. Further VibORM work refuses with
+`V1003`, across wrappers sharing that client, before another write can be
+acknowledged. For an owned driver, `$disconnect()` closes the failed transport;
+the next operation reconnects. For a supplied client, VibORM leaves it open:
+its owner must close it and create a replacement client and wrapper. Merely
+calling `$disconnect()` on a borrowed wrapper cannot establish recovery.
+Remote clients keep their native execution path.
 
 ## Migrations
 
@@ -90,7 +132,7 @@ migration support. See [LibSQL migration limits](/docs/migration/drivers/sqlite#
 
 ## GeoPoint storage tier
 
-LibSQL uses the checked SQLite GeoPoint JSON carrier. Typed CRUD, equality,
+Local LibSQL uses the checked SQLite GeoPoint JSON carrier. Typed CRUD, equality,
 inclusive bounds, nullability, transactions, relations, and cache are
 qualified. Polygon, distance, `_distance`, and spatial indexes are refused
 before provider execution. See [GeoPoint](/docs/schema/scalars/point).

@@ -257,7 +257,7 @@ const NOTE_NOT_FOUND =
  * Pinned whole — the attribution is the part that must not drift.
  */
 const UNRESOLVED_LOCATED_PK =
-  /^Driver "pglite" returned a malformed string scalar for operation "update": the value is absent\.$/;
+  /^The "update" result is incompatible with the string scalar domain: the value is absent\.$/;
 
 function makeClient(driver: PGliteDriver) {
   return createClient({ schema: inverseDepthSchema, driver });

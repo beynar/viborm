@@ -230,6 +230,8 @@ type ToOneRecursiveNodeSchema<
   V.Object<
     {
       recurse: RecurrenceFor<Source, Key, S>;
+      where: ReturnType<typeof unavailableRecursiveClause>;
+      orderBy: ReturnType<typeof unavailableRecursiveClause>;
       select: () => RecursiveProjectionSchemas<S, Key>["select"];
       include: () => RecursiveProjectionSchemas<S, Key>["include"];
       omit: () => GetTargetSchemas<S>["core"]["omit"];
@@ -238,14 +240,9 @@ type ToOneRecursiveNodeSchema<
   >
 >;
 
-type RecursiveArm<
-  Source extends AnyModel,
-  Key,
-  S extends RelationState,
-  Node,
-> = [RecurrenceFor<Source, Key, S>] extends [never]
-  ? readonly []
-  : readonly [Node];
+// Eligibility belongs to the node's required `recurse` value. Choosing the
+// whole arm eagerly compares cyclic model graphs for ordinary includes too.
+// Ineligible nodes retain `recurse: never` and cannot admit a payload.
 
 /**
  * Nested `distinct`: scalar field names of the RELATED model, deduplicating
@@ -339,7 +336,7 @@ export type ToOneIncludeSchema<
         recurse: UnavailableRecurrenceSchema;
       }>
     >,
-    ...RecursiveArm<Source, Key, S, ToOneRecursiveNodeSchema<Source, Key, S>>,
+    ToOneRecursiveNodeSchema<Source, Key, S>,
   ]
 >;
 export const toOneIncludeFactory = <
@@ -505,7 +502,7 @@ export type ToManyIncludeSchema<
       GetTargetSchemas<S>["core"],
       NestedDistinctSchema<S>
     >,
-    ...RecursiveArm<Source, Key, S, ToManyRecursiveNodeSchema<Source, Key, S>>,
+    ToManyRecursiveNodeSchema<Source, Key, S>,
   ]
 >;
 export const toManyIncludeFactory = <

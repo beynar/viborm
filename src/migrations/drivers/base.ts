@@ -1,3 +1,4 @@
+import { stringifyJson } from "../../adapters/shared/standard-sql";
 /**
  * MigrationDriver Base Class
  *
@@ -5,6 +6,7 @@
  * Each driver implements DDL generation and introspection for its database.
  */
 
+import { jsonNullKindOf } from "@schema/json-null";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import {
   type DecimalDialect,
@@ -15,6 +17,10 @@ import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { refuseBinaryReencoding } from "../binary-conversion";
+import {
+  applyNativeRename,
+  type NativeRenameOperation,
+} from "../native-rename";
 import type {
   ColumnDef,
   DiffOperation,
@@ -23,6 +29,7 @@ import type {
   SchemaSnapshot,
   TableDef,
 } from "../types";
+import { defaultGeneratedPrimaryKeyName } from "../utils";
 import type { Dialect, MigrationCapabilities } from "./types";
 
 /**
@@ -58,6 +65,8 @@ export interface DDLContext {
    * see `SQLite3MigrationDriver.getCurrentTable`.
    */
   precedingOperations?: DiffOperation[];
+  /** Remaining intent in this same compilation batch, for physical coalescing. */
+  followingOperations?: readonly DiffOperation[];
 }
 
 // Extract individual operation types from the DiffOperation union
@@ -271,6 +280,19 @@ export abstract class MigrationDriver {
    */
   finalizeTable(table: TableDef): TableDef {
     return table;
+  }
+
+  /** The exact generated PK name used by this driver's DDL and its inverse. */
+  generatedPrimaryKeyName(tableName: string, name?: string): string {
+    return defaultGeneratedPrimaryKeyName(tableName, name);
+  }
+
+  /** Project exactly this driver's compiled rename before diffing or inversion. */
+  projectNativeRename(
+    snapshot: SchemaSnapshot,
+    operation: NativeRenameOperation
+  ): SchemaSnapshot {
+    return applyNativeRename(snapshot, operation);
   }
 
   // Note: getDefaultExpression is implemented below as a common method
@@ -671,11 +693,30 @@ export abstract class MigrationDriver {
       return undefined;
     }
 
-    const defaultVal = scalarState.default;
+    const defaultVal = this.literalDefaultValue(scalarState);
 
     // Function defaults are generated at runtime
     if (typeof defaultVal === "function") {
       return undefined;
+    }
+
+    // A JSON null document and absent SQL value are distinct physical defaults.
+    // Scalar admission already resolves bare-null ambiguity and authenticates
+    // sentinels; JSON primitives must also be quoted as documents, not SQL data.
+    if (scalarState.type === "json" && !scalarState.array) {
+      const kind = jsonNullKindOf(defaultVal);
+      if (kind === "DbNull")
+        return this.dialect === "sqlite" ? "NULL" : undefined;
+      if (kind === "JsonNull") return this.escapeValue("null");
+      // A schema's null output is a document; only the original nullable
+      // bare-null default declares an absent SQL value.
+      if (defaultVal === null && scalarState.default !== null)
+        return this.escapeValue("null");
+      if (
+        defaultVal !== null &&
+        ["string", "number", "boolean"].includes(typeof defaultVal)
+      )
+        return this.escapeValue(stringifyJson(defaultVal));
     }
 
     // Null default
@@ -697,6 +738,12 @@ export abstract class MigrationDriver {
         )
       );
     }
+
+    if (scalarState.array && Array.isArray(defaultVal))
+      return this.escapeValue(stringifyJson(defaultVal));
+    if (scalarState.type === "json" && typeof defaultVal === "object")
+      return this.escapeValue(stringifyJson(defaultVal));
+    if (typeof defaultVal === "bigint") return defaultVal.toString();
 
     // Primitive defaults
     if (typeof defaultVal === "string") {
@@ -736,6 +783,31 @@ export abstract class MigrationDriver {
     }
 
     return undefined;
+  }
+
+  /** Literal defaults cross the scalar's authoritative write admission once. */
+  protected literalDefaultValue(state: ScalarState): unknown {
+    const value = state.default;
+    if (
+      value == null ||
+      typeof value === "function" ||
+      state.autoGenerate ||
+      jsonNullKindOf(value) ||
+      state.decimal !== undefined
+    )
+      return value;
+    if (typeof value === "number" && !Number.isFinite(value))
+      throw new MigrationError(
+        `Invalid default value: ${value} is not a finite number`,
+        VibORMErrorCode.INVALID_INPUT
+      );
+    const result = state.base["~standard"].validate(value);
+    if (!("value" in result))
+      throw new MigrationError(
+        `Invalid ${state.type} literal default; the declared scalar schema refused it before DDL.`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    return result.value;
   }
 
   /**

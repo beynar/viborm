@@ -3,7 +3,7 @@ import { getAdapterInternals } from "@adapters/adapter-internals";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { UniqueConstraintError } from "@errors";
+import { UniqueConstraintError, UnsupportedOperationError } from "@errors";
 import { s } from "@schema";
 import type { AnyModel } from "@schema/model";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -25,17 +25,6 @@ const SAVEPOINT_CONTROL =
 const WHITESPACE = /\s+/;
 const SELECT_STATEMENT = /^SELECT\b/i;
 const INSERT_STATEMENT = /^INSERT\b/i;
-
-/**
- * The one warning a borrowed operation without a member rollback region emits
- * when it drops `skipDuplicates` (owner decision 2026-09-24, "Warn, drop
- * skipDuplicates"): once per client and model, members run plain.
- */
-function droppedSkipWarning(driver: string, target: string): string[] {
-  return [
-    `[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "${driver}" (no savepoint in this scope to undo a duplicate) in ${target}; running without skipDuplicates — a duplicate will fail with a unique-constraint error.`,
-  ];
-}
 
 class ReviewSQLiteDriver extends SQLite3Driver {
   readonly statements: string[] = [];
@@ -160,7 +149,7 @@ describe("G3P-04 review regressions", () => {
     warn.mockRestore();
   });
 
-  it("drops nested borrowed suppression with one warning: the parent and the member write plainly", async () => {
+  it("refuses unsupported borrowed suppression before parent/member writes", async () => {
     const vault = s
       .model({
         id: s.string().id(),
@@ -191,24 +180,17 @@ describe("G3P-04 review regressions", () => {
       await world.client.vault.create({ data: { id: "v1", label: "before" } });
       world.driver.resetObservations();
 
-      await world.driver.withTransaction(async (transactionDriver) => {
-        await world.candidate.execute("vault", "update", update("after"), {
-          kind: "borrowed-transaction",
-          driver: transactionDriver,
-        });
-      });
-      await expect(
-        world.driver.withTransaction((transactionDriver) =>
-          world.candidate.execute("vault", "update", update("rolled-back"), {
-            kind: "borrowed-transaction",
-            driver: transactionDriver,
-          })
-        )
-      ).rejects.toBeInstanceOf(UniqueConstraintError);
-
-      expect(warn.mock.calls).toEqual([
-        droppedSkipWarning(world.driver.driverName, "vault.update"),
-      ]);
+      for (const label of ["after", "rolled-back"]) {
+        await expect(
+          world.driver.withTransaction((transactionDriver) =>
+            world.candidate.execute("vault", "update", update(label), {
+              kind: "borrowed-transaction",
+              driver: transactionDriver,
+            })
+          )
+        ).rejects.toBeInstanceOf(UnsupportedOperationError);
+      }
+      expect(warn).not.toHaveBeenCalled();
       assert.equal(
         world.driver.transactionCalls,
         2,
@@ -219,13 +201,13 @@ describe("G3P-04 review regressions", () => {
         await world.client.vault.findMany({
           select: { id: true, label: true },
         }),
-        [{ id: "v1", label: "after" }]
+        [{ id: "v1", label: "before" }]
       );
       assert.deepEqual(
         await world.client.gem.findMany({
           select: { tag: true, vaults: { select: { id: true } } },
         }),
-        [{ tag: "inserted", vaults: [{ id: "v1" }] }]
+        []
       );
     } finally {
       await closeWorld(world);
@@ -233,47 +215,47 @@ describe("G3P-04 review regressions", () => {
     }
   });
 
-  it("drops found Choose-arm suppression with one warning and writes the arm plainly", async () => {
+  it("refuses unsupported found Choose-arm suppression before writes", async () => {
     const { database, world } = await createChooseWorld();
     try {
-      await world.driver.withTransaction(async (transactionDriver) => {
-        await world.candidate.execute(
-          "vault",
-          "update",
-          {
-            where: { id: "v1" },
-            data: {
-              label: "after",
-              gems: {
-                upsert: {
-                  where: { tag: "existing" },
-                  create: { id: 2, tag: "missing-arm" },
-                  update: {
-                    facets: {
-                      createMany: {
-                        data: [{ id: "f1", slug: "found" }],
-                        skipDuplicates: true,
+      await expect(
+        world.driver.withTransaction(async (transactionDriver) => {
+          await world.candidate.execute(
+            "vault",
+            "update",
+            {
+              where: { id: "v1" },
+              data: {
+                label: "after",
+                gems: {
+                  upsert: {
+                    where: { tag: "existing" },
+                    create: { id: 2, tag: "missing-arm" },
+                    update: {
+                      facets: {
+                        createMany: {
+                          data: [{ id: "f1", slug: "found" }],
+                          skipDuplicates: true,
+                        },
                       },
                     },
                   },
                 },
               },
             },
-          },
-          { kind: "borrowed-transaction", driver: transactionDriver }
-        );
-      });
+            { kind: "borrowed-transaction", driver: transactionDriver }
+          );
+        })
+      ).rejects.toBeInstanceOf(UnsupportedOperationError);
 
-      expect(warn.mock.calls).toEqual([
-        droppedSkipWarning(world.driver.driverName, "vault.update"),
-      ]);
+      expect(warn).not.toHaveBeenCalled();
       assert.equal(world.driver.transactionCalls, 1);
       assert.deepEqual(world.driver.controlStatements, []);
       assert.deepEqual(
         await world.client.vault.findMany({
           select: { id: true, label: true },
         }),
-        [{ id: "v1", label: "after" }]
+        [{ id: "v1", label: "before" }]
       );
       assert.deepEqual(
         await world.client.gem.findMany({
@@ -281,72 +263,65 @@ describe("G3P-04 review regressions", () => {
         }),
         [{ id: 1, tag: "existing" }]
       );
-      assert.deepEqual(await world.client.facet.findMany({}), [
-        { id: "f1", slug: "found", gemId: 1 },
-      ]);
+      assert.deepEqual(await world.client.facet.findMany({}), []);
     } finally {
       await closeWorld(world);
       database.close();
     }
   });
 
-  it("drops missing Choose-arm suppression with one warning and writes the arm plainly", async () => {
+  it("refuses unsupported missing Choose-arm suppression before writes", async () => {
     const { database, world } = await createChooseWorld();
     try {
-      await world.driver.withTransaction(async (transactionDriver) => {
-        await world.candidate.execute(
-          "vault",
-          "update",
-          {
-            where: { id: "v1" },
-            data: {
-              label: "after",
-              gems: {
-                upsert: {
-                  where: { tag: "absent" },
-                  create: {
-                    id: 2,
-                    tag: "missing-arm",
-                    facets: {
-                      createMany: {
-                        data: [{ id: "f1", slug: "missing" }],
-                        skipDuplicates: true,
+      await expect(
+        world.driver.withTransaction(async (transactionDriver) => {
+          await world.candidate.execute(
+            "vault",
+            "update",
+            {
+              where: { id: "v1" },
+              data: {
+                label: "after",
+                gems: {
+                  upsert: {
+                    where: { tag: "absent" },
+                    create: {
+                      id: 2,
+                      tag: "missing-arm",
+                      facets: {
+                        createMany: {
+                          data: [{ id: "f1", slug: "missing" }],
+                          skipDuplicates: true,
+                        },
                       },
                     },
+                    update: { tag: "found-arm" },
                   },
-                  update: { tag: "found-arm" },
                 },
               },
             },
-          },
-          { kind: "borrowed-transaction", driver: transactionDriver }
-        );
-      });
+            { kind: "borrowed-transaction", driver: transactionDriver }
+          );
+        })
+      ).rejects.toBeInstanceOf(UnsupportedOperationError);
 
-      expect(warn.mock.calls).toEqual([
-        droppedSkipWarning(world.driver.driverName, "vault.update"),
-      ]);
+      expect(warn).not.toHaveBeenCalled();
       assert.equal(world.driver.transactionCalls, 1);
       assert.deepEqual(world.driver.controlStatements, []);
       assert.deepEqual(
         await world.client.vault.findMany({
           select: { id: true, label: true },
         }),
-        [{ id: "v1", label: "after" }]
+        [{ id: "v1", label: "before" }]
       );
       assert.deepEqual(
         await world.client.gem.findMany({
           select: { id: true, tag: true },
           orderBy: { id: "asc" },
         }),
-        [
-          { id: 1, tag: "existing" },
-          { id: 2, tag: "missing-arm" },
-        ]
+        [{ id: 1, tag: "existing" }]
       );
-      assert.deepEqual(await world.client.facet.findMany({}), [
-        { id: "f1", slug: "missing", gemId: 2 },
-      ]);
+      assert.deepEqual(await world.client.facet.findMany({}), []);
     } finally {
       await closeWorld(world);
       database.close();
@@ -384,7 +359,8 @@ describe("G3P-04 review regressions", () => {
         "email",
       ]).normalizedError;
       assert.deepEqual(exactConstraint, {
-        columns: ["g3p04_review_users.email"],
+        table: "g3p04_review_users",
+        columns: ["email"],
       });
       const failure = new UniqueConstraintError("exact injected conflict", {
         cause: new Error("native duplicate"),
@@ -438,8 +414,8 @@ describe("G3P-04 review regressions", () => {
       );
       assert.deepEqual(
         tape,
-        ["SELECT", "INSERT"],
-        "Borrowed execution cannot reselect the winner, update it, or replay the operation"
+        ["INSERT"],
+        "Native upsert does not probe, reselect, update again, or replay on failure"
       );
       assert.equal(
         admissions,

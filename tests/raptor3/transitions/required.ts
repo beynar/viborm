@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -62,7 +63,7 @@ function requiredMembership(
           { id: 99, label: "decoy" },
         ],
         boxes: [
-          ...(!adopt ? [{ id: 10, tag: "retained", crateId: 1 }] : []),
+          ...(adopt ? [] : [{ id: 10, tag: "retained", crateId: 1 }]),
           { id: 100, tag: "adoptable", crateId: 9 },
           { id: 900, tag: "untouched", crateId: 99 },
         ],
@@ -72,7 +73,7 @@ function requiredMembership(
             crates: [{ id: 5, label: "selected" }, ...initial.crates.slice(1)],
             boxes: [
               { id: 100, tag: "adoptable", crateId: 5 },
-              initial.boxes[initial.boxes.length - 1],
+              initial.boxes.at(-1),
             ],
           }
         : initial;
@@ -155,7 +156,7 @@ function requiredMembership(
           assert.equal(
             observation.outcome.failure.message,
             disconnect
-              ? "Validation failed for update: Unknown key: disconnect"
+              ? "Validation failed for update: data.crate.disconnect: Unknown key: disconnect"
               : "Cannot set relation 'boxes' because foreign key field(s) crateId are required: rows removed from the set cannot be disconnected. Delete them instead."
           );
           if (disconnect) assert.equal(completedStatements, 0);

@@ -11,10 +11,9 @@
  * the migration contract: a second push is a no-op, a change to this dialect's
  * entry is a change, and a change to the other dialects' entries is not.
  *
- * Every native type here is built in; nothing needs an extension. PostgreSQL
- * `timestamptz(3)` and `varchar(n)[]` are deliberately absent: on this
- * baseline the TAGGED shorthand of either already fails push's final live
- * fingerprint check on PGlite, a pre-existing gap outside issue #45.
+ * Every native type here is built in; nothing needs an extension. Parameterized
+ * timestamps and varchar arrays now retain their physical modifiers through
+ * migration introspection and ordinary query decoding.
  */
 
 import { cache } from "@cache/extension";
@@ -316,9 +315,11 @@ export function nativeTypeMapCells(options: NativeTypeMapCellOptions): void {
       options.clientFor(variant(dialect, true)),
       { dryRun: true }
     );
-    expect(own.operations.map((operation) => operation.label)).toEqual([
-      "alterColumn",
-    ]);
+    expect(
+      own.operations.map((operation) =>
+        operation.id.slice(0, operation.id.indexOf(":"))
+      )
+    ).toEqual(["alterColumn"]);
     expect(own.sql.join("\n")).toContain(
       dialect === "sqlite" ? "seenAt" : "handle"
     );

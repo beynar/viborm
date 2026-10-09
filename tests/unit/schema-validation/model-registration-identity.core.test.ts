@@ -80,6 +80,25 @@ class EffectTrackingStorage extends MemoryEstateStorage {
 const REFUSAL = /one model object binds one schema key/;
 
 describe("the write-once schema key", () => {
+  it("names non-model namespace exports before binding any model", () => {
+    const user = s.model({ id: s.string().id() });
+    for (const Status of [
+      s.enum(["OPEN", "CLOSED"]),
+      { OPEN: "OPEN" },
+      null,
+      () => true,
+    ]) {
+      expect(() =>
+        createClient({
+          driver: new DefinitionDriver(),
+          // @ts-expect-error Untyped namespace imports may include non-model exports.
+          schema: { user, Status },
+        })
+      ).toThrow("Schema entry 'Status' is not a model");
+      expect(user["~"].names.ts).toBeUndefined();
+    }
+  });
+
   it("binds, then accepts the same key again", () => {
     const shared = s.model({ id: s.string().id(), name: s.string() });
 

@@ -6,7 +6,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import { type Dialect, Driver, type DriverResultParser } from "@drivers";
 import { sqliteResultParser } from "@drivers/shared";
-import { QueryEngineError } from "@errors";
+import { QueryError } from "@errors";
 import { CURSOR_CARRIER_PREFIX } from "@query-engine/result-aliases";
 import { hydrateSchemaNames, s } from "@schema";
 import { SqlOnlyDriver } from "@tests/fixtures/drivers/sql-only";
@@ -49,11 +49,12 @@ class ScriptedDriver extends Driver<null, null> {
     return null;
   }
   protected async closeClient() {
-    // Scripted rows own no provider resource.
+    /* No transport resource exists. */
   }
   protected async execute<T>(
     _client: null,
-    sql: string
+    sql: string,
+    _params: unknown[]
   ): Promise<{ rows: T[]; rowCount: number }> {
     this.statements.push(sql);
     return { rows: this.rows as T[], rowCount: this.rows.length };
@@ -84,7 +85,6 @@ const parent = s
   .model({
     id: s.int().id(),
     meta: s.json().nullable(),
-    price: s.decimal({ precision: 12, scale: 2 }),
     bucket: s.string().nullable(),
     children: s.toMany(() => child),
   })
@@ -119,7 +119,7 @@ describe("the decoder fails closed on a wrong provider row", () => {
     const { client } = scripted([{ id: 1, _count: null }]);
     await expect(
       client.parent.findMany({ select: { id: true, _count: true } })
-    ).rejects.toBeInstanceOf(QueryEngineError);
+    ).rejects.toBeInstanceOf(QueryError);
     await client.$disconnect();
   });
 
@@ -135,7 +135,7 @@ describe("the decoder fails closed on a wrong provider row", () => {
     const read = client.parent.findMany({
       select: { id: true, children: { select: { id: true } } },
     });
-    await expect(read).rejects.toBeInstanceOf(QueryEngineError);
+    await expect(read).rejects.toBeInstanceOf(QueryError);
     await client.$disconnect();
   });
 
@@ -145,7 +145,7 @@ describe("the decoder fails closed on a wrong provider row", () => {
       client.child.findMany({
         select: { id: true, parent: { select: { id: true } } },
       })
-    ).rejects.toBeInstanceOf(QueryEngineError);
+    ).rejects.toBeInstanceOf(QueryError);
     await client.$disconnect();
   });
 });
@@ -171,7 +171,7 @@ describe("the driver result seam is reached (D-17)", () => {
       sqliteResultParser
     );
     const read = client.parent.findMany({ select: { id: true, meta: true } });
-    await expect(read).rejects.toBeInstanceOf(QueryEngineError);
+    await expect(read).rejects.toBeInstanceOf(QueryError);
     await client.$disconnect();
   });
 
@@ -207,7 +207,7 @@ describe("the driver result seam is reached (D-17)", () => {
     await absent.client.$disconnect();
   });
 
-  test("a JSON integer outside the safe range is refused, and a safe one is a number", async () => {
+  test("JSON integers use the finite Number domain, including exact wide values", async () => {
     const { client } = scripted([{ id: 1, meta: 42n }]);
     await expect(
       client.parent.findMany({ select: { id: true, meta: true } })
@@ -217,8 +217,13 @@ describe("the driver result seam is reached (D-17)", () => {
     const huge = scripted([{ id: 1, meta: 2n ** 70n }]);
     await expect(
       huge.client.parent.findMany({ select: { id: true, meta: true } })
-    ).rejects.toBeInstanceOf(QueryEngineError);
+    ).resolves.toEqual([{ id: 1, meta: 2 ** 70 }]);
     await huge.client.$disconnect();
+    const nonfinite = scripted([{ id: 1, meta: 10n ** 400n }]);
+    await expect(
+      nonfinite.client.parent.findMany({ select: { id: true, meta: true } })
+    ).rejects.toMatchObject({ code: "V2006" });
+    await nonfinite.client.$disconnect();
   });
 });
 
@@ -255,13 +260,13 @@ describe("the adapter result seam decides nothing (D-40)", () => {
     await expect(counted.counted.count({})).resolves.toBe(2);
     await counted.$disconnect();
 
-    const present = scriptedPg([{ _count: "1" }]);
+    const present = scriptedPg([{ _count: true }]);
     await expect(present.counted.exist({ where: { id: 1 } })).resolves.toBe(
       true
     );
     await present.$disconnect();
 
-    const absent = scriptedPg([{ _count: "0" }]);
+    const absent = scriptedPg([{ _count: false }]);
     await expect(absent.counted.exist({ where: { id: 1 } })).resolves.toBe(
       false
     );
@@ -275,9 +280,7 @@ describe("the adapter result seam decides nothing (D-40)", () => {
     await carried.$disconnect();
 
     const unsafe = scriptedPg([{ _count: 2n ** 70n }]);
-    await expect(unsafe.counted.count({})).rejects.toBeInstanceOf(
-      QueryEngineError
-    );
+    await expect(unsafe.counted.count({})).rejects.toBeInstanceOf(QueryError);
     await unsafe.$disconnect();
   });
 
@@ -308,14 +311,12 @@ describe("the adapter result seam decides nothing (D-40)", () => {
     // read either.
     const recognised = scriptedMysql([{ "COUNT(*)": 2 }]);
     await expect(recognised.counted.count({})).rejects.toBeInstanceOf(
-      QueryEngineError
+      QueryError
     );
     await recognised.$disconnect();
 
     const produced = scriptedMysql([{ "0viborm_count_result": 2 }]);
-    await expect(produced.counted.count({})).rejects.toBeInstanceOf(
-      QueryEngineError
-    );
+    await expect(produced.counted.count({})).rejects.toBeInstanceOf(QueryError);
     await produced.$disconnect();
   });
 
@@ -379,9 +380,32 @@ describe("one physical vocabulary", () => {
   }
 
   test("a decimal carried inside a window stays TEXT", () => {
-    const statement = build(child, {
-      select: { id: true, parent: { select: { price: true } } },
+    // This projection-only graph has a decimal. Scripted decoder rows above
+    // have no physical storage dependency and therefore own no live resource.
+    const priced = s.model({
+      id: s.int().id(),
+      price: s.decimal({ precision: 12, scale: 2 }),
+      items: s.toMany(() => item),
     });
+    const item = s.model({
+      id: s.int().id(),
+      pricedId: s.int(),
+      priced: s
+        .toOne(() => priced)
+        .fields("pricedId")
+        .references("id"),
+    });
+    const pricedSchema = { priced, item };
+    hydrateSchemaNames(pricedSchema);
+    const engine = new TestQueryEngine(
+      new SqlOnlyDriver(new SQLiteAdapter(), "sqlite"),
+      createModelRegistry(pricedSchema, createSchemaRegistry(pricedSchema))
+    );
+    const statement = engine
+      .build(item, "findMany", {
+        select: { id: true, priced: { select: { price: true } } },
+      })
+      .toStatement("?");
     // The projection casts a decimal to text; the carrier must state the same
     // physical fact, or the container rounds it into a JSON number.
     expect(statement.match(/CAST\(/g)?.length ?? 0).toBeGreaterThanOrEqual(2);

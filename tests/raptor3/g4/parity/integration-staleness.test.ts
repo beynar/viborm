@@ -57,9 +57,15 @@ const CARD_SIDE = /card/i;
 /** The complement guard, as the adapter spells it. */
 const COMPLEMENT_GUARD =
   /NOT EXISTS[\s\S]*"u65_cards"[\s\S]*"board_card"[\s\S]*NOT \(/i;
-/** The captured keys the complement excludes. */
-const EXCLUDED_KEY = /"id" = \?/g;
-const FIRST_EXCLUDED_KEY = /NOT \(\s*"q\d+"\."id" = \?/i;
+/** Only the captured id list, not the connected-membership subquery or filter. */
+const EXCLUDED_KEYS = /NOT \(\s*"q\d+"\."id" IN \((\?(?:,\s*\?)*)\)\s*\)/i;
+
+function excludedKeyCount(guard: string): number {
+  const placeholders = guard.match(EXCLUDED_KEYS)?.[1];
+  if (!placeholders)
+    throw new Error("the complement omitted its captured id list");
+  return placeholders.split(",").length;
+}
 /** The guard's own raceable sentence. */
 const ADDED_MEMBER = /member was added after the plan-time read/;
 /** Any premise, as the adapter marks one. */
@@ -385,7 +391,7 @@ describe("integration — a captured member set asserts its own complement", () 
     assert.equal(guards.length, 1);
     // The complement is the captured set's own negation, not a re-read of the
     // filter: the guard names the key it captured.
-    assert.match(guards[0]!, FIRST_EXCLUDED_KEY);
+    assert.equal(excludedKeyCount(guards[0]!), 1);
     // And with nothing racing it, the operation is unaffected.
     const left = await world.client.card.findMany({ orderBy: { id: "asc" } });
     assert.deepEqual(
@@ -404,8 +410,8 @@ describe("integration — a captured member set asserts its own complement", () 
     // of the first tree could not have re-derived its members at all.
     const guards = guardStatements(world.driver);
     assert.equal(guards.length, 2);
-    assert.equal((guards[0]!.match(EXCLUDED_KEY) ?? []).length, 1);
-    assert.equal((guards[1]!.match(EXCLUDED_KEY) ?? []).length, 2);
+    assert.equal(excludedKeyCount(guards[0]!), 1);
+    assert.equal(excludedKeyCount(guards[1]!), 2);
     const left = await world.client.card.findMany({ orderBy: { id: "asc" } });
     assert.deepEqual(
       left.map((row) => row.label),

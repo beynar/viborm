@@ -6,6 +6,7 @@ import {
   comparableScalar,
   type ListFilterSchema,
   type ListUpdateSchema,
+  type SetUpdateSchema,
 } from "./family";
 
 type IntegerList = V.Integer<{ array: true }>;
@@ -18,7 +19,9 @@ export interface IntSchemas<
   create: V.Integer<F>;
   update: F["array"] extends true
     ? ListUpdateSchema<F["base"], V.Integer, IntegerList>
-    : ArithmeticUpdateSchema<F["base"], V.Integer>;
+    : F["schema"] extends undefined
+      ? ArithmeticUpdateSchema<F["base"], V.Integer>
+      : SetUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? ListFilterSchema<F["base"], V.Integer, IntegerList>
     : ComparisonFilterSchema<"int", F["base"], V.Integer, IntegerList, C>;

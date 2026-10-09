@@ -154,7 +154,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -165,7 +167,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -180,7 +182,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -191,7 +195,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -203,6 +207,7 @@
         "duration": 0,
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -214,9 +219,6 @@
             "operation": "$queryRaw"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",
@@ -291,7 +293,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -302,7 +306,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -317,7 +321,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -328,7 +334,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -340,6 +346,7 @@
         "duration": 0,
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -351,9 +358,6 @@
             "operation": "$queryRaw"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",
@@ -554,6 +558,7 @@
         "duration": 0,
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -565,9 +570,6 @@
             "operation": "createMany"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",
@@ -802,7 +804,9 @@
           "db.operation.name": "$transaction([...])",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -813,7 +817,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -829,7 +833,9 @@
           "db.operation.name": "findMany",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -840,7 +846,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -855,7 +861,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-3"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-3",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -866,7 +874,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -1480,7 +1488,9 @@
           "db.operation.name": "$transaction(callback)",
           "db.system.driver": "begin-failure",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -1491,7 +1501,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -1507,6 +1517,7 @@
           "db.operation.name": "$transaction(callback)",
           "db.system.driver": "body-failure",
           "db.system.name": "sqlite",
+          "error.type": "Error",
           "viborm.correlation.id": "correlation-2"
         },
         "status": {
@@ -1534,7 +1545,9 @@
           "db.operation.name": "$transaction(callback)",
           "db.system.driver": "commit-failure",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-3"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-3",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -1545,7 +1558,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -1561,7 +1574,9 @@
           "db.operation.name": "$transaction(callback)",
           "db.system.driver": "cleanup-failure",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-4"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-4",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -1572,7 +1587,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -1893,7 +1908,9 @@
           "db.operation.name": "$connect",
           "db.system.driver": "connect-failure",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "ConnectionError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V1001"
         },
         "status": {
           "code": 2,
@@ -1904,7 +1921,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "ConnectionError"
             }
           }
         ]
@@ -1920,7 +1937,9 @@
           "db.operation.name": "$disconnect",
           "db.system.driver": "disconnect-failure",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "ConnectionError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V1001"
         },
         "status": {
           "code": 2,
@@ -1931,7 +1950,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "ConnectionError"
             }
           }
         ]
@@ -1947,7 +1966,9 @@
           "db.operation.name": "$connect",
           "db.system.driver": "disconnect-failure",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-3"
+          "error.type": "ConnectionError",
+          "viborm.correlation.id": "correlation-3",
+          "viborm.error.code": "V1003"
         },
         "status": {
           "code": 2,
@@ -1958,7 +1979,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "ConnectionError"
             }
           }
         ]
@@ -2315,7 +2336,9 @@
           "db.operation.name": "findMany",
           "db.system.driver": "official-instrumentation-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -2326,7 +2349,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -2342,7 +2365,9 @@
           "db.operation.name": "findMany",
           "db.system.driver": "official-instrumentation-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-1"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-1",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -2353,7 +2378,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -2365,6 +2390,7 @@
         "duration": 0,
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -2376,9 +2402,6 @@
             "operation": "findMany"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",
@@ -2484,12 +2507,22 @@
         "duration": 0,
         "error": {
           "code": "V4001",
-          "message": "Validation failed for findMany: Expected integer",
+          "issues": [
+            {
+              "message": "Expected integer",
+              "path": "take"
+            }
+          ],
+          "message": "Validation failed for findMany: take: Expected integer",
           "meta": {
             "operation": "findMany"
           },
           "name": "ValidationError",
           "prismaCode": "P2009",
+          "source": {
+            "kind": "operation",
+            "operation": "findMany"
+          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",
@@ -2501,7 +2534,13 @@
     "errors": [
       {
         "code": "V4001",
-        "message": "Validation failed for findMany: Expected integer",
+        "issues": [
+          {
+            "message": "Expected integer",
+            "path": "take"
+          }
+        ],
+        "message": "Validation failed for findMany: take: Expected integer",
         "meta": {
           "operation": "findMany"
         },
@@ -2520,7 +2559,7 @@
           "durationMs": 0,
           "error": {
             "code": "V4001",
-            "message": "Validation failed for findMany: Expected integer",
+            "message": "Validation failed for findMany: take: Expected integer",
             "name": "ValidationError"
           },
           "status": "failure"
@@ -2537,7 +2576,7 @@
           "durationMs": 0,
           "error": {
             "code": "V4001",
-            "message": "Validation failed for findMany: Expected integer",
+            "message": "Validation failed for findMany: take: Expected integer",
             "name": "ValidationError"
           },
           "status": "failure"
@@ -2750,6 +2789,7 @@
         "attributes": {
           "cache.driver": "observable-instrumentation-cache",
           "cache.ttl": "10",
+          "error.type": "Error",
           "viborm.correlation.id": "correlation-4"
         },
         "status": {
@@ -3048,7 +3088,7 @@
       {
         "id": "span-4",
         "trace": "trace-2",
-        "parent": "span-7",
+        "parent": "span-8",
         "name": "viborm.execute",
         "kind": 0,
         "attributes": {
@@ -3066,8 +3106,8 @@
       {
         "id": "span-5",
         "trace": "trace-2",
-        "parent": "span-6",
-        "name": "viborm.cache.delete",
+        "parent": "span-7",
+        "name": "viborm.cache.clear",
         "kind": 0,
         "attributes": {
           "cache.driver": "observable-instrumentation-cache"
@@ -3081,6 +3121,20 @@
         "id": "span-6",
         "trace": "trace-2",
         "parent": "span-7",
+        "name": "viborm.cache.delete",
+        "kind": 0,
+        "attributes": {
+          "cache.driver": "observable-instrumentation-cache"
+        },
+        "status": {
+          "code": 1
+        },
+        "events": []
+      },
+      {
+        "id": "span-7",
+        "trace": "trace-2",
+        "parent": "span-8",
         "name": "viborm.cache.invalidate",
         "kind": 0,
         "attributes": {
@@ -3093,7 +3147,7 @@
         "events": []
       },
       {
-        "id": "span-7",
+        "id": "span-8",
         "trace": "trace-2",
         "parent": null,
         "name": "viborm.operation",
@@ -3411,7 +3465,9 @@
           "db.operation.name": "findMany",
           "db.system.driver": "cache-instrumentation-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-3"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-3",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -3422,7 +3478,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -3438,6 +3494,7 @@
           "db.operation.name": "findMany",
           "db.system.driver": "cache-instrumentation-test",
           "db.system.name": "sqlite",
+          "error.type": "Error",
           "viborm.correlation.id": "correlation-3"
         },
         "status": {
@@ -3525,6 +3582,7 @@
         "correlationId": "correlation-3",
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -3536,9 +3594,6 @@
             "operation": "findMany"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "cache",
@@ -3761,7 +3816,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -3772,7 +3829,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -3787,7 +3844,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -3798,7 +3857,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -3875,7 +3934,9 @@
           "db.query.text": "SELECT ?",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -3886,7 +3947,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -3901,7 +3962,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -3912,7 +3975,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -3989,7 +4052,9 @@
           "db.query.parameter.0": "secret-value",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -4000,7 +4065,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -4015,7 +4080,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -4026,7 +4093,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -4105,7 +4172,9 @@
           "db.query.text": "SELECT ?",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -4116,7 +4185,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -4131,7 +4200,9 @@
           "db.operation.name": "$queryRaw",
           "db.system.driver": "official-statement-test",
           "db.system.name": "sqlite",
-          "viborm.correlation.id": "correlation-2"
+          "error.type": "QueryError",
+          "viborm.correlation.id": "correlation-2",
+          "viborm.error.code": "V2001"
         },
         "status": {
           "code": 2,
@@ -4142,7 +4213,7 @@
             "name": "exception",
             "attributes": {
               "exception.message": "Operation failed",
-              "exception.type": "Error"
+              "exception.type": "QueryError"
             }
           }
         ]
@@ -4185,6 +4256,7 @@
         "duration": 0,
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -4196,9 +4268,6 @@
             "operation": "$queryRaw"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",
@@ -4244,6 +4313,7 @@
         "duration": 0,
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -4255,9 +4325,6 @@
             "operation": "$queryRaw"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",
@@ -4304,6 +4371,7 @@
         "duration": 0,
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -4315,9 +4383,6 @@
             "operation": "$queryRaw"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",
@@ -4365,6 +4430,7 @@
         "duration": 0,
         "error": {
           "cause": {
+            "message": "Underlying error details redacted",
             "name": "Error"
           },
           "code": "V2001",
@@ -4376,9 +4442,6 @@
             "operation": "$queryRaw"
           },
           "name": "QueryError",
-          "originalCause": {
-            "name": "Error"
-          },
           "timestamp": "2026-09-28T12:00:00.000Z"
         },
         "level": "error",

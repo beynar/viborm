@@ -5,6 +5,7 @@ import type { PGlite, Transaction } from "@electric-sql/pglite";
 
 import { s } from "@schema";
 import type { CommittedBatchNotification } from "@src/drivers/types";
+import { batchIsAtomicUnit } from "@tests/fixtures/atomic-unit-batch";
 import { BatchOnlyPGliteDriver } from "@tests/fixtures/drivers/pglite";
 import { openTestPGlite as openBorrowedPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -130,17 +131,26 @@ class ProgressivePGliteDriver extends BatchOnlyPGliteDriver {
    */
   moveCodeBeforeFirstBatch: (() => Promise<void>) | undefined;
 
+  override async _executeBatch<T>(
+    queries: BatchQuery[],
+    options?: Parameters<PGliteDriver["_executeBatch"]>[1],
+    context?: QueryExecutionContext,
+    committed?: CommittedBatchNotification
+  ): Promise<QueryResult<T>[]> {
+    const move = this.moveCodeBeforeFirstBatch;
+    if (move && batchIsAtomicUnit(queries)) {
+      this.moveCodeBeforeFirstBatch = undefined;
+      await move();
+    }
+    return super._executeBatch<T>(queries, options, context, committed);
+  }
+
   protected override async executeBatch<T>(
     client: PGlite | Transaction,
     queries: BatchQuery[],
     _context?: QueryExecutionContext,
     committed?: CommittedBatchNotification
   ): Promise<QueryResult<T>[]> {
-    const move = this.moveCodeBeforeFirstBatch;
-    if (move) {
-      this.moveCodeBeforeFirstBatch = undefined;
-      await move();
-    }
     this.batches.push(queries.map((query) => query.sql));
     const results = await super.executeBatch<T>(client, queries);
     await committed?.();
@@ -237,9 +247,8 @@ describe("H1 — the complete parent row key at a progressive nested series", ()
   let driver: ProgressivePGliteDriver | undefined;
   let client: any;
   let database: PGlite | undefined;
-  /** A second client over the SAME database, for the out-of-band concurrent writer.
-   *  It needs its own driver: re-entering the driver under test from inside its own
-   *  `executeBatch` deadlocks on that driver's queue rather than racing it. */
+  /** The independent writer runs before the public batch acquires the shared
+   *  physical queue lease; another driver alone does not bypass that lease. */
   let concurrent: any;
   const open = async () => {
     if (!client) {

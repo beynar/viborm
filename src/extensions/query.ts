@@ -1,3 +1,4 @@
+import type { ClientSchema } from "@client/schema-links";
 import { QueryError } from "@errors";
 import { isReadOperation } from "@query-engine/routed-operations";
 import { isFunction } from "@validation/value-guards";
@@ -140,10 +141,10 @@ export type QueryHandlerMap<
   C extends VibORMConfig,
   Hidden extends string = never,
 > = {
-  readonly [ModelName in keyof C["schema"]]?: {
+  readonly [ModelName in keyof ClientSchema<C>]?: {
     readonly [OperationName in Operations]?: <
       Arg extends Exclude<
-        OperationPayload<OperationName, C["schema"][ModelName]>,
+        OperationPayload<OperationName, ClientSchema<C>[ModelName]>,
         undefined
       >,
     >(context: {
@@ -368,13 +369,10 @@ type HandlerOutcome<Value> =
   | {
       readonly status: "rejected";
       readonly reason: unknown;
-      readonly failure: QueryError;
+      readonly failure: Error;
     };
 
-type ExtensionFailures =
-  | readonly [QueryError]
-  | readonly [QueryError, QueryError]
-  | undefined;
+type ExtensionFailures = readonly [Error] | readonly [Error, Error] | undefined;
 
 /**
  * Run one already-compiled interceptor chain around one prepared child.
@@ -583,22 +581,41 @@ async function runOneInterceptor<Result, Input extends object>(
   }
 
   const childOutcome = await childOutcomePromise;
-  const extensionFailures = selectExtensionFailures(
-    protocolFailure,
-    handlerOutcome,
-    childOutcome
-  );
-
   if (childOutcome.status === "rejected") {
+    const extensionFailures = selectExtensionFailures(
+      protocolFailure,
+      handlerOutcome,
+      childOutcome
+    );
     if (extensionFailures) {
       throw retainSuppressedFailures(childOutcome.reason, extensionFailures);
     }
     throw childOutcome.reason;
   }
+  if (handlerOutcome.status === "rejected") {
+    throwExtensionFailures(
+      selectExtensionFailures(protocolFailure, handlerOutcome, childOutcome)
+    );
+  }
+  const extensionFailures = selectExtensionFailures(
+    protocolFailure,
+    handlerOutcome,
+    childOutcome
+  );
   if (extensionFailures) throwExtensionFailures(extensionFailures);
-  return childOutcome.value;
+  return handlerOutcome.value;
 }
 
+function selectExtensionFailures(
+  protocolFailure: QueryError | undefined,
+  handlerOutcome: Extract<HandlerOutcome<unknown>, { status: "rejected" }>,
+  childOutcome: Extract<Settled<unknown>, { status: "fulfilled" }>
+): Exclude<ExtensionFailures, undefined>;
+function selectExtensionFailures(
+  protocolFailure: QueryError | undefined,
+  handlerOutcome: HandlerOutcome<unknown>,
+  childOutcome: Settled<unknown>
+): ExtensionFailures;
 function selectExtensionFailures(
   protocolFailure: QueryError | undefined,
   handlerOutcome: HandlerOutcome<unknown>,
@@ -623,12 +640,6 @@ function selectExtensionFailures(
     return protocolFailure ? [protocolFailure] : undefined;
   }
   const handlerFailure = handlerOutcome.failure;
-  if (
-    childOutcome.status === "rejected" &&
-    childOutcome.reason === handlerFailure
-  ) {
-    return undefined;
-  }
   return protocolFailure ? [protocolFailure, handlerFailure] : [handlerFailure];
 }
 
@@ -692,20 +703,15 @@ function interceptorFailure<Input extends object>(
   context: PreparedQueryContext<Input>,
   reason: unknown,
   commitCertainty?: WriteOutcome["certainty"]
-): QueryError {
+): Error {
+  if (isError(reason)) return reason;
   return interceptorError(
     extension,
     context,
     "failed",
-    normalizeInterceptorFailure(reason),
+    new Error("Query interceptor rejected with a non-Error value"),
     commitCertainty
   );
-}
-
-function normalizeInterceptorFailure(reason: unknown): Error {
-  return isError(reason)
-    ? reason
-    : new Error("Query interceptor rejected with a non-Error value");
 }
 
 function interceptorError<Input extends object>(

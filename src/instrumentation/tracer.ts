@@ -11,8 +11,9 @@
  * for conditional `if (tracer)` checks throughout the codebase.
  */
 
-import { sanitizeDiagnosticParameters } from "@errors";
+import { sanitizeDiagnosticParameters, serializeTrustedError } from "@errors";
 import { isString } from "@validation/value-guards";
+import { isError } from "../errors/diagnostic-safety";
 import { VIBORM_VERSION } from "../version";
 import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
@@ -332,16 +333,18 @@ function createExecution<T>(
 ): (span?: TracingSpan) => Promise<T> {
   const spans = new Set<TracingSpan>();
   let failed: boolean | undefined;
-  const settle = (outcome: boolean): void => {
+  let failure: unknown;
+  const settle = (outcome: boolean, error?: unknown): void => {
     failed = outcome;
-    for (const span of spans) endSpan(span, outcome, codes);
+    failure = error;
+    for (const span of spans) endSpan(span, outcome, codes, error);
   };
   let execution: Promise<T> | undefined;
   let executing = false;
   return (span?: TracingSpan): Promise<T> => {
     if (span !== undefined) {
       spans.add(span);
-      if (failed !== undefined) endSpan(span, failed, codes);
+      if (failed !== undefined) endSpan(span, failed, codes, failure);
     }
     if (execution) return execution;
     if (executing) return Promise.reject(createTraceError());
@@ -355,12 +358,12 @@ function createExecution<T>(
               resolve(result);
             },
             (error) => {
-              settle(true);
+              settle(true, error);
               reject(error);
             }
           );
         } catch (error) {
-          settle(true);
+          settle(true, error);
           reject(error);
         }
       });
@@ -376,17 +379,42 @@ function createExecution<T>(
  * Status codes are read from `codes` at settlement, and a span without
  * `setStatus` or `recordException` (the Workers runtime span) is still ended.
  */
-function endSpan(span: TracingSpan, failed: boolean, codes: StatusCodes): void {
+function endSpan(
+  span: TracingSpan,
+  failed: boolean,
+  codes: StatusCodes,
+  failure?: unknown
+): void {
   if (settledSpans.has(span)) return;
   settledSpans.add(span);
   if (failed) {
+    const snapshot = isError(failure)
+      ? serializeTrustedError(failure)
+      : undefined;
+    const name = typeof snapshot?.name === "string" ? snapshot.name : "Error";
+    safely(() => span.setAttribute("error.type", name));
+    const code = snapshot?.code;
+    if (typeof code === "string")
+      safely(() => span.setAttribute("viborm.error.code", code));
+    const meta = snapshot?.meta;
+    if (
+      typeof meta === "object" &&
+      meta !== null &&
+      "providerSqlState" in meta &&
+      typeof meta.providerSqlState === "string"
+    ) {
+      const sqlState = meta.providerSqlState;
+      safely(() => span.setAttribute("db.response.sqlstate", sqlState));
+    }
     safely(() =>
       span.setStatus?.({
         code: codes.SpanStatusCode.ERROR,
         message: "Operation failed",
       })
     );
-    safely(() => span.recordException?.(createTraceError()));
+    const exception = createTraceError();
+    exception.name = name;
+    safely(() => span.recordException?.(exception));
   } else {
     safely(() => span.setStatus?.({ code: codes.SpanStatusCode.OK }));
   }

@@ -74,7 +74,11 @@ describe("push planner column resolution", () => {
       driver,
       {
         resolve: (change) =>
-          change.type === "ambiguous" ? change.addAndDrop() : undefined,
+          change.type === "ambiguous"
+            ? change.addAndDrop()
+            : change.type === "destructive"
+              ? change.proceed()
+              : undefined,
       },
       relations
     );

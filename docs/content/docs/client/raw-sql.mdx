@@ -39,10 +39,25 @@ const updated = await client.$executeRaw`
 // updated: number
 ```
 
+On SQLite3, libSQL, Bun SQLite and D1, a valid `Date` parameter is bound as
+`date.toISOString()` text in both safe and unsafe raw methods. The cutoff example
+therefore compares canonical timestamp TEXT. Raw SQL receives no field descriptor:
+for epoch-millisecond INTEGER or Julian-day REAL columns, bind that physical value
+yourself. Invalid Dates are refused before provider dispatch.
+
+
 :::info
 `$queryRaw` returns the **rows**, `$executeRaw` returns the **affected
   count** — Prisma's split. Neither returns a driver result envelope.
 :::
+
+The generic parameter describes **one row**: write `$queryRaw<User>`, not
+`$queryRaw<User[]>`. It is a caller-supplied type assertion and performs no
+result validation or model decoding. `sql.join([])` is an empty SQL fragment;
+it cannot infer whether you intended an empty `IN` predicate. Handle an empty
+list before composing `IN (...)` (for example, return an empty result or compose
+`FALSE`). Raw SQL also owns its table qualification; the driver's namespace is
+not inserted into caller-written statements.
 
 ## The Unsafe variants
 
@@ -97,6 +112,11 @@ await client.$queryRaw(
   sql`SELECT id FROM "user" ${raw(`ORDER BY ${column} DESC`)}`
 );
 ```
+
+`raw(trustedText)` deliberately inserts SQL text. Its constant template form
+(`` raw`CURRENT_TIMESTAMP` ``) is also accepted, but interpolations in a `raw`
+template are rejected. Use `sql` to bind values; never pass request data to
+`raw`, including dynamically chosen identifiers without an allowlist.
 
 A prebuilt fragment can be passed straight to either safe method:
 

@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: fixture assertion helpers are invoked only by registered Vitest cells or their setup hooks.
 /**
  * Independent G4 witness world.
  *
@@ -12,9 +13,9 @@ import { createClient } from "@client/client";
 import type { Operations } from "@client/types";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import type { Schema } from "@schema/hydration";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 
 export interface StatementObservation {
@@ -33,7 +34,11 @@ export class WitnessSQLiteDriver extends SQLite3Driver {
     parameters: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    this.statements.push({ sql: statement, parameters: [...parameters], context });
+    this.statements.push({
+      sql: statement,
+      parameters: [...parameters],
+      context,
+    });
     return super.execute<T>(client, statement, parameters);
   }
 }
@@ -59,6 +64,7 @@ export interface WitnessWorldOptions {
   readonly seed?: (database: Database.Database) => void;
   /** Extra DDL applied after the migration (checked carriers, etc.). */
   readonly afterMigration?: (database: Database.Database) => void;
+  /** False permits test-owned raw orphan seeding; typed queries always run with enforcement. */
   readonly foreignKeys?: boolean;
 }
 
@@ -67,13 +73,18 @@ export async function createWitnessWorld(
   options: WitnessWorldOptions = {}
 ): Promise<WitnessWorld> {
   const database = new Database(":memory:");
-  if (options.foreignKeys === false) database.pragma("foreign_keys = OFF");
+  database.pragma("foreign_keys = ON");
   const driver = new WitnessSQLiteDriver({ client: database });
   const client = createClient({ schema, driver });
   const migration = await syncLiveSchema(client);
   assert.equal(migration.applied, true, "The witness schema did not migrate");
-  options.afterMigration?.(database);
-  options.seed?.(database);
+  if (options.foreignKeys === false) database.pragma("foreign_keys = OFF");
+  try {
+    options.afterMigration?.(database);
+    options.seed?.(database);
+  } finally {
+    database.pragma("foreign_keys = ON");
+  }
   const candidate = createTestCommandEngine({ schema, driver });
   driver.statements.length = 0;
   return {
@@ -117,7 +128,11 @@ export async function expectRead(
     expected,
     `Disputed row: the shipped engine disagrees with the hand-computed value for ${request}`
   );
-  const candidate = await world.candidate.execute(model, operation as Operations, args);
+  const candidate = await world.candidate.execute(
+    model,
+    operation as Operations,
+    args
+  );
   assert.deepStrictEqual(
     candidate,
     expected,

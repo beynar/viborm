@@ -4,9 +4,9 @@
  * U6.2: a nested `updateMany`/`deleteMany` whose payload names no relation is
  * ONE correlated statement at its own position in the declared body order, so
  * it manufactures no planning read. A relation-bearing nested `updateMany`
- * still captures — and its capture is an ordered observation (N1, D-51): a
- * one-operation feedback loop no longer raises DESIGN §6.2's veto, the
- * capture observes what the sibling wrote.
+ * still captures at its canonical position: updateMany precedes update, so its
+ * capture cannot observe a later sibling update. A previously matching member
+ * retains its child mutations before that later update executes.
  *
  * U6.3: `docs/architecture/retired/write-engine-ATOM.md` §12 "Same-operation duplicate" — first-create-wins locally, the
  * later entry adopts that row; an entry whose target an earlier entry only
@@ -264,13 +264,8 @@ describe("lane X — nested set mutations", () => {
     );
   });
 
-  it("a relation-bearing updateMany observes what a sibling update wrote", async () => {
-    // N1 (D-51): pinned DESIGN §6.2's veto ("Nested operation 'updateMany' on
-    // relation 'posts' depends on an earlier 'update' target write in the same
-    // nested write. Split these operations into separate queries."). The
-    // collection order runs `update` before `updateMany`; the capture is an
-    // ordered observation behind the update, finds the renamed member, and
-    // the member's own children follow.
+  it("relation-bearing updateMany captures before a later sibling update", async () => {
+    // Canonical collection order runs updateMany before update.
     world = await createWorld();
     const { client } = world;
 
@@ -289,6 +284,28 @@ describe("lane X — nested set mutations", () => {
         },
       },
     });
+    assert.equal(
+      (await client.post.findUnique({ where: { id: 10 } }))?.rank,
+      1
+    );
+    assert.equal(await client.tag.count(), 0);
+    // Once the matching row exists, the same operation updates its captured
+    // member and children before the later sibling changes the title again.
+    await client.author.update({
+      where: { id: 1 },
+      data: {
+        posts: {
+          updateMany: {
+            where: { title: "Moved" },
+            data: {
+              rank: 7,
+              tags: { createMany: { data: [{ id: 30, label: "t" }] } },
+            },
+          },
+          update: { where: { id: 10 }, data: { title: "Moved again" } },
+        },
+      },
+    });
     assert.deepEqual(
       (await client.post.findMany({ orderBy: { id: "asc" } })).map((row) => [
         row.id,
@@ -297,7 +314,7 @@ describe("lane X — nested set mutations", () => {
         row.authorId,
       ]),
       [
-        [10, "Moved", 7, 1],
+        [10, "Moved again", 7, 1],
         [11, "Queued", 2, 1],
         [12, "Queued", 3, 2],
       ]

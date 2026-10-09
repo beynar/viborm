@@ -1,7 +1,9 @@
+import { sqliteDecimalCheck } from "@adapters/databases/sqlite/storage/decimal";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
+import { createIdentifierQuoter } from "@src/sql/identifiers";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 
 export const author = s
@@ -72,13 +74,14 @@ export interface World {
 
 export function createWorld(): World {
   const database = new Database(":memory:");
+  database.pragma("foreign_keys = ON");
   database.exec(`
     CREATE TABLE g4_authors(
       id INTEGER PRIMARY KEY,
       author_name TEXT NOT NULL,
       tier TEXT,
       rating REAL,
-      balance INTEGER NOT NULL,
+      balance INTEGER NOT NULL ${sqliteDecimalCheck({ name: "balance", nullable: false }, { precision: 12, scale: 2 }, "scalar", createIdentifierQuoter('"'))},
       joined_at TEXT NOT NULL,
       birthday TEXT,
       shift_start TEXT,
@@ -181,7 +184,10 @@ export async function differential(
     const client = createClient({
       schema,
       driver: shippedWorld.driver,
-    }) as unknown as Record<string, Record<string, (input: unknown) => unknown>>;
+    }) as unknown as Record<
+      string,
+      Record<string, (input: unknown) => unknown>
+    >;
     const shipped = await client[model]![operation]!(args);
     const candidate = await candidateWorld.engine.execute(
       model,

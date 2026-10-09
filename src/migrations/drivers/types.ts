@@ -4,8 +4,6 @@
  * Types for the migration driver system.
  */
 
-import type { Dialect } from "../../drivers/types";
-
 /**
  * Capabilities that differ between migration drivers.
  * Used to determine behavior in push() and serializer.
@@ -77,4 +75,4 @@ export interface MigrationCapabilities {
   introspectionReadsConstraintNames: boolean;
 }
 
-export type { Dialect };
+export type { Dialect } from "../../drivers/types";

@@ -12,8 +12,18 @@
     "publishAccess": "public"
   },
   "artifact": {
-    "requiredFiles": ["LICENSE", "README.md", "package.json"],
-    "allowedRootFiles": ["LICENSE", "README.md", "package.json"],
+    "requiredFiles": [
+      "LICENSE",
+      "README.md",
+      "package.json",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "allowedRootFiles": [
+      "LICENSE",
+      "README.md",
+      "package.json",
+      "THIRD_PARTY_NOTICES.md"
+    ],
     "allowedDistSuffixes": [".d.mts", ".mjs", ".mjs.map"],
     "forbiddenPrefixes": [
       ".env",

@@ -60,8 +60,10 @@ consequences of the same fact — the call becomes one ordinary update per
 matching row, run in deterministic primary-key order:
 
 - **`count` is the number of matching rows**, not the database's affected-row
-  total. (Scalar-only `updateMany` still reports the provider's number, which on
-  MySQL is zero for an assignment that changes nothing.)
+  total. Scalar-only `updateMany` reports the provider's number; the stock mysql2
+  configuration uses `CLIENT_FOUND_ROWS`, so an assignment that changes nothing
+  still counts matched rows. A caller-supplied connection with different flags
+  may report changed rows instead.
 - **Transaction-capable drivers roll everything back together.** If the fifth
   row's update fails, the first four are undone.
 - **Drivers with native atomic batches execute safe root members as ordered

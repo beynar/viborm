@@ -383,8 +383,8 @@ export function resolveSchemaRelations(
       { slot: partner.node.slot, edge }
     );
   }
+  reportJunctionTableClaims(publication, context, checked);
   if (!checked) {
-    reportJunctionTableClaims(publication);
     reportRequiredCycles(publication, registration.byIdentity);
   }
 
@@ -859,9 +859,24 @@ function claimJunctionTable(
 }
 
 /** JT001: one physical junction table belongs to exactly one resolved pair. */
-function reportJunctionTableClaims(publication: Publication): void {
+function reportJunctionTableClaims(
+  publication: Publication,
+  context: ValidationContext,
+  checked: boolean
+): void {
   for (const [table, claims] of publication.junctionTables) {
-    if (claims.length < 2) continue;
+    const models = context.tableToModels.get(table);
+    if (models) {
+      publication.issues.push({
+        code: "JT003",
+        message: `Junction '${table}' for ${claims.join("; ")} collides with the table of registered model ${models.join(", ")}`,
+        severity: "error",
+        candidates: models,
+        repair:
+          "Choose an unoccupied .through(...) table or map the model to a distinct table",
+      });
+    }
+    if (checked || claims.length < 2) continue;
     publication.issues.push({
       code: "JT001",
       message: `Junction '${table}' is claimed by more than one relation pair: ${claims.join("; ")}`,

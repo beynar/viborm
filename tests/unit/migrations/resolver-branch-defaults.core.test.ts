@@ -2,8 +2,8 @@
  * Resolver arms that describe what happens when a resolution is ABSENT or is
  * not one of the words the change object hands out.
  *
- * Both are public contracts: `createPredefinedResolver` documents that an
- * unmatched change falls back to add+drop, and `validateResolveResult` is the
+ * Both are public contracts: `createPredefinedResolver` leaves unmatched changes
+ * unresolved (destructive guessing is refused), and `validateResolveResult` is the
  * boundary that refuses whatever a caller's own callback returned.
  */
 
@@ -77,7 +77,7 @@ describe("invalid resolution results", () => {
 });
 
 describe("unanswered ambiguities", () => {
-  test("defaults an unmatched change to add+drop and leaves every other table identical", async () => {
+  test("refuses an unmatched change without deciding that the old data is expendable", async () => {
     const logs = table("logs", [column("id")]);
     const current: SchemaSnapshot = {
       tables: [table("users", [column("id"), column("username")]), logs],
@@ -85,27 +85,22 @@ describe("unanswered ambiguities", () => {
     const desired: SchemaSnapshot = {
       tables: [table("users", [column("id"), column("name")]), logs],
     };
-
     const initial = await diff(current, desired);
     expect(initial.ambiguousChanges).toHaveLength(1);
-
-    // A predefined resolver with no entry for this change returns a map that
-    // does not contain it. The documented fallback is the safe one: drop the
-    // old column and add the new one rather than assume a rename.
-    const operations = await resolveAmbiguousChanges(
-      initial,
-      current,
-      desired,
-      createPredefinedResolver([])
-    );
-
-    // The resolution is applied to a WORKING copy of the whole snapshot and
-    // the differ runs again over it, so a bystander table that the column
-    // effects had touched would come back as extra operations here. Exactly
-    // two operations is the proof that `logs` was carried through unchanged.
-    expect(operations).toEqual([
-      { type: "dropColumn", tableName: "users", columnName: "username" },
-      { type: "addColumn", tableName: "users", column: column("name") },
+    await expect(
+      resolveAmbiguousChanges(
+        initial,
+        current,
+        desired,
+        createPredefinedResolver([])
+      )
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
+    });
+    expect(current.tables[1]).toBe(logs);
+    expect(current.tables[0]?.columns.map((column) => column.name)).toEqual([
+      "id",
+      "username",
     ]);
   });
 });

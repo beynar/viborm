@@ -6,9 +6,9 @@
  * Handles both storage operations and cache orchestration (hit/miss/stale/SWR).
  */
 
-import type { QueryExecutionContext } from "@drivers";
 import type { DriverIdentity } from "@drivers/driver-identity";
 import { getExecutionExtensionChain } from "@drivers/execution-context";
+import type { QueryExecutionContext } from "@drivers/exports";
 import { CacheInvalidKeyError } from "@errors";
 import {
   getOfficialInstrumentationChainCapability,
@@ -28,7 +28,7 @@ import {
 } from "./cache-background";
 import {
   CACHE_PREFIX,
-  generateUnprefixedCacheKey,
+  cacheLookupOf,
   OFFICIAL_CACHE_NAMESPACE_ROOT,
 } from "./key";
 import {
@@ -44,6 +44,10 @@ export interface CacheEntry<T = unknown> {
   value: T;
   createdAt: number;
   ttl: number;
+  /** Exact operation identity on official detached entries. */
+  identity?: string;
+  /** Logical expiry, independent of a backend minimum physical TTL. */
+  expiresAt?: number;
 }
 
 /** Storage options for a cache write. */
@@ -218,6 +222,7 @@ interface PreparedInvalidationTarget {
  * - Cache orchestration (hit/miss/stale/SWR logic)
  */
 export abstract class CacheDriver {
+  #fillRevision = 0;
   readonly driverName: string;
   /**
    * Every freshness decision this class makes reads from here. Internal seam,
@@ -314,18 +319,25 @@ export abstract class CacheDriver {
     codec: DetachedCacheResultCodec<T>,
     namespace: string
   ): Promise<T> {
-    const cacheKey = `${generateUnprefixedCacheKey(
-      modelName,
-      operation,
-      args
-    )}${options.key === undefined ? "" : `:${options.key}`}`;
+    const lookup = cacheLookupOf(modelName, operation, args);
+    const cacheKey = `${lookup.key}${options.key === undefined ? "" : `:${options.key}`}`;
+    const identity = JSON.stringify([lookup.identity, options.key]);
+    const revision = this.#fillRevision;
 
     // Core execution logic
     const executeCore = async (): Promise<T> => {
       // Bypass cache read if requested
       if (options.bypass) {
         const result = await executor();
-        this.#setResultInBackground(cacheKey, result, options, codec, namespace);
+        this.#setResultInBackground(
+          cacheKey,
+          result,
+          options,
+          codec,
+          namespace,
+          identity,
+          revision
+        );
         recordCacheOutcome(options.executionContext, "bypass");
         return result;
       }
@@ -335,12 +347,13 @@ export abstract class CacheDriver {
         cacheKey,
         options.executionContext,
         namespace,
-        codec
+        codec,
+        identity
       );
 
       if (cached) {
         const age = this.clock.now() - cached.createdAt;
-        const isStale = age > cached.ttl;
+        const isStale = age >= cached.ttl;
 
         if (!isStale) {
           // Fresh cache hit
@@ -349,7 +362,12 @@ export abstract class CacheDriver {
         }
 
         const swrTtl = options.swr;
-        if (swrTtl !== false) {
+        if (
+          swrTtl !== false &&
+          age < swrTtl &&
+          (cached.expiresAt === undefined ||
+            this.clock.now() < cached.expiresAt)
+        ) {
           // Stale but SWR enabled - return stale and revalidate in background
           scheduleBackground(
             this.#revalidateInBackground(
@@ -360,7 +378,9 @@ export abstract class CacheDriver {
               options,
               swrTtl,
               codec,
-              namespace
+              namespace,
+              identity,
+              revision
             ),
             options.waitUntil
           );
@@ -373,7 +393,15 @@ export abstract class CacheDriver {
 
       // Cache miss or stale without SWR - execute query
       const result = await executor();
-      this.#setResultInBackground(cacheKey, result, options, codec, namespace);
+      this.#setResultInBackground(
+        cacheKey,
+        result,
+        options,
+        codec,
+        namespace,
+        identity,
+        revision
+      );
       recordCacheOutcome(options.executionContext, "miss");
       return result;
     };
@@ -385,14 +413,23 @@ export abstract class CacheDriver {
     key: string,
     context: QueryExecutionContext | undefined,
     namespace: string,
-    codec: DetachedCacheResultCodec<T>
+    codec: DetachedCacheResultCodec<T>,
+    identity: string
   ): Promise<CacheEntry<T> | null> {
     const cached = await this.#getScoped<unknown>(key, context, namespace);
-    return cached === null
+    return cached === null ||
+      cached.identity !== identity ||
+      !Number.isFinite(cached.createdAt) ||
+      !Number.isFinite(cached.ttl) ||
+      cached.ttl <= 0 ||
+      cached.expiresAt === undefined ||
+      !Number.isFinite(cached.expiresAt) ||
+      cached.expiresAt < cached.createdAt
       ? null
       : {
           createdAt: cached.createdAt,
           ttl: cached.ttl,
+          expiresAt: cached.expiresAt,
           value: codec.materialize(cached.value),
         };
   }
@@ -402,8 +439,11 @@ export abstract class CacheDriver {
     value: T,
     options: CacheExecutionOptions,
     codec: DetachedCacheResultCodec<T>,
-    namespace: string
+    namespace: string,
+    identity: string,
+    revision: number
   ): void {
+    if (revision !== this.#fillRevision) return;
     let stored: unknown;
     try {
       stored = codec.snapshot(value);
@@ -416,7 +456,7 @@ export abstract class CacheDriver {
       );
       return;
     }
-    this.#setInBackground(key, stored, options, namespace);
+    this.#setInBackground(key, stored, options, namespace, identity, revision);
   }
 
   /**
@@ -426,7 +466,9 @@ export abstract class CacheDriver {
     key: string,
     value: T,
     options: CacheExecutionOptions,
-    namespace: string
+    namespace: string,
+    identity: string,
+    revision: number
   ): void {
     // The observed set unit presents a failure; without the catch it would
     // become an unhandled rejection.
@@ -439,7 +481,9 @@ export abstract class CacheDriver {
       },
       options.executionContext,
       namespace,
-      options.executionContext
+      options.executionContext,
+      identity,
+      revision
     ).catch(() => undefined);
 
     scheduleBackground(cachePromise, options.waitUntil);
@@ -457,12 +501,17 @@ export abstract class CacheDriver {
     options: CacheExecutionOptions,
     swrTtl: number,
     codec: DetachedCacheResultCodec<T>,
-    namespace: string
+    namespace: string,
+    identity: string,
+    revision: number
   ): Promise<void> {
     // Check whether another request has already published this marker.
     let shouldRevalidate: boolean;
     try {
-      shouldRevalidate = await this.#markRevalidatingScoped(cacheKey, namespace);
+      shouldRevalidate = await this.#markRevalidatingScoped(
+        cacheKey,
+        namespace
+      );
     } catch {
       // If marking fails, skip revalidation to avoid request failure
       return;
@@ -496,7 +545,10 @@ export abstract class CacheDriver {
             swrTtl,
           },
           options.executionContext,
-          namespace
+          namespace,
+          undefined,
+          identity,
+          revision
         );
         terminal = createCacheOutcome("revalidate", "success");
       } catch (error) {
@@ -683,13 +735,22 @@ export abstract class CacheDriver {
     context?: QueryExecutionContext,
     namespace?: string,
     /** The logical execution a background set belongs to, which a failure joins. */
-    backgroundOf?: QueryExecutionContext
+    backgroundOf?: QueryExecutionContext,
+    identity?: string,
+    revision?: number
   ): Promise<void> {
+    if (revision !== undefined && revision !== this.#fillRevision) return;
     const prefixedKey = this.#prefixKey(key, namespace);
     const entry: CacheEntry<T> = {
       value,
       createdAt: this.clock.now(),
       ttl: options.ttl,
+      ...(identity === undefined
+        ? {}
+        : {
+            identity,
+            expiresAt: this.clock.now() + (options.swrTtl ?? options.ttl),
+          }),
     };
 
     // Use SWR TTL if provided, otherwise just use regular TTL
@@ -698,7 +759,13 @@ export abstract class CacheDriver {
     return this.#observe(
       "set",
       context,
-      () => this.set(prefixedKey, storageTtl, entry),
+      async () => {
+        await this.set(prefixedKey, storageTtl, entry);
+        // A durable invalidation may finish while a backend set is pending.
+        // Suppress this obsolete fill locally; generic KV remains eventual.
+        if (revision !== undefined && revision !== this.#fillRevision)
+          await this.delete([prefixedKey]);
+      },
       backgroundOf === undefined
         ? undefined
         : (outcome) =>
@@ -761,7 +828,8 @@ export abstract class CacheDriver {
 
     // Check if already revalidating
     const existing = await this.get(revalidatingKey);
-    if (existing) return false;
+    if (existing && this.clock.now() - existing.createdAt < existing.ttl)
+      return false;
 
     // Set revalidating flag with short TTL
     const entry: CacheEntry<boolean> = {
@@ -822,11 +890,15 @@ export abstract class CacheDriver {
     namespace?: string
   ): Promise<void> {
     if (!hasCacheInvalidationWork(options)) return;
+    this.#fillRevision += 1;
     const targets: PreparedInvalidationTarget[] = [];
-    if (options?.autoInvalidate) {
+    if (options === undefined || options.autoInvalidate === true) {
       targets.push({
         kind: "clear",
-        prefixedKey: this.#prefixKey(`${modelName}:`, namespace),
+        prefixedKey: this.#prefixKey(
+          namespace === undefined ? `${modelName}:` : "",
+          namespace
+        ),
       });
     }
     if (options?.invalidate) {
@@ -870,6 +942,7 @@ export abstract class CacheDriver {
     prefixedKey: string,
     context?: QueryExecutionContext
   ): Promise<void> {
+    this.#fillRevision += 1;
     const keys = [prefixedKey, `${prefixedKey}${REVALIDATING_SUFFIX}`];
     return this.#observe("delete", context, () => this.delete(keys));
   }
@@ -878,6 +951,7 @@ export abstract class CacheDriver {
     prefixedKey: string,
     context?: QueryExecutionContext
   ): Promise<void> {
+    this.#fillRevision += 1;
     return this.#observe("clear", context, () => this.clear(prefixedKey));
   }
 

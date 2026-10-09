@@ -94,7 +94,7 @@ function validateIsoTimestamp(value: unknown) {
   ) {
     return INVALID_TIMESTAMP_DATE;
   }
-  return ok(value);
+  return ok(new Date(value).toISOString());
 }
 
 /**
@@ -251,7 +251,7 @@ function validateIsoTime(value: unknown) {
   const parts = value.split(":");
   const hours = Number(parts[0]);
   const minutes = Number(parts[1]);
-  const seconds = Number(parts[2]);
+  const seconds = Math.trunc(Number(parts[2]));
 
   if (
     hours < 0 ||
@@ -263,7 +263,7 @@ function validateIsoTime(value: unknown) {
   ) {
     return INVALID_TIME;
   }
-  return ok(value);
+  return ok(value.padEnd(12, value.includes(".") ? "0" : ".000"));
 }
 
 /**

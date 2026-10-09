@@ -1,3 +1,6 @@
+import { deepStrictEqual, notDeepStrictEqual } from "node:assert/strict";
+import { inspect } from "node:util";
+import { deserialize, serialize } from "node:v8";
 import { Decimal } from "@src/index";
 import {
   admitDecimal,
@@ -14,8 +17,8 @@ import { describe, expect, test } from "vitest";
  * `v.decimal()`, descriptors, provider vocabularies, DDL. This file owns the
  * value: what the constructor accepts and refuses, what each operation answers,
  * and the three properties everything above it rests on — canonical text is the
- * representation rather than a rendering of it, an instance carries no state a
- * caller can reach, and construction is the only way into the family.
+ * representation rather than a rendering of it, an instance's arithmetic state
+ * is private, and construction is the only way into the family.
  *
  * Every expected answer below was executed against `big.js@7.0.1`, the value
  * type this one replaces, before it was written down: the same 16 spellings
@@ -351,10 +354,12 @@ describe("decimal value: the properties the ORM rests on", () => {
     expect(new Decimal("1.10").eq(new Decimal("1.1000"))).toBe(true);
   });
 
-  test("an instance carries no own property and no static to configure", () => {
+  test("canonical text is observable and immutable, with no static configuration", () => {
     const value: Decimal = new Decimal("1.5");
-    expect(Object.keys(value)).toEqual([]);
-    expect(Object.getOwnPropertyNames(value)).toEqual([]);
+    expect(Object.keys(value)).toEqual(["value"]);
+    expect(Object.getOwnPropertyNames(value)).toEqual(["value"]);
+    expect(value.value).toBe("1.5");
+    expect(Reflect.set(value, "value", "999")).toBe(false);
     expect(Object.getOwnPropertyNames(Decimal).sort()).toEqual([
       "length",
       "name",
@@ -365,6 +370,26 @@ describe("decimal value: the properties the ORM rests on", () => {
     Object.assign(value, { s: -1, e: 9, c: [9] });
     expect(value.toString()).toBe("1.5");
     expect(canonicalDecimalText(value)).toBe("1.5");
+  });
+
+  test("deep equality distinguishes amounts and cloning preserves their text", () => {
+    const one = new Decimal("1.00");
+    const same = new Decimal("1");
+    const other = new Decimal("999999.99");
+    expect(one).toEqual(same);
+    expect(one).not.toEqual(other);
+    expect(one).not.toStrictEqual(other);
+    deepStrictEqual(one, same);
+    notDeepStrictEqual(one, other);
+    for (const clone of [
+      structuredClone(other),
+      deserialize(serialize(other)),
+    ]) {
+      expect(clone).toEqual({ value: "999999.99" });
+      expect(new Decimal(clone.value).eq(other)).toBe(true);
+      expect(canonicalDecimalText(clone)).toBeUndefined();
+    }
+    expect(inspect(other)).toBe('Decimal("999999.99")');
   });
 
   test("every operation answers a new instance and leaves its receiver alone", () => {
@@ -428,12 +453,5 @@ describe("decimal value: the properties the ORM rests on", () => {
     for (const canonical of ["0", "1", "-1", "12.34", "-0.0005"]) {
       expect(fromCanonical(canonical).toString()).toBe(canonical);
     }
-  });
-
-  test("structuredClone empties the value rather than refusing it", () => {
-    // Worth pinning because it is quiet: the state is private, so a value
-    // posted across a worker or a structuredClone-based cache arrives as an
-    // empty object instead of throwing. Applications send `toString()`.
-    expect(Object.keys(structuredClone(new Decimal("1.5")))).toEqual([]);
   });
 });

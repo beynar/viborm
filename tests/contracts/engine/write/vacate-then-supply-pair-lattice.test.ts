@@ -255,14 +255,12 @@ describe("Package H — the composed modify declares every field its probe reads
     // write on `b1` and the sibling `connect` on `b-alt` are both undone, and the
     // incumbent still holds the slot the `connect` collided with.
     expect(
-      (await client.badge.findMany({})).map((row: any) => [
-        row.id,
-        row.tag,
-        row.stationId,
-      ])
+      (await client.badge.findMany({ orderBy: { id: "asc" } })).map(
+        (row: any) => [row.id, row.tag, row.stationId]
+      )
     ).toEqual([
-      ["b1", "incumbent", "s1"],
       ["b-alt", "alt", null],
+      ["b1", "incumbent", "s1"],
     ]);
   }, 30_000);
 });

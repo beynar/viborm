@@ -38,18 +38,20 @@ export function createNamedConstraintIdentities(
   };
 }
 
-/** SQLite errors identify a constraint through qualified physical columns. */
+/** Driver normalization separates SQLite's physical table and columns. */
 export const sqliteConstraintIdentities: ConstraintIdentities = {
   primaryKey: (tableName, columns) => ({
     name: `${tableName}_pkey`,
     normalizedError: {
-      columns: columns.map((column) => `${tableName}.${column}`),
+      table: tableName,
+      columns: [...columns],
     },
   }),
   unique: (tableName, keyName, columns) => ({
     name: `${tableName}_${keyName}_key`,
     normalizedError: {
-      columns: columns.map((column) => `${tableName}.${column}`),
+      table: tableName,
+      columns: [...columns],
     },
   }),
 };

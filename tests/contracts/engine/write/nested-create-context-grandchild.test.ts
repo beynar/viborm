@@ -1,6 +1,6 @@
 import { PGliteDriver } from "@drivers/pglite";
 import type { PGlite } from "@electric-sql/pglite";
-import { UniqueConstraintError } from "@errors";
+import { UniqueConstraintError, UnsupportedOperationError } from "@errors";
 
 import { s } from "@schema";
 import { observeClientOperations } from "@tests/contracts/engine/write/operation-observer";
@@ -8,7 +8,6 @@ import {
   BatchOnlyPGliteDriver,
   usePGliteSchemaFamily,
 } from "@tests/fixtures/drivers/pglite";
-import { droppedSkipWarning } from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test, vi } from "vitest";
 
 /**
@@ -310,7 +309,7 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
   // and is DROPPED on batch with one warning (owner decision 2026-09-24, "Warn,
   // drop skipDuplicates"): the batch leg then answers exactly as the same create
   // without skipDuplicates — the duplicate "winner" fails it.
-  test("direct, transaction preserve the same skip winner; batch drops the skip", async () => {
+  test("direct and callback preserve the skip winner; batch refuses before writes", async () => {
     const direct = (await runDirect(
       getBulkFamily,
       seed,
@@ -342,10 +341,8 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
         op,
         snap
       ).catch((error: unknown) => error);
-      expect(failure).toBeInstanceOf(UniqueConstraintError);
-      expect(warn.mock.calls).toEqual([
-        [droppedSkipWarning("pglite", "parent.create")],
-      ]);
+      expect(failure).toBeInstanceOf(UnsupportedOperationError);
+      expect(warn.mock.calls).toEqual([]);
       const dropped = await snap(getBulkFamily().client as AnyClient);
       const plainFailure = await runObserved(
         getBulkFamily,
@@ -356,7 +353,7 @@ describe("CLASS VI key 3 — root-create nested createMany skipDuplicates", () =
         snap
       ).catch((error: unknown) => error);
       expect(plainFailure).toBeInstanceOf(UniqueConstraintError);
-      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).not.toHaveBeenCalled();
       // The dropped skip leaves the rows the plain create leaves: none, because
       // the fresh parent and its children are one atomic batch.
       expect(dropped).toEqual([]);

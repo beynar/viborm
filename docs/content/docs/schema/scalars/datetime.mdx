@@ -76,18 +76,21 @@ any newly admitted occurrence uses its own admission time. Transaction
 ownership, failure timing and partial-progress rules are unchanged. Raw SQL,
 database cascades and external writers do not run this client-side generator.
 
-Temporal arrays retain their existing update behavior: omission leaves the
-array unchanged and explicit array updates work. `.array().updatedAt()` does
-not provide an automatic list timestamp; supply an explicit create value too,
-because its scalar create generator does not produce an array.
+Temporal arrays accept explicit array values and defaults. Omission leaves the
+array unchanged. A scalar `.now()` or `.updatedAt()` generator cannot produce
+an array, so combining either with `.array()` is refused at declaration in
+both modifier orders.
 
 ## Timezones
 
-`s.dateTime()` and `s.time()` are timezone-aware by default (`timestamptz` / `timetz` on PostgreSQL). Chain `.withoutTimezone()` to store without timezone:
+`s.dateTime()` defaults to a timezone-aware PostgreSQL timestamp. Chain
+`.withoutTimezone()` for a timestamp without a timezone. `s.time()` defaults
+to `TIME` without a timezone because its logical value is a time of day,
+without an offset. Both default to millisecond storage precision.
 
 ```ts
 s.dateTime().withoutTimezone()  // timestamp instead of timestamptz
-s.time().withoutTimezone()      // time instead of timetz
+s.time()                       // time without a timezone
 ```
 
 ## Input Types

@@ -1,6 +1,7 @@
 // Common Scalar Utilities
 // Shared types and helpers for all scalar classes
 
+import { ValidationError } from "@errors";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { InferInput, VibSchema } from "@validation";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
@@ -95,6 +96,8 @@ export interface AutoGenerate {
    * about how this generator came to be declared — not a second scalar state.
    */
   implicit?: boolean | undefined;
+  /** Explicit generation choice; absent formats acquire a default only as IDs. */
+  generate?: boolean | undefined;
 }
 
 /**
@@ -114,9 +117,38 @@ export interface AutoGenerate {
 const GENERATOR_DEFAULTS = new WeakSet<object>();
 
 /** Mark a closure as the default a generator modifier installed. */
-export function generatorDefault<F extends () => unknown>(closure: F): F {
+declare const GENERATED_DEFAULT: unique symbol;
+export interface GeneratorDefaultBrand {
+  readonly [GENERATED_DEFAULT]: true;
+}
+export function generatorDefault<F extends () => unknown>(
+  closure: F
+): F & GeneratorDefaultBrand;
+export function generatorDefault<F extends () => unknown>(closure: F) {
   GENERATOR_DEFAULTS.add(closure);
   return closure;
+}
+
+/** A scalar generator cannot produce a complete list default. */
+export function refuseListGenerator(builder: string): never {
+  throw new ValidationError(
+    { kind: "schema-builder", builder, path: "array" },
+    [
+      {
+        path: "array",
+        message:
+          "Scalar generation is not supported on lists; declare an explicit array default",
+      },
+    ]
+  );
+}
+
+/** Nullable admission supplies null only when no default was already declared. */
+export function nullableDefault<State extends ScalarState>(
+  state: State
+): State["hasDefault"] extends true ? State["default"] : null;
+export function nullableDefault(state: ScalarState) {
+  return state.hasDefault ? state.default : null;
 }
 
 /** Whether this default value IS a generator's own installed closure. */
@@ -237,13 +269,31 @@ export type DefaultValueInput<S extends ScalarState> = DefaultValue<
 // DEFAULT STATE FACTORY
 // =============================================================================
 
+/** The factory's existing initial state stays named in exported model graphs. */
+export interface InitialScalarState<T extends ScalarType, B extends VibSchema> {
+  type: T;
+  nullable: boolean;
+  array: boolean;
+  hasDefault: boolean;
+  isId: boolean;
+  isUnique: boolean;
+  default: undefined;
+  autoGenerate: undefined;
+  disallowZero: boolean;
+  schema: undefined;
+  columnName: undefined;
+  optional: boolean;
+  withTimezone: boolean;
+  base: B;
+}
+
 /**
  * Creates a default initial state for a scalar type
  */
 export const createDefaultState = <T extends ScalarType, B extends VibSchema>(
   type: T,
   base: B
-) => ({
+): InitialScalarState<T, B> => ({
   type,
   nullable: false,
   array: false,

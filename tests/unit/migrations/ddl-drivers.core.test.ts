@@ -3177,7 +3177,8 @@ describe("PostgreSQL DDL Generation", () => {
   describe("locking", () => {
     it("should generate pg_advisory_lock for acquire, with a stable alias", () => {
       const sql = postgresMigrationDriver.generateAcquireLock(12_345);
-      expect(sql).toBe("SELECT pg_advisory_lock(12345) AS acquired");
+      expect(sql).toContain("pg_try_advisory_lock(12345)");
+      expect(sql).toContain("interval '10 seconds'");
     });
 
     it("should generate pg_advisory_unlock for release, with a stable alias", () => {
@@ -3193,7 +3194,7 @@ describe("PostgreSQL DDL Generation", () => {
       );
       expect(
         postgresMigrationDriver.capabilities.supportsAddEnumValueInTransaction
-      ).toBe(false);
+      ).toBe(true);
       expect(postgresMigrationDriver.capabilities.supportsNativeArrays).toBe(
         true
       );
@@ -3276,7 +3277,7 @@ describe("PostgreSQL DDL Generation", () => {
           createMockScalar(createScalarState("datetime")),
           createScalarState("datetime")
         )
-      ).toBe("timestamp");
+      ).toBe("timestamp(3)");
       expect(
         postgresMigrationDriver.mapScalarType(
           createMockScalar(createScalarState("json")),
@@ -3326,7 +3327,7 @@ describe("PostgreSQL DDL Generation", () => {
           ),
           createScalarState("datetime", { withTimezone: true })
         )
-      ).toBe("timestamptz");
+      ).toBe("timestamptz(3)");
     });
 
     it("should use native type when specified for PostgreSQL", () => {

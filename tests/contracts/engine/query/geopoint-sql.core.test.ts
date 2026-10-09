@@ -6,7 +6,11 @@ import { MemoryCache } from "@cache/drivers/memory";
 import { type CacheEntry, cache } from "@cache/exports";
 import { createClient } from "@client/client";
 import { type Dialect, Driver } from "@drivers";
-import { FeatureNotSupportedError, TransactionError } from "@errors";
+import {
+  FeatureNotSupportedError,
+  QueryError,
+  TransactionError,
+} from "@errors";
 import { s } from "@schema";
 import { type Sql, sql } from "@sql";
 import {
@@ -203,9 +207,9 @@ describe("GeoPoint adapter SQL", () => {
       sql`${34}`
     );
     expect(sqlite.toStatement("$n")).toBe(
-      "json_object('longitude', $1, 'latitude', $2)"
+      "json_object('longitude', json(CASE WHEN $1 IS NULL THEN NULL ELSE printf('%!.17g', $2) END), 'latitude', json(CASE WHEN $3 IS NULL THEN NULL ELSE printf('%!.17g', $4) END))"
     );
-    expect(sqlite.values).toEqual([12, 34]);
+    expect(sqlite.values).toEqual([12, 12, 34, 34]);
   });
 
   test("binds canonical polygons and never concatenates caller geometry", () => {
@@ -347,8 +351,9 @@ describe("GeoPoint adapter SQL", () => {
       east: 10,
     });
     expect(condition.toStatement("$n")).toContain(indexSql);
+    // The index envelope includes Greenwich to enclose the great-circle arcs.
     expect(condition.values[0]).toBe(
-      '{"type":"Polygon","coordinates":[[[-5,40],[10,40],[10,55],[-5,55],[-5,40]]]}'
+      '{"type":"Polygon","coordinates":[[[-5,40],[0,40],[10,40],[10,55],[0,55],[-5,55],[-5,40]]]}'
     );
     expect(condition.toStatement("$n")).toContain(" >= ");
     expect(condition.toStatement("$n")).toContain(" <= ");
@@ -390,9 +395,10 @@ describe("GeoPoint query lowering", () => {
       name: "SQLite",
       adapter: new SQLiteAdapter(),
       dialect: "sqlite",
-      constructorSql: "json_object('longitude', ?, 'latitude', ?)",
+      constructorSql:
+        "json_object('longitude', json(CASE WHEN ? IS NULL THEN NULL ELSE printf('%!.17g', ?) END), 'latitude', json(CASE WHEN ? IS NULL THEN NULL ELSE printf('%!.17g', ?) END))",
       createManySql:
-        "INSERT INTO \"places\" (\"id\", \"location\", \"optionalLocation\") VALUES (?, json_object('longitude', ?, 'latitude', ?), NULL), (?, json_object('longitude', ?, 'latitude', ?), NULL)",
+        "INSERT INTO \"places\" (\"id\", \"location\", \"optionalLocation\") VALUES (?, json_object('longitude', json(CASE WHEN ? IS NULL THEN NULL ELSE printf('%!.17g', ?) END), 'latitude', json(CASE WHEN ? IS NULL THEN NULL ELSE printf('%!.17g', ?) END)), NULL), (?, json_object('longitude', json(CASE WHEN ? IS NULL THEN NULL ELSE printf('%!.17g', ?) END), 'latitude', json(CASE WHEN ? IS NULL THEN NULL ELSE printf('%!.17g', ?) END)), NULL)",
     },
   ] satisfies readonly (GeoPointProviderCase & {
     readonly constructorSql: string;
@@ -414,15 +420,25 @@ describe("GeoPoint query lowering", () => {
       await client.place
         .create({ data: { id: "place-1", location: paris } })
         .catch((error: unknown) => {
-          expect(error).toBeInstanceOf(TransactionError);
+          expect(error).toBeInstanceOf(
+            dialect === "mysql" ? TransactionError : QueryError
+          );
+          if (dialect !== "mysql")
+            expect(error).toMatchObject({ code: "V2006" });
         });
       const [create] = insertsOf();
       expect(create?.sql).toContain(constructorSql);
-      expect(create?.params.slice(0, 3)).toEqual([
-        "place-1",
-        paris.longitude,
-        paris.latitude,
-      ]);
+      expect(create?.params.slice(0, dialect === "sqlite" ? 5 : 3)).toEqual(
+        dialect === "sqlite"
+          ? [
+              "place-1",
+              paris.longitude,
+              paris.longitude,
+              paris.latitude,
+              paris.latitude,
+            ]
+          : ["place-1", paris.longitude, paris.latitude]
+      );
 
       await expect(
         client.place.createMany({
@@ -434,18 +450,32 @@ describe("GeoPoint query lowering", () => {
             },
           ],
         })
-      ).rejects.toBeInstanceOf(TransactionError);
+      ).resolves.toEqual({ count: 0 });
       expect(insertsOf().slice(1)).toEqual([
         {
           sql: createManySql,
-          params: [
-            "place-2",
-            paris.longitude,
-            paris.latitude,
-            "place-3",
-            -73.9857,
-            40.7484,
-          ],
+          params:
+            dialect === "sqlite"
+              ? [
+                  "place-2",
+                  paris.longitude,
+                  paris.longitude,
+                  paris.latitude,
+                  paris.latitude,
+                  "place-3",
+                  -73.9857,
+                  -73.9857,
+                  40.7484,
+                  40.7484,
+                ]
+              : [
+                  "place-2",
+                  paris.longitude,
+                  paris.latitude,
+                  "place-3",
+                  -73.9857,
+                  40.7484,
+                ],
         },
       ]);
     } finally {

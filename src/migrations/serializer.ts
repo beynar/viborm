@@ -1,3 +1,4 @@
+import { selectManagedSnapshot } from "./target";
 /**
  * Model-to-SchemaSnapshot Serializer
  *
@@ -244,14 +245,24 @@ export function serializeResolvedModels(
 
         if (migrationDriver.capabilities.supportsNativeEnums && enumValues) {
           // Use explicit enum name if provided, otherwise auto-generate
-          const enumName = scalarState.enumName
-            ? scalarState.enumName
-            : migrationDriver.getEnumColumnType(
-                tableName,
-                columnName,
-                enumValues
-              );
+          const enumName =
+            scalarState.enumName && migrationDriver.dialect === "postgresql"
+              ? scalarState.enumName
+              : migrationDriver.getEnumColumnType(
+                  tableName,
+                  columnName,
+                  enumValues
+                );
 
+          const previousEnum = enums.find((item) => item.name === enumName);
+          if (
+            previousEnum &&
+            JSON.stringify(previousEnum.values) !== JSON.stringify(enumValues)
+          )
+            throw new MigrationError(
+              `Enum type "${enumName}" is declared with incompatible values`,
+              VibORMErrorCode.MIGRATION_INVALID_STATE
+            );
           if (!enumsSet.has(enumName)) {
             enums.push({
               name: enumName,
@@ -291,6 +302,10 @@ export function serializeResolvedModels(
         // whatever the domain is, so without this the differ would see no
         // change when the domain moved.
         decimal: scalarState.decimal,
+        geoPointEncoding:
+          migrationDriver.dialect === "sqlite" && scalarState.type === "point"
+            ? "binary64"
+            : undefined,
         dateTime:
           migrationDriver.dialect === "sqlite" &&
           scalarState.type === "datetime" &&
@@ -809,11 +824,14 @@ export function serializeResolvedModels(
     tables.push(def);
   }
 
-  return {
+  const snapshot: SchemaSnapshot = {
     tables: tables.map((table) => migrationDriver.finalizeTable(table)),
     enums: enums.length > 0 ? enums : undefined,
     ...(polymorphicStorage.length > 0 ? { polymorphicStorage } : {}),
   };
+  return migrationDriver.target
+    ? selectManagedSnapshot(snapshot, migrationDriver.target, true)
+    : snapshot;
 }
 
 // =============================================================================
@@ -824,7 +842,7 @@ export function serializeResolvedModels(
  * Serialize ONE polymorphic collection member's junction table, byte-reusing
  * the ordinary junction template: canonical orientation, driver types zipped
  * BY INDEX against the stored topology's sides, PK without a name, one
- * unconditional reverse index, and two FIXED-cascade foreign keys —
+ * reverse index when uniqueness does not cover it, and two FIXED-cascade foreign keys —
  * `resolveJunctionPairActions` is NEVER called on this path (member actions
  * are cascade by design; a hostile referential-action spelling never reaches
  * this DDL). Consumes ONLY the stored `ResolvedJunctionTopology`: every
@@ -900,19 +918,18 @@ function serializeMemberJunction(
       })),
     ],
     primaryKey: { columns: [...firstColumns, ...secondColumns] },
-    // The PK covers first-side lookups; reverse traversal needs one index
-    // over the complete second-side stored reference — emitted
-    // UNCONDITIONALLY so every member table shares one template shape.
-    // Accepted redundancy: when a SINGULAR-inverse member's target sorts
-    // canonical-second, the unique constraint below covers the same columns;
-    // DDL shape must not become conditional on canonical sort order.
-    indexes: [
-      {
-        name: junction.reverseIndexName(),
-        columns: secondColumns,
-        unique: false,
-      },
-    ],
+    // The PK covers the first side. A singular target on the second side has
+    // its unique constraint already; otherwise reverse lookup needs an index.
+    indexes:
+      member.uniqueTarget && junction.sourceIsFirst
+        ? []
+        : [
+            {
+              name: junction.reverseIndexName(),
+              columns: secondColumns,
+              unique: false,
+            },
+          ],
     foreignKeys: [
       {
         name: junction.foreignKeyName(

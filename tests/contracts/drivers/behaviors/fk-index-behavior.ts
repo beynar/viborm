@@ -249,10 +249,9 @@ export function runFkIndexBehavior({
       const planned = await syncLiveSchema(c as never);
 
       return {
-        dropAt: planned.operations.findIndex((op) => op.label === "dropIndex"),
+        dropAt: planned.operations.findIndex((op) => op.type === "dropIndex"),
         replacementAt: planned.operations.findIndex(
-          (op) =>
-            op.label === "createIndex" || op.label === "addUniqueConstraint"
+          (op) => op.type === "createIndex" || op.type === "addUniqueConstraint"
         ),
       };
     }
@@ -278,7 +277,7 @@ export function runFkIndexBehavior({
 
       expect(
         second.operations.filter(
-          (op) => op.label === "createIndex" || op.label === "dropIndex"
+          (op) => op.type === "createIndex" || op.type === "dropIndex"
         )
       ).toEqual([]);
       expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
@@ -331,7 +330,7 @@ export function runFkIndexBehavior({
       const second = await syncLiveSchema(c as never);
       expect(
         second.operations.filter(
-          (op) => op.label === "createIndex" || op.label === "dropIndex"
+          (op) => op.type === "createIndex" || op.type === "dropIndex"
         )
       ).toEqual([]);
     });
@@ -422,7 +421,7 @@ export function runFkIndexUpgradeBehavior({
 
       const upgrade = await syncLiveSchema(c as never);
       expect(
-        upgrade.operations.filter((op) => op.label === "createIndex")
+        upgrade.operations.filter((op) => op.type === "createIndex")
       ).toHaveLength(1);
       expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(
         "fk_idx_posts_author_id_idx"
@@ -433,7 +432,7 @@ export function runFkIndexUpgradeBehavior({
       const settled = await syncLiveSchema(c as never);
       expect(
         settled.operations.filter(
-          (op) => op.label === "createIndex" || op.label === "dropIndex"
+          (op) => op.type === "createIndex" || op.type === "dropIndex"
         )
       ).toEqual([]);
       expect(await indexNames(c, dialect, "fk_idx_posts")).toContain(

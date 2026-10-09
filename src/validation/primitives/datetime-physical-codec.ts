@@ -16,7 +16,11 @@
  */
 
 import { isBigInt, isNumber } from "../value-guards";
-import { isDateTimeInstant } from "./datetime-values";
+import {
+  isDateTimeClock,
+  isDateTimeInstant,
+  isGregorianCalendarDate,
+} from "./datetime-values";
 
 /**
  * The three physical spellings a datetime column can hold.
@@ -41,6 +45,11 @@ const MILLISECONDS_PER_DAY = 86_400_000;
 
 /** The Julian day of 1970-01-01T00:00:00Z, where the Unix epoch begins. */
 const UNIX_EPOCH_JULIAN_DAY = 2_440_587.5;
+
+/** PostgreSQL uses historical years: the admitted ISO year 0000 is 1 BC. */
+export function encodePostgresTemporal(iso: string): string {
+  return iso.startsWith("0000-") ? `0001${iso.slice(4)} BC` : iso;
+}
 
 /**
  * The number a provider returned for a numeric datetime column, or `undefined`
@@ -122,3 +131,47 @@ export function numericDateTimeForm(
 ): DateTimeNumericForm | undefined {
   return form === undefined || form === "text" ? undefined : form;
 }
+
+const TIMESTAMP_TEXT =
+  /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:(Z)|([+-])(\d{2})(?::?(\d{2}))?(?::?(\d{2}))?)?(?: (BC))?$/;
+
+/** The provider timestamp grammar; the domain rules are the codec's. */
+export function decodeProviderTimestamp(value: string): Date | undefined {
+  const match = TIMESTAMP_TEXT.exec(value);
+  if (!match) return undefined;
+  const year = match[13] ? 1 - Number(match[1]) : Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = Number(match[10] ?? 0);
+  const offsetMinute = Number(match[11] ?? 0);
+  const offsetSecond = Number(match[12] ?? 0);
+  if (
+    !(
+      isGregorianCalendarDate(year, month, day) &&
+      isDateTimeClock(hour, minute, second)
+    ) ||
+    offsetHour > 23 ||
+    offsetMinute > 59 ||
+    offsetSecond > 59
+  )
+    return undefined;
+  const parsed = new Date(0);
+  // setUTCFullYear keeps years 0..99 literal; Date.UTC reinterprets them as 1900..1999.
+  parsed.setUTCFullYear(year, month - 1, day);
+  parsed.setUTCHours(
+    hour,
+    minute,
+    second,
+    Number((match[7] ?? "").padEnd(3, "0").slice(0, 3))
+  );
+  const offset = (offsetHour * 3600 + offsetMinute * 60 + offsetSecond) * 1000;
+  const epoch = parsed.getTime() - (match[9] === "-" ? -offset : offset);
+  return isDateTimeInstant(epoch) ? new Date(epoch) : undefined;
+}
+
+/** MySQL DATETIME stores the admitted instant as a naive UTC wall clock. */
+export const encodeMySqlDateTime = (iso: string): string =>
+  new Date(iso).toISOString().slice(0, 23).replace("T", " ");

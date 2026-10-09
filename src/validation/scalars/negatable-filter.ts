@@ -1,3 +1,4 @@
+import { limitFilterDepth } from "../primitives/filter-depth";
 import type { ObjectEntries, ObjectSchema } from "../primitives/object";
 import v, { type V } from "../primitives/v";
 
@@ -5,13 +6,9 @@ import v, { type V } from "../primitives/v";
  * Shared shape for every scalar filter that supports `not`.
  *
  * `not` is LAZILY SELF-REFERENTIAL: its object arm is the very same filter
- * object, so `not: { not: { not: … } }` validates at ANY depth. This matches
- * both Prisma (whose scalar filters nest `not` without a cap) and the SQL
- * builder, which has always recursed without one — `buildFilterOperation`'s
- * `not` branch calls straight back into `buildScalarFilterObject`
- * ({@link file://../../query-engine/builders/where-builder.ts}). Before this,
- * validation capped nesting at ONE level and rejected payloads the engine was
- * perfectly able to compile.
+ * object, so `not: { not: { not: … } }` follows the same vocabulary at every
+ * level. The shared filter-depth boundary bounds admission before recursion
+ * can exhaust the process or produce an unbounded provider query plan.
  *
  * The cycle is tied with {@link v.lazyRef} rather than a direct reference so
  * the union can name the object that is still being constructed. `lazyRef`
@@ -100,5 +97,5 @@ export const buildNegatableFilterSchema = <
     },
     { refuse: requireFilterOperation }
   ) as unknown as NegatableFilter<S, TBase>;
-  return v.union([v.shorthandFilter(schema), negatable]);
+  return v.union([v.shorthandFilter(schema), limitFilterDepth(negatable)]);
 };

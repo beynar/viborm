@@ -706,7 +706,7 @@ export const G4_UNIT02_AUTHOR_COUNTS = Object.freeze({
   "tests/raptor3/g4/unit02/root-member-cut-trace.test.ts": 4,
   "tests/raptor3/g4/unit02/uncertain-outcome-meta.test.ts": 8,
   "tests/raptor3/g4/unit02/upsert-key-portability.test.ts": 19,
-  "tests/raptor3/g4/unit02/vector-capability.test.ts": 1,
+  "tests/raptor3/g4/unit02/vector-capability.test.ts": 2,
 });
 export const G4_UNIT02_AUTHOR_TESTS = Object.freeze(
   Object.keys(G4_UNIT02_AUTHOR_COUNTS)

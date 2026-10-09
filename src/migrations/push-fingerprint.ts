@@ -1,3 +1,6 @@
+import { readArrayLiteralText } from "../adapters/databases/postgres/array-literal";
+import { sqliteGeoPointEncoding } from "../adapters/databases/sqlite/storage/geo-point";
+import { decodeProviderTimestamp } from "../validation/primitives/datetime-physical-codec";
 /**
  * Live schema fingerprint and push target identity.
  *
@@ -138,16 +141,19 @@ export function fingerprintSnapshot(
   snapshot: SchemaSnapshot,
   driver: MigrationDriver
 ): Sha256 {
-  const tables = snapshot.tables
-    .map((table) => ({
+  const tables = canonicalUniqueEntities(snapshot)
+    .tables.map((table) => ({
       name: table.name,
       columns: table.columns
         .map((column) => ({
           name: column.name,
           type: normalizeType(column.type),
           nullable: column.nullable,
-          default: normalizeDefault(column.default) ?? null,
+          default: normalizeDefault(column.default, column.type) ?? null,
           autoIncrement: column.autoIncrement ?? false,
+          ...(sqliteGeoPointEncoding(column)
+            ? { geoPointEncoding: sqliteGeoPointEncoding(column) }
+            : {}),
         }))
         .sort(byName),
       primaryKey: table.primaryKey
@@ -195,42 +201,201 @@ export function fingerprintSnapshot(
   return domainHash(HASH_DOMAIN.snapshot, canonicalizeJson({ tables, enums }));
 }
 
-export function normalizeType(type: string): string {
-  const normalized = type.toLowerCase().replace(/\s+/g, " ").trim();
-  const array = normalized.endsWith("[]");
-  const base = array ? normalized.slice(0, -2).trim() : normalized;
-  const aliases: Record<string, string> = {
-    int4: "integer",
-    int8: "bigint",
-    int2: "smallint",
-    float4: "real",
-    float8: "double precision",
-    bool: "boolean",
-    timestamptz: "timestamp with time zone",
-    timetz: "time with time zone",
+/** A total btree unique index and a unique constraint enforce the same key. */
+export function canonicalUniqueEntities(
+  snapshot: SchemaSnapshot
+): SchemaSnapshot {
+  return {
+    ...snapshot,
+    tables: snapshot.tables.map((table) => ({
+      ...table,
+      uniqueConstraints: [
+        ...table.uniqueConstraints,
+        ...table.indexes
+          .filter(
+            (index) =>
+              index.unique &&
+              !index.where &&
+              (!index.type || index.type === "btree")
+          )
+          .map((index) => ({ name: index.name, columns: index.columns })),
+      ],
+      indexes: table.indexes.filter(
+        (index) =>
+          !(
+            index.unique &&
+            !index.where &&
+            (!index.type || index.type === "btree")
+          )
+      ),
+    })),
   };
-  const mapped = aliases[base] ?? base;
-  return array ? `${mapped}[]` : mapped;
 }
 
+export function normalizeType(type: string): string {
+  const tokens =
+    type.trim().match(/'(?:[^']|'')*'|"(?:[^"]|"")*"|[^'"]+/g) ?? [];
+  return tokens
+    .map((token) => {
+      if (token.startsWith("'") || token.startsWith('"')) return token;
+      return token
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .replace(/\s*,\s*/g, ",")
+        .replace(/\s+\[\]/g, "[]")
+        .replace(/\bcharacter varying\b/g, "varchar")
+        .replace(/\bcharacter\b/g, "char")
+        .replace(/\bbit varying\b/g, "varbit")
+        .replace(/\btimestamptz(\(\d+\))?/g, "timestamp$1 with time zone")
+        .replace(/\btimetz(\(\d+\))?/g, "time$1 with time zone")
+        .replace(/\b(timestamp|time)(\(\d+\))? without time zone/g, "$1$2")
+        .replace(/\bint4\b/g, "integer")
+        .replace(/\bint8\b/g, "bigint")
+        .replace(/\bint2\b/g, "smallint")
+        .replace(/\bfloat4\b/g, "real")
+        .replace(/\bfloat8\b/g, "double precision")
+        .replace(/\bbool\b/g, "boolean");
+    })
+    .join("");
+}
+
+const UTC_NOW_DEFAULT =
+  /^(?:now\(\) at time zone 'utc'|timezone\(\s*'utc'\s*,\s*now\(\)\s*\))$/;
+const MILLISECOND_NOW_DEFAULT =
+  /^date_trunc\(\s*'milliseconds'\s*,([\s\S]+)\)$/;
+const UTC_CURRENT_TIME_DEFAULT =
+  /^timezone\(\s*'utc'\s*,\s*current_time(?:\(3\))?\s*\)$/;
+const NUMERIC_PHYSICAL_TYPE =
+  /^(integer|bigint|smallint|real|double precision|float|int|tinyint)/;
+const INTEGER_LITERAL = /^[-+]?\d+$/;
+const TEMPORAL_PHYSICAL_TYPE = /^(timestamp|time|date)/;
+const ISO_UTC_SUFFIX = /Z$/;
+const TEMPORAL_UTC_SUFFIX = /(?:Z|[+]00(?::00)?)$/;
+const MINUTE_CLOCK_SUFFIX = /(^| )(\d{2}:\d{2})(?=$|[+-])/;
+const TRAILING_FRACTION_ZEROES = /(\.\d*?)0+(?=$|[+-])/;
+const EMPTY_FRACTION = /\.(?=$|[+-])/;
 const BARE_FUNCTION_DEFAULT = /^[a-z_][a-z0-9_]*\(\)$/;
+const NUMBER_LITERAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+
+function stripDefaultParentheses(value: string): string {
+  let text = value.trim();
+  while (text.startsWith("(") && text.endsWith(")")) {
+    const structural = text.replace(
+      /'(?:[^']|'')*'|"(?:[^"]|"")*"/g,
+      (literal) => " ".repeat(literal.length)
+    );
+    let depth = 0;
+    let whole = true;
+    for (let index = 0; index < structural.length; index++) {
+      if (structural[index] === "(") depth++;
+      else if (structural[index] === ")") depth--;
+      if (depth === 0 && index < structural.length - 1) {
+        whole = false;
+        break;
+      }
+    }
+    if (!whole || depth !== 0) break;
+    text = text.slice(1, -1).trim();
+  }
+  return text;
+}
 
 export function normalizeDefault(
-  value: string | undefined
+  value: string | undefined,
+  type?: string
 ): string | undefined {
   if (value === undefined) return;
-  const normalized = value.trim().toLowerCase();
+  const spelling = stripDefaultParentheses(value);
+  const normalized = spelling.toLowerCase();
   if (normalized === "null") return;
-  if (normalized === "true" || normalized === "'t'" || normalized === "1") {
+  const utcNow = normalized
+    .replaceAll("::text", "")
+    .replaceAll("current_timestamp", "now()");
+  if (UTC_NOW_DEFAULT.test(utcNow)) return "now() at time zone 'utc'";
+  const truncated = MILLISECOND_NOW_DEFAULT.exec(utcNow);
+  if (truncated?.[1]) {
+    const clock = normalizeDefault(truncated[1], type);
+    if (clock === "now()" || clock === "now() at time zone 'utc'")
+      return `date_trunc('milliseconds',${clock})`;
+  }
+  if (UTC_CURRENT_TIME_DEFAULT.test(utcNow))
+    return utcNow.includes("current_time(3)")
+      ? "timezone('utc',current_time(3))"
+      : "timezone('utc',current_time)";
+  if (normalized === "current_timestamp" || normalized === "now()")
+    return "now()";
+  const boolean = type === undefined || normalizeType(type) === "boolean";
+  if (
+    boolean &&
+    (normalized === "true" || normalized === "'t'" || normalized === "1")
+  )
     return "true";
-  }
-  if (normalized === "false" || normalized === "'f'" || normalized === "0") {
+  if (
+    boolean &&
+    (normalized === "false" || normalized === "'f'" || normalized === "0")
+  )
     return "false";
+  if (BARE_FUNCTION_DEFAULT.test(normalized)) return normalized;
+  const unquoted =
+    normalized.startsWith("'") && normalized.endsWith("'")
+      ? normalized.slice(1, -1)
+      : normalized;
+  const physical = type === undefined ? "" : normalizeType(type);
+  if (spelling.startsWith("'") && spelling.endsWith("'")) {
+    const literal = spelling.slice(1, -1).replaceAll("''", "'");
+    if (physical.endsWith("[]")) {
+      const values = readArrayLiteralText(literal);
+      if (values)
+        return canonicalizeJsonText(
+          values.map((value) =>
+            value === null
+              ? null
+              : normalizeDefault(
+                  `'${(physical.slice(0, -2) === "boolean" && (value === "t" || value === "f") ? (value === "t" ? "true" : "false") : value).replaceAll("'", "''")}'`,
+                  physical.slice(0, -2)
+                )
+          )
+        );
+    }
+    if (physical === "json" || physical === "jsonb") {
+      try {
+        return canonicalizeJsonText(JSON.parse(literal));
+      } catch {
+        /* A SQL expression is not a JSON document literal. */
+      }
+    }
   }
-  if (BARE_FUNCTION_DEFAULT.test(normalized)) {
-    return normalized;
+  if (NUMERIC_PHYSICAL_TYPE.test(physical) && NUMBER_LITERAL.test(unquoted)) {
+    return INTEGER_LITERAL.test(unquoted)
+      ? BigInt(unquoted).toString()
+      : String(Number(unquoted));
   }
-  return value;
+  if (
+    TEMPORAL_PHYSICAL_TYPE.test(physical) &&
+    spelling.startsWith("'") &&
+    spelling.endsWith("'")
+  ) {
+    let temporal = spelling
+      .slice(1, -1)
+      .replace("T", " ")
+      .replace(ISO_UTC_SUFFIX, "+00:00");
+    const era = temporal.endsWith(" BC") ? " BC" : "";
+    if (era) temporal = temporal.slice(0, -3);
+    if (
+      physical.includes("with time zone") &&
+      physical.startsWith("timestamp")
+    ) {
+      const instant = decodeProviderTimestamp(`${temporal}${era}`);
+      if (instant) return instant.toISOString();
+    }
+    temporal = temporal
+      .replace(TEMPORAL_UTC_SUFFIX, "")
+      .replace(MINUTE_CLOCK_SUFFIX, "$1$2:00")
+      .replace(TRAILING_FRACTION_ZEROES, "$1")
+      .replace(EMPTY_FRACTION, "");
+    return `${temporal}${era}`;
+  }
+  return spelling;
 }
 
 export function canonicalValue(value: unknown): unknown {

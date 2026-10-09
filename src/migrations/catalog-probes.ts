@@ -1,3 +1,4 @@
+import { renderQualifiedIdentifier } from "../sql/identifiers";
 /**
  * Driver catalog probes. These are the only checks the ORM proves read-only.
  * Manual trusted-read checks are a different arm.
@@ -237,15 +238,31 @@ export function probeForGeneratedStatement(
           "stored-artifact"
         ),
       };
-    case "addColumn":
+    case "addColumn": {
+      const pre = columnExistsProbe(
+        driver,
+        operation.tableName,
+        operation.column.name,
+        false,
+        "stored-artifact"
+      );
+      const required =
+        !operation.column.nullable &&
+        operation.column.default === undefined &&
+        !operation.column.autoIncrement;
+      const table = renderQualifiedIdentifier(
+        (name) => driver.escapeIdentifier(name),
+        driver.dialect === "postgresql" ? namespace(driver) : undefined,
+        operation.tableName
+      );
       return {
-        pre: columnExistsProbe(
-          driver,
-          operation.tableName,
-          operation.column.name,
-          false,
-          "stored-artifact"
-        ),
+        pre: required
+          ? {
+              ...pre,
+              id: `column:absent-and-empty-table:${operation.tableName}.${operation.column.name}`,
+              sql: `SELECT (${pre.sql.slice("SELECT ".length)}) OR EXISTS (SELECT 1 FROM ${table} LIMIT 1)`,
+            }
+          : pre,
         post: columnExistsProbe(
           driver,
           operation.tableName,
@@ -254,6 +271,7 @@ export function probeForGeneratedStatement(
           "stored-artifact"
         ),
       };
+    }
     case "dropColumn":
       return {
         pre: columnExistsProbe(

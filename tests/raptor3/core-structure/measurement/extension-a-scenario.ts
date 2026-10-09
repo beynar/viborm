@@ -1,5 +1,7 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { ASSERTION_MARKER } from "@drivers/error-mapping";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import { v } from "@validation";
 import { isRecord } from "@validation/value-guards";
@@ -142,7 +144,9 @@ export function extensionAScenario(
         const admission = nestedAdmission;
         nestedAdmission += 1;
         const member =
-          admission - recipe.rootCount - 1 +
+          admission -
+          recipe.rootCount -
+          1 +
           (recipe.nestedShape === "deleteMany" ? 1 : 0);
         controls.recordCut(
           admission === 0
@@ -305,9 +309,7 @@ export function extensionAScenario(
         : {
             where: { tenant: "t" },
             data: {
-              ...(movesCompoundKeys
-                ? { serial: { increment: 100 } }
-                : {}),
+              ...(movesCompoundKeys ? { serial: { increment: 100 } } : {}),
               label: "root-written",
               rootToken: "admitted",
               children: nested,
@@ -339,8 +341,7 @@ export function extensionAScenario(
               "admit:nested-template",
               ...Array.from(
                 { length: recipe.rootCount },
-                (_, member) =>
-                  `admit:nested-template/root-member/${member}`
+                (_, member) => `admit:nested-template/root-member/${member}`
               ),
             ]
           : []),
@@ -504,10 +505,43 @@ export function extensionAScenario(
             candidateFactory,
             "CS-03 extension campaigns require one candidate engine"
           );
-          return await candidateFactory({
-            schema: isSingle ? { node } : { parent, child },
-            driver,
-          }).execute(isSingle ? "node" : "parent", "updateMany", args);
+          const originalAdmission = EngineSchema.prototype.admit;
+          const restores: (() => void)[] = [];
+          const observed = new Set<EngineSchema>();
+          EngineSchema.prototype.admit = function (
+            this: EngineSchema,
+            model,
+            operation,
+            input
+          ) {
+            if (recipe.nestedShape === "deleteMany" && !observed.has(this)) {
+              observed.add(this);
+              const target = this.schema[isSingle ? "node" : "child"]!;
+              const standard =
+                this.registry.getModelSchemas(target).scalars.deleteGroup!
+                  .filter["~standard"];
+              const validate = standard.validate;
+              Reflect.set(standard, "validate", (value: unknown) => {
+                const result = validate(value);
+                if (!result.issues && value === "deletable")
+                  admitNestedMember(value);
+                return result;
+              });
+              restores.push(() => {
+                Reflect.set(standard, "validate", validate);
+              });
+            }
+            return originalAdmission.call(this, model, operation, input);
+          };
+          try {
+            return await candidateFactory({
+              schema: isSingle ? { node } : { parent, child },
+              driver,
+            }).execute(isSingle ? "node" : "parent", "updateMany", args);
+          } finally {
+            for (const restore of restores) restore();
+            EngineSchema.prototype.admit = originalAdmission;
+          }
         },
         inspect(database) {
           return isSingle ? inspectSingle(database) : inspectCompound(database);

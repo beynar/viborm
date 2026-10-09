@@ -874,8 +874,8 @@ describe("Deeply Nested Updates", () => {
         data: {
           name: "Alice Updated",
           posts: {
-            create: { id: "new-post", title: "New" },
             deleteMany: { published: false },
+            create: { id: "new-post", title: "New" },
           },
         },
       });
@@ -913,9 +913,9 @@ describe("Deeply Nested Updates", () => {
         where: { id: "author-1" },
         data: {
           posts: {
+            set: { id: "retained-post" },
             create: { id: "new-post", title: "New" },
             connect: { id: "existing-post" },
-            set: { id: "retained-post" },
           },
         },
       });
@@ -1040,8 +1040,8 @@ describe("Complex Combined Queries", () => {
         update: {
           name: "Alice Updated",
           posts: {
-            create: { id: "post-3", title: "Third" },
             set: { id: "post-1" },
+            create: { id: "post-3", title: "Third" },
           },
         },
       });

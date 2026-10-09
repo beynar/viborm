@@ -30,7 +30,7 @@ export const REJECTED_DECIMAL_MODE_MEMBERS = [
 ] as const;
 
 export const DECIMAL_FLOAT_TRANSPORT_EXEMPTIONS = [
-  "src/migrations/decimal.ts readStoredDecimalInteger Number(value)",
+  "src/validation/primitives/decimal-codec.ts readStoredDecimalInteger Number(value)",
   // `toNumber()` is the value type's documented float boundary: an application
   // asking for a double gets the double its canonical text names, and nothing
   // in VibORM calls it. The conversion is the method's entire purpose, so the
@@ -46,6 +46,11 @@ export const DECIMAL_FLOAT_TRANSPORT_EXEMPTIONS = [
   // Exempted by exact spelling: any OTHER Number() in that file still counts,
   // and so does a second use of this one.
   "src/migrations/drivers/mysql/introspect.ts readSrid Number(col.SRS_ID)",
+  // SQLite catalog flags describe nullability and primary-key position, not
+  // decimal values. Each exact call is permitted once in the storage owner;
+  // an amount conversion or a duplicate flag conversion still fails.
+  "src/adapters/databases/sqlite/storage/runtime-check.ts sqliteStorageCheck Number(row.notnull)",
+  "src/adapters/databases/sqlite/storage/runtime-check.ts sqliteStorageCheck Number(row.pk)",
 ] as const;
 
 export const REJECTED_DECIMAL_FLOAT_TRANSPORT_TOKENS = [

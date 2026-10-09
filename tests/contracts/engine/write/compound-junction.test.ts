@@ -1,10 +1,7 @@
-import { UniqueConstraintError } from "@errors";
+import { UnsupportedOperationError } from "@errors";
 import { s } from "@schema";
 import { usePGliteSchemaFamily } from "@tests/fixtures/drivers/pglite";
-import {
-  captureDroppedSkipWarnings,
-  droppedSkipWarning,
-} from "@tests/fixtures/dropped-skip-warning";
+import { captureDroppedSkipWarnings } from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test } from "vitest";
 
 // G3P-04 admits root-conflict suppression only where the operation owns the
@@ -500,10 +497,8 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       // G3P-04: on the atomic batch the skip is dropped, so the first conflicting
       // row fails the whole batch: no book is created and no membership written.
       if (mode === "atomicBatch") {
-        await expect(link()).rejects.toBeInstanceOf(UniqueConstraintError);
-        expect(droppedSkipWarnings("author")).toEqual([
-          droppedSkipWarning("pglite", "author.update"),
-        ]);
+        await expect(link()).rejects.toBeInstanceOf(UnsupportedOperationError);
+        expect(droppedSkipWarnings("author")).toEqual([]);
         expect(await booksOf("t1", "owner")).toEqual([]);
         await expect(
           client.book.findUnique({ where: bookKey("fresh", "created") })
@@ -663,10 +658,8 @@ for (const mode of ["transaction", "atomicBatch"] as const) {
       // dropped and the conflicting member fails the whole batch; the end state
       // below is the same one the transaction reaches by suppressing the row.
       if (mode === "atomicBatch") {
-        await expect(link()).rejects.toBeInstanceOf(UniqueConstraintError);
-        expect(droppedSkipWarnings("catalog")).toEqual([
-          droppedSkipWarning("pglite", "catalog.update"),
-        ]);
+        await expect(link()).rejects.toBeInstanceOf(UnsupportedOperationError);
+        expect(droppedSkipWarnings("catalog")).toEqual([]);
       } else {
         await link();
       }

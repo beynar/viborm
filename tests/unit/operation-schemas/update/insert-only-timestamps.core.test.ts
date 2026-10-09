@@ -120,7 +120,7 @@ describe("insert-only timestamps: create positions", () => {
     if (result.issues) throw new Error(result.issues[0]!.message);
     expect(result.value.createdAt).toBe(CREATED);
     expect(result.value.bornOn).toBeNull();
-    expect(result.value.openedAt).toBe("10:30:00");
+    expect(result.value.openedAt).toBe("10:30:00.000");
   });
 
   test("createMany, nested create, upsert.create and connectOrCreate.create stay insert contexts", () => {

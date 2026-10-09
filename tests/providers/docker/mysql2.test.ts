@@ -126,7 +126,7 @@ describeIf("MySQL2 Driver", () => {
       getAggregateResultKey("_max"),
     ];
     const projections = aliases.map((alias, index) =>
-      driver.adapter.identifiers.aliased(sql.raw`${index + 1}`, alias)
+      driver.adapter.identifiers.aliased(sql.raw(String(index + 1)), alias)
     );
 
     try {
@@ -175,10 +175,10 @@ describeIf("MySQL2 Driver", () => {
       for (const [longitude, latitude, expected] of cases) {
         const storedPoint = geoPoint.value(sql`${longitude}`, sql`${latitude}`);
         const membership = geoPoint.withinPolygon(storedPoint, polygon.value);
-        const result = await driver._execute<{ inside: number }>(
+        const result = await driver._execute<{ inside: number | string }>(
           sql`SELECT ${membership} AS inside`
         );
-        expect(result.rows[0]?.inside).toBe(expected);
+        expect(String(result.rows[0]?.inside)).toBe(String(expected));
       }
 
       for (const [longitude, expected] of [
@@ -193,10 +193,53 @@ describeIf("MySQL2 Driver", () => {
           north: 10,
           east: -170,
         });
-        const result = await driver._execute<{ inside: number }>(
+        const result = await driver._execute<{ inside: number | string }>(
           sql`SELECT ${membership} AS inside`
         );
-        expect(result.rows[0]?.inside).toBe(expected);
+        expect(String(result.rows[0]?.inside)).toBe(String(expected));
+      }
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  test("wide geographic bounds and their negation retain coordinate membership", async () => {
+    const driver = createMySQL2Driver();
+    const geoPoint = driver.adapter.geoPoint;
+    if (!geoPoint) throw new Error("Expected MySQL GeoPoint support");
+    const bounds: readonly (readonly [number, number])[] = [
+      [-90, 90],
+      [-170, 170],
+      [-180, 180],
+      [170, -170],
+    ];
+    try {
+      for (const [west, east] of bounds) {
+        for (const longitude of [-179, -170, -90, 0, 90, 170, 179]) {
+          for (const latitude of [-11, 0, 11]) {
+            const stored = geoPoint.value(sql`${longitude}`, sql`${latitude}`);
+            const membership = geoPoint.withinBounds(stored, {
+              west,
+              east,
+              south: -10,
+              north: 10,
+            });
+            const expected =
+              latitude >= -10 &&
+              latitude <= 10 &&
+              (west <= east
+                ? longitude >= west && longitude <= east
+                : longitude >= west || longitude <= east);
+            const result = await driver._execute<{
+              inside: number | string;
+              outside: number | string;
+            }>(
+              sql`SELECT ${membership} AS inside, NOT (${membership}) AS outside`
+            );
+            expect(String(result.rows[0]?.inside)).toBe(expected ? "1" : "0");
+            expect(String(result.rows[0]?.outside)).toBe(expected ? "0" : "1");
+          }
+        }
       }
     } finally {
       await driver.disconnect();
@@ -242,7 +285,11 @@ describeIf("MySQL2 Driver", () => {
           sql`EXPLAIN FORMAT=JSON ${statement}`
         );
         const document = JSON.parse(result.rows[0]?.EXPLAIN ?? "null");
-        return document.query_block?.table;
+        const table =
+          document.query_block?.ordering_operation?.table ??
+          document.query_block?.table;
+        expect(table).toBeDefined();
+        return table;
       };
 
       for (const where of [
@@ -1147,7 +1194,8 @@ describeIf("MySQL namespace containment", () => {
       schema: noteSchema,
       driver: crossTargetDriver(BETA_DB),
     });
-    await syncLiveSchema(second);
+    // The beta sentinel belongs to the containment witness, outside this estate.
+    await syncLiveSchema(second, { tables: ["ns_notes"] });
     await second.note.create({ data: { id: "b1", title: "beta copy" } });
     expect(
       (await second.note.findMany({})).map((row: { id: string }) => row.id)

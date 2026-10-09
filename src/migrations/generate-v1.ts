@@ -26,10 +26,16 @@ import { emptyManagedSnapshot } from "./empty-snapshot";
 import { normalizeGenerateOptions } from "./generate-input";
 import { loadMigrationGraph, type MigrationGraph } from "./graph";
 import type { Sha256 } from "./identity";
+import { renderMigrationReview } from "./public-view";
+import {
+  applyResolvedEnumMappings,
+  detectEnumValueRemovals,
+  resolveEnumValueRemovalMappings,
+} from "./push/enum-removals";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import {
-  alwaysAddDropResolver,
   callbackAsResolver,
+  rejectAllResolver,
   resolveAmbiguousChanges,
   strictResolver,
 } from "./resolver";
@@ -68,7 +74,13 @@ export interface GenerateV1Result {
   readonly snapshotHash: Sha256 | null;
   readonly sqlHash: Sha256 | null;
   readonly operations: readonly DiffOperation[];
+  readonly warnings: readonly string[];
+  readonly operationsByParent: readonly {
+    readonly fromState: string | null;
+    readonly operations: readonly DiffOperation[];
+  }[];
   readonly sql: string;
+  readonly reviewSql: string;
 }
 
 const AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS: DiffOptions = {
@@ -114,7 +126,12 @@ export async function generateV1(
   const assembly = new SqlAssembly();
   const parentBodies: Omit<MigrationParentTransitionV1, "transitionHash">[] =
     [];
-  let reported: DiffOperation[] = [];
+  const reported: DiffOperation[] = [];
+  const warnings: string[] = [];
+  const operationsByParent: {
+    fromState: string | null;
+    operations: DiffOperation[];
+  }[] = [];
   const destinationPlaceholders: MigrationBooleanCheckV1[] = [];
 
   if (request.manualMigration) {
@@ -161,24 +178,33 @@ export async function generateV1(
           ? emptyManagedSnapshot()
           : (loaded.snapshots.get(loaded.states.get(from)!.snapshotHash) ??
             emptyManagedSnapshot());
-      const diffed = await diff(
-        current,
-        desired,
-        AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS
-      );
+      const diffOptions = {
+        ...AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS,
+        projectRename: driver.projectNativeRename.bind(driver),
+        refuseConstraintNameChurn:
+          driver.capabilities.introspectionReadsConstraintNames,
+      };
+      const diffed = await diff(current, desired, diffOptions);
       const resolved = await resolveAmbiguousChanges(
         diffed,
         current,
         desired,
-        request.resolve
-          ? callbackAsResolver(request.resolve)
-          : parents.length > 1
-            ? alwaysAddDropResolver
-            : strictResolver,
-        AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS
+        request.resolve ? callbackAsResolver(request.resolve) : strictResolver,
+        diffOptions
       );
-      const staged = prepareSchemaProgram(resolved, current, driver);
-      if (from === parents[0]) reported = staged;
+      const enumMappings = await resolveEnumValueRemovalMappings(
+        detectEnumValueRemovals(resolved, current),
+        request.resolve ?? rejectAllResolver,
+        false
+      );
+      const withEnumMappings = resolved.map((operation) =>
+        operation.type === "alterEnum"
+          ? applyResolvedEnumMappings([operation], enumMappings)[0]!
+          : operation
+      );
+      const staged = prepareSchemaProgram(withEnumMappings, current, driver);
+      reported.push(...staged);
+      operationsByParent.push({ fromState: from, operations: staged });
       const compiled = compileGeneratedTransition(
         staged,
         driver,
@@ -187,6 +213,9 @@ export async function generateV1(
         desired,
         assembly
       );
+      warnings.push(...(compiled.warnings ?? []));
+      if (compiled.rollback.kind === "irreversible")
+        warnings.push(compiled.rollback.reason);
       parentBodies.push(sealParent(from, compiled));
     }
   }
@@ -226,7 +255,10 @@ export async function generateV1(
       snapshotHash: desiredEncoded.snapshotHash,
       sqlHash: null,
       operations: [],
+      warnings: [],
+      operationsByParent: [],
       sql: "",
+      reviewSql: "",
     };
   }
 
@@ -241,6 +273,11 @@ export async function generateV1(
   };
   const encoded = encodeStateManifest(withoutId);
   const sqlText = new TextDecoder().decode(sealed.bytes);
+  const reviewSql = renderMigrationReview(
+    hashedParents,
+    rebindChecks(destinationPlaceholders, sealed.dispatches),
+    sealed.bytes
+  );
   if (request.dryRun) {
     return {
       outcome: "preview",
@@ -250,7 +287,10 @@ export async function generateV1(
       snapshotHash: desiredEncoded.snapshotHash,
       sqlHash: sealed.sqlHash,
       operations: reported,
+      warnings,
+      operationsByParent,
       sql: sqlText,
+      reviewSql,
     };
   }
 
@@ -271,7 +311,10 @@ export async function generateV1(
     snapshotHash: desiredEncoded.snapshotHash,
     sqlHash: sealed.sqlHash,
     operations: reported,
+    warnings,
+    operationsByParent,
     sql: sqlText,
+    reviewSql,
   };
 }
 

@@ -10,9 +10,9 @@ import {
   type DecimalDescriptor,
   decimalColumnType,
 } from "@validation/primitives/decimal-codec";
+import { SQLITE_GEO_POINT_TYPE } from "../../adapters/databases/sqlite/storage/geo-point";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { SQLITE_DECIMAL_LIST_TYPE } from "../decimal";
-import { SQLITE_GEO_POINT_TYPE } from "./sqlite/geo-point";
 
 // =============================================================================
 // TYPE MAPPING CONSTANTS
@@ -27,11 +27,11 @@ export const PG_TYPE_DEFAULTS = {
   int: PG.INT.INTEGER.type,
   number: PG.FLOAT.DOUBLE_PRECISION.type,
   boolean: PG.BOOLEAN.BOOLEAN.type,
-  datetime: "timestamp",
-  datetimetz: "timestamptz",
+  datetime: PG.DATETIME.TIMESTAMP(3).type,
+  datetimetz: PG.DATETIME.TIMESTAMPTZ(3).type,
   date: PG.DATETIME.DATE.type,
-  time: "time",
-  timetz: "timetz",
+  time: PG.DATETIME.TIME(3).type,
+  timetz: PG.DATETIME.TIMETZ(3).type,
   bigint: PG.BIGINT.BIGINT.type,
   json: PG.JSON.JSONB.type,
   blob: PG.BLOB.BYTEA.type,
@@ -147,6 +147,95 @@ export function mysqlStringLiteral(value: string): string {
     escaped += MYSQL_LITERAL_ESCAPES.get(character) ?? character;
   }
   return `'${escaped.replace(/'/g, "''")}'`;
+}
+
+const ENUM_VALUES_REGEX = /enum\((.+)\)/i;
+
+/**
+ * What MySQL's printer writes, read backwards: the WRITE table
+ * (`mysqlStringLiteral`) inverted, plus the apostrophe, which MySQL prints as
+ * `\'` although the DDL spelling doubles it instead. Every other character —
+ * tab, backspace, `"` — is printed raw (measured on 8.4.11), so an escape
+ * outside this table is one this inverse does not own.
+ *
+ * ONE table, both catalog vocabularies, because both are MySQL printing a
+ * string literal it parsed: the expression default below, and an ENUM's members
+ * inside `COLUMN_TYPE`. The enum printer writes a strict SUBSET of it (`\\`,
+ * `\n`, `\r`, `\0`; it doubles `'` and prints ctrl-Z raw, measured), so reading
+ * one table backwards covers both and leaves the same remainder unowned.
+ */
+export const MYSQL_PRINTED_CHARACTERS: ReadonlyMap<string, string> = new Map([
+  ["'", "'"],
+  ...[...MYSQL_LITERAL_ESCAPES].map(
+    ([character, sequence]) =>
+      [sequence.slice(1), character] as [string, string]
+  ),
+]);
+
+/**
+ * Parse enum values from MySQL COLUMN_TYPE string, or `null` when the catalog
+ * spelled one this inverse does not own.
+ *
+ * Handles values containing commas, doubled single quotes (''), and the
+ * backslash escapes MySQL's printer writes (`MYSQL_PRINTED_CHARACTERS`).
+ * Example: "enum('a,b','it''s','c')" -> ['a,b', "it's", 'c']
+ * Example: String.raw`enum('a\\b','line1\nline2')` -> ["a\\b", "line1\nline2"]
+ *
+ * Reading `\x` as a bare `x` — which is what "skip the backslash" does — turned
+ * the printed `\n` of a declared NEWLINE into the letter `n`, a value the
+ * declaration never held. An escape outside the table is not one this server
+ * printed for a member the estate spelled, so inverting it would be a guess:
+ * the column keeps MySQL's own `COLUMN_TYPE` instead and the push fails at the
+ * final attestation, the same fail-closed direction the string inverse takes.
+ */
+export function parseMySqlEnumValues(columnType: string): string[] | null {
+  const match = columnType.match(ENUM_VALUES_REGEX);
+  if (!match?.[1]) return null;
+
+  const content = match[1];
+  const values: string[] = [];
+  let i = 0;
+
+  while (i < content.length) {
+    // Skip whitespace and commas
+    while (i < content.length && (content[i] === " " || content[i] === ",")) {
+      i++;
+    }
+    if (i >= content.length) break;
+
+    // Expect opening quote
+    if (content[i] !== "'") {
+      i++;
+      continue;
+    }
+    i++; // Skip opening quote
+
+    // Collect value until closing quote (handle escaped quotes '' and \')
+    let value = "";
+    while (i < content.length) {
+      if (content[i] === "\\" && i + 1 < content.length) {
+        // Backslash escape - the character MySQL's printer wrote it for
+        const printed = MYSQL_PRINTED_CHARACTERS.get(content[i + 1] ?? "");
+        if (printed === undefined) return null;
+        value += printed;
+        i += 2;
+      } else if (content[i] === "'" && content[i + 1] === "'") {
+        // Doubled quote escape - add single quote and skip both
+        value += "'";
+        i += 2;
+      } else if (content[i] === "'") {
+        // Closing quote
+        i++;
+        break;
+      } else {
+        value += content[i];
+        i++;
+      }
+    }
+    values.push(value);
+  }
+
+  return values.length > 0 ? values : null;
 }
 
 // =============================================================================

@@ -62,7 +62,20 @@ export class CommandExecution {
     this.commands = commands;
     this.context = commands.context;
     this.#currentAttempt = new CommandAttempt(this.context.transportAttempt);
-    this.context.attachRecovery(() => this.#replaceRegions());
+    this.context.attachRecovery(
+      () => this.#replaceRegions(),
+      (error) => {
+        const producer = this.context.rejectedProducer(error);
+        const choice = producer
+          ? this.attempt.missingChoices.get(producer)
+          : undefined;
+        return Boolean(
+          choice &&
+            error instanceof UniqueConstraintError &&
+            this.#matchesSelectedConstraint(choice, error)
+        );
+      }
+    );
   }
   /**
    * The ONE recovery method: both attempt regions replaced synchronously, with
@@ -331,10 +344,7 @@ export class CommandExecution {
    * placement — a junction's captured pair is not the holder's own field, and a
    * child-held arm's value is written by the arm, not by the row above it.
    */
-  #spentByHolder(
-    command: Choose,
-    enclosing: Command | undefined
-  ): string[] {
+  #spentByHolder(command: Choose, enclosing: Command | undefined): string[] {
     if (enclosing?.kind !== "record") return [];
     const spent: string[] = [];
     for (const value of enclosing.fields.contributions().values())
@@ -1166,6 +1176,33 @@ export class CommandExecution {
     const ctx = this.context;
     const members = ctx.prepareMembers(() => records, member);
     const identities: Input[] = [];
+    const first = members[0];
+    const columns = first?.command.fields.writtenFields() ?? [];
+    if (
+      !identified &&
+      members.length > 1 &&
+      first &&
+      members.every(
+        ({ command, children, refusal }) =>
+          command.model === first.command.model &&
+          command.fields.operation === "create" &&
+          command.fields.demands.size === 0 &&
+          command.fields.writtenFields().length === columns.length &&
+          command.fields
+            .writtenFields()
+            .every((field, index) => field === columns[index]) &&
+          !command.suppression &&
+          !command.located &&
+          children.length === 0 &&
+          refusal === undefined
+      )
+    ) {
+      const count = await ctx.insertMany(first.command.model, () => {
+        for (const { command } of members) command.fields.activate();
+        return members.map(({ command }) => this.stored(command.fields));
+      });
+      if (count !== undefined) return { count, identities };
+    }
     let count = 0;
     for (const record of members) {
       const command = record.command;
@@ -1216,6 +1253,16 @@ export class CommandExecution {
     record: CommandOccurrence<RecordCommand>
   ): Promise<void> {
     const command = record.command;
+    // A duplicate on a singular variant is a no-op, not an ownership transfer.
+    if (
+      record.children.some(
+        ({ command }) =>
+          command.kind === "link" &&
+          command.edge.scope.edge.kind === "variantJunctionCarrier" &&
+          command.edge.uniqueSide !== undefined
+      )
+    )
+      return;
     for (const child of record.children)
       if (
         child.command.kind !== "link" &&
@@ -1236,9 +1283,7 @@ export class CommandExecution {
    * name none — the shipped disposition's `spelled.length !== 1` suppression
    * (`junction-create-many-routing.ts:121-124`).
    */
-  async #locateSuppressed(
-    command: RecordCommand
-  ): Promise<Input | undefined> {
+  async #locateSuppressed(command: RecordCommand): Promise<Input | undefined> {
     const ctx = this.context;
     // A NULL is not a spelling: it equals no row, so a key holding one names
     // none (the shipped disposition's own `value !== undefined && value !==
@@ -1247,7 +1292,12 @@ export class CommandExecution {
       const values: Input = {};
       for (const field of fields) {
         const known = command.fields.known(field);
-        if (known?.kind !== "literal" || known.value === null) return undefined;
+        if (
+          !command.fields.isRequested(field) ||
+          known?.kind !== "literal" ||
+          known.value === null
+        )
+          return undefined;
         values[field] = known.value;
       }
       return values;

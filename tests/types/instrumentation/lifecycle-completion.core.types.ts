@@ -1,6 +1,7 @@
 import type {
   CacheCompletionFacts,
   CacheUnitFacts,
+  LifecycleFacts,
   OfficialLifecycleCompletionFacts,
   OperationFacts,
   StatementFacts,
@@ -16,7 +17,10 @@ type Expect<Value extends true> = Value;
 
 type CompletionKind = OfficialLifecycleCompletionFacts["kind"];
 type _completionKindsStayCorrelated = Expect<
-  Equal<CompletionKind, "operation" | "statement" | "cache">
+  Equal<
+    CompletionKind,
+    "operation" | "statement" | "cache" | "driver-lifecycle"
+  >
 >;
 type _operationStartAndCompletionKindsMatch = Expect<
   Equal<
@@ -69,4 +73,17 @@ if (completion.kind === "cache") {
   completion.outcomes;
   // @ts-expect-error - cache completion cannot be read as statement completion
   completion.endedAt;
+}
+
+type _driverLifecycleKindsMatch = Expect<
+  Equal<
+    LifecycleFacts["kind"],
+    NonNullable<ReturnType<LifecycleFacts["complete"]>>["kind"]
+  >
+>;
+
+if (completion.kind === "driver-lifecycle") {
+  completion.failure;
+  // @ts-expect-error - lifecycle completion cannot carry cache outcomes
+  completion.outcomes;
 }

@@ -1,5 +1,3 @@
-// biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
-
 import { VibORM } from "@client/client";
 // biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
 import * as drivers from "@drivers";
@@ -85,8 +83,10 @@ describe("driver runtime export surface", () => {
       "TransactionError",
       "UniqueConstraintError",
       "isRetryableError",
+      "sqliteResultParser",
     ]);
     expect(driverBase.Driver).toBe(Driver);
+    expect(driverBase.sqliteResultParser).toBe(sqliteResultParser);
   });
 
   test("the aggregate driver barrel exposes every shipped runtime driver", () => {

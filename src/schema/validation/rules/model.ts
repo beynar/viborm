@@ -2,8 +2,10 @@
 
 import { validateSchema } from "../../../validation/primitives/helpers";
 import { isValidSchemaIdentifier } from "../../identifier";
+import { jsonNullKindOf } from "../../json-null";
 import type { Model, ModelState } from "../../model";
 import { getAmbiguousPublicSelectorNames } from "../../model/keys";
+import { isGeneratorDefault } from "../../scalars/common";
 import type { Schema, SchemaValidationIssue } from "../types";
 import { getScalars } from "./model-members";
 
@@ -24,58 +26,6 @@ function validateFieldNames(
   }
   return errors;
 }
-
-const RESERVED = new Set([
-  "model",
-  "field",
-  "relation",
-  "index",
-  "unique",
-  "table",
-  "column",
-  "key",
-  "primary",
-  "foreign",
-  "constraint",
-  "default",
-  "null",
-  "not",
-  "and",
-  "or",
-  "select",
-  "from",
-  "where",
-  "order",
-  "group",
-  "by",
-  "having",
-  "limit",
-  "offset",
-  "join",
-  "inner",
-  "left",
-  "right",
-  "outer",
-  "on",
-  "as",
-  "distinct",
-  "all",
-  "any",
-  "exists",
-  "in",
-  "between",
-  "like",
-  "is",
-  "true",
-  "false",
-  "insert",
-  "update",
-  "delete",
-  "create",
-  "drop",
-  "alter",
-  "truncate",
-]);
 
 // =============================================================================
 // MODEL RULES (M001-M006)
@@ -139,17 +89,17 @@ export function modelMappedNameValid(
   return [];
 }
 
-/** M006: Model name cannot be reserved */
+/** M006: A model must not occupy the client Promise-assimilation hook. */
 export function modelNameNotReserved(
   _s: Schema,
   name: string,
   _m: Model<any>
 ): SchemaValidationIssue[] {
-  if (RESERVED.has(name.toLowerCase())) {
+  if (name === "then") {
     return [
       {
         code: "M006",
-        message: `'${name}' is a reserved word`,
+        message: `Model 'then' conflicts with the client's Promise-assimilation hook; rename the model key and use .map("then") to retain the table name`,
         severity: "error",
         model: name,
       },
@@ -233,7 +183,21 @@ export function validateFieldsSinglePass(
       typeof st.default !== "function" &&
       st.type !== "decimal"
     ) {
-      const result = validateSchema(scalar["~"].state.base, st.default);
+      const jsonKind =
+        st.type === "json" ? jsonNullKindOf(st.default) : undefined;
+      const result =
+        jsonKind === undefined
+          ? validateSchema(scalar["~"].state.base, st.default)
+          : jsonKind === "JsonNull" || (jsonKind === "DbNull" && st.nullable)
+            ? { value: st.default, issues: undefined }
+            : {
+                issues: [
+                  {
+                    message:
+                      "JSON default names a null this column cannot store",
+                  },
+                ],
+              };
       if (result.issues) {
         errors.push({
           code: "F004",
@@ -267,11 +231,14 @@ export function validateFieldsSinglePass(
       });
     }
 
-    // F008: Auto only on ID
-    if (st.autoGenerate && !st.isId) {
+    // F008: Surface actual generated defaults on non-key fields.
+    if (
+      !st.isId &&
+      (st.autoGenerate?.kind === "increment" || isGeneratorDefault(st.default))
+    ) {
       errors.push({
         code: "F008",
-        message: `Auto-generate on '${fname}' in '${name}' requires .id()`,
+        message: `Generated default on non-key '${fname}' in '${name}'; verify generation is intended`,
         severity: "warning",
         model: name,
         field: fname,

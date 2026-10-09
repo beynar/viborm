@@ -1,25 +1,25 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
-import type {
-  BatchQuery,
-  QueryExecutionContext,
-  QueryResult,
-} from "@drivers";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import {
-  QueryEngineError,
+  QueryError,
   TransactionError,
   UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import type { PreparedBatchOperation } from "@query-engine/types";
 import { s } from "@schema";
-import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { isRecord } from "@validation/value-guards";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
+
+const OMITTED_PREPARED_RESULT = /omitted the prepared result/;
+const SELECT_STATEMENT = /^SELECT\b/i;
 
 const PARENT_INSERT = /^INSERT INTO "g3_author_execution_parents"/;
 
@@ -30,7 +30,7 @@ class ObservedSQLiteDriver extends SQLite3Driver {
     client: Database.Database,
     statement: string,
     parameters: unknown[],
-    context?: QueryExecutionContext
+    _context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     this.statements.push(statement);
     return super.execute<T>(client, statement, parameters);
@@ -146,7 +146,10 @@ function executionSchema() {
       id: s.int().id(),
       label: s.string(),
       parentId: s.int(),
-      parent: s.toOne(() => parent).fields("parentId").references("id"),
+      parent: s
+        .toOne(() => parent)
+        .fields("parentId")
+        .references("id"),
     })
     .map("g3_author_execution_left_children");
   const rightChild = s
@@ -154,14 +157,17 @@ function executionSchema() {
       id: s.int().id(),
       label: s.string(),
       parentId: s.int(),
-      parent: s.toOne(() => parent).fields("parentId").references("id"),
+      parent: s
+        .toOne(() => parent)
+        .fields("parentId")
+        .references("id"),
     })
     .map("g3_author_execution_right_children");
   return { leftChild, parent, record, rightChild };
 }
 
 function failureObservation(failure: unknown): object {
-  if (failure instanceof QueryEngineError)
+  if (failure instanceof QueryError)
     return {
       name: failure.name,
       code: failure.code,
@@ -239,20 +245,26 @@ describe("G3-02 author execution regressions", () => {
       assert.equal(loneDriver.corrupted, true, loneDiagnostic);
       assert.equal(loneDriver.statements.length, 1, loneDiagnostic);
       assert.equal(loneDriver.batchCalls, 0, loneDiagnostic);
-      assert(loneFailure instanceof QueryEngineError, loneDiagnostic);
+      assert(loneFailure instanceof QueryError, loneDiagnostic);
       assert.equal(
         loneFailure.code,
-        VibORMErrorCode.INTERNAL_ERROR,
+        VibORMErrorCode.QUERY_RESULT_INVALID,
         loneDiagnostic
       );
       assert.equal(
         loneFailure.message,
-        'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
+        'The "createMany" result is incompatible with the int scalar domain: the value is not a canonical integer.',
         loneDiagnostic
       );
       assert.deepEqual(
         { ...loneFailure.meta },
-        { driver: "sqlite3", operation: "createMany", scalarType: "int" },
+        {
+          driver: "sqlite3",
+          model: "record",
+          operation: "createMany",
+          scalarType: "int",
+          reason: "the value is not a canonical integer",
+        },
         loneDiagnostic
       );
       // Statement-atomic: the write committed with its own statement and the
@@ -360,10 +372,10 @@ describe("G3-02 author execution regressions", () => {
         queries.some(({ sql }) => PARENT_INSERT.test(sql))
       );
       assert(writeWindow && writeWindow.length > 1, batchDiagnostic);
-      assert(batchFailure instanceof QueryEngineError, batchDiagnostic);
+      assert(batchFailure instanceof QueryError, batchDiagnostic);
       assert.equal(
         batchFailure.message,
-        'Driver "sqlite3" returned a malformed int scalar for operation "createMany": the value is not a canonical integer.',
+        'The "createMany" result is incompatible with the int scalar domain: the value is not a canonical integer.',
         batchDiagnostic
       );
       // The same progress this transport always had, one member earlier: both
@@ -468,7 +480,7 @@ describe("G3-02 author execution regressions", () => {
         () => prepared!.parseResult(driver.batchResults[0]!.slice(0, -1)),
         (failure) => {
           assert(failure instanceof TransactionError);
-          assert.match(failure.message, /omitted the prepared result/);
+          assert.match(failure.message, OMITTED_PREPARED_RESULT);
           assert.equal(failure.meta.model, "record");
           assert.equal(failure.meta.operation, "create");
           return true;
@@ -484,7 +496,7 @@ describe("G3-02 author execution regressions", () => {
       assert.equal(preparedSeries.length, 1);
       assert.equal(
         preparedSeries[0]!.queries.filter(({ sql }) =>
-          /^SELECT\b/i.test(sql.trim())
+          SELECT_STATEMENT.test(sql.trim())
         ).length,
         1
       );
@@ -504,7 +516,7 @@ describe("G3-02 author execution regressions", () => {
       assert.equal(preparedSeries.length, 2);
       const multiple = preparedSeries[1]!;
       const terminalIndexes = multiple.queries.flatMap(({ sql }, index) =>
-        /^SELECT\b/i.test(sql.trim()) ? [index] : []
+        SELECT_STATEMENT.test(sql.trim()) ? [index] : []
       );
       assert(
         terminalIndexes.length > 1,
@@ -522,7 +534,7 @@ describe("G3-02 author execution regressions", () => {
           ),
         (failure) => {
           assert(failure instanceof TransactionError);
-          assert.match(failure.message, /omitted the prepared result/);
+          assert.match(failure.message, OMITTED_PREPARED_RESULT);
           assert.equal(failure.meta.model, "parent");
           assert.equal(failure.meta.operation, "createMany");
           return true;
@@ -530,9 +542,7 @@ describe("G3-02 author execution regressions", () => {
       );
 
       assert.deepEqual(
-        await transactionArray(client, [
-          relationCreateMany(30, 2, undefined),
-        ]),
+        await transactionArray(client, [relationCreateMany(30, 2, undefined)]),
         [{ count: 2 }]
       );
       assert.deepEqual(
@@ -636,7 +646,10 @@ describe("G3-02 author execution regressions", () => {
     const batchMigration = await syncLiveSchema(batchClient);
     assert.equal(batchMigration.applied, true);
     batchDriver.maxBindParametersPerStatement = 1;
-    const batchCandidate = createTestCommandEngine({ schema, driver: batchDriver });
+    const batchCandidate = createTestCommandEngine({
+      schema,
+      driver: batchDriver,
+    });
     batchDriver.statements.length = 0;
     batchDriver.batchCalls = 0;
     try {

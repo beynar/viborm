@@ -30,7 +30,7 @@ export class CloudflareKVCache extends CacheDriver {
     entry: CacheEntry<T>
   ): Promise<void> {
     // KV TTL is in seconds
-    const kvTtlSeconds = Math.ceil(storageTtl / 1000);
+    const kvTtlSeconds = Math.max(60, Math.ceil(storageTtl / 1000));
 
     await this.#kv.put(key, JSON.stringify(entry), {
       expirationTtl: kvTtlSeconds,

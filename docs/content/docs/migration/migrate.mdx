@@ -87,6 +87,9 @@ reflect the supplied storage capability:
 Neither operation reads estate storage.
 
 Every `viborm migrate` subcommand accepts `-d, --dir <dir>` and `--json`.
+Use `viborm migrate --config ./path/viborm.config.ts <command>` to select the
+configuration. `migrations.tables` and `migrations.resolve` apply to generation
+and live synchronization; the table scope is immutable estate identity.
 There is no migration-wide `--verbose` or `--force` flag. The operation
 sections below list the remaining command-specific flags.
 
@@ -160,7 +163,29 @@ const preview = await migrations.generate({ dryRun: true });
 
 A state that removes several related tables drops each table before the tables it references, in the same order `push` uses; SQLite tables that no order can drop are refused before the state is published. See [Removing Related Tables](/docs/migration/push#removing-related-tables).
 
+### Reviewing every branch
+
+Generation returns `operationsByParent`, `warnings`, and `reviewSql`. Human
+output prints every parent, its operations, rollback warnings, and labelled SQL
+for checks, forward execution, and rollback. JSON retains the complete result.
+Use `generate --review ./review.sql` to save that read-only projection or
+`show <state> --sql --review ./review.sql` to regenerate it from the authenticated
+estate. Review text is never parsed for execution; authenticated blob offsets
+remain authoritative.
+
+Ambiguous renames refuse without `migrations.resolve`, including converging
+branches and renamed junctions. A rollback that would recreate a lost required
+column without a default is explicitly irreversible: the tool cannot invent
+the deleted data or a safe backfill.
+
 ### Manual Transitions
+
+CLI authors can load the same checked manual input with
+`migrate generate --custom ./migration.ts`. The module exports a default
+`ManualMigrationInput`, or an async function receiving the readonly parent IDs
+(`null` denotes the empty origin) and returning that input. Author code runs
+only during generation. Production applies authenticated SQL and checks.
+
 
 Some work moves data, not just structure. VibORM refuses to invent that movement. You supply complete parent transitions before generation. The estate stores the final SQL and closed manifest — not a durable TypeScript migration language.
 
@@ -454,7 +479,7 @@ Equal physical fingerprints are not proof for a data-only or opaque transition. 
 <Tabs>
   <Tab title="CLI">
 ```bash
-npx viborm migrate reset --confirm --dry-run --json
+npx viborm migrate reset --dry-run --json
 npx viborm migrate reset --confirm --to add-users
 ```
   </Tab>
@@ -467,7 +492,8 @@ await migrations.reset({ to: { name: "add-users" } });
 </Tabs>
 
 :::warning[Destructive]
-Reset drops managed objects, then replays authenticated states. CLI reset requires `--confirm`. Dry-run compiles the plan and writes nothing.
+Reset drops managed objects, then replays authenticated states. Effectful CLI reset requires `--confirm`. Dry-run reads the actual selected
+physical table inventory, returns it as `tables`, and writes nothing.
 :::
 
 There is no squash or compaction command. A future compaction feature would be an explicitly authored, fully checked direct transition — never inferred from a final snapshot.
@@ -524,7 +550,7 @@ No provider inherits a guarantee from its dialect name. Effectful work requires 
 | MySQL2 | Stepwise | DDL implicitly commits. Nominal transactions do not create rollback. Progress is recorded per dispatch. |
 | Neon HTTP | Read-only / offline | No interactive session to hold a lock. Generation, check, status, log, and push dry-run stay available. Effectful apply/down/reset/verify/push refuse. |
 | PlanetScale | Read-only / offline | VTGate routing does not prove containment. Same offline/read-only split. |
-| D1, D1 HTTP | Effectful refused until proven | Table recreation, foreign keys, native-batch atomicity, and marker CAS are not proven together. |
+| D1 | Effectful refused until proven | Table recreation, foreign keys, native-batch atomicity, and marker CAS are not proven together. |
 | LibSQL | Effectful refused until proven | Existing-row constraint validation and safe table reconstruction are not proven. |
 
 `CREATE INDEX CONCURRENTLY` and other forbidden-in-transaction PostgreSQL operations are classified stepwise or refused before effect.
@@ -607,22 +633,32 @@ if (status.pending.length > 0) {
 <CardGroup>
   <Card
     title="Push"
-    description="History-free live schema sync"
-    href="/docs/migration/push"
-  />
+    href="/docs/migration/push">
+    History-free live schema sync
+  </Card>
   <Card
     title="Storage"
-    description="Estate reader and writer contracts"
-    href="/docs/migration/storage"
-  />
+    href="/docs/migration/storage">
+    Estate reader and writer contracts
+  </Card>
   <Card
     title="Migration Drivers"
-    description="Dialect DDL, probes, and atomicity"
-    href="/docs/migration/drivers"
-  />
+    href="/docs/migration/drivers">
+    Dialect DDL, probes, and atomicity
+  </Card>
   <Card
     title="Compared with Prisma and Drizzle"
-    description="History, integrity, recovery, and workflow differences"
-    href="/docs/migration/comparison"
-  />
+    href="/docs/migration/comparison">
+    History, integrity, recovery, and workflow differences
+  </Card>
 </CardGroup>
+
+## CLI failures and cleanup
+
+Every acquired client is disconnected before a failure is reported. A cleanup
+failure remains attached to the primary failure rather than hiding it. Human
+errors include the VibORM code. With `--json`, stderr carries
+`{ "error": { ... }, "exitCode": ... }`; stdout is reserved for successful
+results. Generic failures exit 1, other VibORM failures exit 2, and migration
+code `V110NN` exits `10 + NN` (for example V11010 exits 20). Baseline and drift
+errors include the differing tables, columns, or constraints.

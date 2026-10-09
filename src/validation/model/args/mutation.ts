@@ -370,11 +370,9 @@ export const getDeleteManyArgs = <
 /**
  * Upsert args: { where: whereUniqueExtended, create, update, select?, include?, targetWhere?, setWhere? }
  *
- * Additional options for advanced ON CONFLICT handling:
- * - targetWhere: WHERE clause for partial unique index matching
- *                PostgreSQL: ON CONFLICT (id) WHERE <targetWhere> DO UPDATE ...
- * - setWhere: WHERE clause for conditional updates
- *             PostgreSQL: ON CONFLICT ... DO UPDATE SET x = y WHERE <setWhere>
+ * targetWhere and setWhere are additional predicates on an existing row.
+ * Both must match for the update; a non-matching row is returned unchanged.
+ * An absent row follows the create arm, independently of these guards.
  */
 export type UpsertArgs<
   M extends AnyModel,
@@ -387,9 +385,9 @@ export type UpsertArgs<
     select: CoreSchemas<M, F>["select"];
     include: CoreSchemas<M, F>["include"];
     omit: OmitSchema<M>;
-    /** WHERE clause for partial unique index matching (PostgreSQL/SQLite only) */
+    /** Additional predicate on the existing row, combined with setWhere. */
     targetWhere: CoreSchemas<M, F>["where"];
-    /** WHERE clause for conditional updates (PostgreSQL/SQLite only) */
+    /** Additional predicate on the existing row, combined with targetWhere. */
     setWhere: CoreSchemas<M, F>["where"];
   },
   { atLeast: ["where", "create", "update"] }

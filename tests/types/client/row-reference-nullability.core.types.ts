@@ -226,6 +226,7 @@ declare const everyModel: {
     >;
   };
 };
+// @ts-expect-error arbitrary string model maps are refused at schema-bound application
 const wide = base.$extends(everyModel);
 export async function everyStringHidesEveryModel() {
   const rows = await wide.post.findMany({ include: { author: true } });

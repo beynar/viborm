@@ -33,11 +33,17 @@ import {
 export interface DiagnosticDisclosure {
   includeSql?: boolean | undefined;
   includeParams?: boolean | undefined;
+  /** Bounded provider message/detail/hint, with credential redaction. */
+  includeProviderDetails?: boolean | undefined;
+  /** The application stack captured when a deferred operation was created. */
+  includeCallsite?: boolean | undefined;
 }
 
 export interface ResolvedDiagnosticDisclosure {
   includeSql: boolean;
   includeParams: boolean;
+  includeProviderDetails: boolean;
+  includeCallsite: boolean;
 }
 
 interface SanitizeState {
@@ -57,6 +63,7 @@ interface TrustedErrorSnapshot {
   /** Prisma-compatible code, present only when the taxonomy claims one. */
   readonly prismaCode?: string | undefined;
   readonly timestamp: string;
+  readonly validation?: Record<string, unknown>;
 }
 
 export interface RecordSeriesProgress {
@@ -115,6 +122,7 @@ const META_KEY_VALUES: Readonly<Record<string, MetaValue>> = {
   actualResultCount: MetaValue.Count,
   actualRowCount: MetaValue.Count,
   autoIncrement: MetaValue.OwnRule,
+  callsite: MetaValue.String,
   candidates: MetaValue.StringArray,
   clientTarget: MetaValue.String,
   column: MetaValue.String,
@@ -160,6 +168,7 @@ const META_KEY_VALUES: Readonly<Record<string, MetaValue>> = {
   representation: MetaValue.String,
   resultIndex: MetaValue.Count,
   scalarType: MetaValue.String,
+  reason: MetaValue.String,
   statementIndex: MetaValue.Count,
   step: MetaValue.String,
   strategy: MetaValue.String,
@@ -188,14 +197,13 @@ const TRUSTED_RECORD_SERIES_PROGRESS = Symbol(
 export function resolveDiagnosticDisclosure(
   disclosure?: DiagnosticDisclosure
 ): ResolvedDiagnosticDisclosure {
-  try {
-    return {
-      includeSql: disclosure?.includeSql === true,
-      includeParams: disclosure?.includeParams === true,
-    };
-  } catch {
-    return { includeSql: false, includeParams: false };
-  }
+  return {
+    includeSql: ownValue(disclosure, "includeSql") === true,
+    includeParams: ownValue(disclosure, "includeParams") === true,
+    includeProviderDetails:
+      ownValue(disclosure, "includeProviderDetails") === true,
+    includeCallsite: ownValue(disclosure, "includeCallsite") === true,
+  };
 }
 
 export function sanitizeErrorMetadata(
@@ -216,18 +224,37 @@ export function sanitizeErrorForLogging(
   error: Error,
   disclosure?: DiagnosticDisclosure
 ): Error {
-  return sanitizeError(error, createState(disclosure), 0, false);
+  const trusted = getTrustedErrorDisclosure(error);
+  return sanitizeError(
+    error,
+    createState({
+      ...disclosure,
+      // SQL/params stay channel-owned; these two diagnostics were selected by the operation.
+      includeProviderDetails:
+        trusted?.includeProviderDetails === true ||
+        disclosure?.includeProviderDetails === true,
+      includeCallsite:
+        trusted?.includeCallsite === true ||
+        disclosure?.includeCallsite === true,
+    }),
+    0,
+    false
+  );
 }
 
-export function sanitizeErrorCause(error: Error): Error {
-  return sanitizeError(error, createState(), 0, true);
+export function sanitizeErrorCause(
+  error: Error,
+  disclosure?: DiagnosticDisclosure
+): Error {
+  return sanitizeError(error, createState(disclosure), 0, true);
 }
 
 export function serializeSanitizedError(
-  error: Error | undefined
+  error: Error | undefined,
+  disclosure?: DiagnosticDisclosure
 ): Record<string, unknown> | undefined {
   if (!error) return undefined;
-  return serializeError(error, createState(), 0);
+  return serializeError(error, createState(disclosure), 0);
 }
 
 export function registerTrustedError(
@@ -241,13 +268,14 @@ export function registerTrustedError(
     name: string;
     prismaCode?: string | undefined;
     timestamp: Date;
+    validation?: { source: unknown; issues: unknown };
   }
 ): void {
   const disclosure = resolveDiagnosticDisclosure(snapshot.disclosure);
   const trusted: TrustedErrorSnapshot = Object.freeze({
     cause: snapshot.cause
       ? freezeDiagnosticValue(
-          sanitizeError(snapshot.cause, createState(), 0, true)
+          sanitizeError(snapshot.cause, createState(disclosure), 0, true)
         )
       : undefined,
     code: sanitizeTrustedCode(snapshot.code),
@@ -259,6 +287,13 @@ export function registerTrustedError(
     name: boundTrustedString(snapshot.name),
     prismaCode: sanitizeTrustedPrismaCode(snapshot.prismaCode),
     timestamp: safeDateString(snapshot.timestamp),
+    ...(snapshot.validation
+      ? {
+          validation: freezeDiagnosticValue(
+            sanitizeValidationDetails(snapshot.validation)
+          ),
+        }
+      : {}),
   });
   defineHidden(error, TRUSTED_ERROR_SNAPSHOT, trusted);
 }
@@ -280,8 +315,16 @@ export function serializeTrustedError(
     "meta",
     trustedMetaWithRecordSeriesProgress(error, snapshot)
   );
+  if (snapshot.validation) {
+    defineSafe(serialized, "source", snapshot.validation.source);
+    defineSafe(serialized, "issues", snapshot.validation.issues);
+  }
   defineSafe(serialized, "timestamp", snapshot.timestamp);
-  defineSafe(serialized, "cause", serializeSanitizedError(snapshot.cause));
+  defineSafe(
+    serialized,
+    "cause",
+    serializeSanitizedError(snapshot.cause, snapshot.disclosure)
+  );
   return serialized;
 }
 
@@ -377,6 +420,74 @@ function isRecordSeriesProgressPhase(
 
 export function getTrustedErrorCause(error: Error): Error | undefined {
   return getTrustedErrorSnapshot(error)?.cause;
+}
+
+const URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)[^/\s]*@/gi;
+const TRUNCATED_URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)[^/\s]*:[^/\s]*$/gi;
+const BEARER_CREDENTIALS = /\bBearer\s+[^\s,;]+/gi;
+const NAMED_CREDENTIALS =
+  /((?:password|passwd|pwd|token|auth[_-]?token|api[_-]?key|secret)["']?\s*[=:]\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s&,;]+)/gi;
+
+function ownValue(value: unknown, key: string): unknown {
+  if (typeof value !== "object" || value === null) return undefined;
+  const descriptor = safeOwnPropertyDescriptor(value, key);
+  return descriptor && "value" in descriptor ? descriptor.value : undefined;
+}
+
+function sanitizeDiagnosticText(value: string, state: SanitizeState): string {
+  return sanitizeString(value, state)
+    .replace(URL_CREDENTIALS, "$1[REDACTED]@")
+    .replace(TRUNCATED_URL_CREDENTIALS, "$1[REDACTED]")
+    .replace(NAMED_CREDENTIALS, "$1[REDACTED]")
+    .replace(BEARER_CREDENTIALS, "Bearer [REDACTED]");
+}
+
+/** Preserve the selected disclosure through package-owned error clones. */
+export function getTrustedErrorDisclosure(
+  error: Error
+): DiagnosticDisclosure | undefined {
+  return getTrustedErrorSnapshot(error)?.disclosure;
+}
+
+function sanitizeValidationDetails(details: {
+  source: unknown;
+  issues: unknown;
+}): Record<string, unknown> {
+  const state = createState();
+  const source = createSafeRecord();
+  for (const key of [
+    "kind",
+    "operation",
+    "model",
+    "property",
+    "builder",
+    "path",
+    "target",
+    "schemaType",
+  ]) {
+    const value = ownValue(details.source, key);
+    if (typeof value === "string")
+      defineSafe(source, key, sanitizeDiagnosticText(value, state));
+  }
+  const issues: Record<string, unknown>[] = [];
+  if (isArrayValue(details.issues)) {
+    for (
+      let index = 0;
+      index <
+      Math.min(safeArrayLength(details.issues), MAX_DIAGNOSTIC_ARRAY_LENGTH);
+      index += 1
+    ) {
+      const issue = ownValue(details.issues, String(index));
+      const path = ownValue(issue, "path");
+      const message = ownValue(issue, "message");
+      if (typeof path === "string" && typeof message === "string")
+        issues.push({
+          path: sanitizeDiagnosticText(path, state),
+          message: sanitizeDiagnosticText(message, state),
+        });
+    }
+  }
+  return { source, issues };
 }
 
 function createState(disclosure?: DiagnosticDisclosure): SanitizeState {
@@ -504,16 +615,19 @@ function sanitizeObject(
       }
       if (
         insideCause &&
-        (normalizedKey === "message" ||
-          normalizedKey === "detail" ||
-          normalizedKey === "hint" ||
-          normalizedKey === "stack")
+        (normalizedKey === "stack" ||
+          (!state.disclosure.includeProviderDetails &&
+            (normalizedKey === "message" ||
+              normalizedKey === "detail" ||
+              normalizedKey === "hint")))
       ) {
         continue;
       }
+      if (normalizedKey === "callsite" && !state.disclosure.includeCallsite)
+        continue;
       state.entries += 1;
       const descriptor = safeOwnPropertyDescriptor(value, key);
-      const entry =
+      const raw =
         descriptor && "value" in descriptor
           ? descriptor.value
           : UNREADABLE_VALUE;
@@ -521,7 +635,7 @@ function sanitizeObject(
         result,
         sanitizeString(key, state),
         sanitizeUnknown(
-          entry,
+          raw,
           state,
           depth + 1,
           insideCause || (!insideParameters && CAUSE_KEYS.has(normalizedKey)),
@@ -546,15 +660,27 @@ function sanitizeError(
   state.seen.add(error);
 
   const trusted = redactMessage ? undefined : getTrustedErrorSnapshot(error);
+  const providerMessage = state.disclosure.includeProviderDetails
+    ? ownValue(error, "message")
+    : undefined;
   const sanitized = new Error(
-    redactMessage
-      ? REDACTED_CAUSE_MESSAGE
-      : trusted
-        ? sanitizeString(trusted.message, state)
-        : REDACTED_ERROR_MESSAGE
+    !trusted && typeof providerMessage === "string"
+      ? sanitizeDiagnosticText(providerMessage, state)
+      : redactMessage
+        ? REDACTED_CAUSE_MESSAGE
+        : trusted
+          ? sanitizeString(trusted.message, state)
+          : REDACTED_ERROR_MESSAGE
   );
   sanitized.name = trusted ? sanitizeString(trusted.name, state) : "Error";
   sanitized.stack = undefined;
+  if (state.disclosure.includeProviderDetails && !trusted) {
+    for (const key of ["detail", "hint"] as const) {
+      const value = ownValue(error, key);
+      if (typeof value === "string")
+        defineSafe(sanitized, key, sanitizeDiagnosticText(value, state));
+    }
+  }
 
   if (trusted) {
     defineSafe(sanitized, "code", trusted.code);
@@ -563,7 +689,7 @@ function sanitizeError(
     }
   } else {
     for (const key of SAFE_ERROR_KEYS) {
-      const value = safeRead(error, key);
+      const value = ownValue(error, key);
       const filtered = filterSafeErrorProperty(key, value);
       if (filtered !== undefined) defineSafe(sanitized, key, filtered);
     }
@@ -589,6 +715,17 @@ function sanitizeError(
       name: trusted.name,
       prismaCode: trusted.prismaCode,
       timestamp: new Date(trusted.timestamp),
+      ...(trusted.validation
+        ? {
+            validation: {
+              source: trusted.validation.source,
+              issues: trusted.validation.issues,
+            },
+          }
+        : {}),
+    });
+    Object.defineProperty(sanitized, "toJSON", {
+      value: () => serializeTrustedError(sanitized),
     });
     const progress = sanitizeRecordSeriesProgress(
       safeRead(error, TRUSTED_RECORD_SERIES_PROGRESS)
@@ -620,7 +757,10 @@ export function sanitizeAllowedRecord(
   for (const key of allowedKeys) {
     const descriptor = safeOwnPropertyDescriptor(value, key);
     if (!(descriptor && "value" in descriptor)) continue;
-    const raw = descriptor.value;
+    const raw =
+      key === "callsite" && typeof descriptor.value === "string"
+        ? sanitizeDiagnosticText(descriptor.value, state)
+        : descriptor.value;
     const filtered = filterAllowedDiagnosticValue(
       key,
       raw,
@@ -751,6 +891,7 @@ function getTrustedErrorSnapshot(
     safeRead(snapshot, "prismaCode")
   );
   const timestamp = safeRead(snapshot, "timestamp");
+  const validation = ownValue(snapshot, "validation");
   if (
     (cause !== undefined && !isError(cause)) ||
     typeof code !== "string" ||
@@ -771,6 +912,7 @@ function getTrustedErrorSnapshot(
     name,
     prismaCode,
     timestamp,
+    ...(isRecord(validation) ? { validation } : {}),
   };
 }
 
@@ -780,7 +922,9 @@ function isResolvedDisclosure(
   return (
     isRecord(value) &&
     typeof value.includeSql === "boolean" &&
-    typeof value.includeParams === "boolean"
+    typeof value.includeParams === "boolean" &&
+    typeof value.includeProviderDetails === "boolean" &&
+    typeof value.includeCallsite === "boolean"
   );
 }
 
@@ -799,9 +943,16 @@ function serializeError(
   defineSafe(serialized, "name", safeErrorString(error, "name", state));
   defineSafe(serialized, "message", safeErrorString(error, "message", state));
   for (const key of SAFE_ERROR_KEYS) {
-    const value = safeRead(error, key);
+    const value = ownValue(error, key);
     const filtered = filterSafeErrorProperty(key, value);
     if (filtered !== undefined) defineSafe(serialized, key, filtered);
+  }
+  if (state.disclosure.includeProviderDetails) {
+    for (const key of ["detail", "hint"] as const) {
+      const value = ownValue(error, key);
+      if (typeof value === "string")
+        defineSafe(serialized, key, sanitizeDiagnosticText(value, state));
+    }
   }
   const meta = safeRead(error, "meta");
   if (isRecord(meta)) {

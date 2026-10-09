@@ -1,3 +1,4 @@
+import { isDestructiveOperation } from "./differ";
 /**
  * One compiler: DiffOperation and manual Sql become structured operations
  * that share one SQL blob. No delimiter split.
@@ -29,24 +30,13 @@ import type {
   MigrationStepV1,
 } from "./v1-types";
 
-const DESTRUCTIVE = new Set<DiffOperation["type"]>([
-  "dropTable",
-  "dropColumn",
-  "alterColumn",
-  "dropIndex",
-  "dropForeignKey",
-  "dropUniqueConstraint",
-  "dropPrimaryKey",
-  "dropEnum",
-  "alterEnum",
-]);
-
 export interface CompiledTransition {
   readonly operations: readonly MigrationOperationV1[];
   readonly rollback: MigrationRollbackV1;
   readonly originChecks: readonly MigrationBooleanCheckV1[];
   readonly requestedForwardBoundary: "transactional" | "stepwise" | null;
   readonly atomicity: AtomicityClass;
+  readonly warnings?: readonly string[];
 }
 
 export function groupContiguousAtomicity<
@@ -93,10 +83,24 @@ export function compileGeneratedTransition(
       )
     )
     .filter((operation) => operation.steps.length > 0);
-  const inverse = invertOperations([...operations], currentSchema);
-  const irreversibleReason = inverse.operations
-    .map((operation) => driver.getIrreversibleRollbackReason(operation))
-    .find((reason) => reason !== undefined);
+  const inverse = invertOperations(
+    [...operations],
+    currentSchema,
+    driver.projectNativeRename.bind(driver),
+    driver.generatedPrimaryKeyName.bind(driver)
+  );
+  const missingBackfill = inverse.operations.find(
+    (operation) =>
+      operation.type === "addColumn" &&
+      !operation.column.nullable &&
+      operation.column.default === undefined
+  );
+  const irreversibleReason =
+    missingBackfill && missingBackfill.type === "addColumn"
+      ? `Rollback cannot restore required column "${missingBackfill.tableName}.${missingBackfill.column.name}" without its lost data or an explicit backfill. Author a manual rollback.`
+      : inverse.operations
+          .map((operation) => driver.getIrreversibleRollbackReason(operation))
+          .find((reason) => reason !== undefined);
   const rollback: MigrationRollbackV1 =
     inverse.operations.length === 0 && operations.length === 0
       ? { kind: "schema", operations: [] }
@@ -111,21 +115,24 @@ export function compileGeneratedTransition(
             }
           : {
               kind: "schema",
-              operations: inverse.operations.map((operation, index) =>
-                compileGeneratedOperation(
-                  operation,
-                  driver,
-                  destination,
-                  desiredSchema,
-                  inverse.operations,
-                  index,
-                  assembly
+              operations: inverse.operations
+                .map((operation, index) =>
+                  compileGeneratedOperation(
+                    operation,
+                    driver,
+                    destination,
+                    desiredSchema,
+                    inverse.operations,
+                    index,
+                    assembly
+                  )
                 )
-              ),
+                .filter((operation) => operation.steps.length > 0),
             };
   return {
     operations: compiled,
     rollback,
+    warnings: inverse.warnings,
     originChecks: [],
     requestedForwardBoundary: null,
     atomicity: classifyGeneratedAtomicity(driver, operations),
@@ -145,6 +152,7 @@ function compileGeneratedOperation(
     destination,
     currentSchema,
     precedingOperations: batch.slice(0, index),
+    followingOperations: batch.slice(index + 1),
   };
   const statements = driver.compileStatements(operation, context);
   const steps: MigrationStepV1[] = statements.map((statement) => {
@@ -162,9 +170,12 @@ function compileGeneratedOperation(
   });
   return {
     id: `${operation.type}:${index}`,
-    label: operation.type,
+    label:
+      "tableName" in operation
+        ? `${operation.type} ${operation.tableName}${"columnName" in operation ? `.${operation.columnName}` : "column" in operation ? `.${operation.column.name}` : ""}`
+        : operation.type,
     origin: "generated",
-    risk: DESTRUCTIVE.has(operation.type) ? "destructive" : "safe",
+    risk: isDestructiveOperation(operation) ? "destructive" : "safe",
     steps,
   };
 }

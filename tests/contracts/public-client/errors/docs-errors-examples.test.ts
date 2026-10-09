@@ -48,7 +48,7 @@ async function register(email: string): Promise<void> {
     await client.user.create({ data: { email } });
   } catch (error) {
     if (error instanceof UniqueConstraintError) {
-      // error.meta.constraint, error.meta.columns, error.meta.table
+      // Provider-specific diagnostics may include constraint, columns, and table.
       throw new Error("That email is already registered.");
     }
     throw error;

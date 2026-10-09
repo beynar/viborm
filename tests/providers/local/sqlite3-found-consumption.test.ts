@@ -276,7 +276,7 @@ const outcomeOf = async <T>(
  * actually changed — a diagnosis the single statement never made.
  */
 const CONJOINED_PREMISE =
-  "query-engine-v2 top-level upsert matched premise (targetWhere, setWhere) changed before the atomic batch.";
+  "The upsert matched premise (targetWhere, setWhere) changed before the atomic batch.";
 
 /** The dual-condition shape: both conditions match `t1` as it stands. */
 const conjoinedUpsert = async (subject: FoundClient) =>
@@ -410,9 +410,9 @@ describe("the shared FOUND-consumption rule on the recording SQLite transport", 
       ],
     });
     expect(driver.statements).toHaveLength(4);
-    expect(matching(driver, "UPDATE", COMPOUND_GENERATED_CHILD_TABLE)).toHaveLength(
-      1,
-    );
+    expect(
+      matching(driver, "UPDATE", COMPOUND_GENERATED_CHILD_TABLE)
+    ).toHaveLength(1);
   });
 
   test("keeps the confirmation for a child-held mutable unique selector", async () => {
@@ -510,7 +510,7 @@ describe("the shared FOUND-consumption rule on the recording SQLite transport", 
     driver.driftBeforeMutation(GENERATED_CHILD_TABLE, (database) => {
       database
         .prepare(
-          "DELETE FROM sfc_generated_children WHERE id = 'conditional_found'",
+          "DELETE FROM sfc_generated_children WHERE id = 'conditional_found'"
         )
         .run();
     });
@@ -526,20 +526,20 @@ describe("the shared FOUND-consumption rule on the recording SQLite transport", 
             },
           },
         },
-      }),
+      })
     );
 
     expect(driver.drifted).toBe(true);
     expect(outcome.value).toBeUndefined();
     expect(outcome.failure).toBeInstanceOf(NestedWriteError);
     expect((outcome.failure as Error).message).toBe(
-      "Record was replaced by another transaction during nested connectOrCreate",
+      "Record was replaced by another transaction during nested connectOrCreate"
     );
     expect(matching(driver, "UPDATE", GENERATED_CHILD_TABLE)).toHaveLength(1);
     expect(
       await client.generatedChild.findUnique({
         where: { id: "conditional_found" },
-      }),
+      })
     ).toMatchObject({ parentId: 5000, label: "existing-child" });
   });
 
@@ -608,7 +608,7 @@ describe("the shared FOUND-consumption rule on the recording SQLite transport", 
     expect(outcome.value).toBeUndefined();
     expect(outcome.failure).toBeInstanceOf(TransactionError);
     expect((outcome.failure as Error).message).toBe(
-      "query-engine-v2 top-level upsert setWhere match premise changed before the atomic batch."
+      "The upsert setWhere match premise changed before the atomic batch."
     );
     // The arm's effect never went out and the create arm was not taken.
     expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
@@ -731,7 +731,7 @@ describe("the shared FOUND-consumption rule on the recording SQLite transport", 
     expect(outcome.value).toBeUndefined();
     expect(outcome.failure).toBeInstanceOf(TransactionError);
     expect((outcome.failure as Error).message).toBe(
-      "query-engine-v2 top-level upsert targetWhere match premise changed before the atomic batch."
+      "The upsert targetWhere match premise changed before the atomic batch."
     );
     expect(matching(driver, "UPDATE", TAG_TABLE)).toEqual([]);
     expect(matching(driver, "INSERT", TAG_TABLE)).toEqual([]);

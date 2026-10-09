@@ -1,17 +1,18 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type {
   BatchQuery,
-  QueryResult,
   QueryExecutionContext,
+  QueryResult,
 } from "@drivers/types";
 import { VibORMError } from "@errors";
 import Database from "better-sqlite3";
 import type { ProfileId } from "../profiles";
 import type {
   CandidateEngineFactory,
-  DefaultObservation,
   ControlledFault,
+  DefaultObservation,
   FailureObservation,
   G0ReplayRecord,
   PreparedScenario,
@@ -24,16 +25,23 @@ import { Recorder, recordingEventLimit } from "./recorder";
 
 /** The transport borrows the fixture's database; its SQL is always real SQLite. */
 class ObservedSQLiteDriver extends SQLite3Driver {
+  private readonly recorder: Recorder;
+  private readonly completed: (statement: StatementCompletion) => Promise<void>;
+  private readonly statementTransform?: (sql: string) => string;
+  private failuresBeforeDispatch: number;
+
   constructor(
     database: Database.Database,
-    private readonly recorder: Recorder,
-    private readonly completed: (
-      statement: StatementCompletion
-    ) => Promise<void>,
-    private readonly statementTransform?: (sql: string) => string,
-    private failuresBeforeDispatch = 0
+    recorder: Recorder,
+    completed: (statement: StatementCompletion) => Promise<void>,
+    statementTransform?: (sql: string) => string,
+    failuresBeforeDispatch = 0
   ) {
     super({ client: database });
+    this.recorder = recorder;
+    this.completed = completed;
+    this.statementTransform = statementTransform;
+    this.failuresBeforeDispatch = failuresBeforeDispatch;
   }
 
   protected override async transaction<T>(
@@ -236,7 +244,7 @@ export async function runSQLiteWorld(
   database.exec = function (source) {
     const control = source.trim().toUpperCase();
     let phase: "begin" | "commit" | "rollback" | undefined;
-    if (control === "BEGIN") phase = "begin";
+    if (control === "BEGIN" || control === "BEGIN IMMEDIATE") phase = "begin";
     if (control === "COMMIT") phase = "commit";
     if (control === "ROLLBACK") phase = "rollback";
     try {

@@ -1127,7 +1127,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     coded: () => {
       const shelf = s.model({
         id: s.string().id(),
-        items: s.toMany({ book: () => book, video: () => video }),
+        items: s.toMany({ book: () => book, video: () => video }).name("items"),
       });
       const book = s.model({ id: s.string().id() });
       const video = s.model({ id: s.string().id() });
@@ -1141,6 +1141,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
             id: ID,
             items: {
               type: "toMany",
+              name: "items",
               variants: { book: "book", video: "video" },
             },
           },
@@ -1548,7 +1549,7 @@ export const docsFenceCorpus: DocsFenceCase[] = [
     },
   },
   {
-    id: "scalars/string.mdx#3",
+    id: "scalars/string.mdx#5",
     coded: () => {
       const user = s.model({ id: s.string().id().uuid("usr") });
       return { user };

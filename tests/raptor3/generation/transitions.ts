@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The generated scenario assertions run from registered test cases.
+// biome-ignore-all lint/suspicious/noBitwiseOperators: The seeded corpus generator deliberately reproduces uint32 PRNG transitions.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -68,7 +70,7 @@ export type TransitionRecipe = z.infer<typeof transitionRecipeSchema>;
 /** Choices and expected worlds come from public transition contracts, not programs. */
 export function generateTransitionRecipe(seed: number): TransitionRecipe {
   assert(Number.isInteger(seed) && seed >= 2000 && seed < 7100);
-  let state = (seed ^ 0x13198a2e) >>> 0;
+  let state = (seed ^ 0x13_19_8a_2e) >>> 0;
   const pick = (limit: number) => {
     state ^= state << 13;
     state ^= state >>> 17;
@@ -156,15 +158,13 @@ export function generatedTransitions(
       const own =
         recipe.mode.startsWith("coc-") || recipe.mode.startsWith("delete-");
       const singular = recipe.mode === "singular-supply-modify";
-      // N1 (D-51): a nested lookup whose answer an earlier write of the same
-      // operation can change is an ordered observation taken after that write,
-      // not DESIGN §6.2's mode-independent veto. Only the refusal the relation
-      // body raises before it writes anything — the required set's departure —
-      // still precedes every effect: `coc-set-same` executes (the expected
-      // world below) and `delete-update` refuses behind the delete it observes.
+      // Clearing precedes supply. A set cannot select a row that a later
+      // connectOrCreate would create; its failure rolls the operation back.
       const refusedBeforeEffects = recipe.mode === "required-depart";
+      const refusedMissingSet = recipe.mode === "coc-set-same";
       const refusedAfterDelete = recipe.mode === "delete-update";
-      const refused = refusedBeforeEffects || refusedAfterDelete;
+      const refused =
+        refusedBeforeEffects || refusedMissingSet || refusedAfterDelete;
       // One evaluation per admitted input (D-8), on every arm: since C-01 the
       // public client IS this engine, so the second admission the deleted
       // engine published for the other modes has no arm left.
@@ -309,8 +309,8 @@ export function generatedTransitions(
                 }
               : recipe.mode === "delete-create"
                 ? {
-                    create: [{ id: memberId, body: label }],
                     delete: [{ id: memberId }],
+                    create: [{ id: memberId, body: label }],
                   }
                 : {
                     update: [
@@ -371,27 +371,8 @@ export function generatedTransitions(
           expected.members.splice(1, 0, {
             id: newMemberId,
             body: label,
-            ownerId: null,
-          });
-        // N1 (D-51): this world pinned DESIGN §6.2's veto ("Nested operation
-        // 'set' on relation 'members' depends on an earlier 'connectOrCreate'
-        // target write in the same nested write. Split these operations into
-        // separate queries."). `connectOrCreate` runs before `set` in the
-        // relation body's canonical order, so the set's target lookup is an
-        // ordered observation of the member the conditional just minted: the
-        // set keeps that member, and the incumbent is the one it clears.
-        if (recipe.mode === "coc-set-same") {
-          expected.members[0] = {
-            id: memberId,
-            body: "incumbent",
-            ownerId: null,
-          };
-          expected.members.splice(1, 0, {
-            id: newMemberId,
-            body: label,
             ownerId: selectedId,
           });
-        }
         if (recipe.mode === "delete-create")
           expected.members[0] = {
             id: memberId,
@@ -423,7 +404,6 @@ export function generatedTransitions(
       let settlements = 0;
       let specimenApplied = false;
       let deletedTargetObserved = false;
-      let suppliedMemberObserved = false;
       const inspect = (database: Database.Database) => ({
         owners: database
           .prepare("SELECT * FROM g2_generated_owners ORDER BY id")
@@ -597,25 +577,14 @@ export function generatedTransitions(
               "transition:refusal-before-member-effect"
             );
           }
-          // N1 (D-51): the supply precedes the set's clear, which the end
-          // state alone cannot say — a set that ran FIRST, found nothing and
-          // cleared every member would leave the same rows once the
-          // conditional minted and linked its target. The boundary at which
-          // the minted member is already this owner's while the incumbent
-          // still is names the order the observation was taken in.
-          if (recipe.mode === "coc-set-same") {
-            const supplied = database
-              .prepare(
-                "SELECT 1 FROM g2_generated_members WHERE id=? AND ownerId=?"
-              )
-              .get(newMemberId, selectedId);
-            const incumbent = database
-              .prepare(
-                "SELECT 1 FROM g2_generated_members WHERE id=? AND ownerId=?"
-              )
-              .get(memberId, selectedId);
-            if (supplied !== undefined && incumbent !== undefined)
-              suppliedMemberObserved = true;
+          if (refusedMissingSet) {
+            assert.equal(
+              database
+                .prepare("SELECT id FROM g2_generated_members WHERE id=?")
+                .get(newMemberId),
+              undefined,
+              "transition:missing-set-refuses-before-later-supply"
+            );
           }
           // N1 (D-51): the root's own write runs before its member-held
           // children and `delete` before `update`, so this refusal no longer
@@ -754,12 +723,6 @@ export function generatedTransitions(
             return;
           }
           if (!failedPrimary) {
-            if (recipe.mode === "coc-set-same")
-              assert.equal(
-                suppliedMemberObserved,
-                true,
-                "transition:ordered-observation-behind-the-supply"
-              );
             assert.deepEqual(
               observation.outcome,
               {
@@ -794,15 +757,17 @@ export function generatedTransitions(
               ? "Unique constraint violation"
               : recipe.mode === "required-depart"
                 ? "Cannot set relation 'members' because foreign key field(s) ownerId are required: rows removed from the set cannot be disconnected. Delete them instead."
-                : // N1 (D-51): this world pinned DESIGN §6.2's veto ("Nested
-                  // operation 'update' on relation 'members' depends on an
-                  // earlier 'delete' target write in the same nested write.
-                  // Split these operations into separate queries."). `delete`
-                  // runs before `update` in the relation body's canonical
-                  // order, and the update's lookup is an ordered observation
-                  // of what it left: the correlated not-found the relation
-                  // body registers, with nothing of the operation committed.
-                  "Cannot update relation 'members': target record was not found for this parent."
+                : recipe.mode === "coc-set-same"
+                  ? "Cannot set relation 'members': target record was not found."
+                  : // N1 (D-51): this world pinned DESIGN §6.2's veto ("Nested
+                    // operation 'update' on relation 'members' depends on an
+                    // earlier 'delete' target write in the same nested write.
+                    // Split these operations into separate queries."). `delete`
+                    // runs before `update` in the relation body's canonical
+                    // order, and the update's lookup is an ordered observation
+                    // of what it left: the correlated not-found the relation
+                    // body registers, with nothing of the operation committed.
+                    "Cannot update relation 'members': target record was not found for this parent."
           );
         },
       };

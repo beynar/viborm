@@ -6,6 +6,7 @@
 
 import { applyNativeRename } from "./native-rename";
 import type { DiffOperation, SchemaSnapshot, TableDef } from "./types";
+import { defaultGeneratedPrimaryKeyName } from "./utils";
 
 export interface InvertedOperations {
   operations: DiffOperation[];
@@ -14,7 +15,9 @@ export interface InvertedOperations {
 
 export function invertOperations(
   operations: DiffOperation[],
-  previousSnapshot: SchemaSnapshot
+  previousSnapshot: SchemaSnapshot,
+  projectRename: typeof applyNativeRename = applyNativeRename,
+  primaryKeyName: typeof defaultGeneratedPrimaryKeyName = defaultGeneratedPrimaryKeyName
 ): InvertedOperations {
   const warnings: string[] = [];
   const inverted: DiffOperation[] = [];
@@ -39,7 +42,7 @@ export function invertOperations(
       );
     }
     if (op.type === "renameTable" || op.type === "renameColumn") {
-      previousAtOperationIdentity = applyNativeRename(
+      previousAtOperationIdentity = projectRename(
         previousAtOperationIdentity,
         op
       );
@@ -56,7 +59,8 @@ export function invertOperations(
       previousSnapshot,
       findPrevTable,
       keysRestoredByTheirOwnInverse,
-      warnings
+      warnings,
+      primaryKeyName
     );
     if (inverse) inverted.push(...inverse);
   }
@@ -72,7 +76,8 @@ function invertOperation(
   previousSnapshot: SchemaSnapshot,
   findPrevTable: (name: string) => TableDef | undefined,
   keysRestoredByTheirOwnInverse: ReadonlySet<string>,
-  warnings: string[]
+  warnings: string[],
+  primaryKeyName: typeof defaultGeneratedPrimaryKeyName
 ): DiffOperation[] | null {
   switch (op.type) {
     case "createTable":
@@ -217,7 +222,7 @@ function invertOperation(
         {
           type: "dropPrimaryKey",
           tableName: op.tableName,
-          constraintName: op.primaryKey.name ?? `${op.tableName}_pkey`,
+          constraintName: primaryKeyName(op.tableName, op.primaryKey.name),
         },
       ];
 

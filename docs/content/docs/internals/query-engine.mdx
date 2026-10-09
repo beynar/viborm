@@ -1,549 +1,86 @@
 ---
 title: L6 - Query Engine
-description: Compile portable query fragments and execute them consistently on every supported database
+description: Admit operations, compile portable queries, and execute provider statements
 icon: database
 ---
 
-**Location:** `src/query-engine/`
-
-## Purpose
-
-The query engine owns database-agnostic query meaning. It validates a client
-operation, compiles adapter-built SQL into a small fragment vocabulary, executes
-that fragment through a driver, and parses the declared result.
-
-PostgreSQL, MySQL, SQLite, LibSQL, and PGlite use different syntax and execution
-capabilities. Portable operations keep the same accepted inputs and successful
-results. Transaction-capable drivers keep operation-wide atomicity; D1 exposes
-segment atomicity for root and exactly guarded nested dynamic record series and
-reports the committed prefix on failure.
-
-## Compilation and execution
-
-```mermaid
-flowchart TD
-    Call["Client call"] --> Pending["PendingOperation"]
-    Pending --> Shell["Operation shell"]
-    Shell --> Builders["Semantic SQL builders"]
-    Builders --> Adapter["Database adapter"]
-    Adapter -->|"parameterized Sql"| Builders
-    Builders --> Shell
-    Shell --> Planning["PlanningFragment"]
-    Planning --> Executor["OperationExecutor"]
-    Executor -->|"planning outputs"| Shell
-    Shell --> Final["selected OperationFragment"]
-    Final --> Executor
-    Executor --> Driver["Driver statement, transaction, atomic batch, or committed series segment"]
-    Driver -->|"provider results"| Executor
-    Executor --> Results["Strict result parser"]
-    Results --> Value["Typed value"]
-```
-
-An operation shell is the concrete owner of one public operation family. It
-exposes `mode`, planning, compilation, and result parsing.
-`write-engine/routing.ts` owns route-wide gates and shared-envelope parsing.
-The routed root shell owns the remaining family- and arm-specific parsing,
-public target and result behavior, and direct folds. `CreateOperation` can also
-serve as a delegated fresh-record compiler inside an outer shell. Files in
-`write-engine/*Operation.ts` contain these owners. Files in `operations/*.ts`
-contain operation-specific SQL, plan, identity, and ordering helpers despite
-their historical directory name. The executor knows how to run fragments, but
-it does not know what a relation mutation means.
-
-| Owner | Responsibility |
-| --- | --- |
-| `QueryEngine` | Driver, schema registry, instrumentation, client identity, and transaction scope |
-| `PendingOperation` | Lazy and Promise-like public operation lifecycle |
-| `write-engine/routing.ts` | Route-wide operation gates, shared-envelope parsing, and shell construction |
-| `write-engine/*Operation.ts` | Public-operation-family owners and their executable fragments |
-| `operations/*.ts` | Operation-specific SQL, plan, identity, and ordering helpers |
-| `CreateOperation` | One fresh record subtree, including a record-series member |
-| `RecordUpdateCompiler` | One already-selected record update, including a record-series member |
-| `RecordSeriesOperation` | Left-to-right sequencing of ordinary record operations |
-| `RecordSeriesStep` | One nested placement of that same series inside a final fragment |
-| `series-result-read.ts` | Bounded final set reads and source-order reconstruction |
-| relation Parts | Child-held/junction selection, membership, guards, pins, and edge effects |
-| `ManyToManyStatements` | Adapter-backed junction SQL materialization |
-| `OperationExecutor` | Generic statement, transaction, atomic-batch, and committed-series execution |
-| `QueryScope` | Adapter, model, aliases, root alias, and SQL-construction target |
-| `builders/` | Shared SQL and semantic builders, including payload and topology parsing |
-| `builders/polymorphic-*` | Direct member/inverse resolution, CASE reads, correlated filters, and atomic private storage meaning |
-| `result/` | Strict row, ordinary relation, polymorphic relation, aggregate, count, scalar, and shape parsing |
-
-`QueryEngine` is a real owner. A transaction-bound engine preserves its client
-identity and receives a new transaction scope identity.
-
-## Fragment vocabulary
-
-The runtime vocabulary has four step kinds:
-
-- `read` executes an adapter-built read statement;
-- `write` executes an adapter-built write statement and can carry a race pin or
-  conflict-skip effect;
-- `guard` checks a database premise of the selected final fragment.
-- `recordSeries` suspends a final fragment at one exact nested bulk position,
-  executes the existing record-series form, then resumes the fragment.
-
-Produced values reference declared outputs from earlier steps. This is an
-execution fragment, not a second SQL AST. It contains no relation strategy,
-payload walker, driver, or arbitrary context bag.
-
-Planning uses a guard-free `PlanningFragment` containing statement steps only.
-It never contains a nested record series. Planning is not always read-only:
-skip-duplicate capture can perform preparation writes. Final compilation emits
-one `OperationFragment` for the selected effects.
-
-## Execution substrate
-
-Transaction and batch modes use the same semantic fragment. The executor lowers
-references, checks postconditions, attributes guards, and fails closed when the
-available substrate cannot represent a required effect.
-
-Planning reads can be grouped into one round trip on atomic-batch drivers. The
-final selected fragment can then run as one atomic batch. Transaction drivers
-execute the same steps linearly inside a transaction.
-
-A `RecordSeriesOperation` plans and executes member N only after member N−1 has
-finished, so decisions such as duplicate `connectOrCreate` observe earlier
-members. At a root, transaction-capable drivers execute the complete series in
-one transaction. A nested `RecordSeriesStep` reuses that already-open
-transaction and does not start another one.
-
-D1 can execute a root dynamic series as ordered committed segments. Each
-segment batch is atomic, but the public operation can contain several commits;
-a later failure carries exact progress metadata and never retries the committed
-prefix.
-D1 also executes a nested `RecordSeriesStep` when its relation compiler supplies
-an exact complete-parent or membership guard. The executor repeats that guard
-inside every later write batch. An unguardable placement refuses before its
-containing member writes; earlier members of a progressive root series can
-already be committed and are reported. Relation-bearing `skipDuplicates` has
-no member rollback region there, so the skip is dropped with one warning per
-client and model and every member runs plainly
-(`OperationContext.admitsSuppression`). A dynamic series inside explicit
-`$transaction([...])` refuses before member 0 writes. Static D1 paths continue to use one atomic batch.
-
-Simple operations keep a structural fast path. A candidate is direct only when
-planning is empty, final compilation produces exactly one statement, and that
-statement has no unresolved executor-only effect. A direct `SELECT` or
-`... RETURNING` therefore runs without a transaction or batch envelope.
-
-The three single-statement consumers apply different policies:
-
-| Consumer | Additional rule |
-| --- | --- |
-| direct execution | Allows a postcondition; rejects conflict recovery, unresolved references, and `insertId` scratch |
-| prepared single statement | Also rejects postconditions because no executor will check them |
-| `QueryEngine.build()` | Returns SQL only when it can be represented without executor-only behavior |
-
-## Relation writes
-
-Nested writes are a public feature, not a second runtime. Their compiler has
-three independent inputs:
-
-- `RelationMutationProgram` records the schema-transformed payload meaning;
-- `BoundRelation` records the one stored topology — where the membership lives
-  (parent-held, child-held, or a junction), how many targets the slot admits, and
-  how the membership is physically stored — with every other view of the edge
-  derived from it;
-- a record compiler mutates one fresh or already-selected record.
-
-`CreateOperation` compiles fresh record subtrees except the explicit
-inline junction-target insert.
-`RecordUpdateCompiler` compiles updates for a record selected by its
-caller. A parent-held to-one branch stays in the record compiler because it
-chooses FK columns in that record's root statement. Child-held and junction
-Parts own target reads, parent correlation, membership, found/missing decisions,
-guards, race pins, and standalone edge effects.
-
-The two compilers recurse through a type-only dependency seam with exactly two
-functions, `createFresh` and `updateSelected`. The write engine has no runtime
-import cycle and the seam carries no strategy or lifecycle policy.
-
-Generated identity capture is demand-driven. A fresh-record consumer requests
-`rootReferenced(field)` only when a descendant, incoming edge, junction, or
-terminal result needs the value. An unused database-generated identity does not
-force `RETURNING` or `insertId` handling onto an otherwise plain nested insert.
-
-A scalar RETURNING result can fold into one statement for an indivisible array
-member. PostgreSQL-family adapters can also fold a bounded mutation DAG when its
-result projection reads no table written by a sibling mutation CTE. On a
-non-returning transaction provider, a plural generated row key can use one
-focused read only when the create source explicitly writes another complete
-addressable unique. Otherwise the operation refuses before its INSERT rather than
-guessing which row produced the values.
-
-```mermaid
-flowchart LR
-    Payload["Schema-transformed relation payload"] --> Program["RelationMutationProgram"]
-    Metadata["Relation metadata + current model"] --> Bound["BoundRelation"]
-    Program --> Owner["Relation Part"]
-    Bound --> Owner
-    Owner -->|"fresh record"| Create["CreateOperation"]
-    Owner -->|"captured record"| Update["RecordUpdateCompiler"]
-    Create --> Fragment["Operation steps"]
-    Update --> Fragment
-    Owner --> Fragment
-```
-
-These facts stay separate:
-
-- the mutation program preserves requested meaning and input order;
-- the bound relation records storage position and ordered fields only;
-- the record compiler owns one record mutation;
-- the relation Part owns the edge decision around that record.
-
-`BoundRelation` is deliberately not stored inside `RelationMutationProgram`.
-Binding happens at the first topology decision so an earlier validation failure
-still wins and an untaken upsert arm remains inert.
-
-Here, parent means the current source record at one relation edge and child
-means its target. A `parentHeld` position means the source record stores the FK
-— and, because one source row holds one FK tuple, such an edge is always to-one.
-The terms do not define a global model hierarchy.
-
-Before emission, OwnWrite analysis rejects nested trees whose writes cannot be
-linearized safely. `RecordUpdateCompiler` and relation owners that pass it a
-selected target address the captured primary key rather than re-evaluating the
-selector. For later relation work, the compiler also publishes one selected-row
-continuity fact: the complete captured key before the root write and the complete
-final key after it. The relation placement chooses the phase; it does not derive
-an old or new key. This is how stable same-incoming update/found-upsert and
-progressive nested work follow the exact selected row across an enclosing key
-transition.
-
-Direct polymorphic mutation intent and its inverse relation use the same exact
-discriminator-aware OwnWrite scope. The synthetic ordinary edge used to reuse
-record compilation supplies endpoint orientation only. A targetless direct
-disconnect contributes one exact footprint per configured variant, so no
-wildcard scope can conflate equal identities under different discriminators.
-
-The compiler exposes one `TargetProjection` for everything it consumes from the
-located row: public model fields and any private physical columns. On an atomic
-batch, the owner extends its existing captured-row guard with equality checks for
-private values that influenced branch selection. This closes membership drift
-without adding a statement or round trip.
-
-Top-level scalar probe-first upsert follows the same identity rule on the batch
-substrate: its found guard binds the complete selector to the captured primary
-key, and its UPDATE addresses that key. Transaction mode keeps the original
-selector because the locate locks the row. An eligible `ON CONFLICT` fold has no
-planning read, and a relation-bearing found arm uses `RecordUpdateCompiler` with
-its captured identity.
-
-A conditional-skip batch arm first proves, without retry, that the complete
-selector still names the captured primary key. It then proves, with a raceable
-absence guard, that this same row still does not match the conditional. The
-order separates replacement or deletion from a false-to-true condition change.
-The absence query preserves SQL UNKNOWN as a no-match. Its terminal read uses
-the captured key; a post-update terminal read uses the rebuilt key.
-`RecordUpdateCompiler` never owns a public terminal read. The routed shell
-normally does; a relation-bearing upsert create arm instead delegates its
-result-producing fragment to `CreateOperation`, and the outer
-`UpsertOperation` re-exposes and parses that result. Direct folds need no
-terminal read. Both guards run in the same atomic driver batch, so the second
-premise adds a statement but not a network round trip.
-
-### Practical write-flow map
-
-| Flow | Shell | Decision/edge owner | Record owner | Planning and identity source | Final order and premise pin |
-| --- | --- | --- | --- | --- | --- |
-| Structural single-statement fast path | The operation shell | The shell that produced the candidate | The specialized shell or record compiler that built the statement | Empty planning; exactly one statement with no unresolved executor-only effect | One direct statement; direct execution may still enforce its postcondition |
-| Fresh record subtree | The outer routed operation | `CreateOperation` for parent-held edges; relation Parts for child-held and junction edges | `CreateOperation` | Relation probes plus literal, lookup, or demand-driven root output identities | Selected guards, parent-held target work, root INSERT, then child-held or junction descendants; a missing same-target insert uses the root `racePin` |
-| Selected record update | The outer routed operation | `UpdateOperation`, `UpsertOperation`, or the enclosing relation Part | `RecordUpdateCompiler` | Target locate and descendant probes; the locate publishes the captured primary key | Locked premise or batch guard, before-root descendants, root UPDATE, then after-root descendants; the outer shell can add its terminal read, and key transitions decide each side of the root |
-| Parent-held to-one edge | The outer routed operation | The fresh or selected record compiler, because the edge chooses its root FK columns | `CreateOperation` or `RecordUpdateCompiler` | Target literal, lookup, or fresh-target output supplies the FK | Target work runs before the root; the FK folds into the root INSERT or UPDATE; the selected branch uses its locked read, batch guard, or missing-arm `racePin` |
-| Child-held targeted edge | The outer routed operation | The child-held relation Part | `RecordUpdateCompiler` for a selected target; `CreateOperation` for a fresh target | A correlated target read captures the target primary key and parent value | Transaction lock or batch captured-row guard, then the selected target or edge effects in relation order |
-| Junction existing-target mutation | The outer routed operation | `RelationJunctionPart` | `RecordUpdateCompiler` only when the target record changes | Membership or global probes capture target identity and parent membership | Locked decision or batch membership/identity guard, then target and junction effects in the selected branch |
-| Junction fresh-target attachment | The outer routed operation | `RelationJunctionPart` | Junction-local INSERT for an inline target; `CreateOperation` for a delegated target | Literal identity or a demanded inline/delegated INSERT output; a missing same-target create carries `racePin` | Inline: target INSERT, junction INSERT, descendants. Delegated: complete fresh subtree, then junction INSERT |
-| Nested scalar set/bulk relation mutation | The outer routed operation | `RelationSetPart`, `RelationWritePart`, or `RelationJunctionPart` | None; the specialized Part owns set semantics | Materialized membership sets, filters, and correlated parent values | Guards precede specialized set or bulk effects; zero matches remain legal where the operation contract allows them |
-| Nested relation-bearing `createMany` / `updateMany` | The outer routed operation | The enclosing relation Part at the series position | `CreateOperation` / `RecordUpdateCompiler` for each member | Create rows keep input order; update targets are captured once and sorted by complete row key | One `RecordSeriesStep` runs ordinary member trees at that exact position, then the outer fragment resumes |
-| Scalar top-level bulk write | `CreateManyOperation`, `BulkCountOperation`, or `ManyAndReturnOperation` | The specialized shell | None; there is no one-record loop | Row-shape grouping, optional preparation writes, and captured output groups | Specialized statements preserve skip and bulk semantics; `createMany` chunks splittable compiled runs to the driver bind budget; output folds concatenate rows or sum counts |
-| Relation-bearing top-level bulk write | `CreateManyRecordSeries` or `UpdateManyRecordSeries` | The series shell fixes order and result shape; ordinary relation owners decide each member | `CreateOperation` / `RecordUpdateCompiler` | Create input order, or one captured and sorted update root set | Interactive transaction, or root D1 committed segments; grouped final reads reconstruct public input order |
-
-Junction compilation also uses exact discriminated state. Inline fresh targets
-emit target INSERT, junction INSERT, then inline descendants. Delegated targets
-emit their complete fresh-record subtree before the junction INSERT. These
-orders remain explicit because merging them would require placement policy or
-change observable step order.
-
-### Source-bound relation membership
-
-`relation-membership.ts` binds each ordinary source to one
-foreign/referenced field pair, then binds those members to the child-held
-relation. The polymorphic form binds fixed storage and discriminator to one
-identity source. Consumers resolve the membership; they never supply a separate
-field name or private-storage channel that could select the wrong value.
-
-The same owner lowers assignment, clear, planning/final correlation, probe
-projection, and captured-row membership tests. This keeps ordinary and
-polymorphic relation Parts on one control-flow path without hiding their
-different physical storage.
-
-Planning and final sources are distinct. Literal and planning-field sources can
-feed planning SQL. Final references and lookup SQL remain final-only. A primary
-key transition uses one read source for the old value and one write source for
-the transformed value, so correlation and assignment cannot silently swap.
-
-`createMany`, `updateMany`, `deleteMany`, and relation `set` retain their
-set-oriented scalar paths. A root `createMany` row with a general relation
-program routes the whole call to `CreateManyRecordSeries`; root relation-bearing
-`updateMany` routes to `UpdateManyRecordSeries`. The former preserves input
-order. The latter captures the matching complete row keys once and sorts them.
-Both reuse ordinary record compilers rather than a bulk relation compiler.
-
-Nested scalar-only `createMany` and `updateMany` also keep their grouped paths.
-A relation-bearing nested create uses ordinary fresh record Parts inside one
-`RecordSeriesStep`; a relation-bearing nested update captures its correlated
-targets and uses `RecordUpdateCompiler` once per target. The enclosing relation
-Part owns placement, membership, and guards. A child-held move that names one
-target remains refused when more than one selected member would claim it.
-
-Final public reads for a series are grouped by complete row key and chunked by
-the driver's bind-parameter budget. N logical member results therefore require
-K bounded set reads, normally one, while preserving source order and exact
-missing-row failures.
-
-Write-side chunking stays with the semantic builder. `buildCreateManyPlan`
-partitions contiguous same-shape rows from the compiled bind count. Junction
-`connect` and `set` partition complete captured target-key tuples. The executor
-only enforces the final driver limit; it does not split arbitrary predicate SQL
-or complete-set guards. Every chunk remains in the operation's transaction or
-native atomic batch.
-
-## Polymorphic relation path
-
-A variant target domain has two storage shapes and the declaring factory picks
-one: a variant `s.toOne` is row-held and a variant `s.toMany` is junction-held.
-Everything up to the [collection path](#polymorphic-collection-path) describes
-the row-held one.
-
-A field declared with a variant `s.toOne` defines a direct multi-target to-one
-relation with an exact lazy getter map and a separate stable stored-value map:
-
-```typescript
-subject: s
-  .toOne(
-    {
-      post: () => post,
-      video: () => video,
-    },
-    {
-      values: {
-        post: "content.post.v1",
-        video: "content.video.v1",
-      },
-    }
-  )
-  .name("subjectTarget")
-  .optional()
-```
-
-The map key is public: queries use it and results narrow on it. The mapped value
-is physical migration history. The owning model stores neither value as a
-public scalar. Its validated schema descriptor owns private
-`<relation>_type` and `<relation>_id` columns plus a composite `(type, id)`
-index. There is no portable database foreign key across target tables.
-
-The direct and inverse paths are deliberately different:
-
-| Path | Read meaning | Write meaning |
-| --- | --- | --- |
-| direct field | One correlated CASE statement, one exact discriminator arm per configured target | `CreateOperation` owns fresh-owner connect/create/connectOrCreate; `RecordUpdateCompiler` owns those operations plus selected-owner update/upsert and optional disconnect/delete |
-| plural inverse (`s.toMany`) | Ordinary include/filter/count plus `child.id = parent.pk AND child.type = fixed discriminator` | Ordinary child-held relation Parts own the full safe to-many mutation family; record compilers own fresh and selected child records |
-| singular inverse (`s.toOne`) | Ordinary singular include/filter plus the same exact type-and-identity membership | Ordinary child-held-to-one Parts own selection and membership; record compilers own fresh and selected child records |
-
-Direct include/select supports target-specific nested projections. A configured
-variant omitted from the projection object still uses that target's default
-scalar projection, so the public result remains an exhaustive discriminated
-union. Direct filters accept `type`, `type + is`, and `type + isNot`. An
-optional relation also accepts bare `null`, `{ is: null }`, and
-`{ isNot: null }`. Presence filters compare the private storage pair directly;
-target-specific filters keep the discriminator-correlated target query.
-
-The query compiler emits one CASE-based statement and does not execute a query
-per row or target. Ordinary relations keep their existing capability-selected
-LATERAL/correlated path. Polymorphic mutation projection folds carry private
-type/id columns only when needed and decline a self-polymorphic stale-snapshot
-fold; the normal terminal read remains the fallback.
-
-Direct mutation lowering resolves one target after operation-schema parsing.
-The targeted branch reuses `RelationMutationProgram` and existing lookup,
-guard, race-pin, and record-compiler behavior. Targetless disconnect adds only
-an empty `PolymorphicStorageValue`. Linked and empty storage values always write
-or clear type and id together, and a disconnect-only selected update still
-counts as root work.
-
-The strict result parser receives the existing relation decode middleware with
-kind `"polymorphic"`, validates the internal carrier, selects the exact variant
-shape, and parses target data through the normal row parser. Empty storage
-returns `null` only for an optional relation. A non-empty membership whose
-known target is missing always throws `QueryEngineError`. Unknown
-discriminators and half-null storage are malformed provider results.
-
-Direct owner creation exposes connect, create, and connect-or-create. A selected
-owner also exposes update and upsert, plus disconnect and delete when the direct
-membership is optional. A row-held edge stores one membership, so collection set
-does not apply to it. A bound plural inverse exposes
-create/createMany/connect/connectOrCreate/upsert on create, the ordinary
-targeted and bulk update/delete family on update. Disconnect requires clearable
-membership. Set is available for both storage modes; required membership uses a
-materialized departing-member guard. A bound singular inverse always has an
-optional public slot: delete may empty it, while disconnect additionally
-requires clearable child storage. Exact membership always includes both the
-fixed discriminator and parent identity. Root createMany accepts a row-held
-connect-only membership; inverse nested createMany can satisfy its owning
-required relation but not another required polymorphic relation. The feature
-adds no runtime step kind, executor protocol, adapter semantic namespace, or
-round trip beyond the ordinary child-held analogue.
-
-## Polymorphic collection path
-
-A field declared with a variant `s.toMany` stores each variant's memberships in
-its own fixed-target member junction, so the engine's junction owners serve it
-whole. The design rule is that the collection adds **coordination**, never a
-second junction DML owner and never a polymorphic scheduler.
-
-**Reads.** `select-builder.ts` dispatches on cardinality, and
-`builders/polymorphic-collection-read-builder.ts` composes one correlated JSON
-document with one branch per member junction, in `storage.members` declaration
-order — correlated rather than lateral on every adapter, because the result
-boundary decodes exactly one relation value per relation column. The statement
-grows with variant count, never with owner-row count.
-The validated selection reaches the engine as `true`, `false`, or an envelope of
-exactly two keys — `only` (already deduped and canonicalized into declaration
-order by the parse boundary) and `variants` (one ordinary to-many node per
-public discriminator). The engine reads those two keys and nothing else, which
-is what keeps allow-list order out of result order and collapses two spellings
-of one allow-list into one compiled statement and one cache entry.
-
-Filters, counts and count ordering compose the same leaves: quantifiers lower to
-correlated existence over the named variant's member table (`every` as an
-explicit conjunction rather than trusting a `NOT EXISTS` spelling to mean it),
-and `_count` sums one correlated count per member table in declaration order —
-the same summed expression `orderBy: { rel: { _count } }` sorts on.
-
-**Result parsing.** The shared strict element parser is reused, wrapped for a
-collection: the result is always an array, never nullable. Elements are grouped
-by declaration order, and every configured arm's integrity facts are computed
-even under `only`, so an orphan in an excluded variant still fails the read.
-
-**Writes.** `write-engine/PolymorphicCollectionPart.ts` returns exactly **one**
-`Part`, not a list, and that is the whole reason it exists — sibling Parts are
-concatenated in list order, so N independent variant Parts could not express a
-clear-once barrier. It owns exactly four relation-wide facts: the `set`
-clear-all barrier, cross-verb and cross-variant ordering, the single owner-row
-publication every leaf correlates on, and a cache footprint that is empty by
-measurement (invalidation lives above the engine). Everything else is a leaf's:
-one `buildJunctionParts` call per entry against that entry's pre-bound member
-junction. The compile order is the contract — every leaf's guards, then the one
-barrier, then every leaf's writes.
-
-`set` is lowered rather than special-cased: the parser keeps emitting `set`
-entries, the coordinator rewrites each into its insert half and owns the clear
-half itself, and ordinary junction `set` stays byte-identical. Because the clear
-and the refill must commit together, the one shape that a batch could legally
-split between them — no transaction, `clearsAll`, and an owner row key arriving
-as a produced output reference — is refused at construction, before any effect.
-
-**Inverse writes.** Both arities are ordinary. A variant-bound plural inverse
-is a fixed-variant junction view: the binder supplies the same
-`ResolvedJunctionTopology` in reverse orientation, and `RelationJunctionPart` /
-`JunctionStatements` — written against `membership.source` / `membership.target`
-— serve every verb unchanged. A variant-bound singular inverse is the
-singular slot, and `write-engine/RelationJunctionToOnePart.ts` is a thin
-dispatcher and orientation adapter over it, owning three things: the
-`(vacate, supplier, modify)` order consumed from `classifyToOneComposition`; the
-four correlated spellings (`disconnect: true` deletes the junction row by the
-variant side alone, `delete: true` deletes the single captured owner row,
-correlated `update`, guarded `upsert`); and an owner-oriented membership
-projection feeding the transfer.
-
-**The singular transfer.** A member whose inverse cardinality is `one` has a
-unique over its complete target side, so adding a membership is a slot
-replacement, not an insert. `write-engine/junction-singular-transfer.ts` owns
-that protocol for both directions: one capture read, then the same write
-sequence on both substrates — inside a transaction the capture is `forUpdate`
-and the row lock is the premise, in a native atomic batch the CAS is in-batch
-with no postcondition the executor cannot enforce. A freshly created target is
-proven empty structurally, so its capture is elided rather than paid for.
-
-**Bulk routing.** `write-engine/routing.ts` reads raw rows before any parse and
-dispatches the polymorphic half on cardinality. A row-held `connect` stays OUT of
-the relation-bearing set — it contributes literal column values to the grouped
-`INSERT` and keeps the pinned grouped bulk contract. A collection key is IN: its
-memberships cannot exist before the owner row does, so the whole call routes to
-the ordered record series and each row runs as an ordinary create.
-
-## SQL and adapter boundary
-
-> The query engine decides what to query. The adapter decides how the database
-> expresses it.
-
-```typescript
-// Wrong: PostgreSQL syntax in the query engine
-sql`COALESCE(json_agg(...), '[]'::json)`;
-
-// Right: adapter-owned syntax
-scope.adapter.json.agg(expression);
-```
-
-SQL-emitting builders return parameterized `Sql` fragments. The query engine
-does not match provider-specific SQL tokens to recover facts that the compiler
-already knows. Provider error-message and assertion-marker recognition belongs
-to driver error mapping.
-
-Compiler facts required by a later fold travel beside the opaque SQL fragment.
-For example, PostgreSQL create CTE folding receives the target table,
-duplicate-skip disposition, and database-assigned-identity fact directly from
-the create compiler. It does not recognize `ON CONFLICT` or other PostgreSQL
-tokens in rendered SQL. This keeps the fold fast without moving dialect parsing
-back into L6.
-
-## Strict results
-
-Result parsing keeps one middleware chain per execution driver:
-
-```text
-driver parser → adapter parser → default strict parser
-```
-
-Row, relation, aggregate, count, scalar, and expected-shape parsing remain
-separate concerns under `result/`. Missing or malformed provider data raises a
-typed error; parsing never substitutes a plausible default.
-
-## SQL inspection
-
-`QueryEngine.build()` returns SQL only when an operation is representable as one
-statement without executor-only behavior. It rejects guards, unresolved
-references, and other multi-step semantics instead of pretending that an atomic
-operation is one SQL statement.
-
-Use `prepare()` or await the returned `PendingOperation` for general operations.
-
-## Compatibility
-
-`PendingOperation` is the deferred-operation class exported from the package
-root and `viborm/client`. The operation program and its metadata remain private;
-there is no `QueryMetadata`, public result parser, or `viborm/query-engine`
-entry point.
-
-## Architecture gates
-
-`pnpm test:layer:query-engine` checks fragment vocabulary, parsing boundaries,
-write-engine runtime import acyclicity, result contracts, and provider-neutral
-behavior. `pnpm test` runs the complete core estate. Extended and provider
-contracts use the scripts documented in `tests/README.md`.
-
-The fast layer gate is not the write-engine coverage oracle. The authoritative
-credential-free report is `pnpm test:coverage:write-engine`, which selects the
-complete local write behavior estate plus its query and architecture sentinels.
-The 2026-08-07 measurement covers 93.00% of statements and lines, 90.12% of
-branches, and 98.90% of functions in 223.53–232.92 seconds across two complete
-runs.
-
-PGlite behavior is provisioned by schema family: one database and one schema
-push, then table truncation with identity restart between ordinary cases.
-Parity arms reset explicitly. Fresh databases remain only where the contract
-observes DDL, lifecycle, destructive schema changes, independently committed
-concurrency, staleness/races, or rollback isolation. Structural compiler tests
-do not boot a database, and the family fixture is the sole disconnect owner.
+The query engine lives in `src/query-engine/`. Its public input is an operation
+on a registered model; its output is a parsed result or a typed failure. The
+compiler and its intermediate objects are private implementation details.
+
+## Admission and execution
+
+A client operation returns a lazy `PendingOperation`. Awaiting it runs the
+operation lifecycle once; subsequent Promise consumers share that execution.
+Request extensions transform arguments before validation. The schema registry
+then admits the operation against the registered model graph. Query extensions
+surround execution, while statement extensions operate on individual physical
+statements. Observation has separate operation and statement boundaries.
+
+The current implementation is under `raptor3/`:
+
+- `route/client-route.ts` composes admission, read/write routing, and execution.
+- `shared/operation-context.ts` binds the schema, resolved relation topology,
+  driver capabilities, and adapter needed by that operation.
+- `shared/query.ts` lowers reads, filters, projections, and aggregates.
+- `commands/` prepares and executes writes, including nested relation work.
+- `result/` parses provider rows into the public scalar and relation domains.
+
+Those paths describe the installed implementation. They are not package entry
+points, supported extension hooks, or APIs applications should import.
+
+## SQL belongs to adapters
+
+The engine decides which rows and relationships an operation addresses. The
+adapter owns the SQL spelling: identifier qualification, JSON aggregation,
+comparisons, storage conversions, returning clauses, and provider differences.
+Both layers compose parameterized `Sql` fragments. The engine does not recover
+semantic facts by parsing generated SQL.
+
+A relation's topology is resolved once by schema validation. Query and write
+consumers use that same resolved index. They do not scan for inverse relations
+or independently decide which side owns a foreign key.
+
+## Atomicity is a driver capability
+
+An interactive transaction keeps an operation on one reserved session. A native
+batch can atomically execute a prepared statement group, but cannot generally
+branch in JavaScript on an earlier result. A driver offering neither facility
+cannot make several statements atomic merely because the caller issued one
+nested ORM operation.
+
+The compiler refuses a shape when its required guarantees cannot be preserved.
+For example, relation-bearing `skipDuplicates` requires a supported savepoint or
+native strategy; unsupported combinations fail before writing rather than
+silently dropping the option. See [transactions](/docs/client/transactions) and
+the [driver matrix](/docs/drivers) for the concrete guarantees.
+
+Prepared array transactions admit their members before dispatch. They preserve
+member order and statement attribution. Callback transactions execute against
+the callback's bound client. A failed savepoint or transaction poisons further
+work on that scope until its owning cleanup boundary completes.
+
+## Result and storage boundaries
+
+Input validation establishes the logical scalar domain. Provider parsers and
+the compiled row parser establish the returned domain. Invalid provider data
+raises an error; a missing or malformed value is not replaced with a plausible
+zero, empty object, or empty list.
+
+SQLite decimal and temporal storage checks are scoped to the models an operation
+uses. When a write depends on inspected storage, the corresponding assertion
+runs inside the same atomic unit as the write. Raw SQL stays physical and does
+not receive model-aware decoding.
+
+## Inspection and verification
+
+`PendingOperation.buildStatement()` is an inspection facility for supported
+read shapes; it is not a general prepared-query API. Use the official
+[instrumentation extension](/docs/extensions/instrumentation) to inspect
+executed statement events under its disclosure settings.
+
+`pnpm test:layer:query-engine` runs the layer's fast checks. `pnpm test:core`
+runs the complete core selection in sequential bounded shards. Extended,
+provider, and coverage selections are documented in `tests/README.md` and
+owned by the CI manifests. A local compiler test does not establish a hosted
+provider contract.

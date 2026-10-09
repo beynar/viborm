@@ -297,6 +297,8 @@ const foldedInOneStatement = (statements: string[]) =>
   MUTATION_STATEMENT.test(statements[0] ?? "") &&
   statements[0]?.includes(" RETURNING ") === true;
 const MUTATION_STATEMENT = /^(?:UPDATE|INSERT|DELETE)\b/;
+const TWO_INSERT_ROWS =
+  /\bVALUES\s*\([^)]*\)\s*,\s*\([^)]*\)\s*(?:RETURNING\b|$)/;
 /** No statement is a CTE fold: the machinery D-15 deleted emitted nothing else. */
 const noCteFold = (statements: string[]) =>
   statements.every((sql) => !sql.startsWith("WITH "));
@@ -1005,7 +1007,7 @@ describe("Phase 8.2 — the nested-create tree", () => {
     ]);
   });
 
-  test("a nested createMany rides the same route, one INSERT per row", async () => {
+  test("a scalar nested createMany groups both rows into one INSERT", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -1028,12 +1030,22 @@ describe("Phase 8.2 — the nested-create tree", () => {
     driver.recording = false;
 
     expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(4);
+    expect(statements).toHaveLength(3);
+    expect(statements[0]?.startsWith("INSERT")).toBe(true);
+    expect(statements[0]).toContain('"p81_accounts"');
+    expect(statements[1]?.startsWith("INSERT")).toBe(true);
     expect(statements[1]).toContain('"p81_notes"');
-    expect(statements[2]).toContain('"p81_notes"');
+    expect(statements[1]).toMatch(TWO_INSERT_ROWS);
+    expect(statements[2]?.startsWith("SELECT")).toBe(true);
     expect(
-      await client.note.findMany({ where: { accountId: 301 } })
-    ).toHaveLength(2);
+      await client.note.findMany({
+        where: { accountId: 301 },
+        orderBy: { id: "asc" },
+      })
+    ).toEqual([
+      { id: 3010, body: "c0", accountId: 301 },
+      { id: 3011, body: "c1", accountId: 301 },
+    ]);
   });
 
   test("a constraint violated in a child arm rolls the whole tree back", async () => {
@@ -1157,7 +1169,7 @@ describe("Phase 8.2 — the nested-create tree", () => {
     expect(statements.some((sql) => sql.startsWith("WITH "))).toBe(false);
   });
 
-  test("ONE arm taking a generated key keeps the caller's row order across its INSERTs", async () => {
+  test("ONE scalar arm taking a generated key keeps row order in its grouped INSERT", async () => {
     const family = getCrateFamily();
     const driver = new RecordingPGliteDriver({
       client: family.database,
@@ -1182,13 +1194,16 @@ describe("Phase 8.2 — the nested-create tree", () => {
     // arm", not "no generated keys": a multi-row INSERT assigned its sequence
     // values in its own VALUES order, which the planner did not get to choose,
     // so this shape folded where its two-arm sibling above declined. With the
-    // tree fold gone the arm is one INSERT per row, sent in the payload's order,
-    // and the row order it produces is the same one — which is the claim this
-    // case was ever making.
+    // tree fold gone scalar createMany still groups its rows in one INSERT.
+    // The VALUES order must still produce the same generated-key row order.
     expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(4);
+    expect(statements).toHaveLength(3);
+    expect(statements[0]?.startsWith("INSERT")).toBe(true);
+    expect(statements[0]).toContain('"p82_crate"');
+    expect(statements[1]?.startsWith("INSERT")).toBe(true);
     expect(statements[1]).toContain('"p82_item"');
-    expect(statements[2]).toContain('"p82_item"');
+    expect(statements[1]).toMatch(TWO_INSERT_ROWS);
+    expect(statements[2]?.startsWith("SELECT")).toBe(true);
     expect(
       await client.item.findMany({
         where: { crateId: 2 },

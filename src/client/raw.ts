@@ -15,8 +15,12 @@
  *
  */
 
-import type { AnyDriver, QueryExecutionContext, QueryResult } from "@drivers";
 import { markVerbatimBatchQuery } from "@drivers/driver-batch-query-kind";
+import type {
+  AnyDriver,
+  QueryExecutionContext,
+  QueryResult,
+} from "@drivers/exports";
 import { transferPreparedStatement } from "@drivers/prepared-statement-provenance";
 import { validateRawParameters } from "@drivers/provider-parameter-snapshot";
 import {
@@ -39,6 +43,7 @@ import {
   createOperationExecutionContext,
   createRawOperationInstrumentationFacts,
   observeTransactionBatchPhase,
+  withOperationErrorContext,
 } from "@query-engine/execution-context";
 import { PendingExecution } from "@query-engine/pending-execution";
 import type { QueryEngine } from "@query-engine/query-engine";
@@ -94,8 +99,9 @@ export interface RawSurface {
    * `;
    * ```
    */
+  $queryRaw<T = unknown>(query: RawQueryInput): RawOperation<T[]>;
   $queryRaw<T = unknown>(
-    query: RawQueryInput,
+    query: TemplateStringsArray,
     ...values: unknown[]
   ): RawOperation<T[]>;
   /**
@@ -110,7 +116,11 @@ export interface RawSurface {
    * Run a statement and get the affected row count. Interpolations are bound
    * parameters.
    */
-  $executeRaw(query: RawQueryInput, ...values: unknown[]): RawOperation<number>;
+  $executeRaw(query: RawQueryInput): RawOperation<number>;
+  $executeRaw(
+    query: TemplateStringsArray,
+    ...values: unknown[]
+  ): RawOperation<number>;
   /**
    * Run a hand-written statement string with positional parameters. The
    * statement text is used verbatim — never build it from user input.
@@ -489,6 +499,12 @@ class DeferredRawOperation<T>
   }
 
   #run(driver: AnyDriver): Promise<T> {
+    return withOperationErrorContext(this.#context, () =>
+      this.#runAttributed(driver)
+    );
+  }
+
+  #runAttributed(driver: AnyDriver): Promise<T> {
     const handlers = this.#queryHandlers;
     if (handlers === undefined || handlers.length === 0) {
       return this.#runResolved(
@@ -667,8 +683,9 @@ class DeferredRawOperation<T>
 export function createRawSurface(options: RawSurfaceOptions): RawSurface {
   const { engine } = options;
 
+  function $queryRaw<T = unknown>(query: RawQueryInput): RawOperation<T[]>;
   function $queryRaw<T = unknown>(
-    query: RawQueryInput,
+    query: TemplateStringsArray,
     ...values: unknown[]
   ): RawOperation<T[]>;
   function $queryRaw<T = unknown>(
@@ -695,8 +712,9 @@ export function createRawSurface(options: RawSurfaceOptions): RawSurface {
     );
   }
 
+  function $executeRaw(query: RawQueryInput): RawOperation<number>;
   function $executeRaw(
-    query: RawQueryInput,
+    query: TemplateStringsArray,
     ...values: unknown[]
   ): RawOperation<number>;
   function $executeRaw(

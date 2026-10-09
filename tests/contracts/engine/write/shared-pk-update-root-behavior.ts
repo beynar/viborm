@@ -948,7 +948,7 @@ export function registerSharedPkUpdateRootBehavior(
       // the engine's deleted `assertRelationCanDisconnect`.
       expect(rejection).toBeInstanceOf(ValidationError);
       expect((rejection as Error).message).toBe(
-        "Validation failed for update: Unknown key: disconnect"
+        "Validation failed for update: data.account.disconnect: Unknown key: disconnect"
       );
       expect(
         await client.stub.findMany({ select: { accountId: true } })

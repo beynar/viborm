@@ -252,7 +252,9 @@ export function runCursorPaginationBehavior({
         schema: membershipSchema,
         driver: createDriver(),
       });
-      await syncLiveSchema(membershipClient);
+      await syncLiveSchema(membershipClient, {
+        tables: ["cursor_order_memberships"],
+      });
       try {
         await membershipClient.membership.createMany({
           data: [

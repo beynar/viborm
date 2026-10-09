@@ -17,6 +17,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -52,7 +53,10 @@ const TIMESTAMP_OID = 1114;
 const identityParser = (value: string) => value;
 const utcSafeTypes: PoolConfig["types"] = {
   getTypeParser: (oid: number, format?: string) => {
-    if ((oid === DATE_OID || oid === TIMESTAMP_OID) && format !== "binary") {
+    if (
+      [DATE_OID, TIMESTAMP_OID, 1184, 1115, 1182, 1185].includes(oid) &&
+      format !== "binary"
+    ) {
       return identityParser;
     }
     return pgTypes.getTypeParser(oid as never, format as never);
@@ -383,7 +387,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     const operation = context?.operation ?? "execute";
     const observed = this.readBackgroundPoolFailure(client);
     const result = await client
-      .query(sql, params)
+      .query({ text: sql, values: params, types: utcSafeTypes })
       .catch((error: unknown) =>
         this.throwPoolQueryFailure(
           client,
@@ -417,7 +421,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     const operation = context?.operation ?? "executeRaw";
     const observed = this.readBackgroundPoolFailure(client);
     const result = await client
-      .query(sql, params)
+      .query({ text: sql, values: params, types: utcSafeTypes })
       .catch((error: unknown) =>
         this.throwPoolQueryFailure(
           client,
@@ -578,7 +582,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: PgClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, PgDriverOptions, S>
-): VibORMClient<C & { driver: PgDriver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<C & { driver: PgDriver }>]: LinkedClientConfig<
+    C & { driver: PgDriver }
+  >[P];
+}> {
   const { pool, options = {}, pgvector, postgis, databaseUrl } = config;
   const namespace = resolveNamespaceOption(config);
 
@@ -597,7 +605,5 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
 
   const driver = new PgDriver(driverOptions);
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: PgDriver }
-  >;
+  return createClientFromDriverConfig<S, C, PgDriver>(config, driver);
 }

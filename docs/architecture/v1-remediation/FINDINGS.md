@@ -1,0 +1,3710 @@
+# Finding-by-finding response to the adversarial review
+
+This is a generated reading view of [findings.json](findings.json), the authoritative 555-item ledger. It includes all 547 indexed findings and the eight post-review blockers. [RESPONSE.md](RESPONSE.md) records the release checkpoint, overall validation, size and fresh roast.
+
+“Verified fixed” means the cited check exercised the correction. “Documented contract” preserves an intentional public behavior. “Product gap” identifies functionality outside the accepted defect-repair scope. Pending, implemented-unverified and release-pending entries are unfinished; they are not counted as fixes.
+
+| Disposition | Items |
+|---|---:|
+| documented-contract | 92 |
+| implemented-unverified | 2 |
+| not-a-defect | 4 |
+| product-gap | 163 |
+| refuted | 1 |
+| release-pending | 4 |
+| verified-fixed | 289 |
+
+## api-dx
+
+### api-dx-01: A format on a non-key column quietly generates values; the docs recommend putting one on foreign keys
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md.
+
+### api-dx-02: Raw SQL cannot address rows by the ids the ORM returns: silently empty on SQLite, a redacted error on PostgreSQL
+
+**Disposition:** documented-contract. **Review:** high severity; confirmed.
+
+Raw SQL remains an explicitly physical interface: no model codec, namespace insertion, inferred row shape, or inference of an empty IN predicate from join([]). client/raw-sql.mdx now states the one-row generic, caller validation, manual qualification and empty-list handling. Compact IDs and exact decimal coefficients require their physical values; this is deliberately distinct from typed model operations. Native INTEGER loss is separately repaired and tested, not excused by this contract.
+
+### api-dx-04: Tenant isolation can't be enforced by the database: no RLS support and no way to run each operation in a session-configured transaction
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No declarative RLS/roles, arbitrary CHECK, sequence, identity-column or NULLS NOT DISTINCT surface was added. A schema-wide authorization policy and session configuration API would be new product work. Existing raw SQL and callback transactions do not constitute automatic tenant isolation.
+
+### api-dx-05: The report screen takes two queries, a hand join and a type cast; Drizzle does it in one typed query
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Typed joins, arbitrary SQL-expression projections/assignments, window functions, CTE composition, whole-predicate raw filters, typed subquery membership and row-lock options remain absent. The physical raw SQL interface is available with explicit caller result validation; this is not represented as a typed builder or a completed feature.
+
+### api-dx-03: `.index([...], { unique: true })` builds a unique index the client won't use as a unique selector
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+A physical unique index and a client unique selector remain separate declarations. Use .unique() / the model compound-unique declaration for selector semantics; partial/native physical indexes are not promoted to selectors. A unified index/selector API would be a product change, outside the accepted confirmed-defect scope.
+
+### api-dx-06: Bulk writes switch return type on projection arguments
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+V1 preserves exist(), row-generic $queryRaw<Row>(), and count-versus-selected-rows bulk return shapes. The public result probes and compatibility/raw guides define these spellings explicitly; no cosmetic aliases or Prisma return-type emulation were added. Native failures behind supported operations are addressed separately.
+
+### api-dx-07: Prisma look-alike traps: `exist` (not `exists`) and `$queryRaw<T>` returning `T[]`
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+V1 preserves exist(), row-generic $queryRaw<Row>(), and count-versus-selected-rows bulk return shapes. The public result probes and compatibility/raw guides define these spellings explicitly; no cosmetic aliases or Prisma return-type emulation were added. Native failures behind supported operations are addressed separately.
+
+### api-dx-08: One word, several meanings: name, mode, omit, limit vs take
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+V1 preserves exist(), row-generic $queryRaw<Row>(), and count-versus-selected-rows bulk return shapes. The public result probes and compatibility/raw guides define these spellings explicitly; no cosmetic aliases or Prisma return-type emulation were added. Native failures behind supported operations are addressed separately.
+
+### api-dx-09: Soft-delete sharp edges in everyday code (documented)
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Documented contract: hard deletion retains the selected rows visibility; deleted:'only' selects tombstones for purge. The soft-delete guide explains live-row deletion versus tombstone purge. This is distinct from the separately repaired cache invalidation defects and does not provide authorization.
+
+### api-dx-10: Seeing your SQL takes an extension and two flags; raw SQL errors stay opaque
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+False-default instrumentation diagnostics.includeProviderDetails/includeCallsite implemented at existing error/private execution snapshot owners. Descriptor-only bounded provider message/detail/hint with credential redaction; raw/model deferred application frames captured only opt-in; official JSON logs preserve canonical class/message, sanitized cause and immutable validation source/issues. New4 cases + existing diagnostics25/hostile30 all passed within driver-diagnostics-2 121/121,6.07s/540.2MiB. Packed runtime confirmation still follows final artifact; no default provider disclosure.
+
+### api-dx-11: No documented way to reuse an enum's values or type outside a query
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+The enum guide now declares one const statusValues tuple, derives StatusValue with indexed access, and passes the same tuple to s.enum().name(). This gives forms and validators an ordinary reusable value/type owner without exposing internal scalar state or adding a second enum API. Documentation validation remains in the final gate.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### api-dx-12: Tenancy recipe: a forgotten tenant compiles, writes cross tenants, and the recipe is copy-paste with a cast
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Documented contract: data/tenancy stamps supply defaults, and caller assignments win on create and update. The create-extension guide now demonstrates that override. Stamps are not tenant-write authorization; required controls are runtime checks, while static required-control enforcement and graph-wide authorization remain gaps.
+
+### api-dx-13: SQLite file path is `dataDir`, and leaving it out silently gives an in-memory database
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+SQLite/PGlite dataDir and the in-memory default remain supported contracts. The README and getting-started configuration now use an explicit persistent ./data path and explain the memory option, removing the misleading accidental-persistence onboarding path.
+
+
+## codebase-health
+
+### codebase-health-01: npm install viborm installs a 9-month-old 0.1.0 that cannot run the documented quick start
+
+**Disposition:** release-pending. **Review:** high severity; confirmed.
+
+V1 metadata and current onboarding are prepared, but the stale-content portion requires verified npm latest publication and matching live documentation. No local package version edit is reported as a published release. A version switcher or archived versioned documentation remains a separate product gap; publication alone does not fix that portion.
+
+### codebase-health-02: Bus factor of one: a single human, no human code review, and no external users
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Maintainer concentration, external adoption, independent human review and community support cannot be manufactured by an implementation patch. Required protected-branch checks and release environment approval are enabled, but they do not substitute for independent maintainers or users. No invented adoption claim appears in the report.
+
+### codebase-health-03: The 1.0 release candidates are not feature-frozen: engine swapped 12 days before rc.1, breaking changes and a new entry point inside the RC window
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Historical RC churn and oversized commits cannot be undone without rewriting project history. This work is based on the fetched origin/main revision, uses one explicit V1 remediation/release scope, and must qualify the integrated exact revision. It does not claim that historical RCs were frozen or that earlier release bookkeeping was retroactively repaired.
+
+### codebase-health-11: Hosted drivers and database versions are untested: no Neon, PlanetScale or Turso in CI, one PostgreSQL and one MySQL version
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Hosted Neon TCP/HTTP SDK1.2 scalar/year0/arrays/bigint/transaction probes, test-owned warm-dead session recovery, and two-session races executed using isolated fixtures with retained empty tables. Current fullcore7 and local provider/CI qualification cover available supported runtimes. Hosted PlanetScale2/Turso and a broader PostgreSQL/MySQL version CI matrix remain explicit product gaps, not claimed tested or supported by local libSQL evidence; hosted Neon regressions are conditional on NEON_DATABASE_URL.
+
+### codebase-health-14: Stale peer-dependency ranges silently pin users to old drivers or fail with ERESOLVE
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Published peer ranges and installed SDK contracts updated: Neon1.2.0 official query/batch API executed in hosted uniquely namespaced fixtures; libSQL0.18.0 local client/quarantine/preparation/cache contracts qualified. SQLite range narrowed to ^12.11.1 || ^13.0.3: actual12.11.1 embedsSQLite3.53.2 optimizer8/8, actual supplied13.0.3 client/pagination/rollback smoke passed0.20s (/tmp/viborm-v1-sqlite13-peer.log). Frozen resolution --ignore-scripts passed; ordinary full CI install remains release qualification. Current PlanetScale1.x contract retained; no PlanetScale2 or hostedTurso support claim, and optional provider peers remain optional. CI3 actual PostgreSQL/MySQL/Bun/D1 lanes passed at checkpoint per root evidence; package/declaration remaining H13 is tracked separately.
+
+### codebase-health-04: A 3.69 GB evidence archive is committed to main: 28,798 files, 99% of the checkout
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+The repository still carries historical evidence and a large engine/test harness; there is no claim that class size, all untouched lint debt, or clone weight were eliminated. The repair controls shipped-source growth, removes superseded storage owners and stale documentation, and preserves bounded test runners. Deleting historical project records or replacing the architecture solely to reduce a headline count is outside the accepted defect scope.
+
+### codebase-health-05: 106k lines of code for three dialects: over twice Drizzle's seven-dialect runtime, maintained by one person
+
+**Disposition:** not-a-defect. **Review:** low severity; refuted.
+
+The review Appendix B withdraws the original cross-project LOC comparison because its perimeters differ. The response reports identical VibORM source/test/script/doc perimeters against origin/main and includes added, removed and relocated source, without comparing unlike competitor totals.
+
+### codebase-health-06: The engine core is three god classes and a 601-line, cyclomatic-110 method, with the complexity lint turned off
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+The repository still carries historical evidence and a large engine/test harness; there is no claim that class size, all untouched lint debt, or clone weight were eliminated. The repair controls shipped-source growth, removes superseded storage owners and stale documentation, and preserves bounded test runners. Deleting historical project records or replacing the architecture solely to reduce a headline count is outside the accepted defect scope.
+
+### codebase-health-07: Private engine vocabulary leaks into the CLI and public docs
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### codebase-health-08: Contributor docs are agent work logs: no CONTRIBUTING, stale READMEs, and code comments that cite a private decision log
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Added concise CONTRIBUTING.md with real safe-runner commands and floor/provider gates; replaced stale large README with a runnable persistent quickstart and links to canonical contracts. Docs/package gate pending.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### codebase-health-09: 83 committed test files (16k lines) are selected by no Vitest project and never run
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+The review itself distinguishes 83 intentionally excluded historical review/scratch files from the current test selections. They are not claimed as executed release tests. tests/README.md and credential-free/coverage manifests own the selected estate; the response separates historical receipts from current gate counts.
+
+### codebase-health-10: The engine's own live PostgreSQL/MySQL contract suite never runs in CI
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+The additional historical raptor3-live-provider campaigns remain opt-in and require their isolated provider/evidence harness. Required CI still executes the current PostgreSQL, postgres.js and MySQL2 contract projects. Wiring every historical campaign and a multi-version server matrix is retained as a qualification gap, not falsely counted as executed coverage.
+
+### codebase-health-12: GitHub security tooling is off: no code scanning, no secret scanning, no Dependabot alerts
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Enabled repository secret scanning, push protection, Dependabot alerts/security updates and CodeQL. CodeQL setup run37758619409 completed JS/TS and Actions analysis successfully. CI now audits production dependencies; the first audit exposed docs-tooling advisories that are being repaired before release.
+
+### codebase-health-13: Types are gated only on TypeScript 7; the repo fails under its own pinned TypeScript 5.9.3
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Native TypeScript7 is the whole-estate checker; JavaScript TypeScript5.9.3 remains a separate Compiler API dependency for build/tooling. Full JS5.9 source-estate qualification is not claimed. Public installed declarations are checked on supported TS5.8/native7 consumers and emitted with both JS5.9 and native7. Immutable artifact25 (SHA256 5370aa3d244db77aebff9fb347d73df7ae102e5a39ad670a6d4839979013a5b9) passes all51 package cases on Node22.12 (203.02s/1384.9MiB) and Node24.14 (187.93s/1433.6MiB), retaining1536MiB RSS/300s aggregate/30s child limits. Full native gate41 passes zero diagnostics in35.51s/6143.9MiB under the existing8192MiB allowance. The final118-row source/emitter/strict-consumer matrix has zero unexpected failures: TS5.8/native7 preserve input rejection, result domains, relation traversal and not-any guards for exported clients/factories, self/junctions, variants, modifiers and dense12/24/48/96 graphs. Every successful client emission has zero elisions/getter functions and the complete literal link table. Current JS declaration generation is retained; native emission alone did not solve the original defect, and installed OXC requires annotations. Separate raw-model reconstruction controls still fail semantically as the explicitly accepted limitation. Exact-revision protected CI and publication remain separate gates.
+
+**Additional verification:** Current immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) completes all 118 source/emitter/strict-consumer matrix checks with zero unexpected failures. TS5.8 and native7 preserve exact input/result domains for clients, factories, self/junctions, both variant cardinalities, indexed modifiers and dense graphs through 96 models. Successful client emissions retain complete literal link tables with no elisions or callable original getters. Maximum child: 3.878s / 846.4 MiB; receipts: /tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json. Raw-model reconstruction remains an accepted, semantically checked limitation. The compiler matrix and final package qualification are local proofs; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### codebase-health-15: A bespoke, hard-to-learn test harness: 42 projects, hand-pinned manifests, about 125 gate modes, and tests that police documentation wording
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+The repository still carries historical evidence and a large engine/test harness; there is no claim that class size, all untouched lint debt, or clone weight were eliminated. The repair controls shipped-source growth, removes superseded storage owners and stale documentation, and preserves bounded test runners. Deleting historical project records or replacing the architecture solely to reduce a headline count is outside the accepted defect scope.
+
+### codebase-health-16: Release bookkeeping drift: untagged rc.4, and README and changelog saying rc.5 is unpublished
+
+**Disposition:** implemented-unverified. **Review:** low severity; confirmed.
+
+README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+
+### codebase-health-17: The npm tarball ships 20 stale design specs from the project's first weeks
+
+**Disposition:** not-a-defect. **Review:** low severity; refuted.
+
+Withdrawn in review Appendix B: the release uses npm pack, whose allowlist excludes readme/. The offending tarball was created with pnpm pack outside the release workflow. Package gate still verifies the allowlist.
+
+### codebase-health-18: Lint and type gates are relaxed and enforced only on changed files: 2,402 latent Biome errors on main
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+The repository still carries historical evidence and a large engine/test harness; there is no claim that class size, all untouched lint debt, or clone weight were eliminated. The repair controls shipped-source growth, removes superseded storage owners and stale documentation, and preserves bounded test runners. Deleting historical project records or replacing the architecture solely to reduce a headline count is outside the accepted defect scope.
+
+### codebase-health-19: Agent residue and clutter tracked at the repository root
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+The repository still carries historical evidence and a large engine/test harness; there is no claim that class size, all untouched lint debt, or clone weight were eliminated. The repair controls shipped-source growth, removes superseded storage owners and stale documentation, and preserves bounded test runners. Deleting historical project records or replacing the architecture solely to reduce a headline count is outside the accepted defect scope.
+
+### codebase-health-20: History is hard to review or bisect: mega-PRs and paragraph-length commit subjects
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Historical RC churn and oversized commits cannot be undone without rewriting project history. This work is based on the fetched origin/main revision, uses one explicit V1 remediation/release scope, and must qualify the integrated exact revision. It does not claim that historical RCs were frozen or that earlier release bookkeeping was retroactively repaired.
+
+### codebase-health-21: The vendored CUID2 port's MIT notice is minified away
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+THIRD_PARTY_NOTICES.md preserves the CUID2 upstream MIT notice. Package files and release artifact required/allowed files include it; the final artifact 27 release-artifact contract passes on Node22.12/24.14.
+
+**Additional verification:** The artifact7 tarball contains package/THIRD_PARTY_NOTICES.md and the release artifact contract passed in both CI2 package jobs; final publication uses the same required-file check. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+
+## data-fidelity
+
+### data-fidelity-01: The documented JSON update `{ set: value }` silently stores `{"set": value}`
+
+**Disposition:** documented-contract. **Review:** high severity; partial.
+
+JSON update schema and query engine now recognize the explicit {set: value} envelope; typed documents validate the contained value. Literal documents with a top-level set key use the explicit envelope to disambiguate. Root admission and engine focused runtime checks passed; final public native type gate remains pending.
+
+### data-fidelity-02: SQLite: a top-level JSON integer in [2^53, 2^63) is committed, reported as a failure, and poisons every later read
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Physical JSON reads never rerun input schemas; native integer JSON carrier follows finite Number/JSON.parse domain instead of safe-integer refusal. Dedicated input-transform/legacy-document and9007199254740994 JSON regressions passed13/13.
+
+**Additional verification:** Dedicated input-transform/legacy-document and9007199254740994 JSON regressions passed13/13.
+
+### data-fidelity-03: Caller-supplied pool/client skips VibORM's temporal parsers: withoutTimezone() values silently shifted, s.date() reads throw
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Supplied-client parity: driver-supplied-clients56/56 passed (includes per-query pg/PGlite temporal text and executable supported postgres text setup refusal/acceptance), latest driver runtime/core checkpoints in drivers.md. Owned/supplied postgres+pg and Neon HTTP actual hosted6/6 current SDK1.2 preserve UTC/year0/date scalar/arrays. Borrowed lifecycle remains caller-owned.
+
+### data-fidelity-04: PGlite and postgres.js read timestamptz years 0001-0099 as 1950-2049 (or 2015)
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Provider timestamp/date text parses literal years0..99, BCyear1, second-granularity offsets; PG temporal arrays parsed at field-aware result boundary. Public raw Date admission unchanged. Dedicated PG physical timestamp,date+array BC/year0-leap/offset witnesses passed13/13; live transport matrix driver-owned.
+
+**Additional verification:** Dedicated PG physical timestamp,date+array BC/year0-leap/offset witnesses passed13/13; live transport matrix driver-owned.
+
+### data-fidelity-05: Typed JSON .schema() runs on every read: transforms are applied twice and a routine schema change bricks reads
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Physical JSON reads never rerun input schemas; native integer JSON carrier follows finite Number/JSON.parse domain instead of safe-integer refusal. Dedicated input-transform/legacy-document and9007199254740994 JSON regressions passed13/13.
+
+**Additional verification:** Dedicated input-transform/legacy-document and9007199254740994 JSON regressions passed13/13. Rejected async validators are refused synchronously and their promises are handled at the shared parse/custom-schema/pipe/decimal/union boundaries; rejected operand callbacks are also contained. The seven-file integration gate passes 171/171, including direct and prepared-array result failures, all original 56 SQLite parity cases, parse wrappers and operand callbacks (4.15s / 608.8 MiB; /tmp/viborm-v1-ci6-driver-local-repair-3.log). Full validation coverage passes 3719 tests across four chunks with all four metrics 100%, largest chunk 1090.2 MiB, teardown verified (/tmp/viborm-v1-validation-coverage-final42.log). Recursive JsonValue results now bypass cosmetic Prettify remapping while finite custom outputs, selected keys and union/Date/Decimal/function domains remain intact. Public single/many/selected-result positives, wrong-ID/missing-key negatives and no-any probes are included in tests/types/client/json-result-public.core.types.ts. Whole-estate native43 passes with zero diagnostics, 34.94s / 6043.6 MiB, under unchanged limits (/tmp/viborm-v1-native-43.log). The final artifact 27 package suites also qualify these JSON probes; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### data-fidelity-06: PostgreSQL: bigint lists above 2^53 cannot be read through an include or nested select
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+PG bigint lists use exactNumericProjection text members; temporal provider parser preserves calendar years0..99/BC and second-resolution offsets without extending raw Date admission. Actual pglite-adapter-adversarial9/9 sets server TimeZone Europe/Paris, witnesses to_json ancient year0099 offset+00:09:21, then verifies Date, timestamp-array and bigint-array [9007199254740993n,-9007199254740993n] through include AND nested select, restoring UTC in finally. Existing year0/date-array fixture also passed. /tmp/viborm-v1-query-pg-named-zone-final.log:14.73s1801.9MiB isolated2560 allowance, teardown verified. Earlier actual Neon owned/supplied HTTP/TCP matrix6/6 is complementary scalar/list evidence, not substituted for this named-session-zone witness.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### data-fidelity-07: Poison rows: one database-legal value outside VibORM's narrower domain fails the whole query, blamed on the driver
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+H16 data/domain mismatch now expected nonretryable QueryError/V2006 at the existing OperationContext mapping, preserving model/operation/scalar/reason without driver blame. Actual legal SQLite unsafe INTEGER poisons whole query, valid targeted/filter rows still read, clone attribution remains stable; result-domain core passes within final drivers132/132 (5.68s583.7MiB). Strict whole-query rejection remains the intentional contract; no lenient reads introduced.
+
+**Additional verification:** The common prepared-package owner captures its exact parser and applies existing OperationContext result-failure mapping before driver observation. Direct and prepared-array poisoned integers both retain non-retryable QueryError V2006 with driver/model/operation/scalar/reason metadata; missing-result TransactionError and primary/progress evidence remain distinct. The final 171/171 integration gate qualifies both paths (/tmp/viborm-v1-ci6-driver-local-repair-3.log).
+
+### data-fidelity-08: Time validator rejects every fractional second in second 59 (12:30:59.5, 23:59:59.999)
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+v.isoTime uses the shared clock domain with integer seconds and canonical millisecond padding. tests/unit/validation/adversarial-values.core.test.ts passed, including second59 fractional values and equivalent spellings; final broad gate pending.
+
+### data-fidelity-09: s.time() defaults to timetz but cannot represent an offset; its own NOW() default yields rows it cannot read
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+s.time() defaults to WITHOUT TIME ZONE. Migration Date/Time NOW defaults and explicit TIMETZ are canonicalized to the logical time-of-day domain at millisecond precision. Actual PGlite final6 /tmp/viborm-v1-migration-pglite-final-6.log passed3/3 under Pacific/Kiritimati: returned Time/Date self-equality, UTC defaults, offset0, follow-up push noop. No hosted MySQL claim. Latest temporal-default source requalified /tmp/viborm-v1-migration-pglite-final-7.log:3/3 green4.73s/1727.2MiB teardown; native TIME6/TIMETZ6 NOW emits UTC CURRENT_TIME(3), microseconds modulo1000=0/offset0, naive Time self-equality. Native TIMESTAMP6/TIMESTAMPTZ6 defaults likewise millisecond-aligned and public Date self-equality; latest DDL core66/66 green.
+
+### data-fidelity-10: PostgreSQL DateTime is timestamptz(6) but the domain is milliseconds; DB-side NOW() defaults ignore VibORM's UTC convention
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+DateTime default precision is3; explicit native precision6 DateTime NOW/updatedAt defaults truncate to logical milliseconds and UTC date/time defaults use provider-appropriate canonical SQL. Actual PGlite final6 /tmp/viborm-v1-migration-pglite-final-6.log3/3 verifies EXTRACT microseconds%1000=0, returned Date public self-equality and follow-up push noop; current migration core1973/1973 passed. Hosted Neon scalar/array year0 public boundaries previously6/6. Latest temporal-default source requalified /tmp/viborm-v1-migration-pglite-final-7.log:3/3 green4.73s/1727.2MiB teardown; native TIME6/TIMETZ6 NOW emits UTC CURRENT_TIME(3), microseconds modulo1000=0/offset0, naive Time self-equality. Native TIMESTAMP6/TIMESTAMPTZ6 defaults likewise millisecond-aligned and public Date self-equality; latest DDL core66/66 green.
+
+### data-fidelity-14: Atomic decimal multiply/divide operands must fit the column; _avg is rounded to the column scale
+
+**Disposition:** documented-contract. **Review:** medium severity; confirmed.
+
+The fixed decimal descriptor, field-scale average/arithmetic admission, finite number domain, bigint-only logical input, compact identifier storage, UUID-format (not generation-version) validation and UTC Date semantics are deliberate public domains. V1 documentation now distinguishes these from provider-native/raw values. A general Decimal.js clone, arbitrary NUMERIC mode, non-finite numbers and alternate Date/ID representations were not added.
+
+### data-fidelity-16: JSON writes reject undefined members that the field's own schema and TypeScript type allow
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+JSON admission normalizes undefined object properties away and array holes/undefined to null, retains aliases, refuses cycles and invalid physical transform output without mutating callers. 13/13 adversarial-values focused tests passed; custom schema output remains validated once.
+
+### data-fidelity-17: sqlite3 raw SQL: $queryRaw returns bigint for every integer while $queryRawUnsafe silently rounds above 2^53
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Actual SQLite13 local12/12 and native Bun1/1 proved exact raw INTEGER parity across direct/safe/unsafe/array/callback. Both read losslessly once; raw safe-range bigint becomes number and wider bigint remains bigint. Typed model domain unchanged. Borrowed provider row objects copied during shallow raw normalization. integration8/9 logs.
+
+### data-fidelity-11: SQLite: floats lose precision inside includes and GeoPoints are rounded to 15 significant digits
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+SQLite JSON numeric carriers delegate NULL-preserving adapter json.number (binary64 round-trip text), including geoPoint numeric storage and aggregate leaves. Actual sqlite3-adapter-adversarial10/10 passes Math.PI through include and all four aggregates, exact point coordinates, and positive/negative Number.MAX_VALUE plus Number.MIN_VALUE through include/_avg/_sum/_min/_max; one owned row restored afterward. /tmp/viborm-v1-query-sqlite-binary64-final.log:3.55s482.5MiB teardown verified.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### data-fidelity-12: SQLite DateTime TEXT: spellings the reader accepts are silently mis-filtered
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+SQLite typed temporal inputs are canonicalized to UTC millisecond text. Operation-scoped physical storage checks refuse foreign noncanonical values before predicates, cache hits or writes, including an atomic recheck at dispatch. Public migration SQL helpers support an explicit reviewed conversion; strict raw SQL remains physical.
+
+**Additional verification:** Real SQLite storage11/11 and adapter6/6 passed in /tmp/viborm-v1-root-sqlite-4.log (6.16s,547.7MiB); tests/providers/local/sqlite3-storage-admission.test.ts covers +00:00 rows, cached reads, native array transactions, malformed calendars and post-admission mutation. Migration helper/default qualification is recorded in migrations.md. Final provider CI still required.
+
+### data-fidelity-13: SQLite decimals are capped at precision + scale <= 18
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+The fixed decimal descriptor, field-scale average/arithmetic admission, finite number domain, bigint-only logical input, compact identifier storage, UUID-format (not generation-version) validation and UTC Date semantics are deliberate public domains. V1 documentation now distinguishes these from provider-native/raw values. A general Decimal.js clone, arbitrary NUMERIC mode, non-finite numbers and alternate Date/ID representations were not added.
+
+### data-fidelity-15: s.number() cannot store NaN or +/-Infinity, even on PostgreSQL
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+The fixed decimal descriptor, field-scale average/arithmetic admission, finite number domain, bigint-only logical input, compact identifier storage, UUID-format (not generation-version) validation and UTC Date semantics are deliberate public domains. V1 documentation now distinguishes these from provider-native/raw values. A general Decimal.js clone, arbitrary NUMERIC mode, non-finite numbers and alternate Date/ID representations were not added.
+
+### data-fidelity-18: s.int() range is dialect-dependent and overflow errors are opaque
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+s.int logical admission is JS safe integers; documented default PG/MySQL signed32 and SQLite INTEGER physical bounds remain distinct. Known PG22003/MySQL1264/1690/SQLite integer overflow now expected nonretryable QueryError/V2005, proved mapping73/73 current core6. SQLite legal unsafe integer output now V2006 rather than engine bug, actual poisoned-row fixture passes driver132. No silent clamping or per-model physical inference introduced.
+
+### data-fidelity-19: Compact UUID storage on SQLite hurts interop; .uuidv7() accepts any UUID version
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+The fixed decimal descriptor, field-scale average/arithmetic admission, finite number domain, bigint-only logical input, compact identifier storage, UUID-format (not generation-version) validation and UTC Date semantics are deliberate public domains. V1 documentation now distinguishes these from provider-native/raw values. A general Decimal.js clone, arbitrary NUMERIC mode, non-finite numbers and alternate Date/ID representations were not added.
+
+### data-fidelity-20: Thin Decimal arithmetic API compared with Decimal.js
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+The fixed decimal descriptor, field-scale average/arithmetic admission, finite number domain, bigint-only logical input, compact identifier storage, UUID-format (not generation-version) validation and UTC Date semantics are deliberate public domains. V1 documentation now distinguishes these from provider-native/raw values. A general Decimal.js clone, arbitrary NUMERIC mode, non-finite numbers and alternate Date/ID representations were not added.
+
+### data-fidelity-21: BigInt fields refuse JavaScript numbers
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+The fixed decimal descriptor, field-scale average/arithmetic admission, finite number domain, bigint-only logical input, compact identifier storage, UUID-format (not generation-version) validation and UTC Date semantics are deliberate public domains. V1 documentation now distinguishes these from provider-native/raw values. A general Decimal.js clone, arbitrary NUMERIC mode, non-finite numbers and alternate Date/ID representations were not added.
+
+### data-fidelity-22: SQLite _sum of wide decimals/bigints overflows with an opaque error, contradicting 'aggregates are exact on every provider'
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+SQLite SUM uses the provider signed-integer accumulator and may overflow even when individual bigint/decimal values fit. compatibility.mdx now states that bound and removes the unconditional cross-provider exact-aggregate claim. This does not claim an arbitrary-precision SQLite aggregate implementation.
+
+
+## dialect-features
+
+### dialect-features-01: Common parameterized PostgreSQL native types cannot be pushed or migrated (VARCHAR(n) nullable/defaulted, TIMESTAMP(p)/TIMESTAMPTZ(p)/TIME(p), BIT(n)/VARBIT(n), halfvec(n))
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+PG built-in typmods/defaults/arrays converge in real PGlite and full migration lane 119 files / 1,960 tests. Vector driver-flag and extension-owned visible-type admission pass bounded tests; root PGlite adapter provider witness passed 6/6 including actual vector extension. Native-index unsupported semantics refuse before effects. Full ANN DSL is a product gap.
+
+### dialect-features-02: Inserting a PostgreSQL enum value mid-list commits ADD VALUE, then fails, leaving the migration estate stuck on an unfinished attempt
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Atomic PG full-schema enum replacement preserves middle ordering and dependent new defaults. Actual PGlite add/default/removal+repeat-noop witness passed.
+
+### dialect-features-03: pgvector cannot be used at scale: no ANN index, the docs' hand-made HNSW recipe is dropped by push and refused by migrate, no halfvec
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+Confirmed destructive projection is mitigated: native HNSW/nondefault opclass indexes refuse selected-table synchronization before effects, and real PGlite DESC witness preserves the catalog artifact. halfvec/sparsevec typmods and vector preflight are admitted. Full ANN declaration/query support remains absent; do not call scale support complete.
+
+### dialect-features-04: Index DSL cannot express dialect-native indexes, and the migrator drops or refuses every one added by hand (trigram GIN, DESC, INCLUDE, BRIN; SQLite expression/NOCASE)
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Safety mitigation verified: PG catalog refuses unrepresentable expression/DESC/INCLUDE/opclass/collation/method semantics; SQLite index_xinfo refuses expression/DESC/NOCASE in managed tables, including primary/unique backing indexes. Full migration 1,960/1,960 and real PG/SQLite catalog-row preservation witnesses pass. A faithful native-index DSL remains absent.
+
+### dialect-features-08: One PostgreSQL schema per client; a single cross-schema FK (Supabase auth.users) bricks every push
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+One authenticated namespace remains intentional. The selected managed-table list can exclude unrelated foreign dependencies; any FK touching selected tables across namespaces is refused rather than flattened. Full cross-schema relation/DDL support is a product gap.
+
+### dialect-features-05: Case-insensitive and substring predicates are non-sargable on all three dialects; no index can ever serve them
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Performance/product gap: portable substring and folded comparisons carry no index-use guarantee. Provider expression/search indexes and additional query strategies are not implemented here. The report's universal claim that no index can ever help is not treated as established behavior.
+
+### dialect-features-06: No full-text search on any dialect, and the FTS building blocks VibORM ships are traps (dead MySQL FULLTEXT index, tsvector-as-string, FTS5 tables planned for DROP)
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No FTS query/ranking DSL was added. MySQL FULLTEXT DDL already uses correct CREATE FULLTEXT INDEX prefix and refuses UNIQUE (pinned in migration1973). Selected SQLite FTS5/virtual table synchronization now refuses beforeeffects, actual FTS5 catalog preserved and unrelated selectedtable syncnoop in1973. PostgreSQL tsvector generic operator admission is handled by native-string contract; that is not a full-text search capability.
+
+### dialect-features-07: No generated columns, and a GENERATED column created by hand cannot even be mapped (explicit NULL on insert -> 428C9)
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns.
+
+### dialect-features-09: No native single-statement upsert (ON CONFLICT / ON DUPLICATE KEY) and no arbiter for partial unique indexes
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Eligible ordinary live scalar upsert uses existing native targeted conflict fold, verified dedicated engine native-plan witness. Conditional/stamped/relation shapes retain established plans. MySQL native fold and partial-index conflict arbiters remain product gaps, not claimed as implemented. Eligible ordinary live scalar upsert uses existing native targeted conflict fold, verified dedicated engine native-plan witness. Conditional/stamped/relation shapes retain established plans. MySQL native fold and partial-index conflict arbiters remain product gaps, not claimed as implemented.
+
+### dialect-features-10: On a citext column VibORM's predicates disagree about case (equals/startsWith/gt insensitive, contains/endsWith sensitive)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+PostgreSQL literal text predicates now use escaped LIKE so citext preserves its native case rule across contains, startsWith, endsWith and insensitive ranges. tests/providers/local/pglite-adapter-adversarial.test.ts executes the actual extension and positive/negative query results; the integrated PGlite gate passed 8/8, then the named-zone extension passed 9/9. Plain text retains its separate case contract.
+
+### dialect-features-11: Documented native types that break at runtime: PG.JSON.JSON filters and PG.DATETIME.INTERVAL
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+PG.JSON.JSON extraction/equality casts to JSONB at the adapter boundary, proven by live PGlite6/6. INTERVAL is removed from the DateTime native catalog because an interval is not a timestamp; catalog144-case and declaration checks cover refusal. No interval scalar added.
+
+### dialect-features-12: Native types are cosmetic: inet/cidr/macaddr/uuid/tsvector/xml string columns keep text operators that crash at runtime
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Existing adapter text-expression owner casts nontext native PostgreSQL strings for pattern/case operations while preserving native equality and key semantics. XML equality/order are explicit V8003 refusals. Literal equality/membership delegates unwrapped columns to existing exactTextEq/In with native-type hint, preserving MySQL indexed conjunct and preventing doubled collation. Actual PGlite provider8/8 PASS7.35s1949.2MiB within existing2560MiB allowlist, teardown verified; native INET/CIDR/MACADDR/UUID/XML/TSVECTOR/TSQUERY/BIT pattern/fold cases, native MAC/UUID equality and XML equality refusal in tests/providers/local/pglite-adapter-adversarial.test.ts; /tmp/viborm-v1-query-native-string-final.log. Existing focused ordinary predicate SQL/class/list repairs current169 awaiting final driver golden gate; not misrepresented as green.
+
+**Additional verification:** Actual PGlite provider8/8 PASS7.35s1949.2MiB within existing2560MiB allowlist, teardown verified; native INET/CIDR/MACADDR/UUID/XML/TSVECTOR/TSQUERY/BIT pattern/fold cases, native MAC/UUID equality and XML equality refusal in tests/providers/local/pglite-adapter-adversarial.test.ts; /tmp/viborm-v1-query-native-string-final.log. Existing focused ordinary predicate SQL/class/list repairs current169 awaiting final driver golden gate; not misrepresented as green.
+
+### dialect-features-13: PostgreSQL list has compiles to $1 = ANY(col) and cannot use the GIN index VibORM lets you declare
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Performance gap: PostgreSQL list has uses scalar ANY membership, without a GIN-plan guarantee. A GIN-oriented containment strategy remains additional query lowering; existing membership behavior is not declared incorrect solely because of its plan.
+
+### dialect-features-15: Views, materialized views and partitioned tables cannot be modeled; the migrator treats them as tables
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns.
+
+### dialect-features-16: No DSL for RLS policies/roles, CHECK constraints, sequences, identity columns or NULLS NOT DISTINCT
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+No declarative RLS/roles, arbitrary CHECK, sequence, identity-column or NULLS NOT DISTINCT surface was added. A schema-wide authorization policy and session configuration API would be new product work. Existing raw SQL and callback transactions do not constitute automatic tenant isolation.
+
+### dialect-features-17: The escape hatch for dialect operators is weak: no raw predicate, no expression orderBy/select, raw rows undecoded, no typed raw SQL
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Typed joins, arbitrary SQL-expression projections/assignments, window functions, CTE composition, whole-predicate raw filters, typed subquery membership and row-lock options remain absent. The physical raw SQL interface is available with explicit caller result validation; this is not represented as a typed builder or a completed feature.
+
+### dialect-features-18: pgvector query surface is thin: only l2/cosine, no distance filter, nullable select refused, dimension unchecked on write
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Confirmed vector defects are fixed: finite float32 components and declared dimensions are checked before provider writes; nullable distance selection and zero-cosine results preserve null. Actual PGlite provider tests cover valid and invalid writes plus nullable/zero vectors, and SQLite tests exercise JSON storage. The API still offers l2/cosine only; distance filters and other metrics remain explicit product gaps.
+
+### dialect-features-14: JSON filters cannot use a jsonb GIN index; no containment, key-existence, jsonpath, opclass or partial-update operators
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product/performance gap: JSON array containment has an adapter seam, but key-existence, jsonpath, opclass selection and partial-document writes remain absent. Structural equality and string-type correctness are repaired separately; no universal jsonb-GIN indexability guarantee is claimed.
+
+### dialect-features-19: PostGIS support is Point-only and nearest-neighbour ordering cannot use GiST KNN
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Product/performance gap: stored spatial values use the single fixed GeoPoint vocabulary. Polygon query inputs do not add general stored geometry. Native GiST KNN nearest-neighbor ordering and broader geometry storage remain absent; conservative bounds correctness is a separate repaired defect.
+
+
+## differential
+
+### differential-01: SQLite stores and compares DateTime ISO strings verbatim: equal instants don't match, ORDER BY/groupBy are wrong, deleteMany hits extra rows
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+DateTime admission canonicalizes UTC milliseconds and shares the physical codec. SQLite foreign/noncanonical temporal rows refuse typed predicates before effects. sqlite3-storage-admission11/11 and PGlite adapter6/6 passed, including year0000 scalar/list equality.
+
+### differential-02: Bare sort direction places NULLs differently depending on take/cursor: findFirst != findMany()[0], take-pages overlap skip-pages, cross-DB divergence
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Consistent asc-null-last/desc-null-first and identity/group-column completion for relation,count,distance ordering. Offset/full sort oracle and existing order-projection/selector suites passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** Offset/full sort oracle and existing order-projection/selector suites passed stable145/146 batch.
+
+### differential-03: SQLite truncates doubles to 15 significant digits in nested relation reads and in every aggregate; values near MAX_VALUE crash
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+SQLite JSON numeric carriers delegate NULL-preserving adapter json.number (binary64 round-trip text), including geoPoint numeric storage and aggregate leaves. Actual sqlite3-adapter-adversarial10/10 passes Math.PI through include and all four aggregates, exact point coordinates, and positive/negative Number.MAX_VALUE plus Number.MIN_VALUE through include/_avg/_sum/_min/_max; one owned row restored afterward. /tmp/viborm-v1-query-sqlite-binary64-final.log:3.55s482.5MiB teardown verified.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### differential-05: A caller-supplied PGlite instance reads .withoutTimezone() DateTimes shifted by the process time zone
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Actual borrowed PGlite instance under America/Los_Angeles proves .withoutTimezone Date create/read/filter UTC equivalence; driver per-query temporal text parsing applies to caller-supplied handle, and disconnect leaves native SELECT1 usable. Test-owned Wasm handle and TZ restored in finally. tests/providers/local/pglite-supplied-temporal.test.ts; /tmp/viborm-v1-borrowed-pglite-bun-final.log:2/2 across PGlite/Bun,3.78s1101MiB, verified teardown.
+
+### differential-04: PGlite (and by code, postgres.js) read timestamptz years 0001-0099 in the wrong century (0001 -> 2001, 0050 -> 1950)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Provider timestamp/date text parses literal years0..99, BCyear1, second-granularity offsets; PG temporal arrays parsed at field-aware result boundary. Public raw Date admission unchanged. Dedicated PG physical timestamp,date+array BC/year0-leap/offset witnesses passed13/13; live transport matrix driver-owned.
+
+**Additional verification:** Dedicated PG physical timestamp,date+array BC/year0-leap/offset witnesses passed13/13; live transport matrix driver-owned.
+
+### differential-06: No tie-breaker for relation or aggregate sort keys: offset pages duplicate and drop rows (findMany _count/to-one paths, groupBy)
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Consistent asc-null-last/desc-null-first and identity/group-column completion for relation,count,distance ordering. Offset/full sort oracle and existing order-projection/selector suites passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** Offset/full sort oracle and existing order-projection/selector suites passed stable145/146 batch.
+
+### differential-07: SQLite endsWith: "" matches NULL rows, and JSON string_ends_with: "" matches every row; affects updateMany/deleteMany too
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Empty suffix preserves SQL NULL and JSON string predicates call typed stringAtPath rather than serialized whole-document text; PostgreSQL whole-document extract normalizes native json via adapter jsonb owner. Actual SQLite adapter adversarial10/10 (empty non-null suffix, structural JSON scalar/object/array distinctions) and PGlite9/9 (native JSON equality/path strings) passed, plus remote CI3 PostgreSQL/MySQL provider job113368520531. Core7 decoder/operator contracts passed.
+
+**Additional verification:** Engine filter suite passed; root adapter/provider qualification pending.
+
+### differential-08: having _min/_max operands are numbers-only for String/DateTime/Boolean: meaningful filters rejected, meaningless ones run with DB-dependent results
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+HAVING min/max operands use each field filter/domain; sum/avg refuse nonnumeric fields. PostgreSQL Boolean min/max lower to BOOL_AND/BOOL_OR with actual mixed/all-null/HAVING provider proof. CI4 PostgreSQL/MySQL and core jobs pass at8a7f4474c; current whole-estate native22 passes13.99s/6636MiB under unchanged8192MiB. Public argument callbacks are refused before evaluation; validation coverage remains100%.
+
+### differential-12: Empty or undefined OR members evaluate to FALSE: OR [{ role: role ?? undefined }] returns zero rows, undocumented and with no strict mode
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Documented contract: undefined filter members are omitted; empty AND/NOT are true and empty OR, including empty children, is false. SQL three-valued every semantics are retained. The compatibility guide explains both edges; a new strictUndefined mode or different Boolean algebra is not implemented.
+
+**Additional verification:** Source existing prepared predicate semantics; tests/contracts/drivers/behaviors/prisma-parity-behavior.ts empty-OR coverage and tests/raptor3/g4/review/unit01-followup2/characterize.test.ts/combinator-depth.test.ts establish extensive intentional contract. No new runtime change or fresh full-provider run claimed.
+
+### differential-14: SQLite-family statements are capped at 999 bound values (D1: 100), refused rather than chunked: an IN list of 1,000 ids throws
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+The incorrect generic999 SQLite ceiling is repaired at the existing concrete driver capacity owner: current SQLite-family transports declare32766; D1 retains its actual100-provider limit. Ordinary admitted caller IN1000 executes. Final rendered budget still fails closed before provider effects at a real ceiling; automatically splitting arbitrary logical read predicates is an explicit remaining query-strategy product gap, not claimed implemented. Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support.
+
+**Additional verification:** Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support.
+
+### differential-15: mode: "insensitive" folds ASCII only (documented): é/Ë/İ/ß never match case-insensitively on any database
+
+**Disposition:** documented-contract. **Review:** medium severity; confirmed.
+
+The portable insensitive contract is ASCII folding. Unicode case equivalence and normalization are not promised across dialects; no locale-independent Unicode collation layer added.
+
+### differential-16: JSON whole-document equals/not equals is key-order sensitive on SQLite but not on PostgreSQL
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+SQLite json_tree structural comparison ignores object key order while preserving array positions/container/scalar types; equals/not and endpoint member comparison share adapter.json.equals. SQLite adapter6/6 passed including reordered nested objects, missing path, boolean/number/string distinction.
+
+### differential-09: Enum orderBy/groupBy order differs: declaration order on PostgreSQL/MySQL, alphabetical on SQLite (undocumented)
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Enum ordering remains provider storage ordering: declaration order for PostgreSQL/MySQL enums, lexical order for SQLite text. No new portable enum-order expression was added; range operators remain refused. Explicit ordering caveat added to enum guide.
+
+### differential-10: String orderBy/lt/gt/_min/_max follow the PG database collation, while JSON-path strings are pinned to code point
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Ordinary string ordering/aggregates follow the database collation; JSON-path code-point rules remain distinct. Insensitive range predicate defect fixed and actual SQLite adversarial witness passed8/8. No global collation contract added.
+
+### differential-11: mode: "insensitive" is silently ignored by lt/lte/gt/gte (type-accepted), producing mixed folded and unfolded filters
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Case-insensitive lt/lte/gt/gte now fold both operands through the dialect owner consistently with equality. A real SQLite public query proves Z > a with insensitive mode and no match with the ordinary mode in tests/providers/local/sqlite3-adapter-adversarial.test.ts; the 14/14 gate passes. PostgreSQL native string/citext behavior has its separate executed PGlite witness.
+
+### differential-13: s.int() accepts values PostgreSQL int4 can't store; overflow surfaces as opaque V2001 / misleading V9001 errors
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Logical s.int admits JS safe integers; documented default PG/MySQL signed32 and SQLite signed64 physical ranges remain distinct. Provider numeric overflow now expected nonretryable V2005 with category evidence PG22003/MySQL1264/1690/SQLite integer overflow in mapping73/73 core6. No silent clamping or broad schema inference added.
+
+### differential-17: distinct with a negative take picks different representative rows than the same query read forward
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Approved logical distinctOrderBy adapter protocol amendment will preserve representatives before backward pagination. Root and nested SQLite backwards distinct/sliced-page witness passed; adapters share logical distinctOrderBy separate from reversed presentation order.
+
+**Additional verification:** Root and nested SQLite backwards distinct/sliced-page witness passed; adapters share logical distinctOrderBy separate from reversed presentation order.
+
+### differential-18: Cursor pagination refuses relation and aggregate orderBy (documented); Prisma accepts it
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Cursor order by relation/count/distance remains unsupported; intentional refusals now use UnsupportedOperationError V8003 instead of internal-bug V9001. Real SQLite operand suite3/3 qualified exact public errors.
+
+### differential-19: Unvalidated inputs reach the database and surface as opaque QueryError V2001 'Query execution failed'
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Write admission enforces logical/physical scalar output domain, custom transforms once and result-aware arithmetic refusal. Provider schema/range categories now V2004/V2005, auth/config V1004 and capacity V1005; explicit diagnostics opt-in retains sanitized bounded provider detail and callsite. Mapping73/73/hostile30/30 core6 and real recorder disclosure7/7/root144 passed.
+
+### differential-20: Filter semantics that silently differ from Prisma are missing from compatibility.mdx
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Compatibility guide explicitly covers empty/undefined filters, nullable every, enum/collation ordering, ASCII insensitive range behavior, JSON containment differences and strict safe-raw argument forms.
+
+
+## docs-onboarding
+
+### docs-onboarding-01: Every documented install command installs the January 0.1.0 build, which cannot run the docs
+
+**Disposition:** release-pending. **Review:** high severity; confirmed.
+
+V1 metadata and current onboarding are prepared, but only verified npm latest publication and the matching released documentation can close this finding. No local package version edit is reported as a published release.
+
+### docs-onboarding-02: The documented `defineConfig({ client })` config file fails to typecheck for every real client
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final artifact 27 Node22.12/24.14 package suites qualify the installed CLI/configuration path; final remote CI remains separate.
+
+**Additional verification:** Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open. Current CLI coverage passes 85/85 across five files with all four metrics 100%, 4.07s / 783.6 MiB, teardown verified (/tmp/viborm-v1-cli-coverage-final.log). Installed Jiti dependency CJS interop is retained; config and migration consumers select own authored defaults rather than inherited synthetic defaults, preserving their existing truthy/nullish fallback rules. Real SQLite query and named TypeScript migration-author cases remain exercised. Final artifact 27 package qualification is recorded below; exact-revision remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### docs-onboarding-03: The documented namespace schema export (enums, utilities) crashes createClient with an internal TypeError
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Model registration preflight returns named M008 for namespace entries that are not s.model definitions before binding any model. Public runtime registration11/11 passed. Configuration guide now passes an explicit model object; namespace filtering is not claimed.
+
+### docs-onboarding-04: ESM-only and undocumented; default projects fail first run and CommonJS consumers are blocked by the exports map
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final artifact 27 Node22.12/24.14 package suites qualify the installed CLI/configuration path; final remote CI remains separate.
+
+**Additional verification:** Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open. Current CLI coverage passes 85/85 across five files with all four metrics 100%, 4.07s / 783.6 MiB, teardown verified (/tmp/viborm-v1-cli-coverage-final.log). Installed Jiti dependency CJS interop is retained; config and migration consumers select own authored defaults rather than inherited synthetic defaults, preserving their existing truthy/nullish fallback rules. Real SQLite query and named TypeScript migration-author cases remain exercised. Final artifact 27 package qualification is recorded below; exact-revision remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### docs-onboarding-06: The Getting Started path contradicts itself and most documented CLI invocations fail
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Getting-started and configuration use installed Node CLI with bundled jiti; no external tsx or Bun-for-better-sqlite3 requirement. CLI loads project .env. Focused CLI69 previously passed; final artifact 27 suites also pass the installed CLI smoke on Node22.12/24.14.
+
+**Additional verification:** Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open. Current CLI coverage passes 85/85 across five files with all four metrics 100%, 4.07s / 783.6 MiB, teardown verified (/tmp/viborm-v1-cli-coverage-final.log). Installed Jiti dependency CJS interop is retained; config and migration consumers select own authored defaults rather than inherited synthetic defaults, preserving their existing truthy/nullish fallback rules. Real SQLite query and named TypeScript migration-author cases remain exercised. Final artifact 27 package qualification is recorded below; exact-revision remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### docs-onboarding-07: The documented .env is never loaded; an unset DATABASE_URL silently falls back to libpq defaults
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final artifact 27 Node22.12/24.14 package suites qualify the installed CLI/configuration path; final remote CI remains separate.
+
+**Additional verification:** Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open. Current CLI coverage passes 85/85 across five files with all four metrics 100%, 4.07s / 783.6 MiB, teardown verified (/tmp/viborm-v1-cli-coverage-final.log). Installed Jiti dependency CJS interop is retained; config and migration consumers select own authored defaults rather than inherited synthetic defaults, preserving their existing truthy/nullish fallback rules. Real SQLite query and named TypeScript migration-author cases remain exercised. Final artifact 27 package qualification is recorded below; exact-revision remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### docs-onboarding-08: The Configuration page's canonical setup pushes into an in-memory database and reports success
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Canonical PGlite configuration now supplies persistent dataDir and explicit model imports, avoiding accidental in-memory schema push and exported enum poisoning.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### docs-onboarding-09: README and docs contradict each other on maturity, transactions, extension capabilities, raw SQL and release status
+
+**Disposition:** implemented-unverified. **Review:** medium severity; confirmed.
+
+README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+
+### docs-onboarding-11: No migrating-from-Prisma/Drizzle guide and no brownfield onboarding path
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+The V1 upgrade/compatibility guides and explicit brownfield migration refusals are documented. Automated Prisma/Drizzle conversion, pull-to-schema generation, scaffolding, framework starter projects and an upgrade codemod remain unimplemented product work.
+
+### docs-onboarding-12: No scaffolding, no example projects, no framework or testing guides
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+The V1 upgrade/compatibility guides and explicit brownfield migration refusals are documented. Automated Prisma/Drizzle conversion, pull-to-schema generation, scaffolding, framework starter projects and an upgrade codemod remain unimplemented product work.
+
+### docs-onboarding-13: Error codes are weakly linked to docs, and the documented UniqueConstraintError metadata is absent
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+The public error reference lists the shipped typed families and stable codes, links the Prisma mapping precisely, and states that constraint/columns/table metadata depends on provider evidence. The diagnostic allowlist preserves these structured fields; arbitrary application metadata remains excluded.
+
+**Additional verification:** Provider mapping73 and hostile30 core6 tests plus current driver/instrumentation132 passed; actual-recorder diagnostics7 and executable docs corpus137 passed. docs/content/docs/client/errors.mdx is updated for V2004/V2005/V2006/V1005 and unavailable metadata. Final docs validation remains a release gate.
+
+### docs-onboarding-23: No community or support channel, and almost no outside knowledge to fall back on
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Maintainer concentration, external adoption, independent human review and community support cannot be manufactured by an implementation patch. Required protected-branch checks and release environment approval are enabled, but they do not substitute for independent maintainers or users. No invented adoption claim appears in the report.
+
+### docs-onboarding-05: Every declaration entry imports all ten optional driver typings; the docs' tsconfig turns that into errors
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Actual immutable artifact6 root/schema strict skipLibCheck:false consumers with only declared runtime dependencies and no optional driver peers pass TS5.8/native (5.45s761.4MiB). Genuine public D1 Session/sqliteResultParser/supplied postgres setup with real worker/postgres and @types/node peers passes both compilers and runtime (5.61s895.9MiB); no fake ambient modules. Named relation emission remains separately H13 pending native rebuild7.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### docs-onboarding-10: The live docs (viborm.dev) are two release candidates behind npm and unversioned
+
+**Disposition:** release-pending. **Review:** low severity; partial.
+
+V1 metadata and current onboarding are prepared, but only verified npm latest publication and the matching released documentation can close this finding. No local package version edit is reported as a published release.
+
+### docs-onboarding-14: Internal vocabulary leaks into the quick start, docs and CLI
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### docs-onboarding-15: The npm README is a stale contributor manual; the advertised agent-first assets don't ship
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+README now starts with executable installation, persistent PGlite schema/client/query and Node CLI usage. Detailed compatibility has one docs owner. No new agent skill/MCP distribution is claimed.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### docs-onboarding-16: The tarball ships 20 obsolete design specs (`readme/`) with retired APIs and broken links
+
+**Disposition:** not-a-defect. **Review:** low severity; refuted.
+
+Withdrawn in review Appendix B: published npm-pack artifacts do not ship readme/. Direct pnpm publication is outside the allowed release workflow.
+
+### docs-onboarding-17: Public 'Internals' docs describe the deleted pre-Raptor-3 engine
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+The obsolete 600+ line query-engine internals page is replaced with the current admission, route/shared/commands/result ownership and the adapter/transaction boundary. Onboarding and CLI prose use public concepts; internal module paths appear only in the explicitly internal architecture guide. Final docs validation remains required.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### docs-onboarding-18: CLI error guidance teaches APIs that don't exist and hides the real error
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final artifact 27 Node22.12/24.14 package suites qualify the installed CLI/configuration path; final remote CI remains separate.
+
+**Additional verification:** Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open. Current CLI coverage passes 85/85 across five files with all four metrics 100%, 4.07s / 783.6 MiB, teardown verified (/tmp/viborm-v1-cli-coverage-final.log). Installed Jiti dependency CJS interop is retained; config and migration consumers select own authored defaults rather than inherited synthetic defaults, preserving their existing truthy/nullish fallback rules. Real SQLite query and named TypeScript migration-author cases remain exercised. Final artifact 27 package qualification is recorded below; exact-revision remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### docs-onboarding-19: `viborm push` without a TTY dies with a libuv error instead of asking for --yes
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+The config/client structural boundary, bundled jiti loader, .env loading, ESM package fallback, non-TTY destructive prompt refusal and awaited CLI cleanup have focused regression changes. Quick-start/configuration now use the package CLI on Node and an explicit persistent driver. Final artifact 27 Node22.12/24.14 package suites qualify the installed CLI/configuration path; final remote CI remains separate.
+
+**Additional verification:** Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open. Current CLI coverage passes 85/85 across five files with all four metrics 100%, 4.07s / 783.6 MiB, teardown verified (/tmp/viborm-v1-cli-coverage-final.log). Installed Jiti dependency CJS interop is retained; config and migration consumers select own authored defaults rather than inherited synthetic defaults, preserving their existing truthy/nullish fallback rules. Real SQLite query and named TypeScript migration-author cases remain exercised. Final artifact 27 package qualification is recorded below; exact-revision remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### docs-onboarding-20: Copy-paste examples don't run against the docs' own setup, and snippets are not CI-checked
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Quickstart/config/README now use actual package paths, persistent PGlite dataDir, Node CLI/jiti loader and env handling; obsolete internal engine article replaced and CLI reference added. Packed consumers/docs qualification still required; no claim that every prose fence is executable.
+
+**Additional verification:** The documentation corpus executes 137 tests, including actual declaration-fence topology construction in the same runtime realm, and passes in Core7 and CI2 core at 5f8cb08af. Installed CLI/config/.env and extension consumers have separate artifact evidence. This does not claim every prose fence is executable.
+
+### docs-onboarding-21: Reference gaps for shipped rc.5 surface (skipSchemaValidation, `viborm check`, soft-delete entry, CLI reference)
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Added a public CLI command reference linked from documentation navigation; configuration now explains skipSchemaValidation and its same-revision viborm-check premise. Existing soft-delete entry documentation remains linked. Documentation validation still required.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### docs-onboarding-22: Positioning is dated and one-sided: Prisma 7 isn't acknowledged, Drizzle is barely mentioned, and the only comparison covers migrations
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### docs-onboarding-24: The upgrade path has no tooling and targets the baseline the registry still serves
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+The V1 upgrade/compatibility guides and explicit brownfield migration refusals are documented. Automated Prisma/Drizzle conversion, pull-to-schema generation, scaffolding, framework starter projects and an upgrade codemod remain unimplemented product work.
+
+
+## drivers
+
+### drivers-01: Caller-supplied pools/clients bypass VibORM's type setup: naive timestamps silently shift by the process UTC offset (pg, postgres.js, PGlite; mysql2 by code)
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Supplied-client parity: driver-supplied-clients56/56 passed (includes per-query pg/PGlite temporal text and executable supported postgres text setup refusal/acceptance), latest driver runtime/core checkpoints in drivers.md. Owned/supplied postgres+pg and Neon HTTP actual hosted6/6 current SDK1.2 preserve UTC/year0/date scalar/arrays. Borrowed lifecycle remains caller-owned.
+
+### drivers-03: postgres.js and mysql2 drivers re-parse databaseUrl by hand: sslmode/ssl and every query parameter are dropped (silent plaintext) and credentials are never percent-decoded
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Existing URL owner preserves postgres original URL, decodes MySQL percent credentials/query TLS options, forwards Bun SQL options with URL. Dedicated v1-transport remediation9/9 and transport coverage focused fixtures passed; no credentials printed. drivers.md.
+
+### drivers-02: libSQL: any caller-supplied client is treated as in-memory, so callback transactions on remote Turso are not atomic (and $disconnect closes the caller's client)
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+libSQL0.18 native local transaction/rollback and supplied ownership proved in latest local14/14 (driver-diagnostics-2); capability is derived from actual SDK transaction support instead of supplied=in-memory assumption. Quarantine scoped to exact busy client prevents later acknowledgment; caller client never closed. Controlled remote capability tests prove protocol selection; no hosted Turso qualification claim.
+
+### drivers-04: neon-http fails every query on @neondatabase/serverless 1.x (current since March 2025) - before touching the network, behind a redacted error
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Stock Neon HTTP 1.2 hosted regression: 6/6 passed; query/transaction .query API, per-query UTC-safe parsers, Serializable batch forwarding, atomic failure, durable acknowledgment before normalization failure. tests/providers/hosted/neon-http-v1-remediation.test.ts; drivers.md records command, RSS and retained empty fixtures.
+
+### drivers-06: Bind caps refuse ordinary in/notIn/OR filters instead of chunking: 1,000 ids fail on every SQLite driver (real limit 32,766), 101 on D1
+
+**Disposition:** documented-contract. **Review:** high severity; confirmed.
+
+SQLite ceiling32766/PGlite32767/postgres.js65533/D1100 corrected; original ordinary SQLite1000-value IN was a false ceiling. Filters exceeding the verified provider cap fail explicitly. OR splitting does not reduce total binds; no new array/JSON binding or split-query strategy was added. Generated writes separately use single-key IN/balanced compound OR (query138-case qualification).
+
+### drivers-07: bun-sqlite with a supplied Database: foreign keys are off (cascades silently skipped, dangling rows accepted) and $disconnect closes the caller's database
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Bun native runtime probe1/1 passed driver-diagnostics-2 including supplied-handle FK setup refusal, no borrowed close/rollback, exact raw INTEGER and Date cutoff checks. FK setup documented executable contract; VibORM does not silently modify unrelated borrowed users.
+
+### drivers-08: No Microsoft SQL Server support at all
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+SQL Server has no dialect, adapter, transport or migration implementation; it is an unimplemented platform expansion, not an existing-driver bug. Accepted expansion boundary; not marked fixed by documentation.
+
+### drivers-05: Single-connection drivers (sqlite3, PGlite, bun:sqlite, in-memory libSQL) reject every concurrent request while a callback transaction awaits I/O - including other transactions with maxWait
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Actual SQLite local regression 10/10 passed: same physical handle shared by two wrappers queues independently; reentry refuses; maxWait expires; outer timeout drains nested savepoint/callback and stale work refuses. Browser fallback core batch 29/29 passed with unavailable AsyncLocalStorage and finite 5000ms queue wait.
+
+### drivers-09: No read-replica routing
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No replica routing owner or read/write target selection was introduced; supplied pools and namespaces are not replica routing. Accepted expansion boundary; not marked fixed by documentation.
+
+### drivers-10: No CockroachDB support; the PostgreSQL migration lock uses pg_advisory_lock, which CockroachDB does not define
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+No CockroachDB advisory-lock replacement or hosted qualification was added; the PostgreSQL migration protocol targets PostgreSQL. Accepted expansion boundary; not marked fixed by documentation.
+
+### drivers-11: MariaDB is unsupported: the MySQL adapter emits MySQL-8-only SQL and collations
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No MariaDB dialect/function/collation qualification was added; MySQL support does not imply MariaDB support. Accepted expansion boundary; not marked fixed by documentation.
+
+### drivers-12: Neon is HTTP-only: no WebSocket Pool driver for interactive transactions, no client/authToken pass-through, and the docs recommend a Pool path VibORM rejects
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+SDK1.2 HTTP query/authToken/ordered batch/isolation and temporal/exact values are hosted-qualified6/6. Interactive WebSocket Pool and caller-supplied Neon function support remain unimplemented. Accepted expansion boundary; not marked fixed by documentation.
+
+### drivers-13: Platform reach trails Drizzle badly: no Durable Objects, React Native (Expo/op-sqlite), node:sqlite, sql.js, Bun SQL MySQL/SQLite, Turso Database, TiDB/AWS Data API/Xata/Vercel/Netlify/SingleStore, or HTTP-proxy drivers
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Named alternative runtime/platform transports remain unimplemented. Browser PGlite now has bounded queue behavior without Node async context; this does not qualify a separate Durable Objects/Expo/node:sqlite/sql.js/proxy transport. Accepted expansion boundary; not marked fixed by documentation.
+
+### drivers-14: Most drivers are barely qualified: 6 of 11 run at most 3 of the 56 shared provider contracts, hosted services are never exercised, and CI pins one server version per database
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Bounded driver/supplied-client/lifecycle contracts, native SQLite/libSQL, hosted Neon and CI native Bun coverage were expanded. Hosted Turso/PlanetScale/D1 and multiple server-version qualification remain absent; no blanket eleven-driver parity claim. Accepted expansion boundary; not marked fixed by documentation.
+
+### drivers-15: No live schema management on edge SQLite/HTTP providers: push/migrate refused on D1, libSQL (even an empty local file), Neon HTTP and PlanetScale; D1 introspection broken; the deleted D1 HTTP driver is still in the docs
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+The confirmed D1 introspection defect is repaired: the bound SQLite migration driver filters the exact D1-owned _cf_ prefix at catalog enumeration before forbidden PRAGMAs. Ordinary SQLite user tables with that prefix and similarly named D1 user tables remain visible. SQLite2/2 (16.68s,440.7MiB) and actual Workers D1 1/1 (11.84s,655.5MiB) pass, including introspection, offline generate, dry-run push/status and live-push refusal before SQL. Deleted D1 HTTP references are removed from authored driver, migration and decimal docs. Interactive/pinned effectful migration protocols remain absent for D1, remote libSQL, Neon HTTP and PlanetScale; this row retains product-gap status for that explicit expansion boundary. drivers.md and migrations.md record exact receipts; final docs publication remains separate.
+
+### drivers-16: Peer ranges lag the driver ecosystem (libSQL, better-sqlite3, workers-types, PlanetScale) - with PlanetScale SDK 2.0 the driver fails every query
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Neon1.2/libSQL0.18 and better-sqlite3≥12.10/13 peer contracts were updated. PlanetScale2 parameter API support was deliberately not invented: the supported peer remains1.x. Actual modern-peer qualification is scoped to installed/tested versions; PlanetScale2 remains an expansion gap. Accepted expansion boundary; not marked fixed by documentation.
+
+### drivers-17: CommonJS projects cannot load the package at all, even on Node 24 with require(esm)
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Actual immutable artifact6 flag-free CommonJS require(esm) runtime performs SQLite create/read/raw and preserves error.name on Node24.14; genuine .cts strict TS5.8/native consumers both pass (5.62s927.8MiB). Exports default resolves ESM for supported require(esm) runtimes. Docs explicitly distinguish ESM Node22+ from CJS Node22.12+/24; Node22.12 exact-runtime proof is CI-owned, not claimed local.
+
+### drivers-18: The custom-driver escape hatch silently returns SQLite JSON as strings: the needed result parser is not exported and the documented contract omits it
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Actual immutable artifact3 consumer passed public D1 Sessions API typing, exported sqliteResultParser JSON decoding, and documented supplied postgres vibormTypes setup (packed-driver-setup-1, 0.78s/263.9MiB). Source/runtime supplied-client tests pass. D1 controlled binding acceptance is not a hosted Cloudflare claim.
+
+### drivers-19: Every public declaration entry imports the types of all nine driver packages
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Actual immutable artifact3 no-peer root/schema consumer strict skipLibCheck:false passed TS5.8 and native with runtime dependencies only, no fake ambient peers. packed-nopeer-3:5.14s/761.3MiB. Generic driver type imports routed to existing public exports boundary; cache generic imports direct owners; separate runtime keepNames/declaration output eliminates undeclared __name helper.
+
+### drivers-20: The documented postgres.js 'Using Existing Client' snippet does not typecheck
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Actual immutable artifact3 consumer passed public D1 Sessions API typing, exported sqliteResultParser JSON decoding, and documented supplied postgres vibormTypes setup (packed-driver-setup-1, 0.78s/263.9MiB). Source/runtime supplied-client tests pass. D1 controlled binding acceptance is not a hosted Cloudflare claim.
+
+### drivers-21: D1 read replication (Sessions API) is not accepted
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Actual immutable artifact3 consumer passed public D1 Sessions API typing, exported sqliteResultParser JSON decoding, and documented supplied postgres vibormTypes setup (packed-driver-setup-1, 0.78s/263.9MiB). Source/runtime supplied-client tests pass. D1 controlled binding acceptance is not a hosted Cloudflare claim.
+
+### drivers-22: postgres.js driver costs two wire round trips per statement with no prepared-statement opt-in, and its justification misreads postgres.js
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Postgres unsafe third query option forwards explicit existing options.prepare:true, retaining false default; native SQLite statement-cache hits refresh LRU order. Controlled/native focused regressions 7/7, final combined local/cache/postgres 17/17 passed.
+
+### drivers-23: No guidance for poolers and edge TCP connectivity (PgBouncer/Supavisor, Hyperdrive, Supabase, Deno, pg/postgres.js on Workers)
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+New drivers/production.mdx covers native pool sizing, poolers/prepared statements, explicit Node-vs-Workers/Hyperdrive/Deno qualification limits, HTTP callback boundary and supplied pool lifecycle/parser requirements; linked from driver overview. It makes no unexecuted runtime support claim.
+
+### drivers-24: Driver documentation drift
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Driver overview no longer claims different providers share transport code; exact bind caps and actual hosted Neon witness shown. Existing pg pool snippets require owner error listener; Neon docs use supported TCP pg/postgres for callbacks. This documents ownership/support, not a new WebSocket driver.
+
+
+## ecosystem
+
+### ecosystem-01: Query interceptors silently discard a transformed result: Prisma-style masking/decryption ships raw data
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Publish query handler transformation after proceed; safe ordinary Error retains exact identity, child/protocol authority unchanged. Updated standalone query runner43/43 and public integration48/48passed; handler transformation and ordinary Error identity preserved while child/protocol failures remain authoritative.
+
+**Additional verification:** Updated standalone query runner43/43 and public integration48/48passed; handler transformation and ordinary Error identity preserved while child/protocol failures remain authoritative.
+
+### ecosystem-02: Unchecked rows/data model names: one typo in a runtime model list turns tenancy off and leaks every tenant
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Policy model/field/control/mode names fail closed at existing definition/reference owners; private input/plan array admission now admits all controls before physical transforms while preflighting all plans before DML. Final controls48+arrays54+dedicated22+carrier14 passed138/138; complete-key generic factory guard qualified native8,8.99s7158.3MiB. Fresh/held typo and wide-model-map type refusals are retained. Runtime policy4/4, controls48/48, deletion13/13 and soft-delete26/26 passed. Concrete/generic model-key typing qualified by Native18 concrete/generic public factory probes; final packed H13 composition remains separately driver-owned. Native18 subsequently passed the current integrated source/public probes; no packaged-backreference completion is inferred.
+
+**Additional verification:** Runtime policy4/4, controls48/48, deletion13/13 and soft-delete26/26 passed. Concrete/generic model-key typing awaits integrated native gate3.
+
+### ecosystem-04: toJsonSchema exports a different language than the validator (no required, no nullable, lists as scalars)
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; full integrated type/package/docs gate remains pending. Multiple-issue aggregation is not claimed.
+
+**Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
+
+### ecosystem-05: No computed or virtual result fields (no `result` capability, no SQL extras in select)
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Product gap: the extension chain has no result capability, and select has no computed/virtual SQL extras. Correct handling of a query interceptor's returned value is a separate fix, not a new computed-field facility.
+
+### ecosystem-06: CommonJS apps (NestJS default, Jest default) cannot import or typecheck VibORM
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Immutable artifact6 genuine .cjs runtime plus .cts public client/raw positive+negative strictTS5.8/native passes on Node24.14,5.62s927.8MiB. Documented CommonJS floor is flag-free require(esm) Node22.12+/24. No dual CJS bundle or old Node/Jest transformer support is claimed.
+
+### ecosystem-08: No Studio or data browser
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+Studio/data browser is not implemented; explicitly excluded from this defect remediation scope.
+
+### ecosystem-10: Bus factor 1 and no visible external users
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+Single-maintainer governance and adoption risk remain. CI/protected release settings provide execution evidence, not independent maintainers or external production adoption.
+
+### ecosystem-17: CloudflareKVCache never caches for TTLs under 60 s (KV minimum); failure is silent
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Clamp KV physical expiry60sec; CacheDriver stores/enforces logical stale deadline, marker checks own age. Final full cache95/95 passed. KV minimum60sec preserves stored logical freshness/stale expiry; durable whole-scope invalidation/manual exact invalidation and local fill races covered. Generic KV cross-process linearizability is not claimed.
+
+**Additional verification:** Final full cache95/95 passed. KV minimum60sec preserves stored logical freshness/stale expiry; durable whole-scope invalidation/manual exact invalidation and local fill races covered. Generic KV cross-process linearizability is not claimed.
+
+### ecosystem-03: Cache invalidation is opt-in and model-prefix-only: cached includes and nested writes stay stale
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Default durable invalidation clears whole bound cache scope; opt-out retained. Local generation suppresses earlier queryfills and cleans late backendsets. Crossprocess KV remains eventual. Final full cache95/95 passed. KV minimum60sec preserves stored logical freshness/stale expiry; durable whole-scope invalidation/manual exact invalidation and local fill races covered. Generic KV cross-process linearizability is not claimed.
+
+**Additional verification:** Final full cache95/95 passed. KV minimum60sec preserves stored logical freshness/stale expiry; durable whole-scope invalidation/manual exact invalidation and local fill races covered. Generic KV cross-process linearizability is not claimed.
+
+### ecosystem-07: `npm install viborm` installs 0.1.0, which lacks the documented API and entry points
+
+**Disposition:** release-pending. **Review:** medium severity; partial.
+
+The prepared package version is1.0.0. Registry latest remains0.1.0 until protected-main Release successfully publishes and is independently verified.
+
+### ecosystem-09: No auth-library adapters (better-auth, Auth.js)
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No maintained Auth.js/better-auth adapter is shipped. This remains ecosystem work, not a claimed V1 integration.
+
+### ecosystem-12: Tenancy recipe does not enforce writes: explicit tenantId creates or moves rows into another tenant
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Documented contract: data/tenancy stamps supply defaults, and caller assignments win on create and update. The create-extension guide now demonstrates that override. Stamps are not tenant-write authorization; required controls are runtime checks, while static required-control enforcement and graph-wide authorization remain gaps.
+
+**Additional verification:** Existing extension-data-behavior.ts:703and398/509pin caller override across root/nested creates andupdates; new doc example follows that contract.
+
+### ecosystem-13: No RLS policy/role DDL, and an extension cannot bind a per-call Postgres session setting
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No RLS policy/role DDL or per-operation database session-setting extension is shipped. Client filters and omit are not complete row authorization; raw/manual database policy remains application-owned.
+
+### ecosystem-14: Extension composition is order-locked: two rows-plus-methods plugins cannot be combined in any order
+
+**Disposition:** documented-contract. **Review:** medium severity; confirmed.
+
+Documented contract: rows contributions change result context and precede handlers/methods typed to consume that context. The create-extension guide states this ordering. Rebinding already typed contributions into an arbitrary new order remains unsupported.
+
+### ecosystem-16: No tag-based cache invalidation; the documented `invalidate: ["dashboard:*"]` is a silent no-op
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Product gap: no cache tag registry or tag-invalidation API was added. Documentation now describes canonical-key suffixes and supported prefix/manual invalidation; default durable invalidation clears the bound scope. Tag-shaped examples are not evidence of a tag implementation.
+
+**Additional verification:** Protocol has only exactcanonical key/prefix invalidation; customkey is canonical suffix.
+
+### ecosystem-18: Model operations are thenables, not Promises: tRPC infers PendingOperation, and Promise<T> annotations fail
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Pending model operations now implement the Promise-compatible public surface while retaining lazy operation behavior. tests/types/client/adversarial-results.core.types.ts exercises direct Promise<T> assignment and generic inference through the public client; native15 checked the full estate successfully. Runtime operation/interceptor tests remain selected in core; the next integrated type gate must still pass after unrelated extension representation work.
+
+**Additional verification:** Source implemented; root owns public Promise-position type/runtime qualification; native final gate pending.
+
+### ecosystem-19: Standard test doubles do not work on model delegates (vi.spyOn throws, stubs silently ignored)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Client proxies now expose only real schema models and operations, memoize delegates, and honor writable/configurable overrides. Existing public spy/stub/restore and independent-client regressions passed in root follow-through2; parsed unknown model reflection and serialization boundary regressions passed there as well.
+
+### ecosystem-20: Validation derivation is VibORM-v-only: no Zod/Valibot objects, no row schema, no pick/extend, BigInt unusable from JSON
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Standard Schema operation validation and JSON Schema export are supported; generated Zod/Valibot objects, row validators and pick/extend wrappers are outside this defect-only release. types-and-json-schema.mdx explicitly distinguishes scalar Standard Schema consumption from derivation and documents bigint conversion at JSON boundaries. The bigint-only public contract is retained for exactness.
+
+### ecosystem-21: No seeding command, seed generator or factories
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+No seed generator/factory/CLI command added. Application-owned fixture scripts remain the available path.
+
+### ecosystem-11: Arguments cannot be transformed asynchronously: request is sync-only and proceed() takes no args
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Documented contract: request transformations are synchronous shallow argument patches. Async query interception starts after preparation, and proceed does not replace arguments. An async request-transform capability remains absent rather than being silently added.
+
+### ecosystem-15: No `$allModels` model methods; generic plugins need casts
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product gap: model methods use existing per-model factories; there is no $allModels method factory. A generic all-model contribution API remains separate public type and composition work.
+
+### ecosystem-22: No GraphQL plugins and no framework integration guides
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+No GraphQL integration or comprehensive framework guide collection added.
+
+### ecosystem-23: Soft-delete purge footgun: mode "hard" keeps the live filter (deletes 0 tombstones or hard-deletes live rows)
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Documented contract: hard deletion retains the selected rows visibility; deleted:'only' selects tombstones for purge. The soft-delete guide explains live-row deletion versus tombstone purge. This is distinct from the separately repaired cache invalidation defects and does not provide authorization.
+
+### ecosystem-24: rows filters are scalar-only: tenancy needs a tenantId column on every table
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product gap: rows policies use scalar filters; they do not derive tenancy or authorization through arbitrary relation graphs. The documented rows capability is not graph-wide RBAC.
+
+### ecosystem-25: Required controls are enforced only at runtime, not by TypeScript
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Product typing gap: required controls are enforced at runtime, but the public managed-operation types do not statically require every control. Runtime refusal is not presented as editor enforcement.
+
+### ecosystem-26: A statement transform (e.g. sqlcommenter tagging) silently disables the official cache
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Documented contract: arbitrary statement transforms can change semantics outside cache identity, so official cached reads bypass such chains. The create-extension guide states this exclusion. Automatic safe fingerprinting of transformed SQL is unsupported.
+
+### ecosystem-27: Thin cache backends: unbounded MemoryCache, no Redis or Upstash driver
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product gap: no built-in Redis or Upstash cache driver was added. The unbounded MemoryCache defect is separately repaired through bounded LRU retention and owned expiry; that repair does not fill the backend ecosystem gap.
+
+**Additional verification:** Memory regression passed; no new backend claim.
+
+### ecosystem-28: `logging: { query: true }` prints no SQL; no documented SQL preview (toSQL)
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Query logging requires an explicit handler and includeSql disclosure flag. Logging guide states the distinction; no public toSQL/explain surface added. Protected diagnostics details and callsite opt-ins are separate.
+
+### ecosystem-29: No ERD tooling and no CLI/database MCP server for agents
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+No ERD browser or database/CLI MCP server added. Schema serialization remains available but is not those products.
+
+### ecosystem-30: Docs drift in extension and cache pages (stale counts, unpublished-API notice, broken snippets)
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Stale InferDatabase unpublished notice removed; cache prefix examples now use canonical model:operation prefixes and accurately describe whole-scope invalidation. Query owner corrected extension/soft-delete recipes. Documentation validation pending final dependency installation.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+
+## edge-bundle
+
+### edge-bundle-01: Exports map is import-only: require() fails on every Node version, so CommonJS, Jest and NestJS users are locked out
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Exports provide default ESM targets enabling supported require(esm). Actual artifact6 .cjs SQLite client/raw runtime and .cts strictTS5.8/native pass Node24.14; no blanket all-Node claim. ESM22+ versus flag-free CJS22.12+/24 documented; Node22.12 runtime evidence belongs package CI.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### edge-bundle-02: neon-http driver is broken with @neondatabase/serverless 1.x (current since 2025-03); the range pins users to 0.10
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Stock Neon HTTP 1.2 hosted regression: 6/6 passed; query/transaction .query API, per-query UTC-safe parsers, Serializable batch forwarding, atomic failure, durable acknowledgment before normalization failure. tests/providers/hosted/neon-http-v1-remediation.test.ts; drivers.md records command, RSS and retained empty fixtures.
+
+### edge-bundle-03: CLI needs a separately installed TS loader on Node, and both documented ways to run it fail for common setups (Bun + better-sqlite3, pnpm)
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+The CLI bundles jiti for TypeScript configuration and loads project .env before config evaluation. The real packed consumer imports defineConfig and the public SQLite entry; no separately installed TS loader is required.
+
+**Additional verification:** Core7 and native15 passed the CLI/configuration and public type contracts. The installed artifact6 CLI loaded a real TypeScript configuration and disposable .env before running check; actual CommonJS require plus strict .cts consumers passed TS5.8 and native. CI2 package consumer-floor tests passed on Node22.12 and Node24; unrelated export golden failures remain open. Current CLI coverage passes 85/85 across five files with all four metrics 100%, 4.07s / 783.6 MiB, teardown verified (/tmp/viborm-v1-cli-coverage-final.log). Installed Jiti dependency CJS interop is retained; config and migration consumers select own authored defaults rather than inherited synthetic defaults, preserving their existing truthy/nullish fallback rules. Real SQLite query and named TypeScript migration-author cases remain exercised. Final artifact 27 package qualification is recorded below; exact-revision remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### edge-bundle-04: About 157 KB gzip floor for any app: 5x Drizzle, and tree-shaking can only remove about 5%
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+No claim of Drizzle-sized output or free tree shaking is made. The final report measures the actual V1 package and existing export/size gates; replacing the shared schema/compiler architecture for a smaller cold bundle is separate product/performance work.
+
+### edge-bundle-05: The edge story stops at queries: viborm/migrations is Node-only and heavy, and effectful migrations are refused on edge databases
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Migration authoring/filesystem storage and effectful operations are Node/provider capability surfaces. Edge query support is not advertised as automatic edge DDL, and unsupported migration providers refuse before effects. Moving the migration toolchain onto Workers would be new product work.
+
+### edge-bundle-06: Peer ranges reject the current major of 5 of 10 drivers: npm ERESOLVE for existing projects, silent downgrades for new ones
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Compatible supported peer ranges were updated, including libSQL0.18 and better-sqlite3 ^12.11.1 / ^13.0.3. PlanetScale2 remains unsupported rather than admitted through an unproven interpolator; not every current ecosystem major is qualified. Accepted expansion boundary; not marked fixed by documentation.
+
+### edge-bundle-07: libSQL driver with @libsql/client 0.18 (latest) cannot run transactions or nested writes on its default in-memory database
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+libSQL0.18 native local transaction/rollback and supplied ownership proved in latest local14/14 (driver-diagnostics-2); capability is derived from actual SDK transaction support instead of supplied=in-memory assumption. Quarantine scoped to exact busy client prevents later acknowledgment; caller client never closed. Controlled remote capability tests prove protocol selection; no hosted Turso qualification claim.
+
+### edge-bundle-08: Missing runtime targets: no Durable Objects SQLite, Expo/React Native, node:sqlite, browser SQLite, Neon WebSocket or proxy drivers; Deno undocumented
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No new Durable Objects SQLite, Expo/React Native, node:sqlite, browser SQLite, Neon WebSocket/proxy driver or Deno support tier is claimed. Those require distinct runtime/provider evidence and are outside the accepted confirmed-defect scope.
+
+### edge-bundle-09: Runtime and driver incompatibilities cannot be diagnosed: provider messages are always redacted, with no opt-in
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+False-default instrumentation diagnostics.includeProviderDetails/includeCallsite implemented at existing error/private execution snapshot owners. Descriptor-only bounded provider message/detail/hint with credential redaction; raw/model deferred application frames captured only opt-in; official JSON logs preserve canonical class/message, sanitized cause and immutable validation source/issues. New4 cases + existing diagnostics25/hostile30 all passed within driver-diagnostics-2 121/121,6.07s/540.2MiB. Packed runtime confirmation still follows final artifact; no default provider disclosure.
+
+### edge-bundle-10: Cold start is 1.5-2.6x slower than Drizzle's in every runtime measured (still faster than Prisma 7.10)
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+The observed comparative cold-start cost remains a measured limitation. This repair does not claim a new cold-start benchmark or a general startup-performance win based on LOC reductions or correctness tests.
+
+### edge-bundle-11: Shared declaration chunk imports types from all 9 optional peers: TS2307 for drivers you never installed
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Actual immutable artifact3 no-peer root/schema consumer strict skipLibCheck:false passed TS5.8 and native with runtime dependencies only, no fake ambient peers. packed-nopeer-3:5.14s/761.3MiB. Generic driver type imports routed to existing public exports boundary; cache generic imports direct owners; separate runtime keepNames/declaration output eliminates undeclared __name helper.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### edge-bundle-12: D1 Sessions API (read replication) is rejected by the D1 driver's types although it works at runtime
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Actual immutable artifact3 consumer passed public D1 Sessions API typing, exported sqliteResultParser JSON decoding, and documented supplied postgres vibormTypes setup (packed-driver-setup-1, 0.78s/263.9MiB). Source/runtime supplied-client tests pass. D1 controlled binding acceptance is not a hosted Cloudflare claim.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### edge-bundle-13: The CI 'bundle-size budgets' step cannot fail: size-limit measures 2 KB re-export stubs with no limits
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+The size-limit command is descriptive for tiny entry stubs; it is not claimed as a transitive bundle gate. The package contract separately enforces the real packed file count, unpacked byte budget and tarball size. The response reports the package bytes actually built and tested.
+
+### edge-bundle-14: Tarball ships 20 obsolete dev-era spec files under readme/ (and 74% of the package is source maps)
+
+**Disposition:** not-a-defect. **Review:** low severity; refuted.
+
+Review Appendix B withdraws the stale-spec packaging claim; npm-pack artifact allowlist excludes readme/. Source maps remain intentionally shipped for diagnosis and count toward the package size budget.
+
+### edge-bundle-15: CLI dependencies (commander 12, @clack/prompts 0.7) are runtime dependencies installed into every production deploy
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+The shipped CLI still requires commander, prompts and the bundled TypeScript loader at runtime. They are declared runtime dependencies. Splitting a separate CLI package would be a distribution/product change; pretending them to be optional would break installed CLI consumers.
+
+
+## errors
+
+### errors-01: Every database error message is destroyed, with no opt-in anywhere
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+False-default diagnostics.includeProviderDetails/includeCallsite at existing owners: descriptor-only bounded credential-redacted provider message/detail/hint; actual deferred application origin captured only opt-in. Canonical class/message, sanitized same-instance native cause and validation source/issues survive JSON logs. Actual recorder provider-details-callsite7/7 plus docs137/137 passed root144/144 (3.78s472.1MiB), superseding mistaken callback harness. Final tracing/context/golden suite passed drivers132/132 (5.68s583.7MiB). Default disclosure stays off.
+
+### errors-02: On better-sqlite3 constraint errors never say which column; elsewhere three inconsistent shapes
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Code-recognized SQLite UNIQUE/NOTNULL errors now run existing constraint metadata parser rather than bypassing it; captures common table/unqualified columns, accepts quoted qualified dot/comma/escaped-quote leaves, refuses arbitrary expressions instead of inventing columns. Dedicated extended-code/quoted tests passed within error-mapping59/59; driverintegration8 log.
+
+**Additional verification:** SQLite adapter constraint identities now use the same separate physical table and ordered unqualified columns as driver normalization. The mapped composite primary/unique inverse witness and two real selected-key collision cases preserve exactly two recovery attempts; a second collision propagates. Final integration passes 171/171, including 75 driver mapping and 22 adapter cases (/tmp/viborm-v1-ci6-driver-local-repair-3.log).
+
+### errors-03: A down or unreachable database is 'Query execution failed', never ConnectionError
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Provider connection SQLSTATE/network errors now ConnectionError/V1001 retryable; auth/config V1004 and capacity V1005 are distinct. Mapping73/73 and hostile30/30 passed current core6; own-session terminated Neon connection recovery1/1 previously proved reconnect without unrelated backend termination. Real Bun platform cases remain part of required CI, not inferred from Node mocks.
+
+### errors-04: Errors thrown by your own query extension are swallowed and redacted
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Publish query handler transformation after proceed; safe ordinary Error retains exact identity, child/protocol authority unchanged. Updated standalone runner and public integration preserve original hook Error objects by identity; protocol/hostile values remain wrapped.
+
+**Additional verification:** Updated standalone runner and public integration preserve original hook Error objects by identity; protocol/hostile values remain wrapped.
+
+### errors-05: Stack traces never reach your code; Prisma prints the exact call site
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+False-default diagnostics.includeProviderDetails/includeCallsite at existing owners: descriptor-only bounded credential-redacted provider message/detail/hint; actual deferred application origin captured only opt-in. Canonical class/message, sanitized same-instance native cause and validation source/issues survive JSON logs. Actual recorder provider-details-callsite7/7 plus docs137/137 passed root144/144 (3.78s472.1MiB), superseding mistaken callback harness. Final tracing/context/golden suite passed drivers132/132 (5.68s583.7MiB). Default disclosure stays off.
+
+### errors-06: isRetryable() cannot see a single timeout; six documented codes are never raised
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Dedicated socket ETIMEDOUT V1002 and PostgreSQL57014/MySQL1205 V2002 regressions passed and isRetryable true. MySQL lock-wait timeout no longer mislabeled deadlock. Error mapping59/59 passed5.89s combined batch; canonical disposition remains root owner. Retired/documented unused codes are not falsely claimed as newly produced.
+
+### errors-08: Error log events lose the message, stack and validation path when serialised
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+False-default diagnostics.includeProviderDetails/includeCallsite at existing owners: descriptor-only bounded credential-redacted provider message/detail/hint; actual deferred application origin captured only opt-in. Canonical class/message, sanitized same-instance native cause and validation source/issues survive JSON logs. Actual recorder provider-details-callsite7/7 plus docs137/137 passed root144/144 (3.78s472.1MiB), superseding mistaken callback harness. Final tracing/context/golden suite passed drivers132/132 (5.68s583.7MiB). Default disclosure stays off.
+
+### errors-09: Validation messages hide the path, the model and the bad value, and speak validator
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+ValidationError now names model.operation when known and includes the path for single-issue failures, without adding caller values. Multiple issues remain available in trusted serialized snapshot. Updated public helper contract pending runtime.
+
+**Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
+
+### errors-13: Nested-write misses break the 'one-token Prisma port' promise
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+The partial Prisma mapping is deliberate: V7001 covers multiple Prisma categories and a blanket P2025 would misroute them. errors.mdx now removes the universal one-token port promise, requires reviewing each catch, and names NestedWriteError/VibORM codes; compatibility.mdx retains its explicit unmapped families table. Adding new Prisma case taxonomy is a product gap.
+
+### errors-16: IDs are logged, traced and attached to errors as byte arrays
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Opted-in statement parameters remain provider physical values, including binary ID carriers; values are not reinterpreted without their scalar descriptor. Review marks this partial/parity with Drizzle. Raw docs and response distinguish logical rows from physical SQL parameters.
+
+### errors-19: No documented toSQL/explain; buildStatement() is hidden and reads-only
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No general public toSQL/explain compiler API added. Query inspection and instrumentation disclose prepared SQL only at their established boundaries; internal buildStatement is not advertised as supported API.
+
+### errors-21: Narrow provider mapping: schema drift, auth and capacity errors are untyped
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Same-class taxonomy now maps schema mismatch V2004, numeric overflow V2005 and retryable capacity V1005; auth/config V1004. Provider PG/MySQL/provenSQLite cases73/73 and hostile30/30 passed core6; final supplied pool53300 acquisition case passes as primary V1005 while57P01 evidence remains suppressed. Actual SQLSTATE53300 protected span passed real recorder7/7. No guessed Prisma equivalence.
+
+### errors-07: Every failed span says 'Operation failed' — no error.type, code or SQLSTATE
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Actual OTel protected operation/statement/connection spans carry error.type, viborm.error.code and provider SQLSTATE without enabling logs or disclosing provider text. Real recorder provider-details-callsite7/7 plus docs137/137 passed root final diagnostics144; final tracer/context/official observer/golden contracts passed in drivers132/132. The earlier callback harness evidence is superseded by these actual assertions.
+
+### errors-10: Caller mistakes are filed as engine bugs (V9001 'please report it')
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Deliberate field-reference scope/domain/token refusals, cursor relation/count/distance and cyclic recursion now use UnsupportedOperationError V8003. Existing five caller-only key portability/transition refusals now use the same taxonomy with unchanged eligibility/messages. Genuine internal carrier/key-publication invariant failures retain V9001. Native16 and core7 validate exact caller taxonomy; actual PGlite8/8 proves native XML/ref scope UnsupportedOperationError, SQLite field/cursor4/4 and dedicated engine22/22 plus135/135 correction gate prove V8003/V4001 rather than V9001. Recursive cycles reject through V8003, verified actual recursive cache rejection.
+
+**Additional verification:** Actual SQLite root/nested FieldRef and cursor taxonomy12/12; recursive carrier14/14 in138 focused admission batch. Five key owner sites and existing exact class-string goldens saved; current final key runtime qualification queued. Prepared-array scalar decode failures now reach the same V2006 data/domain mapping as direct results, rather than generic V2001 or engine-bug V9001; the exact metadata/non-retryability oracle passes in the final 171/171 integration gate (/tmp/viborm-v1-ci6-driver-local-repair-3.log). Genuine invariants retain their existing taxonomy.
+
+### errors-11: Error classes the docs tell you to instanceof are not exported
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+All documented existing error classes/guards now root runtime exports. Explicit public-runtime-surface vocabulary passes within final drivers132/132. Final artifact 27 root runtime/type golden passes on both Node22.12/24.14; no new error classes introduced.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### errors-12: No standard cause chain; wrapError() destroys the caller's message
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Standard cause is the same sanitized Error instance as originalCause; explicit wrapError diagnostics preserves bounded redacted caller details. Actual provider-details-callsite identity/wrap tests ran7/7 in root final diagnostics144, and final golden confirms consistent serialization. Defaults retain privacy.
+
+### errors-14: Which batch member or nested element failed is never identified
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Validation issues carry input paths, but provider failures do not guarantee array member indices or nested element attribution. This missing diagnostic feature is explicitly documented in errors.mdx; model/operation metadata is not claimed as element attribution.
+
+### errors-15: Internal codenames and design vocabulary leak into user-facing errors
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Removed user-facing Raptor3/query-engine-v2 and G1 wording from command conflicts, parent-reference refusal, generated output, cache failures and row count diagnostics at their existing owners. Exact-message witnesses updated and passed; CI4 core and PostgreSQL/MySQL jobs pass at8a7f4474c. Internal architecture evidence retains historical names intentionally.
+
+### errors-17: Migration error meta is stripped; the destructive-push refusal says nothing actionable
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Migration1973green: destructive refusal provides dryRun→review→consent recovery and retains only existing allowlisted command/dialect/checksum/statement-count/hint metadata in public toJSON. SQL/params/preview disclosure unchanged; raw catalog preflight failures remain normalized, typed failure propagated.
+
+### errors-18: No environment-variable or constructor switch for logging
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Logging remains explicit via the official instrumentation extension. No environment-variable or second constructor switch was added; this avoids competing configuration owners.
+
+### errors-20: Pretty logger forces ANSI colours and reports integer milliseconds
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Default console formatter now emits plain output with no ANSI codes; existing sanitized callbacks support structured JSON logging. Regression covers all levels and fractional values. Lifecycle timing resolution remains milliseconds and is documented.
+
+**Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
+
+### errors-22: Documented raw-string deprecation warning does not exist; the call throws
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Removed raw-string deprecation-warning claims from logging docs; raw-string forms are refused and docs name supported Sql/tag and unsafe APIs.
+
+### errors-23: Custom meta keys on errors are silently dropped
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Error metadata uses an allowlisted, bounded diagnostic vocabulary and drops arbitrary caller keys by design. Rich unrelated application context belongs to application logging; documentation must not imply arbitrary meta survives serialization.
+
+### errors-24: Lock-wait timeouts and SQLITE_BUSY are reported as deadlocks
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+V5006 TRANSACTION_CONTENTION now truthfully maps SQLite BUSY/LOCKED extended/numeric families and PostgreSQL55P03; real deadlock remainsV5003, MySQL1205 remains query timeoutV2002. Existing transaction family/canonical retry disposition owns the code; no new class/runtime registry. Final mapping60, union14, classification34, Prisma24 and discrimination6 passed integration10; registry19/19 passed integration13 after census pinned existing internal provider-contract subclass and intentional public TransactionError clone. LocalSQLite12/12 passed integration11 with new BUSY code. No automatic uncertain-write retry/recovery promise.
+
+### errors-25: A malformed id on a read throws a contradictory ValidationError instead of 'not found'
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Malformed formatted IDs are invalid input even on reads; they are refused before provider execution. No-match applies only to admitted identifiers. This prevents using query absence as a substitute for ID validation.
+
+
+## escape-hatches
+
+### escape-hatches-01: Compact id storage breaks raw SQL: id lookups match nothing, raw ids can't round-trip, raw writes break typed reads
+
+**Disposition:** documented-contract. **Review:** high severity; partial.
+
+Raw SQL remains an explicitly physical interface: no model codec, namespace insertion, inferred row shape, or inference of an empty IN predicate from join([]). client/raw-sql.mdx now states the one-row generic, caller validation, manual qualification and empty-list handling. Compact IDs and exact decimal coefficients require their physical values; this is deliberately distinct from typed model operations. Native INTEGER loss is separately repaired and tested, not excused by this contract.
+
+### escape-hatches-02: No typed SQL lane: GROUP BY over a join, window, CTE, correlated aggregate, lateral, UNION, INSERT...SELECT, UPDATE...FROM are untyped strings
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Typed joins, arbitrary SQL-expression projections/assignments, window functions, CTE composition, whole-predicate raw filters, typed subquery membership and row-lock options remain absent. The physical raw SQL interface is available with explicit caller result validation; this is not represented as a typed builder or a completed feature.
+
+### escape-hatches-04: Raw SQL failures are undebuggable: the database message is always redacted, even with diagnostics enabled
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+False-default instrumentation diagnostics.includeProviderDetails/includeCallsite implemented at existing error/private execution snapshot owners. Descriptor-only bounded provider message/detail/hint with credential redaction; raw/model deferred application frames captured only opt-in; official JSON logs preserve canonical class/message, sanitized cause and immutable validation source/issues. New4 cases + existing diagnostics25/hostile30 all passed within driver-diagnostics-2 121/121,6.07s/540.2MiB. Packed runtime confirmation still follows final artifact; no default provider disclosure.
+
+### escape-hatches-03: ctx.sql fragments can't reference the current row; natural spellings error or silently bind the wrong table
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Typed scalar Sql interpolation resolves direct FieldRef tokens through the existing scoped mapped-column/alias owner, leaves ordinary literals bound, and refuses wrong-model or hidden object tokens with V8003. Actual SQLite12.11.1 public root+nested mapped-column arithmetic, literal interpolation, wrong-model/deep-object V8003 and no-effects witnesses: tests/providers/local/sqlite3-v1-sql-operands.test.ts, part of12/12,5.08s538.6MiB, /tmp/viborm-v1-query-final-sqlite.log.
+
+**Additional verification:** Actual SQLite12.11.1 public root+nested mapped-column arithmetic, literal interpolation, wrong-model/deep-object V8003 and no-effects witnesses: tests/providers/local/sqlite3-v1-sql-operands.test.ts, part of12/12,5.08s538.6MiB, /tmp/viborm-v1-query-final-sqlite.log.
+
+### escape-hatches-05: `raw` doubles as a tag function that splices interpolations as SQL text (injection that looks like sql``)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Implementation and public regressions landed for this finding; exact source/runtime/package evidence is recorded in WORKLOG.md. Integrated native gate3 and the newest focused provider/adapter checks must pass before this row is verified.
+
+**Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
+
+### escape-hatches-06: Raw rows are physical, driver-specific values (SQLite decimals as coefficients, booleans as 1n, ids as bytes) with no decoder
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Raw SQL remains an explicitly physical interface: no model codec, namespace insertion, inferred row shape, or inference of an empty IN predicate from join([]). client/raw-sql.mdx now states the one-row generic, caller validation, manual qualification and empty-list handling. Compact IDs and exact decimal coefficients require their physical values; this is deliberately distinct from typed model operations. Native INTEGER loss is separately repaired and tested, not excused by this contract.
+
+### escape-hatches-08: No SQL expressions in select, orderBy, groupBy, having or write data (no computed fields at all)
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Typed joins, arbitrary SQL-expression projections/assignments, window functions, CTE composition, whole-predicate raw filters, typed subquery membership and row-lock options remain absent. The physical raw SQL interface is available with explicit caller result validation; this is not represented as a typed builder or a completed feature.
+
+### escape-hatches-09: No whole-predicate raw filter and no subquery membership (IN/EXISTS) in where
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Typed joins, arbitrary SQL-expression projections/assignments, window functions, CTE composition, whole-predicate raw filters, typed subquery membership and row-lock options remain absent. The physical raw SQL interface is available with explicit caller result validation; this is not represented as a typed builder or a completed feature.
+
+### escape-hatches-11: No typed row-locking reads (FOR UPDATE / SKIP LOCKED / NOWAIT)
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Typed joins, arbitrary SQL-expression projections/assignments, window functions, CTE composition, whole-predicate raw filters, typed subquery membership and row-lock options remain absent. The physical raw SQL interface is available with explicit caller result validation; this is not represented as a typed builder or a completed feature.
+
+### escape-hatches-12: Database views can't be modeled: reads work through .map(view) but push plans CREATE TABLE over it
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+No view/read-only model DSL was added. Confirmed effectful name collision is mitigated by desired-snapshot catalog preflight on PG views/materialized views, SQLite views and MySQL views; collision refuses beforeeffects, unrelated excluded views do not poison selected scope. Full migration1973+actual PGlite3green retain readableviews afterrefusal; MySQL actual provider CI qualification remains integration gate.
+
+### escape-hatches-07: Tagged $queryRaw and $queryRawUnsafe return different JS types for the same SQL on sqlite3/bun:sqlite
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Approved safe raw Sql fragment and unsafe raw SQL now return the same INTEGER vocabulary on SQLite3/Bun: safe-range number, wider bigint. Actual local SQLite12/native Bun1 + controlled integer-safety5 passed. Tagged raw syntax retired by root security boundary; its old caller fixtures migrated to Sql entry. integration8/9 logs.
+
+### escape-hatches-10: No identifier/table helper for raw SQL; raw ignores the driver namespace and can silently read another schema's table
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Raw SQL remains an explicitly physical interface: no model codec, namespace insertion, inferred row shape, or inference of an empty IN predicate from join([]). client/raw-sql.mdx now states the one-row generic, caller validation, manual qualification and empty-list handling. Compact IDs and exact decimal coefficients require their physical values; this is deliberately distinct from typed model operations. Native INTEGER loss is separately repaired and tested, not excused by this contract.
+
+### escape-hatches-13: join([]) renders `IN ()`: syntax error on PostgreSQL, silent empty match on SQLite
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Raw SQL remains an explicitly physical interface: no model codec, namespace insertion, inferred row shape, or inference of an empty IN predicate from join([]). client/raw-sql.mdx now states the one-row generic, caller validation, manual qualification and empty-list handling. Compact IDs and exact decimal coefficients require their physical values; this is deliberately distinct from typed model operations. Native INTEGER loss is separately repaired and tested, not excused by this contract.
+
+### escape-hatches-14: Raw Date parameters fail on SQLite with an opaque error; the ISO-text storage format is undocumented for raw callers
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Public docs Date cutoff now binds ISO text. Native SQLite3+libSQL safe/unsafe INSERT/filter/UPDATE exact before/equal/after oracle and Bun runtime same witness passed; D1 controlled native bind receives ISO text,44/44 D1. driver-diagnostics-2:121/121; libSQL raw INTEGER intentionally retains configured bigint physical carrier, irrelevant to Date equality. Shared SQLite encoder owns Date.toISOString; physical epoch/Julian raw binds remain caller-owned.
+
+### escape-hatches-15: Docs contradict each other on the raw string form and overstate Prisma raw parity
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Raw SQL docs consistently require a Sql fragment or tag and explain separate unsafe APIs. Deprecated string-warning claims removed; plain strings are refused, not silently treated as tagged-safe input.
+
+### escape-hatches-16: $queryRaw<T> means 'row' in VibORM but 'result' in Prisma: ported code types as User[][]
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Raw SQL remains an explicitly physical interface: no model codec, namespace insertion, inferred row shape, or inference of an empty IN predicate from join([]). client/raw-sql.mdx now states the one-row generic, caller validation, manual qualification and empty-list handling. Compact IDs and exact decimal coefficients require their physical values; this is deliberately distinct from typed model operations. Native INTEGER loss is separately repaired and tested, not excused by this contract.
+
+### escape-hatches-17: Unsupported escape-hatch positions fail with misleading generic errors; fragment-plus-values typechecks
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Existing operand closure scans original inputs before union matching and transformed output after normalization. HAVING closes its whole aggregate-or-filter union, and fresh model-owned OrderBy retains metadata with one captured original validator; callbacks/Sql receive explicit refusal, valid where comparison Sql preserved. Unsupported write Sql is already V4001 invalid scalar/JSON data and receives its honest required-domain message; no expression update DSL introduced. Root safe raw Sql overload rejects extra rest values structurally. Native16 public raw overload probes reject Sql-plus-extra-values; core7 exact HAVING/OrderBy closed operand regressions and SQLite public field SQL4/4 pass. Ordinary comparisons retain Sql/callback support; write Sql remains unsupported scalar/JSON input with V4001 required-domain message.
+
+**Additional verification:** Exact HAVING aggregate-envelope/OrderBy callback+fragment/reuse and ordinary where Sql regressions saved; full native12 passed prior caller-taxonomy-only followup. Focused runtime plus root raw runtime/type evidence still required.
+
+### escape-hatches-18: Raw writes discard driver metadata: no insertId on MySQL (code reading)
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Raw write API exposes affected-row count, not driver-specific insertId metadata. Adding a portable metadata envelope is outside the current contract.
+
+
+## migrant
+
+### migrant-02: SQLite: Prisma-written decimals are silently misfiltered (89.50 matches price < 50) and corrupted side by side (59.98 becomes 5998)
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Foreign SQLite DECIMAL/REAL storage cannot masquerade as checked scaled integers. Runtime validates actual touched model storage and atomic guards recheck it before effects. Existing89.5 remained unchanged on refused filters/update/delete; storage11/11 passed. Automatic decimal migration remains a separate product gap.
+
+### migrant-03: SQLite: Prisma 7's '+00:00' timestamps break exact-instant filters, groupBy and keyset pagination (the same row comes back on every page)
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Noncanonical foreign timestamp spellings are refused before typed reads/mutations and cached reads; migration temporal repair uses shared canonical codec. SQLite11/11 proved offsets/calendar/clock/list cases and a post-inspection race. Automatic brownfield conversion is not claimed.
+
+### migrant-01: No working adoption path for a Prisma-created database: push plans 45 ops then crashes on the first default-named unique, baseline refuses blind, SQLite is refused outright
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Default cast/type/unique-index-vs-constraint projection defects repaired; managed-table scope and actionable baseline differences verified. Equivalent unreadable SQLite constraint names match by shape; readable foreign physical PK/FK/unique names now refuse unsupported adoption before effects. Real renamed-PK PGlite witness preserves the constraint. No turnkey Prisma importer or automatic adoption/baseline is advertised.
+
+### migrant-04: No introspection to schema, no PSL or Drizzle importer, no porting guide
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+No introspection-to-schema, PSL/Drizzle importer or turn-key adoption guide was added. Safe physical projection guards and manual estate authoring are mitigations, not an importer.
+
+### migrant-07: DB-maintained values do not port: SQL/sequence defaults become required fields, generated columns break creates or get dropped, explicit NULLs bypass DB defaults
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns.
+
+### migrant-08: Multi-schema / Supabase layouts cannot be ported: no cross-schema relation, and push/migrate refuse the whole namespace
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+One authenticated driver namespace and exact managed-table membership remain the public contract. Selected cross-schema FK dependencies refuse before effects; no per-model namespace or cross-schema relation DSL was added.
+
+### migrant-09: Index/constraint fidelity: opclass, DESC, expression indexes, CHECK, RLS policies and sequences are inexpressible; ports fail fresh push or have them dropped
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+PG/SQLite native-index semantics are preserved by selected-table preeffect refusal (real catalog witnesses); equivalent readable constraint-name churn also refuses, proven against a real foreign PG PK. Full native CHECK/RLS/sequence/index declaration/import capability remains a strategic gap; no claim that the DSL faithfully ports all artifacts.
+
+### migrant-10: Timestamp/native-type mapping: literal ports of TIMESTAMP(3), Timestamptz(6) and String? @db.VarChar(n) cannot be pushed; the one converging mapping shifts values through a supplied client
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Native timestamp precision retained by format_type, typed defaults/casts normalize once, shared provider parser handles BC/local timezone. Actual PGlite final witness push twice noop incl TIMESTAMP3/TIMESTAMPTZ6/VARCHAR8/CHAR8 arrays/year0. Supplied-client timezone leg verified by drivers agent, integrated evidence in drivers.md.
+
+### migrant-05: String filters silently change case semantics on port (SQLite contains; MySQL equality on Prisma's _ci tables)
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Porting preserves VibORM's explicit case-sensitive string contract rather than inheriting an existing MySQL _ci collation or Prisma SQLite LIKE semantics. Select insensitive mode where needed; no silent API parity claim.
+
+### migrant-06: Same-named ID helpers are incompatible with Prisma's: .cuid() makes CUID v1 tables unreadable, .uuid()/.uuidv7()/.ulid() change storage
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Identifier formats are storage/validation contracts, not Prisma-compatible helper aliases. Legacy CUIDv1 or textual UUID/ULID storage must use an appropriate plain/native scalar and application mapping; raw physical storage is documented.
+
+### migrant-11: Physical names of FKs and uniques cannot be matched, so adoption rebuilds constraints
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Confirmed unsafe name-only FK/unique/PK churn is mitigated at planning admission: equivalent readable physical constraints with unrepresentable different names refuse before effects, preserving actual names. SQLite unreadable names retain semantic matching. Full migration 1,960/1,960; actual PGlite foreign PK refuses and stays present. No physical-name DSL added; adoption limitation explicit.
+
+### migrant-12: Common model names (order, group, key, index, table, column, field, model, default...) are refused even when mapped
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Removed SQL keyword model bans; physical table/column identifiers remain quoted. Only then, the client Promise hook, is refused as a schema key. Twelve mapped/unmapped keyword cases passed root follow-through2.
+
+### migrant-13: Drizzle RQB v2 'through' relations, predefined relation filters and extras have no VibORM spelling; ported result shapes change
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Drizzle-specific predefined relation filters, extras and arbitrary through views have no equivalent declaration in V1. Existing junction naming/storage capabilities do not constitute these features.
+
+### migrant-14: Drizzle SQL-builder calls have no object-API home: no upsert on a partial unique index, no bulk upsert, no row locks, no CTEs or arbitrary joins
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+General SQL-builder joins/CTEs, row locks, bulk/partial-arbiter upserts remain raw SQL/application work; no object-API product expansion added.
+
+### migrant-15: Views: no declaration; a model mapped to a view reads fine but push plans CREATE TABLE for it
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns.
+
+### migrant-16: Decimal and BigInt inputs refuse JS numbers at type and runtime
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+BigInt and Decimal retain exact logical input domains (bigint and Decimal/string respectively). Safe-number input coercion is not a promised API; JSON callers must convert explicitly before validation. No hidden rounding added.
+
+### migrant-17: Enum value @map is unsupported
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Per-enum-value database mapping is not implemented.
+
+### migrant-18: Unbounded numeric has no decimal spelling
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Unbounded NUMERIC has no fixed-decimal declaration. The one precision/scale language remains intentional; no alternate decimal mode added.
+
+### migrant-19: No better-auth adapter
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+No maintained better-auth adapter added; same explicit ecosystem gap as ecosystem09.
+
+### migrant-20: One-way door on SQLite: VibORM-native storage reads wrong in other tools
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+SQLite exact decimal coefficients, JSON list carriers and identifier physical encodings require logical decoding outside the ORM. Documentation now distinguishes raw physical values; no portable external-tool view layer added.
+
+
+## migrations
+
+### migrations-01: Branch-merge state silently turns a column rename into DROP COLUMN + ADD COLUMN (data loss)
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Strict merge/default resolver refuses every missing rename decision. Actual two-branch regression proves no state published until explicit rename; all parent groups and labelled forward/rollback projection returned. Migration core 370/370 + final257/257; CLI69/69.
+
+### migrations-02: No introspection/pull, and exact-equality baseline makes brownfield adoption impractical
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Baseline mismatch now includes structural diff (verified), but pull/importer and automatic baseline by construction remain product gaps.
+
+### migrations-04: PostgreSQL precision native types (TIMESTAMP(p), TIMESTAMPTZ(p), TIME(p), TIMETZ(p), BIT(n), VARBIT(n)) can never be pushed or migrated
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+PG format_type + typed type/default normalization retains typmods for timestamp/time/bit/varchar/char arrays. Real PGlite pushes twice to noop, final isolated witness PASS4.99s1721.8MiB.
+
+### migrations-05: The CLI cannot make any schema decision: no renames, no enum mappings, misleading errors, docs promise prompts
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Typed config migrations.resolve passes to push preview and every generated parent/enum removal. CLI69/69 verifies decisions/scope; missing decisions refuseV11010. No phantom interactive mapping or hints DSL.
+
+### migrations-07: PG enum value removal fails whenever the enum column has a default; the generated SQL points users to nonexistent options
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Transactional PG enum replacement drops/restores defaults, resolves removals explicitly. Real PGlite removal+new-default/data witness PASS, repeated push noop.
+
+### migrations-08: Removing a value from a nullable enum silently sets data to NULL; the documented resolver is never called
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Nullable removals always invoke resolver and require explicit useNull/mapValues. No invented NULL fallback in push or generate. Core enum regression suites passed.
+
+### migrations-09: VibORM silently claims the whole namespace: unrelated tables block apply forever and are dropped by push/reset
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Exact detached/frozen physical table list authenticated in estate target; cross-boundary FK/sharedPGenum refused. Live foreign ledger survived push/baseline/verify/reset; reset dry run returns actual selected tables. Final v1-push17/17.
+
+### migrations-11: Edge and hosted drivers (libSQL/Turso, D1, PlanetScale, Neon HTTP) have no migration path
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Hosted effectful migration guarantees require actual producer lock/atomicity/CAS proof; no capability inferred from dialect. Read-only/offline paths documented. Product gap retained.
+
+### migrations-12: Migration failures are opaque: database messages redacted, CLI shows 'Query execution failed', no JSON or per-family exit codes on error
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+CLI69/69 and full migration1973green: migration errors retain safe catalog/schema identifiers and recovery hints, JSON failure object and family exit code, cleanup failure preserves primary failure, invalid config/custom migration authoring are actionable. Errors17 destructive recovery/public allowlisted metadata tested. Raw provider SQL/parameter/message redaction remains intentional; no unsafe disclosure promise. PostgreSQL preflight raw catalog failures now normalize publicly while preserving typed refusals.
+
+### migrations-03: Renaming a schema key in an implicit many-to-many drops the junction table and every link row
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Paired dropped/created junction tables require explicit rename/add-drop resolution irrespective of overlap; strict default refuses silent link deletion. Core rename/resolver/generation regressions passed.
+
+### migrations-06: No custom-SQL/data-migration path in the CLI; generated SQL is uneditable; manual means a whole state written by hand
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+CLI generate --custom loads a TS author returning the existing checked manual input; production executes authenticated SQL slices. CLI69/69 custom-author routing plus existing manual compile/estate regressions. Whole-state manual contract remains explicit.
+
+### migrations-10: No supported reconciliation after an out-of-band change, and drift errors carry no detail
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Apply/verify drift now reports differences; explicit hotfix reconciliation after authenticated history remains a product gap.
+
+### migrations-13: PG column type change fails when the column has a default
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Default dropped before type cast, destination default restored; enum rename casts via text. DDL/core/type-default witnesses pass, real PGlite converges.
+
+### migrations-14: PG 'add enum value and make it the default' is ordered wrong, and enum-adding states are non-atomic with sticky unfinished attempts
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Full-schema PG enum change uses transactional replacement, includes ordered additions and dependent defaults. Actual middle addition+new default+removal stays converged and data preserved in final PGlite witness.
+
+### migrations-15: SQLite enum value removal never reaches the documented enumValueRemoval resolver; mapValues is ignored
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+SQLite inline enum removals enter shared resolver; mappings run in reconstruction SELECT under destination CHECK, including newly added value. SQLite core enum/default regressions passed.
+
+### migrations-16: No data-aware safety checks; plan labels omit table and column names
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Static destructive classification and object labels fixed/verified. The specific required-column/noDBdefault case now observes row presence and refuses populated tables beforeeffects, with stored generated empty-table precondition. General live row counts/size/cost/data-aware preview remains a product gap, not claimed complete.
+
+### migrations-17: `viborm push --yes` gives blanket data-loss consent; non-TTY without --yes crashes
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+--yes does not authorize destructive push; explicit --accept-data-loss or TTY acceptance required. Non-TTY additive input never prompts. CLI69/69 covers refusal/acceptance/cancellation/JSON.
+
+### migrations-18: `down` cannot roll back a dropped required column on a populated table
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Missing required-column backfill marks generated rollback explicitly irreversible with warning and manual-author instruction; no fabricated data/default. Core generation and CLI warning regressions passed.
+
+### migrations-19: Migration CLI ergonomics: minified-JSON 'human' output, no --config on migrate, documented tsx invocation broken under pnpm, misreported config errors
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Parent migrate --config, jiti loader preserving import failures, readable human results and full JSON. Every acquired client disconnects before reporting. CLI69/69 incl actual configs and cleanup failure.
+
+**Additional verification:** Current CLI coverage passes 85/85 across five files with all four metrics 100%, 4.07s / 783.6 MiB, teardown verified (/tmp/viborm-v1-cli-coverage-final.log). Installed Jiti dependency CJS interop is retained; config and migration consumers select own authored defaults rather than inherited synthetic defaults, preserving their existing truthy/nullish fallback rules. Real SQLite query and named TypeScript migration-author cases remain exercised. Final artifact 27 package qualification is recorded below; exact-revision remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### migrations-20: Estate artifacts are hard to review: hash-named files and one SQL blob mixing forward, probe and rollback statements with no labels
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Generation emits every parent operation group/warnings plus labelled review SQL; --review and show --sql regenerate inert readable projection. Exact authenticated blob bytes/slices unchanged. Core31/31 + CLI69/69.
+
+### migrations-21: Estates are bound to one PostgreSQL schema and a client to one namespace; no multi-schema or schema-per-tenant reuse
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Single immutable namespace per estate remains the architectural contract; multi-schema/tenant estate reuse is a product expansion.
+
+### migrations-22: Rename detection is narrow; PG enum type rename fails; lenientResolver can still drop a table
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Any paired table deletion/creation becomes an explicit rename candidate; no70% fallback. PG enum rename uses text cast. Core strict-resolution/default/type witnesses and final DDL165/165.
+
+### migrations-23: No raw SQL defaults, and CURRENT_TIMESTAMP is not equated with now(): foreign-created defaults cause perpetual diffs
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+now/CURRENT_TIMESTAMP typed normalization fixed/verified; raw SQL default declaration language remains a product gap.
+
+### migrations-24: MySQL migration admission refuses MariaDB (any version), MySQL < 8.0.16 and non-strict sql_mode, and needs an attestation flag
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+MariaDB/older or non-strict MySQL support remains product scope; existing exact-value safety proof not weakened.
+
+### migrations-25: No Studio / data browser
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Studio/data browser remains product scope.
+
+### migrations-26: SQLite performs one full table rebuild per changed column
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Full migration 119 files / 1,960 tests green. Real SQLite two-column change proves one forward and one inverse reconstruction, row preservation, apply/down and estate verify; empty inverse manifest steps filtered. Contiguous same-table same-risk stock SQLite operations coalesce; other order/proof and native libSQL paths preserved.
+
+### migrations-27: Noisy 'destructive' labels and gratuitous ALTER TYPE on default-only changes
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+One differ risk owner marks required/no-default additions and enum removal destructive; default-only changes no longer cast unchanged type. Named plan labels. Core+DDL regression suites passed.
+
+### migrations-28: Push is refused on any database that carries a migration marker
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Nonempty push never rewrites an authenticated estate marker; use generate/apply. Empty push only succeeds when marker/history/schema/live proof agree. Existing interlock regression passed.
+
+### migrations-29: No seed runner
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Seed runner remains product scope.
+
+### migrations-30: No squash or compaction (by design)
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Squash/compaction remains product scope; immutable authenticated estate history is unchanged.
+
+### migrations-31: PostgreSQL migration lock waits forever
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+One bounded recursive pg_try_advisory_lock CTE stops after10s; real first unlock true/second false proves one acquisition. Final PGlite witness passed.
+
+### migrations-32: Migration driver docs show an API that does not exist and DDL that is not emitted
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Driver docs corrected to real s.* factories, millis defaults, transactional enum replacement, exact SQLite computed defaults, current scope/CLI/consent. Manual temporal repair recipe included.
+
+
+## production-ops
+
+### production-ops-01: The postgres.js and mysql2 drivers drop TLS and every other URL parameter and pass percent-encoded credentials verbatim; bun-sql ignores `options` whenever databaseUrl is set
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Existing URL owner preserves postgres original URL, decodes MySQL percent credentials/query TLS options, forwards Bun SQL options with URL. Dedicated v1-transport remediation9/9 and transport coverage focused fixtures passed; no credentials printed. drivers.md.
+
+### production-ops-02: A caller-supplied pool or client (the documented 'Using Existing Pool' and shared-pool patterns) skips VibORM's type configuration: `timestamp without time zone` reads shift by the process time zone and DATE reads throw
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Supplied-client parity: driver-supplied-clients56/56 passed (includes per-query pg/PGlite temporal text and executable supported postgres text setup refusal/acceptance), latest driver runtime/core checkpoints in drivers.md. Owned/supplied postgres+pg and Neon HTTP actual hosted6/6 current SDK1.2 preserve UTC/year0/date scalar/arrays. Borrowed lifecycle remains caller-owned.
+
+### production-ops-03: No read-replica support of any kind
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+Read-replica selection/routing remains unimplemented; no support claim. Accepted expansion boundary; not marked fixed by documentation.
+
+### production-ops-04: Every operational failure collapses into one non-retryable `QueryError V2001 "Query execution failed"` with the database message redacted; the declared retryable timeout codes are never produced
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Canonical mapping now distinguishes retryable connection/capacity, query/transaction timeout, lock contention/deadlock/serialization and nonretryable auth/config/schema/range; actual core6 mapping73/73/hostile30/30, transaction timers6/6 and queue17/17 passed. Actual diagnostic opt-in/span7/7 in root144 and latest driver132 retain disclosure/callsite/class/SQLSTATE. Own-session Neon warm-dead1/1 proved recovery; no unsafe-write automatic retry promise.
+
+### production-ops-06: The mysql2 driver uses server-side prepared statements (execute) with mysql2's 16,000-per-connection cache while emitting a distinct statement text per IN-list length and createMany size, which can exhaust MySQL's server-wide max_prepared_stmt_count
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+MySQL2 typed dispatch now calls documented text query protocol with per-command exact typeCast, rather than server-side prepared execute; source owner inspected. Provider result contracts115/115 passed current core6 and supplied-pool lifecycle56/56 passed final focused gate. This removes cache-causing dispatch; no measured whole-server memory reduction or fully qualified external MySQL matrix claim.
+
+### production-ops-07: PGlite: the declared, 'verified' 65,535 bind-value cap admits statements that make PGlite 0.5.8 silently return zero rows and leave the session empty for every later query; VibORM's own createMany batching triggers it
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+PGlite cap32767 now constrains prepared typed statements and owned batching. Exact32768 bind stock driver/controlled handle refuses V8003 with zero query dispatch, capacity13/13 passed core7; reported65535 cap cannot reach provider poison trigger. Generated write chunking/query budget composition qualified query-owner tests. No32767-scale actual provider-output or arbitrary logical-query splitting claim.
+
+### production-ops-08: Two VibORM clients sharing one better-sqlite3 (or bun:sqlite) handle interleave on one connection: client B's acknowledged write runs inside client A's transaction and is silently rolled back
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Actual SQLite local regression 10/10 passed: same physical handle shared by two wrappers queues independently; reentry refuses; maxWait expires; outer timeout drains nested savepoint/callback and stale work refuses. Browser fallback core batch 29/29 passed with unavailable AsyncLocalStorage and finite 5000ms queue wait.
+
+### production-ops-05: SQLite drivers refuse any statement with more than 999 bound values (an IN list of 1,000 ids), although the bundled SQLite accepts 32,766 and both competitors handle such lists
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+SQLite driver ceilings now32766 (D1 remains100); actual stockSQLite public1000-bind IN query passed within final driver132/132, excluding poisoned row and selecting valid row exactly. Existing query generated-key balancing is separate. No automatic split strategy beyond actual provider ceiling is claimed.
+
+### production-ops-09: The documented 'Using Existing Pool' pg setup crashes the process on the first idle-connection loss (restart, failover, idle_session_timeout, load-balancer idle cut)
+
+**Disposition:** documented-contract. **Review:** medium severity; confirmed.
+
+Driver overview no longer claims different providers share transport code; exact bind caps and actual hosted Neon witness shown. Existing pg pool snippets require owner error listener; Neon docs use supported TCP pg/postgres for callbacks. This documents ownership/support, not a new WebSocket driver.
+
+### production-ops-10: Shutdown is inconsistent and has no deadline: single-connection drivers reject $disconnect during a transaction, pooled drivers wait indefinitely, concurrent $disconnect throws, and a closed client silently reconnects
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Close rejection now quarantines the exact handle until explicit cleanup retry succeeds; borrowed lifecycle remains untouched and reconnect after successful disconnect is intentional. A configurable shutdown deadline/draining policy and coalesced concurrent disconnect API remain unimplemented. Accepted expansion boundary; not marked fixed by documentation.
+
+### production-ops-11: Interactive transactions have no default timeout or maxWait, and there is no client-level default
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Explicit callback timeout/maxWait are supported. Browser async-context absence has a finite5s queue fallback to prevent unbounded reentry. Global client default timeout/maxWait configuration remains unimplemented; no universal default deadline claim. Accepted expansion boundary; not marked fixed by documentation.
+
+### production-ops-14: No pool observability: driver-made pools are unreachable, idle-pool failures are retained silently, and there are no pool stats or error hooks
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Dead-pool retained failure/lifecycle recovery were fixed and independently hosted-qualified. Public owned-pool statistics/error hooks remain unimplemented; a supplied pool retains caller ownership and its own observability. Accepted expansion boundary; not marked fixed by documentation.
+
+### production-ops-15: The docs recommend '@neondatabase/serverless Pool with WebSockets' for transactions, but no VibORM driver accepts it; neon-http refuses interactive transactions
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Driver overview no longer claims different providers share transport code; exact bind caps and actual hosted Neon witness shown. Existing pg pool snippets require owner error listener; Neon docs use supported TCP pg/postgres for callbacks. This documents ownership/support, not a new WebSocket driver.
+
+### production-ops-16: No production-operations guide: pool sizing, timeouts, external poolers, serverless lifecycle and supplied-pool requirements are undocumented
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+New linked production connections guide covers sizing against total instances/DB budget, native acquisition options, supplied parsers/listeners/lifecycle, health SELECT1, per-call transaction deadlines, idempotent retries/commit uncertainty, libSQL quarantine and pooler/edge qualification.
+
+### production-ops-12: No streaming or cursor iteration: every read is materialized in full
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Streaming/cursor iteration remains unimplemented; reads materialize results and documentation states this boundary. Accepted expansion boundary; not marked fixed by documentation.
+
+### production-ops-13: No prepared-statement reuse on PostgreSQL; the postgres.js driver pays two network round trips per parameterized statement (undocumented)
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Postgres unsafe third query option forwards explicit existing options.prepare:true, retaining false default; native SQLite statement-cache hits refresh LRU order. Controlled/native focused regressions 7/7, final combined local/cache/postgres 17/17 passed.
+
+### production-ops-17: SQLite transactions always BEGIN DEFERRED; with no 'immediate' option, multi-process read-modify-write fails about 45% of the time under contention
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+SQLite3/Bun owned interactive writes now BEGIN IMMEDIATE with nonzero default busy timeout; libSQL uses native write transactions. Existing native lifecycle/transaction-option behavior3/3 and queue17/17 pass current core6; failed provider work refuses later acknowledgments through rollback-only/quarantine. Exact previous multiprocess45% failure rate was not rebenchmarked and no configurable transaction-mode product feature added.
+
+### production-ops-18: The sqlite3 driver's statement cache is 100 entries with oldest-first eviction: past 100 distinct statements in rotation every lookup misses (+60-75% per operation)
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Postgres unsafe third query option forwards explicit existing options.prepare:true, retaining false default; native SQLite statement-cache hits refresh LRU order. Controlled/native focused regressions 7/7, final combined local/cache/postgres 17/17 passed.
+
+### production-ops-19: MemoryCache has no size bound (memory = request rate × TTL × entry size), contrary to the docs' 'keeps memory bounded'
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+MemoryCache defaults1024LRUentries with exact maxEntries option andoneunrefsweep; longTTL uses absolute deadline. LRU,singletimer,above2^31TTL,disconnect,finiteTTL/exact-option runtime regressions passed cache8/8; Native18 subsequently passed. Native18 subsequently passed the current integrated source/public probes; no packaged-backreference completion is inferred.
+
+**Additional verification:** LRU,singletimer,above2^31TTL,disconnect,finiteTTL/exact-option runtime regressions passed cache8/8; typecheck pending.
+
+### production-ops-20: The built-in logger is a development pretty-printer: ANSI escapes even when not on a TTY, no JSON mode, whole-millisecond durations
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+ANSI-free default formatter and documented JSON callback path address captured-log readability. No separate JSON logging mode or higher-resolution lifecycle clock was added; those are explicit remaining options.
+
+**Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
+
+### production-ops-21: $connect() opens no connection on pooled drivers and there is no health-check API, so readiness probes built on $connect pass with the database down
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Production guide explicitly distinguishes handle initialization from database readiness: pooled $connect may not contact DB; readiness must execute a small trusted SELECT1. No separate health API was introduced and initialization is not falsely described as a health check.
+
+
+## read-api
+
+### read-api-01: SQLite-family DateTime/time filters compare the ISO spelling, not the instant
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+One canonical DateTime/time boundary and per-operation SQLite storage admission. Direct/callback/native-array checks and post-inspection concurrent storage alteration prove no wrong typed mutation; SQLite storage11/11 passed.
+
+### read-api-02: JSON string_contains/starts_with/ends_with match objects, arrays and numbers via their serialized text
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Empty suffix preserves SQL NULL and JSON string predicates call typed stringAtPath rather than serialized whole-document text; PostgreSQL whole-document extract normalizes native json via adapter jsonb owner. Actual SQLite adapter adversarial10/10 (empty non-null suffix, structural JSON scalar/object/array distinctions) and PGlite9/9 (native JSON equality/path strings) passed, plus remote CI3 PostgreSQL/MySQL provider job113368520531. Core7 decoder/operator contracts passed.
+
+**Additional verification:** Engine filter suite passed; root adapter/provider qualification pending.
+
+### read-api-03: SQLite bigint-list `has` never matches
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Array bigint members bind canonical text to SQLite JSON string members instead of numeric parameters. Actual public sqlite3-v1-sql-operands5/5 verifies has9007199254740993n reads exact [9007199254740993n,-9007199254740993n], while adjacent9007199254740994n matches no row. Combined provider proof14/14, /tmp/viborm-v1-query-sqlite-proof-final.log:3.44s506MiB teardown verified.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### read-api-04: Floats lose precision through nested relations and aggregates on SQLite
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+SQLite JSON numeric carriers delegate NULL-preserving adapter json.number (binary64 round-trip text), including geoPoint numeric storage and aggregate leaves. Actual sqlite3-adapter-adversarial10/10 passes Math.PI through include and all four aggregates, exact point coordinates, and positive/negative Number.MAX_VALUE plus Number.MIN_VALUE through include/_avg/_sum/_min/_max; one owned row restored afterward. /tmp/viborm-v1-query-sqlite-binary64-final.log:3.55s482.5MiB teardown verified.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### read-api-05: PostgreSQL/MySQL contains, endsWith and every insensitive predicate are unindexable
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Performance/product gap: portable substring and folded comparisons carry no index-use guarantee. Provider expression/search indexes and additional query strategies are not implemented here. The report's universal claim that no index can ever help is not treated as established behavior.
+
+### read-api-06: mode: 'insensitive' folds ASCII only — no case-insensitive search for non-English text
+
+**Disposition:** documented-contract. **Review:** high severity; partial.
+
+Documented contract: insensitive mode folds ASCII A-Z, with provider-independent spelling. Locale-aware Unicode case folding is not promised; the compatibility guide now states the exact domain.
+
+### read-api-07: `in` lists over 999 values are refused on SQLite drivers (over 100 on D1), with no chunking
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+The incorrect generic999 SQLite ceiling is repaired at the existing concrete driver capacity owner: current SQLite-family transports declare32766; D1 retains its actual100-provider limit. Ordinary admitted caller IN1000 executes. Final rendered budget still fails closed before provider effects at a real ceiling; automatically splitting arbitrary logical read predicates is an explicit remaining query-strategy product gap, not claimed implemented. Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support.
+
+**Additional verification:** Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support.
+
+### read-api-08: Cursor pagination on a descending (or nullable) sort costs O(depth), like OFFSET
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Performance gap: mixed-direction or nullable cursor orders can require scans despite correct pagination results. Matching scalar key directions remain the available schema/query choice; a new index-optimized cursor protocol was not added.
+
+### read-api-09: No typed SQL lane: no joins, CTEs, window functions, unions or row locks
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Product gap: no typed joins/CTEs/windows/unions/row-lock SQL lane was added. Safe raw SQL remains available as a physical interface, without claiming inferred relational results.
+
+### read-api-10: Null placement of the same orderBy changes with take (and across providers)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Consistent asc-null-last/desc-null-first and identity/group-column completion for relation,count,distance ordering. Offset/full sort oracle and existing order-projection/selector suites passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** Offset/full sort oracle and existing order-projection/selector suites passed stable145/146 batch.
+
+### read-api-11: SQLite JSON equals/array_contains are text comparisons, not JSON semantics
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+SQLite JSON equality and array membership now compare structure rather than serialized text. SQLite adapter6/6 passed. Complete-member containment is portable; native PG/MySQL partial-object containment remains explicitly documented as a provider difference.
+
+### read-api-12: exist() is a full COUNT(*) despite being documented as cheaper
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Exist uses SELECT EXISTS over same page semantics; missing physical aggregate/existence rows fail instead of synthetic0/false. Dedicated SQL/cardinality oracle and existing read-verbs passed.
+
+**Additional verification:** Dedicated SQL/cardinality oracle and existing read-verbs passed.
+
+### read-api-13: PostgreSQL list `has` cannot use the GIN index VibORM lets you declare
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Performance gap: PostgreSQL list has uses scalar ANY membership, without a GIN-plan guarantee. A GIN-oriented containment strategy remains additional query lowering; existing membership behavior is not declared incorrect solely because of its plan.
+
+### read-api-14: No SQL inside the object API: no raw predicate, orderBy expression, computed fields, count-distinct, expression groupBy or relation-count filter
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: scalar comparison SQL operands are supported, but whole raw predicates, computed select/order/group expressions, count-distinct and relation-count filters remain outside the object API. Operand interpolation repairs do not supply that broader query DSL.
+
+### read-api-15: $queryRaw returns BigInt for every INTEGER on sqlite3 (but $queryRawUnsafe does not); raw rows are never decoded
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Actual SQLite13 local12/12 and native Bun1/1 proved exact raw INTEGER parity across direct/safe/unsafe/array/callback. Both read losslessly once; raw safe-range bigint becomes number and wider bigint remains bigint. Typed model domain unchanged. integration8/9 logs.
+
+### read-api-16: No findUnique batching (GraphQL resolver N+1)
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: no automatic findUnique/DataLoader dispatch registry was added. Explicit relation loading or caller batching remains necessary to avoid resolver N+1 patterns.
+
+### read-api-17: No full-text search (or regex) operator, despite FULLTEXT/GIN index DDL
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Product gap: FULLTEXT/GIN index declaration does not provide full-text or regex filter operators. The missing query vocabulary remains separate from legal index DDL.
+
+### read-api-18: Explicit undefined silently drops filters — deleteMany/updateMany hit every row; no strict mode
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Filtering guide explicitly describes omitted undefined values, the unrestricted-mutation consequence, and empty AND/NOT versus OR semantics. Existing empty-filter parity tests pin the contract. Strict undefined mode remains a product gap; query semantics are not silently changed.
+
+### read-api-19: Cursor + relation or _count ordering is refused at runtime (the types accept it)
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: cursor ordering by relations, counts or distance remains unsupported. The existing refusal is now the actionable V8003 category; the recorded SQLite provider witness proves refusal, not implementation of those orders.
+
+**Additional verification:** Actual SQLite12.11.1 public relation+count cursor refusal witness in sqlite3-v1-sql-operands.test.ts, part of12/12, /tmp/viborm-v1-query-final-sqlite.log; no capability implementation claimed.
+
+### read-api-20: endsWith: '' matches NULL rows on SQLite only
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+SQLite empty endsWith predicate excludes SQL NULL. Live sqlite3-adapter-adversarial test passed.
+
+### read-api-21: Types accept read queries the runtime or database rejects
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Select/include conflict, singular recursion clauses and aggregate result lies are fixed with public probes. Remaining groupBy relations, numeric bounds and provider-specific capabilities are checked at runtime; types are not a proof of provider execution.
+
+### read-api-22: Empty-filter algebra and every+NULL copied from Prisma invert the documented undefined idiom inside OR
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Documented contract: undefined filter members are omitted; empty AND/NOT are true and empty OR, including empty children, is false. SQL three-valued every semantics are retained. The compatibility guide explains both edges; a new strictUndefined mode or different Boolean algebra is not implemented.
+
+### read-api-23: JSON filter surface breaks Prisma migrations in small ways
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Compatibility gap: VibORM documents its own JSON path/filter vocabulary and whole-column null sentinels. Additional Prisma path/operator spellings remain absent; separately repaired structural equality and string typing do not imply full Prisma compatibility.
+
+
+## relations
+
+### relations-02: Polymorphic collection `every: { type: T }` silently matches only EMPTY collections
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Tagged every semantics, variant-pinned isNot, stored carrier presence and malformed discriminator/pair refusal. SQLite variant oracles and existing variants.test.ts passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** SQLite variant oracles and existing variants.test.ts passed stable145/146 batch.
+
+### relations-01: PostgreSQL: including any related model with more than 50 projected keys crashes (json_build_object 100-argument limit)
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+PostgreSQL JSON object assembly chunks50 key/value pairs per jsonb_build_object and concatenates inside the existing aggregate scope. Real PGlite121-field object projection and count aggregate passed in adapter4/4; nested correctness also covered by existing projection contracts.
+
+### relations-03: SQLite: every many-to-many read scans the whole target table per parent row
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+The existing m:n correlation owner lowers target-key IN against the source-filtered junction, preserving parent membership and target-domain predicates. Actual public SQLite include EXPLAIN in sqlite3-adapter-adversarial requires target INTEGER PRIMARY KEY SEARCH, no target SCAN, and source articleId covering-index probe; 7-parent/2-matching-members sliced-page counts remain exact. SQLite provider14/14 then final10/10 passed; /tmp/viborm-v1-query-sqlite-proof-final.log and binary64-final.log. No universal provider cost/timing claim is inferred from this concrete SQLite plan.
+
+**Additional verification:** Existing collection/filter/recursive results passed; real provider plans/timing pending.
+
+### relations-04: bun-sqlite with a caller-supplied Database never enables foreign keys: referential actions silently do nothing
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Actual Bun SQLite supplied native handle with PRAGMA foreign_keys OFF is refused at constructor as ClientInitializationError V1004; refusal does not alter foreign-key setting or close handle. Explicit enabling allows wrapping. Existing same native child also proves failed BEGIN does not roll back caller transaction or close supplied database. tests/providers/platform/bun-sqlite-runtime-probe.ts and runtime wrapper; /tmp/viborm-v1-borrowed-pglite-bun-final.log:2/2 across Bun/PGlite,3.78s1101MiB, verified teardown.
+
+### relations-10: Relations cannot cross PostgreSQL schemas (e.g. Supabase auth.users)
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+Product gap: one immutable adapter namespace qualifies generated persistent objects. Per-model cross-schema relations require a different namespace contract and were not added.
+
+### relations-05: Polymorphic to-one: deleting a target silently orphans owners, after which every include of the relation throws for the whole list
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Documented contract: row-carrier polymorphic references have no database FK or automatic target cleanup. The polymorphic guide requires application transaction cleanup; a nonempty missing target is refused rather than returned as null. Automatic orphan policy/FK emulation remains unsupported.
+
+### relations-06: Polymorphic to-one `is: null` / `isNot: null` test target existence, not the stored membership the docs promise
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Tagged every semantics, variant-pinned isNot, stored carrier presence and malformed discriminator/pair refusal. SQLite variant oracles and existing variants.test.ts passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** SQLite variant oracles and existing variants.test.ts passed stable145/146 batch.
+
+### relations-07: A junction table whose name collides with a model table passes validation and corrupts the push plan
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Existing topology table-claim owner rejects ordinary junction/model mapped table collision before client work and under checked resolution. Explicit and implicit collision/control witnesses2/2 passed in driverintegration6; no competing downstream registry.
+
+### relations-08: No way to traverse an explicit junction (payload) model as a many-to-many
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: explicit payload junction models are traversed through their declared relations. A many-to-many convenience projection exposing junction payload has not been added.
+
+### relations-09: Every relation is a database FK; no FK-less relations and no referential-action emulation (no relationMode)
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: ordinary generated relations rely on database foreign keys. An FK-less relation mode and referential-action emulation are not implemented by this repair.
+
+### relations-11: No `where` on to-one includes
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: the singular include grammar has no where clause. Filtered to-one projection and its result/nullability semantics remain additional API work.
+
+### relations-12: Cursor pagination cannot be combined with relation or _count ordering
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: cursor ordering by relations, counts or distance remains unsupported. The existing refusal is now the actionable V8003 category; the recorded SQLite provider witness proves refusal, not implementation of those orders.
+
+**Additional verification:** Actual SQLite12.11.1 public relation+count cursor refusal witness in sqlite3-v1-sql-operands.test.ts, part of12/12, /tmp/viborm-v1-query-final-sqlite.log; no capability implementation claimed.
+
+### relations-13: Overlapping compound foreign keys (multi-tenant) cannot be connected in one write
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Product gap: multiple relation writes cannot independently assign a shared physical compound-FK column in one payload. The assignment owner refuses V8003 before effects. Supporting agreement merges or partial compound ownership needs an explicit mutation contract, not inferred precedence.
+
+**Additional verification:** Existing Assignments relation contribution conflict owner and compound relation adoption/refusal witnesses; plain field/relation diagnostic wording root errors15 and compatibility nested conflict contract. No support expansion claimed.
+
+### relations-15: SQLite: floats read through an include lose precision (15 significant digits)
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+SQLite JSON numeric carriers delegate NULL-preserving adapter json.number (binary64 round-trip text), including geoPoint numeric storage and aggregate leaves. Actual sqlite3-adapter-adversarial10/10 passes Math.PI through include and all four aggregates, exact point coordinates, and positive/negative Number.MAX_VALUE plus Number.MIN_VALUE through include/_avg/_sum/_min/_max; one owned row restored afterward. /tmp/viborm-v1-query-sqlite-binary64-final.log:3.55s482.5MiB teardown verified.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### relations-14: FK scalar plus relation write in one payload type-checks but always throws (with a stale engine name)
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Documented contract: a scalar FK assignment and a relation verb assigning the same column are refused with V8003, even when values agree. The diagnostic names the column/relation instead of an internal engine. A static FK/relation XOR remains unimplemented.
+
+**Additional verification:** Existing assignment owner and compound relation adoption public witnesses; root errors15 message correction and compatibility conflict documentation. Does not claim static XOR implemented.
+
+### relations-16: `every` treats NULL-valued children as satisfying the predicate
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Documented contract: SQL every uses absence of a false counterexample, so a nullable unknown alone does not violate it. The compatibility guide requires an explicit non-null predicate when that stronger condition is intended.
+
+### relations-17: Every relation must be declared on both models, with no tool to generate the inverse
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product tooling gap: both relation endpoints are declared and checked by the one topology owner. Automatic inverse generation was not added; validated pairing is not an inverse generator.
+
+### relations-18: No SET DEFAULT referential action
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Product gap: SET DEFAULT is absent from the public referential-action vocabulary. Provider/default applicability and emulation were not implemented.
+
+### relations-19: Default referential actions are undocumented, and onUpdate defaults to NO ACTION (Prisma: CASCADE)
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Relation guide now states stored-FK onDelete setNull only when every member nullable, restrict otherwise; onUpdate noAction. Junction defaults cascade both operations. Physical owner behavior preserved, including difference from Prisma update default.
+
+### relations-20: Polymorphic collection docs example fails validation (R010)
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Polymorphic collection example now names its items carrier to match its existing named inverse examples. Literal example topology validation still needs direct qualification.
+
+**Additional verification:** The documentation corpus executes 137 tests, including actual declaration-fence topology construction in the same runtime realm, and passes in Core7 and CI2 core at 5f8cb08af. Installed CLI/config/.env and extension consumers have separate artifact evidence. This does not claim every prose fence is executable.
+
+### relations-21: Relation field names and schema membership are not type-checked
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Product typing gap: L5 establishes actual target membership and source/reference columns at runtime. Getter-dependent relation field/reference key exactness is not fully sealed statically; existing public reachability pins remain. Repaired shallow client membership reflection is a separate guarantee.
+
+**Additional verification:** Runtime L5 schema validation and relation-resolution owners; existing public contextual relation key reachability pins remain visible. Getter-keying historical123 estate errors are recorded; driver packedH13 static membership refactoring/consumer proofs are separately owned, no broad compile-time column-key seal claimed.
+
+### relations-22: No predefined relation filters, no SQL extras, no filtering by relation count
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product gap: named relation filter presets, SQL projection extras and relation-count filters were not added. Existing some/none/every semantics remain the supported grammar.
+
+### relations-23: One relation-loading strategy, no escape hatch
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product/performance gap: the current relation loader is the implemented strategy. User-selected join/query/LATERAL strategies need additional execution protocols and are not offered.
+
+### relations-24: Relation schema errors drop their repair hints
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+SchemaValidationError renders existing candidates and repair fields from its frozen issue snapshot; focused text+serialization regression added. Runtime core pending.
+
+**Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
+
+### relations-25: No fluent relation traversal
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Product gap: no fluent relation traversal delegate was added. Current include/select, nested filtering and nested mutation APIs remain distinct supported surfaces.
+
+
+## schema-dsl
+
+### schema-dsl-01: JSON .schema() re-runs on every read, including a write's RETURNING row: writes commit then throw INTERNAL_ERROR, retries double-apply, one legacy document makes findMany unusable
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Physical JSON reads never rerun input schemas; native integer JSON carrier follows finite Number/JSON.parse domain instead of safe-integer refusal. Dedicated input-transform/legacy-document and9007199254740994 JSON regressions passed13/13.
+
+**Additional verification:** Dedicated input-transform/legacy-document and9007199254740994 JSON regressions passed13/13. Rejected async validators are refused synchronously and their promises are handled at the shared parse/custom-schema/pipe/decimal/union boundaries; rejected operand callbacks are also contained. The seven-file integration gate passes 171/171, including direct and prepared-array result failures, all original 56 SQLite parity cases, parse wrappers and operand callbacks (4.15s / 608.8 MiB; /tmp/viborm-v1-ci6-driver-local-repair-3.log). Full validation coverage passes 3719 tests across four chunks with all four metrics 100%, largest chunk 1090.2 MiB, teardown verified (/tmp/viborm-v1-validation-coverage-final42.log). Recursive JsonValue results now bypass cosmetic Prettify remapping while finite custom outputs, selected keys and union/Date/Decimal/function domains remain intact. Public single/many/selected-result positives, wrong-ID/missing-key negatives and no-any probes are included in tests/types/client/json-result-public.core.types.ts. Whole-estate native43 passes with zero diagnostics, 34.94s / 6043.6 MiB, under unchanged limits (/tmp/viborm-v1-native-43.log). The final artifact 27 package suites also qualify these JSON probes; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### schema-dsl-02: .withoutTimezone() timestamps drift by the process UTC offset, progressively on every read-modify-write, when a PostgreSQL client/pool is supplied (documented 'Using Existing Instance')
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Supplied-client parity: driver-supplied-clients56/56 passed (includes per-query pg/PGlite temporal text and executable supported postgres text setup refusal/acceptance), latest driver runtime/core checkpoints in drivers.md. Owned/supplied postgres+pg and Neon HTTP actual hosted6/6 current SDK1.2 preserve UTC/year0/date scalar/arrays. Borrowed lifecycle remains caller-owned.
+
+### schema-dsl-05: Documented PostgreSQL native types cannot be pushed: VARCHAR(n) when nullable or defaulted, TIMESTAMP(p)/TIMESTAMPTZ(p)/TIME(p)/TIMETZ(p), BIT(n)/VARBIT(n)
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+PG typmods preserved with format_type and one normalizer. PGlite/DDL/provider-free catalog witnesses passed.
+
+### schema-dsl-06: Literal defaults for lists, JSON, bigint and Date objects (plus .now() on SQLite, .updatedAt(), function defaults) are app-only; adding such a column to a populated table fails after a 'safe' preview
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Declared supported literal lists/JSON object/bigint/Date defaults now cross existing physical encoders into DDL. Actual populated SQLite and PG rows backfill and secondpushnoop; all3dialect SQL-shape witness; function/unsupported generators remain application-only, populated required-column add refuses beforeeffects with explicit manualbackfill recipe, storedgenerated precheck proves empty. Migration1973/PGlite3 green. MySQL PRIMARY canonicalization fixed after real CI exposed its mismatch; actual MySQL final provider qualification belongs CI.
+
+### schema-dsl-07: Database-computed values cannot be modeled: no SQL-expression defaults, no generated columns, no read-only fields, and omitted nullable fields are written as explicit NULL
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns.
+
+### schema-dsl-08: Index DSL is column lists + six types + a raw-string where; anything else is created out of band and push then plans to DROP it, including the HNSW index the vector docs tell you to create
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Native ANN/opclass/DESC/expression/INCLUDE index DSL remains absent. Selected unsupported PostgreSQL and SQLite native indexes now refuse synchronization before effects, proven by migration119files/1960tests and real PGlite catalog retention. This mitigates destructive index projection without claiming the missing DSL.
+
+### schema-dsl-09: No database introspection into a VibORM schema (no pull), and baseline demands exact physical equality the DSL often cannot express
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+No pull/importer was added. Exact baseline authenticates representable physical equality; native indexes and foreign constraint names now refuse unsafe projection/churn rather than claiming complete adoption.
+
+### schema-dsl-10: The JSON Schema exported for model inputs is wrong: list fields become scalars, nullability is dropped, required fields are not required; validation reports only the first issue
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+JSON Schema conversion composes array and nullable wrappers, input/output required/default distinctions and recursive depth metadata. Root adversarial-values13 plus recursive/schema converter24 passed; full integrated type/package/docs gate remains pending. Multiple-issue aggregation is not claimed.
+
+**Additional verification:** Native15 and all 9624 Core7 tests passed; CI2 repeats both successfully at 5f8cb08af. Root diagnostics and executable docs focused gate passed 144/144, including actual OTel callbacks; output/schema and JSON-schema regressions run in the core estate.
+
+### schema-dsl-03: Transforms in .schema() are applied twice for JSON and to filter operands for every scalar, so read values do not round-trip
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md.
+
+### schema-dsl-04: PostgreSQL enum type names are derived as <table>_<column>_enum with no collision check: two enums silently share one type, push reports noop
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+PG enum name collision with incompatible values refuses serialization before effects; explicit MySQL enum names stay inline. Core enum/serialization witnesses passed.
+
+### schema-dsl-11: Derived identifiers are not length-managed on PostgreSQL: index names, <table>_pkey and enum type names over 63 bytes break push with opaque errors
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Derived PG identifiers use UTF8-safe63byte prefix plus8hex hash suffix, preserving distinct long/multibyte names. Core derived-name tests and PG namespace/DDL suites passed.
+
+### schema-dsl-12: The compound .id()/.unique() name option does not name the database constraint (docs say 'custom constraint name'); physical PK/unique names cannot be chosen, so existing databases get destructive renames
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Compound name is documented consistently as selector-only; misleading custom-constraint-name docs corrected. Effectful planning refuses equivalent readable physical PK/FK/unique name-only churn before effects; pure diagnostics retain typed drift evidence. Full migration 1,960/1,960 and actual PGlite foreign PK preservation witness. Explicit physical constraint-name declarations remain a product gap.
+
+### schema-dsl-13: Modifier order silently discards defaults and generators: .default(x).nullable(), .uuid().nullable(), .now().nullable() lose them
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md.
+
+### schema-dsl-14: s.string().id() always installs a ULID generator: natural string keys become optional and are silently minted when forgotten
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md.
+
+### schema-dsl-16: .schema() refinements are bypassed by arithmetic updates and list push/unshift, and .array()/.nullable() called after .schema() erase it from update validation on several scalar kinds
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Existing scalar descriptor/family owners now preserve default/generation/custom metadata in both modifier orders; formats domain-only unless id or explicit generate, id(generate:false) opt-out, custom default wins. Custom transform output is physically validated once; filters compare stored domain, refined arithmetic refused and push/unshift members validated. Runtime modifiers/refinements/string128/128 and output11/11; genuine fresh/held generator/arithmetic probes passed root native8. Generated arrays refused both orders; formatted array members existing codec plain string. drivers.md.
+
+### schema-dsl-17: s.time() defaults to PostgreSQL timetz and VibORM strips the offset on read, so ordering and range filters depend on each session's TimeZone and DST
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Default Time maps to TIME(3), with naive clock values; UTC Time.now defaults and explicit TIMETZ zero-offset default exercised under Pacific/Kiritimati in real PGlite, repeat no-op. Full migration 1,960/1,960 verifies mapping. Explicit native TIMETZ remains opt-in with documented narrower carrier semantics. Latest nativeTIME6/TIMETZ6 own .now uses UTC CURRENT_TIME(3); actualPGlitefinal7 3/3 provesµmod1000=0/UTCoffset0/naiveTime self-equality andsyncnoop. FinalClockcore66/66 current source.
+
+### schema-dsl-18: s.dateTime() maps to microsecond timestamptz while values are millisecond Dates: a timestamp read back cannot find its own row, and .now()'s own DEFAULT NOW() creates such rows
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+PG default TIMESTAMP/TIMESTAMPTZ millis domain uses precision3. Explicit native precision>3 .now() truncates generated instant to milliseconds while preserving UTC semantics. Actual precision6 database-default rows pass EXTRACT microseconds modulo1000=0 and public returned-Date self-equality query, then syncnoop; isolatedPGlite3/3 current source. Latest nativeTIME6/TIMETZ6 own .now uses UTC CURRENT_TIME(3); actualPGlitefinal7 3/3 provesµmod1000=0/UTCoffset0/naiveTime self-equality andsyncnoop. FinalClockcore66/66 current source.
+
+### schema-dsl-19: One PostgreSQL schema / MySQL database per driver: no per-model namespace and no cross-schema foreign keys (documented)
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+One authenticated PostgreSQL schema/MySQL database per driver remains the documented contract. Per-model namespaces and cross-schema foreign keys are not implemented.
+
+### schema-dsl-20: No views or materialized views
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+No generated/read-only/view/partition/SQL-expression-default declaration was added. Confirmed physical-projection loss is mitigated: selected PG generated/partition metadata and SQLite generated/customCHECK/virtual tables refuse before effects; MySQL EXTRA generated columns refuse; desired-name view collisions refuse, excluded scope still converges. Full migration119files/1970tests and actual isolatedPGlite3/3 retain generated values/views. Literal physical defaults separately fixed; application-only functions/generators require manual data migration for populated required columns.
+
+### schema-dsl-21: No user-declared CHECK constraints
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+User-declared CHECK DSL remains absent. SQLite selected unknown CHECK refuses reconstruction before effects; exact enum/decimal/GeoPoint physical readers retain owned checks, control state requires exact existing writer shape/authentication. Actual selected refusal/catalog preservation plus excluded-scope noop are green in migration1970. PostgreSQL CHECK DSL still absent, no full importer claim.
+
+### schema-dsl-15: Common model names (order, group, key, index, table, column, field, model, relation, constraint, default, limit, offset...) are refused by push/migrate even when mapped, after the client already worked with them
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+SQL identifiers are always quoted; model validation no longer bans SQL keywords. Only exact lowercase then is reserved for the actual Promise assimilation boundary; physical .map("then") remains allowed. Twelve mapped/unmapped SQL keyword witnesses passed root follow-through2.
+
+### schema-dsl-22: Decimal needs precision/scale (no unbounded NUMERIC, no string/number mode) and the SQLite family caps precision+scale at 18 (documented)
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+The fixed decimal descriptor, field-scale average/arithmetic admission, finite number domain, bigint-only logical input, compact identifier storage, UUID-format (not generation-version) validation and UTC Date semantics are deliberate public domains. V1 documentation now distinguishes these from provider-native/raw values. A general Decimal.js clone, arbitrary NUMERIC mode, non-finite numbers and alternate Date/ID representations were not added.
+
+### schema-dsl-23: Auto-increment is SERIAL-only (no IDENTITY, sequences or options), and .increment() on a non-PK column emits invalid SQLite DDL
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Confirmed invalid SQLite .increment non-PK defect refused at physical table admission; exactly one nonnull INTEGER sole PK required, real existing legal path retained. Full migration1952/1952 includes explicit invalid and exactly-one-PK DDL witness. IDENTITY/sequences/options remain strategic product gaps, not implemented.
+
+### schema-dsl-24: Custom types: a single-dialect string escape with no codec; the map form type-checks but throws at runtime; PG.DATETIME.INTERVAL is offered but unusable
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Native custom scalar map form now resolves existing dialect owner; impossible PG DateTime INTERVAL vocabulary removed by root. Native49/49 and scalar modifier115/115 fixtures passed, native8 type gate green; no new custom codec feature claimed.
+
+### schema-dsl-25: .map() cannot reach legacy physical names: mapped names must be ASCII identifiers of at most 63 bytes and not Object.prototype names
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Mapped names retain the ASCII/63byte/non-prototype identifier grammar. SQL keyword refusal was removed separately; arbitrary Unicode/punctuation physical naming remains outside the declared language.
+
+### schema-dsl-26: No global naming convention: snake_case databases need .map() on every field and model
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+No global naming-convention option was added; per-model and per-field map() remain the explicit physical-name mechanism.
+
+### schema-dsl-27: A schema with a gin/gist/hash index cannot be pushed to SQLite at all; indexes have no per-dialect form
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Dialect-specific index declarations/fallbacks are not added. PostgreSQL-only GIN/GiST/hash cannot be applied unchanged to SQLite; refusal remains intentional instead of silently dropping an index.
+
+### schema-dsl-28: MySQL (code reading): a keyed s.string() is silently rewritten from TEXT to VARCHAR(191); adding an index later changes the column type; nothing validates length on write
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Settled keyed bare MySQL TEXT→VARCHAR191 mapping retained. String and MySQL migration guides now state exact191character stored bound, explicit native VARCHAR(length) escape, provider compound/index-byte limits and destructive preview when adding a key narrows TEXT. Strict migration sql_mode admission + typed ValueTooLongError mitigate silent truncation; no claim early native length refinement is inferred (that static validation gap remains explicit). Physical key/refusal regressions qualified in migration1970; backend actual CI owns MySQL execution.
+
+### schema-dsl-29: s.date() is Date-in/Date-out with UTC semantics and no string mode; locally constructed dates shift by a day in UTC+ zones
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+The fixed decimal descriptor, field-scale average/arithmetic admission, finite number domain, bigint-only logical input, compact identifier storage, UUID-format (not generation-version) validation and UTC Date semantics are deliberate public domains. V1 documentation now distinguishes these from provider-native/raw values. A general Decimal.js clone, arbitrary NUMERIC mode, non-finite numbers and alternate Date/ID representations were not added.
+
+### schema-dsl-30: README scalar table examples throw (s.json(zodSchema), s.vector(1536)) and it claims point is not exposed on s
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Removed stale README scalar table with invalid s.json(schema)/s.vector(number) forms and obsolete point claim; README uses current public model/query declarations. Package/docs verification pending.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+
+## security
+
+### security-01: ORM operator injection from untrusted JSON bodies (login-bypass class)
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Filtering guide now warns that where is a query language; validate/allowlist external primitive operands and build authentication queries on the server. Unique selectors already constrain operators. No new values-only mode is claimed; adding that mode is a product gap.
+
+### security-02: Unbounded relation-filter nesting → database query-planner DoS
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Shared synchronous semantic filter admission depth limit16 covers scalar NOT, boolean AND/OR/NOT and relation nesting, resets in finally and leaves JSON data depth separate. Adversarial-values13/13 passed with1000-level scalar/boolean and40-level relation inputs refused as ValidationError before SQL planning.
+
+### security-03: Model .omit() (marketed for secrets) leaks the value via aggregate/groupBy and is filterable/orderable
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Corrected client omit and defaultOmit guides: model omit excludes returned row projection but does not exclude aggregate/groupBy/filter/order/distinct/cursor use. The existing presentation contract is retained; no field authorization promise remains.
+
+### security-05: Mass-assignment / tenant escape: caller-supplied field beats the official data/tenancy stamp
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Documented contract: data/tenancy stamps supply defaults, and caller assignments win on create and update. The create-extension guide now demonstrates that override. Stamps are not tenant-write authorization; required controls are runtime checks, while static required-control enforcement and graph-wide authorization remain gaps.
+
+**Additional verification:** Existing extension-data-behavior.ts:703and398/509pin caller override across root/nested creates andupdates; new doc example follows that contract.
+
+### security-06: Query-cache identity is a 64-bit non-crypto hash with no full-key verification
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+r4official snapshots verify exact full canonical query identity before materialization in addition to existing lookup hash. Controlled backend alias returns identity mismatch miss, cache7/7 passed; no invented natural collision repro.
+
+**Additional verification:** Controlled backend alias returns identity mismatch miss, cache7/7 passed; no invented natural collision repro.
+
+### security-04: Filter-operand type confusion: structural isSql duck-type accepts forged {strings,values}
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+SQL-fragment admission requires its callable renderer and valid template/value shape; bare JSON {strings,values} is refused as a fragment. Root SQL/physical focused tests passed. This is a data-boundary defense, not a sandbox for hostile executable JS.
+
+### security-07: Raw $queryRaw/$executeRaw splice any object that duck-types as Sql verbatim
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+SQL-fragment admission requires its callable renderer and valid template/value shape; bare JSON {strings,values} is refused as a fragment. Root SQL/physical focused tests passed. This is a data-boundary defense, not a sandbox for hostile executable JS.
+
+### security-08: Deeply nested NOT/AND/OR throws an uncaught RangeError, not a VibORMError
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Shared synchronous semantic filter admission depth limit16 covers scalar NOT, boolean AND/OR/NOT and relation nesting, resets in finally and leaves JSON data depth separate. Adversarial-values13/13 passed with1000-level scalar/boolean and40-level relation inputs refused as ValidationError before SQL planning.
+
+### security-09: Provider structural failures collapse to an opaque V2001 with no hint
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Provider structural categories now specific expected codes V2004 schema mismatch/V2005 overflow, auth V1004 and capacity V1005; caller can explicitly opt into bounded credential-redacted provider message/detail/hint and callsite. Defaults stay redacted. Actual mapping73/73/hostile30/30 core6 and real diagnostics7/7/root144 passed.
+
+### security-10: Empty-array logical operators silently flip filter meaning
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Filtering guide explicitly describes omitted undefined values, the unrestricted-mutation consequence, and empty AND/NOT versus OR semantics. Existing empty-filter parity tests pin the contract. Strict undefined mode remains a product gap; query semantics are not silently changed.
+
+
+## sql-perf
+
+### sql-perf-01: Many-to-many predicates are written target-first: every m2m include/_count/orderBy/filter costs O(parents x target-table rows)
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+The existing m:n correlation owner lowers target-key IN against the source-filtered junction, preserving parent membership and target-domain predicates. Actual public SQLite include EXPLAIN in sqlite3-adapter-adversarial requires target INTEGER PRIMARY KEY SEARCH, no target SCAN, and source articleId covering-index probe; 7-parent/2-matching-members sliced-page counts remain exact. SQLite provider14/14 then final10/10 passed; /tmp/viborm-v1-query-sqlite-proof-final.log and binary64-final.log. No universal provider cost/timing claim is inferred from this concrete SQLite plan.
+
+**Additional verification:** Existing collection/filter/recursive results passed; real provider plans/timing pending.
+
+### sql-perf-02: Upsert never uses INSERT ... ON CONFLICT on interactive drivers: 4 statements + BEGIN/COMMIT (6 round trips) instead of 1
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Eligible ordinary live scalar upsert uses existing targeted native ON CONFLICT fold; conditional,stamped,relation-bearing/nonreturning fallback retained. Live SQLite eligible upsert emits1ONCONFLICT/noSELECT; dedicated13/13.
+
+**Additional verification:** Live SQLite eligible upsert emits1ONCONFLICT/noSELECT; dedicated13/13.
+
+### sql-perf-03: Nested createMany (and nested create lists) execute one INSERT per row
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+Eligible plain nested createMany coalesces rows with equal ordered column shape in the existing owned write region. Generated keys and heterogeneous shape order are preserved; general nested create[] and connect/set batching remain separate strategies, not implemented by V1. Docs now state that limit. Dedicated engine22/22 (correction gate135/135) and full core7 prove grouped createMany, duplicate rollback, generated identity and heterogeneous shape regressions. No claim that all nested list verbs use one INSERT.
+
+**Additional verification:** OneINSERT plus duplicate rollback and heterogeneous explicitID order witnesses passed; provider-count follow-up identified.
+
+### sql-perf-06: PGlite: the 'verified' 65,535-value budget hits PGlite's >32,767-parameter bug — silent empty results, poisoned session, count/exist decode a missing row as 0/false
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+PGlite ceiling corrected to32767 and final statement capacity guard rejects before provider I/O. Exact32768 bind stock driver/controlled client test proves zero query dispatch;13/13 capacity tests passed full core7. This is avoidance of the reported poison trigger, not32767-scale actual provider-result qualification. No generic filter split promise.
+
+### sql-perf-07: SQLite JSON carriers truncate REAL (s.number()) to 15 significant digits in includes and in every aggregate
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+SQLite JSON numeric carriers delegate NULL-preserving adapter json.number (binary64 round-trip text), including geoPoint numeric storage and aggregate leaves. Actual sqlite3-adapter-adversarial10/10 passes Math.PI through include and all four aggregates, exact point coordinates, and positive/negative Number.MAX_VALUE plus Number.MIN_VALUE through include/_avg/_sum/_min/_max; one owned row restored afterward. /tmp/viborm-v1-query-sqlite-binary64-final.log:3.55s482.5MiB teardown verified.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### sql-perf-04: createMany bind-budget chunking is quadratic on small budgets (SQLite 999, D1 100)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Geometric local bind-window probing replaces quadratic remaining-suffix compilation. 80000rows/1000bind windows inspect<1.5million values; dedicated and existing bind-budget regression passed.
+
+**Additional verification:** 80000rows/1000bind windows inspect<1.5million values; dedicated and existing bind-budget regression passed.
+
+### sql-perf-05: SQLite drivers refuse `in` lists above 999 values although better-sqlite3 accepts 32,766; no chunking or array binding
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+The incorrect generic999 SQLite ceiling is repaired at the existing concrete driver capacity owner: current SQLite-family transports declare32766; D1 retains its actual100-provider limit. Ordinary admitted caller IN1000 executes. Final rendered budget still fails closed before provider effects at a real ceiling; automatically splitting arbitrary logical read predicates is an explicit remaining query-strategy product gap, not claimed implemented. Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support.
+
+**Additional verification:** Driver12 static capacity cases plus actual in-memory SQLite1000 caller IN safe-row selection, tests/contracts/public-client/errors/result-domain.core.test.ts, focused driver132/132 /tmp/viborm-v1-drivers-core-final-2.log5.68s583.7MiB. Separate generated captured-key >999 balanced-expression test and linear/geometric owned write/select-series chunks do not claim generic D1>100 caller-filter support.
+
+### sql-perf-08: exist() is a full COUNT(*) although the docs sell it as cheaper than count/findFirst
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Exist uses SELECT EXISTS over same page semantics; missing physical aggregate/existence rows fail instead of synthetic0/false. Dedicated SQL/cardinality oracle and existing read-verbs passed.
+
+**Additional verification:** Dedicated SQL/cardinality oracle and existing read-verbs passed.
+
+### sql-perf-09: Junction connect/set run a SELECT and an INSERT per member, contradicting 'an under-limit list remains one INSERT'
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Performance gap: junction connect/set still capture and consume target identities member by member; plain nested createMany batching is a different path. docs/content/docs/client/nested-writes.mdx now explicitly states that a list does not promise a single INSERT or one statement-trigger invocation, replacing the contradictory chunk/one-INSERT paragraph. No set-based connect protocol or new performance claim is represented as implemented.
+
+### sql-perf-10: Junction connect takes FOR UPDATE on every target row (PostgreSQL), serializing writers on popular rows
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Performance/design gap: target row locks protect captured membership and reference consumption. They were not weakened without a replacement concurrency proof; shared-lock or set-based alternatives remain separate design work.
+
+### sql-perf-11: Bare asc/desc NULL placement changes when take/skip/cursor is present (SQLite; MySQL by code)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Consistent asc-null-last/desc-null-first and identity/group-column completion for relation,count,distance ordering. Offset/full sort oracle and existing order-projection/selector suites passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** Offset/full sort oracle and existing order-projection/selector suites passed stable145/146 batch.
+
+### sql-perf-12: JSON object keys are bound as parameters: D1 refuses ordinary wide includes, parameter lists and logs balloon
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Capacity/product gap: JSON projection member names remain bound parameters. D1's 100-bind ceiling still applies to keys plus actual operands, with pre-dispatch refusal beyond it. Wide-function arity fixes do not remove this limit; literal-key/projection parameter reduction is unimplemented.
+
+**Additional verification:** Source adapter json.object/objectFromColumns continues sql`${key}` binding in all dialects. Final renderer driver budget owns predispatch refusal; actual wide native PG projection8/8 and SQLite argument-width tests close function arity only, not D1 bind-key count.
+
+### sql-perf-13: mode: 'insensitive' compiles to TRANSLATE(col, 'A-Z', 'a-z'): never indexable, no column-side expression or expression index
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Performance/product gap: portable ASCII folding remains column-side SQL. Matching expression-index/search strategies and their plan guarantees were not implemented; universal unindexability is not asserted.
+
+### sql-perf-14: To-one relation orderBy is a correlated subquery per row instead of a join
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Performance gap: to-one ordering retains a correlated scalar subquery. A join/LATERAL plan is additional strategy work; deterministic pagination repairs do not establish a faster ordering plan.
+
+### sql-perf-15: No prepared/compiled query API; every call re-plans and pg statements are unnamed
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product gap: no public prepared/compiled model-query lifetime API or named-provider-statement cache was added. Existing parameterized execution does not imply either facility.
+
+### sql-perf-16: Bulk read/insert paths cost more CPU and allocation than Drizzle
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Performance gap: quadratic bulk planning is repaired, but remaining read CPU/allocation and comparisons with Drizzle have no universal improvement guarantee. Functional checks and shorter source are not substituted for a fresh comparative benchmark.
+
+
+## transactions
+
+### transactions-01: Single-connection drivers reject all concurrent work while any transaction is open, including VibORM's own implicit ones
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Actual SQLite local regression 10/10 passed: same physical handle shared by two wrappers queues independently; reentry refuses; maxWait expires; outer timeout drains nested savepoint/callback and stale work refuses. Browser fallback core batch 29/29 passed with unavailable AsyncLocalStorage and finite 5000ms queue wait.
+
+### transactions-02: A failed BEGIN/COMMIT permanently bricks the client and tears down the transport (postgres.js, Bun SQL, sqlite3, bun-sqlite, libsql :memory:, PGlite)
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Lifecycle31/31, savepoint17/17 and local14/14 regressions prove failed BEGIN does not rollback/close borrowed transaction; failed COMMIT restores owned in-memory use only after proven rollback; failed cleanup quarantines retained exact transport until explicit disconnect succeeds. SDK0.18 local client and browser fallback covered. drivers.md records scoped recovery/no transparent busy replay.
+
+### transactions-03: Multi-process SQLite: implicit read-then-write transactions use deferred BEGIN, so normal write contention fails instantly with 'Database is locked'
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+SQLite3/Bun owned interactive writes now BEGIN IMMEDIATE with nonzero default busy timeout; libSQL uses native write transactions. Native lifecycle/transaction-option behavior3/3 and queue17/17 passed current core6; actual libSQL busy failure quarantines exact handle and requires explicit cleanup, rather than acknowledging later lost writes. No contention-rate or transparent arbitrary-write retry claim.
+
+### transactions-04: upsert is probe-then-write, not native; its race 'recovery' exists only outside transactions, contradicting the docs
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Lost selected-constraint races recover after the existing callback operation savepoint rolls back; borrowed scopes never replay in place, and the operation retains one allowance. Unrelated uniqueness conflicts do not retry. Real hosted Neon TCP with two independent pg pools3/3 passed: increment upsert adopts winner once, nested connectOrCreate retains earlier/later callback writes, unrelated PK collision remains UniqueConstraintError with usable outer transaction. 5.37s481.7MiB; teardown verified.
+
+**Additional verification:** Real hosted Neon TCP with two independent pg pools3/3 passed: increment upsert adopts winner once, nested connectOrCreate retains earlier/later callback writes, unrelated PK collision remains UniqueConstraintError with usable outer transaction. 5.37s481.7MiB; teardown verified.
+
+### transactions-05: Throwing your own error after a caught DB failure makes $transaction reject with an AggregateError, not your error
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Controlled Neon9 + transaction lifecycle30 =39/39 passed3.59s426.6MiB after lifecycle duplicateimport repair and public Neon batch API change; lifecycle closure/drain/quarantine regressions exercised.
+
+### transactions-06: Catch-and-continue inside a transaction is plan-dependent, and later operations re-throw a stale error object
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Later bound dispatch now reports rollback-only TransactionError rather than replaying caught statement error, preserving primary/secondary evidence without provider retry. Final transaction unwind retains original caught error. Lifecycle31/31 and savepoint17/17 passed, including no-provider-dispatch witness and cleanup aggregate retention; driverintegration8.
+
+### transactions-07: The outer timeout is not a bound while a nested $transaction is running, and the transaction stays open
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Actual SQLite local regression 10/10 passed: same physical handle shared by two wrappers queues independently; reentry refuses; maxWait expires; outer timeout drains nested savepoint/callback and stale work refuses. Browser fallback core batch 29/29 passed with unavailable AsyncLocalStorage and finite 5000ms queue wait.
+
+### transactions-08: The transaction guard is per client, not per connection: two clients on one SQLite handle silently join each other's transactions
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Actual SQLite local regression 10/10 passed: same physical handle shared by two wrappers queues independently; reentry refuses; maxWait expires; outer timeout drains nested savepoint/callback and stale work refuses. Browser fallback core batch 29/29 passed with unavailable AsyncLocalStorage and finite 5000ms queue wait.
+
+### transactions-09: No row-locking API (FOR UPDATE / FOR SHARE / SKIP LOCKED / NOWAIT)
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap remains: no public row-locking language or adapter-wide FOR UPDATE/FOR SHARE/SKIP LOCKED/NOWAIT contract added by this bounded remediation. Existing raw SQL is physical and not a typed row-lock feature.
+
+### transactions-10: Transaction options stop at isolation/timeout/maxWait: no read-only, DEFERRABLE, SQLite BEGIN IMMEDIATE or snapshot
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Partially mitigated: SQLite/Bun write transaction BEGIN IMMEDIATE and modern libSQL write mode now automatic. No new read-only/DEFERRABLE/snapshot/interactive-mode API; advanced option product gap remains. Provider options are validated at the existing transaction owner.
+
+### transactions-15: Transaction failures are hard to act on: V5001 covers transient, misuse and fatal states; an unreachable database is a non-retryable QueryError
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Existing transaction code taxonomy distinguishes V5002 timeout, V5003 deadlock, V5004 serialization, V5005 invalid input and V5006 lock contention; unreachable/capacity are retryable V1001/V1005 rather than V2001, auth/config V1004 stays nonretryable. Mapping73/73/hostile30/30, transaction timers6/6 core6 and final scheduler5/5 passed; rollback-only V5001 later refusal preserves actual original error via canonical suppressed evidence.
+
+### transactions-11: No default transaction timeout and no client-level transaction defaults
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Product gap remains: no client-wide transaction option defaults or universal callback timeout. Serialized single-handle queue has finite5000ms default maxWait (browser fallback too), which is queue acquisition only and not a callback execution deadline.
+
+### transactions-12: Neon HTTP refuses isolationLevel with an incorrect reason; the provider supports it
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Stock Neon HTTP 1.2 hosted regression: 6/6 passed; query/transaction .query API, per-query UTC-safe parsers, Serializable batch forwarding, atomic failure, durable acknowledgment before normalization failure. tests/providers/hosted/neon-http-v1-remediation.test.ts; drivers.md records command, RSS and retained empty fixtures.
+
+### transactions-13: skipDuplicates is silently dropped inside $transaction([...]); the same call succeeds standalone and in a callback
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Confirmed remaining semantics: Sep24 contract drops skipDuplicates with console.warn in borrowed array transactions because members have no rollback grant. The review already knew that warning and proposes refusal instead of dropping; documenting the warning alone is not a repair. Root notified for bounded admission disposition.
+
+**Additional verification:** Dedicated22+array54 passed76/76 on SQLite13.0.3, including zero user DML/earlier array writes before refusal. Old drop-contract suites updated, integrated type/provider qualification pending.
+
+### transactions-14: Unsupported transaction options are refused only at runtime, never at the type level
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Product gap remains: transaction option types are not specialized by concrete driver capabilities; unsupported combinations still refuse at runtime at the existing option owner. No false static-capability promise added.
+
+### transactions-16: maxWait is refused on postgres.js, Bun SQL and PlanetScale although a bounded start is implementable
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product gap remains: provider-managed postgres.js/Bun SQL/PlanetScale callback dispatch still refuses maxWait because no proven cancellable reservation mechanism was added. Single-handle queues now support bounded acquisition; that does not imply provider-managed pooled start support.
+
+### transactions-17: HTTP-driver transaction semantics ship without hosted verification
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Stock Neon HTTP 1.2 hosted regression: 6/6 passed; query/transaction .query API, per-query UTC-safe parsers, Serializable batch forwarding, atomic failure, durable acknowledgment before normalization failure. tests/providers/hosted/neon-http-v1-remediation.test.ts; drivers.md records command, RSS and retained empty fixtures. Latest SDK1.2 hosted6/6 passed7.38s448.3MiB includes year0000 scalar/array on TCP and HTTP; retained empty fixture in drivers.md.
+
+
+## type-perf
+
+### type-perf-04: Models and clients cannot be declaration-emitted (TS2742/TS4023/TS7056), which blocks composite/monorepo db packages
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Immutable artifact25 (SHA256 5370aa3d244db77aebff9fb347d73df7ae102e5a39ad670a6d4839979013a5b9) passes all51 package cases on Node22.12 (203.02s/1384.9MiB) and Node24.14 (187.93s/1433.6MiB), retaining1536MiB RSS/300s aggregate/30s child limits. Full native gate41 passes zero diagnostics in35.51s/6143.9MiB under the existing8192MiB allowance. The final118-row source/emitter/strict-consumer matrix has zero unexpected failures: TS5.8/native7 preserve input rejection, result domains, relation traversal and not-any guards for exported clients/factories, self/junctions, variants, modifiers and dense12/24/48/96 graphs. Every successful client emission has zero elisions/getter functions and the complete literal link table. Current JS declaration generation is retained; native emission alone did not solve the original defect, and installed OXC requires annotations. Separate raw-model reconstruction controls still fail semantically as the explicitly accepted limitation. Exact-revision protected CI and publication remain separate gates.
+
+**Additional verification:** Current immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) completes all 118 source/emitter/strict-consumer matrix checks with zero unexpected failures. TS5.8 and native7 preserve exact input/result domains for clients, factories, self/junctions, both variant cardinalities, indexed modifiers and dense graphs through 96 models. Successful client emissions retain complete literal link tables with no elisions or callable original getters. Maximum child: 3.878s / 846.4 MiB; receipts: /tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json. Raw-model reconstruction remains an accepted, semantically checked limitation. The compiler matrix and final package qualification are local proofs; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-perf-05: Perf-driven type-safety ceiling: typos in nested include.where, where.some, select.select, nested create, AND[] items and operators compile
+
+**Disposition:** product-gap. **Review:** high severity; partial.
+
+Direct root create/update/createMany/upsert field names and selected literal polymorphic only/variants keys are sealed. Ordinary nested-WHERE model field names are also sealed through caller-written logical arrays and ordinary toOne/toMany relation filters, including held and optional values; declared fields named AND/OR/NOT retain their existing precedence. Scalar operator bags, variant-filter arms, nested select/include projections and nested mutation data retain explicit static key-exactness gaps. Runtime strict admission and remaining public compiler pins are retained; this is partial repair, not graph-wide editor exactness. Complete source guard gate passes40.63s/6102.9MiB, zero diagnostics, unchanged8192MiB/300s limits. StrictTS5.8/native7 packed source/emitted probes pass fresh/held/optional/logical/shorthand/isNot/empty/undefined/named-combinator cases: /tmp/viborm-v1-where-guard-estate-2.log and /tmp/viborm-v1-where-guard-packed11-combinators.log. The newly refused deliberate AND typo pin is strengthened; remaining operator/variant/projection/mutation pins are not erased. The later immutable artifact25 passes both complete51-case Node22.12/24.14 package suites under unchanged limits, including the original chain100/200 probes; the final118-row compiler matrix has no unexpected failures.
+
+**Additional verification:** Complete source guard gate passes40.63s/6102.9MiB, zero diagnostics, unchanged8192MiB/300s limits. StrictTS5.8/native7 packed source/emitted probes pass fresh/held/optional/logical/shorthand/isNot/empty/undefined/named-combinator cases: /tmp/viborm-v1-where-guard-estate-2.log and /tmp/viborm-v1-where-guard-packed11-combinators.log. The newly refused deliberate AND typo pin is strengthened; remaining operator/variant/projection/mutation pins are not erased. The later immutable artifact25 passes both complete51-case Node22.12/24.14 package suites under unchanged limits, including the original chain100/200 probes; the final118-row compiler matrix has no unexpected failures. Current immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) completes all 118 source/emitter/strict-consumer matrix checks with zero unexpected failures. TS5.8 and native7 preserve exact input/result domains for clients, factories, self/junctions, both variant cardinalities, indexed modifiers and dense graphs through 96 models. Successful client emissions retain complete literal link tables with no elisions or callable original getters. Maximum child: 3.878s / 846.4 MiB; receipts: /tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json. Raw-model reconstruction remains an accepted, semantically checked limitation. The compiler matrix and final package qualification are local proofs; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-perf-01: At 100-300 models, type-checking is 3-4x slower than Drizzle wall-clock, with 5-14x the check time and 8-30x the instantiations of Drizzle/Prisma
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Review comparison remains a valid scoped observation. V1 native whole-estate typecheck is green but uses a different compiler/workload and proves no speed advantage over Prisma or Drizzle.
+
+### type-perf-02: Editor latency at 100-300 models: completion 8-30x and post-edit diagnostics 5-25x slower than Prisma/Drizzle; schema edits take ~5 s to show up at 300
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Editor latency at100–300models remains unoptimized/unremeasured. Passing compilation does not establish completion or post-edit latency improvement.
+
+### type-perf-03: Every include/select/relation filter costs O(relations on the target model): pairing is solved by structural Equal<> over whole Model types
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Structural model comparison in relation inference remains a scaling cost. No nominal model identity redesign introduced for V1; actual compiler-crash reproductions are tracked separately in H13 consumer qualification.
+
+### type-perf-07: Look-alike models (shared field names) trigger TS2321 'Excessive stack depth comparing types' on plain queries (survives TS 7) and up to 3.4x slower checks
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120–150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140→284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial.
+
+**Additional verification:** Current immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) completes all 118 source/emitter/strict-consumer matrix checks with zero unexpected failures. TS5.8 and native7 preserve exact input/result domains for clients, factories, self/junctions, both variant cardinalities, indexed modifiers and dense graphs through 96 models. Successful client emissions retain complete literal link tables with no elisions or callable original getters. Maximum child: 3.878s / 846.4 MiB; receipts: /tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json. Raw-model reconstruction remains an accepted, semantically checked limitation. The compiler matrix and final package qualification are local proofs; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-perf-08: Interactive $transaction client re-instantiates the client types: +61% instantiations and 2x check time for the same queries
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Interactive transaction client inference still incurs additional compiler work. No measured reduction or replacement generic architecture is claimed.
+
+### type-perf-06: tsc 5.9/6.0 crash (RangeError: Maximum call stack size exceeded) when queries touch models on deep relation chains; tsserver silently drops all diagnostics
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120–150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140→284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial.
+
+**Additional verification:** Current immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) completes all 118 source/emitter/strict-consumer matrix checks with zero unexpected failures. TS5.8 and native7 preserve exact input/result domains for clients, factories, self/junctions, both variant cardinalities, indexed modifiers and dense graphs through 96 models. Successful client emissions retain complete literal link tables with no elisions or callable original getters. Maximum child: 3.878s / 846.4 MiB; receipts: /tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json. Raw-model reconstruction remains an accepted, semantically checked limitation. The compiler matrix and final package qualification are local proofs; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-perf-09: With skipLibCheck: false, VibORM's own .d.mts files fail with 7 TS2307 errors (they import every optional peer driver)
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Actual immutable artifact3 no-peer root/schema consumer strict skipLibCheck:false passed TS5.8 and native with runtime dependencies only, no fake ambient peers. packed-nopeer-3:5.14s/761.3MiB. Generic driver type imports routed to existing public exports boundary; cache generic imports direct owners; separate runtime keepNames/declaration output eliminates undeclared __name helper.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-perf-10: No user-scale type-performance benchmark, budget or guidance; Prisma publishes both
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+New public consumer probes exercise representative model sizes and long chains for correctness, not a user-scale comparative editor performance budget. A reproducible published performance benchmark remains absent.
+
+### type-perf-11: Architecture-doc claim 'the State generic pattern solved 10+ second type checking' does not hold at scale; README advertises a non-existent type-check script
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+README now lists the real pnpm test:types gate. Historical State-pattern motivation is not a guarantee of sub10second checking at arbitrary application size; this response explicitly retains scale limitations.
+
+### type-perf-12: Hovers and type errors expose internal State plumbing instead of named types
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Verbose State plumbing in hovers remains; same limitation as type-soundness15. No cosmetic assertion or generated alias layer added.
+
+
+## type-soundness
+
+### type-soundness-01: groupBy with more than one `by` key is typed as a union of single-key rows
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Actual immutable artifact8 strictTS5.8/native public composite producer and downstream consumer both compile grouped=db.sale.groupBy({by:[region,channel],_sum:{amount:true}}), then read both row.region and row.channel as string without cast. This enters the real public call, not an internal alias; all source/emitted consumer negatives also pass. packed-TS5.8-db-8 and packed-native-db-8:12.25s892MiB/5.03s729MiB,heap768/wall30s.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-soundness-02: Typos in write data, beside a real filter operator, in OR arrays and relation filters compile
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+Direct root create/update/createMany/upsert field names and selected literal polymorphic only/variants keys are sealed. Ordinary nested-WHERE model field names are also sealed through caller-written logical arrays and ordinary toOne/toMany relation filters, including held and optional values; declared fields named AND/OR/NOT retain their existing precedence. Scalar operator bags, variant-filter arms, nested select/include projections and nested mutation data retain explicit static key-exactness gaps. Runtime strict admission and remaining public compiler pins are retained; this is partial repair, not graph-wide editor exactness. Complete source guard gate passes40.63s/6102.9MiB, zero diagnostics, unchanged8192MiB/300s limits. StrictTS5.8/native7 packed source/emitted probes pass fresh/held/optional/logical/shorthand/isNot/empty/undefined/named-combinator cases: /tmp/viborm-v1-where-guard-estate-2.log and /tmp/viborm-v1-where-guard-packed11-combinators.log. The newly refused deliberate AND typo pin is strengthened; remaining operator/variant/projection/mutation pins are not erased. The later immutable artifact25 passes both complete51-case Node22.12/24.14 package suites under unchanged limits, including the original chain100/200 probes; the final118-row compiler matrix has no unexpected failures.
+
+**Additional verification:** Complete source guard gate passes40.63s/6102.9MiB, zero diagnostics, unchanged8192MiB/300s limits. StrictTS5.8/native7 packed source/emitted probes pass fresh/held/optional/logical/shorthand/isNot/empty/undefined/named-combinator cases: /tmp/viborm-v1-where-guard-estate-2.log and /tmp/viborm-v1-where-guard-packed11-combinators.log. The newly refused deliberate AND typo pin is strengthened; remaining operator/variant/projection/mutation pins are not erased. The later immutable artifact25 passes both complete51-case Node22.12/24.14 package suites under unchanged limits, including the original chain100/200 probes; the final118-row compiler matrix has no unexpected failures. Current immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) completes all 118 source/emitter/strict-consumer matrix checks with zero unexpected failures. TS5.8 and native7 preserve exact input/result domains for clients, factories, self/junctions, both variant cardinalities, indexed modifiers and dense graphs through 96 models. Successful client emissions retain complete literal link tables with no elisions or callable original getters. Maximum child: 3.878s / 846.4 MiB; receipts: /tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json. Raw-model reconstruction remains an accepted, semantically checked limitation. The compiler matrix and final package qualification are local proofs; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-soundness-03: Exporting a VibORM schema or client from a package that emits .d.ts fails (TS2742/TS4023/TS7056; TS2883 on TS 7)
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Immutable artifact25 (SHA256 5370aa3d244db77aebff9fb347d73df7ae102e5a39ad670a6d4839979013a5b9) passes all51 package cases on Node22.12 (203.02s/1384.9MiB) and Node24.14 (187.93s/1433.6MiB), retaining1536MiB RSS/300s aggregate/30s child limits. Full native gate41 passes zero diagnostics in35.51s/6143.9MiB under the existing8192MiB allowance. The final118-row source/emitter/strict-consumer matrix has zero unexpected failures: TS5.8/native7 preserve input rejection, result domains, relation traversal and not-any guards for exported clients/factories, self/junctions, variants, modifiers and dense12/24/48/96 graphs. Every successful client emission has zero elisions/getter functions and the complete literal link table. Current JS declaration generation is retained; native emission alone did not solve the original defect, and installed OXC requires annotations. Separate raw-model reconstruction controls still fail semantically as the explicitly accepted limitation. Exact-revision protected CI and publication remain separate gates.
+
+**Additional verification:** Current immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) completes all 118 source/emitter/strict-consumer matrix checks with zero unexpected failures. TS5.8 and native7 preserve exact input/result domains for clients, factories, self/junctions, both variant cardinalities, indexed modifiers and dense graphs through 96 models. Successful client emissions retain complete literal link tables with no elisions or callable original getters. Maximum child: 3.878s / 846.4 MiB; receipts: /tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json. Raw-model reconstruction remains an accepted, semantically checked limitation. The compiler matrix and final package qualification are local proofs; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-soundness-04: Typed JSON re-runs the write schema on every read: transforms are double-applied, type-changing transforms commit then throw, one bad row fails the whole query
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Physical JSON reads never rerun input schemas; native integer JSON carrier follows finite Number/JSON.parse domain instead of safe-integer refusal. Dedicated input-transform/legacy-document and9007199254740994 JSON regressions passed13/13.
+
+**Additional verification:** Dedicated input-transform/legacy-document and9007199254740994 JSON regressions passed13/13. Rejected async validators are refused synchronously and their promises are handled at the shared parse/custom-schema/pipe/decimal/union boundaries; rejected operand callbacks are also contained. The seven-file integration gate passes 171/171, including direct and prepared-array result failures, all original 56 SQLite parity cases, parse wrappers and operand callbacks (4.15s / 608.8 MiB; /tmp/viborm-v1-ci6-driver-local-repair-3.log). Full validation coverage passes 3719 tests across four chunks with all four metrics 100%, largest chunk 1090.2 MiB, teardown verified (/tmp/viborm-v1-validation-coverage-final42.log). Recursive JsonValue results now bypass cosmetic Prettify remapping while finite custom outputs, selected keys and union/Date/Decimal/function domains remain intact. Public single/many/selected-result positives, wrong-ID/missing-key negatives and no-any probes are included in tests/types/client/json-result-public.core.types.ts. Whole-estate native43 passes with zero diagnostics, 34.94s / 6043.6 MiB, under unchanged limits (/tmp/viborm-v1-native-43.log). The final artifact 27 package suites also qualify these JSON probes; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-soundness-05: The documented JSON update `{ set: value }` is a type error for typed JSON and silently stores `{"set": ...}` in untyped JSON
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+JSON updates accept direct replacement or an explicit one-key {set:value} envelope; typed JSON validates the contained document. An invalid envelope cannot fall back to literal storage. Literal one-key set documents use {set:{set:value}}; multi-key documents retain direct replacement. Existing JSON scalar defaults/update tests and engine/provider JSON replacement witnesses pass in the recorded core/coverage/provider gates; full native gate41 also passes. Relevant witnesses: tests/unit/scalars/json-defaults.core.test.ts, json-scalar-schemas.core.test.ts, tests/contracts/engine/query/parity-assignments.core.test.ts and tests/contracts/drivers/behaviors/nested-write-json-envelope-behavior.ts. Finishing review corrected the stale authored JSON warning and this ledger resolution to the actual implemented contract. Final documentation build/render remains gated separately.
+
+**Additional verification:** Existing JSON scalar defaults/update tests and engine/provider JSON replacement witnesses pass in the recorded core/coverage/provider gates; full native gate41 also passes. Relevant witnesses: tests/unit/scalars/json-defaults.core.test.ts, json-scalar-schemas.core.test.ts, tests/contracts/engine/query/parity-assignments.core.test.ts and tests/contracts/drivers/behaviors/nested-write-json-envelope-behavior.ts. Finishing review corrected the stale authored JSON warning and this ledger resolution to the actual implemented contract. Final documentation build/render remains gated separately.
+
+### type-soundness-07: No typed computed or virtual fields
+
+**Disposition:** product-gap. **Review:** high severity; confirmed.
+
+No typed computed/virtual field declaration added; raw projections and query extensions remain the available escape hatches. This is a new public capability outside the accepted defect scope.
+
+### type-soundness-06: SQLite drivers round `number` values read through relations and every _avg/_sum/_min/_max to 15 significant digits
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+SQLite JSON numeric carriers delegate NULL-preserving adapter json.number (binary64 round-trip text), including geoPoint numeric storage and aggregate leaves. Actual sqlite3-adapter-adversarial10/10 passes Math.PI through include and all four aggregates, exact point coordinates, and positive/negative Number.MAX_VALUE plus Number.MIN_VALUE through include/_avg/_sum/_min/_max; one owned row restored afterward. /tmp/viborm-v1-query-sqlite-binary64-final.log:3.55s482.5MiB teardown verified.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### type-soundness-08: A `query` interceptor's returned value is silently discarded once `proceed()` ran
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Publish query handler transformation after proceed; safe ordinary Error retains exact identity, child/protocol authority unchanged. Updated standalone runner43/43 and integration48/48passed, including returned transformation after successful proceed.
+
+**Additional verification:** Updated standalone runner43/43 and integration48/48passed, including returned transformation after successful proceed.
+
+### type-soundness-10: `select` + `include` together compiles and types the result as `never` or `null`
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Literal-only select/include exclusivity now applies at the root and nested projection nodes, including held args. Public positive/negative probes in adversarial-results.core.types.ts passed the complete native8 typecheck.
+
+### type-soundness-12: Generic pass-through helpers need casts; no exact-args or all-models toolkit
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Universal exact-args/all-model generic forwarding toolkit remains absent. Types-and-JSON-Schema docs now explain optional OperationPayload and concrete-query inference instead of suggesting generic assignability.
+
+### type-soundness-14: Type-check cost is 3x to 7x Prisma's generated client and Drizzle's inference
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+The review's comparative type-performance observations are not contradicted by native8 passing. No new same-machine Prisma/Drizzle benchmark establishes comparative speed; large-schema compiler cost remains a limitation.
+
+### type-soundness-16: Raw SQL results are an unchecked cast over driver-native values, and the docs misstate them
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Raw SQL remains an explicitly physical interface: no model codec, namespace insertion, inferred row shape, or inference of an empty IN predicate from join([]). client/raw-sql.mdx now states the one-row generic, caller validation, manual qualification and empty-list handling. Compact IDs and exact decimal coefficients require their physical values; this is deliberately distinct from typed model operations. Native INTEGER loss is separately repaired and tested, not excused by this contract.
+
+### type-soundness-09: Model operations are not Promises: `Promise<T>` positions reject them and `T \| Promise<T>` callbacks infer `PendingOperation`
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+PendingOperation exposes the lazy Promise contract including Symbol.toStringTag; assigning to Promise<Row[]> and T|Promise<T> callback inference now pass public native8 probes. Execution remains deferred/memoized.
+
+### type-soundness-11: groupBy rules are runtime-only: orderBy/having outside `by` and an empty `by` compile
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+groupBy empty-by and having/orderBy membership are runtime admission rules. Multi-key result typing and boolean provider aggregation defects are fixed separately. Statically enforcing every grouping relation is still absent; do not claim Prisma-equivalent type admission.
+
+### type-soundness-13: A reusable `defineExtension<typeof schema>()` with model or client methods cannot be combined with `defaultOmit()` in either order
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Documented contract: schema-bound reusable result consumers retain the result context against which they were typed; replay into an omitted client is refused. Omit-aware factories and non-consuming definitions remain the supported composition. Arbitrary rebinding of already typed consumers is unsupported.
+
+### type-soundness-15: Type errors and hovers leak internal machinery; operator typos get no 'Did you mean'
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+State-based generic hovers and never-style excess-key diagnostics remain verbose. V1 does not add generated named public aliases or claim improved editor diagnostics.
+
+### type-soundness-17: Aggregate result types include selectors written as `false`
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Full native15 public compiler gate green includes tests/types/client/adversarial-results.core.types.ts: aggregate _sum/_avg/_min/_max/_count each combine real true price selector with false id selector, preserve price output and refuse every id result-property read. No type-alias-only oracle; source public client calls are measured. Fullcore7 all four shards green preserves runtime selector behavior; new named model state awaits next integrated native checkpoint.
+
+### type-soundness-18: Type-admitted aggregates that PostgreSQL rejects, with the reason redacted
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+PostgreSQL boolean MIN/MAX lower through BOOL_AND/BOOL_OR at the adapter owner; real PGlite aggregate witness passed. Numeric/decimal aggregate selectors and multi-key groupBy result probes passed native8. Runtime grouping rules remain independently validated.
+
+### type-soundness-19: TS2321 'Excessive stack depth comparing Model' on long chains of same-shaped models
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Immutable artifact8 SHA256 ab7eeddf7db47ef0aa4544b3e0fbdcc2d096d9c944dff8b43f891e6c39296c37: lazy recursive include capability avoids eager whole-model identity comparison; named InitialModelState preserves the same five initial state refinements without anonymous repeated graph projections. StrictTS5.8/JS5.9/native unannotated chain200 (199 FK hops, beyond original120–150 crash threshold) public nested query passes4.11s943MiB/3.91s963MiB/1.68s700MiB, unchanged1536MiB ceiling; native ring10/chain100 also passed artifact7 and durable cases retained. Native chain30 declaration emission now passes2.10s823MiB,8352040bytes; chain5 drops4149140→284871bytes. No caller annotation, cast, nominal identity redesign, depth cap or skipLibCheck. Structural pairing/editor cost is not claimed eliminated; declaration size remains substantial.
+
+**Additional verification:** Current immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) completes all 118 source/emitter/strict-consumer matrix checks with zero unexpected failures. TS5.8 and native7 preserve exact input/result domains for clients, factories, self/junctions, both variant cardinalities, indexed modifiers and dense graphs through 96 models. Successful client emissions retain complete literal link tables with no elisions or callable original getters. Maximum child: 3.878s / 846.4 MiB; receipts: /tmp/viborm-v1-linked-client-20261008/final27/verified-summary.json. Raw-model reconstruction remains an accepted, semantically checked limitation. The compiler matrix and final package qualification are local proofs; final remote CI remains separate. Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### type-soundness-20: FK scalar plus `connect` to a different row compiles; the runtime error leaks an internal engine name
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Documented contract: a scalar FK assignment and a relation verb assigning the same column are refused with V8003, even when values agree. The diagnostic names the column/relation instead of an internal engine. A static FK/relation XOR remains unimplemented.
+
+**Additional verification:** Same command assignment owner serves create/update; root errors15 message-only repair and compatibility nested relation conflict contract. Existing compound-relation-adoption public refusal witnesses retained; root owns exact relation14 static guard disposition.
+
+### type-soundness-21: A widened boolean select flag drops the key instead of making it optional
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+A widened boolean selector now makes the selected result member optional, including aggregate selectors; literal false removes the member. Public result probes passed complete native8.
+
+### type-soundness-22: Type-helper ergonomics and stale docs: `OperationPayload` includes `undefined`, `InferDatabase` described as unpublished
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+OperationPayload includes undefined for optional arguments by design. Documentation now states NonNullable for indexing and the lack of universal forwarding guard; removed stale unpublished InferDatabase notice and copied helper.
+
+### type-soundness-23: Format-constrained ids are typed plain `string`; malformed or prefix-less ids type-check and throw
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Formatted IDs remain input strings, with format checked at runtime. Public type does not claim a validated branded string; malformed input is rejected before dispatch, not interpreted as not-found.
+
+
+## write-api
+
+### write-api-01: PGlite bind limit declared 65,535 but PGlite 0.5.8 breaks at 32,768: createMany throws after committing rows, then reads silently return empty
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+PGlite cap32767 prevents known32768 provider poisoning: controlled exact PGlite handle refuses32768 boundvalues before querydispatch. Public createMany10923 rows×3boundcolumns uses real PGlite cap and dispatches32766+3 with exactcount. capacity15/15 core+coverage /tmp/viborm-v1-driver-integer-capacity-wal-final.log (combined63/63,7.09s746MiB, teardown). Deliberately no actual32767-scale WASM success claim; known unsafe input never reaches provider.
+
+### write-api-02: The documented JSON update spelling `{ set: value }` silently stores the wrapper object on untyped s.json() columns
+
+**Disposition:** documented-contract. **Review:** high severity; confirmed.
+
+Documented contract: JSON update values are documents directly. An object {set:X} is therefore the literal document, not an update envelope. The JSON guide corrects its example and warns about this distinction; no incompatible envelope grammar was introduced.
+
+### write-api-03: upsert is never a native ON CONFLICT on the normal route: 3-6 statements in a transaction instead of 1
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Eligible ordinary live scalar upsert uses existing targeted native ON CONFLICT fold; conditional,stamped,relation-bearing/nonreturning fallback retained. Live SQLite eligible upsert emits1ONCONFLICT/noSELECT; dedicated13/13.
+
+**Additional verification:** Live SQLite eligible upsert emits1ONCONFLICT/noSELECT; dedicated13/13.
+
+### write-api-06: SQLite drivers declare a 999-bind limit (real: 32,766) and in-lists are never chunked: updateMany/deleteMany with 1,000+ ids are refused
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+SQLite native bind capacity is corrected to 32766. Actual SQLite public updateMany and deleteMany with 1000 IDs each report exactly1000 affected rows; readback verifies every updated value, and the unrelated original3 rows survive both operations. tests/providers/local/sqlite3-v1-sql-operands.test.ts6/6 passed3.41s494.5MiB with verified teardown (/tmp/viborm-v1-query-sqlite-bind-mutations-final.log). Arbitrary IN predicates above the actual provider cap are not split into independently visible statements; that boundary remains explicit.
+
+### write-api-04: 'Race-safe upsert' is false inside interactive transactions: a lost race raises UniqueConstraintError (upsert and connectOrCreate)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Lost selected-constraint races recover after the existing callback operation savepoint rolls back; borrowed scopes never replay in place, and the operation retains one allowance. Unrelated uniqueness conflicts do not retry. Real hosted Neon TCP with two independent pg pools3/3 passed: increment upsert adopts winner once, nested connectOrCreate retains earlier/later callback writes, unrelated PK collision remains UniqueConstraintError with usable outer transaction. 5.37s481.7MiB; teardown verified.
+
+**Additional verification:** Real hosted Neon TCP with two independent pg pools3/3 passed: increment upsert adopts winner once, nested connectOrCreate retains earlier/later callback writes, unrelated PK collision remains UniqueConstraintError with usable outer transaction. 5.37s481.7MiB; teardown verified.
+
+### write-api-05: SQLite in WAL with more than one connection: read-first VibORM transactions fail with SQLITE_BUSY_SNAPSHOT; busy_timeout cannot help and there is no BEGIN IMMEDIATE option
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Owned SQLite/Bun callback transactions BEGIN IMMEDIATE; default busy_timeout nonzero, libSQL native write transaction. Real isolated WAL two-native-handle fixture reads thenupdates inside publiccallback: competing native connection refusesSQLITE_BUSY before it can invalidate snapshot, admitted owned update commits exactvalue, external peer canwrite aftercommit and count confirms bothrows. tests/providers/local/sqlite3-v1-driver-remediation.test.ts15/15 provider+coverage /tmp/viborm-v1-driver-integer-capacity-wal-final.log combined63/63,7.09s746MiB teardown. No automaticretry or configurablebegin-mode claim.
+
+### write-api-07: Nested createMany, nested create[] and connect/set lists run one statement per row or target, contradicting the docs
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Eligible plain nested createMany coalesces equal ordered column shapes; documented general create[] and connect/set batching does not ship. Remove universal one-statement claims rather than silently change operation effects. Dedicated engine22/22 and core7 grouped/heterogeneous/generated-key and rollback tests pass; D1 worker40/40 verifies actual segmented member behavior. General nested create[] and connect/set still run their existing per-member strategy.
+
+**Additional verification:** OneINSERT plus duplicate rollback and heterogeneous explicitID order witnesses passed; provider-count follow-up identified.
+
+### write-api-08: createMany bind-budget chunking is quadratic (80k rows: 11.6 s, 169x redundant compilation)
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Geometric local bind-window probing replaces quadratic remaining-suffix compilation. 80000rows/1000bind windows inspect<1.5million values; dedicated and existing bind-budget regression passed.
+
+**Additional verification:** 80000rows/1000bind windows inspect<1.5million values; dedicated and existing bind-budget regression passed.
+
+### write-api-10: No expression escape hatch in write data: no JSON partial update, no list remove, no column-to-column or SQL-fragment assignment
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: write data has no SQL-fragment/column-expression assignment, JSON partial-update or list-removal DSL. Read comparison operands do not supply mutation expressions.
+
+### write-api-11: No set-based write primitives: INSERT...SELECT, UPDATE...FROM/JOIN, per-row-different bulk updates
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: INSERT SELECT, UPDATE FROM/JOIN and per-row-different set-based bulk updates were not added. Repaired homogeneous bulk insertion is a separate existing protocol.
+
+### write-api-12: No bulk upsert and no conflict-target choice: skipDuplicates is ON CONFLICT DO NOTHING on any unique index
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Product gap: no bulk upsert or public conflict-target selector was added. Root skipDuplicates skips applicable unique conflicts; target-selective conflict semantics remain unsupported.
+
+### write-api-13: updatedAt diverges from Prisma: not bumped when a parent-side connect/set moves a child; always bumped by upsert(update: {})
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Implicit FK membership updates obtain generated updatedAt defaults from the existing update-data admission owner, preserving settled exclusion of extension stamps. Empty root/nested upsert update arms suppress generated/stamped assignments. Actual SQLite12.11.1 public child+parent connect/set and root/nested empty upsert witness: tests/providers/local/sqlite3-v1-updated-at.test.ts1/1, part of12/12,5.08s538.6MiB, /tmp/viborm-v1-query-final-sqlite.log.
+
+**Additional verification:** Actual SQLite12.11.1 public child+parent connect/set and root/nested empty upsert witness: tests/providers/local/sqlite3-v1-updated-at.test.ts1/1, part of12/12,5.08s538.6MiB, /tmp/viborm-v1-query-final-sqlite.log.
+
+### write-api-14: To-many disconnect of a non-member throws NestedWriteError (Prisma: idempotent no-op), undocumented
+
+**Disposition:** documented-contract. **Review:** medium severity; confirmed.
+
+Documented contract: disconnect of a non-member is a strict NestedWriteError rather than an idempotent no-op. The compatibility guide now states the divergence; no silent Prisma behavior change was made.
+
+### write-api-15: MySQL bulk paths degrade to one statement per row: skipDuplicates (SAVEPOINT + INSERT per row) and createMany with select
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Performance gap: MySQL selected bulk returns and savepoint-safe skipping retain per-row work where needed for their semantics. A replacement set-based/returning protocol was not introduced or benchmarked.
+
+### write-api-23: No referential-action emulation for deployments without FK constraints
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Product gap: ordinary generated relations rely on database foreign keys. An FK-less relation mode and referential-action emulation are not implemented by this repair.
+
+### write-api-09: createMany throws 'reported N of M inserted rows' after committing when a trigger legitimately drops rows
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+createMany preserves actual provider affected-row count instead of throwing after trigger suppression committed. Dedicated live SQLite trigger suppression witness passed in final21/21 engine (84/84 combined).
+
+**Additional verification:** Dedicated live SQLite trigger suppression witness passed in final21/21 engine (84/84 combined).
+
+### write-api-16: divide by zero on int/float fields: silent NULL on SQLite, opaque error on PG; only decimals and primary keys are guarded
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Existing arithmeticUpdateFamily refuses zero divisor for ordinary int/float/bigint before SQL; nullable variants covered, set:0/nonzero divide retained. v1-refinement-admission10/10 passed3.19s455MiB. No provider-specific lowering guard duplicated.
+
+### write-api-17: .now() timestamps can never be corrected through the client
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Product gap/current contract: insert-only now fields have no typed update field. Physical raw SQL is the available correction path; a public mutable/generated-timestamp override was not added.
+
+### write-api-18: Undocumented public setWhere/targetWhere on upsert, with semantics unlike PostgreSQL and Drizzle
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Documented contract: upsert targetWhere/setWhere are existing-row AND guards; an unmatched found row is returned unchanged, while an absent row is created. The upsert guide documents these branches without claiming SQL-native conflict-clause equivalence.
+
+### write-api-19: Unsafe integers are admitted into s.int() on SQLite, committed, then make the table unreadable
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+s.int() now requires a safe JavaScript integer before a typed write can dispatch. tests/providers/local/sqlite3-adapter-adversarial.test.ts attempts 2**60 as a key, observes the admission error and proves the table still has its original one row. This test passed in the 14/14 public SQLite gate.
+
+### write-api-20: On D1 and Neon HTTP a single nested-write call can commit a prefix; relation-bearing skipDuplicates is dropped with a warning (documented)
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Batch-only and borrowed scopes refuse relation-bearing/nested skipDuplicates before any member DML with UnsupportedOperationError V8003; supported scalar root skipping retains its provider strategy. Actual D1worker40/40 includes valid scalar prefix before unsupported nested member, no root/child/junction effects, no warning, original rows retained; nested create/update and m:n cases plus scalar skipping all pass. /tmp/viborm-v1-query-d1-final.log:6.47s675MiB teardown. Segment atomicity for ordinary unskipped relation-bearing multi-member calls remains explicit rather than mislabeled whole-call atomicity.
+
+### write-api-21: Bulk-write returning is scalar-only (documented divergence from Prisma)
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Product gap: bulk returning supports scalar projection, not returned relation graphs. Relation-bearing results require additional batch and result-window semantics and remain unsupported.
+
+### write-api-22: updateMany count means changed rows on MySQL but matched rows elsewhere, and the relation-bearing form changes it again
+
+**Disposition:** refuted. **Review:** low severity; refuted.
+
+The original adversarial report AppendixB expressly retracts this premise: stock mysql2 sends CLIENT_FOUND_ROWS, so affectedRows consumed by its driver is matched-row count. Installed mysql2/lib/connection_config.js:defaultFlags includes FOUND_ROWS; VibORM mysql2 execute uses affectedRows without changedRows substitution. The shared update-many-relation-series behavior pins captured count even when no columns change and remote CI3 PostgreSQL/MySQL job113368520531 passes. Caller-supplied flags may alter provider counts, so no universal changed-vs-matched statement is made. Opposite stale documentation/comments were corrected.
+
+
+## driver-conformance
+
+### driver-conformance-01: Bun SQL: no constraint violation is ever recognized, so unique, FK and not-null errors become a redacted QueryError V2001 and nested skipDuplicates breaks
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Actual Bun SQL on authorized Neon: three separate uniquely named TEMP-only callback transactions produce UniqueConstraintError V3001, NotNullConstraintError V3003, and ForeignKeyError V3002. All are nonretryable; subsequent SELECT1 is healthy. No DROP or persistent DDL; failed callbacks roll back created temporary objects. /tmp/viborm-v1-bun-neon-constraints.log passed0.79s/95MiB with verified teardown. Durable full-provider FK setup corrected to TEMP owner plus TEMP child after CI4 invalid TEMP-to-persistent FK setup; actual transport/mapping owner qualified independently.
+
+### driver-conformance-02: D1: s.bigInt() cannot be written at all. Every non-null write, bigint filter and bigint-key lookup fails, and values above 2^53 make reads fail
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+D1 binds bigint decimal text, typed SQL CAST/projection retains exact logical values. Direct real Workers/D1 test proves bigint scalar9007199254740993 and negative beyondsafe, bigint PK lookup/filter, foreign-key write and parent/child include both directions. Corrected optional numeric last_row_id metadata: unsafe rounded/sticky ID omitted while exact returned rows remain authoritative; fractional/NaN/infinite metadata refused. Controlled D1 contracts46/46 (/tmp/viborm-v1-d1-meta-final.log); actual affected case1/1 (/tmp/viborm-v1-d1-bigint-final-2.log,5.22s646MiB). Full41 qualification pending current run. Full actual D1 suite41/41 passed5.36s681MiB with verified teardown (/tmp/viborm-v1-d1-all-final.log).
+
+### driver-conformance-03: postgres.js: boolean and bigint lists cannot be created, set, pushed or filtered (42804/42883)
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+postgres.js typed list parameters use escaped PG array text, raw remains physical. Hosted owned and supplied postgres create/set/push exact boolean/bigint lists passed in 6-case transport matrix; engine list projections preserve exact values.
+
+### driver-conformance-04: Raw SQL Date parameters on the SQLite family: silent no-ops and all-NULL rows on bun-sqlite, epoch-ms text that poisons rows on libsql, opaque throws on sqlite3/D1, including the docs' own examples
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Public docs Date cutoff now binds ISO text. Native SQLite3+libSQL safe/unsafe INSERT/filter/UPDATE exact before/equal/after oracle and Bun runtime same witness passed; D1 controlled native bind receives ISO text,44/44 D1. driver-diagnostics-2:121/121; libSQL raw INTEGER intentionally retains configured bigint physical carrier, irrelevant to Date equality. Shared SQLite encoder owns Date.toISOString; physical epoch/Julian raw binds remain caller-owned.
+
+### driver-conformance-05: postgres.js: createMany is chunked to 65,534-65,535 parameters, past postgres.js's hard limit of 65,533, and fails opaquely
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Installed postgres.js3.4.8 refuses >=65534 parameters; driver cap65533. Public createMany21845 rows×3boundcolumns now dispatches65532+3 and reports exact21845 count before SDK overflow. Existing owner planner+driver cap, no arbitrary filter splitting. tests/contracts/drivers/bind-parameter-capacity.core.test.ts; capacity15/15 in core and coverage, combined63/63 passed7.09s746MiB with teardown /tmp/viborm-v1-driver-integer-capacity-wal-final.log. Controlled planner witness, not hosted65533-scale provider claim.
+
+### driver-conformance-06: libSQL with a caller-supplied client: bigints and decimal coefficients above 2^53 commit, then throw, and the row becomes unreadable
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Read-only supplied libSQL integer precision probe refuses number mode before any typed write, owned bigint forced after options. Actual local10/10 includes above2^53 refusal and durable empty table. Native local driver11/11 passed in86/86 focused batch: in-memory/supplied modern libSQL write transactions, rollback retaineddatabase, exactinteger setup refusal, SQLITE_BUSY at setup quarantines exactclient across wrappers without borrowed close; owned disconnect recreates cleantransport.
+
+### driver-conformance-07: Three inherited driver data corruptions are neither guarded nor documented: Bun SQL float-list decoding, libsql NUL truncation, bun:sqlite lone surrogates
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Bun SQL float and bigint lists use exact textual projection/codec: actual CI3 Bun SQL PostgreSQL fixed-decimal/list probe passed (job113368520463, /tmp/viborm-v1-ci3-113368520463.log). Local libSQL NUL refusal already qualified in driver provider tests; no hostedTurso support claim. New actual Bun SQLite child proves lone high/low UTF16 surrogates fail without stored replacement/empty ID, and valid surrogate pair roundtrips. /tmp/viborm-v1-borrowed-pglite-bun-final.log:2/2 across Bun/PGlite,3.78s1101MiB, teardown verified. These refusals are explicit fidelity boundaries, not silent normalization.
+
+### driver-conformance-08: The drivers page says pg/postgres.js/Bun SQL and libsql/bun-sqlite are verified by sharing transport code with PGlite and better-sqlite3; they don't, and one local run disproves it
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Driver overview no longer claims different providers share transport code; exact bind caps and actual hosted Neon witness shown. Existing pg pool snippets require owner error listener; Neon docs use supported TCP pg/postgres for callbacks. This documents ownership/support, not a new WebSocket driver.
+
+
+## dsl-cross-product
+
+### dsl-cross-product-01: PostgreSQL cannot push or migrate literal defaults it re-spells: negative numbers, exponent floats, every s.time() literal, string DateTime defaults
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Typed default grammar handles negative/exponent/time/timestamp literals and BC local-offset deparse through shared provider parser. Actual PGlite defaults push twice noop; final core31/31.
+
+### dsl-cross-product-04: SQLite: a NULL s.blob().nullable() read through an include or nested select comes back as Uint8Array(0)
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Nullable binary projections retain SQL NULL before HEX conversion, and nullable leaf decoding returns null instead of Uint8Array(0). Exact result-decoder-placements nullable carrier regression and G4 codec/read-codec cases passed in remote CI3 local-provider lane; core7 nullable codec contracts passed. Non-null empty blobs remain empty Uint8Array values; these are distinct representations.
+
+**Additional verification:** Stable codec suite passed; root live SQLite/driver live numeric matrix final evidence separately owned.
+
+### dsl-cross-product-05: MySQL (code reading): the documented shared-enum recipe s.enum([...]).name("status") emits a column whose type is `status`
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Explicit enumName controls native shared enum names only on PostgreSQL; MySQL uses inline per-column ENUM values. Full migration runtime 119 files / 1,960 tests green, including named inline enum closure.
+
+### dsl-cross-product-02: Formatted-identifier lists have no domain: members are neither validated nor normalized, so one id is stored and matched as two (SQLite and PostgreSQL)
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Existing ID codec admits each formatted list member and canonicalizes create/set/push/unshift/filter operands, preserving plain-string array physical storage. Both modifier orders covered; string/modifier128/128 passed in driverintegration6.
+
+### dsl-cross-product-03: Scalar generators leak into lists: id formats, .now() and .updatedAt() with .array() type-check as optional, then every omitted create fails, and on PostgreSQL uuid().array() and array().now() cannot be pushed
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Approved bounded resolution: incompatible generated string/temporal lists refuse at declaration in either modifier order; explicit array defaults remain valid. Both-order regressions and ordinary temporal list updates passed in integration6/7. Runtime declaration refusal is proven; scalar State types still permit spelling some rejected chains.
+
+### dsl-cross-product-06: s.vector() on SQLite cannot store a single value although the docs promise JSON storage; on PostgreSQL without pgvector: true, push fails with a misleading attestation error
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Vector JSON storage/runtime repair belongs driver/query evidence; migration preflight now names pgvector:true and required installed extension types before effects, covered by focused vector attestation/catalog tests in full migration 1,960/1,960. Root actual PGlite adapter vector/zero/dimension witness 6/6 passed. No ANN DSL claim.
+
+### dsl-cross-product-07: MySQL (code reading): VibORM generates DDL that MySQL 8.4 rejects, where competitors refuse up front: UNIQUE on list (JSON) columns, UNIQUE/PK on TEXT-family native types, non-key AUTO_INCREMENT
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+MySQL physical table owner refuses ordinary keys on JSON/TEXT-family/BLOB/geometry after existing keyed bare-TEXT->VARCHAR191 canonicalization, refuses multiple/unkeyed AUTO_INCREMENT, renders needed supporting secondary KEY inline in CREATE TABLE. Full migration1952/1952 verifies literal DDL/refusals; live MySQL provider execution remains root gate.
+
+### dsl-cross-product-08: s.json().default(null) type-checks and emits NOT NULL DEFAULT NULL: every create that omits it fails, and a JSON-null default cannot be spelled
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Existing JsonNull/DbNull identities are admitted for defaults and existing schema codec tag preserves them (driver owner). Migration defaults quote JSON document null/string/bool distinctly from SQL NULL; MySQL expression wrapping stays at its physical owner. Three-dialect DDL/serializer witness passes within full migration 1,973/1,973; driver runtime/default/schema roundtrip evidence owned by parent. Final follow-through also distinguishes a non-null JSON literal transformed to document null from an original nullable bare-null default; its added three-dialect and populated SQLite assertions pass in core6 adversarial-regressions41/41 plus v1-push26/26. Included in final core7 465files/9624tests green, with native15 and build6 green; fresh package/provider/docs gates remain separate.
+
+### dsl-cross-product-09: Type admission is far wider than runtime admission, and the refusals come late, untyped, or as 'engine bug' V9001
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Supported query-call refusal repairs: five caller-only key portability/transition checks, FieldRef scope/domain/hidden tokens, relation/count/distance cursors and rejected recursive cycles use V8003; collection phase order is now L3 V4001 before any DML at all depths. Actual SQLite5/5, engine22/22 within135/135 correction batch, L3+OwnWrite283/283 and D1worker40/40 prove no prefix/success leakage and positive canonical compositions. Native18 passed. Deep static data/operator exactness remains explicitly separated in type-soundness02/type-perf05; new cursor/row-lock/expression-update APIs remain product gaps.
+
+**Additional verification:** Current full-native12 public write and declaration estate proof precedes query taxonomy followup; existing public number/decimal/compound key refusal execution goldens updated, final focused run pending. Root owns schema/declaration taxonomy and physical invalid DDL disposition.
+
+
+## geo-vector-oracle
+
+### geo-vector-oracle-01: PostGIS `within: { bounds }` silently drops rows inside the box: the 'conservative' index probe is not conservative
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Shared geographic bounding probe is now a true coordinate-bounds superset, including wide/equatorial/negative latitude cases. PGlite PostGIS adapter4/4 passed including positive/negated writes and independently computed480 points across15 distance caps; no unexecuted provider is claimed.
+
+### geo-vector-oracle-02: Negated bounds filters return rows inside the area, and deleteMany/updateMany with them act on in-area rows (data loss)
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Shared geographic bounding probe is now a true coordinate-bounds superset, including wide/equatorial/negative latitude cases. PGlite PostGIS adapter4/4 passed including positive/negated writes and independently computed480 points across15 distance caps; no unexecuted provider is claimed.
+
+### geo-vector-oracle-03: PostGIS `distance: { lte \| lt }` silently drops points near the equatorward rim of the radius
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Shared geographic bounding probe is now a true coordinate-bounds superset, including wide/equatorial/negative latitude cases. PGlite PostGIS adapter4/4 passed including positive/negated writes and independently computed480 points across15 distance caps; no unexecuted provider is claimed.
+
+### geo-vector-oracle-04: MySQL (code reading): bounds 180 deg or wider probably lose rows through the same MBRIntersects probe; narrower boxes look safe
+
+**Disposition:** verified-fixed. **Review:** medium severity; unverified.
+
+The MySQL adapter retains geographic coordinate membership for 180-, 340- and 360-degree widths and antimeridian-crossing bounds. The actual MySQL8.4.11 witness in tests/providers/docker/mysql2.test.ts checks 84 independently classified points and NOT for each; 1 selected test passed, 3.40s and525.5MiB (/tmp/viborm-v1-mysql-geo-wide-final.log). The original report was a code-reading suspicion; concrete provider execution now qualifies the corrected conservative probe. Existing separate spatial-index tests retain their positive/negative plan claims.
+
+### geo-vector-oracle-05: `_distance` ordering (geo and vector) has no tie-break, so offset pages duplicate and skip rows (extends differential-06)
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Consistent asc-null-last/desc-null-first and identity/group-column completion for relation,count,distance ordering. Offset/full sort oracle and existing order-projection/selector suites passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** Offset/full sort oracle and existing order-projection/selector suites passed stable145/146 batch.
+
+### geo-vector-oracle-06: Selecting cosine `_distance` crashes the query with V9001, blamed on the driver, when a returned row or the query vector is all zeros
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+The PostgreSQL adapter preserves NULL cosine distance for a zero query vector or zero stored vector; the projection type/parser accepts null. Actual pgvector tests in tests/providers/local/pglite-adapter-adversarial.test.ts cover both zero arms and a nullable row. The 9/9 named-zone/provider gate passed; no V9001 is produced for these supported values.
+
+### geo-vector-oracle-07: `s.vector()` cannot be written on SQLite-family drivers, although the docs say vectors are 'stored as JSON'
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+SQLite-family vector JSON storage now uses the declared physical array codec. Actual create/update/direct/include results retain the three supplied coordinates; a wrong dimension refuses without changing the row. tests/providers/local/sqlite3-adapter-adversarial.test.ts passed in the 14/14 public SQLite gate.
+
+### geo-vector-oracle-08: Distance ordering is inconsistent between GeoPoint and vector (sort required vs optional, NULLs last vs first on desc, `nulls` refused)
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+GeoPoint/vector distance ordering retain their documented distinct option/default surfaces; no common ordering API or nullable-sort feature introduced. Cosine null result typing/provider semantics are corrected separately.
+
+### geo-vector-oracle-09: Vector components pgvector rejects (+-Infinity, beyond float4 range) pass validation and fail as opaque V2001
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+The existing vector semantic owner rejects nonfinite components, values outside float32 and wrong declared dimensions at admission. The actual PGlite provider witness asserts the failed write leaves the table unchanged; the latest 9/9 provider gate passes.
+
+
+## integration-author
+
+### integration-author-01: Every VibORM Decimal deep-equals every other: toEqual, deepStrictEqual and isEqual pass for 1.00 vs 999999.99
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Decimal stores immutable own enumerable canonical value text and custom inspect output. Decimal25/25 passed, including deep strict equality, Vitest equality, structuredClone and v8 serialization. Clone retains {value}, not class methods; explicit reconstruction remains required. Final artifact 27 packaged error-name and Decimal identity checks pass on Node22.12/24.14.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### integration-author-02: updateMany/deleteMany `limit` on PostgreSQL leaves the filter only inside an id subquery: concurrent writers bypass the guard
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Capped mutation keeps its original predicate in the outer WHERE as well as the identity subquery, so PostgreSQL rechecks the updated row after a concurrent lock wait. Real hosted Neon5/5 includes exact pinned PID observed waiting on Lock before holder commits n→0; limited UPDATE and DELETE both return count0 and leave n0/row intact. 7.31s526.6MiB combined runner; no arbitrary sleep schedule.
+
+**Additional verification:** Real hosted Neon5/5 includes exact pinned PID observed waiting on Lock before holder commits n→0; limited UPDATE and DELETE both return count0 and leave n0/row intact. 7.31s526.6MiB combined runner; no arbitrary sleep schedule.
+
+### integration-author-03: structuredClone, postMessage and V8 serialization silently turn every Decimal into {} (Prisma throws, Drizzle keeps the string)
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Decimal stores immutable own enumerable canonical value text and custom inspect output. Decimal25/25 passed, including deep strict equality, Vitest equality, structuredClone and v8 serialization. Clone retains {value}, not class methods; explicit reconstruction remains required. Final artifact 27 packaged error-name and Decimal identity checks pass on Node22.12/24.14.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### integration-author-04: The published build mangles class names: logs show `price: e {}`, and pino types ValidationError and UniqueConstraintError both as 'E'
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Decimal stores immutable own enumerable canonical value text and custom inspect output. Decimal25/25 passed, including deep strict equality, Vitest equality, structuredClone and v8 serialization. Clone retains {value}, not class methods; explicit reconstruction remains required. Final artifact 27 packaged error-name and Decimal identity checks pass on Node22.12/24.14.
+
+**Additional verification:** Final immutable artifact 27 (SHA256 12431126fee0a12d5858c3c90c4125e04ac888228eff2f678ada5a8360ef59e0) passes 43/43 package cases on Node22.12 in 118.67s / 1110.2 MiB and Node24.14 in 107.33s / 1224.9 MiB, with verified teardown. Grouped source/emission/strict emitted-only consumers retain all 51 previous scenarios and add recursive JSON results; the 30s child, 300s aggregate and 1536 MiB RSS limits are unchanged. Receipts: /tmp/viborm-v1-package27-node22.log and /tmp/viborm-v1-package27-node24.log. Final remote CI and publication remain separate gates.
+
+### integration-author-06: No public field/relation metadata: serializeSchema, the only structured route, refuses schemas with validators, function defaults or partial indexes
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Lossless schema serialization does not serialize arbitrary closures or custom validators. A separate general reflection API for integration authors would be a new public surface. The current schema JSON contract keeps explicit refusal instead of silently losing behavior; model reflection itself is repaired under integration-author07.
+
+### integration-author-07: The client proxy hides its models from `in`/Object.keys and returns a callable for every unknown name, so `db[model]?.` never short-circuits
+
+**Disposition:** verified-fixed. **Review:** medium severity; confirmed.
+
+Public root/model reflection publishes actual model/operation keys; missing names return undefined with false in/hasOwn. Runtime client initialization/reflection and schema-json unknown-model checks passed root follow-through2; previous synthetic callable model behavior is removed.
+
+### integration-author-05: A Decimal built by a second copy of viborm is refused, and isVibORMError is instanceof-based
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Cross-copy Decimal/error authentication is not implemented. Decimal instances use the constructing package's private brand; isVibORMError uses local class identity. Same-package results and duplicate public entry points share one constructor (tests/package/decimal-identity-smoke.mjs). Deep equality and structured cloning now preserve immutable canonical .value, but a clone or foreign instance must be converted explicitly through its string. Decimal and error docs state this package-boundary limitation. This corrects an earlier inaccurate ledger claim of structural admission; the review classifies the cross-copy finding as partial, and automatic cross-copy branding remains a product gap.
+
+### integration-author-08: UntypedClient admits no field clause and no typed client, while its published JSDoc says arguments 'degrade to any'
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Corrected UntypedClient JSDoc: broad runtime-schema alias cannot recover fields/results, is not a supertype of every concrete client and does not degrade argument clauses to any. Schema JSON docs carry the same precise limitation.
+
+
+## nested-write-differential
+
+### nested-write-differential-01: To-many verbs run in a fixed internal order, not the payload's: the docs' own updatePostTags example strips every tag, and Prisma 'sync children' idioms silently delete fresh and adopted rows
+
+**Disposition:** verified-fixed. **Review:** critical severity; confirmed.
+
+Clear-first mixed to-many verbs; refuse adding-before-clearing spelling before effects, retain untaken-arm deferred failure. Dedicated SQLite no-write refusal/set-connectOrCreate regression passed; stable engine145/146 batch, corrected dedicated13/13.
+
+**Additional verification:** Dedicated SQLite no-write refusal/set-connectOrCreate regression passed; stable engine145/146 batch, corrected dedicated13/13.
+
+### nested-write-differential-03: m:n createMany with skipDuplicates silently links nothing when keys are client-generated (.ulid()/cuid/uuid, the docs' default), contradicting the documented adopt-and-link
+
+**Disposition:** verified-fixed. **Review:** high severity; confirmed.
+
+Duplicate adoption ignores generated defaults and uses caller-spelled unique identity. Generated ULID duplicate adopt-and-link live SQLite witness passed.
+
+**Additional verification:** Generated ULID duplicate adopt-and-link live SQLite witness passed.
+
+### nested-write-differential-02: Connecting or creating into an occupied optional 1:1 fails with a raw P2002 where Prisma reassigns; undocumented, and inconsistent with VibORM silently stealing in the other direction
+
+**Disposition:** documented-contract. **Review:** medium severity; partial.
+
+Documented contract: an occupied optional 1:1 is not automatically evicted and may produce provider uniqueness refusal. The compatibility guide directs explicit clearing/deletion when permitted and distinguishes target FK reassignment; Prisma-style displacement remains unsupported.
+
+### nested-write-differential-04: A required 1:1 displacement is reported as a unique violation (prismaCode P2002) after the INSERT is sent; Prisma reports P2014
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Documented contract: occupied required 1:1 displacement remains a provider unique-constraint refusal, not automatic eviction or Prisma P2014. The compatibility guide states this; exact pre-write displacement classification remains a compatibility gap.
+
+### nested-write-differential-05: To-one `delete: true` on an empty slot silently succeeds (Prisma: P2025); undocumented, and asymmetric with nested `update`, which throws
+
+**Disposition:** documented-contract. **Review:** low severity; confirmed.
+
+Documented contract: deleting an empty to-one slot is a no-op, unlike missing nested update. The compatibility guide explicitly contrasts both with Prisma; runtime semantics were preserved.
+
+### nested-write-differential-06: compatibility.mdx promises a 'create-then-connectOrCreate ... OwnWrite conflict' refusal that the shipped engine does not implement
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Clear-first mixed to-many verbs; refuse adding-before-clearing spelling before effects, retain untaken-arm deferred failure. Dedicated SQLite no-write refusal/set-connectOrCreate regression passed; stable engine145/146 batch, corrected dedicated13/13.
+
+**Additional verification:** Dedicated SQLite no-write refusal/set-connectOrCreate regression passed; stable engine145/146 batch, corrected dedicated13/13.
+
+### nested-write-differential-07: Prisma 7.10's to-one filter forms are refused: disconnect: {where}, delete: {where}, upsert: { where, create, update }
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Compatibility gap: filtered to-one disconnect/delete/upsert Prisma forms remain outside VibORM's documented grammar. Existing boolean clearing/deletion and upsert target forms do not implement those extra forms.
+
+### nested-write-differential-08: A duplicate connect of a row whose primary key contains the relation FK fails with a misleading 'target record was not found'
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Exact duplicate connect selector equalities deduplicate before a prior FK/compound-key rewrite. Different logical/field filters remain distinct. Dedicated compound child reparenting/repeated selector witness passed, final21/21 engine.
+
+**Additional verification:** Dedicated compound child reparenting/repeated selector witness passed, final21/21 engine.
+
+### nested-write-differential-09: New evidence for errors-13: Prisma splits VibORM's single V7001 into four codes, so the proposed blanket P2025 mapping would mis-route about 36% of them
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Compatibility taxonomy gap: NestedWriteError covers distinct failure roles and is not blanket-mapped to Prisma P2025. Exact missing-relation/displacement classification remains additional work; the report's differential is not replaced with an inaccurate universal mapping.
+
+
+## polymorphic-oracle
+
+### polymorphic-oracle-01: To-one `{ type, isNot }` matches other variants and empty slots, contradicting the docs; updateMany/deleteMany hit the wrong rows
+
+**Disposition:** verified-fixed. **Review:** critical severity; partial.
+
+Tagged every semantics, variant-pinned isNot, stored carrier presence and malformed discriminator/pair refusal. SQLite variant oracles and existing variants.test.ts passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** SQLite variant oracles and existing variants.test.ts passed stable145/146 batch.
+
+### polymorphic-oracle-02: Unknown or half-null stored discriminators read as `null`, even on required slots typed non-null, instead of the documented integrity error
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Tagged every semantics, variant-pinned isNot, stored carrier presence and malformed discriminator/pair refusal. SQLite variant oracles and existing variants.test.ts passed prior focused batch (145/146; unrelated fixture failure later corrected).
+
+**Additional verification:** SQLite variant oracles and existing variants.test.ts passed stable145/146 batch.
+
+### polymorphic-oracle-03: Documented polymorphic schema-evolution guards do not exist: stored-value changes migrate as no-ops, and removed or retargeted members are dropped or rebuilt without the V11010 refusal
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Stored discriminator/target changes refuse V11010 before state publication; no empty migration silently changes existing row interpretation. Core adversarial/differ tests passed. DB/runtime polymorphic integrity constraints are separately root-owned.
+
+### polymorphic-oracle-04: Official cache never caches polymorphic collection reads or singular polymorphic inverses; the failure is swallowed as a miss
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Nullable object codec and tagged collection row codec fixed; present tagged null data refused. Live official cache witness passed with null ordinary to-one slots and nonempty tagged collections; repeat queries hit and return fresh detached graphs.
+
+**Additional verification:** Live official cache witness passed with null ordinary to-one slots and nonempty tagged collections; repeat queries hit and return fresh detached graphs.
+
+### polymorphic-oracle-05: On the SQLite VibORM pins (better-sqlite3 12.6.0, SQLite 3.51.2), relation-filtered reads with skip return wrong pages; VibORM's m:n and polymorphic shapes are hit where Prisma's and Drizzle's m:n are not
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+Peer floor ^12.11.1||^13.0.3 excludes affected SQLiteoptimizer versions. Actualbetter-sqlite312.11.1/SQLite3.53.2 adversarialpagination8/8 passed /tmp/viborm-v1-sqlite1211-optimizer-witness.log; actual13.0.3/SQLite3.53.4 suppliedclient pagination,nestedinclude,migration,rollback,ownership passed0.20s /tmp/viborm-v1-sqlite13-peer.log. Frozenresolution passed; actualCI4 normalinstall quality success. Earlier12.10 or13 floor evidence replaced with exactexecuted branches.
+
+### polymorphic-oracle-06: Every collection read runs orphan probes over all configured member tables, including variants excluded by `only` and `only: []`; the docs promise the opposite
+
+**Disposition:** documented-contract. **Review:** low severity; partial.
+
+Documented contract: only narrows the returned polymorphic projection while integrity probes still cover every declared variant. The guide corrects its contrary promise; probe minimization remains performance work and was not claimed implemented.
+
+### polymorphic-oracle-07: Singular collection variants get a duplicate index (UNIQUE(target) plus a non-unique reverse index on the same columns)
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Serializer omits the reverse index iff uniqueTarget && canonical sourceIsFirst proves target uniqueness covers the complete second-side lookup. Reverse index retained for canonical-first target and nonsingular member. Targeted orientation/schema assertions + full relation preservation corpus pass migration119files/1973tests. Only two named frozen PG indexes removed and MySQL physical PRIMARY names corrected with explicit corpus reasons; no corpus regeneration. Existing polymorphic-push convergence fixtures retained.
+
+### polymorphic-oracle-08: `skipDuplicates` on a singular collection variant moves an existing target away from its current owner
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Suppressed duplicate on singular variant performs no ownership transfer. Dedicated SQLite singular tagged createMany skipDuplicates witness passed with unchanged original membership and title; legacy shared driver oracle updated.
+
+**Additional verification:** Dedicated SQLite singular tagged createMany skipDuplicates witness passed with unchanged original membership and title; legacy shared driver oracle updated.
+
+### polymorphic-oracle-09: `variants` naming a variant excluded by `only` type-checks; only the runtime rejects it
+
+**Disposition:** verified-fixed. **Review:** low severity; confirmed.
+
+Direct collection only/variants envelopes intersect a literal key refusal, preserving valid selected arms and rejecting excluded arms in fresh and held select/include objects. No model topology traversal or runtime behavior change. Public contextual-typing gate fresh/held excluded-arm negatives+multiarm/empty selection positives passed full native12 (9.23s6007.7MiB), with prior deliberately unguarded pins converted to negatives. Full consumer strictTS5.8 proof remains driver-owned next artifact, not claimed executed. Native18 subsequently passed the current integrated source/public probes; no packaged-backreference completion is inferred.
+
+**Additional verification:** Public contextual-typing gate fresh/held excluded-arm negatives+multiarm/empty selection positives passed full native12 (9.23s6007.7MiB), with prior deliberately unguarded pins converted to negatives. Full consumer strictTS5.8 proof remains driver-owned next artifact, not claimed executed.
+
+
+## prisma8-horizon
+
+### prisma8-horizon-01: The headline pitch argues against Prisma's pre-8 frictions: against npm prisma@latest (8 RC, GA expected this month) the WASM argument is gone and the codegen argument shrinks to an emit step
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+README, changelog and V1 upgrade guide now describe the current feature/driver limits, release target, raw contract and six extension lifecycle capabilities. The stale unpublished-rc.5 and obsolete Prisma-engine marketing claims are removed. Historical missing tags are disclosed rather than fabricated; final package/docs/release checks remain required.
+
+**Additional verification:** CI run 37787030484 at 5f8cb08af passed the Types, format, and docs job (113344299639), including documentation validation. Core7 also passed the executable documentation corpus; publication of the matching website remains a release step.
+
+### prisma8-horizon-02: No query guardrails: nothing can block an unfiltered deleteMany/updateMany or an unbounded read (Prisma 8 ships lints() and budgets())
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+A built-in query lint/budget policy package is not added. Existing request/query extensions can implement application policy, and existing engine resource/refusal bounds protect their own invariants; neither is presented as a packaged Prisma8 guardrail feature.
+
+### prisma8-horizon-03: Relation aggregates stop at _count: no per-parent sum/avg/min/max (or several shapes of one relation) in select/include
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Per-parent sum/avg/min/max and multiple aliased views of one relation remain absent. Root aggregate correctness fixes do not implement relational aggregate projections.
+
+### prisma8-horizon-04: No per-query cancellation (AbortSignal) and no statement timeout outside transactions
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Per-query AbortSignal and standalone statement timeout are not added. Transaction timeout remains separately supported by the concrete driver capabilities; a transaction deadline is not cancellation of arbitrary provider work.
+
+### prisma8-horizon-05: No table inheritance (variants); Prisma 8 now ships it and calls it 'polymorphic relations'
+
+**Disposition:** product-gap. **Review:** low severity; confirmed.
+
+Row/table inheritance is not added. The existing relation variant language describes association topology, not a general inherited-table model.
+
+### prisma8-horizon-06: Nothing for users' coding agents ships in the package, while both competitors ship agent skills and MCP in their tooling
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+No coding-agent MCP server or package-distributed assistant skill is added. Repository architecture guidance is not represented as an installed end-user integration.
+
+
+## recursive-projections
+
+### recursive-projections-01: Default `recurse: true` on a 12-person follow clique exhausts the heap and kills Node; nothing bounds recursive output
+
+**Disposition:** verified-fixed. **Review:** high severity; partial.
+
+Refuse recursive carriers beyond10000 published occurrences, preserving bounded path/cycle semantics. Factorial9-node clique bounded refusal and10000 boundary chain passed.
+
+**Additional verification:** Factorial9-node clique bounded refusal and10000 boundary chain passed.
+
+### recursive-projections-02: SQLite junction-graph recursion full-scans the target table on every hop and builds the CTE twice: 4-5 s for 363 rows at 100k users vs 0.5 ms hand-written
+
+**Disposition:** product-gap. **Review:** medium severity; partial.
+
+Performance gap: junction-first membership lowering is repaired, but duplicate recursive evaluation/materialization remains. No fresh 100k-node timing or new recursive strategy is claimed.
+
+**Additional verification:** Functional recursion passed; no final100k-node timing claim.
+
+### recursive-projections-03: One cyclic foreign-key row fails every recursive read that reaches it, as a V9001 'engine bug' with empty meta and no opt-out
+
+**Disposition:** verified-fixed. **Review:** medium severity; partial.
+
+A requested reject cycle now raises existing UnsupportedOperationError V8003 with relation/feature metadata, preserving existing path/cycle semantics and no partial cached entry. Actual recursive-query/cache-lifecycle7/7 included in641/649 first correction batch (its7 all green) and recursive composition13/13 in final135/135. Cache stores nothing on repeated rejected reads. Alternative cycle modes are not invented.
+
+### recursive-projections-04: `recurse` is the slowest way to read a large tree: 4-13x VibORM's own fixed-depth nesting and 2-8x a hand-written CTE in Drizzle or Prisma
+
+**Disposition:** product-gap. **Review:** medium severity; confirmed.
+
+Performance gap: bounded recursive output can still cost more than fixed-depth or handwritten CTE reads because of repeated/path materialization. No new execution strategy or benchmark superiority is claimed.
+
+### recursive-projections-05: The cache snapshots the unfolded path tree, so a cached amplified graph read is 3x slower on a hit than uncached
+
+**Disposition:** product-gap. **Review:** low severity; partial.
+
+Performance/representation gap: cache snapshots detach the unfolded graph. A canonical graph-carrier or zero-copy hit representation was not added, and functional cache correctness does not prove a faster amplified-graph hit.
+
+### recursive-projections-06: Types and JSON Schema of a recursive node are wider than the runtime: `where`/`orderBy` on a singular recursive node compile; depth bounds are lost
+
+**Disposition:** verified-fixed. **Review:** low severity; partial.
+
+Singular recursive nodes now structurally refuse where/orderBy with public fresh/held probes (native8); exported JSON Schema retains minimum1/maximum1000 for depth. Arbitrary numeric literals remain runtime-bounded rather than a1000-member type union.
+
+
+## PB
+
+### PB-1: **postgres.js `$transaction` hangs.** It never settles when a warm pooled connection dies under BEGIN, because the containment path calls `sql.end()` with no timeout.
+
+**Disposition:** verified-fixed. **Review:** unspecified severity; post-review blocker.
+
+Confirmed stale fatal provider response after failed BEGIN is drained by at most two public same-pool reserve/release acquisitions within one deadline, only when native callback never entered. Original failure preserved; no callback/SQL replay or pool end. Terminal cleanup quarantines wrapper and retains ordered secondary evidence; late leases released by existing acquisition owner. Controlled recovery6/6 plus mapping74/74 (80/80,3.49s457MiB,teardown) /tmp/viborm-v1-postgres-begin-recovery-controlled-2.log. Final actual approved Neon two fixtures12/12 (8.78s539.4MiB,teardown) /tmp/viborm-v1-neon-final-qualification-2.log; exact failed-BEGIN trace closes connection2, rejects original V1001, then following SELECT dispatches and succeeds on connection2. Only test-owned PID terminated; own rows deleted, uniquely named empty tables retained. Prior11/12 failure is superseded by this corrected final pass. Borrowed ownership/timeout/failure negatives pinned; no general write retry guarantee.
+
+### PB-2: **libsql loses acknowledged writes after SQLITE_BUSY.** After one SQLITE_BUSY on an autocommit write, the connection keeps an open write transaction, and later acknowledged writes are lost at `$disconnect`. Reproduced on every @libsql/client version and on VibORM's libsql driver; file it upstream.
+
+**Disposition:** verified-fixed. **Review:** unspecified severity; post-review blocker.
+
+Mitigated with explicit cleanup, not transparent recovery. Native libSQL 0.18 lost an acknowledged follow-up write after raw BUSY. Final local 10/10 verifies exact-client quarantine for typed/raw BUSY, no durable failed/refused write, sibling connect/query/transaction refusal, raw PRAGMA/VACUUM parity, owned disconnect/recreate, and borrowed preservation/replacement contract. No blanket batching retained.
+
+### PB-3: **@libsql/client 0.18 makes in-memory transactions non-atomic.** 0.18 is npm `latest` and outside the `^0.14` peer range. On it, VibORM's default in-memory client is non-atomic.
+
+**Disposition:** verified-fixed. **Review:** unspecified severity; post-review blocker.
+
+Actual installed @libsql/client0.18 supplied file::memory: bigint client uses native transaction(write), throwncallback leaveszero durable rows, owned error identity preserved; disconnectneverclosesborrowedtransport, subsequentinsert/read exact. sqlite3-v1-driver-remediation.test.ts15/15 provider+coverage /tmp/viborm-v1-driver-integer-capacity-wal-final.log combined63/63,7.09s746MiB verifiedteardown. Local in-memory defect closed independently of unavailable hostedTurso qualification.
+
+### PB-4: **A failed control statement closes a supplied bun:sqlite Database** and rolls back the caller's own transaction.
+
+**Disposition:** verified-fixed. **Review:** unspecified severity; post-review blocker.
+
+Actual Bun platform fixture1/1 passed: borrowed handle BEGIN failure never invokes callback, never closes caller database or rolls back caller transaction; own uncommitted row remains and native owner successfully ROLLBACKs. tests/providers/platform/bun-sqlite-runtime-probe.ts, integration6 log.
+
+### PB-5: **SQLite push mislabels a `.now()` column as safe.** Adding `s.dateTime().now()` to a non-empty table is labelled safe, then fails with V2001.
+
+**Disposition:** verified-fixed. **Review:** unspecified severity; post-review blocker.
+
+SQLite .now computed default uses existing reconstruction and backfills populated rows; second push noop. Live SQLite v1-push witness17/17; default-only risk safe only when actual valid SQL backfill exists.
+
+### PB-6: **pg includes of timestamptz throw V9001 in named session zones.** `to_json` emits `±HH:MM:SS` LMT offsets.
+
+**Disposition:** verified-fixed. **Review:** unspecified severity; post-review blocker.
+
+PG bigint lists use exactNumericProjection text members; temporal provider parser preserves calendar years0..99/BC and second-resolution offsets without extending raw Date admission. Actual pglite-adapter-adversarial9/9 sets server TimeZone Europe/Paris, witnesses to_json ancient year0099 offset+00:09:21, then verifies Date, timestamp-array and bigint-array [9007199254740993n,-9007199254740993n] through include AND nested select, restoring UTC in finally. Existing year0/date-array fixture also passed. /tmp/viborm-v1-query-pg-named-zone-final.log:14.73s1801.9MiB isolated2560 allowance, teardown verified. Earlier actual Neon owned/supplied HTTP/TCP matrix6/6 is complementary scalar/list evidence, not substituted for this named-session-zone witness.
+
+**Additional verification:** Dedicated PG physical timestamp,date+array BC/year0-leap/offset witnesses passed13/13; live transport matrix driver-owned.
+
+### PB-7: **Typed-JSON filter operands are unusable on drifted data.** Path `equals` on a `.schema()` field is validated against the whole-document schema and always throws, so drifted rows cannot be located.
+
+**Disposition:** verified-fixed. **Review:** unspecified severity; post-review blocker.
+
+Physical JSON filter operands use schema-free JSON domain and do not repeat whole-document write transforms/refinements; final output/refinement11/11 and core JSON filters green. Path filtering drifted documents remains usable; custom schemas apply only to writes.
+
+### PB-8: **drivers-02 should return to critical.** Every rollback path on a supplied remote libSQL client leaves partial writes durable, while both competitors are correct on the identical scenario.
+
+**Disposition:** verified-fixed. **Review:** unspecified severity; post-review blocker.
+
+Actual network HTTP/Hrana execution through supplied @libsql/client0.18 against isolated official libSQL server sqld0.23.0 (9aa0a157,2024-02-27), image sha256:b86a57a04563d5a90abb4e4e06995936b6d74477005188cbc38a01dd2e5f31d1. Public callback two-write rollback retains original failure identity; public array later constraint failure rolls back prefix; successful callback commits and subsequent reads exact; disconnect leaves borrowed native HTTP client usable. Three separate real SDK client effect oracles passed3/3,2.89s494.8MiB,teardown verified /tmp/viborm-v1-libsql-network-rollback.log. tests/providers/local/libsql-v1-network-remediation.test.ts. Server boundonly127.0.0.1 with fresh container-only storage,256MiB/1CPU; owned container stopped/removed afterproof, noSQLDROP/TRUNCATE. Controlled native write lifecycle31/31 remains complementary. This verifies reported remote transaction bug on actual network transport; hosted Turso and latest-server version remain unqualified because no hosted credentials were available.

@@ -115,11 +115,11 @@ describe("polymorphic migration push convergence", () => {
       const toOne = await syncLiveSchema(one);
       const toMany = await syncLiveSchema(many);
 
-      expect(toOne.operations.map((operation) => operation.label)).toEqual([
+      expect(toOne.operations.map((operation) => operation.type)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
-      expect(toMany.operations.map((operation) => operation.label)).toEqual([
+      expect(toMany.operations.map((operation) => operation.type)).toEqual([
         "dropIndex",
         "createIndex",
       ]);
@@ -272,7 +272,7 @@ describe("polymorphic collection push convergence", () => {
         ])
       );
       // THE CONVERGENCE CLAIM: the unique target side on the singular
-      // member, the non-unique reverse index on both, the compound primary
+      // member, the reverse index only where not covered by uniqueness, the compound primary
       // key and the dual cascade foreign keys all round-trip through
       // introspection without churn.
       expect(second.operations).toEqual([]);
@@ -302,9 +302,7 @@ describe("polymorphic collection push convergence", () => {
         "poly_coll_shelves_items_note",
       ]);
       expect(
-        added.operations.filter(
-          (operation) => operation.label !== "createTable"
-        )
+        added.operations.filter((operation) => operation.type !== "createTable")
       ).toEqual([]);
       expect((await syncLiveSchema(after)).operations).toEqual([]);
     } finally {

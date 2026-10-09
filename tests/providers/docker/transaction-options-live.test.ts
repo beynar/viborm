@@ -10,12 +10,12 @@
  *   MYSQL_TEST_CONNECTION_STRING=mysql://root:password@127.0.0.1:3307/viborm
  */
 
+import { randomUUID } from "node:crypto";
 import { createClient } from "@client/client";
 import { MySQL2Driver } from "@drivers/mysql2";
 import { PgDriver } from "@drivers/pg";
 
 import { s } from "@schema";
-import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { describe, expect, test } from "vitest";
 
 const PG_CONNECTION_STRING = process.env.PG_TEST_CONNECTION_STRING;
@@ -23,95 +23,130 @@ const MYSQL_CONNECTION_STRING = process.env.MYSQL_TEST_CONNECTION_STRING;
 const describeIfPg = PG_CONNECTION_STRING ? describe : describe.skip;
 const describeIfMySQL = MYSQL_CONNECTION_STRING ? describe : describe.skip;
 
-const counterSchema = (() => {
+// Isolation tests own a table, not the rest of a shared provider's estate.
+// Keep setup additive and leave an empty unique fixture after row cleanup.
+const createPgCounterFixture = async () => {
+  const table = `tx_option_${randomUUID().replaceAll("-", "")}`;
   const counter = s
-    .model({
-      id: s.string().id(),
-      total: s.int().default(0),
-    })
-    .map("tx_option_counters");
-  return { counter };
-})();
+    .model({ id: s.string().id(), total: s.int().default(0) })
+    .map(table);
+  const client = createClient({
+    schema: { counter },
+    driver: new PgDriver({ databaseUrl: PG_CONNECTION_STRING }),
+  });
+  try {
+    await client.$queryRawUnsafe(
+      `CREATE TABLE "${table}" (id TEXT PRIMARY KEY, total INTEGER NOT NULL DEFAULT 0)`
+    );
+  } catch (error) {
+    await client.$disconnect();
+    throw error;
+  }
+  return { client, table };
+};
+
+const readBarrier = () => {
+  let release: () => void = () => {
+    /* Set synchronously by Promise construction. */
+  };
+  const bothRead = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let arrivals = 0;
+  return async () => {
+    arrivals += 1;
+    if (arrivals === 2) release();
+    await bothRead;
+  };
+};
 
 describeIfPg("PostgreSQL honors Serializable for real", () => {
   test("two concurrent Serializable transactions produce a mapped V5004", async () => {
-    const driver = new PgDriver({ databaseUrl: PG_CONNECTION_STRING });
-    const client = createClient({ schema: counterSchema, driver });
-    await syncLiveSchema(client);
-    await client.$queryRawUnsafe('DELETE FROM "tx_option_counters"');
-    await client.counter.create({ data: { id: "a", total: 0 } });
-    await client.counter.create({ data: { id: "b", total: 0 } });
+    const { client, table } = await createPgCounterFixture();
+    const bothRead = readBarrier();
+    try {
+      await client.counter.create({ data: { id: "a", total: 0 } });
+      await client.counter.create({ data: { id: "b", total: 0 } });
 
-    // The classic write-skew pair: each transaction reads what the other is
-    // about to write. Under Serializable exactly one must fail with the
-    // dialect's serialization error (40001), mapped to V5004.
-    const crossUpdate = (readId: string, writeId: string) =>
-      client.$transaction(
-        async (tx) => {
-          const rows = await tx.counter.findMany({ where: { id: readId } });
-          const seen = rows[0]?.total ?? 0;
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          await tx.counter.update({
-            where: { id: writeId },
-            data: { total: seen + 1 },
-          });
-        },
-        { isolationLevel: "Serializable" }
+      // The classic write-skew pair: each transaction reads what the other is
+      // about to write. Under Serializable exactly one must fail with the
+      // dialect's serialization error (40001), mapped to V5004.
+      const crossUpdate = (readId: string, writeId: string) =>
+        client.$transaction(
+          async (tx) => {
+            const rows = await tx.counter.findMany({ where: { id: readId } });
+            const seen = rows[0]?.total ?? 0;
+            await bothRead();
+            await tx.counter.update({
+              where: { id: writeId },
+              data: { total: seen + 1 },
+            });
+          },
+          { isolationLevel: "Serializable" }
+        );
+
+      const outcomes = await Promise.allSettled([
+        crossUpdate("a", "b"),
+        crossUpdate("b", "a"),
+      ]);
+      const rejections = outcomes.filter(
+        (outcome) => outcome.status === "rejected"
       );
-
-    const outcomes = await Promise.allSettled([
-      crossUpdate("a", "b"),
-      crossUpdate("b", "a"),
-    ]);
-    const rejections = outcomes.filter(
-      (outcome) => outcome.status === "rejected"
-    );
-    expect(rejections.length).toBeGreaterThanOrEqual(1);
-    for (const rejection of rejections) {
-      // Mapped through the taxonomy, not leaked raw: a serialization failure is
-      // the retryable transaction error, not an anonymous driver crash.
-      expect(rejection.reason).toMatchObject({
-        code: "V5004",
-        name: "TransactionError",
-      });
+      expect(rejections.length).toBeGreaterThanOrEqual(1);
+      for (const rejection of rejections) {
+        // Mapped through the taxonomy, not leaked raw: a serialization failure is
+        // the retryable transaction error, not an anonymous driver crash.
+        expect(rejection.reason).toMatchObject({
+          code: "V5004",
+          name: "TransactionError",
+        });
+      }
+    } finally {
+      try {
+        await client.$queryRawUnsafe(`DELETE FROM "${table}"`);
+      } finally {
+        await client.$disconnect();
+      }
     }
-
-    await client.$disconnect();
   });
 
   test("the same pair commits without a conflict under ReadCommitted", async () => {
-    const driver = new PgDriver({ databaseUrl: PG_CONNECTION_STRING });
-    const client = createClient({ schema: counterSchema, driver });
-    await syncLiveSchema(client);
-    await client.$queryRawUnsafe('DELETE FROM "tx_option_counters"');
-    await client.counter.create({ data: { id: "a", total: 0 } });
-    await client.counter.create({ data: { id: "b", total: 0 } });
+    const { client, table } = await createPgCounterFixture();
+    const bothRead = readBarrier();
+    try {
+      await client.counter.create({ data: { id: "a", total: 0 } });
+      await client.counter.create({ data: { id: "b", total: 0 } });
 
-    // Falsification of the test above: if the level were being dropped, the
-    // Serializable case would look exactly like this one.
-    const crossUpdate = (readId: string, writeId: string) =>
-      client.$transaction(
-        async (tx) => {
-          const rows = await tx.counter.findMany({ where: { id: readId } });
-          const seen = rows[0]?.total ?? 0;
-          await new Promise((resolve) => setTimeout(resolve, 50));
-          await tx.counter.update({
-            where: { id: writeId },
-            data: { total: seen + 1 },
-          });
-        },
-        { isolationLevel: "ReadCommitted" }
+      // Falsification of the test above: if the level were being dropped, the
+      // Serializable case would look exactly like this one.
+      const crossUpdate = (readId: string, writeId: string) =>
+        client.$transaction(
+          async (tx) => {
+            const rows = await tx.counter.findMany({ where: { id: readId } });
+            const seen = rows[0]?.total ?? 0;
+            await bothRead();
+            await tx.counter.update({
+              where: { id: writeId },
+              data: { total: seen + 1 },
+            });
+          },
+          { isolationLevel: "ReadCommitted" }
+        );
+
+      const outcomes = await Promise.allSettled([
+        crossUpdate("a", "b"),
+        crossUpdate("b", "a"),
+      ]);
+      expect(outcomes.every((outcome) => outcome.status === "fulfilled")).toBe(
+        true
       );
-
-    const outcomes = await Promise.allSettled([
-      crossUpdate("a", "b"),
-      crossUpdate("b", "a"),
-    ]);
-    expect(outcomes.every((outcome) => outcome.status === "fulfilled")).toBe(
-      true
-    );
-
-    await client.$disconnect();
+    } finally {
+      try {
+        await client.$queryRawUnsafe(`DELETE FROM "${table}"`);
+      } finally {
+        await client.$disconnect();
+      }
+    }
   });
 });
 

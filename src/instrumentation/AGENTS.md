@@ -207,3 +207,13 @@ instrumentation, query-engine, and cache layer gates sequentially. The
 `pnpm test:coverage:instrumentation` command is the exact 100% subsystem report
 and writes `coverage/instrumentation/index.html`. It runs with one 768 MB worker
 under the 1536 MiB sampled process-group RSS ceiling and verifies process-group teardown.
+
+Diagnostic provider/callsite disclosure uses the existing `DiagnosticDisclosure`
+owner: `includeProviderDetails` and `includeCallsite` are false by default. The
+error snapshot retains bounded own-data provider message/detail/hint with
+credential redaction; the private operation execution context captures origin
+only when opted in. Official logs preserve those selected diagnostics while SQL
+and parameters remain channel-owned. Protected completion facts can carry one
+failure for tracing without selecting a log (`skipLog`); no ordinary observer
+receives that failure. Tracer settlement publishes only canonical class/code and
+allowlisted SQLSTATE, never provider message/callsite/parameters.

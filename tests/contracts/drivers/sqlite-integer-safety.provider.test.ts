@@ -1,5 +1,5 @@
 import { createClient } from "@client/client";
-import type { AnyDriver, BatchQuery } from "@drivers";
+import type { AnyDriver, BatchQuery } from "@drivers/exports";
 import { LibSQLDriver } from "@drivers/libsql";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
@@ -8,7 +8,6 @@ import { readTestTransactionOperation } from "@tests/fixtures/transaction-operat
 import { describe, expect, test } from "vitest";
 
 const EXACT = 9_007_199_254_740_993n;
-const ROUNDED = 9_007_199_254_740_992;
 
 const measurement = s
   .model({
@@ -30,7 +29,7 @@ function prepareOperation(operation: unknown, driver: AnyDriver): BatchQuery {
 }
 
 describe("SQLite3 provider integer safety", () => {
-  test("execute reads exactly past 2^53 while raw stays native", async () => {
+  test("execute and raw preserve INTEGER values past 2^53", async () => {
     const driver = new SQLite3Driver({ dataDir: ":memory:" });
 
     try {
@@ -44,12 +43,12 @@ describe("SQLite3 provider integer safety", () => {
       const typed = await driver._execute<{ views: bigint }>(
         sql`SELECT "views" FROM "measurements"`
       );
-      const raw = await driver._executeRaw<{ views: number }>(
+      const raw = await driver._executeRaw<{ views: bigint }>(
         `SELECT "views" FROM "measurements"`
       );
 
       expect(typed.rows[0]?.views).toBe(EXACT);
-      expect(raw.rows[0]?.views).toBe(ROUNDED);
+      expect(raw.rows[0]?.views).toBe(EXACT);
     } finally {
       await driver.disconnect();
     }
@@ -74,21 +73,21 @@ describe("SQLite3 provider integer safety", () => {
       const taggedDirect = await client.$queryRaw<{
         views: bigint;
       }>`SELECT "views" FROM "measurements"`;
-      const unsafeDirect = await client.$queryRawUnsafe<{ views: number }>(
+      const unsafeDirect = await client.$queryRawUnsafe<{ views: bigint }>(
         `SELECT "views" FROM "measurements"`
       );
 
       expect(typedDirect[0]?.views).toBe(EXACT);
       expect(taggedDirect[0]?.views).toBe(EXACT);
-      expect(unsafeDirect[0]?.views).toBe(ROUNDED);
+      expect(unsafeDirect[0]?.views).toBe(EXACT);
 
-      const batch = await driver._executeBatch<{ views: bigint | number }>([
+      const batch = await driver._executeBatch<{ views: bigint | string }>([
         prepareOperation(
           client.measurement.findMany({ select: { views: true } }),
           driver
         ),
         prepareOperation(
-          client.$queryRawUnsafe<{ views: number }>(
+          client.$queryRawUnsafe<{ views: bigint }>(
             `SELECT "views" FROM "measurements"`
           ),
           driver
@@ -102,8 +101,8 @@ describe("SQLite3 provider integer safety", () => {
       ]);
 
       expect(batch.map((result) => result.rows[0]?.views)).toEqual([
+        EXACT.toString(),
         EXACT,
-        ROUNDED,
         EXACT,
       ]);
     } finally {
@@ -126,7 +125,7 @@ describe("LibSQL provider integer-mode control", () => {
         EXACT,
       ]);
 
-      const batch = await driver._executeBatch<{ views: bigint }>([
+      const batch = await driver._executeBatch<{ views: bigint | string }>([
         prepareOperation(
           client.measurement.findMany({ select: { views: true } }),
           driver
@@ -146,7 +145,7 @@ describe("LibSQL provider integer-mode control", () => {
       ]);
 
       expect(batch.map((result) => result.rows[0]?.views)).toEqual([
-        EXACT,
+        EXACT.toString(),
         EXACT,
         EXACT,
       ]);

@@ -1,9 +1,6 @@
-import { UniqueConstraintError } from "@errors";
+import { UnsupportedOperationError } from "@errors";
 import { hydrateSchemaNames, s } from "@schema";
-import {
-  captureDroppedSkipWarnings,
-  droppedSkipWarning,
-} from "@tests/fixtures/dropped-skip-warning";
+import { captureDroppedSkipWarnings } from "@tests/fixtures/dropped-skip-warning";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -351,10 +348,10 @@ export function registerProducedIdentityBehavior(
         // plain member, its duplicate name fails the create's one atomic
         // batch, and nothing of the create is written. The adopt shape this
         // cell pins is measured on the interactive leg.
-        await expect(operation).rejects.toBeInstanceOf(UniqueConstraintError);
-        expect(droppedSkipWarnings("post")).toEqual([
-          droppedSkipWarning("pglite", "post.create"),
-        ]);
+        await expect(operation).rejects.toBeInstanceOf(
+          UnsupportedOperationError
+        );
+        expect(droppedSkipWarnings("post")).toEqual([]);
         expect(await client.post.findMany()).toEqual([]);
         expect(
           (await client.stamp.findMany()).map((row: any) => row.id)

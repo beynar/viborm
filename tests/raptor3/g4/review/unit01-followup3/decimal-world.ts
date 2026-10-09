@@ -1,8 +1,10 @@
+import { sqliteDecimalCheck } from "@adapters/databases/sqlite/storage/decimal";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { createModelFieldRefs } from "@schema/field-ref";
+import { createIdentifierQuoter } from "@src/sql/identifiers";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 
 /**
@@ -20,7 +22,10 @@ export const led = s
     alsoCents: s.decimal({ precision: 12, scale: 2 }).map("also_cents"),
     micros: s.decimal({ precision: 12, scale: 4 }),
     wideCents: s.decimal({ precision: 10, scale: 2 }).map("wide_cents"),
-    maybeCents: s.decimal({ precision: 12, scale: 2 }).nullable().map("maybe_cents"),
+    maybeCents: s
+      .decimal({ precision: 12, scale: 2 })
+      .nullable()
+      .map("maybe_cents"),
     count: s.int(),
     tag: s.string(),
     lines: s.toMany(() => line).name("ledLines"),
@@ -43,34 +48,41 @@ export const line = s
 
 export const schema = { led, line };
 
-export const ledRefs = createModelFieldRefs("led", led) as Record<string, unknown>;
-export const lineRefs = createModelFieldRefs("line", line) as Record<string, unknown>;
+export const ledRefs = createModelFieldRefs("led", led) as Record<
+  string,
+  unknown
+>;
+export const lineRefs = createModelFieldRefs("line", line) as Record<
+  string,
+  unknown
+>;
 
 const SEED = `
   CREATE TABLE fu3_led(
     id INTEGER PRIMARY KEY,
-    cents TEXT NOT NULL,
-    also_cents TEXT NOT NULL,
-    micros TEXT NOT NULL,
-    wide_cents TEXT NOT NULL,
-    maybe_cents TEXT,
+    cents INTEGER NOT NULL ${sqliteDecimalCheck({ name: "cents", nullable: false }, { precision: 12, scale: 2 }, "scalar", createIdentifierQuoter('"'))},
+    also_cents INTEGER NOT NULL ${sqliteDecimalCheck({ name: "also_cents", nullable: false }, { precision: 12, scale: 2 }, "scalar", createIdentifierQuoter('"'))},
+    micros INTEGER NOT NULL ${sqliteDecimalCheck({ name: "micros", nullable: false }, { precision: 12, scale: 4 }, "scalar", createIdentifierQuoter('"'))},
+    wide_cents INTEGER NOT NULL ${sqliteDecimalCheck({ name: "wide_cents", nullable: false }, { precision: 10, scale: 2 }, "scalar", createIdentifierQuoter('"'))},
+    maybe_cents INTEGER ${sqliteDecimalCheck({ name: "maybe_cents", nullable: true }, { precision: 12, scale: 2 }, "scalar", createIdentifierQuoter('"'))},
     count INTEGER NOT NULL,
     tag TEXT NOT NULL
   );
   CREATE TABLE fu3_line(
     id INTEGER PRIMARY KEY,
     led_id INTEGER,
-    fee TEXT NOT NULL,
-    fee_micros TEXT NOT NULL
+    fee INTEGER NOT NULL ${sqliteDecimalCheck({ name: "fee", nullable: false }, { precision: 8, scale: 2 }, "scalar", createIdentifierQuoter('"'))},
+    fee_micros INTEGER NOT NULL ${sqliteDecimalCheck({ name: "fee_micros", nullable: false }, { precision: 8, scale: 3 }, "scalar", createIdentifierQuoter('"'))}
   );
   INSERT INTO fu3_led VALUES
-    (1,'1.20','1.20','1.2000','1.20','1.20',1,'x'),
-    (2,'2.00','3.00','9.0000','7.00',NULL,2,'y');
-  INSERT INTO fu3_line VALUES (1,1,'1.20','1.200'),(2,2,'4.00','5.000');
+    (1,120,120,12000,120,120,1,'x'),
+    (2,200,300,90000,700,NULL,2,'y');
+  INSERT INTO fu3_line VALUES (1,1,120,1200),(2,2,400,5000);
 `;
 
 function build(): { db: Database.Database; driver: SQLite3Driver } {
   const db = new Database(":memory:");
+  db.pragma("foreign_keys = ON");
   db.exec(SEED);
   return { db, driver: new SQLite3Driver({ client: db }) };
 }

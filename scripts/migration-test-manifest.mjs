@@ -9,6 +9,7 @@ const localExtendedMigrationTests = Object.freeze([
   "constraint-identity.test.ts",
   "decimal-descriptor-ddl.test.ts",
   "decimal-sqlite-integrity.test.ts",
+  "geopoint-sqlite-convergence.test.ts",
   "polymorphic-push.test.ts",
   "sqlite-batch-refs-introspection.test.ts",
   "sqlite-datetime-diff-boundary.test.ts",

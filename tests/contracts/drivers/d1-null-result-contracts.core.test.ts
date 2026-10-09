@@ -19,9 +19,15 @@ function nullResult(changes = 0, lastRowId = 0): NullD1Result {
   };
 }
 
-function createSingleResultDriver(result: NullD1Result): D1Driver {
+function createSingleResultDriver(
+  result: Omit<NullD1Result, "results"> & {
+    results: Record<string, unknown>[] | null;
+  },
+  onBind?: (values: unknown[]) => void
+): D1Driver {
   const statement = {
-    bind() {
+    bind(...values: unknown[]) {
+      onBind?.(values);
       return statement;
     },
     run: vi.fn(async () => result),
@@ -72,6 +78,18 @@ async function captureMalformedResult(
 }
 
 describe("D1 binding null-result statement contracts", () => {
+  test("binds a raw Date cutoff as ISO text through D1's native statement boundary", async () => {
+    const bind = vi.fn();
+    const driver = createSingleResultDriver(nullResult(1), bind);
+    const cutoff = new Date("2026-10-08T00:00:00.000Z");
+    await driver._executeRaw(
+      "UPDATE events SET active = 0 WHERE last_seen < ?",
+      [cutoff],
+      { model: "$raw" }
+    );
+    expect(bind).toHaveBeenCalledExactlyOnceWith(["2026-10-08T00:00:00.000Z"]);
+  });
+
   test("publishes the concrete generated row id reported by D1", async () => {
     await expect(
       createSingleResultDriver(nullResult(1, 42))._executeRaw(
@@ -98,14 +116,30 @@ describe("D1 binding null-result statement contracts", () => {
 
   test.each([
     1.5,
-    Number.MAX_SAFE_INTEGER + 1,
     Number.NaN,
-  ])("rejects a non-safe D1 last_row_id (%s)", async (lastRowId) => {
+    Number.POSITIVE_INFINITY,
+  ])("rejects invalid D1 last_row_id metadata (%s)", async (lastRowId) => {
     await expect(
       createSingleResultDriver(nullResult(1, lastRowId))._executeRaw(
         "INSERT INTO events DEFAULT VALUES"
       )
-    ).rejects.toThrow("a safe-integer last_row_id");
+    ).rejects.toThrow("an integer last_row_id");
+  });
+
+  test.each([
+    "INSERT INTO events DEFAULT VALUES",
+    "SELECT id FROM events",
+  ])("preserves exact rows and discards unsafe sticky row-id metadata for %s", async (statement) => {
+    const result = {
+      ...nullResult(1, Number.MAX_SAFE_INTEGER + 1),
+      results: [{ id: "9007199254740993" }],
+    };
+    await expect(
+      createSingleResultDriver(result)._executeRaw(statement)
+    ).resolves.toEqual({
+      rows: [{ id: "9007199254740993" }],
+      rowCount: 1,
+    });
   });
 
   test.each([

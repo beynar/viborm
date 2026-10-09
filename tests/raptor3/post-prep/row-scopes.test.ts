@@ -12,6 +12,7 @@
  */
 
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { ASSERTION_MARKER } from "@drivers/error-mapping";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import type { BatchQuery, QueryResult } from "@drivers/types";
 import { NotFoundError, UniqueConstraintError } from "@errors";
@@ -101,7 +102,11 @@ class InterleavingSQLite3Driver extends SQLite3Driver {
   ): Promise<QueryResult<T>> {
     this.statements.push(sql);
     const pending = this.#pending;
-    if (pending?.match.test(sql) && pending.skip-- === 0) {
+    if (
+      !sql.includes(ASSERTION_MARKER) &&
+      pending?.match.test(sql) &&
+      pending.skip-- === 0
+    ) {
       this.#pending = undefined;
       await super.executeRaw(client, pending.sql, pending.params);
     }
@@ -253,7 +258,9 @@ describe("a claimed polymorphic arm under a domain (SQLite3)", () => {
       const statementOf = async (call: () => PromiseLike<unknown>) => {
         driver.statements.length = 0;
         await call();
-        return driver.statements.join("\n");
+        return driver.statements
+          .filter((statement) => !statement.includes(ASSERTION_MARKER))
+          .join("\n");
       };
       const pins = { include: { subject: true } } as const;
       const plain = await statementOf(() => base.pin.findMany(pins));

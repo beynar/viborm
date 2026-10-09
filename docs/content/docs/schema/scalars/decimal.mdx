@@ -76,11 +76,18 @@ expect(row.total.eq(new Decimal("1.2"))).toBe(true);
 expect(row.total.constructor).toBe(Decimal);
 ```
 
-`Decimal#toJSON()` returns a string for ordinary application JSON. VibORM does
-not depend on JSON or structured cloning to preserve a Decimal prototype — and
-a `Decimal` is not structured-cloneable, because its state is private: send
-`value.toString()` across a worker or a `structuredClone`-based boundary and
-rebuild the value on the other side.
+Each instance exposes immutable canonical text as `.value`, so ordinary deep
+equality distinguishes amounts. `Decimal#toJSON()` returns that text as a JSON
+string. `structuredClone`, worker messages and Node's V8 serialization preserve
+`{ value: "1.2" }` as a plain object; they do not preserve Decimal methods.
+Reconstruct it explicitly with `new Decimal(cloned.value)`. A cloned object
+does not acquire the private Decimal brand and is not accepted as a typed
+decimal write by itself.
+
+The brand belongs to one installed copy of VibORM. If a package supplies a
+`Decimal` from another copy, pass its canonical `.value` string or reconstruct
+it with your application's `new Decimal(foreign.value)`. Deduplicating VibORM
+avoids that boundary; matching class names alone do not establish identity.
 
 ## Custom validation
 
@@ -244,7 +251,7 @@ Live descriptor changes follow the Migration V1 provider-admission matrix:
 - PlanetScale has no admitted VibORM effectful-DDL route. Marker creation and
   alter survival are proved on the MySQL dialect substrate; a hosted
   PlanetScale connection can introspect the marker when credentials exist.
-- D1 and D1 HTTP support ordinary decimal reads and writes, and libSQL supports
+- D1 supports ordinary decimal reads and writes, and libSQL supports
   the same SQLite coefficient representation. Migration V1 keeps their offline
   generation and read-only inspection paths, but refuses every effectful
   `push` or migration command before SQL until each provider proves the complete

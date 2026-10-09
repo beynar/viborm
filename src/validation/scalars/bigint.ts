@@ -6,6 +6,7 @@ import {
   comparableScalar,
   type ListFilterSchema,
   type ListUpdateSchema,
+  type SetUpdateSchema,
 } from "./family";
 
 type BigIntList = V.BigInt<{ array: true }>;
@@ -18,7 +19,9 @@ export interface BigIntSchemas<
   create: V.BigInt<F>;
   update: F["array"] extends true
     ? ListUpdateSchema<F["base"], V.BigInt, BigIntList>
-    : ArithmeticUpdateSchema<F["base"], V.BigInt>;
+    : F["schema"] extends undefined
+      ? ArithmeticUpdateSchema<F["base"], V.BigInt>
+      : SetUpdateSchema<F["base"]>;
   filter: F["array"] extends true
     ? ListFilterSchema<F["base"], V.BigInt, BigIntList>
     : ComparisonFilterSchema<"bigint", F["base"], V.BigInt, BigIntList, C>;

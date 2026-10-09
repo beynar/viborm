@@ -16,7 +16,7 @@ import {
 } from "../primitives/geo-values";
 import type { ExactlyOneSchema } from "../scalars/decimal";
 import type { VibSchema } from "../types";
-import { isFunction, isString } from "../value-guards";
+import { isFunction, isRecord, isString } from "../value-guards";
 import type {
   ConversionContext,
   ConversionFrame,
@@ -211,6 +211,14 @@ export function convertSchema(
   let body: JsonSchema;
   try {
     body = convertSchemaBody(schema, context);
+    if ("options" in schema && isRecord(schema.options)) {
+      if (schema.options.array === true) body = { type: "array", items: body };
+      if (schema.options.nullable === true)
+        body =
+          context.target === "openapi-3.0"
+            ? { ...body, nullable: true }
+            : { anyOf: [body, { type: "null" }] };
+    }
   } finally {
     if (shadowed) {
       context.activeFrames.set(schema, shadowed);
@@ -269,18 +277,7 @@ function convertSchemaBody(
         ? DECIMAL_OUTPUT_PATTERN
         : DECIMAL_INPUT_PATTERN;
 
-    // Scalar options compose arity and nullability inside `v.decimal(...)`
-    // rather than through standalone wrapper schemas. Project them here at the
-    // same owner, or a decimal-list/nullable validator and its JSON Schema
-    // describe different value families.
-    const withArity: JsonSchema = options?.array
-      ? { type: "array", items: jsonSchema }
-      : jsonSchema;
-    if (!options?.nullable) return withArity;
-    if (context.target === "openapi-3.0") {
-      return { ...withArity, nullable: true };
-    }
-    return { anyOf: [withArity, { type: "null" }] };
+    return jsonSchema;
   }
 
   if (isExactOneSchema(schema)) {
@@ -322,6 +319,10 @@ function convertSchemaBody(
     case "number":
     case "integer":
       jsonSchema.type = schemaType === "integer" ? "integer" : "number";
+      if ("minimum" in schema && typeof schema.minimum === "number")
+        jsonSchema.minimum = schema.minimum;
+      if ("maximum" in schema && typeof schema.maximum === "number")
+        jsonSchema.maximum = schema.maximum;
       break;
 
     case "boolean":
@@ -389,7 +390,7 @@ function convertSchemaBody(
     case "object": {
       const entries = (schema as any).entries as Record<string, unknown>;
       const options = (schema as any).options as
-        | { partial?: boolean; strict?: boolean }
+        | { partial?: boolean; strict?: boolean; atLeast?: readonly string[] }
         | undefined;
       const partial = options?.partial ?? true;
       const strict = options?.strict ?? true;
@@ -433,8 +434,19 @@ function convertSchemaBody(
         const entryType = (entrySchema as any).type;
         const isOptionalWrapper =
           entryType === "optional" || entryType === "nullish";
+        const acceptsUndefined =
+          "acceptsUndefined" in entrySchema &&
+          entrySchema.acceptsUndefined === true;
+        const outputDefault =
+          context.direction === "output" &&
+          "options" in entrySchema &&
+          isRecord(entrySchema.options) &&
+          entrySchema.options.default !== undefined;
 
-        if (!(partial || isOptionalWrapper)) {
+        if (
+          (!partial || options?.atLeast?.includes(key)) &&
+          (outputDefault || !(isOptionalWrapper || acceptsUndefined))
+        ) {
           jsonSchema.required.push(key);
         }
       }

@@ -135,11 +135,11 @@ const refusal = async (pending: Promise<unknown>) => {
   };
 };
 
-/** Today's refusal of a missing field, byte for byte (measured at 8dce0d121). */
+/** Missing-field refusal includes its actionable admitted input path. */
 const missing = (path: string, message: string) => ({
   validation: true,
   name: "ValidationError",
-  message: `Validation failed for create: ${message}`,
+  message: `Validation failed for create: ${path}: ${message}`,
   issues: [{ path, message }],
 });
 const MISSING_TENANT_ID = missing(

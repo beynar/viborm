@@ -1,9 +1,18 @@
+import { ValidationError } from "@errors";
+import {
+  JsonNull,
+  type JsonNullSentinel,
+  jsonNullKindOf,
+} from "@schema/json-null";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { JsonValue } from "@validation";
+import type { JsonInput } from "@validation/primitives/json";
 import v from "@validation/primitives/v";
 import {
   createDefaultState,
+  type DefaultValue,
   type DefaultValueInput,
+  nullableDefault,
   type ScalarState,
   updateState,
 } from "../common";
@@ -32,7 +41,7 @@ export class JsonScalar<
       updateState(this, {
         nullable: true,
         hasDefault: true,
-        default: null,
+        default: nullableDefault(this.state),
         optional: true,
         base: v.json<{
           nullable: true;
@@ -46,18 +55,40 @@ export class JsonScalar<
     );
   }
 
-  default<V extends DefaultValueInput<State>>(value: V) {
+  default<
+    V extends
+      | DefaultValueInput<State>
+      | DefaultValue<
+          JsonNullSentinel<
+            State["nullable"] extends true ? "JsonNull" | "DbNull" : "JsonNull"
+          >
+        >,
+  >(value: V) {
+    const kind = jsonNullKindOf(value);
+    if (kind === "AnyNull" || (kind === "DbNull" && !this.state.nullable)) {
+      throw new ValidationError(
+        { kind: "schema-builder", builder: "s.json", path: "default" },
+        [
+          {
+            path: "default",
+            message: "JSON default must name a null this column can store",
+          },
+        ]
+      );
+    }
+    const defaultValue =
+      value === null && !this.state.nullable ? JsonNull : value;
     return new JsonScalar(
       updateState(this, {
         hasDefault: true,
-        default: value,
+        default: defaultValue,
         optional: true,
       }),
       this._nativeType
     );
   }
 
-  schema<S extends StandardSchemaV1<JsonValue>>(schema: S) {
+  schema<S extends StandardSchemaV1<JsonInput, JsonValue>>(schema: S) {
     return new JsonScalar(
       updateState(this, {
         schema,

@@ -1,5 +1,5 @@
-import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { batchMayContainAssertionCollision } from "@drivers/error-mapping";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import {
   ForeignKeyError,
   NESTED_WRITE_ASSERTION_FLOOR_MESSAGE,
@@ -7,6 +7,7 @@ import {
   NestedWriteError,
   NotFoundError,
   TransactionError,
+  UnsupportedOperationError,
   VibORMErrorCode,
 } from "@errors";
 import type { PreparedBatchGuard, PreparedGuardFailure } from "./types";
@@ -25,6 +26,10 @@ export function createFailureError(
   model: string,
   operation: string
 ): Error {
+  if (failure.kind === "unsupported")
+    return new UnsupportedOperationError(failure.message, {
+      meta: { model, operation },
+    });
   if (failure.kind === "foreignKey") {
     return new ForeignKeyError(failure.message, { meta: { model, operation } });
   }
@@ -96,6 +101,17 @@ export async function attributeOperationBatchError(
     }
     return error;
   }
+  if (
+    guards.length > 0 &&
+    batchMayContainAssertionCollision(
+      statements,
+      driver.dialect,
+      new Set(guards.map((guard) => guard.queryIndex))
+    )
+  ) {
+    // A failed premise after rollback does not identify which statement failed.
+    return error;
+  }
   for (const guard of guards) {
     const result = await driver._execute(
       guard.probe,
@@ -108,9 +124,9 @@ export async function attributeOperationBatchError(
   }
   const [candidate] = guards;
   if (candidate) {
-    const attributable =
-      guards.every((guard) => sameAttribution(guard, candidate)) &&
-      !batchMayContainAssertionCollision(statements, driver.dialect);
+    const attributable = guards.every((guard) =>
+      sameAttribution(guard, candidate)
+    );
     return attributable
       ? createFailureError(
           candidate.failure,

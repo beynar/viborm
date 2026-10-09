@@ -240,7 +240,7 @@ export const EXPECTED_SCALAR_SHAPE_CENSUS: ShapeCensus = {
   },
   json: {
     create: "json_write",
-    update: "transform",
+    update: "union[object{set: json_write}, transform]",
     filter:
       "object{equals: json_null_or, path: union[array, string], mode: enum, lt: union[number, string], lte: union[number, string], gt: union[number, string], gte: union[number, string], string_contains: string, string_starts_with: string, string_ends_with: string, array_contains: no_field_ref, array_starts_with: no_field_ref, array_ends_with: no_field_ref, not: json_null_or}",
   },

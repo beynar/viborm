@@ -30,7 +30,7 @@
  * with any keys, so a plain-object token would type-check as an ordinary JSON
  * document and could be PERSISTED as user data — the same hazard field
  * references have (see {@link file://./field-ref.ts}). A class instance has a
- * prototype that is not `Object.prototype`, so `isJsonValue` rejects it
+ * prototype that is not `Object.prototype`, so JSON validation rejects it
  * structurally: a sentinel nested anywhere inside a document
  * (`{ a: DbNull }`) fails validation instead of landing in the column as `{}`.
  * Only the top-level operand positions that explicitly opt in accept one.

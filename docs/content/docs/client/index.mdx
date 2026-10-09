@@ -10,15 +10,25 @@ icon: terminal
 import { createClient } from "viborm/pg";
 import { user, post } from "./schema";
 
-const client = createClient({
+export const createDatabase = () => createClient({
   schema: { user, post },
   databaseUrl: process.env.DATABASE_URL,
 });
+
+export const client = createDatabase();
 ```
+
+For a package that defines cyclic models, the supported declaration pattern is
+to construct the client in that package and export the inferred client or
+factory, as above. Consumers import that export without annotating relation
+getters or client results. Rebuilding a client downstream from separately
+emitted raw models or a raw schema can lose cyclic relation types; that
+declaration boundary remains lossy.
 
 ## Operations
 
-Every operation works identically on every database. Prisma-inspired, not a drop-in replacement — see [Compatibility](/docs/client/compatibility) for the differences.
+The client uses a Prisma-inspired API. See [Compatibility](/docs/client/compatibility)
+and the [driver guides](/docs/drivers) for operation and provider limits.
 
 ### Queries
 
@@ -124,52 +134,52 @@ await client.user.create({
 <CardGroup>
   <Card
     title="Types and JSON Schema"
-    description="Derive a nested DB type, validate inputs, and export JSON Schema"
-    href="/docs/client/types-and-json-schema"
-  />
+    href="/docs/client/types-and-json-schema">
+    Derive a nested DB type, validate inputs, and export JSON Schema
+  </Card>
   <Card
     title="Client Extensions"
-    description="Compose request, query, statement, observation, client, and model capabilities"
-    href="/docs/extensions"
-  />
+    href="/docs/extensions">
+    Compose request, query, statement, observation, client, and model capabilities
+  </Card>
   <Card
     title="Omitting Fields"
-    description="Model exclusions, defaultOmit, and per-query projection"
-    href="/docs/client/omit"
-  />
+    href="/docs/client/omit">
+    Model exclusions, defaultOmit, and per-query projection
+  </Card>
   <Card
     title="Transactions"
-    description="Atomic operations with transactions and batching"
-    href="/docs/client/transactions"
-  />
+    href="/docs/client/transactions">
+    Atomic operations with transactions and batching
+  </Card>
   <Card
     title="Compatibility"
-    description="Supported operations and intentional Prisma differences"
-    href="/docs/client/compatibility"
-  />
+    href="/docs/client/compatibility">
+    Supported operations and intentional Prisma differences
+  </Card>
   <Card
     title="Filtering"
-    description="Filter operators by scalar type"
-    href="/docs/client/filtering"
-  />
+    href="/docs/client/filtering">
+    Filter operators by scalar type
+  </Card>
   <Card
     title="Relation Filters"
-    description="Query and filter on relations"
-    href="/docs/client/filtering/relations"
-  />
+    href="/docs/client/filtering/relations">
+    Query and filter on relations
+  </Card>
   <Card
     title="Selecting"
-    description="Select and include fields"
-    href="/docs/client/selecting"
-  />
+    href="/docs/client/selecting">
+    Select and include fields
+  </Card>
   <Card
     title="Sorting"
-    description="Order results"
-    href="/docs/client/sorting"
-  />
+    href="/docs/client/sorting">
+    Order results
+  </Card>
   <Card
     title="Pagination"
-    description="Offset and cursor pagination"
-    href="/docs/client/pagination"
-  />
+    href="/docs/client/pagination">
+    Offset and cursor pagination
+  </Card>
 </CardGroup>

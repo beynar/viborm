@@ -3,9 +3,9 @@ import { describe, it } from "vitest";
 import { both } from "./world";
 
 /**
- * Finding 1 follow-up. The repair claims parity with the shipped split:
- * an UNWINDOWED read emits the bare direction, a WINDOWED read normalizes.
- * Every shape below is asked of both engines over identical data.
+ * All query shapes use the public ASC NULLS LAST / DESC NULLS FIRST defaults.
+ * Every shape is asked of both engines over identical data, with independent
+ * expected rows so matching regressions cannot satisfy the contract.
  */
 const NULLS = `
   INSERT INTO fu_teams VALUES (1,'bravo'),(2,'alpha'),(3,'charlie');
@@ -24,6 +24,7 @@ async function parity(
   label: string
 ): Promise<unknown> {
   const { shipped, candidate } = await both(NULLS, model, operation, args);
+  // biome-ignore lint/suspicious/noMisplacedAssertion: This parity helper is awaited by each registered test.
   assert.deepEqual(
     candidate,
     shipped,
@@ -34,8 +35,7 @@ async function parity(
 
 describe("G4-01 follow-up — null placement, every windowing shape", () => {
   it("settles the disputed bare relation-path order against the shipped engine", async () => {
-    // The reviewer's own order-cursor.test.ts pins NULLS LAST here. Ask the
-    // oracle directly rather than either candidate revision.
+    // Rows 2 and 4 have no team; direction changes their placement explicitly.
     const ascending = await parity(
       "member",
       "findMany",
@@ -48,13 +48,23 @@ describe("G4-01 follow-up — null placement, every windowing shape", () => {
       { orderBy: { team: { label: "desc" } }, select: { id: true } },
       "bare to-one relation path desc"
     );
-    // Recorded for the record: SQLite's own bare placement is NULLS FIRST on
-    // asc. Rows 2 and 4 have no team.
-    assert.deepEqual(ascending, [{ id: 2 }, { id: 4 }, { id: 3 }, { id: 1 }, { id: 5 }]);
-    assert.deepEqual(descending, [{ id: 5 }, { id: 1 }, { id: 3 }, { id: 2 }, { id: 4 }]);
+    assert.deepEqual(ascending, [
+      { id: 3 },
+      { id: 1 },
+      { id: 5 },
+      { id: 2 },
+      { id: 4 },
+    ]);
+    assert.deepEqual(descending, [
+      { id: 2 },
+      { id: 4 },
+      { id: 5 },
+      { id: 1 },
+      { id: 3 },
+    ]);
   });
 
-  it("keeps an unwindowed scalar order bare in both directions", async () => {
+  it("keeps the default scalar null placement in both directions", async () => {
     for (const direction of ["asc", "desc"] as const)
       await parity(
         "member",
@@ -64,7 +74,7 @@ describe("G4-01 follow-up — null placement, every windowing shape", () => {
       );
   });
 
-  it("keeps a skip-only read unwindowed", async () => {
+  it("keeps the same default null placement for a skip-only read", async () => {
     for (const direction of ["asc", "desc"] as const)
       await parity(
         "member",
@@ -74,7 +84,7 @@ describe("G4-01 follow-up — null placement, every windowing shape", () => {
       );
   });
 
-  it("normalizes exactly where the shipped engine normalizes", async () => {
+  it("keeps the same null-placement contract for every window", async () => {
     for (const direction of ["asc", "desc"] as const) {
       await parity(
         "member",
@@ -173,7 +183,11 @@ describe("G4-01 follow-up — null placement, every windowing shape", () => {
         orderBy: { id: "asc" },
         select: {
           id: true,
-          members: { orderBy: { weight: "asc" }, take: 3, select: { id: true } },
+          members: {
+            orderBy: { weight: "asc" },
+            take: 3,
+            select: { id: true },
+          },
         },
       },
       "nested windowed"

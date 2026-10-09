@@ -27,6 +27,13 @@ can be configured via [Native Types](/docs/schema/native-types); a decimal's
 required descriptor derives `NUMERIC(p,s)`, `DECIMAL(p,s)`, or checked scaled
 `INTEGER` directly.
 
+`s.int()` admits JavaScript safe integers; the chosen database column may have
+a smaller physical range. PostgreSQL and MySQL default to signed 32-bit
+`INTEGER`/`INT`, while SQLite uses its integer storage. An explicit native type
+can change the physical range without changing the logical JavaScript domain.
+A provider numeric overflow is a non-retryable `QueryError` with code `V2005`;
+use `s.bigInt()` for values outside the JavaScript safe-integer domain.
+
 ## Auto-Increment
 
 `s.int()` (and [`s.bigInt()`](/docs/schema/scalars/bigint)) support auto-incrementing primary keys:

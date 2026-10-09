@@ -178,7 +178,7 @@ const createRootDependencyScenarios: Scenario<CreateRootDependencySchema>[] = [
       }),
     expectReject: true,
     expectedError:
-      "query-engine-v2 create has conflicting final assignments for column 'parentId' on relation 'parent'.",
+      "create assigns conflicting values to column 'parentId' through relation 'parent'.",
     expected: { nodes: [] },
   },
   {
@@ -956,12 +956,9 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
     },
   },
   {
-    // RETARGETED by N6-U3, from a rejection to an accept-and-execute assertion on the
-    // SAME payload. `upsert` is a stage-1 named reader and `updateMany` a stage-2
-    // unbounded writer, so the upsert's probe is ordered before the bulk write that
-    // used to invalidate it — the dependency is dissolved by the order, not excused.
-    // The targeted arm writes "updated", the sweep then writes "changed" over it.
-    name: "upsert then updateMany: the targeted arm runs before the sweep",
+    // The collection bulk update precedes targeted upsert; its final arm
+    // overwrites the earlier bulk assignment while retaining the same owner.
+    name: "updateMany then upsert: the targeted arm runs after the sweep",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
       await client.item.create({
@@ -984,17 +981,14 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
       }),
     expected: {
       owners: [{ id: 1, name: "Owner" }],
-      items: [{ id: 1, label: "changed", ownerId: 1 }],
+      items: [{ id: 1, label: "updated", ownerId: 1 }],
       profiles: [],
     },
   },
   {
-    // RETARGETED by N6-U3, same reading: the upsert's probe precedes the filtered
-    // removal, so the pair composes as written and the removal has the last word — the
-    // row is updated and then deleted. On a CHILD-HELD relation `deleteMany` reads
-    // nothing, which is why it can sit behind every reader; its many-to-many sibling
-    // must read membership and is the one case ordering cannot rescue (ATOM §4.1 ii).
-    name: "upsert then deleteMany: the removal has the last word",
+    // The collection removal precedes upsert: its missing arm recreates the
+    // deleted ID, carries the exact owner FK and uses the create payload.
+    name: "deleteMany then upsert: the missing arm recreates the removed member",
     seed: async (client) => {
       await client.owner.create({ data: { id: 1, name: "Owner" } });
       await client.item.create({
@@ -1017,7 +1011,7 @@ const numericDependencyScenarios: Scenario<NumericDependencySchema>[] = [
       }),
     expected: {
       owners: [{ id: 1, name: "Owner" }],
-      items: [],
+      items: [{ id: 1, label: "created", ownerId: 1 }],
       profiles: [],
     },
   },

@@ -86,6 +86,17 @@ await client.user.upsert({
 });
 ```
 
+## Conditional updates
+
+`targetWhere` and `setWhere` are optional additional filters on an existing row
+located by `where`. When supplied together, both must match before the update
+arm runs. If either does not match, VibORM returns the existing row unchanged.
+If `where` finds no row, the create arm still runs. These are VibORM conditional
+update guards, not PostgreSQL `ON CONFLICT` target or conflict-update clauses.
+
+An empty `update: {}` keeps a found row unchanged, including its `updatedAt`.
+A missing row still uses `create`.
+
 ## With Relations
 
 ```ts

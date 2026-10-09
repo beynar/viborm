@@ -19,6 +19,11 @@ const fieldRef = (type: "int" | "string" = "int", list = false): AnyFieldRef =>
   });
 
 describe("comparison operands", () => {
+  test("refuses JSON documents masquerading as executable SQL", () => {
+    expect(
+      parse(operand, { strings: ["1 OR 1=1"], values: [] })
+    ).toHaveProperty("issues");
+  });
   test("accepts literal values, references, and SQL fragments", () => {
     expect(parse(operand, 3)).toEqual({ value: 3 });
     expect(parse(operand, fieldRef()).issues).toBeUndefined();
@@ -75,7 +80,7 @@ describe("comparison operands", () => {
     expect(restoredContext).toBe(outerContext);
   });
 
-  test("turns callback throws and invalid returns into issues", () => {
+  test("turns callback throws and invalid returns into issues", async () => {
     const thrownError = runInOperandScope(model, () =>
       parse(operand, () => {
         throw new Error("callback exploded");
@@ -90,10 +95,16 @@ describe("comparison operands", () => {
     const promised = runInOperandScope(model, () =>
       parse(operand, async () => fieldRef())
     );
+    const rejected = runInOperandScope(model, () =>
+      parse(operand, () => Promise.reject(new Error("late callback refusal")))
+    );
 
     expect(thrownError.issues?.[0]?.message).toContain("callback exploded");
     expect(thrownValue.issues?.[0]?.message).toContain("callback refused");
     expect(promised.issues?.[0]?.message).toContain("cannot be async");
+    expect(rejected.issues?.[0]?.message).toContain("cannot be async");
+    // The test runner also fails on any unhandled rejection after refusal.
+    await new Promise((resolve) => setImmediate(resolve));
 
     for (const invalid of [null, [], 1]) {
       const result = runInOperandScope(model, () =>

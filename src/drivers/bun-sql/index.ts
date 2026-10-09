@@ -9,6 +9,7 @@ import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
@@ -195,7 +196,10 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     const { SQL } = await import("bun");
 
     if (this.driverOptions.databaseUrl) {
-      return new SQL(this.driverOptions.databaseUrl) as unknown as BunSQL;
+      return new SQL({
+        ...this.driverOptions.options,
+        url: this.driverOptions.databaseUrl,
+      }) as unknown as BunSQL;
     }
 
     return new SQL(this.driverOptions.options ?? {}) as unknown as BunSQL;
@@ -284,14 +288,9 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
       run: (callback) => client.begin(callback),
       callback: fn,
       phases: getExecutionTransactionPhases(context),
-      // Containment for a transaction the provider broke, through the one place
-      // that decides whether a transport may be closed at all: closing the
-      // caller's transport to contain VibORM's transaction would be a far
-      // larger effect than the one being contained.
-      close: async () => {
-        await this.closeClient(client);
-        this.client = null;
-      },
+      // The provider transaction primitive already rolls back/discards its
+      // failed session. A transaction does not own this shared pool/database.
+      close: async () => undefined,
     });
   }
 
@@ -347,7 +346,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: BunSQLClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, BunSQLDriverOptions, S>
-): VibORMClient<C & { driver: BunSQLDriver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<
+    C & { driver: BunSQLDriver }
+  >]: LinkedClientConfig<C & { driver: BunSQLDriver }>[P];
+}> {
   const { client, databaseUrl, options, pgvector, postgis } = config;
   const namespace = resolveNamespaceOption(config);
 
@@ -360,7 +363,5 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     namespace,
   });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: BunSQLDriver }
-  >;
+  return createClientFromDriverConfig<S, C, BunSQLDriver>(config, driver);
 }

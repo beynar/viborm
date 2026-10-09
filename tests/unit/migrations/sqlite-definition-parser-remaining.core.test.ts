@@ -1,7 +1,7 @@
 import {
   sqliteConstraintClauses,
   sqliteTableDefinitions,
-} from "@src/migrations/drivers/sqlite/column-constraints";
+} from "@src/adapters/databases/sqlite/storage/column-constraints";
 import { describe, expect, test } from "vitest";
 
 describe("SQLite table-definition parsing", () => {

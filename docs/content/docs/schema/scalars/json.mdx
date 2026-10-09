@@ -40,6 +40,13 @@ const metadata = s.json().default({});
 const tags = s.json().default([]);
 ```
 
+Defaults preserve the two null meanings: `.default(JsonNull)` stores the JSON
+null document on either kind of column; `.nullable().default(DbNull)` stores SQL
+NULL. A bare `.default(null)` means JSON null on a nonnullable column and SQL
+NULL on a nullable column. Applying `.nullable()` after a declared JSON null
+default preserves that document default. Explicit JSON writes still require the
+existing sentinels when naming either null.
+
 ### Typed with Valibot
 
 ```ts
@@ -118,7 +125,7 @@ const orderData = s.json().schema(orderSchema);
 
 ## Querying JSON
 
-JSON scalars support path-based filtering — see [JSON Filters](/docs/client/filtering/json) for the full operator list and per-database caveats. **Note:** JSON scalars do not support shorthand syntax. You must use explicit operations:
+JSON scalars support path-based filtering — see [JSON Filters](/docs/client/filtering/json) for the full operator list and per-database caveats. A path filter names its operator explicitly. Updates accept the replacement document directly or an explicit `{ set: value }` envelope:
 
 ```ts
 // Filter by nested value (must use { equals: value })
@@ -131,16 +138,28 @@ await client.user.findMany({
   },
 });
 
-// Updates must use { set: value }
+// Replace the document directly
 await client.user.update({
   where: { id: "user_123" },
   data: {
-    preferences: {
-      set: { theme: "dark", fontSize: 16 },
-    },
+    preferences: { theme: "dark", fontSize: 16 },
+  },
+});
+
+// The explicit envelope writes the same document
+await client.user.update({
+  where: { id: "user_123" },
+  data: {
+    preferences: { set: { theme: "dark", fontSize: 16 } },
   },
 });
 ```
+
+Both forms validate the replacement document against `.schema(...)` when present.
+A one-key `{ set: value }` object is an update envelope. To store a literal
+one-key document with a `set` property, wrap it as `{ set: { set: value } }`;
+the inner document must satisfy the declared schema. An invalid envelope value
+fails validation rather than being stored as a literal document.
 
 ## Writing null
 

@@ -26,7 +26,7 @@
  *  - one object reached at two places that do not nest is an alias, not a
  *    cycle: accepted and restored as separate objects (owner cell);
  *  - parsing, snapshot and materialization each hold a chain at the public
- *    depth ceiling (1,000) and an exhaustive chain far beyond it (12,000)
+ *    depth ceiling (1,000) and an exhaustive chain up to the occurrence budget (10,000)
  *    without depending on the JavaScript call stack.
  *
  * Deep values are compared by iterative walks: `assert.deepStrictEqual` is
@@ -783,14 +783,14 @@ describe("RQ-05 live recursive cache codec", () => {
     assert.equal(chain.shared, undefined);
   });
 
-  it("parses, stores and restores an exhaustive chain of 12,000 levels", ({
+  it("parses, stores and restores an exhaustive chain of 10,000 levels", ({
     task,
   }) => {
-    const chain = deepChain(12_000, false);
+    const chain = deepChain(10_000, false);
     Object.assign(task.meta, { phaseMs: chain.phaseMs });
     // Exhaustive: the key is present to the natural end, which is empty.
-    assert.deepEqual(chain.parsed, { levels: 12_000, end: "empty" });
-    assert.deepEqual(chain.hit, { levels: 12_000, end: "empty" });
+    assert.deepEqual(chain.parsed, { levels: 10_000, end: "empty" });
+    assert.deepEqual(chain.hit, { levels: 10_000, end: "empty" });
     assert.equal(chain.shared, undefined);
   });
 });

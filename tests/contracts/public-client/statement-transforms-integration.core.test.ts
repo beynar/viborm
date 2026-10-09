@@ -116,8 +116,8 @@ describe("deterministic statement-transform integration", () => {
     });
   });
 
-  test("ignores caller-spoofed provenance and honors the trusted execution context", () => {
-    const driver = new PlanningDriver("postgresql");
+  test("ignores caller-spoofed provenance and honors the trusted execution context at dispatch", async () => {
+    const { driver } = baseClient();
     const calls: StatementCall[] = [];
     const chain = appendResolvedExtension(
       undefined,
@@ -134,6 +134,11 @@ describe("deterministic statement-transform integration", () => {
     expect(driver._prepare(sql`SELECT 1`, spoofedContext).sql).not.toContain(
       "/* trusted */"
     );
+    await driver._executeBatch(
+      [driver._prepare(sql`SELECT 1`, spoofedContext)],
+      undefined,
+      spoofedContext
+    );
     expect(calls).toEqual([]);
 
     const trustedContext = createOperationExecutionContext(
@@ -147,9 +152,10 @@ describe("deterministic statement-transform integration", () => {
       "correlationId",
     ]);
     expect(getExecutionExtensionChain(trustedContext)).toBe(chain);
-    expect(driver._prepare(sql`SELECT 1`, trustedContext).sql).toContain(
-      "/* trusted */"
-    );
+    const prepared = driver._prepare(sql`SELECT 1`, trustedContext);
+    expect(prepared.sql).not.toContain("/* trusted */");
+    expect(calls).toEqual([]);
+    await driver._executeBatch([prepared], undefined, trustedContext);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       model: "$transaction",

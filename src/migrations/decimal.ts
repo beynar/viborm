@@ -22,9 +22,8 @@
 
 import {
   type DecimalDescriptor,
-  type DecimalDialect,
   decimalColumnType,
-  describeProviderLimitRefusal,
+  readStoredDecimalDescriptor,
   sameDecimalDescriptor,
 } from "@validation/primitives/decimal-codec";
 import { MigrationError, VibORMErrorCode } from "../errors";
@@ -93,18 +92,6 @@ export function decimalChangeNarrows(from: ColumnDef, to: ColumnDef): boolean {
 }
 
 /**
- * The domain, spelled for a refusal MESSAGE.
- *
- * `precision` and `scale` are deliberately not `meta` keys: the error metadata
- * allowlist (`src/errors/diagnostics.ts`) admits neither, so a refusal that put
- * them there would drop them silently. Following the namespace precedent, the
- * numbers go in the sentence.
- */
-export function describeDecimalDomain(descriptor: DecimalDescriptor): string {
-  return `precision ${descriptor.precision}, scale ${descriptor.scale}`;
-}
-
-/**
  * A storage shape, spelled for a refusal MESSAGE.
  *
  * `undefined` is a real answer here and it has to say so: it means the column's
@@ -136,50 +123,6 @@ export function mysqlDecimalListMarker(descriptor: DecimalDescriptor): string {
 }
 
 const MYSQL_LIST_MARKER = /^viborm:decimal\((\d+),(\d+)\)$/;
-const STORED_DECIMAL_INTEGER = /^-?\d+$/;
-
-/**
- * A descriptor recovered from provider-owned catalog text, or `undefined` when
- * the captures cannot be one this provider's writer emitted.
- *
- * Catalog text is a new trust boundary: digit syntax alone still admits zero,
- * scale above precision, integers JavaScript cannot represent, `Infinity`, and
- * domains the provider cannot physically implement. The complete check runs
- * before SQLite re-renders a constraint, so an untrusted precision never
- * reaches `10n ** precision`.
- */
-export function readStoredDecimalDescriptor(
-  precisionValue: unknown,
-  scaleValue: unknown,
-  dialect: DecimalDialect
-): DecimalDescriptor | undefined {
-  const precision = readStoredDecimalInteger(precisionValue);
-  const scale = readStoredDecimalInteger(scaleValue);
-  if (
-    precision === undefined ||
-    scale === undefined ||
-    precision <= 0 ||
-    scale < 0 ||
-    scale > precision
-  ) {
-    return undefined;
-  }
-  const descriptor = { precision, scale };
-  return describeProviderLimitRefusal(dialect, descriptor) === undefined
-    ? descriptor
-    : undefined;
-}
-
-function readStoredDecimalInteger(value: unknown): number | undefined {
-  if (typeof value === "number") {
-    return Number.isSafeInteger(value) ? value : undefined;
-  }
-  if (typeof value !== "string" || !STORED_DECIMAL_INTEGER.test(value)) {
-    return undefined;
-  }
-  const parsed = Number(value);
-  return Number.isSafeInteger(parsed) ? parsed : undefined;
-}
 
 /**
  * The domain a MySQL column comment declares, or `undefined` when it is not the
@@ -209,26 +152,18 @@ export function readMysqlDecimalListMarker(
  * them. The migration layer reads it off the column rather than the model,
  * because a snapshot side may have come from introspection.
  */
-export type DecimalStorageKind = "scalar" | "list";
+export type { DecimalStorageKind } from "../adapters/databases/sqlite/storage/decimal";
 
-/**
- * The storage shape of a SQLite decimal column, or `undefined` when the column
- * holds no decimal.
- *
- * `INTEGER` is the scalar coefficient and `TEXT` the JSON container — the two
- * classes `decimalColumnType` and the list mapping produce. Any other type on a
- * column that claims a descriptor is a snapshot this layer did not write, and
- * it gets no conversion: the target's own CHECK refuses whatever is copied into
- * it, which fails the rebuild atomically instead of guessing at a shape.
- */
-export function sqliteDecimalStorageKind(
-  column: ColumnDef
-): DecimalStorageKind | undefined {
-  if (column.decimal === undefined) return undefined;
-  const type = column.type.toUpperCase();
-  if (type === decimalColumnType("sqlite", column.decimal)) return "scalar";
-  return type === SQLITE_DECIMAL_LIST_TYPE ? "list" : undefined;
-}
+import {
+  type DecimalStorageKind,
+  sqliteDecimalStorageKind,
+} from "../adapters/databases/sqlite/storage/decimal";
+
+export {
+  describeDecimalDomain,
+  readStoredDecimalDescriptor,
+} from "@validation/primitives/decimal-codec";
+export { sqliteDecimalStorageKind } from "../adapters/databases/sqlite/storage/decimal";
 
 /**
  * The storage shape of a MySQL decimal column, or `undefined` when the column

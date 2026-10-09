@@ -317,14 +317,11 @@ describe.each(dialectCases)("$name admission refusals", (dialectCase) => {
         },
       })
     ).rejects.toThrow("no portable duplicate-only DEFAULT VALUES primitive");
-    // Without `skipDuplicates` the same row is a legitimate DEFAULT VALUES row:
-    // admission lets it through, and what answers it is then the fixture
-    // driver's own window — which acknowledges nothing, and which U5.5 refuses
-    // as a shortfall rather than publishing a wrong count. The pin is that the
-    // ADMISSION sentence is not the one raised.
-    await expect(c.counter.createMany({ data: [{}] })).rejects.toThrow(
-      "reported 0 of 1 inserted rows"
-    );
+    // DEFAULT VALUES is admitted; the completed write's affected count is its
+    // answer, even when a provider or a trigger reports zero inserted rows.
+    await expect(c.counter.createMany({ data: [{}] })).resolves.toEqual({
+      count: 0,
+    });
     await c.$disconnect();
   });
 

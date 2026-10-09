@@ -10,6 +10,7 @@ import {
   FeatureNotSupportedError,
   ForeignKeyError,
   getTrustedErrorCause,
+  getTrustedErrorDisclosure,
   InvalidTransactionInputError,
   MigrationError,
   NestedWriteAssertionError,
@@ -39,18 +40,21 @@ import {
   isTrustedCode,
   safeArrayLength,
   safeOwnPropertyDescriptor,
+  sanitizeSqlState,
 } from "../errors/diagnostic-safety";
 import { transferLoggedErrorEvidence } from "../errors/logged-errors";
 import {
   readSuppressedFailures,
   withSuppressedFailure,
 } from "./shared/suppressed-failure";
+import { ProviderTransactionContractError } from "./shared/transactions";
 import type { Dialect } from "./types";
 
 export interface DriverErrorShape {
   code?: string | number;
   bodyCode?: string | number;
   errno?: number;
+  stringErrno?: string;
   constraint?: string;
   table?: string;
   column?: string;
@@ -78,6 +82,7 @@ export interface DriverErrorContext {
   query?: string;
   params?: unknown[];
   diagnostics?: DiagnosticDisclosure;
+  callsite?: string;
   forceContext?: boolean;
 }
 
@@ -86,6 +91,7 @@ const EXECUTION_META_KEYS = [
   "model",
   "operation",
   "correlationId",
+  "callsite",
   "query",
   "params",
 ] as const;
@@ -112,6 +118,11 @@ export function attachExecutionContext(
   );
   const forceContext = context.forceContext !== false;
   if (!forceContext) {
+    if (
+      resolveDiagnosticDisclosure(context.diagnostics).includeCallsite &&
+      context.callsite
+    )
+      mergedMeta.callsite = context.callsite;
     return cloneVibORMError(error, mergedMeta, snapshot, context.diagnostics);
   }
   const additions = sanitizeErrorMetadata(
@@ -138,13 +149,30 @@ export function attachCommitCertainty(
   error: VibORMError,
   commitCertainty: NonNullable<VibORMErrorMeta["commitCertainty"]>
 ): VibORMError {
+  return cloneWithMetadata(error, { commitCertainty });
+}
+
+/** Rebase a protected-batch prefix without mutating the trusted error snapshot. */
+export function remapStatementIndex(
+  error: VibORMError,
+  statementIndex: number
+): VibORMError {
+  return cloneWithMetadata(error, { statementIndex });
+}
+
+function cloneWithMetadata(
+  error: VibORMError,
+  additions: VibORMErrorMeta
+): VibORMError {
   const snapshot = VibORMError.prototype.toJSON.call(error);
   const snapshotMeta = readProperty(snapshot, "meta");
+  const diagnostics = getTrustedErrorDisclosure(error);
   const meta = sanitizeErrorMetadata(
-    isRecord(snapshotMeta) ? snapshotMeta : {}
+    isRecord(snapshotMeta) ? snapshotMeta : {},
+    diagnostics
   );
-  meta.commitCertainty = commitCertainty;
-  return cloneVibORMError(error, meta, snapshot, undefined);
+  Object.assign(meta, additions);
+  return cloneVibORMError(error, meta, snapshot, diagnostics);
 }
 
 function cloneVibORMError(
@@ -219,8 +247,9 @@ function cloneValidationError(
   meta: VibORMErrorMeta,
   diagnostics: DiagnosticDisclosure | undefined
 ): ValidationError | undefined {
-  const source = snapshotValidationSource(readProperty(error, "source"));
-  const issues = readProperty(error, "issues");
+  const serialized = VibORMError.prototype.toJSON.call(error);
+  const source = snapshotValidationSource(readProperty(serialized, "source"));
+  const issues = readProperty(serialized, "issues");
   if (!(source && isArrayValue(issues))) return undefined;
   const issueSnapshot = snapshotValidationIssues(issues);
   const cause = getTrustedErrorCause(error);
@@ -353,6 +382,8 @@ const CLONE_CONSTRUCTORS = [
 function getCloneConstructor(error: VibORMError): unknown {
   try {
     const prototype = Object.getPrototypeOf(error);
+    if (prototype === ProviderTransactionContractError.prototype)
+      return TransactionError;
     return (
       CLONE_CONSTRUCTORS.find((ctor) => ctor.prototype === prototype) ??
       VibORMError
@@ -377,6 +408,8 @@ export function buildMeta(
   const meta: VibORMErrorMeta = { driver: context.driverName };
   const disclosure = resolveDiagnosticDisclosure(context.diagnostics);
 
+  if (disclosure.includeCallsite && context.callsite)
+    meta.callsite = context.callsite;
   if (context.model) meta.model = context.model;
   if (context.operation) meta.operation = context.operation;
   if (context.correlationId) meta.correlationId = context.correlationId;
@@ -398,6 +431,7 @@ export function buildMeta(
   const sqlState =
     error.sqlState ??
     error.sqlstate ??
+    sanitizeSqlState(providerCode) ??
     MYSQL_SQLSTATE_IN_MESSAGE_PATTERN.exec(message)?.[1];
   if (typeof sqlState === "string") meta.providerSqlState = sqlState;
   const status = error.status ?? error.statusCode;

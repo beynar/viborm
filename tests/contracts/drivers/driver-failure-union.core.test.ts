@@ -24,6 +24,7 @@ import {
 import type { Dialect } from "@drivers/types";
 import {
   CheckConstraintError,
+  ClientInitializationError,
   ConnectionError,
   ForeignKeyError,
   NestedWriteAssertionError,
@@ -41,6 +42,8 @@ import { expectTypeOf } from "vitest";
  * the shipped union gains a member, loses one, or swaps one out.
  */
 type ExpectedDriverFailure =
+  | ClientInitializationError
+  | ConnectionError
   | CheckConstraintError
   | ForeignKeyError
   | NestedWriteAssertionError
@@ -57,6 +60,13 @@ type ExpectedDriverFailure =
  */
 function familyOf(failure: DriverFailure): string {
   switch (failure.code) {
+    case VibORMErrorCode.CLIENT_INITIALIZATION:
+      return "configuration";
+    case VibORMErrorCode.CONNECTION_FAILED:
+    case VibORMErrorCode.CONNECTION_TIMEOUT:
+    case VibORMErrorCode.CONNECTION_CLOSED:
+    case VibORMErrorCode.CONNECTION_CAPACITY:
+      return "connection";
     case VibORMErrorCode.UNIQUE_CONSTRAINT:
       return "unique";
     case VibORMErrorCode.FOREIGN_KEY_CONSTRAINT:
@@ -71,6 +81,7 @@ function familyOf(failure: DriverFailure): string {
       return "assertion";
     case VibORMErrorCode.TRANSACTION_FAILED:
     case VibORMErrorCode.TRANSACTION_TIMEOUT:
+    case VibORMErrorCode.TRANSACTION_CONTENTION:
     case VibORMErrorCode.DEADLOCK:
     case VibORMErrorCode.SERIALIZATION_FAILURE:
     case VibORMErrorCode.INVALID_TRANSACTION_INPUT:
@@ -78,6 +89,9 @@ function familyOf(failure: DriverFailure): string {
     case VibORMErrorCode.QUERY_FAILED:
     case VibORMErrorCode.QUERY_TIMEOUT:
     case VibORMErrorCode.QUERY_SYNTAX:
+    case VibORMErrorCode.QUERY_SCHEMA_MISMATCH:
+    case VibORMErrorCode.QUERY_OUT_OF_RANGE:
+    case VibORMErrorCode.QUERY_RESULT_INVALID:
     case VibORMErrorCode.INVALID_INPUT:
       return "query";
     default: {
@@ -93,9 +107,11 @@ const providerError = (shape: Record<string, unknown>, message = "boom") =>
 /**
  * The union's members as VALUES. Narrowing through this — rather than asserting the type —
  * keeps the suite cast-free and doubles as the runtime half of the claim: whatever the mapper
- * returns really is one of the eight, or the assertion throws with the class that turned up.
+ * returns really is one of the ten, or the assertion throws with the class that turned up.
  */
 const DRIVER_FAILURE_CLASSES = [
+  ClientInitializationError,
+  ConnectionError,
   CheckConstraintError,
   ForeignKeyError,
   NestedWriteAssertionError,
@@ -114,7 +130,7 @@ function assertDriverFailure(error: unknown): DriverFailure {
 }
 
 describe("DriverFailure", () => {
-  it("has exactly the eight members the mapper constructs", () => {
+  it("has exactly the ten members the mapper constructs", () => {
     expectTypeOf<DriverFailure>().toEqualTypeOf<ExpectedDriverFailure>();
     expect(true).toBe(true);
   });

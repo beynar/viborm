@@ -326,6 +326,15 @@ describe("dialect physical SQL vocabulary", () => {
     expectSql(postgres.literals.dateTime(iso), "?", [iso]);
     expectSql(mysql.literals.dateTime(iso), "?", ["2024-01-02 03:04:05.006"]);
     expectSql(sqlite.literals.dateTime(iso), "?", [iso]);
+    expectSql(mysql.literals.dateTime("2024-01-02"), "?", ["2024-01-02"]);
+    expectSql(mysql.literals.dateTime(iso, undefined, true), "?", [iso]);
+    expectSql(sqlite.literals.value(9_007_199_254_740_993n), "?", [
+      9_007_199_254_740_993n,
+    ]);
+    expectSql(sqlite.literals.value("ordinary"), "?", ["ordinary"]);
+    expect(() => sqlite.literals.value(9_223_372_036_854_775_808n)).toThrow(
+      "signed 64-bit"
+    );
 
     expect(postgres.literals.decimal("12.30", decimal).toStatement()).toBe(
       "CAST(? AS NUMERIC(6,2))"
@@ -466,6 +475,16 @@ describe("dialect physical SQL vocabulary", () => {
   });
 
   test("JSON builders cover empty and populated documents and portable paths", () => {
+    expectSql(
+      postgres.json.equals(sql`${"{}"}`, sql`${"{}"}`),
+      "(?)::jsonb = (?)::jsonb",
+      ["{}", "{}"]
+    );
+    expectSql(mysql.json.equals(sql`${"{}"}`, sql`${"{}"}`), "? = ?", [
+      "{}",
+      "{}",
+    ]);
+    expectSql(mysql.json.number(sql.raw`amount`), "amount");
     for (const adapter of [postgres, mysql, sqlite]) {
       expectComposable([
         adapter.json.boolean(sql`active = ${true}`),
@@ -519,7 +538,7 @@ describe("dialect physical SQL vocabulary", () => {
         adapter.arrays.hasEvery(sql.raw`roles`, sql`${["ADMIN"]}`),
         adapter.arrays.hasSome(sql.raw`roles`, sql`${["ADMIN"]}`),
         adapter.arrays.isEmpty(sql.raw`roles`),
-        adapter.arrays.decimalProjection(sql.raw`amounts`),
+        adapter.arrays.exactNumericProjection(sql.raw`amounts`),
         adapter.set.push(sql.raw`roles`, adapter.arrays.value(["ADMIN"])),
         adapter.set.unshift(sql.raw`roles`, adapter.arrays.value(["ADMIN"])),
       ]);
@@ -711,6 +730,31 @@ describe("dialect physical SQL vocabulary", () => {
 });
 
 describe("coverage low value", () => {
+  test("PostgreSQL projection keeps wide objects within its function argument limit", () => {
+    const adapter = new PostgresAdapter();
+    const pairs: [string, Sql][] = Array.from({ length: 101 }, (_, index) => [
+      `field${index}`,
+      sql`${index}`,
+    ]);
+    const projection = adapter.json.object(pairs);
+    expect(projection.toStatement().match(/jsonb_build_object/g)).toHaveLength(
+      3
+    );
+    expect(projection.values).toEqual(
+      pairs.flatMap(([key], index) => [key, index])
+    );
+    expectSql(
+      adapter.aggregates.min(sql.raw`active`, true),
+      "BOOL_AND(active)"
+    );
+    expectSql(adapter.aggregates.max(sql.raw`active`, true), "BOOL_OR(active)");
+    expectSql(adapter.json.number(sql.raw`amount`), "amount");
+    expect(
+      adapter.arrays.value(["2024-01-02T03:04:05.006Z", null], "datetime")
+        .values
+    ).toEqual([["2024-01-02T03:04:05.006Z", null]]);
+  });
+
   test("reserved expression and array members still return composable SQL", () => {
     for (const { adapter } of adapters) {
       expectComposable([
@@ -731,5 +775,8 @@ describe("coverage low value", () => {
       adapter.vector.l2(sql.raw`embedding`, sql`${"[1,2,3]"}`),
       adapter.vector.cosine(sql.raw`embedding`, sql`${"[1,2,3]"}`),
     ]);
+    expect(() => adapter.vector.literal([Number.MAX_VALUE])).toThrow(
+      "finite float32"
+    );
   });
 });

@@ -42,7 +42,7 @@ const schemas = createSchemaRegistry({ project, task }).proxy;
 
 const listStamped = s.model({
   id: s.string().id(),
-  history: s.dateTime().array().updatedAt(),
+  history: s.dateTime().array(),
   plain: s.dateTime().array(),
 });
 const listSchemas = createSchemaRegistry({ listStamped }).proxy.listStamped;
@@ -66,7 +66,7 @@ describe("`.updatedAt()` admission", () => {
       title: { set: "renamed" },
       touchedAt: { set: NOW },
       touchedOn: { set: "2026-09-27" },
-      touchedTime: { set: "17:42:31" },
+      touchedTime: { set: "17:42:31.000" },
       overriddenCreate: { set: NOW },
       replacedCreate: { set: NOW },
     });
@@ -86,14 +86,14 @@ describe("`.updatedAt()` admission", () => {
     ).toEqual({
       touchedAt: { set: EXPLICIT },
       touchedOn: { set: "2026-02-03" },
-      touchedTime: { set: "04:05:06" },
+      touchedTime: { set: "04:05:06.000" },
       overriddenCreate: { set: EXPLICIT },
       replacedCreate: { set: NOW },
     });
     expect(parsed(schemas.project.core.update, {})).toMatchObject({
       touchedAt: { set: NOW },
       touchedOn: { set: "2026-09-27" },
-      touchedTime: { set: "17:42:31" },
+      touchedTime: { set: "17:42:31.000" },
     });
   });
 
@@ -106,7 +106,7 @@ describe("`.updatedAt()` admission", () => {
     ).toMatchObject({
       touchedAt: NOW,
       touchedOn: "2026-09-27",
-      touchedTime: "17:42:31",
+      touchedTime: "17:42:31.000",
       createdAt: NOW,
       ordinaryDefault: CREATED,
       overriddenCreate: CREATED,
@@ -121,7 +121,9 @@ describe("`.updatedAt()` admission", () => {
     ).toMatchObject({ touchedAt: EXPLICIT });
   });
 
-  test("a temporal list keeps its previously admitted omission behavior", () => {
+  test("temporal lists require explicit values and refuse scalar updatedAt generation", () => {
+    expect(() => s.dateTime().array().updatedAt()).toThrow("Scalar generation");
+    expect(() => s.dateTime().updatedAt().array()).toThrow("Scalar generation");
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
 

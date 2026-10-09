@@ -1,5 +1,6 @@
 import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
+import { sqliteDecimalCheck } from "@src/adapters/databases/sqlite/storage/decimal";
 import { MemoryCache } from "@src/cache/drivers/memory";
 import { cache as cacheExtension } from "@src/cache/extension";
 import { createClient, D1Driver } from "@src/drivers/d1";
@@ -13,6 +14,7 @@ import {
 import { Decimal } from "@src/index";
 import { s } from "@src/schema";
 import { string } from "@src/schema/scalars/string/scalar";
+import { createIdentifierQuoter } from "@src/sql/identifiers";
 import { parse } from "@src/validation";
 import { getScalarSchemas } from "@src/validation/scalars";
 import {
@@ -36,6 +38,19 @@ const PAST_DOUBLE = "99999999999999.99";
 const PAST_DOUBLE_NEIGHBOUR = "99999999999999.98";
 const PAST_DOUBLE_COEFFICIENT = "9999999999999999";
 const CUID_PATTERN = /^[a-z][0-9a-z]{23}$/;
+const quoteSqliteIdentifier = createIdentifierQuoter('"');
+const decimalAmountCheck = sqliteDecimalCheck(
+  { name: "amount", nullable: false },
+  DECIMAL_DOMAIN,
+  "scalar",
+  quoteSqliteIdentifier
+);
+const decimalAmountsCheck = sqliteDecimalCheck(
+  { name: "amounts", nullable: false },
+  DECIMAL_DOMAIN,
+  "list",
+  quoteSqliteIdentifier
+);
 
 const GEOPOINT_TABLES = [
   "geopoint_behavior_markers",
@@ -68,6 +83,25 @@ geoPointBatchContract.register({
   createDriver: () => new D1Driver({ database: env.DB }),
   setup: setupD1GeoPoint,
 });
+
+const bigintParent = s
+  .model({
+    id: s.bigInt().id(),
+    value: s.bigInt(),
+    children: s.toMany(() => bigintChild),
+  })
+  .map("viborm_d1_bigint_parents");
+const bigintChild = s
+  .model({
+    id: s.string().id(),
+    parentId: s.bigInt(),
+    value: s.bigInt(),
+    parent: s
+      .toOne(() => bigintParent)
+      .fields("parentId")
+      .references("id"),
+  })
+  .map("viborm_d1_bigint_children");
 
 const decimalEvidence = s
   .model({
@@ -306,13 +340,15 @@ function movePostAfterNestedMemberLocate(database: D1Database): D1Database {
 beforeAll(async () => {
   await env.DB.exec(
     `CREATE TABLE IF NOT EXISTS ${TABLE} (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+     CREATE TABLE IF NOT EXISTS viborm_d1_bigint_parents (id INTEGER PRIMARY KEY, value INTEGER NOT NULL);
+     CREATE TABLE IF NOT EXISTS viborm_d1_bigint_children (id TEXT PRIMARY KEY, parentId INTEGER NOT NULL REFERENCES viborm_d1_bigint_parents(id), value INTEGER NOT NULL);
      CREATE TABLE IF NOT EXISTS viborm_d1_progressive_authors (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
      CREATE TABLE IF NOT EXISTS viborm_d1_progressive_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
      CREATE TABLE IF NOT EXISTS viborm_d1_progressive_posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, authorId TEXT NOT NULL REFERENCES viborm_d1_progressive_authors(id), categoryId TEXT REFERENCES viborm_d1_progressive_categories(id));
      CREATE TABLE IF NOT EXISTS viborm_d1_generated_authors (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE);
      CREATE TABLE IF NOT EXISTS viborm_d1_generated_categories (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE);
      CREATE TABLE IF NOT EXISTS viborm_d1_generated_posts (id TEXT PRIMARY KEY, title TEXT NOT NULL, authorId INTEGER NOT NULL REFERENCES viborm_d1_generated_authors(id), categoryId TEXT REFERENCES viborm_d1_generated_categories(id));
-     CREATE TABLE IF NOT EXISTS ${DECIMAL_TABLE} (id TEXT PRIMARY KEY, amount INTEGER NOT NULL CONSTRAINT "viborm_decimal_amount_16_2" CHECK (typeof(amount) = 'integer' AND amount BETWEEN -9999999999999999 AND 9999999999999999), amounts TEXT NOT NULL CONSTRAINT "viborm_decimal_amounts_16_2" CHECK (typeof(amounts) = 'text' AND json_valid(amounts) AND json_type(amounts) = 'array'))`
+     CREATE TABLE IF NOT EXISTS ${DECIMAL_TABLE} (id TEXT PRIMARY KEY, amount INTEGER NOT NULL ${decimalAmountCheck}, amounts TEXT NOT NULL ${decimalAmountsCheck})`
   );
 });
 
@@ -452,9 +488,46 @@ describe("D1 fixed-decimal provider evidence", () => {
   });
 });
 
+describe("D1 bigint provider evidence", () => {
+  it("preserves scalar values, bigint keys, filters and included rows beyond 2^53", async () => {
+    const client = createClient({
+      schema: { parent: bigintParent, child: bigintChild },
+      database: env.DB,
+    });
+    const id = 9_007_199_254_740_993n;
+    const value = -9_007_199_254_740_994n;
+    try {
+      const created = await client.parent.create({ data: { id, value } });
+      expect(created).toEqual({ id, value });
+      await client.child.create({
+        data: { id: "exact-child", parentId: id, value: id },
+      });
+      const found = await client.parent.findUnique({
+        where: { id },
+        include: { children: true },
+      });
+      expect(found).toEqual({
+        id,
+        value,
+        children: [{ id: "exact-child", parentId: id, value: id }],
+      });
+      expect(
+        await client.parent.findMany({ where: { value: { equals: value } } })
+      ).toEqual([{ id, value }]);
+      const child = await client.child.findUnique({
+        where: { id: "exact-child" },
+        include: { parent: true },
+      });
+      expect(child?.parent).toEqual({ id, value });
+    } finally {
+      await client.$disconnect();
+    }
+  });
+});
+
 describe("D1 binding provider", () => {
   it("generates CUID defaults inside the worker request context", () => {
-    const scalar = string().cuid();
+    const scalar = string().cuid({ generate: true });
     const parsed = parse(getScalarSchemas(scalar["~"].state).create, undefined);
 
     if (parsed.issues) throw new Error("Expected CUID generation to succeed");
@@ -935,7 +1008,8 @@ describe("D1 binding provider", () => {
       cache: { autoInvalidate: true },
     });
 
-    expect(cache.clearCalls).toBe(2);
+    // The three setup deletions are durable writes and invalidate by default.
+    expect(cache.clearCalls).toBe(5);
   });
 
   it("stops the series at a failed invalidation after its first committed member, without series progress", async () => {
@@ -1101,162 +1175,90 @@ describe("D1 binding provider", () => {
     ]);
   });
 
-  it("drops skipDuplicates on a relation-bearing createMany with one warning: rows are written and a real duplicate fails", async () => {
-    // Skipping a member needs a rollback region the batch-only D1 transport
-    // does not have, so the skip is dropped with a warning (owner decision
-    // 2026-09-24): each root row is still its own atomic batch, a duplicate
-    // fails with the ordinary unique-constraint error, and the members before
-    // it stay committed exactly as for a createMany without skipDuplicates.
+  it("refuses relation-bearing skipDuplicates before any member commits", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    await client.author.create({ data: { id: "seed", name: "seed" } });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      const client = createClient({
-        schema: progressiveSchema,
-        database: env.DB,
-      });
-      await client.post.deleteMany({});
-      await client.author.deleteMany({});
-      await client.category.deleteMany({});
-
       await expect(
         client.post.createMany({
           data: [
+            { id: "prefix", title: "scalar first", authorId: "seed" },
             {
-              id: "p1",
-              title: "one",
-              author: { create: { id: "a1", name: "one" } },
+              id: "nested",
+              title: "nested",
+              author: { create: { id: "author", name: "author" } },
             },
           ],
           skipDuplicates: true,
         })
-      ).resolves.toEqual({ count: 1 });
-      const failure = await client.post
-        .createMany({
-          data: [
-            {
-              id: "p2",
-              title: "two",
-              author: { create: { id: "a2", name: "two" } },
-            },
-            {
-              id: "p1",
-              title: "again",
-              author: { create: { id: "a3", name: "three" } },
-            },
-          ],
-          skipDuplicates: true,
-        })
-        .catch((error) => error);
-
-      expect(failure).toBeInstanceOf(UniqueConstraintError);
-      expect(warn.mock.calls).toEqual([
-        [
-          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint in this scope to undo a duplicate) in post.createMany; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
-        ],
+      ).rejects.toMatchObject({ code: "V8003" });
+      await expect(client.post.findMany()).resolves.toEqual([]);
+      await expect(client.author.findMany()).resolves.toEqual([
+        { id: "seed", name: "seed" },
       ]);
-      await expect(
-        client.post.findMany({ orderBy: { id: "asc" } })
-      ).resolves.toEqual([
-        { id: "p1", title: "one", authorId: "a1", categoryId: null },
-        { id: "p2", title: "two", authorId: "a2", categoryId: null },
-      ]);
-      await expect(
-        client.author.findMany({ orderBy: { id: "asc" } })
-      ).resolves.toEqual([
-        { id: "a1", name: "one" },
-        { id: "a2", name: "two" },
-      ]);
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }
   });
 
-  it("drops skipDuplicates on a nested createMany under create or update with one warning", async () => {
-    // A nested member is skippable only inside a rollback region, which D1's
-    // batch-only transport does not have, even when the member is scalar: the
-    // skip is dropped, the rows are written, and a real duplicate fails the
-    // whole operation's one batch.
+  it("refuses nested skipDuplicates under create and update without prefix effects", async () => {
+    const client = createClient({
+      schema: progressiveSchema,
+      database: env.DB,
+    });
+    await client.post.deleteMany({});
+    await client.author.deleteMany({});
+    await client.category.deleteMany({});
+    await client.author.create({ data: { id: "existing", name: "original" } });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      const client = createClient({
-        schema: progressiveSchema,
-        database: env.DB,
-      });
-      await client.post.deleteMany({});
-      await client.author.deleteMany({});
-      await client.category.deleteMany({});
-      await client.author.create({ data: { id: "a0", name: "zero" } });
-
       await expect(
         client.author.create({
           data: {
-            id: "a1",
-            name: "one",
+            id: "new",
+            name: "new",
             posts: {
               createMany: {
-                data: [{ id: "p1", title: "one" }],
+                data: [{ id: "child", title: "child" }],
                 skipDuplicates: true,
               },
             },
           },
         })
-      ).resolves.toEqual({ id: "a1", name: "one" });
+      ).rejects.toMatchObject({ code: "V8003" });
       await expect(
         client.author.update({
-          where: { id: "a0" },
+          where: { id: "existing" },
           data: {
+            name: "changed",
             posts: {
               createMany: {
-                data: [{ id: "p2", title: "two" }],
+                data: [{ id: "child", title: "child" }],
                 skipDuplicates: true,
               },
             },
           },
         })
-      ).resolves.toEqual({ id: "a0", name: "zero" });
-      const failure = await client.author
-        .update({
-          where: { id: "a0" },
-          data: {
-            name: "renamed",
-            posts: {
-              createMany: {
-                data: [
-                  { id: "p3", title: "three" },
-                  { id: "p1", title: "again" },
-                ],
-                skipDuplicates: true,
-              },
-            },
-          },
-        })
-        .catch((error) => error);
-
-      expect(failure).toBeInstanceOf(UniqueConstraintError);
-      // Once per client and model: the create reported it, the updates on
-      // the same model do not repeat it.
-      expect(warn.mock.calls).toEqual([
-        [
-          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint in this scope to undo a duplicate) in author.create; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
-        ],
+      ).rejects.toMatchObject({ code: "V8003" });
+      await expect(client.post.findMany()).resolves.toEqual([]);
+      await expect(client.author.findMany()).resolves.toEqual([
+        { id: "existing", name: "original" },
       ]);
-      await expect(
-        client.post.findMany({ orderBy: { id: "asc" } })
-      ).resolves.toEqual([
-        { id: "p1", title: "one", authorId: "a1", categoryId: null },
-        { id: "p2", title: "two", authorId: "a0", categoryId: null },
-      ]);
-      await expect(
-        client.author.findMany({ orderBy: { id: "asc" } })
-      ).resolves.toEqual([
-        { id: "a0", name: "zero" },
-        { id: "a1", name: "one" },
-      ]);
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }
   });
 
-  it("drops skipDuplicates on a many-to-many nested createMany with one warning", async () => {
+  it("refuses many-to-many nested skipDuplicates before rows or links are written", async () => {
     const taggedPost = s
       .model({
         id: s.string().id(),
@@ -1278,13 +1280,12 @@ describe("D1 binding provider", () => {
        DELETE FROM viborm_d1_skip_tags;
        DELETE FROM viborm_d1_skip_posts`
     );
+    const client = createClient({
+      schema: { post: taggedPost, tag: postTag },
+      database: env.DB,
+    });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      const client = createClient({
-        schema: { post: taggedPost, tag: postTag },
-        database: env.DB,
-      });
-
       await expect(
         client.post.create({
           data: {
@@ -1297,37 +1298,14 @@ describe("D1 binding provider", () => {
             },
           },
         })
-      ).resolves.toEqual({ id: "p1" });
-      const failure = await client.post
-        .create({
-          data: {
-            id: "p2",
-            tags: {
-              createMany: {
-                data: [{ id: "t1", name: "one" }],
-                skipDuplicates: true,
-              },
-            },
-          },
-        })
-        .catch((error) => error);
-
-      expect(failure).toBeInstanceOf(UniqueConstraintError);
-      expect(warn.mock.calls).toEqual([
-        [
-          '[viborm] createMany skipDuplicates cannot skip rows involving nested writes on driver "d1" (no savepoint in this scope to undo a duplicate) in post.create; running without skipDuplicates — a duplicate will fail with a unique-constraint error.',
-        ],
-      ]);
+      ).rejects.toMatchObject({ code: "V8003" });
       const rows = await env.DB.batch([
         env.DB.prepare("SELECT id FROM viborm_d1_skip_posts"),
         env.DB.prepare("SELECT id, name FROM viborm_d1_skip_tags"),
         env.DB.prepare("SELECT postId, tagId FROM post_tag"),
       ]);
-      expect(rows.map((result) => result.results)).toEqual([
-        [{ id: "p1" }],
-        [{ id: "t1", name: "one" }],
-        [{ postId: "p1", tagId: "t1" }],
-      ]);
+      expect(rows.map((result) => result.results)).toEqual([[], [], []]);
+      expect(warn).not.toHaveBeenCalled();
     } finally {
       warn.mockRestore();
     }

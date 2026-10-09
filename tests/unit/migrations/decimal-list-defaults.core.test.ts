@@ -159,9 +159,8 @@ describe("literal decimal-list default serialization", () => {
     // less than on TEXT, because a column MySQL holds without the default the
     // schema declared is exactly what the final push attestation refuses.
     expect(sql).toContain("`generic_json` JSON NOT NULL DEFAULT ('{}')");
-    // "Without admitting generic JSON" is the SERIALIZER's fact, and it is
-    // unchanged: no declaration turns into a JSON column default.
-    expect(genericJsonColumnDefault()).toBeUndefined();
+    // A declared JSON object now has a database default for populated-row backfill.
+    expect(genericJsonColumnDefault()).toBe("('{\"a\":1}')");
   });
 
   it("renders coefficient-string JSON on SQLite, LibSQL, and D1", () => {
@@ -180,8 +179,12 @@ describe("literal decimal-list default serialization", () => {
     for (const driver of [postgresMigrationDriver, sqlite3MigrationDriver]) {
       const columns = columnsFor(driver);
       expect(columns.get("generated")?.default).toBeUndefined();
-      expect(columns.get("nullable")?.default).toBe("NULL");
-      expect(columns.get("nullableScalar")?.default).toBe("NULL");
+      expect(columns.get("nullable")?.default).toBe(
+        driver === postgresMigrationDriver ? undefined : "NULL"
+      );
+      expect(columns.get("nullableScalar")?.default).toBe(
+        driver === postgresMigrationDriver ? undefined : "NULL"
+      );
     }
 
     const mysqlColumns = columnsFor(mysqlMigrationDriver);

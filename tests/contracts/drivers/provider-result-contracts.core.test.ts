@@ -6,7 +6,7 @@ import { PgDriver } from "@drivers/pg";
 import { PGliteDriver } from "@drivers/pglite";
 import { PlanetScaleDriver } from "@drivers/planetscale";
 import { createValidatedPlanetScaleFetch } from "@drivers/planetscale/response-contract";
-import { PostgresDriver } from "@drivers/postgres";
+import { PostgresDriver, vibormTypes } from "@drivers/postgres";
 import { QueryError } from "@errors";
 import {
   type Config,
@@ -36,7 +36,14 @@ async function captureQueryError(
 
 function createLibSQLDriver(rowsAffected: unknown, rows: unknown[] = []) {
   const client = {
-    execute: vi.fn(async () => ({ rows, rowsAffected })),
+    execute: vi.fn(async (statement: unknown) =>
+      statement === "SELECT 9007199254740993 AS viborm_integer_precision"
+        ? {
+            rows: [{ viborm_integer_precision: 9007199254740993n }],
+            rowsAffected: 0,
+          }
+        : { rows, rowsAffected }
+    ),
     close: vi.fn(),
   } as unknown as NonNullable<
     ConstructorParameters<typeof LibSQLDriver>[0]
@@ -153,6 +160,13 @@ function createPostgresDriver(
 ) {
   const result = Object.assign(rows, { command, count });
   const client = {
+    options: {
+      parsers: {
+        1082: vibormTypes.timestamp?.parse,
+        1114: vibormTypes.timestamp?.parse,
+        1184: vibormTypes.timestamp?.parse,
+      },
+    },
     unsafe: vi.fn(async () => result),
     end: vi.fn(),
   } as unknown as NonNullable<
@@ -188,6 +202,13 @@ function createPGliteDriver(affectedRows: unknown, rows: unknown[] = []) {
 function createBunSQLDriver(count: unknown, rows: unknown[] = []) {
   const result = Object.assign(rows, { count });
   const client = {
+    options: {
+      parsers: {
+        1082: vibormTypes.timestamp?.parse,
+        1114: vibormTypes.timestamp?.parse,
+        1184: vibormTypes.timestamp?.parse,
+      },
+    },
     unsafe: vi.fn(async () => result),
     close: vi.fn(),
   } as unknown as NonNullable<

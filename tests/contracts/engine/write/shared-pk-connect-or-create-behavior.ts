@@ -144,9 +144,7 @@ export function registerSharedPkConnectOrCreateBehavior(
           (error: unknown) => error
         );
       expect(rejection).toBeInstanceOf(UnsupportedOperationError);
-      expect((rejection as Error).message).toContain(
-        "conflicting final assignments"
-      );
+      expect((rejection as Error).message).toContain("conflicting values");
       expect(await client.profile.count()).toBe(1);
     });
 
@@ -167,9 +165,7 @@ export function registerSharedPkConnectOrCreateBehavior(
           (error: unknown) => error
         );
       expect(rejection).toBeInstanceOf(UnsupportedOperationError);
-      expect((rejection as Error).message).toContain(
-        "conflicting final assignments"
-      );
+      expect((rejection as Error).message).toContain("conflicting values");
       expect(await client.profile.count()).toBe(1);
     });
 

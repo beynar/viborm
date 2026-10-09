@@ -118,17 +118,20 @@ function boundsPolygonJson(
   south: number,
   north: number
 ): string {
+  // Geography edges are great-circle arcs. Include every axis meridian so
+  // their geocentric bounding box encloses the full coordinate rectangle.
+  const meridians = [
+    west,
+    ...[-90, 0, 90].filter((x) => west < x && x < east),
+    east,
+  ];
+  const southEdge = meridians.map((longitude) => [longitude, south]);
+  const northEdge = [...meridians]
+    .reverse()
+    .map((longitude) => [longitude, north]);
   return JSON.stringify({
     type: "Polygon",
-    coordinates: [
-      [
-        [west, south],
-        [east, south],
-        [east, north],
-        [west, north],
-        [west, south],
-      ],
-    ],
+    coordinates: [[...southEdge, ...northEdge, southEdge[0]]],
   });
 }
 

@@ -338,13 +338,7 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected({ tags: { t3: "tag-3" } }),
   },
   {
-    // RETARGETED by N6-U3 (own-write linearization, ATOM §4.1), from a rejection to an
-    // accept-and-execute assertion on the SAME payload. `connect` reads nothing, so it
-    // is a stage-3 pure adder and now runs AFTER the junction's `deleteMany`, whose
-    // filter is therefore resolved against committed membership: t2 is not a member
-    // when the removal runs, so the removal leaves it alone and the sibling `connect`
-    // then attaches it. The old rejection was the ledger deriving legality over an
-    // order the engine did not execute.
+    // Spell clearing before adding; t2 is not a member when deletion runs.
     name: "m2m connect after a deleteMany that cannot see it",
     seed: m2mBaselineSeed,
     act: async (client) => {
@@ -356,8 +350,8 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
         where: { id: "p1" },
         data: {
           tags: {
-            connect: { id: "t2" },
             deleteMany: { name: "tag-2" },
+            connect: { id: "t2" },
           },
         },
       });
@@ -365,11 +359,7 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected({ membership: { p1: ["t1", "t2"] } }),
   },
   {
-    // RETARGETED by N6-U3, same reason as the scenario above and the sharper half of
-    // it: a filtered removal never consumes a row the same call is about to add. The
-    // removal runs first and finds no t9; `create` then inserts it and joins it. Prisma
-    // with these keys in this order deletes the row it just created (measured on 7.9.1;
-    // prisma/prisma#16606). The fixed order makes that unreachable in either spelling.
+    // The removal runs before t9 exists, then create inserts and associates it.
     name: "m2m create survives a deleteMany naming the same key",
     seed: m2mBaselineSeed,
     act: (client) =>
@@ -377,8 +367,8 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
         where: { id: "p1" },
         data: {
           tags: {
-            create: { id: "t9", name: "tag-9" },
             deleteMany: { id: "t9" },
+            create: { id: "t9", name: "tag-9" },
           },
         },
       }),
@@ -404,27 +394,56 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected({ tags: { t2: "tag-2", t3: "tag-3" } }),
   },
   {
-    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
-    // 'connectOrCreate' target write"); now the removal's observation is
-    // placed behind the connectOrCreate's whole mutation — its insert AND its
-    // junction link — so it finds t9 a member and takes the row back out.
-    name: "m2m connectOrCreate then deleteMany removes the tag the connectOrCreate just created",
+    // Removal cannot consume a target this same call supplies afterward.
+    name: "m2m deleteMany then connectOrCreate preserves the newly supplied target",
     seed: m2mBaselineSeed,
     act: (client) =>
       client.post.update({
         where: { id: "p1" },
         data: {
           tags: {
+            deleteMany: { id: "t9" },
             connectOrCreate: {
               where: { id: "t9" },
               create: { id: "t9", name: "tag-9" },
             },
-            deleteMany: { id: "t9" },
           },
         },
       }),
-    expected: m2mExpected(),
+    expected: m2mExpected({
+      membership: { p1: ["t9"] },
+      tags: { ...BASELINE_M2M_TAGS, t9: "tag-9" },
+    }),
   },
+  ...["connect", "create", "connectOrCreate"].map(
+    (verb): Scenario<ManyToManySchema> => ({
+      name: `m2m ${verb} before deleteMany is refused without row or membership effects`,
+      seed: m2mBaselineSeed,
+      expectReject: true,
+      expectedError:
+        "Collection mutation must spell clearing verb 'deleteMany' before adding verb",
+      act: (client) =>
+        client.post.update({
+          where: { id: "p1" },
+          data: {
+            tags: {
+              ...(verb === "connect"
+                ? { connect: { id: "t1" } }
+                : verb === "create"
+                  ? { create: { id: "t9", name: "tag-9" } }
+                  : {
+                      connectOrCreate: {
+                        where: { id: "t9" },
+                        create: { id: "t9", name: "tag-9" },
+                      },
+                    }),
+              deleteMany: { id: "t1" },
+            },
+          },
+        }),
+      expected: m2mExpected(),
+    })
+  ),
   {
     // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'delete'
     // target write"); now `delete` runs first and takes t1's row and its
@@ -474,10 +493,8 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected(),
   },
   {
-    // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier 'update'
-    // target write"); now the removal's filter is resolved against the state
-    // the update left, so the row it renamed is exactly the row it removes.
-    name: "m2m update then deleteMany removes the row the update just renamed",
+    // Collection deletion observes the old name before the selected update runs.
+    name: "m2m deleteMany by a future name does not consume the row renamed afterward",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -490,12 +507,15 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
         where: { id: "p1" },
         data: {
           tags: {
-            update: { where: { id: "t1" }, data: { name: "changed" } },
             deleteMany: { name: "changed" },
+            update: { where: { id: "t1" }, data: { name: "changed" } },
           },
         },
       }),
-    expected: m2mExpected({ tags: { t2: "tag-2", t3: "tag-3" } }),
+    expected: m2mExpected({
+      membership: { p1: ["t1"] },
+      tags: { ...BASELINE_M2M_TAGS, t1: "changed" },
+    }),
   },
   {
     // N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
@@ -620,13 +640,8 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
     expected: m2mExpected(),
   },
   {
-    // RETARGETED by N6-U3, which moved the blame from `deleteMany` to `upsert`
-    // because the engine emits `upsert` first — the canonical order still runs
-    // it there. N1 (D-51): pinned DESIGN §6.2's veto ("depends on an earlier
-    // 'upsert' target write", called then "the class no ordering can fix");
-    // now the removal simply reads behind the upsert, which is the order that
-    // runs, and removes the member the upsert had just rewritten.
-    name: "m2m upsert then deleteMany: the removal observes the upserted row",
+    // The old member is removed first; upsert then creates and reattaches its ID.
+    name: "m2m deleteMany then same-ID upsert recreates the target and exact membership",
     seed: async (client) => {
       await m2mBaselineSeed(client);
       await client.post.update({
@@ -648,7 +663,10 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
           },
         },
       }),
-    expected: m2mExpected({ tags: { t2: "tag-2", t3: "tag-3" } }),
+    expected: m2mExpected({
+      membership: { p1: ["t1"] },
+      tags: { ...BASELINE_M2M_TAGS, t1: "create" },
+    }),
   },
   {
     name: "m2m nested upsert updates a connected record",

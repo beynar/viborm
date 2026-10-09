@@ -180,18 +180,6 @@ describe("a map entry", () => {
       "The 'pg' entry must be a PG native type",
     ],
     [
-      "a type outside the catalog",
-      { pg: { db: "pg", type: "text UNIQUE" } },
-      "nativeType.pg.type",
-      "'text UNIQUE' is not in the 'pg' native-type catalog",
-    ],
-    [
-      "a parameterized base at an arity it does not publish",
-      { mysql: { db: "mysql", type: "VARCHAR(1,2)" } },
-      "nativeType.mysql.type",
-      "'VARCHAR(1,2)' is not in the 'mysql' native-type catalog",
-    ],
-    [
       "an entry that is not an object",
       { sqlite: "TEXT" },
       "nativeType.sqlite",

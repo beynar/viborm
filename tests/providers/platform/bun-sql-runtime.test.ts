@@ -36,6 +36,7 @@ test.runIf(bunVersion.status === 0 && Boolean(databaseUrl))(
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("bun-sql fixed-decimal evidence passed");
+    expect(result.stdout).toContain("bun-sql constraint evidence passed");
   }
 );
 

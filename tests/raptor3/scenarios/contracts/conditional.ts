@@ -1,3 +1,4 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { s } from "@schema";
@@ -275,11 +276,11 @@ function conditional(
         inspect,
         afterStatement(database, completion) {
           const writtenProducer =
-            !found && !producerCutReached
-              ? database
+            found || producerCutReached
+              ? undefined
+              : database
                   .prepare("SELECT id,tag FROM s1_producers WHERE id=41")
-                  .get()
-              : undefined;
+                  .get();
           if (writtenProducer !== undefined) {
             assert.equal(
               completion.transactionOpen,
@@ -333,7 +334,8 @@ function conditional(
                 assert.deepEqual(
                   primary.meta,
                   Object.assign(Object.create(null), {
-                    columns: ["s1_children.id"],
+                    columns: ["id"],
+                    table: "s1_children",
                     correlationId,
                     driver: "sqlite3",
                     model: "child",

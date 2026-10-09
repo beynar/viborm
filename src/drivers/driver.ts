@@ -4,6 +4,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { TransactionError } from "@errors";
 import type { Sql } from "@sql";
 import { ASYNC_DISPOSE, type AsyncDisposeMember } from "./async-dispose";
+import { transferSuppressedFailureEvidence } from "./driver-error-context";
 import {
   type DriverResultParser,
   type NestedTransactionObservation,
@@ -16,6 +17,7 @@ import { observePromiseRejection } from "./rejection-observed-promise";
 import { SavepointQueue } from "./savepoint-queue";
 import { defineImmutableDriverFact } from "./shared/driver-options";
 import type { PinnedSessionReservation } from "./shared/pinned-session";
+import { withSuppressedFailure } from "./shared/suppressed-failure";
 import type {
   BatchTransactionOptions,
   TransactionForm,
@@ -82,7 +84,10 @@ export abstract class Driver<
           }
 
           const closingClient = this.closeRetryClient ?? this.client;
-          if (!closingClient) return;
+          if (!closingClient) {
+            this.transactionPoisonError = undefined;
+            return;
+          }
           try {
             await this.closeClient(closingClient);
           } catch (error) {
@@ -112,6 +117,7 @@ export abstract class Driver<
           this.client = null;
           this.initPromise = null;
           this.closeRetryClient = null;
+          this.transactionPoisonError = undefined;
         } finally {
           this.isDisconnecting = false;
         }
@@ -236,6 +242,8 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
   private readonly nestedTransactionObservations =
     new Set<NestedTransactionObservation>();
   private transactionClosed = false;
+  private readonly signalScopeClosed: (error: unknown) => void;
+  private readonly scopeClosed: Promise<unknown>;
   private isSavepointActive = false;
   private hasAdmittedWithTransactionDispatch = false;
   private rollbackOnlyError: Error | undefined;
@@ -260,6 +268,11 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
       context,
       baseDriver.migrationNamespaceAttestation
     );
+    let resolveClosed: (error: unknown) => void = () => undefined;
+    this.scopeClosed = new Promise<unknown>((resolve) => {
+      resolveClosed = resolve;
+    });
+    this.signalScopeClosed = resolveClosed;
     this.baseDriver = baseDriver;
     this.parentTransactionDriver =
       baseDriver instanceof TransactionBoundDriver ? baseDriver : undefined;
@@ -284,13 +297,25 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     return this.tx;
   }
 
-  closeTransactionScope(): void {
+  closeTransactionScope(...failure: [] | [unknown]): void {
     this.transactionClosed = true;
+    if (failure.length > 0) this.signalScopeClosed(failure[0]);
     for (const observation of this.nestedTransactionObservations) {
       if (observation.failure && !observation.isRejectionObserved) {
         this.markCurrentScopeRollbackOnly(observation.failure);
       }
     }
+  }
+
+  protected override runTransactionBody<T>(body: () => Promise<T>): Promise<T> {
+    // A parent timeout closes this scope. Stop waiting for a nested user body
+    // so its own cleanup drains provider statements and releases the savepoint.
+    return Promise.race([
+      body(),
+      this.scopeClosed.then((error) => {
+        throw error;
+      }),
+    ]);
   }
 
   async waitForActiveOperations(): Promise<void> {
@@ -323,10 +348,22 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     this.rollbackOnlyError ??= error;
   }
 
+  private assertRollbackOnlyUsable(): void {
+    const cause = this.getTransactionFailure();
+    if (!cause) return;
+    const refusal = new TransactionError(
+      `Transaction for driver "${this.driverName}" is rollback-only after an earlier failure; no further statements can execute.`,
+      { cause, meta: { driver: this.driverName, method: "$transaction" } }
+    );
+    throw withSuppressedFailure(
+      transferSuppressedFailureEvidence(cause, refusal),
+      cause
+    );
+  }
+
   private assertTransactionOpen(): void {
     this.parentTransactionDriver?.assertTransactionOpen();
-
-    if (this.rollbackOnlyError) throw this.rollbackOnlyError;
+    this.assertRollbackOnlyUsable();
 
     if (this.transactionClosed) {
       throw new TransactionError(
@@ -358,7 +395,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
 
   private enqueueScopeOperation<T>(operation: () => Promise<T>): Promise<T> {
     return this.scopeQueue.enqueue(async () => {
-      this.assertTransactionCommittable();
+      this.assertRollbackOnlyUsable();
       try {
         return await operation();
       } catch (error) {
@@ -512,7 +549,7 @@ export class TransactionBoundDriver<TClient, TTransaction> extends Driver<
     const hasLifecycleObservers = this.hasTrustedObservers(executionContext);
     const executeTransaction = (gate = ungatedLifecycleExecution) =>
       this.scopeQueue.enqueue(async () => {
-        this.assertTransactionCommittable();
+        this.assertRollbackOnlyUsable();
         this.isSavepointActive = true;
         try {
           return await this.runProviderTransactionCore(

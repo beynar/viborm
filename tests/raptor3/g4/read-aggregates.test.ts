@@ -26,6 +26,10 @@ import {
   type WitnessWorld,
 } from "./witness-world";
 
+const AGGREGATE_PATTERN_1 = /./;
+const AGGREGATE_PATTERN_2 = /./;
+const AGGREGATE_PATTERN_3 = /./;
+
 describe("G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01)", () => {
   let world: WitnessWorld;
 
@@ -82,14 +86,14 @@ describe("G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01)", () =
       "post",
       "groupBy",
       { by: ["authorTenant"], _sum: { title: true } },
-      { name: "ValidationError", message: /./ }
+      { name: "ValidationError", message: AGGREGATE_PATTERN_1 }
     );
     await expectRefusal(
       world,
       "post",
       "groupBy",
       { by: ["authorTenant"], _avg: { slug: true } },
-      { name: "ValidationError", message: /./ }
+      { name: "ValidationError", message: AGGREGATE_PATTERN_2 }
     );
   });
 
@@ -99,7 +103,7 @@ describe("G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01)", () =
       "post",
       "groupBy",
       { by: ["absent"], _count: { _all: true } },
-      { name: "ValidationError", message: /./ }
+      { name: "ValidationError", message: AGGREGATE_PATTERN_3 }
     );
     await expectRead(
       world,
@@ -134,8 +138,8 @@ describe("G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01)", () =
         orderBy: { authorTenant: "asc" },
       },
       [
-        { authorTenant: null, _max: { views: 0 } },
         { authorTenant: "beta", _max: { views: 30 } },
+        { authorTenant: null, _max: { views: 0 } },
       ]
     );
   });
@@ -182,17 +186,31 @@ describe("G4 C01 aggregate shapes and result policy (Q-A01, Q-A02, Q-R01)", () =
         _count: { select: { posts: true } },
       },
     };
-    const first = rowsOf(await world.candidate.execute("author", "findMany", request));
-    const second = rowsOf(await world.candidate.execute("author", "findMany", request));
+    const first = rowsOf(
+      await world.candidate.execute("author", "findMany", request)
+    );
+    const second = rowsOf(
+      await world.candidate.execute("author", "findMany", request)
+    );
     assert.deepStrictEqual(first, second);
     assert.notEqual(first[0], second[0], "row containers must be fresh");
-    assert.notEqual(first[0]?.posts, second[0]?.posts, "relation carriers must be fresh");
-    assert.notEqual(first[0]?._count, second[0]?._count, "aggregate carriers must be fresh");
+    assert.notEqual(
+      first[0]?.posts,
+      second[0]?.posts,
+      "relation carriers must be fresh"
+    );
+    assert.notEqual(
+      first[0]?._count,
+      second[0]?._count,
+      "aggregate carriers must be fresh"
+    );
   });
 
   it("Q-R01 refuses a structurally invalid provider row", async () => {
     world.database
-      .prepare(`UPDATE ${POST_TABLE} SET view_count = 'not-an-int' WHERE id = 1`)
+      .prepare(
+        `UPDATE ${POST_TABLE} SET view_count = 'not-an-int' WHERE id = 1`
+      )
       .run();
     const request = {
       where: { tenant_handle: { tenant: "acme", handle: "ada" } },

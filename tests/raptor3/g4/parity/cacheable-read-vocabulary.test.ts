@@ -234,7 +234,7 @@ describe("FC-04 — the route's cached-result vocabulary boundary", () => {
       (error: unknown) =>
         error instanceof UnsupportedOperationError &&
         error.message ===
-          "The Raptor 3 route cannot encode a cached result for 'create' on model 'author': the verb publishes no prepared read."
+          "Cannot cache 'create' on model 'author': the operation has no readable result."
     );
     // The boundary is reached at publication, not after a write: no statement
     // was submitted and no row was created.

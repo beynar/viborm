@@ -30,6 +30,7 @@ import type { DiagnosticDisclosure } from "@errors";
  *   core still selects the failure and marks it logged.
  */
 export type ObservationNeed =
+  | "operation"
   | "statement"
   | "transaction"
   | "savepoint"
@@ -101,6 +102,8 @@ export interface OperationCompletionFacts {
   readonly kind: "operation";
   readonly endedAt: number;
   readonly failure?: Error;
+  /** Failure evidence can serve tracing when core selected no log. */
+  readonly skipLog?: true;
   /** Close and read the cache-managed execution's outcome list. */
   readonly readCacheOutcomes?: () => readonly CacheOutcome[];
 }
@@ -154,7 +157,9 @@ export interface CacheBackendFacts {
   readonly kind: "cache-backend";
   readonly boundary: "clear" | "delete";
   readonly driverName: string;
-  readonly complete: () => undefined;
+  readonly complete: (
+    outcome: ObservationOutcome
+  ) => LifecycleCompletionFacts | undefined;
 }
 
 /**
@@ -217,6 +222,8 @@ export interface StatementCompletionFacts {
   readonly sql: string;
   readonly params: unknown[];
   readonly failure?: Error;
+  /** Failure evidence can serve tracing when core selected no log. */
+  readonly skipLog?: true;
 }
 
 export interface StatementFacts {
@@ -228,10 +235,17 @@ export interface StatementFacts {
   ) => StatementCompletionFacts | undefined;
 }
 
+export interface LifecycleCompletionFacts {
+  readonly kind: "driver-lifecycle";
+  readonly failure?: Error;
+}
+
 export interface LifecycleFacts {
   readonly kind: "driver-lifecycle";
   readonly dispatch: Promise<LifecycleDispatch | undefined>;
-  readonly complete: () => undefined;
+  readonly complete: (
+    outcome: ObservationOutcome
+  ) => LifecycleCompletionFacts | undefined;
 }
 
 /** The start facts of one protected unit, discriminated by `kind`. */
@@ -250,5 +264,6 @@ export type OfficialLifecycleFactsReader = () =>
 /** What a settled unit's `complete()` produced, with the start facts' `kind`. */
 export type OfficialLifecycleCompletionFacts =
   | CacheCompletionFacts
+  | LifecycleCompletionFacts
   | OperationCompletionFacts
   | StatementCompletionFacts;

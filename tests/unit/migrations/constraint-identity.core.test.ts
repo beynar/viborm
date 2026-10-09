@@ -2,8 +2,9 @@
  * What makes two constraints the same constraint.
  *
  * REGRESSION: the differ matched foreign keys and unique constraints by NAME.
- * On PostgreSQL and MySQL that is right — the catalog carries the name the DDL
- * gave the constraint. SQLite carries neither name:
+ * PostgreSQL/MySQL expose physical names for real definition changes; an
+ * equivalent foreign name now refuses unsupported adoption instead of churn.
+ * SQLite carries neither name:
  *
  *   - `PRAGMA foreign_key_list` has no name column at all, so introspection
  *     synthesises `<table>_fk_<n>`, which never equals the serializer's
@@ -191,18 +192,14 @@ describe("foreign-key identity by shape", () => {
 });
 
 describe("foreign-key identity by name (the dialects that carry one)", () => {
-  it("a renamed key is a different key", async () => {
-    // The name IS the identity on PostgreSQL and MySQL, so this must stay a
-    // drop and an add — the shape reading would call it no change.
-    expect(
-      await byName(
+  it("an equivalent key under an unrepresentable different physical name is refused at planning admission", async () => {
+    await expect(
+      diff(
         posts({ foreignKeys: [readFk] }),
-        posts({ foreignKeys: [declaredFk] })
+        posts({ foreignKeys: [declaredFk] }),
+        { refuseConstraintNameChurn: true }
       )
-    ).toEqual([
-      { type: "dropForeignKey", tableName: "posts", fkName: "posts_fk_0" },
-      { type: "addForeignKey", tableName: "posts", fk: declaredFk },
-    ]);
+    ).rejects.toThrow("different physical name");
   });
 
   it("one name whose definition changed is dropped and re-added", async () => {

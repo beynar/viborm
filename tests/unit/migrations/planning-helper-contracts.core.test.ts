@@ -216,7 +216,7 @@ describe("migration planning helper contracts", () => {
     );
     expect(normalizeDefault(" FALSE ")).toBe("false");
     expect(normalizeDefault("now() ")).toBe("now()");
-    expect(normalizeDefault("CURRENT_TIMESTAMP")).toBe("CURRENT_TIMESTAMP");
+    expect(normalizeDefault("CURRENT_TIMESTAMP")).toBe("now()");
   });
 
   test("predicate canonicalization preserves unhandled indexes and fails closed", async () => {

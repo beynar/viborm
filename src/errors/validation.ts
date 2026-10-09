@@ -95,7 +95,7 @@ export class ValidationError extends VibORMError {
   ) {
     const issuesSummary =
       issues.length === 1
-        ? issues[0]!.message
+        ? [issues[0]!.path, issues[0]!.message].filter(Boolean).join(": ")
         : `${issues.length} validation errors`;
     const source = normalizeSource(sourceOrOperation, options?.meta);
     const operation =
@@ -109,6 +109,7 @@ export class ValidationError extends VibORMError {
       {
         cause: options?.cause,
         diagnostics: options?.diagnostics,
+        validation: { source, issues },
         meta: operation
           ? { ...options?.meta, operation }
           : { ...options?.meta },
@@ -117,10 +118,6 @@ export class ValidationError extends VibORMError {
     this.issues = issues;
     this.source = source;
     this.operation = operation;
-  }
-
-  override toJSON(): Record<string, unknown> {
-    return { ...super.toJSON(), source: this.source };
   }
 }
 
@@ -148,7 +145,10 @@ function normalizeSource(
 }
 
 function validationSubject(source: ValidationErrorSource): string {
-  if (source.kind === "operation") return source.operation;
+  if (source.kind === "operation")
+    return source.model
+      ? `${source.model}.${source.operation}`
+      : source.operation;
   if (source.kind === "registry") return "schema registry";
   if (source.kind === "schema-builder") return source.builder;
   return "JSON Schema";

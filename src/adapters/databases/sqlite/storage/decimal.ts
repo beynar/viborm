@@ -6,15 +6,29 @@
  * exact table-rebuild expressions that rescale scalar and list coefficients.
  */
 
-import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
-import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { MigrationError, VibORMErrorCode } from "../../../../errors";
 import {
-  type DecimalStorageKind,
+  type DecimalDescriptor,
+  decimalColumnType,
   describeDecimalDomain,
   readStoredDecimalDescriptor,
-  sqliteDecimalStorageKind,
-} from "../../decimal";
-import type { ColumnDef } from "../../types";
+} from "../../../../validation/primitives/decimal-codec";
+export type DecimalStorageKind = "scalar" | "list";
+interface PhysicalColumn {
+  readonly name: string;
+  readonly type: string;
+  readonly nullable: boolean;
+  readonly decimal?: DecimalDescriptor | undefined;
+}
+export function sqliteDecimalStorageKind(
+  column: Pick<PhysicalColumn, "type" | "decimal">
+): DecimalStorageKind | undefined {
+  if (column.decimal === undefined) return undefined;
+  const type = column.type.toUpperCase();
+  if (type === decimalColumnType("sqlite", column.decimal)) return "scalar";
+  return type === "TEXT" ? "list" : undefined;
+}
+
 import {
   type SqliteConstraintClause,
   type SqliteTableDefinition,
@@ -80,7 +94,7 @@ const RESERVED_CONSTRAINT_TAIL = /^(\d+)_(\d+)$/;
  */
 export function readSqliteDecimalConstraint(
   tableSql: string | null | undefined,
-  column: Pick<ColumnDef, "name" | "type" | "nullable">,
+  column: Pick<PhysicalColumn, "name" | "type" | "nullable">,
   escapeIdentifier: (name: string) => string
 ): DecimalDescriptor | undefined {
   if (!tableSql) return undefined;
@@ -127,17 +141,15 @@ export function readSqliteDecimalConstraint(
           }
         );
       }
-      if (definition.columnName === column.name) {
-        if (found !== undefined) {
-          throw new MigrationError(
-            `The stored definition carries more than one fixed-decimal descriptor for column "${column.name}": ${describeDecimalDomain(found)} and ${describeDecimalDomain(descriptor)}. ` +
-              "One physical column can have only one logical decimal domain, so introspection refuses the ambiguous reserved carriers instead of choosing one by order.",
-            VibORMErrorCode.INVALID_INPUT,
-            { meta: { column: column.name } }
-          );
-        }
-        found = descriptor;
+      if (found !== undefined) {
+        throw new MigrationError(
+          `The stored definition carries more than one fixed-decimal descriptor for column "${column.name}": ${describeDecimalDomain(found)} and ${describeDecimalDomain(descriptor)}. ` +
+            "One physical column can have only one logical decimal domain, so introspection refuses the ambiguous reserved carriers instead of choosing one by order.",
+          VibORMErrorCode.INVALID_INPUT,
+          { meta: { column: column.name } }
+        );
       }
+      found = descriptor;
     }
   }
   return found;
@@ -156,11 +168,11 @@ export function readSqliteDecimalConstraint(
 function ownedDescriptor(
   definition: SqliteTableDefinition,
   clause: SqliteConstraintClause,
-  physicalColumn: Pick<ColumnDef, "name" | "type" | "nullable">,
+  physicalColumn: Pick<PhysicalColumn, "name" | "type" | "nullable">,
   escapeIdentifier: (name: string) => string
 ): DecimalDescriptor | undefined {
   const column = definition.columnName;
-  if (column === undefined || column !== physicalColumn.name) return undefined;
+  if (column === undefined) return undefined;
   const prefix = `${RESERVED_CONSTRAINT_PREFIX}${column}_`;
   if (!clause.name.startsWith(prefix)) return undefined;
   const match = RESERVED_CONSTRAINT_TAIL.exec(clause.name.slice(prefix.length));

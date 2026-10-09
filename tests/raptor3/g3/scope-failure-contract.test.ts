@@ -1,16 +1,19 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
-import { SQLite3Driver } from "@drivers/sqlite3";
 import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import { TransactionError } from "@errors";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
-import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { overrideTransactionOperation } from "@tests/fixtures/transaction-operation";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import v from "@validation/primitives/v";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
+
+const FAILED_SCOPE_AUTHORS = /g3_failed_scope_authors/;
 
 interface Deferred {
   readonly promise: Promise<void>;
@@ -131,7 +134,7 @@ async function createWorld(onTitle: (title: string) => string) {
 
 type World = Awaited<ReturnType<typeof createWorld>>;
 
-const selected: true = true;
+const selected = true;
 
 function seriesArgs(prefix: string, firstId: number) {
   return {
@@ -253,7 +256,7 @@ describe("G3 failed caller-scope publication", () => {
       const inner = await arrayOutcome;
       assert.equal(inner.status, "rejected");
       if (inner.status !== "rejected") throw new Error("Expected rejection");
-      assert(inner.reason instanceof TransactionError);
+      assert.equal(inner.reason, callerFailure);
       assert.equal(progressOf(inner.reason), undefined);
 
       const heldIndex = held.statementIndex();
@@ -261,7 +264,7 @@ describe("G3 failed caller-scope publication", () => {
       const heldStatement = world.driver.statements[heldIndex];
       assert(heldStatement);
       assert.equal(heldStatement.context?.operation, "create");
-      assert.match(heldStatement.sql, /g3_failed_scope_authors/);
+      assert.match(heldStatement.sql, FAILED_SCOPE_AUTHORS);
       assert.deepEqual(storedAuthors(world.database), []);
       assert.deepEqual(storedPosts(world.database), []);
     } finally {

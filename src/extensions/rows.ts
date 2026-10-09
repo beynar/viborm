@@ -15,6 +15,7 @@ import {
   type RowsContribution,
   rowsModes,
 } from "./controls";
+import type { RuntimeExtensionDefinition } from "./definition";
 
 type Predicates = RowsContribution["models"][string][string];
 
@@ -130,6 +131,29 @@ function collectReferences(
       collectReferences(item, names, logical, logical ? fields : undefined);
     }
   }
+}
+
+/** One definition may reference only its own declared controls. */
+export function undeclaredControlReferencesOf(
+  definition: RuntimeExtensionDefinition,
+  schema?: Schema
+): readonly string[] {
+  const declared = new Set(Object.keys(definition.controls ?? {}));
+  if (definition.rows) declared.add(definition.rows.control);
+  const references = new Set<string>();
+  const fieldsOf = modelFields(schema);
+  for (const [model, modes] of Object.entries(definition.rows?.models ?? {}))
+    for (const mode of Object.values(modes)) {
+      collectReferences(mode.root, references, true, fieldsOf(model));
+      collectReferences(mode.related, references, true, fieldsOf(model));
+    }
+  for (const entry of Object.values(definition.data?.models ?? {}))
+    for (const fields of [entry.create, entry.update])
+      for (const value of Object.values(fields ?? {}))
+        collectReferences(value, references, false);
+  for (const name of Object.keys(definition.deletion?.removeWhen ?? {}))
+    references.add(name);
+  return [...references].filter((name) => !declared.has(name));
 }
 
 /** The controls a list of domains' predicates name. */

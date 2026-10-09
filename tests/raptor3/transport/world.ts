@@ -1,7 +1,8 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { z } from "zod";
 import { assertEquivalentRunObservations } from "../../../benchmarks/operation-pipeline-semantics.mjs";
 import type {
@@ -360,16 +361,23 @@ function assertActorOutcome(
       (candidate === "commands" && actor.fault === "consumer-malformed"));
   assert.equal(
     outcome.failure.name,
-    malformed ? "QueryEngineError" : "QueryError"
+    preciseMalformed
+      ? "QueryError"
+      : malformed
+        ? "QueryEngineError"
+        : "QueryError"
   );
-  assert.equal(outcome.failure.code, malformed ? "V9001" : "V2001");
+  assert.equal(
+    outcome.failure.code,
+    preciseMalformed ? "V2006" : malformed ? "V9001" : "V2002"
+  );
   assert.equal(
     outcome.failure.message,
     malformed
       ? preciseMalformed
-        ? `Driver "${profile}" returned a malformed int scalar for operation "${actor.operation}": the value is not a canonical integer.`
+        ? `The "${actor.operation}" result is incompatible with the int scalar domain: the value is not a canonical integer.`
         : "Record-series execution failed at a committed-segment boundary."
-      : "Query execution failed"
+      : "Query timed out"
   );
   const ack = profile === "scripted-returning-ack";
   const producer = actor.fault.startsWith("producer-");
@@ -433,8 +441,10 @@ function assertActorOutcome(
         meta;
       assert.deepEqual(scalarMeta, {
         driver: profile,
+        model: actor.model,
         operation: "update",
         scalarType: "int",
+        reason: "the value is not a canonical integer",
       });
     }
     return;
@@ -633,7 +643,7 @@ export async function runTransportWorld(
         .record(z.string(), z.unknown())
         .parse(outcome.failure.meta);
       if (meta.recordSeriesProgress === undefined) continue;
-      delete meta.recordSeriesProgress;
+      Reflect.deleteProperty(meta, "recordSeriesProgress");
       outcome.failure.meta = meta;
       changed = true;
     }
@@ -755,7 +765,7 @@ export async function runTransportWorld(
           ...(observed.subsequentOutcomes ?? []),
         ];
         assert.equal(observedOutcomes.length, actors.length);
-        actors.forEach((actor, index) =>
+        actors.forEach((actor, index) => {
           assertActorOutcome(
             actor,
             observedOutcomes[index]!,
@@ -768,8 +778,8 @@ export async function runTransportWorld(
                 : []
             )[0],
             candidate
-          )
-        );
+          );
+        });
         assert.deepEqual(
           tape.events.flatMap((event) =>
             event.kind === "injected-failure" ? [event.cut] : []

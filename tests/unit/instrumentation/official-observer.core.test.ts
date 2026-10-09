@@ -232,7 +232,10 @@ describe("official protected observer", () => {
     ).rejects.toBe(lifecycleFailure);
   });
 
-  it("releases a spanless statement dispatch exactly once", async () => {
+  it.each([
+    false,
+    true,
+  ])("releases a spanless statement dispatch once when failure=%s", async (fails) => {
     const extension = instrumentation({ logging: { query: true } });
     let releaseChild: ((value: string) => void) | undefined;
     const heldChild = new Promise<string>((resolve) => {
@@ -255,14 +258,19 @@ describe("official protected observer", () => {
       complete: () => undefined,
     });
 
-    await expect(
-      runObserved(
-        extension,
-        { kind: "statement", operation: "$queryRaw" },
-        facts,
-        () => heldChild
-      )
-    ).resolves.toBe("released");
+    const failure = new Error("statement failed without completion facts");
+    const outcome = runObserved(
+      extension,
+      { kind: "statement", operation: "$queryRaw" },
+      facts,
+      async () => {
+        const result = await heldChild;
+        if (fails) throw failure;
+        return result;
+      }
+    );
+    if (fails) await expect(outcome).rejects.toBe(failure);
+    else await expect(outcome).resolves.toBe("released");
     expect(start).toHaveBeenCalledOnce();
   });
 
@@ -471,6 +479,8 @@ describe("official observation capability", () => {
       Object.fromEntries(NEEDS.map((need) => [need, false]))
     );
     expect(quiet.diagnostics).toEqual({
+      includeProviderDetails: false,
+      includeCallsite: false,
       includeParams: true,
       includeSql: false,
     });

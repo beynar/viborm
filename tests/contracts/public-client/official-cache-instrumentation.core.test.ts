@@ -740,7 +740,7 @@ describe("official cache instrumentation", () => {
       expect(invalidations).toHaveLength(2);
       expect(
         spans.filter(({ name }) => name === SPAN_CACHE_CLEAR)
-      ).toHaveLength(1);
+      ).toHaveLength(2);
       expect(
         spans.filter(({ name }) => name === SPAN_CACHE_DELETE)
       ).toHaveLength(2);

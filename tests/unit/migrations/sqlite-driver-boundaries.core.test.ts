@@ -1,3 +1,17 @@
+import {
+  readSqliteDecimalConstraint,
+  sqliteColumnDefinitionCarriesDecimalDescriptor,
+  sqliteDecimalCheck,
+} from "@src/adapters/databases/sqlite/storage/decimal";
+import {
+  readSqliteGeoPointColumn,
+  SQLITE_GEO_POINT_TYPE,
+  sqliteGeoPointCheck,
+} from "@src/adapters/databases/sqlite/storage/geo-point";
+import {
+  readSqliteIdentifier,
+  skipSqlNonStructuralRegion,
+} from "@src/adapters/databases/sqlite/storage/sql-lexing";
 import { VibORMErrorCode } from "@src/errors";
 import {
   getMigrationDriver,
@@ -16,20 +30,6 @@ import {
   sqlite3MigrationDriver,
   sqliteTableBearsRelations,
 } from "@src/migrations/drivers/sqlite";
-import {
-  readSqliteDecimalConstraint,
-  sqliteColumnDefinitionCarriesDecimalDescriptor,
-  sqliteDecimalCheck,
-} from "@src/migrations/drivers/sqlite/decimal";
-import {
-  readSqliteGeoPointColumn,
-  SQLITE_GEO_POINT_TYPE,
-  sqliteGeoPointCheck,
-} from "@src/migrations/drivers/sqlite/geo-point";
-import {
-  readSqliteIdentifier,
-  skipSqlNonStructuralRegion,
-} from "@src/migrations/drivers/sqlite/sql-lexing";
 import type {
   ColumnDef,
   DiffOperation,
@@ -508,14 +508,16 @@ describe("SQLite structural carrier readers", () => {
     const check = sqliteGeoPointCheck(column, escapeIdentifier);
     const sql = `CREATE TABLE "place" ("location" ${SQLITE_GEO_POINT_TYPE} ${check})`;
 
-    expect(readSqliteGeoPointColumn(sql, column, escapeIdentifier)).toBe(true);
+    expect(readSqliteGeoPointColumn(sql, column, escapeIdentifier)).toBe(
+      "binary64"
+    );
     expect(
       readSqliteGeoPointColumn(
         sql,
         { ...column, type: "TEXT" },
         escapeIdentifier
       )
-    ).toBe(false);
+    ).toBeUndefined();
   });
 
   test.each([

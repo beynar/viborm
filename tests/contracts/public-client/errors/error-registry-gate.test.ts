@@ -65,6 +65,7 @@ import {
 import { SchemaValidationError } from "@schema/validation";
 import { attachExecutionContext } from "@src/drivers/driver-error-context";
 import type { DriverFailure } from "@src/drivers/error-mapping";
+import { ProviderTransactionContractError } from "@src/drivers/shared/transactions";
 import { REPOSITORY_ROOT, SOURCE_ROOT } from "@tests/fixtures/repo-paths";
 import ts from "typescript";
 import { expectTypeOf } from "vitest";
@@ -154,7 +155,7 @@ const REGISTRY: readonly RegistryRow[] = [
     make: () =>
       new ClientInitializationError('Model "ghost" not found in schema'),
     code: VibORMErrorCode.CLIENT_INITIALIZATION,
-    driverFailure: false,
+    driverFailure: true,
     classification: "failure",
     prismaCode: "P1012",
   },
@@ -162,7 +163,7 @@ const REGISTRY: readonly RegistryRow[] = [
     name: "ConnectionError",
     make: () => new ConnectionError("Database connection failed"),
     code: VibORMErrorCode.CONNECTION_FAILED,
-    driverFailure: false,
+    driverFailure: true,
     classification: "failure",
     prismaCode: "P1001",
   },
@@ -234,6 +235,17 @@ const REGISTRY: readonly RegistryRow[] = [
     name: "PendingOperationError",
     make: () => PendingOperationError.clientMismatch("user", "create"),
     code: VibORMErrorCode.OPERATION_CLIENT_MISMATCH,
+    driverFailure: false,
+    classification: "failure",
+    prismaCode: null,
+  },
+  {
+    name: "ProviderTransactionContractError",
+    make: () =>
+      new ProviderTransactionContractError(
+        "Provider violated its callback contract"
+      ),
+    code: VibORMErrorCode.TRANSACTION_FAILED,
     driverFailure: false,
     classification: "failure",
     prismaCode: null,
@@ -318,7 +330,7 @@ const REGISTRY: readonly RegistryRow[] = [
 ];
 
 /** The census pin. Moves only when a class is deliberately added or removed. */
-const REGISTRY_COUNT = 24;
+const REGISTRY_COUNT = 25;
 
 /* ------------------------------------------------------------------ *
  * Source discovery: the registry cannot quietly fall behind the tree. *
@@ -440,6 +452,8 @@ const DRIVER_FAILURE_MEMBERS = new Set(
  * does: delete a member from `DriverFailure` and `pnpm test:types` fails here.
  */
 type DriverFailureCensus =
+  | ClientInitializationError
+  | ConnectionError
   | CheckConstraintError
   | ForeignKeyError
   | NestedWriteAssertionError
@@ -599,6 +613,18 @@ describe("surface 2 — classifyFailure", () => {
     expect(disagreements).toEqual([]);
   });
 
+  it("publishes lock contention through the existing transaction family", () => {
+    const error = new TransactionError("Database is locked", {
+      code: VibORMErrorCode.TRANSACTION_CONTENTION,
+    });
+    expect(classifyFailure(error)).toMatchObject({
+      kind: "failure",
+      retryable: true,
+    });
+    expect(error.prismaCode).toBeUndefined();
+    expect(readFileSync(DOCS_ERRORS, "utf8")).toContain("V5006");
+  });
+
   it("keeps the V8003 refusal and the V9001 defect on opposite sides", () => {
     // The pair the seam exists for, restated at the class axis: same family, same `instanceof`
     // answer, opposite dispositions.
@@ -654,6 +680,7 @@ describe("surface 3 — the prismaCode map", () => {
       "NestedWriteAssertionError",
       "NestedWriteError",
       "PendingOperationError",
+      "ProviderTransactionContractError",
       "QueryEngineError",
       "QueryError",
       "SchemaValidationError",
@@ -719,7 +746,8 @@ describe("surface 5 — the execution-context clone", () => {
   // reads the class from the error itself; this census keeps every registered
   // class honest against it. SchemaValidationError owns constructor state the
   // clone cannot rebuild, so it degrades to the base class instead of a hollow
-  // subtype.
+  // subtype. The internal provider-contract subclass deliberately becomes the
+  // public TransactionError family after the transport has quarantined its handle.
   const DEGRADES_TO_BASE = new Set(["SchemaValidationError"]);
 
   it("keeps every registered class, or degrades it whole", () => {
@@ -728,7 +756,9 @@ describe("surface 5 — the execution-context clone", () => {
       const clone = attachExecutionContext(source, { driverName: "census" });
       const expected = DEGRADES_TO_BASE.has(row.name)
         ? VibORMError.prototype
-        : Object.getPrototypeOf(source);
+        : row.name === "ProviderTransactionContractError"
+          ? TransactionError.prototype
+          : Object.getPrototypeOf(source);
       if (Object.getPrototypeOf(clone) !== expected) {
         return [`${row.name} clones as ${clone.constructor.name}`];
       }

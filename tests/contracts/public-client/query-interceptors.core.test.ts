@@ -285,7 +285,7 @@ describe("prepared query execution outcomes", () => {
       )
     );
 
-    expect(failure).toBeInstanceOf(QueryError);
+    expect(failure).toBe(postWorkFailure);
     expect(decomposeQueryCoordinationFailure(failure)).toBeUndefined();
   });
 });
@@ -311,9 +311,7 @@ describe("query continuation authority", () => {
       )
     );
 
-    expect(requireQueryError(failure).message).toContain(
-      'Extension "sync-handler"'
-    );
+    expect(failure).toBe(handlerFailure);
     expect(child).not.toHaveBeenCalled();
   });
 
@@ -596,9 +594,7 @@ describe("query continuation authority", () => {
     }
     expect(error.cause).toBe(protocolFailure);
     expect(error.errors[0]).toBe(protocolFailure);
-    expect(requireQueryError(error.errors[1]).message).toContain(
-      'Extension "protocol-and-post"'
-    );
+    expect(error.errors[1]).toBe(postFailure);
   });
 
   test("preserves child, protocol, and handler failures in deterministic order", async () => {
@@ -641,9 +637,7 @@ describe("query continuation authority", () => {
     expect(error.cause).toBe(childFailure);
     expect(error.errors[0]).toBe(childFailure);
     expect(error.errors[1]).toBe(protocolFailure);
-    expect(requireQueryError(error.errors[2]).message).toContain(
-      'Extension "triple-failure"'
-    );
+    expect(error.errors[2]).toBe(postFailure);
   });
 
   test("a detached mutation proceed cannot start the child after no-proceed refusal", async () => {
@@ -674,7 +668,7 @@ describe("query continuation authority", () => {
     expect(child).not.toHaveBeenCalled();
   });
 
-  test("ignores fabricated success after proceed", async () => {
+  test("honours the handler transformation after proceed", async () => {
     const childRows = [{ id: "child" }];
     const result = await runQueryInterceptors(
       modelContext("findMany"),
@@ -691,7 +685,7 @@ describe("query continuation authority", () => {
       ignoreRegistration
     );
 
-    expect(result).toBe(childRows);
+    expect(result).toEqual([{ id: "fabricated" }]);
   });
 
   test("awaits handler post-work after the child fulfills", async () => {
@@ -776,9 +770,7 @@ describe("query continuation authority", () => {
       )
     );
 
-    const queryError = requireQueryError(error);
-    expect(queryError.message).toContain('Extension "post-work"');
-    expect(queryError.originalCause).toBeInstanceOf(Error);
+    expect(error).toBe(postFailure);
   });
 
   test("dual failure keeps the child primary and named extension failure second", async () => {
@@ -813,9 +805,8 @@ describe("query continuation authority", () => {
     }
     expect(error.cause).toBe(childFailure);
     expect(error.errors[0]).toBe(childFailure);
-    expect(error.errors[1]).toBeInstanceOf(QueryError);
-    const extensionFailure = requireQueryError(error.errors[1]);
-    expect(extensionFailure.message).toContain('Extension "dual-failure"');
+    expect(error.errors[1]).toBe(postFailure);
+    const extensionFailure = postFailure;
     expect(decomposeQueryCoordinationFailure(error)).toEqual({
       child: childFailure,
       postWork: [extensionFailure],
@@ -909,9 +900,9 @@ describe("query continuation authority", () => {
     if (!(error instanceof AggregateError)) {
       throw new Error("Expected outer dual failure evidence");
     }
-    expect(error.errors[1]).toBeInstanceOf(QueryError);
-    const outerFailure = requireQueryError(error.errors[1]);
-    expect(outerFailure.message).toContain('Extension "outer"');
+    expect(requireError(error.errors[1]).message).toBe(
+      "outer post-work failed"
+    );
     expect(error.cause).toBeInstanceOf(AggregateError);
     if (!(error.cause instanceof AggregateError)) {
       throw new Error("Expected nested inner dual failure evidence");
@@ -919,9 +910,9 @@ describe("query continuation authority", () => {
     expect(error.errors[0]).toBe(error.cause);
     expect(error.cause.cause).toBe(childFailure);
     expect(error.cause.errors[0]).toBe(childFailure);
-    expect(error.cause.errors[1]).toBeInstanceOf(QueryError);
-    const innerFailure = requireQueryError(error.cause.errors[1]);
-    expect(innerFailure.message).toContain('Extension "inner"');
+    expect(requireError(error.cause.errors[1]).message).toBe(
+      "inner post-work failed"
+    );
   });
 });
 
@@ -1184,6 +1175,31 @@ describe("query write-outcome publication", () => {
 });
 
 describe("hostile query thenables", () => {
+  test("reports commit certainty when post-proceed work rejects with a non-Error", async () => {
+    const failure = await captureFailure(
+      executePreparedQuery(
+        modelContext("create"),
+        [
+          {
+            extension: "committed-post-work",
+            async handler({ proceed }) {
+              await proceed();
+              return Promise.reject("private post-work failure");
+            },
+          },
+        ],
+        async () => ({ count: 1 }),
+        true,
+        undefined,
+        { readCommitCertainty: () => "committed" }
+      )
+    );
+    expect(requireQueryError(failure).meta).toMatchObject({
+      commitCertainty: "committed",
+    });
+    expect(requireQueryError(failure).originalCause).toBeInstanceOf(Error);
+    expect(requireQueryError(failure).message).toContain("committed-post-work");
+  });
   test("does not confuse an undefined rejection with absent protocol failure", async () => {
     const failure = await captureFailure(
       runQueryInterceptors(
@@ -1232,9 +1248,7 @@ describe("hostile query thenables", () => {
       )
     );
 
-    expect(requireQueryError(error).message).toContain(
-      'Extension "hostile-handler"'
-    );
+    expect(error).toBe(thenFailure);
   });
 
   test("keeps a hostile child thenable failure authoritative", async () => {

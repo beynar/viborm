@@ -31,12 +31,15 @@ const client = createClient({ schema, driver }).$extends(
 | `all` | Fallback handler for every enabled level |
 | `query` | Physical provider execution |
 | `cache` | Cache hit, miss, stale, bypass, set, and revalidation events |
-| `warning` | Non-fatal notices, including deprecated raw-string use |
+| `warning` | Non-fatal ORM notices |
 | `error` | One selected normalized operation failure |
 | `includeSql` | Disclose rendered SQL to logging only |
 | `includeParams` | Disclose snapshotted parameters to logging only |
 
-A level accepts `true` for the built-in pretty logger or a callback. A specific
+A level accepts `true` for plain console output or a callback. The built-in
+logger adds no ANSI escape codes, so captured logs remain readable. A callback
+can pass the sanitized event to a JSON logger. Durations are milliseconds; the
+current lifecycle clock has millisecond resolution. A specific
 level overrides `all`.
 
 ```ts

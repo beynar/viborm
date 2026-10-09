@@ -1,5 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { createJsonSchemaConverter } from "../json-schema/factory";
+import { discardAsyncValidationResult } from "../parse-failure";
 import type {
   ComputeInput,
   ComputeOutput,
@@ -180,12 +181,12 @@ function idDomainAdmission(domain: IdDomain): ValidatorFn<string> {
  *
  * @param baseValidate - The base type validator
  * @param options - Schema options
- * @param typeName - Type name for error messages (unused but kept for API consistency)
+ * @param typeName - The scalar representation that must survive transforms
  */
 export function buildValidator<T, TOut, TSchemaOut = T>(
   baseValidate: ValidatorFn<T>,
   options: ScalarOptions<T, TOut, TSchemaOut> | undefined,
-  _typeName: string
+  typeName: string
 ): ValidatorFn<TOut> {
   // Fast path: no options at all
   if (!options) {
@@ -235,6 +236,10 @@ export function buildValidator<T, TOut, TSchemaOut = T>(
 
   // Chain transform (if any)
   if (hasTransform) validate = withTransform(validate, transform!);
+  // A custom JSON schema may transform its input, but the persisted result
+  // must still be JSON. Validate the new representation before any write.
+  if (typeName === "json" && (hasTransform || schema !== undefined))
+    validate = thenValidate(validate, baseValidate);
 
   // Compose the complete field validator before the default trigger. A
   // resolved literal or factory value is an ordinary untrusted field value:
@@ -296,7 +301,10 @@ function withCustomSchema(
     const r = prev(v);
     if (r.issues) return r;
     const sr = schemaValidate(r.value);
-    if ("then" in sr) return fail("Async schemas are not supported");
+    if ("then" in sr) {
+      discardAsyncValidationResult(sr);
+      return fail("Async schemas are not supported");
+    }
     if (sr.issues) return standardSchemaFailure(sr.issues);
     return ok(sr.value);
   };
@@ -408,6 +416,7 @@ export function validateSchema<const S extends StandardSchemaV1>(
 ): ValidationResult<StandardSchemaV1.InferOutput<S>> {
   const result = schema["~standard"].validate(value);
   if ("then" in result) {
+    discardAsyncValidationResult(result);
     return fail("Async schemas are not supported");
   }
   if (result.issues) {

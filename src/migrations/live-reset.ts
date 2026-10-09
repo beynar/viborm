@@ -134,6 +134,10 @@ export async function inventoryLiveNamespace(
   const tables = readNames(
     await executor(inventory.sql, inventory.params),
     "table"
+  ).filter(
+    (name) =>
+      migrationDriver.target.tables === undefined ||
+      migrationDriver.target.tables.includes(name)
   );
 
   const enumInventory = migrationDriver.generateInventoryEnums();
@@ -144,7 +148,16 @@ export async function inventoryLiveNamespace(
       )
     : [];
 
-  return { snapshot, tables, enums };
+  return {
+    snapshot,
+    tables,
+    enums:
+      migrationDriver.target.tables === undefined
+        ? enums
+        : enums.filter((name) =>
+            snapshot.enums?.some((item) => item.name === name)
+          ),
+  };
 }
 
 /**

@@ -1,5 +1,12 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { s } from "@schema";
+import { createClient } from "@src/client/client";
+import { MemoryEstateStorage } from "@src/migrations/storage/memory";
+import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeTempProject } from "./_harness";
 
 const SHA256 = "a".repeat(64);
 const PREFIX = "b".repeat(8);
@@ -30,13 +37,22 @@ const boundary = vi.hoisted(() => {
       throw error;
     }),
     loadConfig: vi.fn(),
+    loadCliModule: vi.fn(),
     migrations,
   };
 });
 
 vi.mock("@src/cli/utils", () => ({
   failCli: boundary.failCli,
+  finishCli: async (
+    client: { $disconnect(): Promise<void> } | undefined,
+    failure: { value: unknown } | undefined
+  ) => {
+    await client?.$disconnect();
+    if (failure) boundary.failCli(failure.value);
+  },
   loadConfig: boundary.loadConfig,
+  loadCliModule: boundary.loadCliModule,
 }));
 
 vi.mock("@src/migrations/client", () => ({
@@ -163,7 +179,7 @@ describe("migrate command routing", () => {
       "--dry-run",
     ]);
     expect(ordinary.thrown).toBeUndefined();
-    expect(ordinary.output).toBe('{"outcome":"published"}\n');
+    expect(ordinary.output).toBe("published: No schema changes\n");
     expectCall("generate", {
       name: "initial",
       from: undefined,
@@ -239,6 +255,228 @@ describe("migrate command routing", () => {
     );
   });
 
+  it("selects a parent configuration and passes scope/decisions to generation", async () => {
+    const resolve = vi.fn();
+    boundary.loadConfig.mockResolvedValue({
+      client: boundary.client,
+      migrations: { tables: ["users"], resolve },
+    });
+    const result = await invoke(["--config", "custom.ts", "generate"]);
+    expect(result.thrown).toBeUndefined();
+    expect(boundary.loadConfig).toHaveBeenCalledWith({ config: "custom.ts" });
+    expect(boundary.createMigrationClient).toHaveBeenCalledWith(
+      boundary.client,
+      { storage: { kind: "filesystem" }, tables: ["users"] }
+    );
+    expect(boundary.migrations.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ resolve })
+    );
+  });
+
+  it("prints every parent group, rollback warning and labelled SQL", async () => {
+    boundary.migrations.generate.mockResolvedValue({
+      outcome: "published",
+      name: "merge",
+      operationsByParent: [
+        {
+          fromState: SHA256,
+          operations: [{ type: "dropTable", tableName: "users" }],
+        },
+        {
+          fromState: PREFIX,
+          operations: [
+            { type: "dropColumn", tableName: "posts", columnName: "body" },
+          ],
+        },
+      ],
+      warnings: ["Backfill unavailable"],
+      reviewSql: "-- FORWARD\nDROP TABLE users;\n-- ROLLBACK unavailable",
+    });
+    const result = await invoke(["generate"]);
+    expect(result.output).toContain(`Parent ${SHA256}`);
+    expect(result.output).toContain(`Parent ${PREFIX}`);
+    expect(result.output).toContain("posts");
+    expect(result.output).toContain("warning: Backfill unavailable");
+    expect(result.output).toContain("-- ROLLBACK unavailable");
+  });
+
+  it("loads a custom author with exact parent IDs", async () => {
+    boundary.migrations.graph.mockResolvedValue({ leaves: [SHA256] });
+    const manualMigration = {
+      requestedForwardBoundary: "transactional",
+      parents: [],
+    };
+    const author = vi.fn().mockResolvedValue(manualMigration);
+    boundary.loadCliModule.mockResolvedValue({ default: author });
+    expect(
+      (await invoke(["generate", "--custom", "data.ts"])).thrown
+    ).toBeUndefined();
+    expect(author).toHaveBeenCalledWith([SHA256]);
+    expect(boundary.migrations.generate).toHaveBeenCalledWith(
+      expect.objectContaining({ manualMigration })
+    );
+  });
+
+  it("routes literal/named custom authors and virtual or explicit parents", async () => {
+    const manualMigration = { parents: [] };
+    const author = vi.fn().mockResolvedValue(manualMigration);
+    const cases = [
+      {
+        module: { default: manualMigration },
+        from: undefined,
+        parents: [null],
+      },
+      { module: { migration: author }, from: undefined, parents: [null] },
+      { module: { default: author }, from: SHA256, parents: [SHA256] },
+      { module: { default: author }, from: "empty", parents: [null] },
+    ];
+    boundary.migrations.graph.mockResolvedValue({ leaves: [] });
+    for (const entry of cases) {
+      boundary.loadCliModule.mockResolvedValue(entry.module);
+      author.mockClear();
+      boundary.migrations.generate.mockClear();
+      const result = await invoke([
+        "generate",
+        "--custom",
+        "manual.ts",
+        ...(entry.from ? ["--from", entry.from] : []),
+      ]);
+      expect(result.thrown).toBeUndefined();
+      if (
+        typeof ("default" in entry.module
+          ? entry.module.default
+          : entry.module.migration) === "function"
+      )
+        expect(author).toHaveBeenCalledWith(entry.parents);
+      expect(boundary.migrations.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ manualMigration })
+      );
+    }
+    boundary.loadCliModule.mockResolvedValue({});
+    expect(
+      (await invoke(["generate", "--custom", "invalid.ts"])).thrown
+    ).toMatchObject({
+      message:
+        "A custom migration module must export a default migration or author function",
+    });
+  });
+
+  it("selects a real named TS author ahead of the loader's synthetic default", async () => {
+    const project = makeTempProject();
+    try {
+      const path = join(project.dir, "named-author.ts");
+      writeFileSync(
+        path,
+        "export const migration = (parents: readonly (string | null)[]) => ({ parents });"
+      );
+      const actual =
+        await vi.importActual<typeof import("@src/cli/utils")>(
+          "@src/cli/utils"
+        );
+      boundary.loadCliModule.mockResolvedValue(
+        await actual.loadCliModule(path)
+      );
+      boundary.migrations.graph.mockResolvedValue({ leaves: [SHA256] });
+      expect(
+        (await invoke(["generate", "--custom", path])).thrown
+      ).toBeUndefined();
+      expect(boundary.migrations.generate).toHaveBeenCalledWith(
+        expect.objectContaining({ manualMigration: { parents: [SHA256] } })
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it("writes generated review SQL to the requested real file", async () => {
+    const project = makeTempProject();
+    try {
+      const reviewSql = "-- FORWARD\nSELECT 1;\n-- ROLLBACK\nSELECT 2;";
+      const path = join(project.dir, "review.sql");
+      boundary.migrations.generate.mockResolvedValue({
+        outcome: "published",
+        reviewSql,
+      });
+      expect(
+        (await invoke(["generate", "--review", path, "--json"])).thrown
+      ).toBeUndefined();
+      expect(readFileSync(path, "utf8")).toBe(reviewSql);
+      boundary.migrations.generate.mockResolvedValue({
+        outcome: "published",
+        sql: "SELECT 3;",
+        stateId: SHA256,
+        operationsByParent: [{ fromState: null, operations: [] }],
+      });
+      const result = await invoke(["generate"]);
+      expect(result.output).toContain("SELECT 3;");
+      expect(result.output).toContain(`(${SHA256})`);
+      expect(result.output).toContain("Parent empty:");
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it("renders authenticated state SQL and refuses an absent selected state", async () => {
+    const project = makeTempProject();
+    const driver = createInMemorySQLite3Driver();
+    try {
+      const actual = await vi.importActual<
+        typeof import("@src/migrations/client")
+      >("@src/migrations/client");
+      const storage = new MemoryEstateStorage();
+      const client = createClient({
+        schema: { entry: s.model({ id: s.string().id() }) },
+        driver,
+      });
+      const generated = await actual
+        .createMigrationClient(client, { storage })
+        .generate({ from: null, name: "review" });
+      if (!generated.stateId)
+        throw new Error("Expected a published review fixture");
+      boundary.createFsStorageWriter.mockReturnValue(storage);
+      boundary.migrations.show.mockResolvedValue({
+        stateId: generated.stateId,
+      });
+      const path = join(project.dir, "authenticated-review.sql");
+      expect(
+        (
+          await invoke([
+            "show",
+            generated.stateId,
+            "--sql",
+            "--review",
+            path,
+            "--json",
+          ])
+        ).thrown
+      ).toBeUndefined();
+      expect(readFileSync(path, "utf8")).toContain("CREATE TABLE");
+      expect(
+        (await invoke(["show", generated.stateId, "--sql"])).output
+      ).toContain("CREATE TABLE");
+      boundary.migrations.show.mockResolvedValue({ stateId: SHA256 });
+      expect((await invoke(["show", SHA256, "--sql"])).thrown).toMatchObject({
+        message: "The authenticated state SQL is unavailable",
+      });
+    } finally {
+      await driver.disconnect();
+      project.cleanup();
+    }
+  });
+
+  it("refuses conflicting rollback selectors before calling down", async () => {
+    const result = await invoke(["down", "--to", SHA256, "--steps", "1"]);
+    expect(result.thrown).toMatchObject({
+      message: "down accepts --to or --steps, not both",
+    });
+    expect(boundary.migrations.down).not.toHaveBeenCalled();
+  });
+
+  it("previews reset without authorizing effects", async () => {
+    expect((await invoke(["reset", "--dry-run"])).thrown).toBeUndefined();
+    expectCall("reset", { to: undefined, via: undefined, dryRun: true });
+  });
+
   it("routes every read-only operation and preserves selectors", async () => {
     const check = await invoke(["check", "--json"]);
     expect(check.thrown).toBeUndefined();
@@ -266,9 +504,9 @@ describe("migrate command routing", () => {
     });
 
     const fullLog = await invoke(["log"]);
-    expect(fullLog.output).toBe('["first","second"]\n');
+    expect(fullLog.output).toBe("-\n  first\n-\n  second\n");
     const limitedLog = await invoke(["log", "--limit", "1"]);
-    expect(limitedLog.output).toBe('["second"]\n');
+    expect(limitedLog.output).toBe("-\n  second\n");
   });
 
   it("sets failing check and verification exit codes without hiding their JSON", async () => {
@@ -276,13 +514,13 @@ describe("migrate command routing", () => {
     const check = await invoke(["check"]);
     expect(check.thrown).toBeUndefined();
     expect(check.exitCode).toBe(1);
-    expect(check.output).toBe('{"ok":false}\n');
+    expect(check.output).toBe("ok: false\n");
 
     boundary.migrations.verify.mockResolvedValue({ ok: false });
     const verify = await invoke(["verify"]);
     expect(verify.thrown).toBeUndefined();
     expect(verify.exitCode).toBe(1);
-    expect(verify.output).toBe('{"ok":false}\n');
+    expect(verify.output).toBe("ok: false\n");
   });
 
   it("keeps numeric selectors as names and refuses retired verbs and options", async () => {
@@ -362,7 +600,9 @@ describe("migrate command routing", () => {
     boundary.migrations.resolve.mockClear();
     const missing = await invoke(["resolve"]);
     expect(missing.thrown).toEqual(
-      new Error("resolve requires --complete, --rolled-back, or --retry")
+      new Error(
+        "resolve requires exactly one of --complete, --rolled-back, or --retry"
+      )
     );
     expect(boundary.migrations.resolve).not.toHaveBeenCalled();
   });
@@ -386,7 +626,9 @@ describe("migrate command routing", () => {
     boundary.migrations.reset.mockClear();
     const missing = await invoke(["reset"]);
     expect(missing.thrown).toBeDefined();
-    expect(missing.output).toContain("required option '--confirm'");
+    expect(missing.thrown).toEqual(
+      new Error("Reset requires --confirm; inspect --dry-run first")
+    );
     expect(boundary.migrations.reset).not.toHaveBeenCalled();
   });
 
@@ -438,7 +680,7 @@ describe("coverage low value", () => {
     });
 
     await invoke(["log", "--limit", "0"]);
-    expect(boundary.migrations.log).toHaveBeenCalledOnce();
+    expect(boundary.migrations.log).not.toHaveBeenCalled();
 
     await invoke(["down"]);
     expectCall("down", { steps: undefined, dryRun: undefined });

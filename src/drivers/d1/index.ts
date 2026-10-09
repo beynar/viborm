@@ -10,11 +10,12 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
+  type LinkedClientConfig,
   type NoExtraDriverConfigKeys,
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import type { D1Database } from "@cloudflare/workers-types";
+import type { D1Database, D1DatabaseSession } from "@cloudflare/workers-types";
 import { QueryError } from "@errors";
 import type { Sql } from "@sql";
 import {
@@ -52,7 +53,7 @@ import type {
 // ============================================================
 
 export interface D1DriverOptions {
-  database: D1Database;
+  database: D1Database | D1DatabaseSession;
 }
 
 export type D1ClientConfig<C extends DriverConfig> = D1DriverOptions & C;
@@ -61,6 +62,12 @@ interface D1BindingResult<T> {
   success: true;
   results: T[] | null;
   meta: { changes: number; last_row_id: number };
+}
+
+function convertD1Parameters(values: unknown[]): unknown[] {
+  return convertValuesForSQLite(values).map((value) =>
+    typeof value === "bigint" ? value.toString() : value
+  );
 }
 
 const ROW_PRODUCING_OPERATIONS = new Set([
@@ -110,11 +117,11 @@ function assertD1BindingResult<T>(
     result.meta.changes < 0 ||
     typeof result.meta.last_row_id !== "number" ||
     !Number.isFinite(result.meta.last_row_id) ||
-    !Number.isSafeInteger(result.meta.last_row_id)
+    !Number.isInteger(result.meta.last_row_id)
   ) {
     throw malformedD1Result(
       context,
-      "expected explicit object rows (or null), non-negative changes, and a safe-integer last_row_id"
+      "expected explicit object rows (or null), non-negative changes, and an integer last_row_id"
     );
   }
 }
@@ -146,9 +153,13 @@ function normalizeD1Result<T>(
   }
   // D1 reports the connection's most recent row id on later statements too.
   // Publish it only for the INSERT/REPLACE statement that owns that identity.
-  const insertId = isSQLiteInsertStatement(sql)
-    ? result.meta.last_row_id
-    : undefined;
+  // D1 rounds 64-bit row ids in this numeric metadata. Exact RETURNING rows
+  // remain authoritative; unusable optional metadata must never become a key.
+  const insertId =
+    isSQLiteInsertStatement(sql) &&
+    Number.isSafeInteger(result.meta.last_row_id)
+      ? result.meta.last_row_id
+      : undefined;
   return {
     rows,
     rowCount: result.meta.changes === 0 ? rows.length : result.meta.changes,
@@ -160,7 +171,10 @@ function normalizeD1Result<T>(
 // DRIVER IMPLEMENTATION
 // ============================================================
 
-export class D1Driver extends Driver<D1Database, D1Database> {
+export class D1Driver extends Driver<
+  D1Database | D1DatabaseSession,
+  D1Database | D1DatabaseSession
+> {
   private static readonly canonicalExecuteEntry = D1Driver.prototype._execute;
   private static readonly canonicalExecute = D1Driver.prototype.execute;
   private static readonly canonicalTypedStatement =
@@ -234,7 +248,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
           });
           return { kind: "borrowed", result };
         }
-        const values = convertValuesForSQLite(params);
+        const values = convertD1Parameters(params);
         const raw: unknown = await client
           .prepare(sql)
           .bind(...values)
@@ -288,17 +302,19 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     );
   }
 
-  protected async initClient(): Promise<D1Database> {
+  protected async initClient(): Promise<D1Database | D1DatabaseSession> {
     // D1 database binding is passed in constructor
     return this.driverOptions.database;
   }
 
-  protected async closeClient(_db: D1Database): Promise<void> {
+  protected async closeClient(
+    _db: D1Database | D1DatabaseSession
+  ): Promise<void> {
     // D1 bindings don't need to be closed
   }
 
   protected async execute<T>(
-    client: D1Database,
+    client: D1Database | D1DatabaseSession,
     sql: string,
     params: unknown[],
     context?: QueryExecutionContext
@@ -312,19 +328,19 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   }
 
   private async executeStatement<T>(
-    client: D1Database,
+    client: D1Database | D1DatabaseSession,
     sql: string,
     params: unknown[],
     context: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const values = convertValuesForSQLite(params);
+    const values = convertD1Parameters(params);
     const stmt = client.prepare(sql).bind(...values);
     const result: unknown = await stmt.run<T>();
     return normalizeD1Result<T>(result, sql, context, true);
   }
 
   protected async executeRaw<T>(
-    client: D1Database,
+    client: D1Database | D1DatabaseSession,
     sql: string,
     params: unknown[] | undefined,
     context?: QueryExecutionContext
@@ -357,8 +373,8 @@ export class D1Driver extends Driver<D1Database, D1Database> {
   }
 
   protected transaction<T>(
-    _client: D1Database,
-    _fn: (tx: D1Database) => Promise<T>
+    _client: D1Database | D1DatabaseSession,
+    _fn: (tx: D1Database | D1DatabaseSession) => Promise<T>
   ): Promise<T> {
     return Promise.reject(unsupportedCallbackTransactionError(this.driverName));
   }
@@ -368,7 +384,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
    * All queries succeed or all fail together.
    */
   protected async executeBatch<T>(
-    client: D1Database,
+    client: D1Database | D1DatabaseSession,
     queries: BatchQuery[],
     context?: QueryExecutionContext,
     committed?: CommittedBatchNotification
@@ -378,7 +394,7 @@ export class D1Driver extends Driver<D1Database, D1Database> {
     for (const query of queries) {
       const statementContext = query.context ?? batchContext;
       try {
-        const values = query.params ? convertValuesForSQLite(query.params) : [];
+        const values = query.params ? convertD1Parameters(query.params) : [];
         statements.push(client.prepare(query.sql).bind(...values));
       } catch (error) {
         throw this.normalizeStatementFailure(
@@ -433,12 +449,14 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   config: D1ClientConfig<C> &
     DriverConfig<S> &
     NoExtraDriverConfigKeys<C, D1DriverOptions, S>
-): VibORMClient<C & { driver: D1Driver }> {
+): VibORMClient<{
+  [P in keyof LinkedClientConfig<C & { driver: D1Driver }>]: LinkedClientConfig<
+    C & { driver: D1Driver }
+  >[P];
+}> {
   const { database } = config;
 
   const driver = new D1Driver({ database });
 
-  return createClientFromDriverConfig(config, driver) as VibORMClient<
-    C & { driver: D1Driver }
-  >;
+  return createClientFromDriverConfig<S, C, D1Driver>(config, driver);
 }

@@ -2,15 +2,24 @@ import assert from "node:assert/strict";
 import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { type Dialect, Driver } from "@drivers";
+import { Queries } from "@query-engine/raptor3/shared/query";
+import { EngineSchema } from "@query-engine/raptor3/shared/schema";
+import { s } from "@schema";
 import {
   createModelRegistry,
   TestQueryEngine,
 } from "@tests/fixtures/query-engine";
-import { Queries } from "@query-engine/raptor3/shared/query";
-import { EngineSchema } from "@query-engine/raptor3/shared/schema";
-import { s } from "@schema";
 import { createSchemaRegistry } from "@validation";
 import { describe, it } from "vitest";
+
+const DISTANCE_PATTERN_1 = /^error:/;
+const DISTANCE_PATTERN_2 = /^error:/;
+const DISTANCE_PATTERN_3 = /(?:ASC|DESC)(?:\s+NULLS\s+(?:FIRST|LAST))?/g;
+const DISTANCE_PATTERN_4 = /\s+/g;
+const DISTANCE_PATTERN_5 =
+  /vector distance select requires a pgvector-enabled PostgreSQL driver/;
+const DISTANCE_PATTERN_6 =
+  /Vector distance orderBy dimension mismatch for 'embedding': expected 3 values, received 1\./;
 
 /**
  * Repair-2 review (findings C and D). No provider in this environment has a
@@ -123,8 +132,8 @@ function refusalMessages(
 ): { shipped: string; candidate: string } {
   const seen = outcome(args, postgis, pgvector);
   return {
-    shipped: seen.shipped.replace(/^error:/, ""),
-    candidate: seen.candidate.replace(/^error:/, ""),
+    shipped: seen.shipped.replace(DISTANCE_PATTERN_1, ""),
+    candidate: seen.candidate.replace(DISTANCE_PATTERN_2, ""),
   };
 }
 
@@ -132,11 +141,9 @@ function refusalMessages(
 function placements(statement: string): string[] {
   const index = statement.indexOf("ORDER BY");
   if (index < 0) return [];
-  return [
-    ...statement
-      .slice(index)
-      .matchAll(/(?:ASC|DESC)(?:\s+NULLS\s+(?:FIRST|LAST))?/g),
-  ].map((match) => match[0].replace(/\s+/g, " "));
+  return [...statement.slice(index).matchAll(DISTANCE_PATTERN_3)].map((match) =>
+    match[0].replace(DISTANCE_PATTERN_4, " ")
+  );
 }
 
 describe("G4-01 repair 2 review — distance placement under a reversed window (finding C)", () => {
@@ -195,7 +202,11 @@ describe("G4-01 repair 2 review — distance placement under a reversed window (
         ...(take === undefined ? {} : { take }),
       };
       const seen = outcome(args);
-      assert.deepEqual(placements(seen.candidate), placements(seen.shipped), `take ${take}`);
+      assert.deepEqual(
+        placements(seen.candidate),
+        placements(seen.shipped),
+        `take ${take}`
+      );
     }
   });
 
@@ -247,28 +258,22 @@ describe("G4-01 repair 2 review — distance placement under a reversed window (
 });
 
 describe("G4-01 repair 2 review — the registered distance refusals (finding D)", () => {
-  it("refuses a nullable vector select before the capability, in BOTH provider tiers", () => {
+  it("nullable vector distance is admitted only in the provider distance tier", () => {
+    const args = {
+      select: {
+        id: true,
+        maybeEmbedding: { _distance: { to: [1, 2, 3], metric: "l2" } },
+      },
+    };
     for (const pgvector of [false, true]) {
-      const seen = refusalMessages(
-        {
-          select: {
-            id: true,
-            maybeEmbedding: { _distance: { to: [1, 2, 3], metric: "l2" } },
-          },
-        },
-        true,
-        pgvector
-      );
+      const seen = outcome(args, true, pgvector);
       assert.equal(seen.candidate, seen.shipped, `pgvector ${pgvector}`);
-      assert.match(
-        seen.candidate,
-        /Vector distance select does not support nullable vector field 'maybeEmbedding'\./
-      );
+      if (pgvector) assert.ok(seen.candidate.startsWith("ok:"));
+      else assert.match(seen.candidate, DISTANCE_PATTERN_5);
     }
   });
 
-  it("refuses a nullable vector select BEFORE the dimension mismatch", () => {
-    // Both faults at once: the order of the checks is itself observable.
+  it("a supported nullable vector select still refuses a dimension mismatch", () => {
     const seen = refusalMessages(
       {
         select: {
@@ -280,7 +285,10 @@ describe("G4-01 repair 2 review — the registered distance refusals (finding D)
       true
     );
     assert.equal(seen.candidate, seen.shipped);
-    assert.match(seen.candidate, /does not support nullable vector field/);
+    assert.equal(
+      seen.candidate,
+      "Vector distance select dimension mismatch for 'maybeEmbedding': expected 3 values, received 2."
+    );
   });
 
   it("does NOT refuse a nullable vector in orderBy, on either engine", () => {
@@ -308,9 +316,14 @@ describe("G4-01 repair 2 review — the registered distance refusals (finding D)
   });
 
   it("agrees on an undeclared-dimension vector (no mismatch to raise)", () => {
-    for (const to of [[1, 2], [1, 2, 3, 4]]) {
+    for (const to of [
+      [1, 2],
+      [1, 2, 3, 4],
+    ]) {
       const seen = outcome(
-        { select: { id: true, freeVector: { _distance: { to, metric: "l2" } } } },
+        {
+          select: { id: true, freeVector: { _distance: { to, metric: "l2" } } },
+        },
         true,
         true
       );
@@ -336,10 +349,7 @@ describe("G4-01 repair 2 review — the registered distance refusals (finding D)
       true
     );
     assert.equal(seen.candidate, seen.shipped);
-    assert.match(
-      seen.candidate,
-      /Vector distance orderBy dimension mismatch for 'embedding': expected 3 values, received 1\./
-    );
+    assert.match(seen.candidate, DISTANCE_PATTERN_6);
   });
 
   it("names the point tier identically for orderBy, select, equals and within", () => {

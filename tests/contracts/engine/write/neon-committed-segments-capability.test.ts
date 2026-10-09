@@ -29,29 +29,35 @@ const fakeNeonState = vi.hoisted<FakeNeonState>(() => ({
 
 vi.mock("@neondatabase/serverless", () => ({
   neon: () => {
-    const query = async (sql: string, _params: unknown[], options: unknown) => {
-      fakeNeonState.directOptions.push(options);
-      const directResult = fakeNeonState.directResults.shift();
-      if (directResult !== undefined) {
-        fakeNeonState.events.push(`direct:${sql}`);
-        return directResult;
-      }
-      throw new Error(
-        "The callback seam must use the native transaction batch"
-      );
-    };
-    return Object.assign(query, {
-      transaction: (buildQueries: unknown) => {
-        fakeNeonState.events.push("transaction-start");
-        if (typeof buildQueries !== "function") {
-          return Promise.reject(
-            new Error("Expected a Neon transaction query builder")
-          );
+    const query = (sql: string, params: unknown[], options: unknown) => ({
+      queryData: { query: sql, params },
+      // SDK query promises are lazy: transaction consumes their descriptors;
+      // only direct await spends the standalone provider result.
+      then(
+        resolve: (value: unknown) => unknown,
+        reject: (error: Error) => unknown
+      ) {
+        fakeNeonState.directOptions.push(options);
+        const directResult = fakeNeonState.directResults.shift();
+        if (directResult !== undefined) {
+          fakeNeonState.events.push(`direct:${sql}`);
+          return resolve(directResult);
         }
-        buildQueries((sql: string, params: unknown[] = []) => {
-          fakeNeonState.events.push(`statement:${sql}`);
-          return { parameterizedQuery: { query: sql, params } };
-        });
+        return reject(
+          new Error("The callback seam must use the native transaction batch")
+        );
+      },
+    });
+    return Object.assign(query, {
+      query,
+      transaction: (queries: unknown) => {
+        fakeNeonState.events.push("transaction-start");
+        if (!Array.isArray(queries)) {
+          return Promise.reject(new Error("Expected Neon query promises"));
+        }
+        for (const entry of queries) {
+          fakeNeonState.events.push(`statement:${entry.queryData.query}`);
+        }
         return Promise.resolve().then(() => {
           if (fakeNeonState.transactionError) {
             fakeNeonState.events.push("transaction-rejected");
@@ -69,23 +75,12 @@ vi.mock("@neondatabase/serverless", () => ({
 }));
 
 /**
- * RESIDUAL PACKAGE H, unit H2 — Neon HTTP ordered committed segments remain disabled.
- *
- * A ROOT dynamic series may use the driver's awaited native batches even while the strong
- * committed-segment capability remains false. The gated fake below proves that local
- * executor order: the operation reaches `_executeBatch`, stays pending while that promise
- * is pending, and observes its rejection only after release.
- *
- * The fake native client proves only local driver-code order. Once its transaction promise
- * resolves, `executeBatch` awaits the committed notification before cardinality checks or
- * statement-result parsing; a rejected transaction never notifies. A fake cannot prove that
- * Neon durably committed, preserved atomic order and visibility, or attributed a hosted
- * error correctly.
- *
- * `supportsOrderedCommittedSegments` therefore stays inherited false. It denotes the
- * stronger acknowledged-commit and precise-progress contract, not basic awaited batch
- * ordering. Activation still needs live durability, visibility, normalization, and
- * failure-attribution evidence. It is not a one-boolean change.
+ * Neon HTTP's ordered committed segments were activated after hosted durability,
+ * visibility and failure-attribution qualification. This SDK-shaped fake owns
+ * only local callback order: committed notification follows transaction
+ * resolution and precedes cardinality checks and result parsing. Provider
+ * rejection never acknowledges commit. ROOT dynamic series still awaits each
+ * driver batch, including when a test-owned override holds its promise.
  */
 const REACHED_PROVIDER = "NEON CLIENT CONSTRUCTED";
 const REACHED_BATCH = "NEON BATCH RELEASED";
@@ -103,6 +98,7 @@ class SentinelNeonDriver extends NeonHTTPDriver {
 
 class AwaitedBatchNeonDriver extends NeonHTTPDriver {
   readonly events: string[] = [];
+  readonly failure = new Error(REACHED_BATCH);
   private readonly batchGate = (() => {
     let release: (() => void) | undefined;
     const promise = new Promise<void>((resolve) => {
@@ -129,7 +125,7 @@ class AwaitedBatchNeonDriver extends NeonHTTPDriver {
     this.events.push("batch-entered");
     await this.batchGate.promise;
     this.events.push("batch-released");
-    throw new Error(REACHED_BATCH);
+    throw this.failure;
   }
 }
 
@@ -233,7 +229,7 @@ const RELATION_BEARING_ROWS = [
   { id: "a1", name: "one", posts: { create: { id: "p1", title: "t" } } },
 ];
 
-describe("H2 — Neon HTTP declares no ordered committed segments", () => {
+describe("H2 — Neon HTTP committed-segment boundaries", () => {
   beforeEach(() => {
     fakeNeonState.directOptions = [];
     fakeNeonState.directResults = [];
@@ -258,7 +254,11 @@ describe("H2 — Neon HTTP declares no ordered committed segments", () => {
     });
     expect(Object.keys(result.rows[0] ?? {})).toEqual(["second", "first"]);
     expect(fakeNeonState.directOptions).toEqual([
-      { arrayMode: false, fullResults: true },
+      {
+        arrayMode: false,
+        fullResults: true,
+        types: { getTypeParser: expect.any(Function) },
+      },
     ]);
   });
 
@@ -271,13 +271,17 @@ describe("H2 — Neon HTTP declares no ordered committed segments", () => {
 
     expect(result.rows[0]).toBe(providerRow);
     expect(fakeNeonState.directOptions).toEqual([
-      { arrayMode: false, fullResults: true },
+      {
+        arrayMode: false,
+        fullResults: true,
+        types: { getTypeParser: expect.any(Function) },
+      },
     ]);
   });
 
-  test("the capability is false, beside the two that are true", () => {
+  test("hosted-qualified ordered segments coexist with atomic HTTP batches", () => {
     const { driver } = driverFor();
-    expect(driver.supportsOrderedCommittedSegments).toBe(false);
+    expect(driver.supportsOrderedCommittedSegments).toBe(true);
     // The pair that makes the question live at all: no interactive transaction, but a
     // real atomic batch. Without both, the flag would be moot rather than unproven.
     expect(driver.supportsTransactions).toBe(false);
@@ -364,12 +368,21 @@ describe("H2 — Neon HTTP declares no ordered committed segments", () => {
     expect(fakeNeonState.events.at(-1)).toBe("transaction-resolved");
   });
 
-  test("a ROOT relation-bearing createMany awaits batch execution while the capability is false", async () => {
+  test.each([
+    false,
+    true,
+  ])("a ROOT relation-bearing createMany awaits its batch (acknowledged capability: %s)", async (acknowledged) => {
     const driver = new AwaitedBatchNeonDriver({
       databaseUrl: "postgresql://user:pw@db.neon.invalid/neondb",
     });
+    // This test-owned transport double supplies no commit notification. The
+    // false arm preserves the unacknowledged-provider uncertainty contract;
+    // stock Neon is independently asserted as hosted-qualified above.
+    Object.defineProperty(driver, "supportsOrderedCommittedSegments", {
+      value: acknowledged,
+    });
     const client = createClient({ schema: seriesSchema, driver }) as any;
-    expect(driver.supportsOrderedCommittedSegments).toBe(false);
+    expect(driver.supportsOrderedCommittedSegments).toBe(acknowledged);
 
     let settled = false;
     const outcome = Promise.resolve(
@@ -390,21 +403,26 @@ describe("H2 — Neon HTTP declares no ordered committed segments", () => {
     driver.release();
 
     const rejection = await outcome;
-    expect(rejection).toBeInstanceOf(QueryEngineError);
-    expect(rejection).toHaveProperty(
-      "message",
-      "Record-series execution failed at a committed-segment boundary."
-    );
-    expect(rejection).toMatchObject({
-      meta: {
-        recordSeriesProgress: {
-          committedSegments: 0,
-          completedMembers: 0,
-          committedWriteMembers: 0,
-          mayHaveCommittedSegment: true,
+    if (acknowledged) {
+      expect(rejection).toBe(driver.failure);
+      expect(rejection).not.toHaveProperty("meta.recordSeriesProgress");
+    } else {
+      expect(rejection).toBeInstanceOf(QueryEngineError);
+      expect(rejection).toHaveProperty(
+        "message",
+        "Record-series execution failed at a committed-segment boundary."
+      );
+      expect(rejection).toMatchObject({
+        meta: {
+          recordSeriesProgress: {
+            committedSegments: 0,
+            completedMembers: 0,
+            committedWriteMembers: 0,
+            mayHaveCommittedSegment: true,
+          },
         },
-      },
-    });
+      });
+    }
     expect(driver.events).toEqual(["batch-entered", "batch-released"]);
   });
 

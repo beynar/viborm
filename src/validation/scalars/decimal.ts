@@ -14,6 +14,7 @@ import type { ObjectEntries, ObjectSchema } from "../primitives/object";
 import v, { type V } from "../primitives/v";
 import type { InferInput, InferOutput, VibSchema } from "../types";
 import { isRecord } from "../value-guards";
+import { type ArithmeticOperand, REFINED_ARITHMETIC_REFUSAL } from "./family";
 import {
   buildNegatableFilterSchema,
   type NegatableFilterSchema,
@@ -416,7 +417,7 @@ export interface DecimalSchemas<
   create: DecimalCreateSchema<F>;
   update: F["array"] extends true
     ? DecimalListUpdateSchema<F["base"], V.Decimal, V.Decimal<{ array: true }>>
-    : DecimalUpdateSchema<F["base"], V.Decimal>;
+    : DecimalUpdateSchema<F["base"], ArithmeticOperand<F, V.Decimal>>;
   filter: F["array"] extends true
     ? DecimalListFilterSchema<F["base"], V.Decimal, V.Decimal<{ array: true }>>
     : DecimalFilterSchema<F["base"], V.Decimal, V.Decimal<{ array: true }>, C>;
@@ -453,6 +454,15 @@ export function buildDecimalSchema(state: ScalarState<"decimal">) {
   // an operand must not inherit: only the whole-value arms take `null`.
   const member = () => v.decimal(domain);
   const list = () => v.decimal({ ...domain, array: true });
+  const writeMember = () => v.decimal({ ...domain, schema: state.schema });
+  const writeList = () =>
+    v.decimal({ ...domain, array: true, schema: state.schema });
+  const arithmeticMember = () =>
+    state.schema === undefined
+      ? member()
+      : v.refused(REFINED_ARITHMETIC_REFUSAL);
+  const filterBase = () =>
+    v.decimal({ ...domain, nullable: state.nullable, array: state.array });
 
   return lazyScalarSchemas({
     base: state.base,
@@ -468,8 +478,8 @@ export function buildDecimalSchema(state: ScalarState<"decimal">) {
             v.shorthandUpdate(state.base),
             exactlyOneOperation({
               set: state.base,
-              push: v.union([v.shorthandArray(member()), list()]),
-              unshift: v.union([v.shorthandArray(member()), list()]),
+              push: v.union([v.shorthandArray(writeMember()), writeList()]),
+              unshift: v.union([v.shorthandArray(writeMember()), writeList()]),
               increment: v.refused(
                 "A decimal list update does not support 'increment'."
               ),
@@ -492,17 +502,17 @@ export function buildDecimalSchema(state: ScalarState<"decimal">) {
             // Only derived RESULTS round; no input ever does.
             exactlyOneOperation({
               set: state.base,
-              increment: member(),
-              decrement: member(),
-              multiply: member(),
-              divide: member(),
+              increment: arithmeticMember(),
+              decrement: arithmeticMember(),
+              multiply: arithmeticMember(),
+              divide: arithmeticMember(),
             }),
           ]),
     filter: () =>
       state.array
         ? buildNegatableFilterSchema(
             v.object({
-              equals: state.base,
+              equals: filterBase(),
               has: member(),
               hasEvery: list(),
               hasSome: list(),
@@ -516,9 +526,9 @@ export function buildDecimalSchema(state: ScalarState<"decimal">) {
               gt: v.refused("A decimal list filter does not support 'gt'."),
               gte: v.refused("A decimal list filter does not support 'gte'."),
             }),
-            state.base
+            filterBase()
           )
-        : buildDecimalFilterSchema(state.base, member, list),
+        : buildDecimalFilterSchema(filterBase(), member, list),
   });
 }
 

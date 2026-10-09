@@ -25,7 +25,7 @@
  *    case nobody runs.
  */
 
-import { UniqueConstraintError } from "@errors";
+import { UnsupportedOperationError } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { defineContract } from "@tests/contracts/contract";
@@ -33,7 +33,6 @@ import {
   type BehaviorDatabaseSource,
   useBehaviorDatabase,
 } from "@tests/fixtures/drivers/pglite";
-import { droppedSkipWarning } from "@tests/fixtures/dropped-skip-warning";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const collectionWriteSchema = (() => {
@@ -530,7 +529,7 @@ export function runPolymorphicCollectionWriteBehavior(
       expect(await clipMembers()).toHaveLength(1);
     });
 
-    test("duplicate singular createMany targets transfer once", async () => {
+    test("duplicate singular createMany targets leave ownership unchanged", async () => {
       const { client } = requireDatabase();
       await seed();
 
@@ -577,10 +576,8 @@ export function runPolymorphicCollectionWriteBehavior(
                 },
               },
             })
-          ).rejects.toBeInstanceOf(UniqueConstraintError);
-          expect(warn.mock.calls).toEqual([
-            [droppedSkipWarning("pglite", "shelf.update")],
-          ]);
+          ).rejects.toBeInstanceOf(UnsupportedOperationError);
+          expect(warn.mock.calls).toEqual([]);
         } finally {
           warn.mockRestore();
         }
@@ -606,7 +603,12 @@ export function runPolymorphicCollectionWriteBehavior(
         },
       });
 
-      expect(await bookMembers()).toEqual(["t1/right/eu/111"]);
+      expect(await bookMembers()).toEqual(["t1/left/eu/111"]);
+      expect(
+        await client.book.findUnique({
+          where: { region_isbn: { region: "eu", isbn: "111" } },
+        })
+      ).toMatchObject({ title: "Book one" });
     });
 
     test("delete and deleteMany are membership-scoped and cascade the membership", async () => {

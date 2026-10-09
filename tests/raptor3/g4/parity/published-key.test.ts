@@ -265,22 +265,17 @@ for (const [route, make] of [
     });
 
     it("a correlated arm that took its MISSING arm moved nothing, so the row is still at the key it was located by", async () => {
-      // Reaching the missing arm of a CORRELATED parent-held `upsert` needs a
-      // row whose membership names NO target, and only the shared primary key
-      // makes that observable: `accountId` is this row's identity AND its
-      // foreign key, so re-addressing the observation by a key the row does
-      // not hold moves the record's own `WHERE` off the row. The reference
-      // must therefore not be enforced — a provider that has no foreign keys
-      // (PlanetScale), or a schema pushed without them; here the database is
-      // SUPPLIED with `foreign_keys` off, which is what SQLite is until a
-      // caller turns it on (`SQLite3Driver.initClient` does, for the ones it
-      // opens itself).
+      // A pre-existing orphan exercises the correlated MISSING arm. The
+      // typed transport keeps foreign-key enforcement enabled; raw fixture
+      // setup alone supplies the legacy estate before the tested operation.
       const database = new Database(":memory:");
-      database.pragma("foreign_keys = OFF");
+      database.pragma("foreign_keys = ON");
       const client = await world({ client: database });
-      await client.card.create({
-        data: { accountId: "ghost", label: "Ghost" },
-      });
+      // Prepare a pre-existing orphan as raw fixture data. Restore enforcement
+      // before any typed operation; borrowed driver admission remains strict.
+      database.pragma("foreign_keys = OFF");
+      database.exec("INSERT INTO n5_cards VALUES('ghost','Ghost')");
+      database.pragma("foreign_keys = ON");
       assert.deepEqual(
         await client.card.update({
           where: { accountId: "ghost" },

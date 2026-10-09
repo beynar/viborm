@@ -8,7 +8,7 @@ icon: list-checks
 
 VibORM's API is Prisma-inspired, but it is **not** a drop-in replacement. This page lists what's supported, the operations that intentionally differ, and the handful of behaviors that vary by database.
 
-Everything in the API works the same on every database unless noted under [Database differences](#database-differences).
+The common API has provider-specific storage, collation and transaction limits. Check [Database differences](#database-differences) and the driver matrix when changing providers.
 
 ## Operations
 
@@ -18,13 +18,13 @@ Everything in the API works the same on every database unless noted under [Datab
 | `findFirst` / `findFirstOrThrow` | ✅ | Filtering, ordering, pagination, `select`, `include`. |
 | `findMany` | ✅ | Filters, relation filters, ordering, cursor pagination, negative `take`, `distinct`, `select`, `include`. |
 | `create` | ✅ | Scalar data and nested writes. |
-| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a scalar-only `select`; Prisma's separate `createManyAndReturn` does not exist. Rows accept the ordinary `create` data shape, including nested relations, except that a direct polymorphic field stays connect-only. Relation-bearing rows execute left to right. Interactive drivers use one transaction; a no-transaction driver with native atomic batch uses committed segments. With `skipDuplicates`, a conflicting root suppresses its complete subtree inside a savepoint. A batch-only driver has no savepoint, so there a relation-bearing call runs without `skipDuplicates` and warns once (see the `skipDuplicates` row below). A `select` refuses rather than answer short when a later row moves an earlier row's primary key. |
+| `createMany` | Different | Returns `{ count }`, or the created rows when the call carries a scalar-only `select`; Prisma's separate `createManyAndReturn` does not exist. Rows accept the ordinary `create` data shape, including nested relations, except that a direct polymorphic field stays connect-only. Relation-bearing rows execute left to right. Interactive drivers use one transaction; a no-transaction driver with native atomic batch uses committed segments. With `skipDuplicates`, a conflicting root suppresses its complete subtree inside a savepoint. A batch-only driver has no member savepoint, so a relation-bearing call with `skipDuplicates` is refused before writes (see below). A `select` refuses rather than answer short when a later row moves an earlier row's primary key. |
 | `update` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError`, never a silent no-op. |
 | `updateMany` | Different | Returns `{ count }`, or the updated rows when the call carries a scalar-only `select`; Prisma's separate `updateManyAndReturn` does not exist. `data` accepts the ordinary `update` surface, relations included, which Prisma rejects outright. A relation-bearing call captures the matching roots and runs one ordinary selected update per row. Interactive drivers use one transaction; a no-transaction driver with native atomic batch uses committed segments. `count` is the captured match count rather than the provider's affected-row total. A child-held `connect`/`connectOrCreate`/`set` naming an existing target is refused before any write when more than one root matched. A `select` refuses rather than answer short when a later row removes an earlier row's key. Prisma 6's `limit` is supported and takes the first matching rows by primary key, ascending; Prisma's says only how many rows, not which. |
 | `upsert` | ✅ | Requires unique `where`, `create`, and `update`. An extra filter that excludes an existing row sends the call down the create branch, whose unique violation surfaces unretried. |
 | `delete` | ✅ | Requires a unique `where` and throws when missing. Extra scalar and relation filters are allowed in it; an excluded row is a `NotFoundError` and survives. |
 | `deleteMany` | Extension | Returns `{ count }`, or the deleted rows when the call carries a `select` (scalar-only). Prisma has no returning `deleteMany`. Prisma 6's `limit` is supported and takes the first matching rows by primary key, ascending. |
-| `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. Fixed-decimal `_min`/`_max`/`_sum`/`_avg` return exact `Decimal` values on every provider. |
+| `count` / `aggregate` / `groupBy` | ✅ | `where`, aggregate selections, `having`, ordering, and pagination. Fixed-decimal aggregates return exact `Decimal` values when the provider can represent the result; SQLite integer sums can overflow and fail. |
 | `exist` | Extension | Returns `boolean`. Prisma has no equivalent (note: `exist`, not `exists`). |
 | `$queryRaw` / `$executeRaw` | ✅ | Tagged templates that bind every interpolation, exactly like Prisma's. `$queryRaw` returns `T[]`, `$executeRaw` returns the affected count. See [Raw SQL](/docs/client/raw-sql). |
 | `$queryRawUnsafe` / `$executeRawUnsafe` | ✅ | Prisma's signatures: a statement string plus positional parameters. |
@@ -105,6 +105,17 @@ This matrix also applies to the update branch of a top-level `upsert`.
 | `upsert` | ✅ | ✅ | ✅ | ✅ |
 | `deleteMany` | — | — | ✅ | ✅ |
 
+Nested `disconnect` of a non-member throws `NestedWriteError`; it is not an
+idempotent no-op. To-one `delete: true` on an empty slot is a no-op, while
+nested `update` of a missing target throws. These differ from Prisma.
+
+A nested `create` or `connect` into an occupied one-to-one relation can fail
+with a provider unique-constraint error; VibORM does not automatically evict the
+occupant. Clear or delete the current membership explicitly when that operation
+is allowed. Reassigning a target's foreign key can still move it between parents;
+that does not promise automatic displacement of another target already attached
+to the destination parent.
+
 An empty slot and a clearable membership are different facts. For an owning
 to-one they normally coincide. A non-owning singular slot is derived nullable —
 the membership lives on the other row and may simply be missing — so deleting its
@@ -148,9 +159,9 @@ dynamic planning.
 When a `createMany` member itself carries relations, it uses the record-series
 contract, where a skipped member suppresses its complete subtree including the
 join. Interactive drivers use a member savepoint. A batch-only driver has no
-member rollback region, so a relation-bearing `skipDuplicates` call runs without
-`skipDuplicates` and warns once: a duplicate member fails with
-`UniqueConstraintError`.
+member rollback region, so a relation-bearing `skipDuplicates` call raises
+`UnsupportedOperationError` during preparation before writes. Array transactions
+also refuse any member suppression that needs an interactive savepoint.
 
 **Shapes:**
 
@@ -234,6 +245,26 @@ subtrees use the same record compilers at each level. TypeScript can still hit
 its own instantiation limit for an extremely deep literal; constructing and
 widening such a payload programmatically avoids that editor-only limit.
 
+## Filter behavior on a port
+
+An `undefined` member is omitted. Empty `AND` and `NOT` are true; empty `OR`,
+including an `OR` whose children became empty objects, is false. Never construct
+an unrestricted mutation filter directly from optional request input.
+
+`every` uses SQL three-valued logic: a nullable child value that makes the child
+predicate unknown is not a counterexample. Use an explicit non-null condition
+when every child must have a matching value.
+
+Enum sorting follows declaration order on PostgreSQL/MySQL and text order on
+SQLite. Ordinary string ordering and aggregates follow the column/database
+collation; JSON-path string comparisons use code-point ordering. Portable
+`mode: "insensitive"` folds ASCII letters for equality, patterns and ranges;
+it is not locale-aware Unicode case folding.
+
+JSON equality ignores object property order. SQLite array containment compares
+complete members structurally; PostgreSQL/MySQL also support native partial-object
+containment. See [JSON filters](/docs/client/filtering/json).
+
 ## Database differences
 
 The API is provider-agnostic. Remaining differences are limited to features
@@ -245,10 +276,10 @@ database's locale or ICU installation.
 
 | Behavior | Difference |
 |----------|-----------|
-| Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** have no interactive callback transaction. A default dynamic write can use several native atomic batches after exact guard preflight and normalized awaited success. A later failure preserves prior acknowledged segments; providers with `supportsOrderedCommittedSegments` report the exact callback-acknowledged prefix, while another batch provider can mark the last dispatched segment as possibly committed when its result cannot be decoded. Nested relation-bearing `createMany`/`updateMany` require the complete parent and, where needed, membership guard. A relation-bearing `createMany` with `skipDuplicates` cannot skip a member there: it runs without `skipDuplicates` and warns once. Explicit `$transaction([...])` stays indivisible: it accepts a record series it can plan into its one batch and rolls all of it back on failure, and refuses a series whose later member must read an earlier member's write before member 0. See [D1](/docs/drivers/sqlite/d1) and [Transactions](/docs/client/transactions). |
+| Transactions on serverless drivers | **D1 Workers bindings** and **Neon HTTP** have no interactive callback transaction. A default dynamic write can use several native atomic batches after exact guard preflight and normalized awaited success. A later failure preserves prior acknowledged segments; providers with `supportsOrderedCommittedSegments` report the exact callback-acknowledged prefix, while another batch provider can mark the last dispatched segment as possibly committed when its result cannot be decoded. Nested relation-bearing `createMany`/`updateMany` require the complete parent and, where needed, membership guard. A relation-bearing `createMany` with `skipDuplicates` cannot skip a member there: it raises `UnsupportedOperationError` during preparation before writes. Explicit `$transaction([...])` stays indivisible: it accepts a record series it can plan into its one batch and rolls all of it back on failure, and refuses a series whose later member must read an earlier member's write before member 0. See [D1](/docs/drivers/sqlite/d1) and [Transactions](/docs/client/transactions). |
 | Database-generated keys a write must read back | Every driver publishes them on its interactive transaction path. On a **batch-only** substrate, SQLite, libSQL, D1 and MySQL use their exact statement-local insert-ID channels. PostgreSQL-family drivers, including **Neon HTTP**, use the producer's own `RETURNING`: an exact fold stays one statement, and another default operation continues through guarded segments when later SQL needs the value. Those segments can commit a prefix. An explicit indivisible `$transaction([...])` still refuses before effects when no exact one-batch lowering exists. See [the row below](#generated-keys-and-the-execution-substrate). |
 | More than one database-generated primary-key member | A database fact, not an ORM policy. **PostgreSQL** allows several generated columns in one key and viborm publishes every member exactly. **MySQL** allows one `AUTO_INCREMENT` column and **SQLite/libSQL/D1** generate only the `INTEGER PRIMARY KEY`, so the compound shape cannot be declared there at all. viborm never derives one generated value from another. |
-| `skipDuplicates` on a relation-bearing nested write | On an interactive driver the row and everything under it are suppressed together inside a savepoint. A many-to-many row with no conflictable unique drops the vacuous flag, and a row with one exact selector uses adopt-and-link. A **batch-only** driver (D1 Workers bindings, Neon HTTP), and a member of an array `$transaction([...])` on any driver, has no member rollback region: a `createMany` with `skipDuplicates` that is relation-bearing, or nested under another write (many-to-many included), runs **without** `skipDuplicates`. VibORM warns once per client and model — on the `warning` log channel when logging routes warnings, with `console.warn` otherwise — and a duplicate then fails with `UniqueConstraintError`; members an earlier batch committed stay committed, as for the same call without `skipDuplicates`. A root scalar `createMany` with `skipDuplicates` is unaffected (it skips in SQL), except on MySQL inside an array `$transaction([...])`, where the per-row skip needs a savepoint and is dropped the same way. |
+| `skipDuplicates` on a relation-bearing nested write | Interactive member savepoints suppress the complete subtree. A batch-only driver or array transaction lacks that member rollback region, so relation-bearing/nested skipping raises `UnsupportedOperationError` during preparation before writes. Root scalar SQL conflict skipping remains supported; MySQL recoverable per-row skipping requires an interactive savepoint. |
 | Vector | PostgreSQL with pgvector enabled; unsupported providers refuse distance work. |
 | Exhaustive recursive projection (`recurse: { depth: false }`) | MySQL stops a traversal deeper than `cte_max_recursion_depth` (default 1,000) with the driver's error (`meta.providerErrno` 3636), never a truncated result; viborm does not change the limit. See [Recursive relations](/docs/client/selecting#recursive-relations). |
 | GeoPoint | Full on proven PostGIS PostgreSQL and MySQL2; CRUD/equality/bounds on SQLite3, LibSQL, D1, and Bun SQLite; PlanetScale preview until hosted qualification. |
@@ -353,13 +384,15 @@ declares the exact code it carries, so `if (error.code === "V3001")` narrows to
 be checked for exhaustiveness — see [the errors page](/docs/client/errors) for the full
 taxonomy and the narrowing rules. For code written against Prisma, every error also carries
 `error.prismaCode` — the Prisma code with the same meaning, or `undefined` when VibORM
-claims none. Porting a handler is a one-token edit:
+claims none. For the mapped unique-constraint case, use:
 
 ```ts
+import { isVibORMError } from "viborm";
+
 try {
   await client.user.create({ data });
 } catch (error) {
-  if (error.prismaCode === "P2002") {
+  if (isVibORMError(error) && error.prismaCode === "P2002") {
     // unique constraint — the same branch a Prisma app already has
   }
 }
@@ -398,6 +431,6 @@ there. Prisma behaves the same way.
 | Prisma helper types | VibORM doesn't expose `XOR`, `Exact`, `SelectSubset`, or generated model helper types. |
 | Create/update inputs | A single blended input surface rather than Prisma's separate checked/unchecked variants. |
 | Bulk writes that return rows | Implicit: `createMany` / `updateMany` return rows when the call carries a `select` or query-level `omit`, and `{ count }` otherwise. Prisma's `createManyAndReturn` / `updateManyAndReturn` methods do not exist — migrate `createManyAndReturn(args)` to `createMany({ ...args, select })`, same for `updateManyAndReturn`. `deleteMany` accepts the same projections, which Prisma has no form of. On all three the projection is scalar-only and `include` is rejected: VibORM does not project relations into a bulk write's returned rows, and refuses rather than answer wrongly. Prisma does accept relations on `createManyAndReturn`/`updateManyAndReturn`; read them in a separate query instead. |
-| `omit` | Query-level `omit` and the official `defaultOmit()` extension support Prisma's local `{ field: false }` override and refuse an `omit` that empties the result. Three differences: VibORM lets query-level `omit` subtract from `select` (Prisma rejects the pair); VibORM has a schema-level `.omit()` that is a hard exclusion no client or query can undo; and `omit` on a bulk write returns rows, following the implicit-returning rule above. See [Omitting fields](/docs/client/omit). |
+| `omit` | Query-level `omit` and the official `defaultOmit()` extension support Prisma's local `{ field: false }` override and refuse an `omit` that empties the result. Three differences: VibORM lets query-level `omit` subtract from `select` (Prisma rejects the pair); VibORM has a schema-level `.omit()` that no row projection can undo (filters and aggregates can still use that column); and `omit` on a bulk write returns rows, following the implicit-returning rule above. See [Omitting fields](/docs/client/omit). |
 | Recursive relation projections | Extension: `recurse` on a self-relation node in `select`/`include` returns a chain, tree or graph from one statement; Prisma has no equivalent. See [Recursive relations](/docs/client/selecting#recursive-relations). |
-| Raw SQL | Prisma's shape: tagged `$queryRaw`/`$executeRaw` plus `$queryRawUnsafe`/`$executeRawUnsafe`. `$queryRaw` answers `T[]`, `$executeRaw` answers the affected count. `$queryRaw`/`$executeRaw` still accept the pre-1.0 `(sql: string, params?)` form for one release, with a deprecation notice on the `warning` log channel. Raw calls are lazy, promise-compatible operations and can mix with model operations in `$transaction([...])`. See [Raw SQL](/docs/client/raw-sql). |
+| Raw SQL | Prisma's shape: tagged `$queryRaw`/`$executeRaw` plus `$queryRawUnsafe`/`$executeRawUnsafe`. `$queryRaw` answers `T[]`, `$executeRaw` answers the affected count. A plain string is refused by the safe methods; use the explicitly unsafe methods for a statement string plus parameters. Raw calls are lazy, promise-compatible operations and can mix with model operations in `$transaction([...])`. See [Raw SQL](/docs/client/raw-sql). |

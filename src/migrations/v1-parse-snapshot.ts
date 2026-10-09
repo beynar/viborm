@@ -62,6 +62,7 @@ const TABLE_REQUIRED_KEYS = [
 const COLUMN_KEYS = [
   "autoIncrement",
   "dateTime",
+  "geoPointEncoding",
   "decimal",
   "default",
   "name",
@@ -138,6 +139,17 @@ function parseColumn(value: unknown, label: string): ColumnDef {
   }
   if ("decimal" in record) {
     column.decimal = parseDecimalDescriptor(record.decimal, `${label}.decimal`);
+  }
+  if ("geoPointEncoding" in record) {
+    if (
+      (record.geoPointEncoding !== "legacy" &&
+        record.geoPointEncoding !== "binary64") ||
+      column.type.toUpperCase() !== "VIBORM_GEO_TEXT" ||
+      column.decimal !== undefined ||
+      "dateTime" in record
+    )
+      refuse(`${label}.geoPointEncoding contradicts its physical type`);
+    column.geoPointEncoding = record.geoPointEncoding;
   }
   if ("dateTime" in record) {
     if (

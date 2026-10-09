@@ -1,6 +1,6 @@
-import type { AnyDriver, QueryExecutionContext } from "@drivers";
 import { attachCommitCertainty } from "@drivers/driver-error-context";
 import { bindExecutionTransactionPhases } from "@drivers/execution-context";
+import type { AnyDriver, QueryExecutionContext } from "@drivers/exports";
 import type {
   BatchTransactionOptions,
   TransactionOptions,
@@ -141,14 +141,13 @@ export function executeArrayTransaction(
  */
 function prepareRequestAdmissions(
   operations: readonly TransactionOperationCapability[],
-  engine: QueryEngine
+  _engine: QueryEngine
 ): void {
-  const chain = engine.extensionChain;
-  if (chain?.hasRequestHandlers !== true && chain?.controls === undefined) {
-    return;
-  }
   for (const operation of operations) {
     transactionOperationOwner(operation).prepareAdmission(operation);
+  }
+  for (const operation of operations) {
+    transactionOperationOwner(operation).prepareAdmission(operation, "plan");
   }
 }
 
@@ -219,6 +218,11 @@ async function executeInterceptedArray(
     for (const slot of slots) {
       await slot.owner.observeBatchPhase(slot.operation, driver, () =>
         slot.owner.prepareAdmission(slot.operation)
+      );
+    }
+    for (const slot of slots) {
+      await slot.owner.observeBatchPhase(slot.operation, driver, () =>
+        slot.owner.prepareAdmission(slot.operation, "plan")
       );
     }
   } catch (error) {

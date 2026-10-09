@@ -1,12 +1,18 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import type { QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it, vi } from "vitest";
+
+const DELETE_STATEMENT = /^DELETE\b/i;
+const UPDATE_STATEMENT = /^UPDATE\b/i;
+const EMPTY_CREATE_MANY_MEMBER =
+  /cannot include a row with no explicit scalar values/;
 
 class ObservedSQLiteDriver extends SQLite3Driver {
   readonly statements: string[] = [];
@@ -132,10 +138,7 @@ describe("G3 scalar bulk result boundaries", () => {
     try {
       const operations = [
         ["updateMany", { data: { score: 2 }, limit: 0 }],
-        [
-          "updateMany",
-          { data: { score: 2 }, limit: 0, select: { id: true } },
-        ],
+        ["updateMany", { data: { score: 2 }, limit: 0, select: { id: true } }],
         [
           "updateMany",
           { data: { score: 2 }, limit: 0, omit: { secret: true } },
@@ -190,13 +193,13 @@ describe("G3 scalar bulk result boundaries", () => {
       );
       assert.equal(
         world.driver.statements.filter((statement) =>
-          /^UPDATE\b/i.test(statement.trim())
+          UPDATE_STATEMENT.test(statement.trim())
         ).length,
         1
       );
       assert.equal(
         world.driver.statements.filter((statement) =>
-          /^DELETE\b/i.test(statement.trim())
+          DELETE_STATEMENT.test(statement.trim())
         ).length,
         1
       );
@@ -227,7 +230,7 @@ describe("G3 scalar bulk result boundaries", () => {
           skipDuplicates: true,
           select: { id: true },
         }),
-        /cannot include a row with no explicit scalar values/
+        EMPTY_CREATE_MANY_MEMBER
       );
       assert.equal(returning.mock.calls.length, 0);
       assert.deepEqual(world.driver.statements, []);
@@ -261,7 +264,7 @@ describe("G3 scalar bulk result boundaries", () => {
     }
   });
 
-  it("lowers one capped selector only at its aliased mutation boundary", async () => {
+  it("rechecks a capped selector at its mutation boundary", async () => {
     const world = await prepareWorld();
     world.database.exec(`
       INSERT INTO g3_bulk_result_records(id,code,secret,score) VALUES
@@ -277,7 +280,7 @@ describe("G3 scalar bulk result boundaries", () => {
         }),
         { count: 1 }
       );
-      assert.equal(equals.mock.calls.length, 1);
+      assert.equal(equals.mock.calls.length, 2);
       assert.deepEqual(
         world.database
           .prepare("SELECT id,code FROM g3_bulk_result_records ORDER BY id")

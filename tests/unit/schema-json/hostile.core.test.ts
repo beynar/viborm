@@ -1377,10 +1377,11 @@ describe("native types", () => {
     // precision and scale on every dialect, so there is no native override to
     // name (`s.decimal` publishes none). The fixed GeoPoint language then
     // removed PostgreSQL's three configurable point spellings.
-    expect(produced).toHaveLength(96);
+    // PostgreSQL INTERVAL was removed: it cannot represent the DateTime domain.
+    expect(produced).toHaveLength(95);
     expect(new Set(produced.map((n) => `${n.db} ${n.type}`))).toHaveProperty(
       "size",
-      74
+      73
     );
 
     for (const native of produced) {
