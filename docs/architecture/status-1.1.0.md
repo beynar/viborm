@@ -2,12 +2,13 @@
 
 The 1.2.0 probe corpus (`probes/`, run by `pnpm probes`) against the published `viborm@1.1.0`. A probe passes when the 1.2.0 target behaviour from the 1.2.0 completion plan (2026-10-10) holds, so on 1.1.0 an open item fails, with the observed behaviour as evidence.
 
-**Result:** 67 probes: 59 fail, 3 pass, 5 skip, 0 error. Skips need the Docker PostgreSQL (`VIBORM_PROBE_PG_URL`, 127.0.0.1:5434) and were not run.
+**Result:** 67 probes: 63 fail, 4 pass, 0 skip, 0 error. The five `postgres/*` probes that need a server ran against the Docker PostgreSQL 16 (`VIBORM_PROBE_PG_URL`, 127.0.0.1:5434).
 
 Reproduce:
 
 ```bash
-pnpm probes --version 1.1.0 --md status.md --json status.json
+VIBORM_PROBE_PG_URL=postgres://postgres:password@127.0.0.1:5434/viborm \
+  pnpm probes --version 1.1.0 --md status.md --json status.json
 ```
 
 The "code-check" column is the verdict of the plan's code check for the item (gap-confirmed, partially-exists, already-exists, fixed-in-1.1, claim-wrong).
@@ -36,14 +37,14 @@ The "code-check" column is the verdict of the plan's code check for the item (ga
 | platform-08 | `outcomes/platform-08-url-options` | phase-1/lane-O/tenant-blockers (platform-08) | gap-confirmed | fail | pg: fill -> user probe_user, password ""; precedence -> explicit port ignored, fake server saw no connection (client error V1001); postgres: fill -> user probe_user, password ""; precedence -> explicit port ignored, fake server saw no connection (client error V1001); mysql2: fill -> user probe_user, password null; precedence -> explicit port ignored, fake server saw no connection (client error V10 |
 | types-08 | `outcomes/types-08-uuid-default` | phase-1/lane-O/tenant-blockers (types-08) | gap-confirmed | fail | caller-supplied uuids with a database default: [account.externalRef, importedOrder.id]; generated uuids without one: [] (account.externalRef=gen_random_uuid(), account.id=gen_random_uuid(), account.partnerRef=none, account.trackingId=gen_random_uuid(), importedOrder.id=gen_random_uuid()) |
 | S1 | `postgres/s1-connection-wait-bounded` | phase-1/P/S1 | partially-exists | fail | pg apply(): still pending after 20003 ms; postgres.js apply(): still pending after 20003 ms (server accepted 2 connection(s), never answered) |
-| S1 | `postgres/s1-lock-queue` | phase-1/P/S1 | partially-exists | skip | needs VIBORM_PROBE_PG_URL |
+| S1 | `postgres/s1-lock-queue` | phase-1/P/S1 | partially-exists | fail | production read waited 27003 ms (limit 6000); migration did not give up within the lock limit (pending after 27000 ms 26948 ms after its DDL queued, limit 7000) \| DDL queued: true; production read pending after 27000 ms after 27003 ms; migration pending after 27000 ms 26948 ms after its DDL queued (long transaction held 12000 ms); retry ok noop |
 | S1 | `postgres/s1-session-limits` | phase-1/P/S1 | partially-exists | fail | apply: lock_timeout at first DDL=0 (want 3-5 s); statement_timeout at first DDL=0 (want > 0); statement_timeout at lock statement=0 (want > 0) \| push: lock_timeout at first DDL=0 (want 3-5 s); statement_timeout at first DDL=0 (want > 0); statement_timeout at lock statement=0 (want > 0) \| CONCURRENTLY dispatch: statement_timeout=0 (want 0) |
-| S1 | `postgres/s1-stranded-session` | phase-1/P/S1 | partially-exists | skip | needs VIBORM_PROBE_PG_URL |
-| S2 | `postgres/s2-connection-cut` | phase-1/P/S2 | partially-exists | skip | needs VIBORM_PROBE_PG_URL |
+| S1 | `postgres/s1-stranded-session` | phase-1/P/S1 | partially-exists | fail | still there 8000 ms after the client vanished (advisory locks 1, stranded backend idle); stranded apply: V2001; next runner: V11005 |
+| S2 | `postgres/s2-connection-cut` | phase-1/P/S2 | partially-exists | fail | pg cut after first DDL ran: AggregateError; pg cut before marker CAS: AggregateError; pg cut before COMMIT: AggregateError; postgres.js cut before lock: HANG; postgres.js cut before BEGIN: HANG; postgres.js cut after first DDL ran: HANG; postgres.js cut before marker CAS: HANG; postgres.js cut before COMMIT: HANG; postgres.js cut before unlock: HANG; postgres.js: uncaught Cannot read properties of |
 | S6 | `postgres/s6-pooler-hosts-refused` | phase-1/P/S6 | gap-confirmed | fail | pg databaseUrl (Hyperdrive): apply/verify/push admitted; pg options.host (Hyperdrive): apply/verify/push admitted; pg supplied Pool (Neon -pooler): apply/verify/push admitted; postgres.js databaseUrl (Neon -pooler): apply/verify/push admitted; Neon WebSocket Pool (-pooler): apply/verify/push admitted \| pg databaseUrl (Hyperdrive): apply ECONNREFUSED+1io verify ECONNREFUSED+1io push ECONNREFUSED+1 |
 | S7 | `postgres/s7-interrupted-concurrent-index` | phase-1/P/S7 | partially-exists | fail | status() threw V8001; log() threw V8001; apply() threw V8001; verify() threw V8001; resolve({ outcome: 'rolled-back' }) threw V8001; 1 invalid index left after resolve; status() after resolve: threw V8001 \| interrupted apply: V11020 Opaque stepwise dispatch bf9efac00497df495ad11e159da201a7774fc42bb9152a87315734e6f140b10b ; status: V8001 PostgreSQL index "accounts.accounts_country_name_key" has ph |
 | S8 | `postgres/s8-marker-ahead` | phase-1/P/S8 | gap-confirmed | fail | status() threw V11002; apply({ ifAhead: 'noop' }) gave V11002 No path exists from the current marker to the target; verify() reports V11022 corruption \| status: V11002 No path exists from the current marker to the target; ifAhead noop: V11002 No path exists from the current marker to the target; ifAhead refuse: V11002 No path exists from the current marker to the target; verify: V11022 A selected |
-| D1 | `postgres/d1-transaction-pooler` | phase-2/D1 | partially-exists | skip | needs VIBORM_PROBE_PG_URL |
+| D1 | `postgres/d1-transaction-pooler` | phase-2/D1 | partially-exists | fail | apply v1 V11005 with 1 lock(s) left; apply v2 V11005 with 1 lock(s) left; push V11005 with 1 lock(s) left \| apply v1: V11005, 1 advisory lock(s) left; apply v2: V11005, 1 advisory lock(s) left; push: V11005, 1 advisory lock(s) left; racing rounds skipped |
 | D1 | `postgres/d1-transaction-scoped-protocol` | phase-2/D1 | partially-exists | fail | apply: session lock statement #1: WITH RECURSIVE lock_attempt AS ( SELECT pg_try_advisory_lock; no pg_try_advisory_xact_lock; marker read is not inside the transaction after the lock (BEGIN #29, xact lock -, session lock #1, marker read #16, first DDL #33, COMMIT #52 of 53) \| push: session lock statement #1: WITH RECURSIVE lock_attempt AS ( SELECT pg_try_advisory_lock; no pg_try_advisory_xact_loc |
 | D2 | `workers/d2-edge-safe-migrations` | phase-2/D2 | partially-exists | fail | viborm/migrations statically loads node:fs (fs-estate-BLqNdigQ.mjs); node:path (fs-estate-BLqNdigQ.mjs); node:crypto (fs-estate-BLqNdigQ.mjs, client-z9mcpRtA.mjs) \| viborm/migrations still uses the Buffer global in client-z9mcpRtA.mjs \| viborm/migrations still exports createFsStorageWriter \| with builtins refused and no Buffer, loading and hashing failed: Error: builtin node:fs refused (importe |
 | D3 | `workers/d3-history-storage-bindings` | phase-2/D3 | partially-exists | fail | createStorageConformanceSuite has 4 cases (no create race, absent read, list-after-publish or manifest-last; expected >= 8) \| missing Durable Object subpath next to viborm/migrations/storage/fs \| missing R2 subpath next to viborm/migrations/storage/fs \| storage subpaths: ./migrations/storage/fs |
@@ -55,7 +56,7 @@ The "code-check" column is the verdict of the plan's code check for the item (ga
 | T2 | `outcomes/t2-predefined-resolver` | phase-2/D4 step 9 (T2) | partially-exists | fail | viborm/migrations has no export createPredefinedResolver |
 | D5 | `postgres/d5-ledger-read` | phase-2/D5 | gap-confirmed | fail | no-op apply read 12 ledger rows of 12, none open ("SELECT payload FROM "public"."_viborm_migration_log""); status() read 12 ledger rows of 12, none open ("SELECT payload FROM "public"."_viborm_migration_log""); log() is not in causal order for same-millisecond events \| no-op noop, unfinished false; log(): step-confirmed,started,step-confirmed,applied,step-confirmed,step-confirmed,started,applied, |
 | D5 | `postgres/d5-round-trips` | phase-2/D5 | gap-confirmed | fail | 17 control statements between the first DDL and COMMIT (max 3); no-op apply sent 29 statements (max 3) \| change: 53 statements, window 20 through COMMIT = 2 DDL + 17 control + COMMIT; no-op: 29; status: 16; drifted no-op: refused V11014 |
-| D6 | `postgres/d6-neon-ws-pool` | phase-2/D6 | partially-exists | skip | needs VIBORM_PROBE_PG_URL |
+| D6 | `postgres/d6-neon-ws-pool` | phase-2/D6 | partially-exists | pass | apply v1: applied; apply v2: applied; status: ok; advisory locks left: 0 |
 | T3 | `outcomes/t3-reanchor` | phase-3/T3 | gap-confirmed | fail | older history: apply V11002; migration client has no reanchor() (same-name regeneration reproduces the id: true) |
 | T5A | `postgres/t5a-concurrently-transactional` | phase-3/T5a | — | fail | CREATE INDEX CONCURRENTLY: generate ok, apply V2001 (cause 25001), sent inside BEGIN \| CREATE UNIQUE INDEX CONCURRENTLY: generate ok, apply V2001 (cause 25001), sent inside BEGIN |
 | T5A | `postgres/t5a-large-rewrite-refused` | phase-3/T5a | — | fail | not refused; DDL sent: ALTER TABLE "public"."accounts" ALTER COLUMN "age" TYPE bigint USING "age"::bigi; age is now bigint \| planner estimate 20000000 rows; applied (applied): ALTER TABLE "public"."accounts" ALTER COLUMN "age" TYPE bigint USING "age"::bigint; age column: bigint |
@@ -96,13 +97,3 @@ These items have no behaviour a consumer of the package can observe at runtime. 
 | types-10 (types), types-13, types-15, parity-06/13, parity-07, parity-12, parity-16, platform-13, platform-16 (docs part) | Documentation and type tests (Track A docs PR) |
 | New defect 8 | Documentation corrections (lane O) |
 | Q1, Q2 | Hosted qualification and the Durable Object guide (final gate, phase 3) |
-
-## Skipped here: need the Docker PostgreSQL
-
-Run with `VIBORM_PROBE_PG_URL=postgres://postgres:password@127.0.0.1:5434/viborm` once the Docker databases are up. They will be recorded with phase 1.
-
-- `postgres/s1-lock-queue`
-- `postgres/s1-stranded-session`
-- `postgres/s2-connection-cut`
-- `postgres/d1-transaction-pooler`
-- `postgres/d6-neon-ws-pool`
