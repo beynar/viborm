@@ -31,6 +31,7 @@ import {
 import type { NativeRenameOperation } from "../../native-rename";
 import type {
   ColumnDef,
+  DiffOperation,
   IndexDef,
   SchemaSnapshot,
   TableDef,
@@ -167,6 +168,116 @@ function enumDefaultLabels(
   return column.type === enumName
     ? [literal]
     : (readArrayLiteralText(literal) ?? []);
+}
+
+const IDENTIFIER_PART = /[\w$]/;
+
+/**
+ * Whether SQL text may name `identifier`: bare in any case, or double-quoted.
+ * Matches inside literals and comments count too; they only cost a type
+ * recreation that was not needed.
+ */
+function mayName(sql: string, identifier: string): boolean {
+  const text = sql.toLowerCase();
+  const name = identifier.replaceAll('"', '""').toLowerCase();
+  for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + 1))
+    if (
+      !(
+        IDENTIFIER_PART.test(text[at - 1] ?? "") ||
+        IDENTIFIER_PART.test(text[at + name.length] ?? "")
+      )
+    )
+      return true;
+  return false;
+}
+
+/**
+ * Whether an operation after `ALTER TYPE … ADD VALUE` in the same transaction
+ * may read an added label, which PostgreSQL refuses until commit (55P04): a
+ * default naming one, a cast of stored data into the enum, or a partial-index
+ * predicate naming the type or one of its columns on the index's table. No
+ * literal spelling is trusted: `$$archived$$`, `E'archived'` and a function
+ * result compare the same.
+ */
+function readsAddedValue(
+  enumName: string,
+  added: readonly string[],
+  tables: readonly TableDef[],
+  following: readonly DiffOperation[]
+): boolean {
+  const defaultNamesAdded = (column: ColumnDef) => {
+    const labels = enumDefaultLabels(column, enumName);
+    return added.some((value) => labels.includes(value));
+  };
+  const enumColumnsOf = (table: TableDef) =>
+    table.columns
+      .filter((column) => storesEnum(column, enumName))
+      .map((column) => ({ table: table.name, column: column.name }));
+  // Each column of the enum, as the batch has named it so far.
+  const columns = tables.flatMap(enumColumnsOf);
+  const predicateNamesEnum = (table: string, { where }: IndexDef) =>
+    where !== undefined &&
+    [
+      enumName,
+      ...columns
+        .filter((item) => item.table === table)
+        .map((item) => item.column),
+    ].some((name) => mayName(where, name));
+  for (const operation of following) {
+    switch (operation.type) {
+      case "createTable": {
+        const { table } = operation;
+        columns.push(...enumColumnsOf(table));
+        if (
+          table.columns.some(defaultNamesAdded) ||
+          table.indexes.some((index) => predicateNamesEnum(table.name, index))
+        )
+          return true;
+        break;
+      }
+      case "addColumn":
+        if (defaultNamesAdded(operation.column)) return true;
+        if (storesEnum(operation.column, enumName))
+          columns.push({
+            table: operation.tableName,
+            column: operation.column.name,
+          });
+        break;
+      // A column already of the enum is known; one cast into it may hold a label.
+      case "alterColumn":
+        if (
+          defaultNamesAdded(operation.to) ||
+          (storesEnum(operation.to, enumName) &&
+            !storesEnum(operation.from, enumName))
+        )
+          return true;
+        break;
+      case "renameTable":
+        columns.push(
+          ...columns
+            .filter((item) => item.table === operation.from)
+            .map((item) => ({ ...item, table: operation.to }))
+        );
+        break;
+      case "renameColumn":
+        if (
+          columns.some(
+            (item) =>
+              item.table === operation.tableName &&
+              item.column === operation.from
+          )
+        )
+          columns.push({ table: operation.tableName, column: operation.to });
+        break;
+      case "createIndex":
+        if (predicateNamesEnum(operation.tableName, operation.index))
+          return true;
+        break;
+      default:
+        break;
+    }
+  }
+  return false;
 }
 
 export class PostgresMigrationDriver extends MigrationDriver {
@@ -1320,40 +1431,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
       newValues !== undefined &&
       before.filter((value) => newValues.includes(value)).join("\0") !==
         newValues.filter((value) => before.includes(value)).join("\0");
-    // ADD VALUE only touches the catalog, but PostgreSQL refuses the new value
-    // to every later statement of its transaction (55P04). A later operation
-    // of this batch reads one through a default or a partial-index predicate
-    // naming it, or by casting stored data, which may hold it, into the enum.
-    // A recreated type admits all three.
-    const literals = addValues.map((value) => this.escapeValue(value));
-    const defaultNamesAdded = (column: ColumnDef) => {
-      const labels = enumDefaultLabels(column, enumName);
-      return addValues.some((value) => labels.includes(value));
-    };
-    const predicateNamesAdded = ({ where }: IndexDef) =>
-      literals.some((literal) => where?.includes(literal));
-    const usesAddedValue = (context.followingOperations ?? []).some(
-      (operation) => {
-        switch (operation.type) {
-          case "createTable":
-            return (
-              operation.table.columns.some(defaultNamesAdded) ||
-              operation.table.indexes.some(predicateNamesAdded)
-            );
-          case "addColumn":
-            return defaultNamesAdded(operation.column);
-          case "alterColumn":
-            return (
-              defaultNamesAdded(operation.to) ||
-              (storesEnum(operation.to, enumName) &&
-                !storesEnum(operation.from, enumName))
-            );
-          case "createIndex":
-            return predicateNamesAdded(operation.index);
-          default:
-            return false;
-        }
-      }
+    // ADD VALUE only touches the catalog; a recreated type admits a later
+    // read of an added value in the same transaction.
+    const usesAddedValue = readsAddedValue(
+      enumName,
+      addValues,
+      physicalContext.currentSchema?.tables ?? [],
+      context.followingOperations ?? []
     );
     if (!(removeValues?.length || reordered || usesAddedValue)) {
       const available = new Set(before);

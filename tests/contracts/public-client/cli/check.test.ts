@@ -189,18 +189,51 @@ describe("viborm check", () => {
     }
   });
 
-  it("--db audits a pushed schema: a missing table fails the audit", async () => {
-    project = makeTempProject();
-    writeConfigFixture(project, { dialect: "sqlite3", schemaBody: TEMPORAL });
-    vi.spyOn(process, "exit").mockImplementation((code) => {
-      throw new Error(`exit ${code}`);
-    });
-    // The config's client is a second module instance here, so the code
-    // prefix and exit 2 of the built CLI are not observable; the message is.
-    await expect(run(project.configPath, ["--db"])).rejects.toThrow("exit");
-    expect(process.stderr.write).toHaveBeenCalledWith(
-      expect.stringContaining("Database table or column does not exist")
-    );
+  it("--db reports a missing column or table from the catalog instead of scanning it", async () => {
+    const { configPath, db } = fileDatabase(TEMPORAL);
+    const missing = (column: string) =>
+      `[storage] "event"."${column}": the column is missing; typed queries that use it fail.\n    Create it through viborm push or migrate.`;
+    try {
+      // An empty table without `at`: a scan would count zero rows.
+      db.exec(
+        "CREATE TABLE event (id INTEGER PRIMARY KEY, title TEXT, clock TEXT, moments TEXT, stamp INTEGER)"
+      );
+      const empty = await run(configPath, ["--db"]);
+      expect(empty).toContain(missing("at"));
+      expect(empty).toContain("Storage audited: 3 column(s), 1 need repair.");
+      expect(process.exitCode).toBe(1);
+
+      // Rows without `clock` are not reported as noncanonical Time text.
+      process.exitCode = undefined;
+      db.exec(`DROP TABLE event;
+        CREATE TABLE event (id INTEGER PRIMARY KEY, title TEXT, at TEXT, moments TEXT, stamp INTEGER);
+        INSERT INTO event VALUES (1, 'a', '2024-01-15T10:30:00.000Z', '[]', 0), (2, 'b', '2024-01-15T10:30:00.000Z', '[]', 0);`);
+      const result = JSON.parse(await run(configPath, ["--db", "--json"]));
+      expect(result.storage).toEqual(
+        [
+          ["at", "datetime", false, 0],
+          ["clock", "time", false, null],
+          ["moments", "datetime", true, 0],
+        ].map(([column, type, list, noncanonical]) => ({
+          table: "event",
+          column,
+          type,
+          list,
+          noncanonical,
+        }))
+      );
+      expect(process.exitCode).toBe(1);
+
+      process.exitCode = undefined;
+      db.exec("DROP TABLE event");
+      const absent = await run(configPath, ["--db"]);
+      for (const column of ["at", "clock", "moments"])
+        expect(absent).toContain(missing(column));
+      expect(absent).toContain("Storage audited: 3 column(s), 3 need repair.");
+      expect(process.exitCode).toBe(1);
+    } finally {
+      db.close();
+    }
   });
 
   it("--db reports SQLite decimal columns that are not VibORM's checked storage", async () => {

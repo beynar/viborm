@@ -3214,53 +3214,114 @@ describe("PostgreSQL DDL Generation", () => {
             from: column("status_enum"),
             to: column("status_enum[]"),
           },
+          { type: "dropIndex", tableName: "users", indexName: "users_old" },
+          {
+            type: "addColumn",
+            tableName: "users",
+            column: { ...column("text"), name: "note" },
+          },
+          {
+            type: "renameColumn",
+            tableName: "users",
+            from: "note",
+            to: "memo",
+          },
           {
             type: "createIndex",
             tableName: "users",
-            index: index(`"state" = 'active'`),
+            index: { name: "users_memo", columns: ["memo"], unique: false },
+          },
+          // Only a predicate naming the enum or one of its columns reads it.
+          {
+            type: "createIndex",
+            tableName: "users",
+            index: index(`"memo" = 'archived'`),
+          },
+          {
+            type: "createTable",
+            table: table("audits", [column("text")], `state = 'archived'`),
           },
         ])
       ).toEqual([
         `ALTER TYPE "status_enum" ADD VALUE 'pending' BEFORE 'inactive'`,
         `ALTER TYPE "status_enum" ADD VALUE 'archived'`,
       ]);
-      const uses: DiffOperation[] = [
-        {
-          type: "addColumn",
-          tableName: "users",
-          column: column("status_enum", "'pending'"),
-        },
-        {
-          type: "alterColumn",
-          tableName: "users",
-          columnName: "state",
-          from: column("status_enum[]"),
-          to: column("status_enum[]", `'{"active","archived"}'`),
-        },
-        {
-          type: "createTable",
-          table: table("audits", [column("status_enum", "'archived'")]),
-        },
-        {
-          type: "createTable",
-          table: table("audits", [column("status_enum")], `state = 'pending'`),
-        },
-        {
-          type: "createIndex",
-          tableName: "users",
-          index: index(`"state" = 'archived'`),
-        },
+      const predicate = (
+        where: string,
+        tableName = "users"
+      ): DiffOperation => ({
+        type: "createIndex",
+        tableName,
+        index: index(where),
+      });
+      // No literal spelling of a label is trusted once the enum is named.
+      const uses: DiffOperation[][] = [
+        [
+          {
+            type: "addColumn",
+            tableName: "users",
+            column: column("status_enum", "'pending'"),
+          },
+        ],
+        [
+          {
+            type: "alterColumn",
+            tableName: "users",
+            columnName: "state",
+            from: column("status_enum[]"),
+            to: column("status_enum[]", `'{"active","archived"}'`),
+          },
+        ],
+        [
+          {
+            type: "createTable",
+            table: table("audits", [column("status_enum", "'archived'")]),
+          },
+        ],
+        [
+          {
+            type: "createTable",
+            table: table("audits", [column("status_enum")], "$$x$$ = STATE"),
+          },
+        ],
+        [predicate(`"state" = 'archived'`)],
+        [predicate("state = $$archived$$")],
+        [predicate("state = E'archiv\\145d'")],
+        [predicate(`note::"status_enum" = 'archived'`)],
+        [
+          { type: "renameTable", from: "users", to: "people" },
+          predicate("state = $tag$archived$tag$", "people"),
+        ],
+        [
+          {
+            type: "renameColumn",
+            tableName: "users",
+            from: "state",
+            to: "phase",
+          },
+          predicate("phase = $$archived$$"),
+        ],
+        [
+          {
+            type: "addColumn",
+            tableName: "users",
+            column: { ...column("status_enum"), name: "phase" },
+          },
+          predicate("phase = $$archived$$"),
+        ],
         // Stored text may already hold an added label.
-        {
-          type: "alterColumn",
-          tableName: "users",
-          columnName: "state",
-          from: column("text"),
-          to: column("status_enum"),
-        },
+        [
+          {
+            type: "alterColumn",
+            tableName: "users",
+            columnName: "state",
+            from: column("text"),
+            to: column("status_enum"),
+          },
+        ],
       ];
       for (const use of uses)
-        expect(compile([use])).toContain('DROP TYPE "status_enum"');
+        expect(compile(use)).toContain('DROP TYPE "status_enum"');
     });
   });
 

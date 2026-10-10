@@ -33,7 +33,8 @@ type ColumnAudit = { readonly table: string; readonly column: string } & (
   | {
       readonly type: "datetime" | "time";
       readonly list: boolean;
-      readonly noncanonical: number;
+      /** `null` when the column is missing. */
+      readonly noncanonical: number | null;
     }
   | {
       readonly type: "decimal";
@@ -71,10 +72,11 @@ async function readCatalog(
 }
 
 /**
- * Audit SQLite storage typed queries assume but never inspect: each text
- * DateTime/Time column's noncanonical rows (one scan each), and whether each
- * decimal column is the checked scaled-integer storage of its descriptor (one
- * catalog read per table). Other dialects store native types.
+ * Audit SQLite storage typed queries assume but never inspect: one catalog
+ * read per table decides which audited columns exist; each existing text
+ * DateTime/Time column's noncanonical rows are counted (one scan each), and
+ * each decimal column is checked against the scaled-integer storage of its
+ * descriptor. Other dialects store native types.
  */
 async function auditStorage(
   driver: AnyDriver,
@@ -85,14 +87,18 @@ async function auditStorage(
   for (const [name, model] of Object.entries(models)) {
     const table = getTableName(model, name);
     const state: ModelState = model["~"].state;
-    let catalog: CatalogColumn[] | undefined;
+    // A missing table has no catalog rows: each audited column is missing.
+    let catalog: Promise<CatalogColumn[]> | undefined;
+    const find = async (column: string) =>
+      (await (catalog ??= readCatalog(driver, table))).find(
+        (entry) => entry.name === column
+      );
     for (const [field, scalar] of Object.entries(state.scalars)) {
       const definition = scalar["~"].state;
       const { type, array = false } = definition;
       const column = model["~"].getFieldName(field).sql;
       if (definition.type === "decimal") {
-        catalog ??= await readCatalog(driver, table);
-        const row = catalog.find((entry) => entry.name === column);
+        const row = await find(column);
         audits.push({
           table,
           column,
@@ -116,15 +122,18 @@ async function auditStorage(
           (array ||
             sqliteDateTimePhysicalForm(scalar["~"].nativeType) === "text"));
       if (!text) continue;
-      const { rows } = await driver._executeRaw<{ noncanonical: number }>(
-        sqliteNoncanonicalTemporalCount(table, column, type, array)
-      );
+      // Never scan a missing column: SQLite may read its quoted name as text.
+      const scan =
+        (await find(column)) &&
+        (await driver._executeRaw<{ noncanonical: number }>(
+          sqliteNoncanonicalTemporalCount(table, column, type, array)
+        ));
       audits.push({
         table,
         column,
         type,
         list: array,
-        noncanonical: Number(rows[0]?.noncanonical),
+        noncanonical: scan ? Number(scan.rows[0]?.noncanonical) : null,
       });
     }
   }
@@ -132,17 +141,14 @@ async function auditStorage(
 }
 
 const needsRepair = (audit: ColumnAudit): boolean =>
-  audit.type === "decimal" ? !audit.checked : audit.noncanonical > 0;
+  audit.type === "decimal" ? !audit.checked : audit.noncanonical !== 0;
 
 const describeAudit = (audit: ColumnAudit): string => {
   const column = `[storage] "${audit.table}"."${audit.column}"`;
-  if (audit.type === "decimal") {
-    const found =
-      audit.declared === null
-        ? "the column is missing"
-        : `declared ${audit.declared}, not the checked scaled-integer decimal storage VibORM writes`;
-    return `${column}: ${found}; typed reads, filters and writes are not checked against it.\n    Adopt the table through viborm push, migrate or baseline: https://viborm.dev/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool`;
-  }
+  if ((audit.type === "decimal" ? audit.declared : audit.noncanonical) === null)
+    return `${column}: the column is missing; typed queries that use it fail.\n    Create it through viborm push or migrate.`;
+  if (audit.type === "decimal")
+    return `${column}: declared ${audit.declared}, not the checked scaled-integer decimal storage VibORM writes; typed reads, filters and writes are not checked against it.\n    Adopt the table through viborm push, migrate or baseline: https://viborm.dev/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool`;
   const kind = audit.type === "time" ? "Time" : "DateTime";
   const repair = audit.list
     ? "Rewrite each row through the typed client (`update`), which stores canonical members"

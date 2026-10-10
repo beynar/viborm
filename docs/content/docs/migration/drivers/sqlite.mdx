@@ -114,9 +114,9 @@ SQL, another writer, or a release candidate that stored string input verbatim
 reads back as the right instant, but comparisons can miss or misorder its rows.
 Typed queries do not inspect storage per statement. Run `viborm check --db` to
 count noncanonical values per column; it exits nonzero when any exist and
-names the repair below for each. It audits a pushed schema: a missing model
-table fails the audit (V2004) when it has DateTime/Time columns, and otherwise
-reports its decimal columns as missing, so run `viborm push` or apply
+names the repair below for each. It audits a pushed schema: one catalog read
+per table reports an audited column missing from its table, or every audited
+column of a missing table, and fails the audit, so run `viborm push` or apply
 migrations first.
 
 The manual migration helpers quote a physical column name and return a SQLite

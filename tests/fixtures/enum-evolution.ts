@@ -299,6 +299,46 @@ export function enumEvolutionTests(open: OpenEnumEvolutionNamespace): void {
     expect(await generated.labels()).toEqual(["open", "closed", "flagged"]);
   });
 
+  test("a partial-index predicate naming the enum recreates it whatever spells the label; one naming another column adds in place", async () => {
+    const db = await estate(open, "spellings");
+    const push = (values: readonly [string, ...string[]], where?: string) =>
+      syncLiveSchema(
+        createClient({
+          schema: resolvedTickets(values, false, where),
+          driver: db.driver,
+        })
+      );
+    await push(["open", "closed"]);
+    await db.seed();
+    await db.exec(
+      `CREATE VIEW ${db.view} AS SELECT "id", "title" FROM ${db.table} WHERE "status" = 'open'`
+    );
+    const original = await db.relfilenode();
+
+    // A text column compared to the new label never reads the enum.
+    const unrelated = await push(
+      ["open", "closed", "archived"],
+      "title = 'archived'"
+    );
+    expect(unrelated.sql[0]).toBe(`ALTER TYPE ${db.type} ADD VALUE 'archived'`);
+    expect(unrelated.sql).not.toContain(`DROP TYPE ${db.type}`);
+    expect(await db.relfilenode()).toBe(original);
+
+    await db.exec(`DROP VIEW ${db.view}`);
+    const values: [string, ...string[]] = ["open", "closed", "archived"];
+    for (const [label, where] of [
+      ["dollar", "status = $$dollar$$"],
+      ["cast", `status = 'cast'::${db.type}`],
+      ["escape", "status = E'escape'"],
+    ] as const) {
+      values.push(label);
+      expect((await push(values, where)).sql).toContain(`DROP TYPE ${db.type}`);
+      // Its predicate would block the next replacement; drop the index.
+      await push(values);
+    }
+    expect(await db.labels()).toEqual(values);
+  });
+
   test("removing a value an enum-array default names restores the destination default", async () => {
     const db = await estate(open, "array_default");
     await syncLiveSchema(

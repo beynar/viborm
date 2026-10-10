@@ -37,9 +37,10 @@ per-operation work that protected nothing.
 - **PostgreSQL: adding enum values uses `ALTER TYPE … ADD VALUE [BEFORE …]`
   again.** 1.0.0 recreated the type for an append, rewriting every table using
   it, and failed when a view, rule or CHECK depended on the column. The type is
-  replaced only for removals, reorders, and when the same migration uses a new
-  value; any such replacement still fails on a dependent view, rule or CHECK
-  (#85).
+  replaced only for removals, reorders, and when the same migration may use a
+  new value (a default naming it, a column converted to the enum, or a new
+  partial-index predicate naming the enum or one of its columns); any such
+  replacement still fails on a dependent view, rule or CHECK (#85).
   `apply`, `down` and `reset` commit after a migration that adds enum values.
 - **postgres.js: a `BEGIN` that cannot connect leaves the client usable.** It
   rejects with the retryable V1001 instead of quarantining the client with V5001
@@ -64,9 +65,9 @@ per-operation work that protected nothing.
 ### Added
 
 - **`viborm check --db`** audits SQLite-family storage: non-canonical
-  DateTime/Time text, and decimal columns without VibORM's scaled-integer
-  storage. It exits 1 when either exists, prints the repair route and adds a
-  `storage` report to `--json`.
+  DateTime/Time text, decimal columns without VibORM's scaled-integer storage,
+  and audited columns missing from the database. It exits 1 when any exists,
+  prints the repair route and adds a `storage` report to `--json`.
 
 ### Changed
 

@@ -13,7 +13,7 @@ then discovers `viborm.config.ts` (also `.mts`, `.js`, or `.mjs`). See
 | Command | Purpose |
 | --- | --- |
 | `viborm check` | Validate the configured schema, including advisory checks |
-| `viborm check --db` | Also audit SQLite storage of the pushed schema: count noncanonical DateTime/Time text per column (one full scan each) and report decimal columns without VibORM's checked scaled-integer storage (one catalog read per table); see [repairing timestamps](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text) and [adopting decimals](/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool) |
+| `viborm check --db` | Also audit SQLite storage of the pushed schema: one catalog read per table reports missing columns and decimal columns without VibORM's checked scaled-integer storage, and each existing DateTime/Time text column's noncanonical values are counted (one full scan each); see [repairing timestamps](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text) and [adopting decimals](/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool) |
 | `viborm push --dry-run` | Preview direct synchronization without applying it |
 | `viborm push --yes` | Apply a non-destructive synchronization without a prompt |
 | `viborm migrate generate --name change` | Generate the next migration state |
