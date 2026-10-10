@@ -95,8 +95,8 @@ relation: `include` and `select` of related rows, `some`/`none`/`every`,
 `_count`, ordering by a relation count, nested pages, and recursive reads (a
 tombstoned node cuts its branch). A recursive filter (`recurse` in `where`)
 walks live rows only: a tombstone is not a member of the closure and stops the
-walk below it, while `self: true` keeps the row the call itself selected. A cursor that points at a hidden row is a
-missing cursor: the page is empty.
+walk below it, while `self: true` keeps the row the call itself selected. A
+cursor that points at a hidden row is a missing cursor: the page is empty.
 
 ```ts
 await db.post.count();                        // live posts
