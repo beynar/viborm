@@ -91,6 +91,13 @@ type ToOneFilterObjectSchema<
 type TargetWhereSchema<S extends RelationState> =
   GetTargetSchemas<S>["core"]["where"];
 
+/** `some`/`every`/`none`, each the target's full `where`. */
+type Quantifiers<S extends RelationState> = {
+  some: () => TargetWhereSchema<S>;
+  every: () => TargetWhereSchema<S>;
+  none: () => TargetWhereSchema<S>;
+};
+
 /**
  * The recursive filter: a quantifier over the slot's transitive closure from
  * the filtered row, `self` adding that row itself. `recurse` is the very
@@ -108,12 +115,9 @@ type RecursiveFilterSchema<
   {
     recurse: RecurrenceFor<Source, Key, S>;
     self: V.Boolean;
-    some: () => TargetWhereSchema<S>;
-    every: () => TargetWhereSchema<S>;
-    none: () => TargetWhereSchema<S>;
     is: UnavailableRecursiveClauseSchema;
     isNot: UnavailableRecursiveClauseSchema;
-  },
+  } & Quantifiers<S>,
   { atLeast: ["recurse"] }
 >;
 
@@ -192,6 +196,15 @@ const requireRelationQuantifier = (
       : refusal;
 };
 
+/** {@link Quantifiers}' runtime entries. */
+const quantifierEntries = <S extends RelationState>(
+  targetSchemas: SchemaGetter<S>
+) => ({
+  some: () => targetSchemas().core.where,
+  every: () => targetSchemas().core.where,
+  none: () => targetSchemas().core.where,
+});
+
 /**
  * The recursive filter of a slot that can recurse, or `undefined`. Its
  * `recurse` is the identical schema instance `select`/`include` use.
@@ -207,9 +220,7 @@ const recursiveFilter = <S extends RelationState, T extends SchemaGetter<S>>(
       {
         recurse: recurrence,
         self: v.boolean(),
-        some: () => targetSchemas().core.where,
-        every: () => targetSchemas().core.where,
-        none: () => targetSchemas().core.where,
+        ...quantifierEntries(targetSchemas),
         is: unavailableRecursiveClause("is"),
         isNot: unavailableRecursiveClause("isNot"),
       },
@@ -305,13 +316,7 @@ export type ToManyFilterSchema<
   S extends RelationState,
 > = V.Union<
   readonly [
-    V.Object<
-      {
-        some: () => TargetWhereSchema<S>;
-        every: () => TargetWhereSchema<S>;
-        none: () => TargetWhereSchema<S>;
-      } & NoClosure
-    >,
+    V.Object<Quantifiers<S> & NoClosure>,
     RecursiveFilterSchema<Source, Key, S>,
   ]
 >;
@@ -326,13 +331,8 @@ export const toManyFilterFactory = <
   targetSchemas: T
 ): ToManyFilterSchema<Source, Key, S> =>
   withRecursiveNode(
-    v.object(
-      {
-        some: () => targetSchemas().core.where,
-        every: () => targetSchemas().core.where,
-        none: () => targetSchemas().core.where,
-      },
-      { refuse: requireRelationQuantifier(resolved, TO_MANY_QUANTIFIERS) }
-    ),
+    v.object(quantifierEntries(targetSchemas), {
+      refuse: requireRelationQuantifier(resolved, TO_MANY_QUANTIFIERS),
+    }),
     recursiveFilter(resolved, targetSchemas)
   ) as unknown as ToManyFilterSchema<Source, Key, S>;

@@ -2503,16 +2503,17 @@ export class Queries {
       // A spelled `recurse` IS the closure form (the validation dispatcher's
       // one rule), admitted densely: its unspelled arms are `undefined` holes.
       // The assertion names the admitted shape, as `Arguments.recurse` does.
-      const { recurse, self, ...quantifiers } = entries;
       const closure: Closure | undefined =
-        recurse === undefined
+        entries.recurse === undefined
           ? undefined
           : freeze({
-              depth: (recurse as NormalizedRecurrence).depth,
-              self: self === true,
+              depth: (entries.recurse as NormalizedRecurrence).depth,
+              self: entries.self === true,
             });
       const arms: [string, unknown][] = closure
-        ? Object.entries(quantifiers).filter(([, value]) => value !== undefined)
+        ? Object.entries(entries).filter(
+            ([key, value]) => QUANTIFIERS.has(key) && value !== undefined
+          )
         : Object.keys(entries).every((key) => QUANTIFIERS.has(key))
           ? Object.entries(entries)
           : [["is", entries]];
@@ -3313,14 +3314,18 @@ export class Queries {
       // or a LATERAL: MySQL answers every outer row from one evaluation of a
       // wrapped correlated recursive CTE wherever the EXISTS is not flattened.
       // The walk owns membership and visibility; the reader joins by key.
-      const walk = this.#walk(edge, parentAlias ?? "", closure.depth, closure);
-      query = sql`${walk.cte} ${a.subqueries.existsCheck(
-        sql`${a.identifiers.aliased(a.identifiers.escape(walk.name), walk.alias)} ${a.joins.inner(
+      const { cte, cteName, walk, childColumns } = this.#walk(
+        edge,
+        parentAlias ?? "",
+        closure
+      );
+      query = sql`${cte} ${a.subqueries.existsCheck(
+        sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
           this.table(edge.target, childAlias),
           this.#sameRow(
             edge.target,
             childAlias,
-            walk.child.map((name) => a.identifiers.column(walk.alias, name))
+            childColumns.map((name) => a.identifiers.column(walk, name))
           )
         )}`,
         a.operators.and(...stated)
@@ -3417,23 +3422,25 @@ export class Queries {
       )
     );
   }
-  /**
-   * The one join of a relation to its parent, and the one place the related
-   * domain enters a relation read: outside any quantifier's negation, so
-   * `every`, `none` and a negated count read "every VISIBLE member", and on
-   * every edge, so a to-one projection, `is`/`isNot`, a to-one order term and
-   * an upward recursion read a hidden target as an absent one.
-   */
+  /** The one join of a relation to its parent, under the {@link related} domain. */
   correlation(
     edge: Membership,
     parent: string,
     target: string,
-    scoped = true,
-    member = this.#membershipWhere(edge, target, parent)
+    scoped = true
   ): Sql {
-    const domain = scoped
-      ? this.domain?.selector(edge.target, "related")
-      : undefined;
+    const member = this.#membershipWhere(edge, target, parent);
+    return scoped ? this.#related(edge, target, member) : member;
+  }
+  /**
+   * The one place the related domain enters a relation read, conjoined to the
+   * `member` condition that reached `target`: outside any quantifier's
+   * negation, so `every`, `none` and a negated count read "every VISIBLE
+   * member", and on every edge, so a to-one projection, `is`/`isNot`, a to-one
+   * order term and an upward recursion read a hidden target as an absent one.
+   */
+  #related(edge: Membership, target: string, member: Sql): Sql {
+    const domain = this.domain?.selector(edge.target, "related");
     if (domain === undefined) return member;
     return this.adapter.operators.and(
       member,
@@ -5272,29 +5279,32 @@ export class Queries {
   }
 
   /**
-   * One hop of a walk, from `current` into `next`, through the ordinary
-   * {@link correlation}. A junction hop joins the junction table: the
-   * membership's `IN (SELECT … WHERE link.source = current.key)` correlates
-   * to `next`'s sibling, which PostgreSQL cannot turn into a semi-join, so it
-   * would run once per row of the target table at every hop.
+   * One hop of a walk, from `current` into `next`, under the {@link related}
+   * domain. A reference hop is the ordinary {@link correlation}; a junction
+   * hop joins the junction table, the one join-form reader of a junction
+   * membership: the membership's `IN (SELECT … WHERE link.source =
+   * current.key)` correlates to `next`'s sibling, which PostgreSQL cannot turn
+   * into a semi-join, so it would run once per target row at every hop.
    */
   #step(edge: Membership, current: string, next: string): Sql {
     const a = this.adapter;
-    const into = (member?: Sql) =>
-      a.joins.inner(
-        this.table(edge.target, next),
-        this.correlation(edge, current, next, true, member)
-      );
-    if (edge.kind !== "junction") return into();
+    const target = this.table(edge.target, next);
+    if (edge.kind !== "junction")
+      return a.joins.inner(target, this.correlation(edge, current, next));
     const link = this.alias();
     return sql`${a.joins.inner(
       a.identifiers.table(edge.table, link),
       a.operators.and(
         ...this.junctionSideConditions(edge.sourceSide, link, current)
       )
-    )} ${into(
-      a.operators.and(
-        ...this.junctionSideConditions(edge.targetSide, link, next)
+    )} ${a.joins.inner(
+      target,
+      this.#related(
+        edge,
+        next,
+        a.operators.and(
+          ...this.junctionSideConditions(edge.targetSide, link, next)
+        )
       )
     )}`;
   }
@@ -5302,8 +5312,9 @@ export class Queries {
   /**
    * The ONE walk of a recursive membership: a recursive CTE of the rows
    * reached from `parentAlias` by 1..`depth` hops of `edge` (every hop when
-   * `depth` is false). Each hop is the ordinary {@link correlation}, so the
-   * related domain hides a row and stops the walk below it, and `UNION` on
+   * `depth` is false). Each hop reads the related domain (the anchor's
+   * {@link correlation}, then {@link step}), so a hidden row stops the walk
+   * below it, and `UNION` on
    * the carried key (and depth, when bounded) ends every cycle and visits a
    * diamond's row once per depth. Two readers:
    * - the recursive projection asks for `edges`: each reached row carries the
@@ -5317,10 +5328,10 @@ export class Queries {
   #walk(
     edge: Membership,
     parentAlias: string,
-    depth: number | false,
     start:
-      | { readonly self: boolean }
+      | Closure
       | {
+          readonly depth: number | false;
           readonly edges: true;
           readonly selector?: Pick<PreparedSelector, "model" | "predicate">;
         }
@@ -5329,18 +5340,15 @@ export class Queries {
     const model = edge.target;
     const keys = this.schema.keys(model);
     const scope = this.alias();
-    const name = `__${scope}_recursive`;
+    const cteName = `__${scope}_recursive`;
+    const { depth } = start;
     const edges = "edges" in start;
-    const parent = edges
+    const parentColumns = edges
       ? keys.map((_, index) => `__${scope}_parent_${index}`)
       : [];
-    const child = keys.map((_, index) => `__${scope}_child_${index}`);
+    const childColumns = keys.map((_, index) => `__${scope}_child_${index}`);
     const depthColumn = `__${scope}_depth`;
     const selector = edges ? start.selector : undefined;
-    const columns = (names: readonly string[], expressions: readonly Sql[]) =>
-      names.map((column, index) =>
-        a.identifiers.aliased(expressions[index]!, column)
-      );
     const hop = (value: Sql) =>
       depth === false ? [] : [a.identifiers.aliased(value, depthColumn)];
     const reached = (alias: string) =>
@@ -5350,8 +5358,8 @@ export class Queries {
     const firstHop = assembleAdapterSelect(a, {
       columns: sql.join(
         [
-          ...columns(parent, this.#rowKey(model, parentAlias)),
-          ...columns(child, this.#rowKey(model, anchorChild)),
+          ...this.#aliased(parentColumns, this.#rowKey(model, parentAlias)),
+          ...this.#aliased(childColumns, this.#rowKey(model, anchorChild)),
           ...hop(a.expressions.cast(this.value(1), "integer")),
         ],
         ", "
@@ -5368,7 +5376,10 @@ export class Queries {
             a.clauses.select(
               sql.join(
                 [
-                  ...columns(child, this.#rowKey(model, parentAlias)),
+                  ...this.#aliased(
+                    childColumns,
+                    this.#rowKey(model, parentAlias)
+                  ),
                   ...hop(a.expressions.cast(this.value(0), "integer")),
                 ],
                 ", "
@@ -5385,15 +5396,15 @@ export class Queries {
     const recursive = assembleAdapterSelect(a, {
       columns: sql.join(
         [
-          ...columns(parent, child.map(carried)),
-          ...columns(child, this.#rowKey(model, next)),
+          ...this.#aliased(parentColumns, childColumns.map(carried)),
+          ...this.#aliased(childColumns, this.#rowKey(model, next)),
           ...hop(a.expressions.add(carried(depthColumn), this.value(1))),
         ],
         ", "
       ),
-      from: sql`${a.identifiers.aliased(a.identifiers.escape(name), walk)} ${a.joins.inner(
+      from: sql`${a.identifiers.aliased(a.identifiers.escape(cteName), walk)} ${a.joins.inner(
         this.table(model, current),
-        this.#sameRow(model, current, child.map(carried))
+        this.#sameRow(model, current, childColumns.map(carried))
       )} ${this.#step(edge, current, next)}`,
       where: a.operators.and(
         ...(depth === false
@@ -5403,15 +5414,21 @@ export class Queries {
       ),
     });
     return {
-      cte: a.cte.recursive(name, anchor, recursive, "distinct"),
-      name,
+      cte: a.cte.recursive(cteName, anchor, recursive, "distinct"),
+      cteName,
       scope,
       /** The walk's own alias, free again for a reader outside the CTE. */
-      alias: walk,
-      parent,
-      child,
-      depth: depthColumn,
+      walk,
+      parentColumns,
+      childColumns,
+      depthColumn,
     };
+  }
+  /** Each expression aliased as the column of the same index. */
+  #aliased(names: readonly string[], expressions: readonly Sql[]): Sql[] {
+    return names.map((name, index) =>
+      this.adapter.identifiers.aliased(expressions[index]!, name)
+    );
   }
 
   /**
@@ -5432,13 +5449,14 @@ export class Queries {
     const model = relation.edge.target;
     const {
       cte,
-      name: cteName,
+      cteName,
       scope,
-      alias: walk,
-      parent: parentColumns,
-      child: childColumns,
-      depth: depthColumn,
-    } = this.#walk(relation.edge, parentAlias, recurrence.depth, {
+      walk,
+      parentColumns,
+      childColumns,
+      depthColumn,
+    } = this.#walk(relation.edge, parentAlias, {
+      depth: recurrence.depth,
       edges: true,
       selector: relation.arguments.selector,
     });
@@ -5450,9 +5468,7 @@ export class Queries {
       distinct: sql.join(childColumns.map(walkColumn), ", "),
       distinctColumnAliases: idColumns,
       columns: sql.join(
-        idColumns.map((name, index) =>
-          a.identifiers.aliased(walkColumn(childColumns[index]!), name)
-        ),
+        this.#aliased(idColumns, childColumns.map(walkColumn)),
         ", "
       ),
       from: a.identifiers.aliased(a.identifiers.escape(cteName), walk),

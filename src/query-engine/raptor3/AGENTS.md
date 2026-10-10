@@ -53,7 +53,8 @@ and captured-row arguments. Query and exact-producer sources are distinct;
 operation's output during construction. Interpretation does not rediscover the
 public verb. `Queries` owns one membership predicate across alias-to-alias
 correlation and captured-source values; `correlation()` and `memberWhere()` only
-select that operand form. Positive observations live in `CommandAttempt`;
+select that operand form, and a walk's `step` is the one join-form reader of a
+junction membership. Positive observations live in `CommandAttempt`;
 absence is consumed lexically and is deliberately not cached across re-entry.
 Junction capture stores the exact membership pair, not a synthetic row lookup.
 
