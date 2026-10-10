@@ -3433,9 +3433,9 @@ export class Queries {
     edge: Membership,
     parent: string,
     target: string,
-    scoped = true
+    scoped = true,
+    member = this.#membershipWhere(edge, target, parent)
   ): Sql {
-    const member = this.#membershipWhere(edge, target, parent);
     const domain = scoped
       ? this.domain?.selector(edge.target, "related")
       : undefined;
@@ -5277,6 +5277,34 @@ export class Queries {
   }
 
   /**
+   * One hop of a walk, from `current` into `next`, through the ordinary
+   * {@link correlation}. A junction hop joins the junction table: the
+   * membership's `IN (SELECT … WHERE link.source = current.key)` correlates
+   * to `next`'s sibling, which PostgreSQL cannot turn into a semi-join, so it
+   * would run once per row of the target table at every hop.
+   */
+  #step(edge: Membership, current: string, next: string): Sql {
+    const a = this.adapter;
+    const into = (member?: Sql) =>
+      a.joins.inner(
+        this.table(edge.target, next),
+        this.correlation(edge, current, next, true, member)
+      );
+    if (edge.kind !== "junction") return into();
+    const link = this.alias();
+    return sql`${a.joins.inner(
+      a.identifiers.table(edge.table, link),
+      a.operators.and(
+        ...this.junctionSideConditions(edge.sourceSide, link, current)
+      )
+    )} ${into(
+      a.operators.and(
+        ...this.junctionSideConditions(edge.targetSide, link, next)
+      )
+    )}`;
+  }
+
+  /**
    * The ONE walk of a recursive membership: a recursive CTE of the rows
    * reached from `parentAlias` by 1..`depth` hops of `edge` (every hop when
    * `depth` is false). Each hop is the ordinary {@link correlation}, so the
@@ -5371,10 +5399,7 @@ export class Queries {
       from: sql`${a.identifiers.aliased(a.identifiers.escape(name), walk)} ${a.joins.inner(
         this.table(model, current),
         this.#sameRow(model, current, child.map(carried))
-      )} ${a.joins.inner(
-        this.table(model, next),
-        this.correlation(edge, current, next)
-      )}`,
+      )} ${this.#step(edge, current, next)}`,
       where: a.operators.and(
         ...(depth === false
           ? []
