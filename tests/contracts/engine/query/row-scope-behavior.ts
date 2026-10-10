@@ -967,11 +967,9 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
       expect(ids(await tombstoned(false))).toEqual([]);
     });
 
-    test("a soft deleteMany whose closure walks its own model: tombstones the visible match, refused on MySQL", async () => {
+    test("a soft deleteMany whose closure walks its own model tombstones the visible match", async () => {
       const { base, db } = context;
       await expectChangeWalkingItsModel(
-        base.$driver,
-        "parent",
         async () =>
           (
             await base.node.findMany({

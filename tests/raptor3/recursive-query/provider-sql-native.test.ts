@@ -158,19 +158,14 @@ async function runWorld(world: RecursiveWorld): Promise<void> {
 
 /**
  * What each case sent on this provider, in one live world over the placement
- * tables: its statement, or its refusal sentence when it sent none. The run's
- * own namespace is spelled `<namespace>`. Every case that is not refused
- * sends exactly one statement, which is what lets the statements be read in
- * case order, and no case changes a row (a refused one least of all).
+ * tables. The run's own namespace is spelled `<namespace>`. Every case sends
+ * exactly one statement, which is what lets the statements be read in case
+ * order, and no case changes a row.
  */
 async function nativeSqlPins(
   cases: readonly ProviderCase[],
-): Promise<Record<string, readonly string[] | string>> {
-  const owedHere = cases.map((providerCase) =>
-    liveProvider === "mysql" && providerCase.mysqlFailure !== undefined
-      ? { failure: providerCase.mysqlFailure }
-      : owedOutcome(providerCase),
-  );
+): Promise<Record<string, readonly string[]>> {
+  const owedHere = cases.map(owedOutcome);
   const fixture: LiveFixture = {
     expectedExecutions: cases.length,
     ...liveTables(PLACEMENT_MATRIX_TABLES),
@@ -200,16 +195,12 @@ async function nativeSqlPins(
   const statements = live.statements.map((statement) =>
     statement.sql.replaceAll(live.namespace, "<namespace>"),
   );
-  const refused = owedHere.filter((outcome) => "failure" in outcome);
-  assert.equal(statements.length, cases.length - refused.length);
+  assert.equal(statements.length, cases.length);
   return Object.fromEntries(
-    cases.map((providerCase, index) => {
-      const outcome = owedHere[index]!;
-      return [
-        providerCase.name,
-        "failure" in outcome ? outcome.failure : [statements.shift()!],
-      ];
-    }),
+    cases.map((providerCase, index) => [
+      providerCase.name,
+      [statements[index]!],
+    ]),
   );
 }
 
@@ -304,7 +295,7 @@ describe(`recursive relation provider SQL on native ${liveProvider}`, () => {
 });
 
 /** The MySQL adapter's exact text for each pinned case (`<namespace>` is the run's). */
-const MYSQL_SELECT_SQL: Readonly<Record<string, readonly string[] | string>> = {
+const MYSQL_SELECT_SQL: Readonly<Record<string, readonly string[]>> = {
   "foreign key up, bounded": [
     "SELECT `q0`.`label` AS `label`, (SELECT JSON_OBJECT(?, JSON_ARRAY(`q0`.`tenant_key`, `q0`.`node_code`), ?, `q12`.`__q1_nodes`, ?, `q12`.`__q1_edges`) FROM (SELECT 1) AS `q11` JOIN LATERAL (WITH RECURSIVE `__q1_recursive` AS (\n        SELECT `q0`.`tenant_key` AS `__q1_parent_0`, `q0`.`node_code` AS `__q1_parent_1`, `q2`.`tenant_key` AS `__q1_child_0`, `q2`.`node_code` AS `__q1_child_1`, CAST(? AS SIGNED) AS `__q1_depth` FROM `<namespace>`.`rq_provider_nodes` AS `q2` WHERE (`q0`.`parent_tenant` = `q2`.`tenant_key` AND `q0`.`parent_code` = `q2`.`node_code`)\n        UNION\n        SELECT `q3`.`__q1_child_0` AS `__q1_parent_0`, `q3`.`__q1_child_1` AS `__q1_parent_1`, `q5`.`tenant_key` AS `__q1_child_0`, `q5`.`node_code` AS `__q1_child_1`, (`q3`.`__q1_depth` + ?) AS `__q1_depth` FROM `__q1_recursive` AS `q3` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q4` ON (`q4`.`tenant_key` = `q3`.`__q1_child_0` AND `q4`.`node_code` = `q3`.`__q1_child_1`) INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q5` ON (`q4`.`parent_tenant` = `q5`.`tenant_key` AND `q4`.`parent_code` = `q5`.`node_code`) WHERE `q3`.`__q1_depth` < ?\n      ) SELECT (SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(?, JSON_ARRAY(`q7`.`tenant_key`, `q7`.`node_code`), ?, JSON_OBJECT(?, `q7`.`label`))), JSON_ARRAY()) FROM (SELECT `__q1_id_0`, `__q1_id_1` FROM (SELECT `q3`.`__q1_child_0` AS `__q1_id_0`, `q3`.`__q1_child_1` AS `__q1_id_1`, ROW_NUMBER() OVER (PARTITION BY `q3`.`__q1_child_0`, `q3`.`__q1_child_1` ORDER BY `q3`.`__q1_child_0`, `q3`.`__q1_child_1`) AS `_rn` FROM `__q1_recursive` AS `q3`) AS `_distinct_subquery` WHERE `_rn` = 1) AS `q6` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q7` ON (`q7`.`tenant_key` = `q6`.`__q1_id_0` AND `q7`.`node_code` = `q6`.`__q1_id_1`)) AS `__q1_nodes`, (SELECT COALESCE(JSON_ARRAYAGG(`q10`.`__q1_edge`), JSON_ARRAY()) FROM (SELECT JSON_OBJECT(?, JSON_ARRAY(`q8`.`__q1_parent_0`, `q8`.`__q1_parent_1`), ?, JSON_ARRAY(`q8`.`__q1_child_0`, `q8`.`__q1_child_1`), ?, `q8`.`__q1_depth`) AS `__q1_edge` FROM `__q1_recursive` AS `q8` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q9` ON (`q9`.`tenant_key` = `q8`.`__q1_child_0` AND `q9`.`node_code` = `q8`.`__q1_child_1`) ORDER BY `q8`.`__q1_parent_0` ASC, `q8`.`__q1_parent_1` ASC, `q9`.`tenant_key` ASC, `q9`.`node_code` ASC LIMIT 18446744073709551615) AS `q10`) AS `__q1_edges`) AS `q12` ON TRUE) AS `parent` FROM `<namespace>`.`rq_provider_nodes` AS `q0` WHERE ((`q0`.`tenant_key` = ? AND BINARY `q0`.`tenant_key` = ?) AND (`q0`.`node_code` = ? AND BINARY `q0`.`node_code` = ?)) ORDER BY `q0`.`tenant_key` ASC, `q0`.`node_code` ASC",
   ],
@@ -319,7 +310,7 @@ const MYSQL_SELECT_SQL: Readonly<Record<string, readonly string[] | string>> = {
   ],
 };
 
-const MYSQL_FILTER_SQL: Readonly<Record<string, readonly string[] | string>> = {
+const MYSQL_FILTER_SQL: Readonly<Record<string, readonly string[]>> = {
   "foreign-key ancestors with self, default depth": [
     "SELECT `q0`.`node_code` AS `code` FROM `<namespace>`.`rq_provider_nodes` AS `q0` WHERE EXISTS (WITH RECURSIVE `__q3_recursive` AS (\n        SELECT `q0`.`tenant_key` AS `__q3_child_0`, `q0`.`node_code` AS `__q3_child_1`, CAST(? AS SIGNED) AS `__q3_depth` UNION SELECT `q4`.`tenant_key` AS `__q3_child_0`, `q4`.`node_code` AS `__q3_child_1`, CAST(? AS SIGNED) AS `__q3_depth` FROM `<namespace>`.`rq_provider_nodes` AS `q4` WHERE (`q0`.`parent_tenant` = `q4`.`tenant_key` AND `q0`.`parent_code` = `q4`.`node_code`)\n        UNION\n        SELECT `q7`.`tenant_key` AS `__q3_child_0`, `q7`.`node_code` AS `__q3_child_1`, (`q5`.`__q3_depth` + ?) AS `__q3_depth` FROM `__q3_recursive` AS `q5` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q6` ON (`q6`.`tenant_key` = `q5`.`__q3_child_0` AND `q6`.`node_code` = `q5`.`__q3_child_1`) INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q7` ON (`q6`.`parent_tenant` = `q7`.`tenant_key` AND `q6`.`parent_code` = `q7`.`node_code`) WHERE `q5`.`__q3_depth` < ?\n      ) SELECT 1 FROM `__q3_recursive` AS `q5` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q1` ON (`q1`.`tenant_key` = `q5`.`__q3_child_0` AND `q1`.`node_code` = `q5`.`__q3_child_1`) WHERE EXISTS (SELECT 1 FROM `<namespace>`.`rq_provider_notes` AS `q2` WHERE ((`q1`.`tenant_key` = `q2`.`node_tenant` AND `q1`.`node_code` = `q2`.`node_code`) AND (`q2`.`text` = ? AND BINARY `q2`.`text` = ?)))) ORDER BY `q0`.`node_code` ASC, `q0`.`tenant_key` ASC",
   ],
@@ -335,9 +326,10 @@ const MYSQL_FILTER_SQL: Readonly<Record<string, readonly string[] | string>> = {
   "a closure nested in a closure": [
     "SELECT `q0`.`node_code` AS `code` FROM `<namespace>`.`rq_provider_nodes` AS `q0` WHERE EXISTS (WITH RECURSIVE `__q10_recursive` AS (\n        SELECT `q11`.`tenant_key` AS `__q10_child_0`, `q11`.`node_code` AS `__q10_child_1`, CAST(? AS SIGNED) AS `__q10_depth` FROM `<namespace>`.`rq_provider_nodes` AS `q11` WHERE (`q0`.`parent_tenant` = `q11`.`tenant_key` AND `q0`.`parent_code` = `q11`.`node_code`)\n        UNION\n        SELECT `q14`.`tenant_key` AS `__q10_child_0`, `q14`.`node_code` AS `__q10_child_1`, (`q12`.`__q10_depth` + ?) AS `__q10_depth` FROM `__q10_recursive` AS `q12` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q13` ON (`q13`.`tenant_key` = `q12`.`__q10_child_0` AND `q13`.`node_code` = `q12`.`__q10_child_1`) INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q14` ON (`q13`.`parent_tenant` = `q14`.`tenant_key` AND `q13`.`parent_code` = `q14`.`node_code`) WHERE `q12`.`__q10_depth` < ?\n      ) SELECT 1 FROM `__q10_recursive` AS `q12` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q1` ON (`q1`.`tenant_key` = `q12`.`__q10_child_0` AND `q1`.`node_code` = `q12`.`__q10_child_1`) WHERE EXISTS (WITH RECURSIVE `__q3_recursive` AS (\n        SELECT `q1`.`tenant_key` AS `__q3_child_0`, `q1`.`node_code` AS `__q3_child_1` UNION SELECT `q4`.`tenant_key` AS `__q3_child_0`, `q4`.`node_code` AS `__q3_child_1` FROM `<namespace>`.`rq_provider_nodes` AS `q4` WHERE (`q4`.`tenant_key`, `q4`.`node_code`) IN (SELECT `q5`.`to_1`, `q5`.`to_2` FROM `<namespace>`.`rq_provider_links` AS `q5` WHERE (`q5`.`from_1` = `q1`.`tenant_key` AND `q5`.`from_2` = `q1`.`node_code`))\n        UNION\n        SELECT `q8`.`tenant_key` AS `__q3_child_0`, `q8`.`node_code` AS `__q3_child_1` FROM `__q3_recursive` AS `q6` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q7` ON (`q7`.`tenant_key` = `q6`.`__q3_child_0` AND `q7`.`node_code` = `q6`.`__q3_child_1`) INNER JOIN `<namespace>`.`rq_provider_links` AS `q9` ON (`q9`.`from_1` = `q7`.`tenant_key` AND `q9`.`from_2` = `q7`.`node_code`) INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q8` ON (`q9`.`to_1` = `q8`.`tenant_key` AND `q9`.`to_2` = `q8`.`node_code`) WHERE TRUE\n      ) SELECT 1 FROM `__q3_recursive` AS `q6` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q2` ON (`q2`.`tenant_key` = `q6`.`__q3_child_0` AND `q2`.`node_code` = `q6`.`__q3_child_1`) WHERE (`q2`.`node_code` = ? AND BINARY `q2`.`node_code` = ?))) ORDER BY `q0`.`node_code` ASC, `q0`.`tenant_key` ASC",
   ],
-  "updateMany walking the table it updates":
-    "where.parent.recurse is not supported. MySQL re-reads a recursive filter's table while its own update or delete changes it, so the walk would see the statement's own writes. Read the matching keys first, then update or delete by key.",
+  "updateMany walking the table it updates": [
+    "UPDATE `<namespace>`.`rq_provider_nodes` SET `rank` = `rank` + ? WHERE (`tenant_key`, `node_code`) IN (SELECT * FROM (SELECT `q0`.`tenant_key`, `q0`.`node_code` FROM `<namespace>`.`rq_provider_nodes` AS `q0` WHERE EXISTS (WITH RECURSIVE `__q2_recursive` AS (\n        SELECT `q3`.`tenant_key` AS `__q2_child_0`, `q3`.`node_code` AS `__q2_child_1`, CAST(? AS SIGNED) AS `__q2_depth` FROM `<namespace>`.`rq_provider_nodes` AS `q3` WHERE (`q0`.`parent_tenant` = `q3`.`tenant_key` AND `q0`.`parent_code` = `q3`.`node_code`)\n        UNION\n        SELECT `q6`.`tenant_key` AS `__q2_child_0`, `q6`.`node_code` AS `__q2_child_1`, (`q4`.`__q2_depth` + ?) AS `__q2_depth` FROM `__q2_recursive` AS `q4` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q5` ON (`q5`.`tenant_key` = `q4`.`__q2_child_0` AND `q5`.`node_code` = `q4`.`__q2_child_1`) INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q6` ON (`q5`.`parent_tenant` = `q6`.`tenant_key` AND `q5`.`parent_code` = `q6`.`node_code`) WHERE `q4`.`__q2_depth` < ?\n      ) SELECT 1 FROM `__q2_recursive` AS `q4` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q1` ON (`q1`.`tenant_key` = `q4`.`__q2_child_0` AND `q1`.`node_code` = `q4`.`__q2_child_1`) WHERE (`q1`.`node_code` = ? AND BINARY `q1`.`node_code` = ?))) AS `q7`)",
+  ],
   "updateMany walking another table": [
-    "UPDATE `<namespace>`.`rq_provider_forests` SET `name` = ? WHERE EXISTS (SELECT 1 FROM `<namespace>`.`rq_provider_nodes` AS `q0` WHERE ((`rq_provider_forests`.`entry_tenant` = `q0`.`tenant_key` AND `rq_provider_forests`.`entry_code` = `q0`.`node_code`) AND EXISTS (WITH RECURSIVE `__q2_recursive` AS (\n        SELECT `q3`.`tenant_key` AS `__q2_child_0`, `q3`.`node_code` AS `__q2_child_1`, CAST(? AS SIGNED) AS `__q2_depth` FROM `<namespace>`.`rq_provider_nodes` AS `q3` WHERE (`q0`.`tenant_key` = `q3`.`parent_tenant` AND `q0`.`node_code` = `q3`.`parent_code`)\n        UNION\n        SELECT `q6`.`tenant_key` AS `__q2_child_0`, `q6`.`node_code` AS `__q2_child_1`, (`q4`.`__q2_depth` + ?) AS `__q2_depth` FROM `__q2_recursive` AS `q4` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q5` ON (`q5`.`tenant_key` = `q4`.`__q2_child_0` AND `q5`.`node_code` = `q4`.`__q2_child_1`) INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q6` ON (`q5`.`tenant_key` = `q6`.`parent_tenant` AND `q5`.`node_code` = `q6`.`parent_code`) WHERE `q4`.`__q2_depth` < ?\n      ) SELECT 1 FROM `__q2_recursive` AS `q4` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q1` ON (`q1`.`tenant_key` = `q4`.`__q2_child_0` AND `q1`.`node_code` = `q4`.`__q2_child_1`) WHERE (`q1`.`node_code` = ? AND BINARY `q1`.`node_code` = ?))))",
+    "UPDATE `<namespace>`.`rq_provider_forests` SET `name` = ? WHERE `id` IN (SELECT * FROM (SELECT `q0`.`id` FROM `<namespace>`.`rq_provider_forests` AS `q0` WHERE EXISTS (SELECT 1 FROM `<namespace>`.`rq_provider_nodes` AS `q1` WHERE ((`q0`.`entry_tenant` = `q1`.`tenant_key` AND `q0`.`entry_code` = `q1`.`node_code`) AND EXISTS (WITH RECURSIVE `__q3_recursive` AS (\n        SELECT `q4`.`tenant_key` AS `__q3_child_0`, `q4`.`node_code` AS `__q3_child_1`, CAST(? AS SIGNED) AS `__q3_depth` FROM `<namespace>`.`rq_provider_nodes` AS `q4` WHERE (`q1`.`tenant_key` = `q4`.`parent_tenant` AND `q1`.`node_code` = `q4`.`parent_code`)\n        UNION\n        SELECT `q7`.`tenant_key` AS `__q3_child_0`, `q7`.`node_code` AS `__q3_child_1`, (`q5`.`__q3_depth` + ?) AS `__q3_depth` FROM `__q3_recursive` AS `q5` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q6` ON (`q6`.`tenant_key` = `q5`.`__q3_child_0` AND `q6`.`node_code` = `q5`.`__q3_child_1`) INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q7` ON (`q6`.`tenant_key` = `q7`.`parent_tenant` AND `q6`.`node_code` = `q7`.`parent_code`) WHERE `q5`.`__q3_depth` < ?\n      ) SELECT 1 FROM `__q3_recursive` AS `q5` INNER JOIN `<namespace>`.`rq_provider_nodes` AS `q2` ON (`q2`.`tenant_key` = `q5`.`__q3_child_0` AND `q2`.`node_code` = `q5`.`__q3_child_1`) WHERE (`q2`.`node_code` = ? AND BINARY `q2`.`node_code` = ?))))) AS `q8`)",
   ],
 };

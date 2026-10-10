@@ -124,7 +124,7 @@ describe("recursive relation provider SQL on PGlite", () => {
 });
 
 /** The PostgreSQL adapter's exact text for each pinned case. */
-const SELECT_SQL: Readonly<Record<string, readonly string[] | string>> = {
+const SELECT_SQL: Readonly<Record<string, readonly string[]>> = {
   "foreign key up, bounded": [
     `SELECT "q0"."label" AS "label", (SELECT json_build_object($1::text, json_build_array("q0"."tenant_key", "q0"."node_code"), $2::text, "q12"."__q1_nodes", $3::text, "q12"."__q1_edges") FROM (SELECT 1) AS "q11" JOIN LATERAL (WITH RECURSIVE "__q1_recursive" AS (
         SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1", CAST($4 AS INTEGER) AS "__q1_depth" FROM "public"."rq_provider_nodes" AS "q2" WHERE ("q0"."parent_tenant" = "q2"."tenant_key" AND "q0"."parent_code" = "q2"."node_code")
@@ -155,7 +155,7 @@ const SELECT_SQL: Readonly<Record<string, readonly string[] | string>> = {
   ],
 };
 
-const FILTER_SQL: Readonly<Record<string, readonly string[] | string>> = {
+const FILTER_SQL: Readonly<Record<string, readonly string[]>> = {
   "foreign-key ancestors with self, default depth": [
     `SELECT "q0"."node_code" AS "code" FROM "public"."rq_provider_nodes" AS "q0" WHERE EXISTS (WITH RECURSIVE "__q3_recursive" AS (
         SELECT "q0"."tenant_key" AS "__q3_child_0", "q0"."node_code" AS "__q3_child_1", CAST($1 AS INTEGER) AS "__q3_depth" UNION SELECT "q4"."tenant_key" AS "__q3_child_0", "q4"."node_code" AS "__q3_child_1", CAST($2 AS INTEGER) AS "__q3_depth" FROM "public"."rq_provider_nodes" AS "q4" WHERE ("q0"."parent_tenant" = "q4"."tenant_key" AND "q0"."parent_code" = "q4"."node_code")

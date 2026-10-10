@@ -1,8 +1,7 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: Shared assertion helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
 import type { Operations, Schema } from "@client/types";
-import { FeatureNotSupportedError, QueryEngineError } from "@errors";
-import { RECURSIVE_FILTER_MUTATION_REFUSAL } from "@query-engine/raptor3/shared/query";
+import { QueryEngineError } from "@errors";
 import { s } from "@schema";
 
 /** A statement carrying a recursive CTE, and the two mutation statements. */
@@ -298,8 +297,6 @@ export interface ProviderCase {
    * session limit (§2.4, §5).
    */
   readonly exceedsMySQLRecursionLimit?: true;
-  /** The exact sentence MySQL refuses this case with, before any SQL is sent. */
-  readonly mysqlFailure?: string;
   /** An ORDINARY control: the same read without recursion — no recursive CTE. */
   readonly control?: true;
 }
@@ -678,8 +675,8 @@ const closureRead = (where: Record<string, unknown>) => ({
  * of the owner's shapes (a foreign-key ancestor walk with `self`; a junction
  * walk nested in another relation filter), the depth column and its absence,
  * `self` both ways, a closure nested in a closure, and the two mutations —
- * one walking the table it updates, which MySQL refuses before any SQL, and
- * one walking another table, which every provider runs.
+ * one walking the table it updates and one walking another table, which
+ * MySQL answers from the keyed snapshot of their keys.
  */
 export const FILTER_SQL_PINS: readonly ProviderCase[] = Object.freeze([
   {
@@ -782,7 +779,6 @@ export const FILTER_SQL_PINS: readonly ProviderCase[] = Object.freeze([
       data: { rank: { increment: 0 } },
     },
     expected: { count: 5 },
-    mysqlFailure: `where.parent.recurse is not supported. ${RECURSIVE_FILTER_MUTATION_REFUSAL}`,
   },
   {
     name: "updateMany walking another table",
@@ -799,23 +795,20 @@ export const FILTER_SQL_PINS: readonly ProviderCase[] = Object.freeze([
 ]);
 
 /**
- * Runs each case once, checks its value (or refusal), and answers what it
- * sent: every provider statement, or the refusal sentence when nothing was
- * sent. The provider tests compare the answer with their literal pins.
+ * Runs each case once, checks its value, and answers every provider statement
+ * it sent. The provider tests compare the answer with their literal pins.
  */
 export async function sqlPins(
   engine: CaseEngine,
   observed: Pick<ObservedStatements, "statements">,
   cases: readonly ProviderCase[]
-): Promise<Record<string, readonly string[] | string>> {
-  const pins: Record<string, readonly string[] | string> = {};
+): Promise<Record<string, readonly string[]>> {
+  const pins: Record<string, readonly string[]> = {};
   for (const pin of cases) {
     const start = observed.statements.length;
     const outcome = await caseOutcome(engine, pin);
     assert.deepEqual(outcome, owedOutcome(pin), pin.name);
-    const statements = observed.statements.slice(start);
-    if ("failure" in outcome) assert.deepEqual(statements, [], pin.name);
-    pins[pin.name] = "failure" in outcome ? outcome.failure : statements;
+    pins[pin.name] = observed.statements.slice(start);
   }
   return pins;
 }
@@ -2451,10 +2444,7 @@ export async function caseOutcome(
       providerCase.args
     );
   } catch (failure) {
-    if (
-      failure instanceof QueryEngineError ||
-      failure instanceof FeatureNotSupportedError
-    )
+    if (failure instanceof QueryEngineError)
       return { failure: failure.message };
     throw failure;
   }

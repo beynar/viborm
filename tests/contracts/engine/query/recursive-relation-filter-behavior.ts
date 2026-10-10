@@ -1,9 +1,7 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: expectChangeWalkingItsModel is invoked only from registered tests.
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
-import { FeatureNotSupportedError } from "@errors";
 import { s } from "@schema";
-import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import {
   afterAll,
@@ -36,11 +34,9 @@ import {
  * holds a `read` grant on document R, Vic an `edit` grant on C1. The random
  * part's people are Ivy and Jon, so no random row changes a fixed answer.
  *
- * MySQL re-reads a recursive filter's table while its own update or delete
- * changes it, so an `updateMany`/`deleteMany` whose closure walks the model
- * being changed is refused with `FeatureNotSupportedError` before any SQL is
- * sent, and the database is left as it was. Changes to another model (Pyxel's
- * `page.updateMany`) run on every provider.
+ * Every change reads the statement's snapshot: an `updateMany`/`deleteMany`
+ * whose closure walks the model it changes, or a model its delete cascades
+ * into, matches the rows it matched before any write, on every provider.
  */
 
 export function recursiveFilterSchema() {
@@ -125,6 +121,35 @@ export function recursiveFilterSchema() {
       .references("id"),
   });
   return { team, teamMember, document, page, accessGrant };
+}
+
+/**
+ * Holders and their folders: deleting a holder deletes its folders, and
+ * deleting a folder leaves its children without a parent (setNull), so a
+ * delete of holders changes the folders its own filter walks.
+ */
+function cascadeSchema() {
+  const holder = s.model({
+    id: s.string().id(),
+    folders: s.toMany(() => folder),
+  });
+  const folder = s.model({
+    id: s.string().id(),
+    label: s.string(),
+    holderId: s.string(),
+    holder: s
+      .toOne(() => holder)
+      .fields("holderId")
+      .references("id")
+      .onDelete("cascade"),
+    parentId: s.string().nullable(),
+    parent: s
+      .toOne(() => folder)
+      .fields("parentId")
+      .references("id"),
+    children: s.toMany(() => folder),
+  });
+  return { holder, folder };
 }
 
 interface DocumentRow {
@@ -554,31 +579,17 @@ const byId = (a: { readonly id: string }, b: { readonly id: string }) =>
   a.id.localeCompare(b.id);
 
 /**
- * A change whose closure walks the model it changes. Where a statement may
- * read the table it changes, it answers `applied.result` and leaves
- * `applied.state`. MySQL may not: the change is refused before any SQL is
- * sent, with the public sentence restated here, and `state` reads as before.
+ * A change whose closure walks the model it changes answers `applied.result`
+ * and leaves `applied.state`: the statement's snapshot on every provider, as
+ * MySQL reads the matching keys before any write.
  */
 export async function expectChangeWalkingItsModel(
-  driver: AnyDriver,
-  relation: string,
   state: () => Promise<unknown>,
   change: () => PromiseLike<unknown>,
   applied: { readonly result: unknown; readonly state: unknown }
 ): Promise<void> {
-  if (driver.adapter.capabilities.supportsMutationTargetInSubquery) {
-    expect(await change()).toEqual(applied.result);
-    expect(await state()).toEqual(applied.state);
-    return;
-  }
-  const before = await state();
-  const refused = await failure(change());
-  expect(refused).toBeInstanceOf(FeatureNotSupportedError);
-  expect(refused).toHaveProperty(
-    "message",
-    `where.${relation}.recurse is not supported. MySQL re-reads a recursive filter's table while its own update or delete changes it, so the walk would see the statement's own writes. Read the matching keys first, then update or delete by key.`
-  );
-  expect(await state()).toEqual(before);
+  expect(await change()).toEqual(applied.result);
+  expect(await state()).toEqual(applied.state);
 }
 
 /** Every document in the world's fields, by key. */
@@ -1200,7 +1211,7 @@ export function runRecursiveRelationFilterBehavior(
       await context.client.$disconnect();
     });
 
-    test("updateMany and deleteMany walk the model they change: the oracle's rows on PostgreSQL and SQLite, refused with the database unchanged on MySQL", async () => {
+    test("updateMany and deleteMany walk the model they change: the oracle's rows, on every provider", async () => {
       const { client, world } = context;
       const holds =
         (field: (row: DocumentRow) => boolean) =>
@@ -1225,8 +1236,6 @@ export function runRecursiveRelationFilterBehavior(
           touched.has(row.id) ? { ...row, organizationId: "touched" } : row
         );
       await expectChangeWalkingItsModel(
-        client.$driver,
-        "parent",
         documents,
         () =>
           client.document.updateMany({
@@ -1249,8 +1258,6 @@ export function runRecursiveRelationFilterBehavior(
         )
       );
       await expectChangeWalkingItsModel(
-        client.$driver,
-        "children",
         documents,
         () =>
           client.document.deleteMany({
@@ -1284,8 +1291,6 @@ export function runRecursiveRelationFilterBehavior(
         name: renamed.has(id) ? "touched" : name,
       }));
       await expectChangeWalkingItsModel(
-        client.$driver,
-        "parents",
         teams,
         () =>
           client.team.updateMany({
@@ -1302,8 +1307,6 @@ export function runRecursiveRelationFilterBehavior(
       );
       // The leaf below Ventes with no members: Nord Est.
       await expectChangeWalkingItsModel(
-        client.$driver,
-        "parents",
         teams,
         () =>
           client.team.deleteMany({
@@ -1317,12 +1320,10 @@ export function runRecursiveRelationFilterBehavior(
       );
     });
 
-    test("a nested updateMany whose filter walks its own model: applied on PostgreSQL and SQLite, refused and rolled back on MySQL", async () => {
+    test("a nested updateMany whose filter walks its own model, on every provider", async () => {
       const { client } = context;
       // R's one child A has D3 (cid) two hops below it.
       await expectChangeWalkingItsModel(
-        client.$driver,
-        "children",
         () =>
           client.document.findMany({
             where: { id: { in: ["R", "A"] } },
@@ -1476,8 +1477,6 @@ export function runRecursiveRelationFilterBehavior(
           ROOTED.includes(row.id) ? { ...row, ownerId: "uma" } : row
         );
       await expectChangeWalkingItsModel(
-        client.$driver,
-        "parent",
         () => documentRows(client),
         () =>
           client.document.updateMany({
@@ -1487,8 +1486,6 @@ export function runRecursiveRelationFilterBehavior(
         { result: { count: 4 }, state: owned }
       );
       await expectChangeWalkingItsModel(
-        client.$driver,
-        "parent",
         () => documentRows(client),
         () =>
           client.document.deleteMany({
@@ -1525,8 +1522,6 @@ export function runRecursiveRelationFilterBehavior(
         })
       ).toEqual({ title: "personal" });
       await expectChangeWalkingItsModel(
-        client.$driver,
-        "parent",
         () => documentRows(client),
         () => client.document.deleteMany({ where: fixed }),
         {
@@ -1534,6 +1529,60 @@ export function runRecursiveRelationFilterBehavior(
           state: deleting([...world.documents].sort(byId), new Set(ROOTED)),
         }
       );
+    });
+  });
+
+  // MySQL fires a delete's referential actions row by row, inside the
+  // statement, where a correlated filter would read them for later rows.
+  describe(`${provider.name}: recursive relation filters in a cascading delete`, () => {
+    test("a deleteMany whose closure walks a model its delete cascades into matches the rows it matched before the delete", async () => {
+      await provider.reset?.();
+      const client = createClient({
+        schema: cascadeSchema(),
+        driver: provider.createDriver(),
+      });
+      try {
+        await syncLiveSchema(client);
+        // R (label root, held by h1) <- M (h2) <- X (h3).
+        const seed = async () => {
+          await client.folder.deleteMany({});
+          await client.holder.deleteMany({});
+          await client.holder.createMany({
+            data: [{ id: "h1" }, { id: "h2" }, { id: "h3" }],
+          });
+          for (const [id, label, holderId, parentId] of [
+            ["R", "root", "h1", null],
+            ["M", "m", "h2", "R"],
+            ["X", "x", "h3", "M"],
+          ] as const)
+            await client.folder.create({
+              data: { id, label, holderId, parentId },
+            });
+        };
+        const holders = async () =>
+          sorted(await client.holder.findMany({ select: { id: true } }));
+        const belowRoot = {
+          parent: { recurse: true, some: { label: "root" } },
+        } as const;
+        await seed();
+        // Deleting h2 first would take M, and X's root with it.
+        expect(
+          await client.holder.deleteMany({
+            where: { folders: { some: belowRoot } },
+          })
+        ).toEqual({ count: 2 });
+        expect(await holders()).toEqual(["h1"]);
+        await seed();
+        // Deleting h1 first would leave M, then X, with no root above them.
+        expect(
+          await client.holder.deleteMany({
+            where: { folders: { none: belowRoot } },
+          })
+        ).toEqual({ count: 1 });
+        expect(await holders()).toEqual(["h2", "h3"]);
+      } finally {
+        await client.$disconnect();
+      }
     });
   });
 }

@@ -197,7 +197,7 @@ describe("recursive relation provider SQL on SQLite", () => {
 });
 
 /** The SQLite adapter's exact text for each pinned case. */
-const SELECT_SQL: Readonly<Record<string, readonly string[] | string>> = {
+const SELECT_SQL: Readonly<Record<string, readonly string[]>> = {
   "foreign key up, bounded": [
     `SELECT "q0"."label" AS "label", (WITH RECURSIVE "__q1_recursive" AS (
         SELECT "q0"."tenant_key" AS "__q1_parent_0", "q0"."node_code" AS "__q1_parent_1", "q2"."tenant_key" AS "__q1_child_0", "q2"."node_code" AS "__q1_child_1", CAST(? AS INTEGER) AS "__q1_depth" FROM "rq_provider_nodes" AS "q2" WHERE ("q0"."parent_tenant" = "q2"."tenant_key" AND "q0"."parent_code" = "q2"."node_code")
@@ -228,7 +228,7 @@ const SELECT_SQL: Readonly<Record<string, readonly string[] | string>> = {
   ],
 };
 
-const FILTER_SQL: Readonly<Record<string, readonly string[] | string>> = {
+const FILTER_SQL: Readonly<Record<string, readonly string[]>> = {
   "foreign-key ancestors with self, default depth": [
     `SELECT "q0"."node_code" AS "code" FROM "rq_provider_nodes" AS "q0" WHERE EXISTS (WITH RECURSIVE "__q3_recursive" AS (
         SELECT "q0"."tenant_key" AS "__q3_child_0", "q0"."node_code" AS "__q3_child_1", CAST(? AS INTEGER) AS "__q3_depth" UNION SELECT "q4"."tenant_key" AS "__q3_child_0", "q4"."node_code" AS "__q3_child_1", CAST(? AS INTEGER) AS "__q3_depth" FROM "rq_provider_nodes" AS "q4" WHERE ("q0"."parent_tenant" = "q4"."tenant_key" AND "q0"."parent_code" = "q4"."node_code")
