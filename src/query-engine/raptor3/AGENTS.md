@@ -1015,7 +1015,11 @@ the projection, `Queries.walk`, with two readers: the projection reads edges
 (parent columns, per-hop selector) and a filter reads the reached set. With
 `self`, the start row joins the FIRST hop in the anchor; a start-only anchor
 would spend one of MySQL's `cte_max_recursion_depth` iterations and fail
-`{ depth: 1000 }`. `prepareSlotPredicate` turns a spelled `recurse` into the
+`{ depth: 1000 }`. A junction hop in the recursive member joins the junction
+table (`step`), never the membership's `IN`: that subquery correlates to a
+sibling of the reached row, so PostgreSQL cannot make it a semi-join and runs
+it once per target row at every hop (5.5 s against 20 ms for one team's
+subtree among 5,000). `prepareSlotPredicate` turns a spelled `recurse` into the
 relation predicate's `closure` (`{ depth, self }`; the cycle policy is not
 carried, since a set does not depend on the paths that reach it), and
 `lowerRelationPredicate` puts the walk in the `EXISTS` subquery's OWN `WITH`

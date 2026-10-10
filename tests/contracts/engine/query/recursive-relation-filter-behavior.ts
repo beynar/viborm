@@ -1095,6 +1095,36 @@ export function runRecursiveRelationFilterBehavior(
       ).toEqual([]);
     });
 
+    test("a junction walk reads the related domain at every hop", async () => {
+      // Ventes and Nord Est are hidden wherever a relation reaches them, never
+      // at the root. Each is two hops from the other: the first hop reaches
+      // Ventes Nord, the second the hidden end.
+      const hidden = context.client.$extends({
+        name: "test.hiddenTeams",
+        rows: {
+          control: "hidden",
+          default: "on",
+          models: {
+            team: { on: { related: { id: { notIn: ["V", "NE"] } } }, off: {} },
+          },
+        },
+      });
+      const teams = async (where: object, mode: "on" | "off") =>
+        sorted(
+          await hidden.team.findMany({
+            where: { id: { in: ["V", "VN", "NE"] }, ...where },
+            select: { id: true },
+            hidden: mode,
+          })
+        );
+      const reachNordEst = { children: { recurse: true, some: { id: "NE" } } };
+      const belowVentes = { parents: { recurse: true, some: { id: "V" } } };
+      expect(await teams(reachNordEst, "on")).toEqual([]);
+      expect(await teams(reachNordEst, "off")).toEqual(["V", "VN"]);
+      expect(await teams(belowVentes, "on")).toEqual([]);
+      expect(await teams(belowVentes, "off")).toEqual(["NE", "VN"]);
+    });
+
     test("the written cycles A <-> B and cyc1 <-> cyc2 terminate with the oracle's rows", async () => {
       const { client } = context;
       expect(
