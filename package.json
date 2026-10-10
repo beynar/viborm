@@ -197,7 +197,7 @@
     "test:coverage:migrations": "node --max-old-space-size=768 scripts/run-coverage.mjs migrations",
     "test:coverage:policy": "node scripts/run-node-safe.mjs 512 60000 scripts/coverage-policy.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/bounded-process.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/test-run-lock.test.mjs && node scripts/run-node-safe.mjs 512 60000 scripts/raptor3-refusal-census.test.mjs",
     "test:package": "pnpm package:build && node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=package",
-    "test:providers": "node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=provider-pg --project=provider-postgres --project=provider-mysql2 --project=provider-transaction-options --project=provider-neon-http --project=provider-planetscale",
+    "test:providers": "node scripts/run-vitest-safe.mjs run --workspace vitest.workspace.ts --project=provider-pg --project=provider-postgres --project=provider-mysql2 --project=provider-transaction-options --project=provider-pgbouncer --project=provider-neon-http --project=provider-planetscale",
     "test:layer:validation": "node scripts/run-layer-core.mjs validation",
     "test:layer:scalars": "node scripts/run-layer-core.mjs scalars",
     "test:layer:operation-schemas": "node scripts/run-layer-core.mjs operation-schemas",
@@ -223,9 +223,10 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "package:build": "node scripts/run-node-safe.mjs 1280 300000 node_modules/tsdown/dist/run.mjs",
+    "probes": "node scripts/run-node-safe.mjs 512 3600000 scripts/probe-corpus.mjs",
     "package:dev": "tsdown --watch",
     "package:lint": "publint run --strict && attw --pack . --profile esm-only",
-    "size": "size-limit",
+    "size": "node scripts/measure-bundle.mjs --emit node_modules/.cache/viborm-size && size-limit",
     "size:why": "size-limit --why"
   },
   "keywords": [
@@ -343,46 +344,52 @@
   },
   "size-limit": [
     {
-      "name": "Main (viborm)",
-      "path": "dist/index.mjs",
-      "brotli": false,
-      "gzip": false
+      "name": "D1 Worker (viborm/d1)",
+      "path": "node_modules/.cache/viborm-size/d1-worker.mjs",
+      "gzip": true,
+      "limit": "170 kB"
     },
     {
-      "name": "Schema",
-      "path": "dist/schema.mjs",
-      "brotli": false,
-      "gzip": false
+      "name": "pg + migrations Worker (viborm/pg + viborm/migrations)",
+      "path": "node_modules/.cache/viborm-size/pg-migrations-worker.mjs",
+      "gzip": true,
+      "limit": "265 kB"
     },
     {
-      "name": "Driver (pg)",
-      "path": "dist/pg.mjs",
-      "brotli": false,
-      "gzip": false
+      "name": "pg application (viborm/pg)",
+      "path": "node_modules/.cache/viborm-size/pg-representative.mjs",
+      "gzip": true,
+      "limit": "170 kB"
     },
     {
-      "name": "Driver (pglite)",
-      "path": "dist/pglite.mjs",
-      "brotli": false,
-      "gzip": false
+      "name": "pg application + soft delete",
+      "path": "node_modules/.cache/viborm-size/pg-soft-delete.mjs",
+      "gzip": true,
+      "limit": "170 kB"
     },
     {
-      "name": "Cache",
-      "path": "dist/cache.mjs",
-      "brotli": false,
-      "gzip": false
+      "name": "soft-delete extension entry",
+      "path": "node_modules/.cache/viborm-size/soft-delete-entry.mjs",
+      "gzip": true,
+      "limit": "500 B"
     },
     {
-      "name": "Migrations",
-      "path": "dist/migrations.mjs",
-      "brotli": false,
-      "gzip": false
+      "name": "identifier generators only",
+      "path": "node_modules/.cache/viborm-size/ids-only.mjs",
+      "gzip": true,
+      "limit": "30 kB"
     },
     {
-      "name": "Validation",
-      "path": "dist/validation.mjs",
-      "brotli": false,
-      "gzip": false
+      "name": "Decimal only",
+      "path": "node_modules/.cache/viborm-size/decimal-only.mjs",
+      "gzip": true,
+      "limit": "30 kB"
+    },
+    {
+      "name": "every public entry",
+      "path": "node_modules/.cache/viborm-size/full.mjs",
+      "gzip": true,
+      "limit": "362 kB"
     }
   ]
 }
