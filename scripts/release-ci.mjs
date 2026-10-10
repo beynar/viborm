@@ -49,9 +49,7 @@ function refuse(message, options) {
 }
 
 function pending(message) {
-  throw new ReleaseCiPendingError(
-    `${message}. Release can continue after exact-main CI passes`
-  );
+  throw new ReleaseCiPendingError(message);
 }
 
 function isRecord(value) {
@@ -72,6 +70,13 @@ function requirePositiveInteger(value, description) {
   return value;
 }
 
+function requireSha(value, description) {
+  if (typeof value !== "string" || !FULL_COMMIT_SHA_PATTERN.test(value)) {
+    refuse(`${description} must be a lowercase 40-character SHA`);
+  }
+  return value;
+}
+
 function requireEnvironment(repository, ref, sha) {
   if (repository !== CANONICAL_REPOSITORY) {
     refuse(
@@ -81,9 +86,7 @@ function requireEnvironment(repository, ref, sha) {
   if (ref !== MAIN_REF) {
     refuse(`GITHUB_REF must be ${MAIN_REF}; received ${JSON.stringify(ref)}`);
   }
-  if (typeof sha !== "string" || !FULL_COMMIT_SHA_PATTERN.test(sha)) {
-    refuse("GITHUB_SHA must be a lowercase 40-character commit SHA");
-  }
+  requireSha(sha, "GITHUB_SHA");
 }
 
 function requirePages(value, collection, description) {
@@ -117,7 +120,7 @@ function latestRun(runs) {
   return [...runs].sort(compareRuns)[0];
 }
 
-function requireWorkflowRun(run, workflow, sha) {
+function requireWorkflowRun(run, workflow, { branch, event, sha }) {
   const runId = requirePositiveInteger(run.id, "CI run id");
   const attempt = requirePositiveInteger(run.run_attempt, "CI run attempt");
   requirePositiveInteger(run.run_number, "CI run number");
@@ -137,17 +140,17 @@ function requireWorkflowRun(run, workflow, sha) {
   if (run.workflow_id !== workflow.id || run.path !== WORKFLOW_PATH) {
     refuse(`CI run ${runId} is not an execution of workflow ${WORKFLOW_PATH}`);
   }
-  if (run.event !== "push") {
-    refuse(`CI run ${runId} used ${JSON.stringify(run.event)}, not push`);
+  if (run.event !== event) {
+    refuse(`CI run ${runId} used ${JSON.stringify(run.event)}, not ${event}`);
   }
-  if (run.head_branch !== "main") {
+  if (run.head_branch !== branch) {
     refuse(
-      `CI run ${runId} targeted ${JSON.stringify(run.head_branch)}, not main`
+      `CI run ${runId} targeted ${JSON.stringify(run.head_branch)}, not ${branch}`
     );
   }
   if (run.head_sha !== sha) {
     pending(
-      `CI has not started for protected main SHA ${sha}; latest main run ${runId} used ${JSON.stringify(run.head_sha)}`
+      `CI has not started for ${branch} SHA ${sha}; latest ${branch} run ${runId} used ${JSON.stringify(run.head_sha)}`
     );
   }
   if (PENDING_STATUSES.has(run.status)) {
@@ -205,6 +208,110 @@ function requireSuccessfulJobs(jobs, runId, attempt, sha) {
   }
 }
 
+async function readRunProof(api, workflow, expected) {
+  const { branch, event, sha } = expected;
+  const runs = requirePages(
+    await api.readPages(
+      `/repos/${CANONICAL_REPOSITORY}/actions/workflows/ci.yml/runs?branch=${encodeURIComponent(branch)}&event=${event}&head_sha=${sha}&per_page=100`
+    ),
+    "workflow_runs",
+    "GitHub CI runs"
+  );
+  const run = latestRun(runs);
+  if (run === undefined) {
+    pending(`CI has not started for ${branch} SHA ${sha}`);
+  }
+  const { attempt, runId } = requireWorkflowRun(run, workflow, expected);
+  const jobs = requirePages(
+    await api.readPages(
+      `/repos/${CANONICAL_REPOSITORY}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`
+    ),
+    "jobs",
+    "GitHub CI jobs"
+  );
+  requireSuccessfulJobs(jobs, runId, attempt, sha);
+
+  const observedRun = requireRecord(
+    await api.read(`/repos/${CANONICAL_REPOSITORY}/actions/runs/${runId}`),
+    "Reobserved GitHub CI run"
+  );
+  const observed = requireWorkflowRun(observedRun, workflow, expected);
+  if (observed.runId !== runId || observed.attempt !== attempt) {
+    pending(
+      `CI run ${runId} changed from attempt ${attempt} to ${observed.attempt} while its proof was read`
+    );
+  }
+  return { attempt, runId };
+}
+
+// Main is linear (squash or rebase merges only). When the PR that produced the
+// release commit has a parent of that commit in its history, the merge ref its
+// pull_request run tested has the head's tree, which must be the release tree.
+async function readPullRequestTreeProof(api, workflow, sha) {
+  const repository = `/repos/${CANONICAL_REPOSITORY}`;
+  const pulls = await api.read(
+    `${repository}/commits/${sha}/pulls?per_page=100`
+  );
+  if (!Array.isArray(pulls)) refuse(`Pull requests for ${sha} must be a list`);
+  const merged = pulls.filter(
+    (pull) =>
+      isRecord(pull) &&
+      pull.merge_commit_sha === sha &&
+      typeof pull.merged_at === "string" &&
+      isRecord(pull.base) &&
+      pull.base.ref === "main"
+  );
+  if (merged.length !== 1) {
+    refuse(`${merged.length} pull requests merged into main produced ${sha}`);
+  }
+  const number = requirePositiveInteger(
+    merged[0].number,
+    "Pull request number"
+  );
+  const head = requireRecord(merged[0].head, `Pull request #${number} head`);
+  const headSha = requireSha(head.sha, `Pull request #${number} head SHA`);
+  if (typeof head.ref !== "string") {
+    refuse(`Pull request #${number} head branch must be a string`);
+  }
+
+  const release = requireRecord(
+    await api.read(`${repository}/git/commits/${sha}`),
+    "Release commit"
+  );
+  const tested = requireRecord(
+    await api.read(`${repository}/git/commits/${headSha}`),
+    `Pull request #${number} head commit`
+  );
+  if (
+    requireSha(release.tree?.sha, "Release tree") !==
+    requireSha(tested.tree?.sha, `Pull request #${number} head tree`)
+  ) {
+    refuse(
+      `Tree of ${sha} differs from pull request #${number} head ${headSha}`
+    );
+  }
+  if (!Array.isArray(release.parents) || release.parents.length !== 1) {
+    refuse(`Release commit ${sha} must have exactly one parent`);
+  }
+  const parent = requireSha(release.parents[0]?.sha, "Release parent");
+  const comparison = requireRecord(
+    await api.read(`${repository}/compare/${parent}...${headSha}`),
+    "Release parent comparison"
+  );
+  if (comparison.status !== "ahead" && comparison.status !== "identical") {
+    refuse(
+      `Release parent ${parent} is ${JSON.stringify(comparison.status)} of pull request #${number} head ${headSha}, not its ancestor`
+    );
+  }
+
+  const run = await readRunProof(api, workflow, {
+    branch: head.ref,
+    event: "pull_request",
+    sha: headSha,
+  });
+  return { ...run, headSha, proof: "pull-request-tree", pullRequest: number };
+}
+
 export async function verifyReleaseCi({ api, repository, ref, sha }) {
   requireEnvironment(repository, ref, sha);
   if (
@@ -257,36 +364,26 @@ export async function verifyReleaseCi({ api, repository, ref, sha }) {
     );
   }
 
-  const runs = requirePages(
-    await api.readPages(
-      `/repos/${CANONICAL_REPOSITORY}/actions/workflows/ci.yml/runs?branch=main&event=push&head_sha=${sha}&per_page=100`
-    ),
-    "workflow_runs",
-    "GitHub CI runs"
-  );
-  const run = latestRun(runs);
-  if (run === undefined) {
-    pending(`CI has not started for protected main SHA ${sha}`);
-  }
-  const { attempt, runId } = requireWorkflowRun(run, workflow, sha);
-  const jobs = requirePages(
-    await api.readPages(
-      `/repos/${CANONICAL_REPOSITORY}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`
-    ),
-    "jobs",
-    "GitHub CI jobs"
-  );
-  requireSuccessfulJobs(jobs, runId, attempt, sha);
-
-  const observedRun = requireRecord(
-    await api.read(`/repos/${CANONICAL_REPOSITORY}/actions/runs/${runId}`),
-    "Reobserved GitHub CI run"
-  );
-  const observed = requireWorkflowRun(observedRun, workflow, sha);
-  if (observed.runId !== runId || observed.attempt !== attempt) {
-    pending(
-      `CI run ${runId} changed from attempt ${attempt} to ${observed.attempt} while its proof was read`
-    );
+  let proof;
+  try {
+    proof = {
+      ...(await readRunProof(api, workflow, {
+        branch: "main",
+        event: "push",
+        sha,
+      })),
+      proof: "push",
+    };
+  } catch (pushPending) {
+    if (!(pushPending instanceof ReleaseCiPendingError)) throw pushPending;
+    try {
+      proof = await readPullRequestTreeProof(api, workflow, sha);
+    } catch (error) {
+      if (!(error instanceof ReleaseCiError)) throw error;
+      throw new ReleaseCiPendingError(
+        `${pushPending.message}; pull-request tree proof does not hold: ${error.message}. Release can continue after exact-main CI passes`
+      );
+    }
   }
   const observedMain = requireRecord(
     await api.read(`/repos/${CANONICAL_REPOSITORY}/branches/main`),
@@ -304,13 +401,7 @@ export async function verifyReleaseCi({ api, repository, ref, sha }) {
     refuse(`Protected main changed while CI proof for ${sha} was assembled`);
   }
 
-  return {
-    attempt,
-    jobs: RELEASE_CI_JOBS.length,
-    runId,
-    sha,
-    status: "verified",
-  };
+  return { ...proof, jobs: RELEASE_CI_JOBS.length, sha, status: "verified" };
 }
 
 function parseJson(output, description) {

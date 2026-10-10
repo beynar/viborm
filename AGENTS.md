@@ -894,9 +894,12 @@ owner: it builds one tarball, tests those exact bytes, publishes them through
 npm OIDC with automatic provenance, verifies registry integrity and that
 provenance, and only then creates the matching immutable GitHub tag and release.
 Source tests, coverage and providers are qualified once by the latest successful
-`CI` push run on the exact release main SHA. `scripts/release-ci.mjs` verifies
-all eight jobs in the latest attempt and rechecks before npm publication;
-release jobs must not duplicate that estate or accept PR/tree-equivalent proof.
+`CI` push run on the exact release main SHA or, while that run is absent or
+pending, by the latest successful `pull_request` run of the single PR merged as
+that commit when its head has the same Git tree and descends from the commit's
+only parent. `scripts/release-ci.mjs` verifies all eight jobs in the latest
+attempt, refuses a failed push run, and rechecks before npm publication; release
+jobs must not duplicate that estate or accept any other proof.
 Release-specific documentation and exact-tarball checks remain mandatory.
 Release and CI checkouts are shallow and sparse. CI excludes only the historical
 `docs/architecture/raptor3-evidence/` receipt archive, not live docs or architecture

@@ -93,12 +93,19 @@ npm is immutable and cannot be reused.
 
 ## Required release evidence
 
-Source qualification has one owner: the `CI` workflow's latest push run on
-`main` for the exact release SHA. `scripts/release-ci.mjs` requires all eight
-jobs to succeed in its latest attempt. A green PR run, a matching tree at a
-different commit, a skipped job, or an older green attempt is not sufficient.
-The release waits for pending CI for up to 120 minutes; failed or cancelled CI
-stops it. Recheck the same evidence after human approval, before publication.
+Source qualification has one owner: the `CI` workflow. `scripts/release-ci.mjs`
+accepts its latest push run on `main` for the exact release SHA. While that run
+is absent or pending, it also accepts the tree-equivalent pull-request proof:
+the one PR merged into `main` as the release commit, whose latest
+`pull_request` run on its head passed, where the release commit has one parent,
+that parent is an ancestor of the head, and both commits share one Git tree.
+The PR run tested that tree. Either proof requires all eight jobs to succeed in
+the run's latest attempt; the output's `proof` field (`push` or
+`pull-request-tree`, with the PR number and head SHA) names the one used. A
+skipped job, an older green attempt, or a green run on another tree is not
+sufficient. The release waits for pending CI for up to 120 minutes; a failed or
+cancelled push run stops it even when a PR proof holds. Recheck the same
+evidence after human approval, before publication.
 
 Release does not rerun the source test estate, coverage, or provider jobs.
 The tarball build and documentation build run in parallel with CI verification;

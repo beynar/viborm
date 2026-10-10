@@ -67,6 +67,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
     # Reuse the former full-estate ceiling while CI runs, not its test work.
     # The verifier waits at most 120 minutes, leaving five for setup.
     timeout-minutes: 125
@@ -202,6 +203,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      pull-requests: read
       id-token: write
     outputs:
       channel: ${{ steps.registry.outputs.channel }}
