@@ -126,7 +126,9 @@ runs it once after each invocation.
 For `{ precision: 10, scale: 2 }`, logical `12.34` is coefficient `1234` on
 SQLite. The column check requires integer storage and enforces the descriptor's
 range. VibORM does not use SQLite `REAL`, NUMERIC affinity, or decimal text as a
-repair for missing native decimal support.
+repair for missing native decimal support. Typed queries do not re-check that
+storage; `viborm check --db` reports a foreign column without it, as described in
+[adopting decimal columns](/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool).
 
 A descriptor can be valid in a model yet too wide for a selected provider.
 Client construction rejects that binding before provider I/O and names the

@@ -127,7 +127,9 @@ function userMessage(error: ConstraintFailure): string {
 connection failure, `V1002` connection timeout, `V1005` exhausted connection capacity, `V2002` query timeout, `V5003` deadlock,
 `V5004` serialization failure and `V5006` lock contention. SQLite `SQLITE_BUSY`/`SQLITE_LOCKED`
 and PostgreSQL `55P03` are contention, distinct from a detected deadlock. MySQL lock-wait
-timeouts (`1205`) remain query timeouts.
+timeouts (`1205`) remain query timeouts. On local libSQL, `V5006` also quarantines its client,
+so a retry there is refused with `V1003` until the client is
+[replaced](/docs/drivers/sqlite/libsql).
 
 Retryability does not prove whether a write committed. Retry a write only when its
 acknowledgment and idempotency contract make another attempt safe; a rollback-only callback

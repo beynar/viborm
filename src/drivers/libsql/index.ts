@@ -14,11 +14,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import {
-  ClientInitializationError,
-  ConnectionError,
-  VibORMErrorCode,
-} from "@errors";
+import { ConnectionError, VibORMErrorCode } from "@errors";
 import type {
   Client,
   Config,
@@ -52,7 +48,7 @@ import type { QueryResult } from "../types";
 // EXPORTED OPTIONS
 // ============================================================
 
-// A native autocommit BUSY can leave libSQL's private pooled connection open.
+// A native BUSY can leave libSQL's private pooled connection unusable.
 // The Client API cannot recover that exact handle without affecting borrowers.
 const unsafeLocalClients = new WeakSet<Client>();
 
@@ -126,7 +122,6 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
 
   private readonly driverOptions: LibSQLDriverOptions;
   private readonly suppliedClient: Client | undefined;
-  private integerAdmission: Promise<void> | undefined;
 
   constructor(options: LibSQLDriverOptions = {}) {
     super("sqlite", "libsql");
@@ -185,7 +180,6 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
     const operation = context?.operation ?? "execute";
-    await this.ensureSuppliedIntegerPrecision(client);
     const values = convertValuesForLibSQL(params);
     const result = await this.executeStatement(client, { sql, args: values });
     return {
@@ -236,9 +230,8 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
       throw nestedTransactionDispatchError(this.driverName);
     }
 
-    await this.ensureSuppliedIntegerPrecision(client);
     const tx = await acquireWithMaxWait(
-      () => client.transaction("write"),
+      () => this.quarantineOnBusy(client, () => client.transaction("write")),
       (acquired) => acquired.close(),
       options?.maxWaitMs,
       { driverName: this.driverName, form: "callback" }
@@ -257,13 +250,25 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
     // Transactions own dedicated provider connections, including :memory:.
   }
 
-  private async executeStatement(
+  private executeStatement(
     client: Client | Transaction,
     statement: InStatement
   ): Promise<ResultSet> {
+    return this.quarantineOnBusy(client, () => client.execute(statement));
+  }
+
+  /**
+   * A local BUSY can leave the failed statement unfinished on libSQL's pooled
+   * connection; SQLite then never commits that connection's later autocommit
+   * writes. Statements and transaction acquisition (its BEGIN) both borrow
+   * that connection, so both quarantine this exact client.
+   */
+  private async quarantineOnBusy<R>(
+    client: Client | Transaction,
+    work: () => Promise<R>
+  ): Promise<R> {
     try {
-      const result = await client.execute(statement);
-      return result;
+      return await work();
     } catch (error) {
       if (
         this.serializeTransactions &&
@@ -299,40 +304,6 @@ export class LibSQLDriver extends Driver<Client, Client | Transaction> {
         { code: VibORMErrorCode.CONNECTION_CLOSED, meta: { driver: "libsql" } }
       );
     }
-  }
-
-  private ensureSuppliedIntegerPrecision(
-    client: Client | Transaction
-  ): Promise<void> {
-    if (client !== this.suppliedClient) return Promise.resolve();
-    this.integerAdmission ??= (async () => {
-      try {
-        const probe = await this.executeStatement(client, {
-          sql: "SELECT 9007199254740993 AS viborm_integer_precision",
-        });
-        const value = probe.rows[0]?.viborm_integer_precision;
-        if (value === 9007199254740993n || value === "9007199254740993") return;
-      } catch (error) {
-        if (
-          !(
-            error instanceof RangeError &&
-            error.message.includes("integer") &&
-            error.message.includes("JavaScript number")
-          )
-        ) {
-          throw error;
-        }
-      }
-      throw new ClientInitializationError(
-        'A supplied libSQL client must use intMode: "bigint" or "string"; number mode cannot preserve VibORM integers.',
-        { meta: { driver: "libsql", operation: "configuration" } }
-      );
-    })().catch((error: unknown) => {
-      if (!(error instanceof ClientInitializationError))
-        this.integerAdmission = undefined;
-      throw error;
-    });
-    return this.integerAdmission;
   }
 
   private getDatabaseUrl(): string {

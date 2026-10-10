@@ -56,8 +56,6 @@ function createBatchRefs(
 ): BatchReferenceSqlAdapter {
   const lastInsertId = config.lastInsertId;
   const storeReturning = config.storeReturning;
-  const deleteBatch = (batchId: string): Sql =>
-    sql`DELETE FROM ${config.table} WHERE ${config.batchIdColumn} = ${batchId}`;
   // One owner of "how a generated increment key is stored": the CTE store is
   // the INSERT itself; the last insert id is a second statement after it.
   const storeInsertedKey: BatchReferenceSqlAdapter["storeInsertedKey"] =
@@ -74,8 +72,8 @@ function createBatchRefs(
 
   return {
     setup: (_batchId) => [config.createTable],
-    clear: deleteBatch,
-    cleanup: deleteBatch,
+    cleanup: (batchId) =>
+      sql`DELETE FROM ${config.table} WHERE ${config.batchIdColumn} = ${batchId}`,
     store: config.store,
     read: (batchId, key) =>
       sql`(SELECT ${config.valueColumn} FROM ${config.table} WHERE ${config.batchIdColumn} = ${batchId} AND ${config.keyColumn} = ${key} ${sql.raw`LIMIT 1`})`,

@@ -111,7 +111,7 @@ function createRecursiveClient(driver: SQLite3Driver) {
 }
 
 class RecursiveWitnessDriver extends SQLite3Driver {
-  readonly statements: { sql: string; binds: number; model?: string }[] = [];
+  readonly statements: { sql: string; binds: number }[] = [];
 
   protected override async execute<T>(
     client: Database.Database,
@@ -119,11 +119,7 @@ class RecursiveWitnessDriver extends SQLite3Driver {
     parameters: unknown[],
     context?: QueryExecutionContext
   ) {
-    this.statements.push({
-      sql: statement,
-      binds: parameters.length,
-      model: context?.model,
-    });
+    this.statements.push({ sql: statement, binds: parameters.length });
     return super.execute<T>(client, statement, parameters, context);
   }
 }
@@ -176,15 +172,12 @@ export function describeRecursiveFit(
 
     /** One `findMany` through the entry: the projection is one statement. */
     async function read(args: Input): Promise<Input[]> {
-      const before = driver.statements.filter(
-        (statement) => statement.model !== "$schema"
-      ).length;
+      const before = driver.statements.length;
       const rows = await entry({ client, driver }, args);
       assert.equal(
-        driver.statements.filter((statement) => statement.model !== "$schema")
-          .length,
+        driver.statements.length,
         before + 1,
-        "one recursive read must execute exactly one typed model statement beside protected storage guards"
+        "one recursive read must execute exactly one provider statement"
       );
       assert(Array.isArray(rows));
       return rows as Input[];
@@ -315,11 +308,7 @@ export function describeRecursiveFit(
         ],
         "roots follow the operation's order, not the physical row order"
       );
-      assert.equal(
-        driver.statements.filter((statement) => statement.model !== "$schema")
-          .length,
-        1
-      );
+      assert.equal(driver.statements.length, 1);
     });
   });
 }

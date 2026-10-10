@@ -80,9 +80,11 @@ const transport = createTransport({
 const client = createClient({ schema, client: transport });
 ```
 
-Use `intMode: "bigint"` or `"string"` on a supplied client. A read-only integer
-probe checks this before typed execution or transaction acquisition; number mode
-is refused before a typed write can commit and then lose its exact result.
+Typed queries read `BigInt` and `Decimal` columns as text, so they stay exact
+with `intMode: "number"` or `"bigint"`, and a supplied client sends no setup
+statement; `"string"` mode is not supported for typed reads. Raw rows keep the
+client's own carrier: in libSQL's default number mode, a raw read of an integer
+beyond `2^53` fails, so prefer bigint mode.
 `$disconnect()` leaves the supplied transport open; its owner calls
 `transport.close()`. Owned transports use bigint mode and a 5-second local busy
 timeout. Strings containing NUL bytes are refused before dispatch because the
@@ -103,14 +105,17 @@ Hosted Turso rollback and newer server versions remain unqualified in this relea
 campaign; the localhost network proof does not establish those guarantees.
 
 Raw SQL keeps physical SQLite behavior, including `PRAGMA` and `VACUUM`. A
-local `SQLITE_BUSY` quarantines that exact native client because libSQL can
-retain an uncommitted write after the failure. Further VibORM work refuses with
+local `SQLITE_BUSY`, whether a statement or the opening of a transaction
+(`$transaction`, or a nested write's implicit one) hits it, quarantines that
+exact native client: libSQL leaves the failed statement unfinished on its pooled
+connection, and SQLite never commits that connection's later writes. The failing
+call reports the retryable `V5006`, but further VibORM work refuses with
 `V1003`, across wrappers sharing that client, before another write can be
-acknowledged. For an owned driver, `$disconnect()` closes the failed transport;
-the next operation reconnects. For a supplied client, VibORM leaves it open:
-its owner must close it and create a replacement client and wrapper. Merely
-calling `$disconnect()` on a borrowed wrapper cannot establish recovery.
-Remote clients keep their native execution path.
+acknowledged; retry only after recovery. For an owned driver, `$disconnect()`
+closes the failed transport; the next operation reconnects. For a supplied
+client, VibORM leaves it open: its owner must close it and create a replacement
+client and wrapper. Merely calling `$disconnect()` on a borrowed wrapper cannot
+establish recovery. Remote clients keep their native execution path.
 
 ## Migrations
 

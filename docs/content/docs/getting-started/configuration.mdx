@@ -139,23 +139,14 @@ for non-model entries.
 
 ## Environment Variables
 
-Use environment variables for sensitive configuration:
-
-```ts title="src/db.ts"
-import { createClient } from "viborm/pg";
-import { user, post } from "./schema";
-
-export const client = createClient({
-  schema,
-  databaseUrl: process.env.DATABASE_URL,
-});
-```
-
-If a URL isn't enough, every driver also accepts an `options` object with library-specific settings (host, port, ssl, pool size, ...) — see [Drivers](/docs/drivers).
+Keep sensitive configuration in the environment. The `src/db.ts` above already
+reads its connection string from `process.env.DATABASE_URL`:
 
 ```bash title=".env"
 DATABASE_URL=postgresql://user:password@localhost:5432/mydb
 ```
+
+If a URL isn't enough, every driver also accepts an `options` object with library-specific settings (host, port, ssl, pool size, ...) — see [Drivers](/docs/drivers).
 
 ## Running the CLI
 
@@ -185,7 +176,7 @@ import { user, post } from "./schema";
 const isProduction = process.env.NODE_ENV === "production";
 
 export const client = createClient({
-  schema,
+  schema: { user, post },
   databaseUrl: isProduction
     ? process.env.DATABASE_URL
     : "postgresql://localhost:5432/mydb_dev",
@@ -215,7 +206,7 @@ import { createClient } from "viborm/pg";
 import { user, post } from "./schema";
 
 export const client = createClient({
-  schema,
+  schema: { user, post },
   databaseUrl: process.env.DATABASE_URL,
 });
 ```

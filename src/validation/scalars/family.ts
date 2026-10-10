@@ -426,7 +426,11 @@ export const internedScalarSchemas = <T extends ScalarVariantSchemas>(
  */
 export const comparableScalar = <K extends ScalarType>(
   kind: K,
-  primitive: (options?: ScalarState<K> | { array: true }) => V.Schema,
+  primitive: (
+    options?:
+      | ScalarState<K>
+      | { nullable?: boolean; array: boolean; disallowZero?: boolean }
+  ) => V.Schema,
   arithmetic: boolean
 ) => {
   const member = once(() => primitive());
@@ -439,18 +443,14 @@ export const comparableScalar = <K extends ScalarType>(
   const listUpdate = listUpdateFamily(member, list);
   const interners = createScalarInterners();
   return (state: ScalarState<K>): never => {
-    const filterBase = () =>
-      primitive({
-        ...state,
-        schema: undefined,
-        optional: false,
-        hasDefault: false,
-        default: undefined,
-      });
+    // The stored domain, from the intern key's flags alone. Only create adds an
+    // increment's refused zero, on the value a `.schema()` hands it to write.
+    const storedDomain = (disallowZero = false) =>
+      primitive({ nullable: state.nullable, array: state.array, disallowZero });
     const base =
       state.schema === undefined
         ? state.base
-        : withScalarOutputDomain(state.base, filterBase());
+        : withScalarOutputDomain(state.base, storedDomain());
     const refinedListUpdate = () =>
       listUpdateFamily(
         () =>
@@ -481,7 +481,10 @@ export const comparableScalar = <K extends ScalarType>(
       create: () =>
         state.schema === undefined
           ? primitive(state)
-          : withScalarOutputDomain(primitive(state), filterBase()),
+          : withScalarOutputDomain(
+              primitive(state),
+              storedDomain(state.disallowZero)
+            ),
       update: () =>
         state.array
           ? state.schema === undefined
@@ -489,7 +492,7 @@ export const comparableScalar = <K extends ScalarType>(
             : refinedListUpdate()
           : update(base, state.schema !== undefined),
       filter: () =>
-        state.array ? listFilter(filterBase()) : filter(filterBase()),
+        state.array ? listFilter(storedDomain()) : filter(storedDomain()),
     }) as never;
   };
 };

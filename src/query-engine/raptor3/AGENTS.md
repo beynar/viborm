@@ -53,7 +53,8 @@ and captured-row arguments. Query and exact-producer sources are distinct;
 operation's output during construction. Interpretation does not rediscover the
 public verb. `Queries` owns one membership predicate across alias-to-alias
 correlation and captured-source values; `correlation()` and `memberWhere()` only
-select that operand form. Positive observations live in `CommandAttempt`;
+select that operand form, and a walk's `step` is the one join-form reader of a
+junction membership. Positive observations live in `CommandAttempt`;
 absence is consumed lexically and is deliberately not cached across re-entry.
 Junction capture stores the exact membership pair, not a synthetic row lookup.
 
@@ -1009,6 +1010,19 @@ for it, and neither does the schema-only shape. Measure
 statement/bind/provider-row/output growth separately from source-derived
 occurrence and transient-copy counts; do not invent an allocation metric API.
 
+A recursive relation FILTER (`recurse` in `where`) has the projection's ONE
+walk owner, `Queries.walk`; the projection reads its edges, a filter its
+reached set. Invariants the code comments explain: `self` joins the FIRST hop
+in the anchor (MySQL `cte_max_recursion_depth`); a junction hop joins the
+junction table (`step`, PostgreSQL semi-joins); the walk is the `EXISTS`'s OWN
+`WITH`, never wrapped in a derived table or `LATERAL` (MySQL answers every
+outer row from one evaluation of a wrapped one); a closure's read is INEXACT
+and declares its link fields (`composition.test.ts` case 14). On MySQL a
+mutation's selector that reads other rows is its keyed snapshot
+(`lowerMutationLimit`), so a closure in `updateMany`/`deleteMany` needs no
+refusal. Provider SQL is pinned in
+`recursive-query/provider-sql-{pglite,sqlite,native}.test.ts`.
+
 Independent SQLite fixtures own expected results, database state, defaults,
 failure timing and causal cuts. Cross-engine comparison is semantic; exact SQL
 and event tapes belong only to replay within one candidate. Run validation
@@ -1168,11 +1182,14 @@ three sentences keep the slot name.
 
 **A lowered mutation's correlation names the table the statement mutates.** The
 unaliased UPDATE/DELETE target is addressable only by its NAME, so
-`lowerMutationLimit` lowers its selector with that name and declares it as the
-statement's mutation target; a bare column inside a correlated `EXISTS` binds
-to the CHILD table wherever both carry the name. The same threaded fact hides a
-subquery over the mutated table behind a derived table where
-`supportsMutationTargetInSubquery` is false (MySQL ERROR 1093). A raw `Sql`
+`lowerMutationLimit` lowers its selector with that name; a bare column inside a
+correlated `EXISTS` binds to the CHILD table wherever both carry the name.
+Where `supportsMutationTargetInSubquery` is false (MySQL), a selector that
+reads other rows is instead its keys read into a derived table before any
+write (`capped` without a limit): MySQL answers a correlated subquery row by
+row while the statement and its referential actions change the rows it reads
+(and refuses the mutated table there, ERROR 1093), and the keyed snapshot is
+the statement-snapshot answer PostgreSQL and SQLite give. A raw `Sql`
 operand is parenthesised at the one operand owner: a caller's fragment is an
 expression, not a token.
 

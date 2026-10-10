@@ -200,7 +200,12 @@ export async function buildPushPlan(
     (operation, index) => ({
       id: `${operation.type}:${index}`,
       label: formatOperation(operation),
-      risk: isDestructiveOperation(operation) ? "destructive" : "safe",
+      // A live table rename takes its old name from every other reader, and a
+      // history-free push cannot prove that table was ever this schema's.
+      risk:
+        isDestructiveOperation(operation) || operation.type === "renameTable"
+          ? "destructive"
+          : "safe",
     })
   );
   const atomicity = classifyPlanAtomicity(command, operations);

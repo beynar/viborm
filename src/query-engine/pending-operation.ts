@@ -80,7 +80,6 @@ interface PendingCacheResultAccess {
   readonly controls: AdmittedControls | undefined;
   readonly codec: CacheResultCodec;
   readonly executionContext: QueryExecutionContext;
-  readonly checkStorage: (driver: AnyDriver) => Promise<void>;
 }
 
 type ReadPendingCacheResult = (
@@ -244,10 +243,6 @@ export class PendingOperation<T>
       controls: operation.#inputPreparation?.controls,
       codec: operation.#cacheResultCodec(),
       executionContext: operation.#context.attribution,
-      checkStorage: (driver) =>
-        operation
-          .#resolveRouted()
-          .checkStorage(driver, operation.#context.attribution),
     });
     pendingOperationTransactionOwner = Object.freeze({
       clientId: (operation) => operation.#context.clientId,
@@ -374,13 +369,8 @@ export class PendingOperation<T>
       // result. A verb that needs the asynchronous fold publishes no single
       // query, and the array owner asks it for the package instead.
       prepare: (operation) => operation.#resolveSinglePackage()?.queries[0],
-      prepareBatch: (operation, driver) =>
-        operation
-          .#resolveRouted()
-          .prepareBatch(
-            operation.#context.attribution,
-            driver ?? operation.#engine.driver
-          ),
+      prepareBatch: (operation) =>
+        operation.#resolveRouted().prepareBatch(operation.#context.attribution),
       parseResult: (operation, raw) => {
         const single = operation.#resolveSinglePackage();
         if (!single) {

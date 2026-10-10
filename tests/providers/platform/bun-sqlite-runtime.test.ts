@@ -43,5 +43,6 @@ test.runIf(bunVersion.status === 0)(
     expect(result.stdout).toContain(
       "supplied control ownership evidence passed"
     );
+    expect(result.stdout).toContain("statement reuse evidence passed");
   }
 );

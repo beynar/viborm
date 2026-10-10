@@ -6,8 +6,8 @@ icon: database
 
 VibORM is a **Prisma-inspired TypeScript ORM with zero code generation**: types are inferred from your schema the moment you save, and there is no WASM query engine, so it runs anywhere TypeScript runs — including edge runtimes like Cloudflare Workers.
 
-:::warning[Early Alpha]
-VibORM is in early alpha and **not ready for production use**. APIs may change, features are incomplete, and there will be bugs. Use it for experimentation and side projects, not critical systems.
+:::info[Status]
+VibORM 1.x is the stable release line. Releases follow semantic versioning; every release is listed in the [changelog](https://github.com/beynar/viborm/blob/main/CHANGELOG.md). The project has a single maintainer. Security fixes ship for the latest stable major, as the [security policy](https://github.com/beynar/viborm/security/policy) describes. Coming from 0.1 or a release candidate, read [Upgrading to V1](/docs/getting-started/upgrading-to-v1) first.
 :::
 
 ## What It Looks Like
@@ -58,8 +58,6 @@ If you know Prisma, this should feel familiar: `findMany`, `findFirst`, `create`
 - **Standard Schema integration** — extend any scalar with Zod, Valibot, or any [Standard Schema](https://standardschema.dev/) validator via `.schema()`
 
 Beyond schema definition, every operation schema (where, create, update) is Standard Schema V1 compliant and exportable to JSON Schema — reuse them in API routes, OpenAPI generation, or AI tool calling via `getSchemas`. See [Standard Schema](/docs/internals/validation/standard-schema).
-
-Some features are still in progress: transactions (partial) and migration edge cases. If you need stability today, Prisma is battle-tested.
 
 ## Next Steps
 

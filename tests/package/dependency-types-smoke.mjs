@@ -37,7 +37,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** The types-only runtime dependency this probe is written around. */
@@ -53,10 +53,7 @@ const repositoryPackage = JSON.parse(
 );
 // By path, not `.bin/tsc`: two TypeScripts are installed and that link is
 // whichever won pnpm's bin collision.
-const tsc =
-  process.env.VIBORM_TYPESCRIPT_BIN === undefined
-    ? join(repositoryRoot, "node_modules", "typescript", "bin", "tsc")
-    : resolve(repositoryRoot, process.env.VIBORM_TYPESCRIPT_BIN);
+const tsc = join(repositoryRoot, "node_modules", "typescript", "bin", "tsc");
 
 const sandbox = mkdtempSync(join(tmpdir(), "viborm-dependency-types-"));
 /** An empty directory, so `--typeRoots` finds genuinely nothing. */

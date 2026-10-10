@@ -14,6 +14,10 @@ import {
 } from "@drivers/execution-context";
 import { normalizePostgresRowCount } from "@drivers/shared/postgres-result";
 import {
+  readSuppressedFailures,
+  withSuppressedFailure,
+} from "@drivers/shared/suppressed-failure";
+import {
   nestedTransactionDispatchError,
   runSavepoint,
   unsupportedCallbackTransactionError,
@@ -156,6 +160,8 @@ describe("transaction commit certainty", () => {
         operation: "create",
       },
     });
+    const secondary = new Error("rollback failed");
+    withSuppressedFailure(original, secondary);
 
     const clone = attachCommitCertainty(original, commitCertainty);
 
@@ -173,6 +179,7 @@ describe("transaction commit certainty", () => {
       operation: "create",
     });
     expect(original.meta).not.toHaveProperty("commitCertainty");
+    expect(readSuppressedFailures(clone)).toEqual([secondary]);
   });
 });
 

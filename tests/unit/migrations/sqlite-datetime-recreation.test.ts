@@ -8,6 +8,7 @@
 
 /** Live SQLite DateTime recreation and atomicity contracts. */
 
+import { sqliteNoncanonicalTemporalCount } from "@adapters/databases/sqlite/storage/datetime";
 import { createClient } from "@client/client";
 import { sqliteCanonicalDateTimeExpression } from "@migrations";
 import { createMigrationClient } from "@migrations/client";
@@ -327,14 +328,23 @@ describe("SQLite DateTime table recreation", () => {
     });
     const textMigration = await push(textAfter, { force: true });
     expect(textMigration.sql.join("\n")).toContain("CASE WHEN");
-    await expect(textAfter.event.findMany()).rejects.toThrow(
-      "not canonical UTC text"
+    const audit = sqliteNoncanonicalTemporalCount(
+      "datetime_text_adoption",
+      "at",
+      "datetime",
+      false
     );
+    expect((await textDriver._executeRaw(audit)).rows).toEqual([
+      { noncanonical: 1 },
+    ]);
     // The manual repair uses the same admitted calendar/epoch grammar; typed
     // comparisons only become valid after storage is canonicalized.
     await textDriver._executeRaw(
       `UPDATE "datetime_text_adoption" SET "at" = ${sqliteCanonicalDateTimeExpression("at")}`
     );
+    expect((await textDriver._executeRaw(audit)).rows).toEqual([
+      { noncanonical: 0 },
+    ]);
     await expect(
       textAfter.event.findMany({
         where: { at: { equals: spelling } },

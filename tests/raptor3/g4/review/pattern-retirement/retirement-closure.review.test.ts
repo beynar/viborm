@@ -200,7 +200,7 @@ describe("D-15 type anchor: the relocated shape is the base's shape", () => {
     // premise, packaged into an array member, is rebuilt as `ForeignKeyError`.
     expectTypeOf<
       Exclude<PreparedBatchGuard["failure"]["kind"], BaseFailure["kind"]>
-    >().toEqualTypeOf<"foreignKey" | "unsupported">();
+    >().toEqualTypeOf<"foreignKey">();
     expectTypeOf<Omit<PreparedBatchGuard["failure"], "kind">>().toEqualTypeOf<
       Omit<BaseFailure, "kind">
     >();

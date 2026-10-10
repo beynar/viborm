@@ -50,11 +50,30 @@ const user = s.model({
 }).map("users");
 ```
 
-Generated full-schema enum transitions use a transactional type replacement.
-This permits newly introduced values in dependent defaults and columns within
-the same transaction; PostgreSQL's `ADD VALUE` cannot use its new value before
-commit. The renderer preserves declared order, drops dependent defaults before
-casting, and restores the destination defaults afterward.
+Adding values, at the end or in the middle of the list, emits
+`ALTER TYPE ... ADD VALUE ... [BEFORE ...]` in declared order. It only changes
+the catalog: tables using the enum are not rewritten, and views, rules and
+CHECK constraints over its columns do not block it.
+
+PostgreSQL forbids using an added value before its transaction commits. When
+the same push or migration may use a new value, VibORM instead replaces the
+type in that transaction (see below). A use is a default naming the value, a
+column converted to the enum, whose stored data may hold it, or a new
+partial-index predicate naming the enum type or a column of it, however the
+value is spelled and even when it compares only existing values. A predicate
+over other columns, such as `title = 'archived'`, keeps the addition
+catalog-only.
+To keep the addition catalog-only, add the value in one migration and use it in
+a later one: `apply`, `down` and `reset` commit after each migration that adds
+enum values. Reset needs this too: before PostgreSQL 17, even a type created in
+the same transaction refuses its added values until they commit.
+
+Removing or reordering values replaces the type in one transaction: dependent
+columns are cast through text, defaults are dropped first and restored after,
+and every table using the enum is rewritten. Any replacement (a removal, a
+reorder, or a new value used in the same migration) is blocked by a view, rule,
+CHECK constraint or partial-index predicate over such a column; drop it first
+and recreate it afterwards.
 
 Removed values require explicit per-column mappings, including nullable columns.
 `useNull()` is a deliberate decision. Enum arrays preserve their order and NULL

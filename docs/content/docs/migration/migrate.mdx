@@ -474,7 +474,7 @@ Equal physical fingerprints are not proof for a data-only or opaque transition. 
 
 ## Reset
 
-`reset` preloads and authenticates the complete clear-and-replay program before the first drop. It keeps the estate, both control tables, every ledger event, and the old marker until final success.
+`reset` preloads and authenticates the complete clear-and-replay program before the first drop. It keeps the estate, both control tables, every ledger event, and the old marker until final success. On PostgreSQL, the replay commits after each migration that adds enum values, so a later migration can use them. If it is interrupted after such a commit, running `reset` again resumes from the recorded progress.
 
 <Tabs>
   <Tab title="CLI">

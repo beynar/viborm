@@ -256,11 +256,14 @@ describe("migration v1 compiler", () => {
 
   test("atomicity grouping preserves boundaries and provider capabilities", () => {
     expect(
-      groupContiguousAtomicity([
-        { boundary: "transactional", id: 1 },
-        { boundary: "transactional", id: 2 },
-        { boundary: "stepwise", id: 3 },
-      ])
+      groupContiguousAtomicity(
+        [
+          { boundary: "transactional", id: 1 },
+          { boundary: "transactional", id: 2 },
+          { boundary: "stepwise", id: 3 },
+        ],
+        () => []
+      )
     ).toEqual([
       {
         boundary: "transactional",
@@ -271,7 +274,25 @@ describe("migration v1 compiler", () => {
       },
       { boundary: "stepwise", items: [{ boundary: "stepwise", id: 3 }] },
     ]);
-    expect(groupContiguousAtomicity([])).toEqual([]);
+    // An edge adding an enum value commits before the next edge may use it.
+    const statementsOf = ({ sql }: { sql: readonly string[] }) => sql;
+    const added = {
+      boundary: "transactional",
+      sql: ["ALTER TYPE status ADD VALUE 'archived'"],
+    };
+    const used = {
+      boundary: "transactional",
+      sql: [`ALTER TABLE item ALTER COLUMN status SET DEFAULT 'archived'`],
+    };
+    expect(
+      groupContiguousAtomicity([used, added, used, used], statementsOf).map(
+        ({ items }) => items
+      )
+    ).toEqual([
+      [used, added],
+      [used, used],
+    ]);
+    expect(groupContiguousAtomicity([], statementsOf)).toEqual([]);
 
     const sqlite = getMigrationDriver(sqliteEstateDriver());
     const postgres = getMigrationDriver(pgEstateDriver("public"));

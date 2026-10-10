@@ -84,6 +84,24 @@ function requireSafeIntegers<T>(
   return stmt;
 }
 
+/**
+ * Typed statements come from `bun:sqlite`'s own bounded statement cache
+ * (`query`), which dies with the database: `close()` finalizes it, and a closed
+ * database refuses instead of answering. The cache is reused only while
+ * `prepare` is the one `bun:sqlite` defines at the base of the class chain; a
+ * database whose `prepare` was replaced or overridden sees every call.
+ */
+function reusesStatements(db: BunSQLiteDatabase): boolean {
+  let stock: unknown;
+  for (
+    let proto = Object.getPrototypeOf(db);
+    proto;
+    proto = Object.getPrototypeOf(proto)
+  )
+    if (Object.hasOwn(proto, "prepare")) stock = proto.prepare;
+  return db.prepare === stock;
+}
+
 const UNPAIRED_SURROGATE_PATTERN =
   /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u;
 
@@ -217,7 +235,8 @@ export class BunSQLiteDriver extends Driver<
     values: unknown[] | undefined,
     typed: boolean
   ): QueryResult<T> {
-    const stmt = db.prepare(sql);
+    const stmt =
+      typed && reusesStatements(db) ? db.query(sql) : db.prepare(sql);
 
     if (stmt.columnNames.length > 0) {
       // Read once without precision loss, including unsafe raw queries.

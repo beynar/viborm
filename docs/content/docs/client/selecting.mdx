@@ -184,6 +184,11 @@ defaults to 1,000. That failure surfaces as the driver's error, never as a
 truncated result. On MySQL the error has `meta.providerErrno` 3636
 (`ER_CTE_MAX_RECURSION_DEPTH`), and the provider's message is redacted.
 
+The same `recurse` options filter in `where`: `{ parent: { recurse: true,
+some: { … } } }` matches a row when an ancestor matches. A filter reads the
+closure as a set, so it never refuses a foreign-key cycle. See
+[Recursive filters](/docs/client/filtering/relations#recursive-filters).
+
 Output grows with paths, not rows: a graph can return exponentially more
 occurrences than it stores, even with cycle prevention, so depth 100 is not a
 size bound. `take`, `skip`, `cursor` and `distinct` cannot be combined with

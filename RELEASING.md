@@ -81,12 +81,12 @@ Use one release pull request. It must:
 - pass every required branch check.
 
 The workflow accepts stable `X.Y.Z` versions and `X.Y.Z-rc.N` release
-candidates. The V1 sequence uses these two exact forms:
+candidates:
 
 | Version | npm distribution tag | GitHub tag |
 | --- | --- | --- |
-| `1.0.0-rc.N` | `next` | `v1.0.0-rc.N` |
-| `1.0.0` | `latest` | `v1.0.0` |
+| `X.Y.Z-rc.N` | `next` | `vX.Y.Z-rc.N` |
+| `X.Y.Z` | `latest` | `vX.Y.Z` |
 
 The workflow rejects other prerelease spellings. A version already present on
 npm is immutable and cannot be reused.
@@ -135,24 +135,24 @@ not proof that a concrete provider ran.
 The publication gate requires CI proof of public types, core behavior and
 coverage, plus release proof of package exports, documentation examples,
 CLI execution, the exact Node 22.0.0
-and TypeScript 5.8 floors, the tarball allowlist, and the package-size budget.
+and TypeScript 5.9 floors, the tarball allowlist, and the package-size budget.
 The publish job may consume only the tarball and digest produced by that gate.
 
 ## Release candidate sequence
 
-1. Merge the `1.0.0-rc.1` release pull request to protected `main`.
+1. Merge the `X.Y.Z-rc.N` release pull request to protected `main`.
 2. Open **Actions → Release**, select `main`, and run the workflow.
 3. Review the completed evidence and approve the `npm-production` deployment.
-4. Wait for registry verification and the immutable `v1.0.0-rc.1` GitHub
+4. Wait for registry verification and the immutable `vX.Y.Z-rc.N` GitHub
    release. Do not create either one manually.
 5. Install `viborm@next` in fresh consumers and rehearse fresh installation,
-   upgrade from `0.1.0`, CLI use, push, generate, apply, down, reset, tampered
-   estate refusal, and interrupted-generation recovery on the declared
-   provider matrix.
-6. If a blocker is found, publish `1.0.0-rc.2` or a later RC. Never replace an
-   existing RC.
+   upgrade from the previous stable release, CLI use, push, generate, apply,
+   down, reset, tampered estate refusal, and interrupted-generation recovery on
+   the declared provider matrix.
+6. If a blocker is found, publish the next RC (`X.Y.Z-rc.N+1`). Never replace
+   an existing RC.
 7. After the final RC has completed the soak and all blockers are closed, merge
-   a release pull request for `1.0.0` and run the same workflow. Only this
+   a release pull request for `X.Y.Z` and run the same workflow. Only this
    stable release moves `latest`.
 
 The workflow is complete only after npm reports the expected version, channel,

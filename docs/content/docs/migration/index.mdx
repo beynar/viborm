@@ -67,7 +67,10 @@ const preview = await migrations.push({
       return change.proceed();
     }
     if (change.type === "ambiguous") {
-      return change.rename();
+      // Rename columns. Name a table pair explicitly before renaming a table.
+      return change.operation === "renameColumn"
+        ? change.rename()
+        : change.reject();
     }
     if (change.isNullable) {
       return change.useNull();

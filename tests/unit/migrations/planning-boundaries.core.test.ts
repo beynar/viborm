@@ -28,7 +28,8 @@ const WITHOUT_BOM = /without a BOM/;
 const INVALID_UTF8_JSON = /valid UTF-8 JSON/;
 const INVALID_RESOLUTION = /invalid resolution result/;
 const INVALID_NULL_RESOLUTION = /invalid resolution result null/;
-const REQUIRED_AMBIGUITY_DECISION = /requires rename or addAndDrop/;
+const REQUIRED_AMBIGUITY_DECISION =
+  /^Unresolved ambiguous change: Column "name" → "display_name" in table "user" \(rename or add\+drop\?\)\nGenerate requires change\.rename\(\) or change\.addAndDrop\(\)/;
 
 const userTable: TableDef = {
   name: "user",

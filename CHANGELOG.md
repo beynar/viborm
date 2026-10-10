@@ -3,6 +3,123 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.1.0 — 2026-10-10
+
+Adds recursive relation filters, fixes the regressions found in the round-2
+review of 1.0.0, and removes per-operation work that protected nothing.
+
+### Added
+
+- **Recursive relation filters.** A `where` filter on an ordinary self relation
+  accepts `recurse` and quantifies over the relation's transitive closure. This
+  covers a foreign key such as `parent`/`children`, or a junction such as
+  `team.parents`/`team.children`.
+  - Example: `{ parent: { recurse: true, self: true, some: { grants: { some: {
+    userId } } } } }` matches a document when it, or any ancestor, carries the
+    grant.
+  - `recurse` takes the same options as in `select`/`include`: `true` follows
+    100 levels, `{ depth: n }` follows 1–1000 levels, `{ depth: false }` is
+    exhaustive.
+  - `self: true` includes the row itself. `some`/`every`/`none` take the related
+    model's full `where`; with `recurse`, a to-one relation accepts them too.
+  - Cycles and diamonds terminate, and each reached row counts once. Rows
+    hidden by `softDelete` or a `rows` extension stop the walk.
+  - It compiles to one correlated `WITH RECURSIVE` inside `EXISTS`. It works in
+    every read, `count`, aggregates, `updateMany`/`deleteMany`, and nested
+    inside other relation filters.
+- **`viborm check --db`** audits SQLite-family storage: non-canonical
+  DateTime/Time text, decimal columns without VibORM's scaled-integer storage,
+  and audited columns missing from the database. It exits 1 when any exists,
+  prints the repair route and adds a `storage` report to `--json`.
+
+### Fixed
+
+- **SQLite, libSQL, bun:sqlite and D1: typed queries no longer inspect physical
+  storage.** In 1.0.0, every statement on a model with a DateTime, Time or
+  Decimal column was surrounded by a catalog read, `BEGIN IMMEDIATE`, a storage
+  assertion and `COMMIT`; DateTime and Time columns also scanned the whole table
+  twice. A primary-key lookup on a `createdAt` + `updatedAt` model took 82 ms at
+  1k rows and 7.7 s at 100k. D1 refused every query on a model with a text
+  DateTime column (statement too long, or pattern too complex). One
+  non-canonical timestamp row made the whole model fail with V8003. A typed
+  statement now sends only its own SQL: one statement per `findUnique`, about
+  0.05 ms at 100k rows, and no write lock for reads.
+- **libSQL: a `SQLITE_BUSY` while opening a transaction no longer loses later
+  writes.** The SDK reused a connection left inside the failed `BEGIN`, so later
+  writes were acknowledged and never committed. The client is now quarantined
+  (V1003) as it already was for a busy statement.
+- **`where: { field: 0 }` on an int or bigint column no longer throws** "Explicit
+  zero is not portable for an auto-increment field" when an `.increment()` id
+  was built first. The zero refusal applies to the auto-increment id on create
+  only.
+- **Push never renames a table without a named pair.** `lenientResolver` and the
+  documented resolver could rename another application's table into a new
+  model, labelled non-destructive. `lenientResolver` now renames columns only
+  and leaves table pairs undecided, in push and in `migrate generate` alike:
+  name each table pair in a resolver. Every table rename is destructive and
+  needs consent.
+- **PostgreSQL: adding enum values uses `ALTER TYPE … ADD VALUE [BEFORE …]`
+  again.** 1.0.0 recreated the type for an append, rewriting every table using
+  it, and failed when a view, rule or CHECK depended on the column. The type is
+  replaced only for removals, reorders, and when the same migration may use a
+  new value (a default naming it, a column converted to the enum, or a new
+  partial-index predicate naming the enum or one of its columns); any such
+  replacement still fails on a dependent view, rule or CHECK (#85).
+  `apply`, `down` and `reset` commit after a migration that adds enum values.
+- **postgres.js: a `BEGIN` that cannot connect leaves the client usable.** It
+  rejects with the retryable V1001 instead of quarantining the client with V5001
+  until `$disconnect()`.
+- **`s.enum()` accepts a readonly tuple**, so the documented
+  `const STATUS = [...] as const` recipe compiles and keeps its literal union.
+- **libSQL: BigInt keys read from a many-to-many junction are exact** with a
+  supplied client in `intMode: "number"`.
+- **MySQL: `updateMany`/`deleteMany` filtered through a relation now match the
+  rows that matched before the statement.** MySQL evaluates such a filter row
+  by row while the statement, and the cascades it fires, change the rows the
+  filter reads, so a self relation or a cascading delete could change or remove
+  the wrong rows. The filter now reads the matching keys first, in the same
+  statement, as PostgreSQL and SQLite already answered.
+
+### Performance
+
+- `exist()` and unpaged `count()`/`aggregate()` read the filtered table
+  directly instead of a subquery ordered by primary key: `count()` on 200k rows
+  went from about 1.8 ms to about 30 µs on SQLite and from about 35 ms to 10 ms
+  on PGlite.
+- A supplied libSQL client no longer sends a setup statement before its first
+  query: one Turso round trip less per client.
+- Nested writes on D1, Neon HTTP and MySQL batch routes no longer send a
+  `DELETE` that could never match.
+- bun:sqlite reuses compiled statements through its own `query()` cache.
+
+### Changed
+
+- **TypeScript 5.9 is the minimum supported version (was 5.8).** On 5.8 a
+  three-level include over a 100-model schema fails with TS2589. The package
+  gate type-checks that schema as an installed consumer on 5.9.
+- libSQL: a supplied client may use intMode `"number"` or `"bigint"` (1.0.0
+  refused `"number"` with V1004); `"string"` mode is not supported for typed
+  reads.
+- Documentation: the homepage states the V1 status; the configuration and
+  Cloudflare KV examples run as written; the Raw SQL page warns about compact
+  ids stored as bytes, and the vector page about hand-made HNSW indexes. The
+  postgres.js page documents its two round trips per query, the
+  `options.prepare` opt-in, and `viborm/pg` as the one-round-trip driver.
+- On a to-one relation filter, the key `recurse` now always selects the
+  recursive filter. Filter a target field literally named `recurse` through
+  `is`: `{ parent: { is: { recurse: … } } }`.
+
+### Upgrading from 1.0.0
+
+- **SQLite databases written by another tool or by an RC.** Typed queries no
+  longer check stored values. Timestamps stored as non-canonical text are
+  missed or misordered by filters until repaired. A foreign `DECIMAL(p,s)`
+  column that VibORM never pushed or migrated reads whole numbers as scaled
+  coefficients (3 reads as 0.03). Run `viborm check --db`, and adopt foreign
+  tables through push, migrate or a baseline; see the SQLite migration guide.
+- **PostgreSQL migrations generated by 1.1.0 that add enum values** must be
+  applied, rolled back and reset by 1.1.0 or later.
+
 ## 1.0.0 — 2026-10-09
 
 - Repair the confirmed transaction, driver lifecycle, SQLite storage, scalar,

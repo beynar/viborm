@@ -32,12 +32,13 @@ export interface ConfigFixtureOptions {
   /** Which in-memory driver the config's client uses. Default "pglite". */
   dialect?: Dialect;
   /**
-   * Persist the pglite client to this on-disk dataDir instead of an ephemeral
-   * in-memory one. REQUIRED for any test that invokes a CLI command and then
-   * reads DB state afterwards: every command calls `driver.disconnect()`, and
-   * pglite's close() DESTROYS an in-memory database, so state (including the
-   * migration tracking table) would not survive to the next invocation. A
-   * dataDir mirrors a real deployment's persistent DB. pglite-only.
+   * Persist the client to this on-disk dataDir (a pglite directory, a sqlite3
+   * file) instead of an ephemeral in-memory one. REQUIRED for any test that
+   * invokes a CLI command and then reads DB state afterwards: every command
+   * calls `driver.disconnect()`, and pglite's close() DESTROYS an in-memory
+   * database, so state (including the migration tracking table) would not
+   * survive to the next invocation. A dataDir mirrors a real deployment's
+   * persistent DB.
    */
   dataDir?: string;
   /**
@@ -107,7 +108,7 @@ export function writeConfigFixture(
   const driverUrl = dialect === "sqlite3" ? SQLITE3_URL : PGLITE_URL;
   let driverArgs: string;
   if (dialect === "sqlite3") {
-    driverArgs = `{ dataDir: ":memory:" }`;
+    driverArgs = `{ dataDir: ${JSON.stringify(dataDir ?? ":memory:")} }`;
   } else if (dataDir) {
     driverArgs = `{ dataDir: ${JSON.stringify(dataDir)} }`;
   } else {

@@ -94,7 +94,7 @@ beforeAll(() => hydrateSchemaNames(schema));
 const paris = { longitude: 2.3522, latitude: 48.8566 };
 
 /** The derived-table wrap MySQL needs and no other dialect may have. */
-const DERIVED_TABLE_WRAP = /EXISTS\s*\(\s*SELECT \* FROM \(/;
+const KEYED_SNAPSHOT = /WHERE \S+ IN \(SELECT \* FROM \(SELECT /;
 
 function engineOf(adapter: DatabaseAdapter, dialect: Dialect): TestQueryEngine {
   return new TestQueryEngine(
@@ -155,7 +155,12 @@ function loweringClient(dialectCase: DialectCase) {
 
 describe.each(dialectCases)("$name mutation correlation", (dialectCase) => {
   const table = dialectCase.q("parity_lowering_employees");
-  const qualified = `${table}.${dialectCase.q("id")}`;
+  // MySQL reads such a selector as its keyed snapshot, where the mutated
+  // table is an aliased read like any other.
+  const qualified =
+    dialectCase.dialect === "mysql"
+      ? `${dialectCase.q("q0")}.${dialectCase.q("id")}`
+      : `${table}.${dialectCase.q("id")}`;
 
   test("an unaliased mutation target is correlated by its table NAME", async () => {
     const { driver, client } = loweringClient(dialectCase);
@@ -185,7 +190,7 @@ describe.each(dialectCases)("$name mutation correlation", (dialectCase) => {
     expect(remove).toContain(qualified);
   });
 
-  test("a subquery over the mutated table is hidden only where the provider needs it", async () => {
+  test("a selector reading other rows is a keyed snapshot only where the provider needs it", async () => {
     const { driver, client } = loweringClient(dialectCase);
     await client.employee.updateMany({
       where: { reports: { some: { name: "mid" } } },
@@ -195,9 +200,9 @@ describe.each(dialectCases)("$name mutation correlation", (dialectCase) => {
     const update =
       driver.statements.find((statement) => statement.startsWith("UPDATE")) ??
       "";
-    // MySQL ERROR 1093: a subquery may not read the table being mutated.
-    const wrapped = DERIVED_TABLE_WRAP.test(update);
-    expect(wrapped).toBe(dialectCase.dialect === "mysql");
+    // MySQL answers the subquery row by row as the statement changes the rows
+    // it reads (and refuses to read the mutated table there, ERROR 1093).
+    expect(KEYED_SNAPSHOT.test(update)).toBe(dialectCase.dialect === "mysql");
   });
 });
 
@@ -220,7 +225,7 @@ const LIMITED_WRITES: Record<string, readonly string[]> = {
   MySQL: [
     "DELETE FROM `parity_lowering_employees` WHERE `parity_lowering_employees`.`views` > ? ORDER BY `id` ASC LIMIT 2",
     "UPDATE `parity_lowering_employees` SET `name` = ? WHERE `parity_lowering_employees`.`views` > ? ORDER BY `id` ASC LIMIT 2",
-    "DELETE FROM `parity_lowering_employees` WHERE EXISTS (SELECT * FROM (SELECT 1 FROM `parity_lowering_employees` AS `q0` WHERE (`parity_lowering_employees`.`id` = `q0`.`managerId` AND (`q0`.`name` = ? AND BINARY `q0`.`name` = ?))) AS `q1`) ORDER BY `id` ASC LIMIT 2",
+    "DELETE FROM `parity_lowering_employees` WHERE `id` IN (SELECT * FROM (SELECT `q0`.`id` FROM `parity_lowering_employees` AS `q0` WHERE EXISTS (SELECT 1 FROM `parity_lowering_employees` AS `q1` WHERE (`q0`.`id` = `q1`.`managerId` AND (`q1`.`name` = ? AND BINARY `q1`.`name` = ?)))) AS `q2`) ORDER BY `id` ASC LIMIT 2",
     "DELETE FROM `parity_lowering_seats` WHERE (`parity_lowering_seats`.`label` = ? AND BINARY `parity_lowering_seats`.`label` = ?) ORDER BY `row` ASC, `col` ASC LIMIT 2",
     "UPDATE `parity_lowering_seats` SET `label` = ? WHERE (`parity_lowering_seats`.`label` = ? AND BINARY `parity_lowering_seats`.`label` = ?) ORDER BY `row` ASC, `col` ASC LIMIT 2",
   ],
@@ -242,8 +247,8 @@ describe.each(dialectCases)("$name limited writes", (dialectCase) => {
       data: { name: "x" },
       limit: 2,
     });
-    // A relation filter: MySQL hides the mutated table (ERROR 1093) AND
-    // orders the statement.
+    // A relation filter: MySQL reads its keyed snapshot AND orders the
+    // statement.
     await client.employee.deleteMany({
       where: { reports: { some: { name: "mid" } } },
       limit: 2,

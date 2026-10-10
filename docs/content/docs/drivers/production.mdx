@@ -51,18 +51,21 @@ when the operation's idempotency and the error's commit certainty make it safe;
 transaction callbacks can include effects outside the database. Authentication,
 configuration and closed-handle refusals require correcting that condition.
 
-Local libSQL `SQLITE_BUSY` quarantines the exact native handle because the SDK can
-retain an uncommitted write after the failure. Further VibORM work on that handle
-is refused. An owned driver can disconnect and create a fresh client; the owner
-of a supplied client must replace it. VibORM does not close or repair unrelated
+Local libSQL `SQLITE_BUSY`, in a statement or while opening a transaction,
+quarantines the exact native handle because the SDK would keep later writes
+uncommitted. Further VibORM work on that handle is refused, so retry the `V5006`
+only after recovery. An owned driver can disconnect and create a fresh client;
+the owner of a supplied client must replace it. VibORM does not close or repair unrelated
 users of a supplied handle.
 
 ## Poolers and edge runtimes
 
 A PostgreSQL pooler endpoint is still a PostgreSQL URL. Its session/transaction
 pooling mode and prepared-statement policy belong to the pooler. The postgres.js
-driver defaults to `prepare: false`; opt in only when the endpoint supports that
-provider contract. Namespace qualification does not depend on session search_path.
+driver sends unprepared statements by default; opt in with
+`options: { prepare: true }` only when the endpoint supports prepared statements
+(see [postgres.js prepared statements](/docs/drivers/postgresql/postgres#prepared-statements)).
+Namespace qualification does not depend on session search_path.
 
 Use [Neon HTTP](/docs/drivers/postgresql/neon-http) for stateless HTTP requests.
 Its ordered batch/isolation support does not provide interactive callbacks.

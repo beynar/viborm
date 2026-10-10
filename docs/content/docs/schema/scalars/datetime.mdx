@@ -107,6 +107,12 @@ await client.user.create({
 });
 ```
 
+On SQLite-family drivers, text written outside the typed client in a spelling
+other than the canonical `YYYY-MM-DDTHH:mm:ss.sssZ` / `HH:mm:ss.sss` compares
+wrongly; `viborm check --db` finds it, and
+[repairing foreign timestamp and Time text](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text)
+rewrites it.
+
 ## Examples
 
 ```ts

@@ -14,9 +14,7 @@ export interface TransactionOperationOverrides {
   executeWith?(driver: AnyDriver): Promise<unknown>;
   parseResult?(raw: QueryResult<unknown>): unknown;
   prepare?(driver?: AnyDriver): PreparedQuery | undefined;
-  prepareBatch?(
-    driver?: AnyDriver
-  ): Promise<PreparedBatchOperation<unknown> | undefined>;
+  prepareBatch?(): Promise<PreparedBatchOperation<unknown> | undefined>;
 }
 
 /** Test-only method view over the production operation's opaque authority. */
@@ -68,10 +66,8 @@ export class TestTransactionOperationView {
     return this.#owner.prepare(this.#capability, driver);
   }
 
-  prepareBatch(
-    driver?: AnyDriver
-  ): Promise<PreparedBatchOperation<unknown> | undefined> {
-    return this.#owner.prepareBatch(this.#capability, driver);
+  prepareBatch(): Promise<PreparedBatchOperation<unknown> | undefined> {
+    return this.#owner.prepareBatch(this.#capability);
   }
 
   parseResult(raw: QueryResult<unknown>): unknown {
@@ -149,10 +145,10 @@ export class TestTransactionOperation<T> implements PromiseLike<T> {
         operation.#overrides.prepare === undefined
           ? operation.#owner.prepare(operation.#capability, driver)
           : operation.#overrides.prepare(driver),
-      prepareBatch: (operation, driver) =>
+      prepareBatch: (operation) =>
         operation.#overrides.prepareBatch === undefined
-          ? operation.#owner.prepareBatch(operation.#capability, driver)
-          : operation.#overrides.prepareBatch(driver),
+          ? operation.#owner.prepareBatch(operation.#capability)
+          : operation.#overrides.prepareBatch(),
       parseResult: (operation, raw) =>
         operation.#overrides.parseResult === undefined
           ? operation.#owner.parseResult(operation.#capability, raw)

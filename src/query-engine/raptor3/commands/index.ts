@@ -1,9 +1,6 @@
-import type { PhysicalSchemaCheck } from "@client/physical-schema";
 import type { Operations } from "@client/types";
-import type { AnyDriver } from "@drivers/exports";
 import type { QueryExecutionContext } from "@drivers/types";
 import { NotFoundError } from "@errors";
-import type { AnyModel } from "@schema/model";
 import type { Sql } from "@sql";
 import type { PreparedBatchOperation } from "../../types";
 import { unreachable } from "../shared/invariant";
@@ -71,7 +68,6 @@ function admittedOperation(operation: Operations): Operation {
  * two cannot disagree for any verb.
  */
 export interface PreparedRead {
-  readonly models: ReadonlySet<AnyModel>;
   /**
    * The shape of the ROW the prepared statement decodes. For every verb whose
    * public value is the row (or the rows), this is the public value's shape too;
@@ -111,12 +107,8 @@ export interface PreparedRead {
  * STATES the cardinality and the public value's shape beside the statement it
  * decodes (`Queries.read`), so nothing here re-derives either from behavior.
  */
-function publishedFacts(
-  value: Read,
-  models: ReadonlySet<AnyModel>
-): PreparedRead {
+function publishedFacts(value: Read): PreparedRead {
   return {
-    models,
     shape: value.query.shape,
     value: value.value,
     single: value.single,
@@ -142,13 +134,10 @@ export interface PreparedOperation {
   readonly read?: PreparedRead;
   execute(
     binding?: ExecutionBinding,
-    attribution?: QueryExecutionContext,
-    checkStorage?: PhysicalSchemaCheck
+    attribution?: QueryExecutionContext
   ): Promise<unknown>;
   prepareBatch(
-    attribution?: QueryExecutionContext,
-    checkStorage?: PhysicalSchemaCheck,
-    driver?: AnyDriver
+    attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined>;
   /**
    * The same package as {@link PreparedOperation.prepareBatch}, for the verbs
@@ -174,7 +163,6 @@ class PreparedCommand implements PreparedOperation {
   #admitted: Arguments | undefined;
   #prepared: Read | undefined;
   #facts: PreparedRead | undefined;
-  #modelDependencies: ReadonlySet<AnyModel> = new Set();
 
   constructor(
     config: EngineConfig,
@@ -224,32 +212,21 @@ class PreparedCommand implements PreparedOperation {
   }
 
   #read(): Read | undefined {
-    const operation = this.#operation;
-    if (!isReadOperation(operation)) return undefined;
-    if (!this.#prepared) {
-      const queries = this.#scope?.domain.reads ?? this.#queries;
-      const captured = queries.captureModels(() =>
-        queries.read(this.#model, operation, this.args)
-      );
-      this.#prepared = captured.value;
-      this.#modelDependencies = captured.models;
-    }
-    return this.#prepared;
+    if (!isReadOperation(this.#operation)) return undefined;
+    return (this.#prepared ??= (
+      this.#scope?.domain.reads ?? this.#queries
+    ).read(this.#model, this.#operation, this.args));
   }
 
   get read(): PreparedRead | undefined {
     const value = this.#read();
     if (!value) return undefined;
-    return (this.#facts ??= publishedFacts(value, this.#modelDependencies));
+    return (this.#facts ??= publishedFacts(value));
   }
 
   #body(context: OperationContext) {
     const value = this.#read();
-    if (value) {
-      for (const model of this.#modelDependencies)
-        context.modelDependencies.add(model);
-      return context.run(() => context.publish(value, this.#missing));
-    }
+    if (value) return context.run(() => context.publish(value, this.#missing));
     // The physical form is constructed BEFORE the envelope decision and runs
     // once, whichever envelope the rule chooses.
     let planned: PhysicalPlan | undefined = new Commands(context).plan(
@@ -281,8 +258,7 @@ class PreparedCommand implements PreparedOperation {
 
   execute(
     binding?: ExecutionBinding,
-    attribution?: QueryExecutionContext,
-    checkStorage?: PhysicalSchemaCheck
+    attribution?: QueryExecutionContext
   ): Promise<unknown> {
     try {
       return this.#body(
@@ -294,9 +270,7 @@ class PreparedCommand implements PreparedOperation {
           binding,
           false,
           attribution,
-          this.#scope,
-          this.#config,
-          checkStorage
+          this.#scope
         )
       );
     } catch (error) {
@@ -319,8 +293,7 @@ class PreparedCommand implements PreparedOperation {
       undefined,
       true,
       attribution,
-      this.#scope,
-      this.#config
+      this.#scope
     );
     const value = this.#read();
     if (value) {
@@ -349,21 +322,17 @@ class PreparedCommand implements PreparedOperation {
   }
 
   async prepareBatch(
-    attribution?: QueryExecutionContext,
-    checkStorage?: PhysicalSchemaCheck,
-    driver?: AnyDriver
+    attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined> {
     const context = new OperationContext(
       this.#schema,
-      driver ?? this.#config.driver,
+      this.#config.driver,
       this.#modelName,
       this.#operation,
       undefined,
       true,
       attribution,
-      this.#scope,
-      this.#config,
-      checkStorage
+      this.#scope
     );
     try {
       await this.#body(context);
@@ -371,7 +340,7 @@ class PreparedCommand implements PreparedOperation {
       if (context.isIncompletePreparation(error)) return undefined;
       throw error;
     }
-    return context.prepareStorageBatch();
+    return context.preparedBatch();
   }
 }
 

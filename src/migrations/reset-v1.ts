@@ -11,6 +11,7 @@ import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
   groupContiguousAtomicity,
+  stepStatements,
 } from "./compile";
 import {
   appendLedger,
@@ -884,7 +885,9 @@ async function executeResetProgram(
     | undefined,
   finish: (producer: Parameters<typeof appendLedger>[0]) => Promise<void>
 ): Promise<void> {
-  const groups = groupContiguousAtomicity(replay);
+  const groups = groupContiguousAtomicity(replay, ({ blob, operations }) =>
+    stepStatements(blob, operations)
+  );
   const liveClearDispatches = new Set(
     livePlan
       ? [

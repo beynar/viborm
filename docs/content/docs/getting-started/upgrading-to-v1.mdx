@@ -9,11 +9,12 @@ and raw SQL. Treat this as an application and database upgrade, not only a
 package-version change.
 
 :::info[V1 upgrade]
-This guide covers `1.0.0`. Install the stable release with
-`npm install viborm@1.0.0`. V1 includes the ten-capability extension system,
+This guide covers V1. Install the current stable release with
+`npm install viborm@1.1.0`. V1 includes the ten-capability extension system,
 `viborm/soft-delete`, schema validation through `viborm check`, and the storage
-and transaction corrections listed in the changelog. Rehearse against a database
-copy before deploying an upgrade.
+and transaction corrections listed in the changelog. Releases after 1.0.0 list
+their upgrade notes in the changelog. Rehearse against a database copy
+before deploying an upgrade.
 :::
 
 The pre-V1 baseline was `0.1.0`, the initial development package. The
@@ -23,7 +24,7 @@ are not a claim that every spelling shipped in `0.1.0`.
 
 ## 1. Prepare the application and a database copy
 
-Use Node.js 22 or later and TypeScript 5.8 or later, with strict mode. The
+Use Node.js 22 or later and TypeScript 5.9 or later, with strict mode. The
 package exports ESM. Use a supported driver entry point such as `viborm/pg`,
 `viborm/postgres`, or `viborm/sqlite3` and install its database library
 separately. See [Installation](/docs/getting-started) and
@@ -133,8 +134,11 @@ At scale 2, logical `12.34` is SQLite coefficient `1234`; a JSON-backed list
 stores it as `"1234"`. Existing SQLite decimal text or floating-point values
 are not interchangeable with these coefficients. Preserve their logical value
 in a reviewed conversion; never rename their type and assume the stored value
-has changed. Descriptor changes also need review: scale reduction is valid
-only when all discarded digits are zero. See
+has changed. Typed queries do not inspect that storage: `viborm check --db`
+reports a decimal column without it, as described in
+[adopting decimal columns from another tool](/docs/migration/drivers/sqlite#adopting-decimal-columns-from-another-tool).
+Descriptor changes also need review: scale reduction is valid only when all
+discarded digits are zero. See
 [Decimal](/docs/schema/scalars/decimal#descriptor-migrations) for provider
 limits and refused conversion paths.
 
@@ -174,8 +178,12 @@ queries as well as DDL. See [String](/docs/schema/scalars/string).
 DateTime accepts valid `Date` values and timestamps naming a real calendar
 date, with a timezone and a UTC instant from `0000-01-01T00:00:00.000Z` through
 `9999-12-31T23:59:59.999Z`. Invalid dates, nonexistent calendar days, hour 24,
-leap-second spellings, and out-of-range instants are refused. Audit permissive
-legacy strings before reading or rewriting them through the typed client.
+leap-second spellings, and out-of-range instants are refused. SQLite text
+that release candidates up to rc.5 or another writer stored in a noncanonical
+spelling compares wrongly in filters and ordering; `viborm check --db` counts
+it, and the
+[SQLite repair helpers](/docs/migration/drivers/sqlite#repairing-foreign-timestamp-and-time-text)
+rewrite it.
 
 SQLite DateTime storage follows the declared native type:
 

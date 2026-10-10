@@ -93,11 +93,6 @@ const FLOAT_TRANSPORT_EXEMPTION_SPELLINGS = [
   // is deliberately aggressive about mixed-purpose modules. Exempted by exact
   // spelling, so any OTHER Number() in that file still fails.
   "src/migrations/drivers/mysql/introspect.ts readSrid Number(col.SRS_ID)",
-  // SQLite catalog flags describe nullability and primary-key position, not
-  // decimal values. Each exact call is permitted once in the storage owner;
-  // an amount conversion or a duplicate flag conversion still fails.
-  "src/adapters/databases/sqlite/storage/runtime-check.ts sqliteStorageCheck Number(row.notnull)",
-  "src/adapters/databases/sqlite/storage/runtime-check.ts sqliteStorageCheck Number(row.pk)",
 ];
 
 const REJECTED_FLOAT_TRANSPORT_SPELLINGS = [
@@ -467,41 +462,6 @@ function decodeProviderValue(value: string) {
 }`
       )
     ).toEqual(["src/migrations/decimal.ts Number 1"]);
-  });
-
-  it("exempts only the two SQLite catalog flags once in their storage owner", () => {
-    const file = "src/adapters/databases/sqlite/storage/runtime-check.ts";
-    const witness = `import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
-function sqliteStorageCheck() {
-  return { validate(row) {
-    return Number(row.notnull) === 0 && Number(row.pk) === 0;
-  } };
-}`;
-    expect(decimalFloatTransportEntries(file, witness)).toEqual([]);
-    expect(
-      decimalFloatTransportEntries(
-        file,
-        witness.replace(
-          "Number(row.pk) === 0",
-          "Number(row.pk) === 0 && Number(row.notnull) === 0 && Number(row.pk) === 0"
-        )
-      )
-    ).toEqual([`${file} Number 2`]);
-    expect(
-      decimalFloatTransportEntries(
-        file,
-        witness.replace("Number(row.pk)", "Number(row.amount)")
-      )
-    ).toEqual([`${file} Number 1`]);
-    expect(
-      decimalFloatTransportEntries(
-        file,
-        witness.replace(
-          "function sqliteStorageCheck()",
-          "function decodeDecimal()"
-        )
-      )
-    ).toEqual([`${file} Number 2`]);
   });
 });
 

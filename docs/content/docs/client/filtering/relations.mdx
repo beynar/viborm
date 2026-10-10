@@ -7,7 +7,9 @@ icon: git-branch
 ## Overview
 
 Filter records by their relations using operators that depend on cardinality:
-`is`/`isNot` for to-one relations, and `some`/`every`/`none` for to-many.
+`is`/`isNot` for to-one relations, and `some`/`every`/`none` for to-many. On a
+self relation, `recurse` follows the relation transitively (see
+[Recursive filters](#recursive-filters)).
 Direct polymorphic filters first select a target `type`; polymorphic inverses
 use their declared to-one or to-many cardinality.
 
@@ -29,6 +31,109 @@ For collection slots (`s.toMany`):
 | `some` | At least one match |
 | `every` | All must match |
 | `none` | No matches |
+
+## Recursive filters
+
+On a **self relation** — a foreign key such as `parent`/`children`, or a
+junction such as `team.parents`/`team.children` — a filter can follow the
+relation transitively with `recurse`. It then quantifies over the relation's
+closure: every row reached by one or more hops, plus the row itself with
+`self: true`.
+
+```ts
+// Documents that carry a grant to the user, or whose ancestor does
+await client.document.findMany({
+  where: {
+    parent: { recurse: true, self: true, some: { grants: { some: { userId } } } },
+  },
+});
+
+// Documents whose root is personal: the root is the closure row with no parent
+await client.document.findMany({
+  where: {
+    parent: { recurse: true, self: true, some: { parentId: null, personal: true } },
+  },
+});
+
+// Pages granted to a team the user belongs to or leads, or to any team above it
+await client.page.updateMany({
+  where: {
+    grants: {
+      some: {
+        level: { in: ["edit", "full"] },
+        granteeTeam: {
+          children: {
+            recurse: true,
+            self: true,
+            some: {
+              OR: [
+                { members: { some: { userId } } },
+                { grants: { some: { userId, level: "full" } } },
+              ],
+            },
+          },
+        },
+      },
+    },
+  },
+  data: { title },
+});
+```
+
+| Key | Meaning |
+|-----|---------|
+| `recurse: true` or `recurse: {}` | follow the relation up to **100** hops |
+| `recurse: { depth: n }` | follow it up to `n` hops, `1 ≤ n ≤ 1000` |
+| `recurse: { depth: false }` | **exhaustive**: follow it until the data ends |
+| `recurse: { preventCycles }` | junction relations only; accepted for parity with `select`, the closure is the same set either way |
+| `self: true` | include the row itself (hop 0); default `false` |
+| `some: where` | at least one row of the closure matches |
+| `every: where` | every row of the closure matches; true when the closure is empty |
+| `none: where` | no row of the closure matches; true when the closure is empty |
+
+`recurse` takes the same options as in [`select`/`include`](/docs/client/selecting#recursive-relations)
+and is admitted on the same relations: an ordinary self relation, foreign key
+or junction, whose model has a complete primary key. Anywhere else it is
+refused with a `ValidationError`. At least one of `some`, `every` and `none`
+is required, several are combined with `AND`, and each takes the related
+model's full `where`, including other relation filters, other recursive
+filters and `AND`/`OR`/`NOT`. With `recurse`, a to-one relation such as
+`parent` takes `some`/`every`/`none` too, because the closure is a set even
+when one hop reaches one row; `is` and `isNot` cannot be combined with it.
+A fragment returned by a helper keeps `recurse: true` literal only with
+`as const` (or `satisfies`): TypeScript otherwise widens it to `boolean`,
+which `recurse` does not accept.
+
+The closure is a set keyed by the primary key. A cycle terminates, and a row
+reached by two paths (a diamond) counts once. A walk that comes back to its
+start makes the start a member, even without `self`. Unlike a recursive
+`select`, a filter never refuses a foreign-key cycle: there is no tree to
+build. A numeric `depth` counts hops from the starting row.
+
+A recursive filter works wherever a relation filter does: every read, `count`,
+`exist`, `aggregate`, `groupBy`, a relation projection's `where`, a `_count`
+filter, `updateMany` and `deleteMany`, and nested inside other relation
+filters. It compiles to one correlated `WITH RECURSIVE` inside `EXISTS`, in the
+same statement as the rest of the query.
+
+- **Row scopes.** With [soft delete](/docs/extensions/soft-delete) or another
+  `rows` extension, the walk reads the related domain at every hop: a hidden
+  row is not a member and stops the walk below it. The `self` row is the row
+  the call already selected and is not filtered again.
+- **MySQL.** An `updateMany` or `deleteMany` filtered through a relation
+  reads the matching keys before it changes any row, so it matches the rows
+  PostgreSQL and SQLite match, even when the walk crosses the model being
+  changed or a model its delete cascades into. An exhaustive walk deeper than
+  `cte_max_recursion_depth` fails with the driver's error 3636.
+- **Cost.** The walk runs once per outer row. Index the foreign key
+  (`parentId`) and the junction column the walk starts from (`parentId` of
+  `teamParent` to walk `children`, `childId` to walk `parents`). A numeric
+  `depth` (and `recurse: true`, which is 100) carries the hop count with each
+  row, so a cycle in the data is walked again at every level up to the depth,
+  and the nested `some`/`every`/`none` condition is checked once per row and
+  level reached; `{ depth: false }` visits each row once. On PostgreSQL, `ANALYZE` a table
+  after loading it in bulk: without statistics the planner overestimates the
+  walk, and JIT compilation can then add seconds to every statement.
 
 ## Polymorphic Relations
 

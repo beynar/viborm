@@ -76,6 +76,12 @@ queue. Transactions begin with `BEGIN IMMEDIATE`; owned databases use a
 5-second busy timeout. Strings with unpaired UTF-16 surrogates are refused
 before dispatch because Bun SQLite cannot preserve them.
 
+Typed statements are reused through the database's own `query()` cache: they
+share its bounded size, are finalized when the database closes, and keep
+Bun's `safeIntegers` mode (see below) if your code queries the same SQL text.
+A database whose `prepare` was replaced or overridden sees every statement
+instead.
+
 ## Large integers
 
 SQLite's `INTEGER` is 64-bit, so a value past `2^53` cannot survive as a JS

@@ -23,7 +23,7 @@ id = "your-namespace-id"
 ## Configuration
 
 ```typescript
-import { createClient } from "viborm";
+import { createClient } from "viborm/d1";
 import { cache } from "viborm/cache";
 import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
 
@@ -31,7 +31,7 @@ export default {
   async fetch(request, env, ctx) {
     const client = createClient({
       schema: { user, post },
-      driver: createD1Driver(env.DB),
+      database: env.DB,
     }).$extends(cache({
       driver: new CloudflareKVCache(env.CACHE),
       waitUntil: ctx.waitUntil.bind(ctx),
@@ -120,7 +120,7 @@ Add to `tsconfig.json`:
 ## Example with SWR
 
 ```typescript
-import { createClient } from "viborm";
+import { createClient } from "viborm/d1";
 import { cache } from "viborm/cache";
 import { CloudflareKVCache } from "viborm/cache/cloudflare-kv";
 
@@ -128,7 +128,7 @@ export default {
   async fetch(request, env, ctx) {
     const client = createClient({
       schema: { user, post },
-      driver: createD1Driver(env.DB),
+      database: env.DB,
     }).$extends(cache({
       driver: new CloudflareKVCache(env.CACHE),
       waitUntil: ctx.waitUntil.bind(ctx),
@@ -158,7 +158,7 @@ export default {
   async fetch(request, env, ctx) {
     const client = createClient({
       schema: { user },
-      driver: createD1Driver(env.DB),
+      database: env.DB,
     }).$extends(cache({ driver: new CloudflareKVCache(env.CACHE) }));
 
     if (request.method === "POST") {

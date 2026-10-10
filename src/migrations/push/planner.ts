@@ -357,9 +357,12 @@ async function resolveWithCallback(
           admittedAmbiguousDrops.add(ambiguousDropKey(change));
           continue;
         }
+        const advice =
+          change.type === "ambiguousTable"
+            ? `If "${change.droppedTable}" is not this schema's table, set migrations.tables so push does not manage it; otherwise name the pair with change.rename() or change.addAndDrop().`
+            : "Return change.rename() or change.addAndDrop() from the resolver.";
         throw new MigrationError(
-          `Unresolved ambiguous change: ${resolveChange.description}\n` +
-            "Return change.rename() or change.addAndDrop() from the resolver, or use force: true.",
+          `Unresolved ambiguous change: ${resolveChange.description}\n${advice}`,
           VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
         );
       }
@@ -473,7 +476,7 @@ async function resolveDestructiveOperations(
       } else {
         throw new MigrationError(
           `Unresolved destructive change: ${change.description}\n` +
-            "Return change.proceed() or change.reject() from the resolver, or use force: true.",
+            "Return change.proceed() or change.reject() from the resolver.",
           VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
         );
       }

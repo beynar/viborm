@@ -24,7 +24,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,10 +33,7 @@ const distDir = join(repoRoot, "dist");
 // two installed TypeScripts won pnpm's bin collision, and today it is the
 // native 7.0.2 - which refuses files on the command line beside a tsconfig
 // (TS5112). The floor is about the JS compiler consumers run.
-const tsc =
-  process.env.VIBORM_TYPESCRIPT_BIN === undefined
-    ? join(repoRoot, "node_modules", "typescript", "bin", "tsc")
-    : resolve(repoRoot, process.env.VIBORM_TYPESCRIPT_BIN);
+const tsc = join(repoRoot, "node_modules", "typescript", "bin", "tsc");
 
 const BASE_FLAGS = [
   "--noEmit",

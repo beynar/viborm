@@ -51,7 +51,6 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
         );
         const statements = [
           ...setup,
-          getAdapterInternals(driver.adapter).batchRefs.clear(batchId),
           ...publication,
           sql`SELECT ${getAdapterInternals(driver.adapter).batchRefs.read(
             batchId,
@@ -62,7 +61,7 @@ export function runBatchRefSmokeBehavior<TDriver extends Driver<any, any>>({
             tableName
           )}`,
         ];
-        const selectIndex = setup.length + 1 + publication.length;
+        const selectIndex = setup.length + publication.length;
         const results = await driver._executeBatch<{ id: string | number }>(
           statements.map((statement) => driver._prepare(statement))
         );

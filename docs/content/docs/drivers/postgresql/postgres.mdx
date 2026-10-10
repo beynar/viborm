@@ -69,6 +69,9 @@ VibORM checks supplied temporal parser configuration before using the client.
 `vibormTypes` keeps PostgreSQL dates and timestamps as text so typed queries
 decode them consistently, including years before 100 and timezone offsets.
 `$disconnect()` leaves this supplied client open; its owner calls `sql.end()`.
+Its statements stay unprepared unless you pass `options: { prepare: true }`
+beside it and the client keeps postgres.js's default `prepare: true`; see
+[Prepared statements](#prepared-statements).
 
 ### With pgvector
 
@@ -137,14 +140,30 @@ VibORM preserves that failure and drains the provider's stale reconnect response
 through at most two acquisitions from the same pool, within one cleanup deadline
 using the transaction acquisition budget (five seconds by default). It releases
 each lease without running caller SQL. It never
-replays the callback or closes a supplied pool. If cleanup cannot establish pool
-availability, this driver wrapper refuses further work until disconnect; the
-caller still owns the supplied pool's lifecycle.
+replays the callback or closes a supplied pool. If the server is still
+unreachable, the transaction rejects with that retryable connection error and
+the client stays usable: no live session remains, so the next query or
+transaction reconnects once the server is back, without `$disconnect()`.
 
 ## Prepared statements
 
-Generated and raw statements default to `prepare: false`, which avoids session
-prepared statements on transaction poolers. On a direct or session-pooled
-connection that supports prepared statements, set `options: { prepare: true }`
-to opt into postgres.js statement reuse. This forwards the provider's supported
-query option; it does not promise preparation for every statement shape.
+Generated and raw statements are unprepared by default, for a client built from
+`databaseUrl` or `options` and for a supplied one. postgres.js sends an
+unprepared statement that has parameters in two round trips: it parses and
+describes it, waits for the server's parameter types, then binds and executes.
+The unnamed statement leaves nothing on the server, so transaction-mode poolers
+accept it. [`viborm/pg`](/docs/drivers/postgresql/pg) (node-postgres) sends the
+same unnamed statement in one round trip.
+
+Where the endpoint keeps prepared statements, opt in with
+`options: { prepare: true }`, also beside a supplied `client` that keeps
+postgres.js's default `prepare: true` (postgres.js prepares only when both
+agree). Each statement is then parsed once per connection and costs one round
+trip after that. Opting in means:
+
+- After a migration that replaces an enum type (removing or reordering values,
+  or using a value the same migration adds), restart or reconnect every running
+  client: until then its statements bound to the old type fail with `V2001`.
+- The server keeps one prepared statement per distinct query shape (each
+  `in`-list length, each `createMany` row count) per connection until the
+  connection reaches its `max_lifetime`.

@@ -4,6 +4,7 @@ import {
 } from "@adapters/databases/sqlite/storage/column-constraints";
 import {
   type DecimalStorageKind,
+  isSqliteDecimalStorage,
   readSqliteDecimalConstraint,
   sqliteColumnDefinitionCarriesDecimalDescriptor,
   sqliteDecimalCheck,
@@ -14,7 +15,6 @@ import {
   SQLITE_GEO_POINT_TYPE,
   sqliteGeoPointCheck,
 } from "@adapters/databases/sqlite/storage/geo-point";
-import { sqliteStorageCheck } from "@adapters/databases/sqlite/storage/runtime-check";
 import {
   readSqliteIdentifier,
   skipSqlNonStructuralRegion,
@@ -23,36 +23,6 @@ import { createIdentifierQuoter } from "@src/sql/identifiers";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import Database from "better-sqlite3";
 import { expect, test } from "vitest";
-
-test("catalog admission refuses missing tables and incomplete column records", () => {
-  const check = sqliteStorageCheck("events", [
-    { name: "at", kind: "timestamp", list: false },
-  ]);
-  expect(() => check.validate([])).toThrow("physical table is missing");
-  expect(() => sqliteStorageCheck("events", []).validate([])).toThrow(
-    "physical table is missing"
-  );
-  const row = {
-    definition: "CREATE TABLE events (at TEXT)",
-    name: "at",
-    type: "TEXT",
-  };
-  for (const rows of [
-    [{ ...row, name: "other" }],
-    [{ ...row, type: null }],
-    [
-      { ...row, name: "other" },
-      { ...row, definition: null },
-    ],
-  ]) {
-    expect(() => check.validate(rows)).toThrow("physical column is missing");
-  }
-  expect(check.validate([row]).values).toEqual(["events", row.definition]);
-  expect(check.validate([{ ...row, foreign_time: null }]).values).toEqual([
-    "events",
-    row.definition,
-  ]);
-});
 
 test("stored DDL parsing distinguishes empty, quoted and incomplete tokens", () => {
   expect(sqliteTableDefinitions("CREATE TABLE missing")).toEqual([]);
@@ -99,24 +69,52 @@ test("decimal catalog proof uses primary-key nullability and list storage", () =
   const db = new Database(":memory:");
   try {
     db.exec(ddl);
-    const check = sqliteStorageCheck("records", [
-      { name: "amount", kind: "decimal", descriptor, list: false },
-      { name: "values", kind: "decimal", descriptor, list: true },
-    ]);
     const rows = db
-      .prepare<[string], Record<string, unknown>>(check.statement.toStatement())
-      .all("records");
+      .prepare<[], { name: string; type: string; notnull: number; pk: number }>(
+        "SELECT name, type, \"notnull\", pk FROM pragma_table_info('records')"
+      )
+      .all();
     expect(rows.find((row) => row.name === "amount")).toMatchObject({
       pk: 1,
       notnull: 0,
     });
-    const guard = check.validate(rows);
+    // SQLite reports a primary key as nullable; its CHECK was written NOT NULL.
+    const [amountRow, valuesRow] = rows.map((row) => ({
+      ...row,
+      nullable: row.notnull === 0 && row.pk === 0,
+    }));
+    expect(
+      isSqliteDecimalStorage(ddl, amountRow!, descriptor, "scalar", quote)
+    ).toBe(true);
+    expect(
+      isSqliteDecimalStorage(ddl, valuesRow!, descriptor, "list", quote)
+    ).toBe(true);
+    // The declared shape, the descriptor and the storage class all count.
+    expect(
+      isSqliteDecimalStorage(ddl, valuesRow!, descriptor, "scalar", quote)
+    ).toBe(false);
+    expect(
+      isSqliteDecimalStorage(
+        ddl,
+        amountRow!,
+        { precision: 6, scale: 3 },
+        "scalar",
+        quote
+      )
+    ).toBe(false);
+    const real = { name: "price", type: "REAL", nullable: false };
+    expect(
+      isSqliteDecimalStorage(
+        "CREATE TABLE records (price REAL NOT NULL)",
+        real,
+        descriptor,
+        "scalar",
+        quote
+      )
+    ).toBe(false);
     expect(sqliteColumnDefinitionCarriesDecimalDescriptor(ddl, "amount")).toBe(
       true
     );
-    expect(db.prepare(guard.toStatement()).get(...guard.values)).toEqual({
-      1: 1,
-    });
     expect(readSqliteDecimalConstraint(null, amount, quote)).toBeUndefined();
     expect(() =>
       readSqliteDecimalConstraint(

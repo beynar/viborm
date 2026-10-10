@@ -189,7 +189,41 @@ describe("push planner ambiguity resolution", () => {
     await expect(
       planPush(client, driver, { resolve: () => undefined }, relations)
     ).rejects.toMatchObject({
-      message: expect.stringContaining("Unresolved ambiguous change"),
+      message: `Unresolved ambiguous change: Table "account" → "profile" (rename or add+drop?)\nIf "account" is not this schema's table, set migrations.tables so push does not manage it; otherwise name the pair with change.rename() or change.addAndDrop().`,
+    });
+  });
+
+  test("an unresolved column pair asks for one of the two decisions", async () => {
+    const labelled = {
+      profile: s
+        .model({ id: s.string().id(), label: s.string() })
+        .map("profile"),
+    };
+    hydrateSchemaNames(labelled);
+    const labelledRelations = resolveSchemaOrThrow(labelled);
+    const target = serializeResolvedModels(
+      labelled,
+      serializer,
+      labelledRelations
+    );
+    const named: SchemaSnapshot = {
+      ...target,
+      tables: target.tables.map((table) => ({
+        ...table,
+        columns: table.columns.map((column) =>
+          column.name === "label" ? { ...column, name: "name" } : column
+        ),
+      })),
+    };
+    await expect(
+      planPush(
+        { $driver: sqliteEstateDriver(), $schema: labelled },
+        snapshotMigrationDriver(named),
+        { resolve: () => undefined },
+        labelledRelations
+      )
+    ).rejects.toMatchObject({
+      message: `Unresolved ambiguous change: Column "name" → "label" in table "profile" (rename or add+drop?)\nReturn change.rename() or change.addAndDrop() from the resolver.`,
     });
   });
 

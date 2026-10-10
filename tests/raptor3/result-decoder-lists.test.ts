@@ -35,11 +35,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
-import type {
-  Dialect,
-  DriverResultParser,
-  QueryExecutionContext,
-} from "@drivers";
+import type { Dialect, DriverResultParser } from "@drivers";
 import { Driver } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { QueryEngineError, QueryError } from "@errors";
@@ -118,7 +114,6 @@ function spelled(row: unknown): unknown {
 
 /** A driver that answers exactly the rows a cell hands it. */
 class ScriptedDriver extends Driver<null, null> {
-  private readonly catalog = new SQLite3Driver();
   readonly adapter;
   readonly result: DriverResultParser | undefined;
   private readonly rows: unknown[];
@@ -129,30 +124,15 @@ class ScriptedDriver extends Driver<null, null> {
     this.adapter = new SQLite3Driver().adapter;
   }
   protected async initClient() {
-    await syncLiveSchema(createClient({ schema, driver: this.catalog }));
     return null;
   }
   protected async closeClient() {
-    await this.catalog.disconnect();
+    // Scripted rows own no provider resource.
   }
-  protected async execute<T>(
-    _client: null,
-    statement: string,
-    params: unknown[],
-    context?: QueryExecutionContext
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    if (context?.model === "$schema")
-      return this.catalog._executeRaw<T>(statement, params, context);
+  protected async execute<T>(): Promise<{ rows: T[]; rowCount: number }> {
     return { rows: this.rows as T[], rowCount: this.rows.length };
   }
-  protected async executeRaw<T>(
-    _client: null,
-    statement: string,
-    params: unknown[] | undefined,
-    context?: QueryExecutionContext
-  ): Promise<{ rows: T[]; rowCount: number }> {
-    if (context?.model === "$schema")
-      return this.catalog._executeRaw<T>(statement, params, context);
+  protected async executeRaw<T>(): Promise<{ rows: T[]; rowCount: number }> {
     return { rows: [], rowCount: 0 };
   }
   protected async transaction<T>(

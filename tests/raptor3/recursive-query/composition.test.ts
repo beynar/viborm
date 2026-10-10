@@ -45,6 +45,9 @@
  *     answered as an object also publishes, its `meta.scalarType` naming the
  *     carrier check that refused it; the same read decodes the well-formed
  *     answer.
+ * 14. a recursive FILTER in a nested lookup depends on every link of its
+ *     closure: a sibling write that moves an intermediate row is observed
+ *     before the lookup, which an exact key it names cannot prove disjoint.
  *
  * Arguments are passed untyped (`Reflect.apply`): the cells vary placements,
  * and the public static surface is the type author's probe file.
@@ -137,6 +140,7 @@ const NOTES = [
 ] as const;
 
 const RECURSIVE = /WITH RECURSIVE/;
+const MOVING_UPDATE = /^UPDATE\b.*SET "parentId"/;
 const CTE_NAME = /WITH RECURSIVE "([^"]+)"/g;
 const LEADING_VERB = /^\s*(\w+)/;
 const SAVEPOINT_NAME = /sp_[0-9a-f]+/g;
@@ -2015,6 +2019,71 @@ describe("RQ-06 recursive projections composed through the shipped client", () =
         model: "node",
         reason: "a requested relation is not a provider array",
       },
+    });
+  });
+
+  it("14. a recursive filter's lookup is observed after a sibling write that moves a link of its closure", async () => {
+    /** a1x is updated only when z is among its ancestors. */
+    const underZ = {
+      where: { id: "a1x", parent: { recurse: true, some: { id: "z" } } },
+      data: { label: "under z" },
+    };
+    /**
+     * One nested update of `parentRow` (linked to a1x) whose earlier arm moves
+     * a row of a1x's ancestry (a1, a, r) under z. Read ahead of that move,
+     * the closure lookup misses a1x and the operation refuses its target. A
+     * batch transport prepares every read it is not told to order, so it is
+     * where a missing dependency fact shows.
+     */
+    const run = async (parentRow: string, data: Record<string, unknown>) => {
+      const { client, database, driver } = await world("batch-only");
+      const insertLink = database.prepare(
+        `INSERT INTO ${LINK_TABLE}(fromId, toId) VALUES (?, ?)`
+      );
+      for (const from of ["z", "a1"]) insertLink.run(from, "a1x");
+      insertLink.run("z", "a1");
+      const moved = await measure(driver, () =>
+        call(client, "node", "update", {
+          where: { id: parentRow },
+          data,
+          select: { id: true },
+        })
+      );
+      assert.equal(moved.failure, undefined, String(moved.failure));
+      const write = moved.statements.findIndex((statement) =>
+        MOVING_UPDATE.test(statement)
+      );
+      const lookup = moved.statements.findIndex((statement) =>
+        RECURSIVE.test(statement)
+      );
+      assert(write >= 0 && lookup > write, moved.statements.join("\n"));
+      assert.equal(
+        get(
+          await call(client, "node", "findUnique", {
+            where: { id: "a1x" },
+            select: { label: true },
+          }),
+          "label"
+        ),
+        "under z"
+      );
+    };
+    // a1, located by its exact key: the lookup's own exact keys (a1x, z)
+    // differ from it, so only an INEXACT closure read keeps it behind.
+    await run("z", {
+      links: {
+        update: [
+          { where: { id: "a1" }, data: { parent: { connect: { id: "z" } } } },
+          underZ,
+        ],
+      },
+    });
+    // a, located through a1's to-one parent: a write judged by the fields it
+    // writes, and the junction lookup reads no `parentId` of its own, so the
+    // closure must declare the link field its walk joins on.
+    await run("a1", {
+      parent: { update: { data: { parentId: "z" } } },
+      links: { update: underZ },
     });
   });
 });

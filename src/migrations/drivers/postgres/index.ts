@@ -1,7 +1,10 @@
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
 import type { IdDomain } from "@validation/primitives/id-codec";
-import { arrayLiteralText } from "../../../adapters/databases/postgres/array-literal";
+import {
+  arrayLiteralText,
+  readArrayLiteralText,
+} from "../../../adapters/databases/postgres/array-literal";
 import { stringifyJson } from "../../../adapters/shared/standard-sql";
 /**
  * PostgreSQL Migration Driver
@@ -26,7 +29,13 @@ import {
   postgresTextToUuidGuard,
 } from "../../identifier-conversion";
 import type { NativeRenameOperation } from "../../native-rename";
-import type { ColumnDef, SchemaSnapshot, TableDef } from "../../types";
+import type {
+  ColumnDef,
+  DiffOperation,
+  IndexDef,
+  SchemaSnapshot,
+  TableDef,
+} from "../../types";
 import { derivedMigrationName } from "../../utils";
 import {
   type AddColumnOperation,
@@ -139,6 +148,110 @@ function snapshotUsesGeoPoint(snapshot: SchemaSnapshot): boolean {
       (column) => column.type.toLowerCase().replace(/\s+/g, "") === physicalType
     )
   );
+}
+
+const QUOTED_LITERAL = /^'(.*)'$/s;
+
+const storesEnum = (column: ColumnDef, enumName: string) =>
+  column.type === enumName || column.type === `${enumName}[]`;
+
+/** The labels a default of `enumName`, or of its array, spells. */
+function enumDefaultLabels(
+  column: ColumnDef,
+  enumName: string
+): readonly (string | null)[] {
+  if (!storesEnum(column, enumName)) return [];
+  const literal = column.default
+    ?.match(QUOTED_LITERAL)?.[1]
+    ?.replaceAll("''", "'");
+  if (literal === undefined) return [];
+  return column.type === enumName
+    ? [literal]
+    : (readArrayLiteralText(literal) ?? []);
+}
+
+const IDENTIFIER_PART = /[\w$]/;
+
+/**
+ * Whether SQL text may name `identifier`: bare in any case, or double-quoted.
+ * Matches inside literals and comments count too; they only cost a type
+ * recreation that was not needed.
+ */
+function mayName(sql: string, identifier: string): boolean {
+  const text = sql.toLowerCase();
+  const name = identifier.replaceAll('"', '""').toLowerCase();
+  for (let at = text.indexOf(name); at >= 0; at = text.indexOf(name, at + 1))
+    if (
+      !(
+        IDENTIFIER_PART.test(text[at - 1] ?? "") ||
+        IDENTIFIER_PART.test(text[at + name.length] ?? "")
+      )
+    )
+      return true;
+  return false;
+}
+
+/**
+ * Whether an operation after `ALTER TYPE … ADD VALUE` in the same transaction
+ * may read an added label, which PostgreSQL refuses until commit (55P04): a
+ * default naming one, a cast of stored data into the enum, or a partial-index
+ * predicate naming the type or a column of it. No literal spelling is
+ * trusted: `$$archived$$`, `E'archived'` and a function result compare the
+ * same.
+ */
+function readsAddedValue(
+  enumName: string,
+  added: readonly string[],
+  tables: readonly TableDef[],
+  following: readonly DiffOperation[]
+): boolean {
+  const defaultNamesAdded = (column: ColumnDef) => {
+    const labels = enumDefaultLabels(column, enumName);
+    return added.some((value) => labels.includes(value));
+  };
+  // The type and every name the batch gives a column of it, on any table.
+  const names = new Set([enumName]);
+  const addEnumColumns = (columns: readonly ColumnDef[]) => {
+    for (const column of columns)
+      if (storesEnum(column, enumName)) names.add(column.name);
+  };
+  for (const table of tables) addEnumColumns(table.columns);
+  const predicateNamesEnum = ({ where }: IndexDef) =>
+    where !== undefined && [...names].some((name) => mayName(where, name));
+  for (const operation of following) {
+    switch (operation.type) {
+      case "createTable":
+        addEnumColumns(operation.table.columns);
+        if (
+          operation.table.columns.some(defaultNamesAdded) ||
+          operation.table.indexes.some(predicateNamesEnum)
+        )
+          return true;
+        break;
+      case "addColumn":
+        if (defaultNamesAdded(operation.column)) return true;
+        addEnumColumns([operation.column]);
+        break;
+      // A column already of the enum is known; one cast into it may hold a label.
+      case "alterColumn":
+        if (
+          defaultNamesAdded(operation.to) ||
+          (storesEnum(operation.to, enumName) &&
+            !storesEnum(operation.from, enumName))
+        )
+          return true;
+        break;
+      case "renameColumn":
+        if (names.has(operation.from)) names.add(operation.to);
+        break;
+      case "createIndex":
+        if (predicateNamesEnum(operation.index)) return true;
+        break;
+      default:
+        break;
+    }
+  }
+  return false;
 }
 
 export class PostgresMigrationDriver extends MigrationDriver {
@@ -1275,8 +1388,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
       ...context,
       currentSchema: this.schemaAtOperation(context),
     };
-    const { enumName, addValues, removeValues, newValues, dependentColumns } =
-      op;
+    const {
+      enumName,
+      addValues = [],
+      removeValues,
+      newValues,
+      dependentColumns,
+    } = op;
     const statements: string[] = [];
     const enumType = this.qualify(enumName);
     const before =
@@ -1287,28 +1405,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
       newValues !== undefined &&
       before.filter((value) => newValues.includes(value)).join("\0") !==
         newValues.filter((value) => before.includes(value)).join("\0");
-    const usedByDefault = (physicalContext.precedingOperations ?? []).some(
-      (operation) =>
-        "column" in operation &&
-        operation.column.type === enumName &&
-        operation.column.default !== undefined
+    // ADD VALUE only touches the catalog; a recreated type admits a later
+    // read of an added value in the same transaction.
+    const usesAddedValue = readsAddedValue(
+      enumName,
+      addValues,
+      physicalContext.currentSchema?.tables ?? [],
+      context.followingOperations ?? []
     );
-    // Newly added enum values cannot be USED until commit, even on PG12+.
-    // Recreating the type lets a later column/default use it in this transaction.
-    const dependentDefault = (physicalContext.currentSchema?.tables ?? []).some(
-      (table) =>
-        table.columns.some(
-          (column) => column.type === enumName && column.default !== undefined
-        )
-    );
-    const recreate =
-      (physicalContext.currentSchema !== undefined &&
-        newValues !== undefined) ||
-      (removeValues?.length ?? 0) > 0 ||
-      reordered ||
-      usedByDefault ||
-      dependentDefault;
-    if (addValues?.length && !recreate) {
+    if (!(removeValues?.length || reordered || usesAddedValue)) {
       const available = new Set(before);
       for (const value of addValues) {
         const following = newValues
@@ -1354,8 +1459,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
       if (
         column?.default !== undefined &&
-        !(removeValues ?? []).some(
-          (value) => column.default === this.escapeValue(value)
+        !enumDefaultLabels(column, enumName).some(
+          (label) => label !== null && removeValues?.includes(label)
         )
       )
         statements.push(

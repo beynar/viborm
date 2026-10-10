@@ -195,7 +195,7 @@ export async function resolveEnumValueRemovalMappings(
       } else {
         throw new MigrationError(
           `Unresolved enum value removal: ${change.description}\n` +
-            "Return change.mapValues() or change.useNull() from the resolver, or use force: true.",
+            "Return change.mapValues() or change.useNull() from the resolver.",
           VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
         );
       }

@@ -24,6 +24,9 @@ BigInt supports the full [modifier reference](/docs/schema/scalars). Column type
 s.bigInt().id().increment(); // Auto-incrementing bigint primary key
 ```
 
+As with [`s.int()`](/docs/schema/scalars/number#auto-increment), an explicit
+`0n` is refused on create only; zero filters are ordinary comparisons.
+
 ## Examples
 
 ```ts

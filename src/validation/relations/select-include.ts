@@ -3,11 +3,6 @@
 import type { AnyModel, ModelState } from "@schema/model";
 import type { StringKeyOf } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
-import type {
-  StaticForeignKeyMembership,
-  StaticJunctionMembership,
-  StaticRecursiveMembership,
-} from "@schema/relation/static-membership";
 import type { RelationState } from "@schema/relation/types";
 import type { ResolvedSlot } from "@schema/validation/relation-resolution";
 import { withOmitProjection } from "../model/args/omit";
@@ -19,16 +14,18 @@ import {
 } from "../model/args/pagination";
 import { rejectSelectInclude } from "../model/args/select-include-exclusivity";
 import { projectableScalarNames } from "../model/core/projection";
-import { createSchema } from "../primitives/helpers";
 import v, { type V } from "../primitives/v";
-import type { ValidationResult, VibSchema } from "../types";
-import { isRecord } from "../value-guards";
+import type { VibSchema } from "../types";
 import type { GetTargetSchemas, SchemaGetter, TargetModel } from "./helpers";
 import {
-  type ForeignKeyRecurrenceSchema,
-  type GraphRecurrenceSchema,
+  type RecurrenceFor,
   type RecurrenceSchema,
   recurrenceSchema,
+  type UnavailableRecurrenceSchema,
+  type UnavailableRecursiveClauseSchema,
+  unavailableRecurrence,
+  unavailableRecursiveClause,
+  withRecursiveNode,
 } from "./recurrence";
 
 // =============================================================================
@@ -84,16 +81,6 @@ const withNestedOmit = <Schema extends V.Object<any>>(
 ): Schema =>
   withOmitForModel(getTargetModel(relation), nestedOmitLabel(relation), schema);
 
-const unavailableRecurrence = () =>
-  v.optional(
-    v.refused(
-      "recurse is available only on an ordinary self relation (a foreign key or a junction, never variant storage) whose model has a complete primary key"
-    )
-  );
-
-const unavailableRecursiveClause = (clause: string) =>
-  v.optional(v.refused(`${clause} cannot be combined with recurse`));
-
 /** The asking key cannot have a second producer inside its own repeated node. */
 const askingKeyRefusal = (key: string) =>
   v.optional(
@@ -101,41 +88,6 @@ const askingKeyRefusal = (key: string) =>
       `${key} is produced by recurse and cannot be selected again inside its own recursive node`
     )
   );
-
-/**
- * The node language of a slot that can recurse. A spelled `recurse` decides
- * the node form, so it meets only the recursive node and that node's own
- * refusals; every other value meets the ordinary language exactly as a slot
- * that cannot recurse does. JSON Schema still reads the three forms as one
- * union.
- */
-const withRecursiveNode = (
-  ordinary: V.Union<readonly [VibSchema<any, any>, VibSchema<any, any>]>,
-  recursive: VibSchema<any, any>
-) => {
-  const validateOrdinary = ordinary["~standard"].validate;
-  const validateRecursive = recursive["~standard"].validate;
-  const schema = createSchema(
-    "union",
-    (value) =>
-      (isRecord(value) && value.recurse !== undefined
-        ? validateRecursive(value)
-        : validateOrdinary(value)) as ValidationResult<unknown>
-  );
-  return Object.assign(schema, { options: [...ordinary.options, recursive] });
-};
-
-type UnavailableRecurrenceSchema = ReturnType<typeof unavailableRecurrence>;
-
-type RecurrenceFor<
-  Source extends AnyModel,
-  Key,
-  S extends RelationState,
-> = StaticRecursiveMembership<Source, Key, S> extends StaticForeignKeyMembership
-  ? ForeignKeyRecurrenceSchema
-  : StaticRecursiveMembership<Source, Key, S> extends StaticJunctionMembership
-    ? GraphRecurrenceSchema
-    : never;
 
 /** A target projection whose asking key is refused, keeping its options. */
 type ProjectionWithoutAsking<Schema extends V.Object<any, any>, Key> = V.Object<
@@ -230,8 +182,8 @@ type ToOneRecursiveNodeSchema<
   V.Object<
     {
       recurse: RecurrenceFor<Source, Key, S>;
-      where: ReturnType<typeof unavailableRecursiveClause>;
-      orderBy: ReturnType<typeof unavailableRecursiveClause>;
+      where: UnavailableRecursiveClauseSchema;
+      orderBy: UnavailableRecursiveClauseSchema;
       select: () => RecursiveProjectionSchemas<S, Key>["select"];
       include: () => RecursiveProjectionSchemas<S, Key>["include"];
       omit: () => GetTargetSchemas<S>["core"]["omit"];
@@ -478,10 +430,10 @@ type ToManyRecursiveNodeSchema<
           V.Array<GetTargetSchemas<S>["core"]["orderBy"]>,
         ]
       >;
-      take: ReturnType<typeof unavailableRecursiveClause>;
-      skip: ReturnType<typeof unavailableRecursiveClause>;
-      cursor: ReturnType<typeof unavailableRecursiveClause>;
-      distinct: ReturnType<typeof unavailableRecursiveClause>;
+      take: UnavailableRecursiveClauseSchema;
+      skip: UnavailableRecursiveClauseSchema;
+      cursor: UnavailableRecursiveClauseSchema;
+      distinct: UnavailableRecursiveClauseSchema;
       select: () => RecursiveProjectionSchemas<S, Key>["select"];
       include: () => RecursiveProjectionSchemas<S, Key>["include"];
       omit: () => GetTargetSchemas<S>["core"]["omit"];

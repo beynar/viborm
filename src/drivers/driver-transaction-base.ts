@@ -663,8 +663,8 @@ export abstract class DriverTransactionBase<
     }[] = [];
     try {
       // Every transform belongs to its statement observation, but must finish
-      // before the first effect: a later transform can change storage checked
-      // by an earlier protected assertion in this same atomic batch.
+      // before the first effect: a transform that refuses a later statement
+      // then refuses the batch before any statement reaches the provider.
       for (const [statementIndex, query] of queries.entries()) {
         if (!query) continue;
         const statementContext = query.context

@@ -307,7 +307,7 @@ describe("PendingOperation frozen public contract", () => {
       params: expect.any(Array),
       context: directCapability.context,
     });
-    await expect(capability(bulk).prepareBatch(driver)).resolves.toMatchObject({
+    await expect(capability(bulk).prepareBatch()).resolves.toMatchObject({
       queries: expect.any(Array),
       parseResult: expect.any(Function),
     });

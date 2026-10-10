@@ -72,7 +72,7 @@ export async function executeLegacyArrayTransaction(
           if (prepared) return { kind: "single" as const, prepared };
           return {
             kind: "batch" as const,
-            preparedBatch: await owner.prepareBatch(operation, driver),
+            preparedBatch: await owner.prepareBatch(operation),
           };
         }
       );
@@ -201,7 +201,7 @@ async function executeObservedNativeArray(
           if (prepared) return { kind: "single" as const, prepared };
           return {
             kind: "batch" as const,
-            preparedBatch: await owner.prepareBatch(operation, driver),
+            preparedBatch: await owner.prepareBatch(operation),
           };
         }
       );

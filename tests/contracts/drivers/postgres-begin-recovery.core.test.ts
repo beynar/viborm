@@ -75,7 +75,7 @@ describe("postgres.js failed BEGIN recovery", () => {
     expect(reserve).not.toHaveBeenCalled();
   });
 
-  it("retains primary and both terminal acquisition failures, then quarantines only the wrapper", async () => {
+  it("retains primary and both terminal acquisition failures, then stays usable because no live session remains", async () => {
     const { client, end, reserve, driver } = fixture();
     const primary = closed();
     const prior = stale();
@@ -86,14 +86,14 @@ describe("postgres.js failed BEGIN recovery", () => {
       primary
     );
     expect(readSuppressedFailures(primary)).toEqual([prior, terminal]);
-    const dispatch = vi.fn(() =>
-      Promise.reject(new Error("Unexpected provider dispatch"))
+    const dispatch = vi.fn(async () =>
+      Object.assign([{ x: 1 }], { count: 1, command: "SELECT" })
     );
     Object.defineProperty(client, "unsafe", { value: dispatch });
-    await expect(driver._executeRaw("SELECT 1")).rejects.toThrow(
-      "unavailable after transaction cleanup failed"
-    );
-    expect(dispatch).not.toHaveBeenCalled();
+    await expect(driver._executeRaw("SELECT 1")).resolves.toMatchObject({
+      rowCount: 1,
+    });
+    expect(dispatch).toHaveBeenCalledOnce();
     await driver._disconnect();
     expect(end).not.toHaveBeenCalled();
   });

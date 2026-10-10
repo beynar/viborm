@@ -22,7 +22,7 @@ isolated provider allowance applies. Never bypass the runners or raise their
 memory limits to make a check pass. They hold a shared workspace lock and verify
 child-process teardown.
 
-The package consumer gates separately verify the supported TypeScript 5.8 and
+The package consumer gates separately verify the supported TypeScript 5.9 and
 Node 22.0 floors. A native TypeScript pass alone does not establish package support.
 Container, Bun, Workers and hosted checks are separate provider evidence; a skipped
 provider has not passed. Project `.env` files are ignored. Never commit credentials

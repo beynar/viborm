@@ -149,21 +149,6 @@ export function attachCommitCertainty(
   error: VibORMError,
   commitCertainty: NonNullable<VibORMErrorMeta["commitCertainty"]>
 ): VibORMError {
-  return cloneWithMetadata(error, { commitCertainty });
-}
-
-/** Rebase a protected-batch prefix without mutating the trusted error snapshot. */
-export function remapStatementIndex(
-  error: VibORMError,
-  statementIndex: number
-): VibORMError {
-  return cloneWithMetadata(error, { statementIndex });
-}
-
-function cloneWithMetadata(
-  error: VibORMError,
-  additions: VibORMErrorMeta
-): VibORMError {
   const snapshot = VibORMError.prototype.toJSON.call(error);
   const snapshotMeta = readProperty(snapshot, "meta");
   const diagnostics = getTrustedErrorDisclosure(error);
@@ -171,7 +156,7 @@ function cloneWithMetadata(
     isRecord(snapshotMeta) ? snapshotMeta : {},
     diagnostics
   );
-  Object.assign(meta, additions);
+  meta.commitCertainty = commitCertainty;
   return cloneVibORMError(error, meta, snapshot, diagnostics);
 }
 

@@ -274,7 +274,7 @@ export const PLACEMENT_MATRIX_TABLES: readonly TableSpec[] = Object.freeze([
 export interface ProviderCase {
   readonly name: string;
   readonly model: string;
-  readonly operation: "findMany" | "findUnique" | "update" | "delete";
+  readonly operation: Operations;
   readonly args: Record<string, unknown>;
   /** The public value — or, with `summarize`, what that value reduces to. */
   readonly expected?: unknown;
@@ -565,6 +565,251 @@ export const PROVIDER_CASES: readonly ProviderCase[] = Object.freeze([
   },
 ]);
 
+/**
+ * The recursive SELECT shapes whose provider SQL each provider test pins byte
+ * for byte: the witness that the one walk owner (`#walk`) still spells the
+ * shipped projection — foreign key up and down, junction, bounded and
+ * exhaustive, with and without a per-hop selector.
+ */
+export const SELECT_SQL_PINS: readonly ProviderCase[] = Object.freeze([
+  {
+    name: "foreign key up, bounded",
+    model: "node",
+    operation: "findMany",
+    args: {
+      where: { tenant: "t", code: "beta-child" },
+      select: {
+        label: true,
+        parent: { recurse: { depth: 2 }, select: { label: true } },
+      },
+    },
+    expected: [
+      {
+        label: "Beta child",
+        parent: { label: "Beta", parent: { label: "Root A" } },
+      },
+    ],
+  },
+  {
+    name: "foreign key down, exhaustive, selector",
+    model: "node",
+    operation: "findMany",
+    args: {
+      where: { tenant: "t", code: "root-b" },
+      select: {
+        label: true,
+        children: {
+          recurse: { depth: false },
+          where: { visible: true },
+          select: { label: true },
+        },
+      },
+    },
+    expected: [
+      { label: "Root B", children: [{ label: "Gamma", children: [] }] },
+    ],
+  },
+  {
+    name: "junction, bounded, selector",
+    model: "node",
+    operation: "findMany",
+    args: {
+      where: { tenant: "t", code: "root-a" },
+      select: {
+        label: true,
+        neighbors: {
+          recurse: { depth: 2 },
+          where: { visible: true },
+          orderBy: { code: "asc" },
+          select: { label: true },
+        },
+      },
+    },
+    expected: [
+      {
+        label: "Root A",
+        neighbors: [
+          { label: "Alpha", neighbors: [leaf("Merge")] },
+          { label: "Beta", neighbors: [leaf("Merge")] },
+        ],
+      },
+    ],
+  },
+  {
+    name: "junction, exhaustive",
+    model: "node",
+    operation: "findMany",
+    args: {
+      where: { tenant: "t", code: "root-a" },
+      select: {
+        label: true,
+        neighbors: {
+          recurse: { depth: false },
+          orderBy: { code: "asc" },
+          select: { label: true },
+        },
+      },
+    },
+    expected: [
+      {
+        label: "Root A",
+        neighbors: [
+          { label: "Alpha", neighbors: [{ label: "Merge", neighbors: [] }] },
+          { label: "Beta", neighbors: [{ label: "Merge", neighbors: [] }] },
+        ],
+      },
+    ],
+  },
+]);
+
+const codes = (...values: string[]) => values.map((code) => ({ code }));
+const closureRead = (where: Record<string, unknown>) => ({
+  where,
+  orderBy: { code: "asc" },
+  select: { code: true },
+});
+
+/**
+ * The recursive FILTER shapes whose provider SQL each provider test pins byte
+ * for byte, with their rows written by hand from the placement tables: both
+ * of the owner's shapes (a foreign-key ancestor walk with `self`; a junction
+ * walk nested in another relation filter), the depth column and its absence,
+ * `self` both ways, a closure nested in a closure, and the two mutations —
+ * one walking the table it updates and one walking another table, which
+ * MySQL answers from the keyed snapshot of their keys.
+ */
+export const FILTER_SQL_PINS: readonly ProviderCase[] = Object.freeze([
+  {
+    name: "foreign-key ancestors with self, default depth",
+    model: "node",
+    operation: "findMany",
+    args: closureRead({
+      parent: {
+        recurse: true,
+        self: true,
+        some: { notes: { some: { text: "beta note" } } },
+      },
+    }),
+    expected: codes("beta", "beta-child"),
+  },
+  {
+    name: "junction walk with self, bounded, nested in a relation filter",
+    model: "note",
+    operation: "findMany",
+    args: {
+      where: {
+        node: {
+          neighbors: {
+            recurse: { depth: 2 },
+            self: true,
+            some: {
+              OR: [{ notes: { some: { position: 2 } } }, { label: "Nobody" }],
+            },
+          },
+        },
+      },
+      orderBy: { id: "asc" },
+      select: { id: true },
+    },
+    expected: [{ id: "n1" }, { id: "n2" }],
+  },
+  {
+    name: "foreign-key descendants, exhaustive, none",
+    model: "node",
+    operation: "findMany",
+    args: closureRead({
+      children: { recurse: { depth: false }, none: { visible: false } },
+    }),
+    expected: codes(
+      "alpha",
+      "alpha-child",
+      "beta",
+      "beta-child",
+      "gamma",
+      "hidden",
+      "merge",
+      "root-b"
+    ),
+  },
+  {
+    name: "junction, one hop, every over empty closures",
+    model: "node",
+    operation: "findMany",
+    args: closureRead({
+      neighbors: { recurse: { depth: 1 }, every: { rank: { gte: 10 } } },
+    }),
+    expected: codes(
+      "alpha",
+      "alpha-child",
+      "beta",
+      "beta-child",
+      "gamma",
+      "hidden",
+      "root-a",
+      "root-b"
+    ),
+  },
+  {
+    name: "a closure nested in a closure",
+    model: "node",
+    operation: "findMany",
+    args: closureRead({
+      parent: {
+        recurse: true,
+        some: {
+          neighbors: {
+            recurse: { depth: false },
+            self: true,
+            some: { code: "merge" },
+          },
+        },
+      },
+    }),
+    expected: codes("alpha", "alpha-child", "beta", "beta-child", "hidden"),
+  },
+  {
+    name: "updateMany walking the table it updates",
+    model: "node",
+    operation: "updateMany",
+    args: {
+      where: { parent: { recurse: true, some: { code: "root-a" } } },
+      data: { rank: { increment: 0 } },
+    },
+    expected: { count: 5 },
+  },
+  {
+    name: "updateMany walking another table",
+    model: "forest",
+    operation: "updateMany",
+    args: {
+      where: {
+        entry: { children: { recurse: true, some: { code: "beta-child" } } },
+      },
+      data: { name: "Forest A" },
+    },
+    expected: { count: 1 },
+  },
+]);
+
+/**
+ * Runs each case once, checks its value, and answers every provider statement
+ * it sent. The provider tests compare the answer with their literal pins.
+ */
+export async function sqlPins(
+  engine: CaseEngine,
+  observed: Pick<ObservedStatements, "statements">,
+  cases: readonly ProviderCase[]
+): Promise<Record<string, readonly string[]>> {
+  const pins: Record<string, readonly string[]> = {};
+  for (const pin of cases) {
+    const start = observed.statements.length;
+    const outcome = await caseOutcome(engine, pin);
+    assert.deepEqual(outcome, owedOutcome(pin), pin.name);
+    pins[pin.name] = observed.statements.slice(start);
+  }
+  return pins;
+}
+
 // ===========================================================================
 // RQ-03 / RQ-04 worlds — provider-neutral tables, cases grouped by falsifier.
 //
@@ -650,7 +895,8 @@ export function chainSummary(relation: string, field = "label") {
       if (next === null) return { labels, end: "null" };
       if (Array.isArray(next)) {
         if (next.length === 0) return { labels, end: "empty" };
-        if (next.length !== 1) return { labels, end: `branching ${next.length}` };
+        if (next.length !== 1)
+          return { labels, end: `branching ${next.length}` };
         current = occurrence(next[0]);
       } else current = occurrence(next);
       labels.push(current[field]);
@@ -696,7 +942,7 @@ export const ALTERNATE_TABLE = "rq_provider_alternates";
 export const PAIR_TABLE = "rq_provider_pairs";
 export const PAIR_LINK_TABLE = "rq_provider_pair_links";
 /** Beyond MySQL's default recursion ceiling and the public depth ceiling. */
-export const SPINE_LENGTH = 1_100;
+export const SPINE_LENGTH = 1100;
 
 export const hierarchySchema = (() => {
   const spine = s
@@ -860,10 +1106,34 @@ export const HIERARCHY_TABLES: readonly TableSpec[] = Object.freeze([
     // Three siblings tied on `rank`: by tenant they read a, b, c; by code the
     // reverse (w, x, y).
     rows: [
-      { tenant: "r", code: "root", rank: 0, parent_code: null, parent_tenant: null },
-      { tenant: "b", code: "x", rank: 1, parent_code: "root", parent_tenant: "r" },
-      { tenant: "a", code: "y", rank: 1, parent_code: "root", parent_tenant: "r" },
-      { tenant: "c", code: "w", rank: 1, parent_code: "root", parent_tenant: "r" },
+      {
+        tenant: "r",
+        code: "root",
+        rank: 0,
+        parent_code: null,
+        parent_tenant: null,
+      },
+      {
+        tenant: "b",
+        code: "x",
+        rank: 1,
+        parent_code: "root",
+        parent_tenant: "r",
+      },
+      {
+        tenant: "a",
+        code: "y",
+        rank: 1,
+        parent_code: "root",
+        parent_tenant: "r",
+      },
+      {
+        tenant: "c",
+        code: "w",
+        rank: 1,
+        parent_code: "root",
+        parent_tenant: "r",
+      },
     ],
   },
   {
@@ -1093,7 +1363,10 @@ export const HIERARCHY_GROUPS: readonly CaseGroup[] = Object.freeze([
         SPINE_LENGTH,
         "parent",
         { depth: 1000 },
-        { labels: labels("s", SPINE_LENGTH - 1, SPINE_LENGTH - 1000), end: "omitted" },
+        {
+          labels: labels("s", SPINE_LENGTH - 1, SPINE_LENGTH - 1000),
+          end: "omitted",
+        },
         1000
       ),
       spineChain(
@@ -1104,6 +1377,21 @@ export const HIERARCHY_GROUPS: readonly CaseGroup[] = Object.freeze([
         { labels: ["s1", "s0"], end: "null" },
         2
       ),
+      {
+        // The start row joins the first hop in the anchor, so `self` spends
+        // none of MySQL's 1000 recursion iterations: hop 1000 is reached.
+        name: "a recursive filter with self reaches hop 1000",
+        model: "spine",
+        operation: "findMany",
+        args: {
+          where: {
+            id: { in: [1000, 1001] },
+            parent: { recurse: { depth: 1000 }, self: true, some: { id: 0 } },
+          },
+          select: { id: true },
+        },
+        expected: [{ id: 1000 }],
+      },
     ],
   },
   {
@@ -1707,12 +1995,8 @@ const graphCase = (
 });
 
 const diamondTree = (relation: string) => [
-  node("d1", relation, [
-    node("d3", relation, [node("d4", relation, [])]),
-  ]),
-  node("d2", relation, [
-    node("d3", relation, [node("d4", relation, [])]),
-  ]),
+  node("d1", relation, [node("d3", relation, [node("d4", relation, [])])]),
+  node("d2", relation, [node("d3", relation, [node("d4", relation, [])])]),
 ];
 
 /** The same stored row on two paths is two public objects, leaves included. */
@@ -1729,7 +2013,10 @@ function assertFreshDiamond(value: unknown): void {
   assert.notStrictEqual(leftTail, rightTail);
   assert.notStrictEqual(leftTail.payload, rightTail.payload);
   (leftTail.payload as Record<string, unknown>).changed = true;
-  assert.equal((rightTail.payload as Record<string, unknown>).changed, undefined);
+  assert.equal(
+    (rightTail.payload as Record<string, unknown>).changed,
+    undefined
+  );
 }
 
 const ladder = (from: string, rungs: number): ProviderCase => ({
@@ -1981,9 +2268,7 @@ export const GRAPH_GROUPS: readonly CaseGroup[] = Object.freeze([
         },
         expected: [
           node("d0", "out", diamondTree("out")),
-          node("d1", "out", [
-            node("d3", "out", [node("d4", "out", [])]),
-          ]),
+          node("d1", "out", [node("d3", "out", [node("d4", "out", [])])]),
         ],
         check(value) {
           assert(Array.isArray(value));

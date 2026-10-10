@@ -10,6 +10,7 @@ import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
   groupContiguousAtomicity,
+  stepStatements,
 } from "./compile";
 import {
   appendLedger,
@@ -48,7 +49,6 @@ import {
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
-import { sliceDispatch } from "./sql-blob";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import { eventIdFor } from "./v1-parse";
@@ -451,14 +451,10 @@ export async function downV1(
       }
       const run = async (producer: Parameters<typeof appendLedger>[0]) => {
         let current = marker;
-        for (const group of groupContiguousAtomicity(prepared)) {
-          const statements = group.items.flatMap((item) =>
-            item.rollback.operations.flatMap((operation) =>
-              operation.steps.map((step) =>
-                sliceDispatch(item.blob, step.execute)
-              )
-            )
-          );
+        const statementsOf = (item: (typeof prepared)[number]) =>
+          stepStatements(item.blob, item.rollback.operations);
+        for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
+          const statements = group.items.flatMap(statementsOf);
           const lifted = liftForeignKeyPragmas(pinned, statements);
           const executeGroup = async (
             groupProducer: Parameters<typeof appendLedger>[0]
@@ -713,9 +709,7 @@ export async function resolveV1(
           boundary === "transactional"
         )
       ) {
-        const statements = transition.operations.flatMap((operation) =>
-          operation.steps.map((step) => sliceDispatch(blob, step.execute))
-        );
+        const statements = stepStatements(blob, transition.operations);
         const lifted = liftForeignKeyPragmas(pinned, statements);
         await withForeignKeysLifted(pinned, lifted.bracket, () =>
           pinned.withTransaction(async (transaction) => {
