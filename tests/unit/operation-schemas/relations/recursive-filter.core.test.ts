@@ -319,6 +319,52 @@ describe("recursive filter — admission", () => {
       value: { none: {} },
     });
   });
+
+  test("reads recurse and self spelled undefined as absent, on every form", () => {
+    const unspelled = { recurse: undefined, self: undefined };
+    // An eligible slot and one that cannot recurse.
+    for (const filter of [filters.documentChildren, filters.documentGrants]) {
+      for (const value of [{ recurse: undefined }, { self: undefined }]) {
+        expect(parse(filter, { none: {}, ...value })).toStrictEqual({
+          value: { none: {} },
+        });
+      }
+    }
+    const some = { some: { personal: true } };
+    const ordinary = { value: { some: { personal: { equals: true } } } };
+    const is = { value: { is: { personal: { equals: true } } } };
+    expect(
+      parse(filters.documentParent, { is: { personal: true }, ...unspelled })
+    ).toStrictEqual(is);
+    expect(
+      parse(filters.documentParent, { personal: true, ...unspelled })
+    ).toStrictEqual(is);
+    // The toggle a caller writes: one spelling, either form.
+    for (const deep of [true, false]) {
+      expect(
+        parse(filters.documentChildren, {
+          recurse: deep ? true : undefined,
+          self: deep ? true : undefined,
+          ...some,
+        })
+      ).toStrictEqual(
+        deep
+          ? {
+              value: closure(FK_DEFAULT, {
+                self: true,
+                some: ordinary.value.some,
+              }),
+            }
+          : ordinary
+      );
+    }
+    // A spelled `self` is kept for the ordinary language to refuse.
+    expect(
+      issueOf(
+        parse(filters.documentChildren, { ...some, ...unspelled, self: true })
+      )
+    ).toEqual({ message: "Unknown key: self", path: ["self"] });
+  });
 });
 
 describe("recursive filter — refusals", () => {
@@ -396,15 +442,26 @@ describe("recursive filter — refusals", () => {
         "preventCycles applies only to a junction graph; a foreign-key recursion rejects every cycle it reaches"
       );
     }
-    expect(
-      parse(filters.teamChildren, {
-        recurse: { depth: false, preventCycles: false },
-        some: {},
-      }).issues
-    ).toBeDefined();
-    expect(
-      parse(filters.documentParent, { recurse: { depht: 2 }, some: {} }).issues
-    ).toBeDefined();
+    for (const [filter, include, recurse, sentence] of [
+      [
+        filters.teamChildren,
+        schemas.team.relations.children.include,
+        { depth: false, preventCycles: false },
+        "Value did not match any union member: Expected literal: true, Value did not match any union member: Expected integer, Expected literal: true",
+      ],
+      [
+        filters.documentParent,
+        schemas.document.relations.parent.include,
+        { depht: 2 },
+        "Value did not match any union member: Expected literal: true, Unknown key: depht",
+      ],
+    ] as const) {
+      const refusal = issueOf(parse(filter, { recurse, some: {} }));
+      expect(refusal.message).toBe(
+        issueOf(parse(include, { recurse })).message
+      );
+      expect(refusal).toEqual({ message: sentence, path: ["recurse"] });
+    }
   });
 
   test("refuses is and isNot beside recurse", () => {
@@ -490,6 +547,10 @@ describe("recursive filter — the collision rule", () => {
     expect(
       parse(schemas.oddNode.relations.parent.filter, { self: true })
     ).toStrictEqual({ value: { is: { self: { equals: true } } } });
+    // Spelled `undefined` it is absent, like `recurse`: `{}` names no quantifier.
+    expect(
+      parse(schemas.oddNode.relations.parent.filter, { self: undefined })
+    ).toStrictEqual(parse(schemas.oddNode.relations.parent.filter, {}));
   });
 });
 
