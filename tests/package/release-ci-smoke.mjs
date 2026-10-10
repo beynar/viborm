@@ -519,7 +519,6 @@ test("release CI accepts only current complete exact-main proof", async () => {
   assert.deepEqual(sleeps, [30_000, 30_000]);
   assert.equal(pendingMessages.length, 2);
 
-  let unexpectedSleep = false;
   const apiFailure = new Error("transport unavailable");
   await assert.rejects(
     waitForReleaseCi({
@@ -533,16 +532,12 @@ test("release CI accepts only current complete exact-main proof", async () => {
       ref,
       repository,
       sha,
-      sleepFor: async () => {
-        unexpectedSleep = true;
-      },
+      sleepFor: async () => assert.fail("API failures must not be retried"),
       wait: true,
     }),
     (error) => error === apiFailure
   );
-  assert.equal(unexpectedSleep, false, "API failures must not be retried");
 
-  unexpectedSleep = false;
   await expectRefusal(
     "completed failure is not retried",
     () =>
@@ -555,18 +550,12 @@ test("release CI accepts only current complete exact-main proof", async () => {
           })
         ),
         now: () => 0,
-        sleepFor: async () => {
-          unexpectedSleep = true;
-        },
+        sleepFor: async () =>
+          assert.fail("Completed failures must not be retried"),
         wait: true,
       }),
     ReleaseCiError,
     "failure"
-  );
-  assert.equal(
-    unexpectedSleep,
-    false,
-    "Completed failures must not be retried"
   );
 
   await expectRefusal(
@@ -625,6 +614,21 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
       "An absent or superseded push run also falls back to the PR proof"
     );
   }
+  const mergeCommit = { parents: [{ sha: parentSha }, { sha: headSha }] };
+  assert.deepEqual(
+    await verifyReleaseCi(
+      verification(
+        pullFixture({
+          commits: {
+            ...fixture().commits,
+            [sha]: { ...mergeCommit, tree: { sha: treeSha } },
+          },
+        })
+      )
+    ),
+    pullProof,
+    "A merge commit qualifies through its first parent"
+  );
 
   for (const [name, overrides, message] of [
     ["no associated pull request", { pulls: [] }, "0 pull requests merged"],
@@ -657,17 +661,19 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
       `Tree of ${sha} differs from pull request #90 head ${headSha}`,
     ],
     [
-      "merge commit release",
+      "PR head without a tree",
+      { commits: { ...fixture().commits, [headSha]: { parents: [] } } },
+      "Pull request #90 head tree must be a lowercase 40-character SHA",
+    ],
+    [
+      "release commit without a parent",
       {
         commits: {
           ...fixture().commits,
-          [sha]: {
-            parents: [{ sha: parentSha }, { sha: headSha }],
-            tree: { sha: treeSha },
-          },
+          [sha]: { parents: [], tree: { sha: treeSha } },
         },
       },
-      "must have exactly one parent",
+      "Release first parent must be a lowercase 40-character SHA",
     ],
     [
       "parent not an ancestor of the PR head",
@@ -807,6 +813,43 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
     ReleaseCiError,
     "Protected main changed"
   );
+
+  // A refused PR proof is read once per wait while the push run keeps
+  // deciding; a pending PR run is read again on every poll.
+  const pendingPullRun = pullRun({ conclusion: null, status: "in_progress" });
+  for (const [first, last, pullReads, proof] of [
+    [pullFixture({ comparison: { status: "diverged" } }), fixture(), 1, "push"],
+    [
+      pullFixture({ pullRunsPages: [{ workflow_runs: [pendingPullRun] }] }),
+      pullFixture(),
+      4,
+      "pull-request-tree",
+    ],
+  ]) {
+    const reads = [];
+    let polls = 0;
+    const state = () => apiFor(polls < 3 ? first : last, reads);
+    const waited = await waitForReleaseCi({
+      api: {
+        read: (endpoint) => state().read(endpoint),
+        readPages: (endpoint) => state().readPages(endpoint),
+      },
+      now: () => 0,
+      ref,
+      repository,
+      sha,
+      sleepFor: async () => {
+        polls += 1;
+        if (polls > 3) assert.fail("The wait did not end once CI passed");
+      },
+      wait: true,
+    });
+    assert.equal(waited.proof, proof);
+    assert.equal(
+      reads.filter((endpoint) => endpoint.includes("/pulls")).length,
+      pullReads
+    );
+  }
 
   console.log("Release CI pull-request tree proof: pass");
 });

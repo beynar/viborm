@@ -244,9 +244,10 @@ async function readRunProof(api, workflow, expected) {
   return { attempt, runId };
 }
 
-// Main is linear (squash or rebase merges only). When the PR that produced the
-// release commit has a parent of that commit in its history, the merge ref its
-// pull_request run tested has the head's tree, which must be the release tree.
+// Protected main only fast-forwards, so the base a pull_request run merged its
+// head onto is an ancestor of the release commit's first parent. When that
+// parent is an ancestor of the head, the merge ref the run tested has the
+// head's tree, which must be the release tree.
 async function readPullRequestTreeProof(api, workflow, sha) {
   const repository = `/repos/${CANONICAL_REPOSITORY}`;
   const pulls = await api.read(
@@ -270,9 +271,6 @@ async function readPullRequestTreeProof(api, workflow, sha) {
   );
   const head = requireRecord(merged[0].head, `Pull request #${number} head`);
   const headSha = requireSha(head.sha, `Pull request #${number} head SHA`);
-  if (typeof head.ref !== "string") {
-    refuse(`Pull request #${number} head branch must be a string`);
-  }
 
   const release = requireRecord(
     await api.read(`${repository}/git/commits/${sha}`),
@@ -290,10 +288,7 @@ async function readPullRequestTreeProof(api, workflow, sha) {
       `Tree of ${sha} differs from pull request #${number} head ${headSha}`
     );
   }
-  if (!Array.isArray(release.parents) || release.parents.length !== 1) {
-    refuse(`Release commit ${sha} must have exactly one parent`);
-  }
-  const parent = requireSha(release.parents[0]?.sha, "Release parent");
+  const parent = requireSha(release.parents?.[0]?.sha, "Release first parent");
   const comparison = requireRecord(
     await api.read(`${repository}/compare/${parent}...${headSha}`),
     "Release parent comparison"
@@ -312,7 +307,13 @@ async function readPullRequestTreeProof(api, workflow, sha) {
   return { ...run, headSha, proof: "pull-request-tree", pullRequest: number };
 }
 
-export async function verifyReleaseCi({ api, repository, ref, sha }) {
+export async function verifyReleaseCi({
+  api,
+  pullRequestRefusal,
+  repository,
+  ref,
+  sha,
+}) {
   requireEnvironment(repository, ref, sha);
   if (
     !isRecord(api) ||
@@ -377,11 +378,13 @@ export async function verifyReleaseCi({ api, repository, ref, sha }) {
   } catch (pushPending) {
     if (!(pushPending instanceof ReleaseCiPendingError)) throw pushPending;
     try {
+      if (pullRequestRefusal !== undefined) throw pullRequestRefusal;
       proof = await readPullRequestTreeProof(api, workflow, sha);
     } catch (error) {
       if (!(error instanceof ReleaseCiError)) throw error;
       throw new ReleaseCiPendingError(
-        `${pushPending.message}; pull-request tree proof does not hold: ${error.message}. Release can continue after exact-main CI passes`
+        `${pushPending.message}; pull-request tree proof does not hold: ${error.message}. Release can continue after exact-main CI passes`,
+        { cause: error }
       );
     }
   }
@@ -456,11 +459,17 @@ export async function waitForReleaseCi({
 }) {
   const deadline = now() + WAIT_TIMEOUT_MS;
   let lastPendingMessage;
+  let pullRequestRefusal;
   for (;;) {
     try {
-      return await verifyReleaseCi(verification);
+      return await verifyReleaseCi({ ...verification, pullRequestRefusal });
     } catch (error) {
       if (!(error instanceof ReleaseCiPendingError && wait)) throw error;
+      // A refused pull-request proof is not re-read on later polls: it would
+      // only spend the API budget while the push run still decides.
+      if (!(error.cause instanceof ReleaseCiPendingError)) {
+        pullRequestRefusal = error.cause;
+      }
       const remaining = deadline - now();
       if (remaining <= 0) {
         refuse(

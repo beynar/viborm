@@ -97,15 +97,16 @@ Source qualification has one owner: the `CI` workflow. `scripts/release-ci.mjs`
 accepts its latest push run on `main` for the exact release SHA. While that run
 is absent or pending, it also accepts the tree-equivalent pull-request proof:
 the one PR merged into `main` as the release commit, whose latest
-`pull_request` run on its head passed, where the release commit has one parent,
-that parent is an ancestor of the head, and both commits share one Git tree.
-The PR run tested that tree. Either proof requires all eight jobs to succeed in
-the run's latest attempt; the output's `proof` field (`push` or
-`pull-request-tree`, with the PR number and head SHA) names the one used. A
-skipped job, an older green attempt, or a green run on another tree is not
-sufficient. The release waits for pending CI for up to 120 minutes; a failed or
-cancelled push run stops it even when a PR proof holds. Recheck the same
-evidence after human approval, before publication.
+`pull_request` run on its head branch and SHA passed, where the release commit's
+first parent is an ancestor of the head and both commits share one Git tree.
+Main only fast-forwards, so the PR run tested that tree. Either proof requires
+all eight jobs to succeed in the run's latest attempt; the output's `proof`
+field (`push` or `pull-request-tree`, with the PR number and head SHA) names the
+one used. A skipped job, an older green attempt, or a green run on another tree
+is not sufficient. The release waits for pending CI for up to 120 minutes and
+reads a refused PR proof once per wait; a push run whose latest attempt failed
+or was cancelled stops it even when a PR proof holds. Recheck the same evidence
+after human approval, before publication.
 
 Release does not rerun the source test estate, coverage, or provider jobs.
 The tarball build and documentation build run in parallel with CI verification;
