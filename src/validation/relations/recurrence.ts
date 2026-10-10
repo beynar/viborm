@@ -198,6 +198,26 @@ export type RecurrenceFor<
     : never;
 
 /**
+ * `recurse` and `self` are the recursive form's own words. Spelled `undefined`
+ * they are unspelled, as `v.object` reads every undefined key, so a toggle
+ * such as `recurse: deep ? true : undefined` meets the ordinary language
+ * without them. A spelled `self` stays, for that language to refuse or to read
+ * as a target field of the same name.
+ */
+const withoutUnspelledClosure = (value: unknown): unknown => {
+  if (
+    !(
+      isRecord(value) &&
+      ("recurse" in value || ("self" in value && value.self === undefined))
+    )
+  ) {
+    return value;
+  }
+  const { recurse: _recurse, self, ...rest } = value;
+  return self === undefined ? rest : { ...rest, self };
+};
+
+/**
  * The language of a slot that may spell `recurse`. A spelled `recurse` decides
  * the form, so it meets only the recursive member and that member's own
  * refusals, or the shared refusal where the slot has no recursive member;
@@ -212,7 +232,9 @@ export const withRecursiveNode = (
   const validateRecursive = recursive?.["~standard"].validate;
   const schema = createSchema("union", (value) => {
     if (!isRecord(value) || value.recurse === undefined) {
-      return validateOrdinary(value) as ValidationResult<unknown>;
+      return validateOrdinary(
+        withoutUnspelledClosure(value)
+      ) as ValidationResult<unknown>;
     }
     return validateRecursive
       ? (validateRecursive(value) as ValidationResult<unknown>)

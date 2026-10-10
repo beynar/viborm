@@ -193,6 +193,17 @@ client.document.findMany({
     grants: { none: { level: "read" } },
   },
 });
+// `recurse` and `self` spelled `undefined` are absent, so a toggle is one call
+// (the runtime pins the same spellings).
+const findTree = (deep: boolean) =>
+  client.document.findMany({
+    where: {
+      children: { recurse: deep ? true : undefined, some: { personal: true } },
+      parent: { is: { personal: true }, recurse: undefined, self: undefined },
+      grants: { some: {}, recurse: undefined, self: undefined },
+    },
+  });
+findTree(false);
 
 // =============================================================================
 // CONTEXTUAL TYPING — the quantifier is the target model's full `where`

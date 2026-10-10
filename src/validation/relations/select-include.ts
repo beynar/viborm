@@ -22,6 +22,7 @@ import {
   type RecurrenceSchema,
   recurrenceSchema,
   type UnavailableRecurrenceSchema,
+  type UnavailableRecursiveClauseSchema,
   unavailableRecurrence,
   unavailableRecursiveClause,
   withRecursiveNode,
@@ -181,8 +182,8 @@ type ToOneRecursiveNodeSchema<
   V.Object<
     {
       recurse: RecurrenceFor<Source, Key, S>;
-      where: ReturnType<typeof unavailableRecursiveClause>;
-      orderBy: ReturnType<typeof unavailableRecursiveClause>;
+      where: UnavailableRecursiveClauseSchema;
+      orderBy: UnavailableRecursiveClauseSchema;
       select: () => RecursiveProjectionSchemas<S, Key>["select"];
       include: () => RecursiveProjectionSchemas<S, Key>["include"];
       omit: () => GetTargetSchemas<S>["core"]["omit"];
@@ -429,10 +430,10 @@ type ToManyRecursiveNodeSchema<
           V.Array<GetTargetSchemas<S>["core"]["orderBy"]>,
         ]
       >;
-      take: ReturnType<typeof unavailableRecursiveClause>;
-      skip: ReturnType<typeof unavailableRecursiveClause>;
-      cursor: ReturnType<typeof unavailableRecursiveClause>;
-      distinct: ReturnType<typeof unavailableRecursiveClause>;
+      take: UnavailableRecursiveClauseSchema;
+      skip: UnavailableRecursiveClauseSchema;
+      cursor: UnavailableRecursiveClauseSchema;
+      distinct: UnavailableRecursiveClauseSchema;
       select: () => RecursiveProjectionSchemas<S, Key>["select"];
       include: () => RecursiveProjectionSchemas<S, Key>["include"];
       omit: () => GetTargetSchemas<S>["core"]["omit"];

@@ -43,7 +43,8 @@ import {
  * `recurse` (not `undefined`) IS the recursive filter, on every relation slot,
  * and never reaches the shorthand. A target field literally named `recurse` is
  * reached through `{ parent: { is: { recurse: … } } }`; one named `self` is
- * unaffected, because only `recurse` selects the form.
+ * unaffected, because only `recurse` selects the form. Both spelled
+ * `undefined` read as absent, like every undefined key of an object.
  *
  * For optional relations, `is` can also be null, and the bare `null`
  * shorthand normalizes to `{ is: null }` (unchanged by the object shorthand).
@@ -118,9 +119,10 @@ type RecursiveFilterSchema<
 
 /**
  * The ordinary forms' statement of the dispatcher's invariant: they never see
- * a spelled `recurse`, so neither it nor `self` is theirs to accept. Types
- * only, like the shorthand's `is?: never`; the runtime objects carry no dead
- * entry, because `withRecursiveNode` routes every spelled `recurse` away.
+ * `recurse`, nor a `self` spelled `undefined`, so neither is theirs to accept.
+ * Types only, like the shorthand's `is?: never`; the runtime objects carry no
+ * entry, because `withRecursiveNode` routes a spelled `recurse` away and drops
+ * both keys spelled `undefined`.
  */
 type NoClosure = {
   recurse: UnavailableRecurrenceSchema;
