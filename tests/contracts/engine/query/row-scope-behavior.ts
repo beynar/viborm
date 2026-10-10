@@ -1,7 +1,6 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
 import {
-  FeatureNotSupportedError,
   ForeignKeyError,
   NestedWriteError,
   NotFoundError,
@@ -10,6 +9,7 @@ import {
 } from "@errors";
 import { s } from "@schema";
 import { sql } from "@sql";
+import { expectChangeWalkingItsModel } from "@tests/contracts/engine/query/recursive-relation-filter-behavior";
 import { failure } from "@tests/fixtures/failure";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -30,10 +30,10 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
  * to-one order terms and upward recursion, where a hidden target reads as an
  * absent one. A recursive filter (`recurse` in `where`) walks the related
  * domain at every hop, so a hidden row stops the walk below it; its `self` row
- * is the outer row, which the call's root domain already chose. `disconnect`, identity re-reads and integrity probes stay
- * physical: a missing row is still corruption, a hidden one is not. `base` is
- * the same database without the extension: its answers are the negative
- * control beside each domain answer.
+ * is the outer row, which the call's root domain already chose. `disconnect`,
+ * identity re-reads and integrity probes stay physical: a missing row is still
+ * corruption, a hidden one is not. `base` is the same database without the
+ * extension: its answers are the negative control beside each domain answer.
  *
  * Fixture (hand-computed oracles below): authors 1, 2, 4, 5 live, 3 a
  * tombstone. Posts (author, title): 10 (1, a), 13 (2, c), 14 (1, d) live;
@@ -969,33 +969,30 @@ export function runRowScopeBehavior(provider: RowScopeProvider): void {
 
     test("a soft deleteMany whose closure walks its own model: tombstones the visible match, refused on MySQL", async () => {
       const { base, db } = context;
-      const remove = db.node.deleteMany({
-        where: { parent: { recurse: true, some: { id: 1 } } },
-      });
-      const state = async () =>
-        (
-          await base.node.findMany({
-            orderBy: { id: "asc" },
-            select: { id: true, deletedAt: true },
-          })
-        ).map((row) => [row.id, row.deletedAt !== null]);
-      const before = await state();
-      if (!base.$driver.adapter.capabilities.supportsMutationTargetInSubquery) {
-        const refused = await failure(remove);
-        expect(refused).toBeInstanceOf(FeatureNotSupportedError);
-        expect((refused as Error).message).toBe(
-          "where.parent.recurse is not supported. MySQL re-reads a recursive filter's table while its own update or delete changes it, so the walk would see the statement's own writes. Read the matching keys first, then update or delete by key."
-        );
-        expect(await state()).toEqual(before);
-        return;
-      }
-      expect(await remove).toEqual({ count: 1 });
-      expect(await state()).toEqual([
-        [1, false],
-        [2, true],
-        [3, false],
-        [4, true],
-      ]);
+      await expectChangeWalkingItsModel(
+        base.$driver,
+        "parent",
+        async () =>
+          (
+            await base.node.findMany({
+              orderBy: { id: "asc" },
+              select: { id: true, deletedAt: true },
+            })
+          ).map((row) => [row.id, row.deletedAt !== null]),
+        () =>
+          db.node.deleteMany({
+            where: { parent: { recurse: true, some: { id: 1 } } },
+          }),
+        {
+          result: { count: 1 },
+          state: [
+            [1, false],
+            [2, true],
+            [3, false],
+            [4, true],
+          ],
+        }
+      );
     });
 
     test("a hidden polymorphic arm stored on the parent row reads null (R1)", async () => {
