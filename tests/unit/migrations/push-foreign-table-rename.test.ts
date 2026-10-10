@@ -2,7 +2,7 @@
  * platform-06: push never renames a table it cannot prove is this schema's.
  *
  * A history-free push pairs every dropped live table with every new model
- * table and asks the resolver. Before 1.0.1 the shipped `lenientResolver` and
+ * table and asks the resolver. Before 1.1.0 the shipped `lenientResolver` and
  * the documented config resolver answered `rename()` for every pair, and the
  * plan was labelled non-destructive, so a populated table of another
  * application became the new model's table with no consent. Now a table pair
@@ -52,7 +52,7 @@ const docsResolver: ResolveCallback = (change) => {
   return change.reject();
 };
 
-/** The pre-1.0.1 documented resolver: rename whatever pair is offered. */
+/** The pre-1.1.0 documented resolver: rename whatever pair is offered. */
 const renameEveryPair: ResolveCallback = (change) =>
   change.type === "ambiguous" ? change.rename() : change.reject();
 
