@@ -364,12 +364,13 @@ jobs:
   docker-providers:
     name: PostgreSQL and MySQL providers
     runs-on: ubuntu-latest
-    # 40 = the 1800000 ms (30 min) wall this job's step hands to
-    # run-vitest-safe.mjs, + 5 min setup, + 5 min for the PostGIS and MySQL
-    # service containers to pass their health checks. At the former 30 the job
-    # was cancelled before its own launcher could ever reach that ceiling, so
-    # the inner limit could never fire and never report.
-    timeout-minutes: 40
+    # 45 = the 1800000 ms (30 min) wall the contracts step hands to
+    # run-vitest-safe.mjs, + 5 min for the PgBouncer step at its default
+    # ceiling, + 5 min setup, + 5 min for the PostGIS and MySQL service
+    # containers to pass their health checks. At the former 30 the job was
+    # cancelled before its own launcher could ever reach that ceiling, so the
+    # inner limit could never fire and never report.
+    timeout-minutes: 45
     services:
       postgres:
         image: postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932 # 16-3.5
@@ -395,6 +396,21 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 15
+      # Transaction mode in front of the service above, reached by its label.
+      # Round robin hands consecutive transactions to different backends, as a
+      # loaded pooler does; LIFO reuse would hide a session-scoped lock. No
+      # health check: a pooler that fails to start must fail only the reported
+      # PgBouncer step, never this required job.
+      pgbouncer:
+        image: edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340 # v1.25.2-p0
+        env:
+          DATABASE_URL: postgres://postgres:password@postgres:5432/viborm
+          AUTH_TYPE: scram-sha-256
+          POOL_MODE: transaction
+          SERVER_ROUND_ROBIN: "1"
+          MIN_POOL_SIZE: "4"
+        ports:
+          - 6432:5432
     env:
       PG_TEST_CONNECTION_STRING: postgres://postgres:password@127.0.0.1:5432/viborm
       MYSQL_TEST_CONNECTION_STRING: mysql://root:password@127.0.0.1:3306/viborm
@@ -431,6 +447,20 @@ jobs:
           --project=provider-postgres
           --project=provider-mysql2
           --project=provider-transaction-options
+
+      # Reported, not required, until D1 (the transaction-scoped migration
+      # lock, completion plan phase 2) lands and deletes continue-on-error.
+      # Through a transaction pooler the 1.1.0 session advisory lock may be
+      # taken and released on different backends; which cases fail depends on
+      # the backend PgBouncer hands out, so no fixed set can be marked failing.
+      - name: Run push and apply through PgBouncer (not required before D1)
+        continue-on-error: true
+        env:
+          PGBOUNCER_TEST_CONNECTION_STRING: postgres://postgres:password@127.0.0.1:6432/viborm
+        run: >-
+          node scripts/run-vitest-safe.mjs run
+          --workspace vitest.workspace.ts
+          --project=provider-pgbouncer
 
   platform-providers:
     name: Bun and D1 providers
