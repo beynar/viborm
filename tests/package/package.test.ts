@@ -42,6 +42,10 @@ const scripts = [
     "lets a third party build the guide's extension recipes from public exports alone",
     "./extension-recipes-consumer-smoke.mjs",
   ],
+  [
+    "runs the probe corpus against the packed package",
+    "./probe-corpus-smoke.mjs",
+  ],
   ["enforces the release artifact contract", "./release-contract-smoke.mjs"],
   ["requires exact-main CI before release", "./release-ci-smoke.mjs"],
   [
@@ -72,10 +76,19 @@ const scripts = [
     "preserves the published consumer type floor",
     "../../scripts/consumer-type-floor.mjs",
   ],
-  [
-    "type-checks a 100-model three-level include on the TypeScript 5.9 floor",
-    "./type-floor-scale-smoke.mjs",
-  ],
+  ...(["50", "100"] as const).flatMap((models) =>
+    (["base", "deep", "filter", "create"] as const).map(
+      (entry) =>
+        [
+          `type-checks the ${models}-model ${entry} entry within its TypeScript 5.9 budget`,
+          "./type-floor-scale-smoke.mjs",
+          {
+            VIBORM_TYPE_SCALE_MODELS: models,
+            VIBORM_TYPE_BUDGET_ENTRY: entry,
+          },
+        ] as const
+    )
+  ),
   [
     "retains TS5.9 public query inference for extends10",
     "./declaration-consumer-smoke.mjs",
