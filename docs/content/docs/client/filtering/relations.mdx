@@ -126,7 +126,12 @@ same statement as the rest of the query.
   deeper than `cte_max_recursion_depth` fails with the driver's error 3636.
 - **Cost.** The walk runs once per outer row. Index the foreign key
   (`parentId`) and the junction column the walk starts from (`parentId` of
-  `teamParent` to walk `children`, `childId` to walk `parents`).
+  `teamParent` to walk `children`, `childId` to walk `parents`). A numeric
+  `depth` (and `recurse: true`, which is 100) carries the hop count with each
+  row, so a cycle in the data is walked again at every level up to the depth;
+  `{ depth: false }` visits each row once. On PostgreSQL, `ANALYZE` a table
+  after loading it in bulk: without statistics the planner overestimates the
+  walk, and JIT compilation can then add seconds to every statement.
 
 ## Polymorphic Relations
 
