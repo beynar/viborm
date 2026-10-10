@@ -1,8 +1,7 @@
 /**
  * MySQL2 Driver Tests - recursive relation filters (`recurse` in `where`) on
- * MySQL: reads and changes to other models run, and an `updateMany` or
- * `deleteMany` whose closure walks the model it changes is refused before any
- * SQL is sent, with the database unchanged.
+ * MySQL: reads, and every change, which reads the matching keys before it
+ * writes, so a closure over the model it changes matches the snapshot's rows.
  *
  * NOTE: These tests require a running MySQL database.
  */

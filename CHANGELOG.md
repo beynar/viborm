@@ -27,10 +27,15 @@ candidate 1.1.0-rc.1). The release PR sets the heading.
   - It compiles to one correlated `WITH RECURSIVE` inside `EXISTS`. It works in
     every read, `count`, aggregates, `updateMany`/`deleteMany`, and nested
     inside other relation filters.
-- On MySQL, an `updateMany`/`deleteMany` whose recursive filter walks the model
-  being changed is refused with `FeatureNotSupportedError` before any SQL is
-  sent: MySQL would re-read rows the statement already changed. Reads, and
-  changes to other models, are supported.
+
+### Fixed
+
+- **MySQL: `updateMany`/`deleteMany` filtered through a relation now match the
+  rows that matched before the statement.** MySQL evaluates such a filter row
+  by row while the statement, and the cascades it fires, change the rows the
+  filter reads, so a self relation or a cascading delete could change or remove
+  the wrong rows. The filter now reads the matching keys first, in the same
+  statement, as PostgreSQL and SQLite already answered.
 
 ### Changed
 

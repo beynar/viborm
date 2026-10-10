@@ -100,6 +100,9 @@ model's full `where`, including other relation filters, other recursive
 filters and `AND`/`OR`/`NOT`. With `recurse`, a to-one relation such as
 `parent` takes `some`/`every`/`none` too, because the closure is a set even
 when one hop reaches one row; `is` and `isNot` cannot be combined with it.
+A fragment returned by a helper keeps `recurse: true` literal only with
+`as const` (or `satisfies`): TypeScript otherwise widens it to `boolean`,
+which `recurse` does not accept.
 
 The closure is a set keyed by the primary key. A cycle terminates, and a row
 reached by two paths (a diamond) counts once. A walk that comes back to its
@@ -117,19 +120,18 @@ same statement as the rest of the query.
   `rows` extension, the walk reads the related domain at every hop: a hidden
   row is not a member and stops the walk below it. The `self` row is the row
   the call already selected and is not filtered again.
-- **MySQL.** An `updateMany` or `deleteMany` (root, nested, or a soft
-  delete's tombstone update) whose recursive filter walks the model being
-  changed is refused with `FeatureNotSupportedError` before any SQL is sent:
-  MySQL would re-read rows the statement already changed. Read the matching
-  keys first, then update or delete by key. Reads, and changes to another
-  model (the `page.updateMany` above), are supported. An exhaustive walk
-  deeper than `cte_max_recursion_depth` fails with the driver's error 3636.
+- **MySQL.** An `updateMany` or `deleteMany` filtered through a relation
+  reads the matching keys before it changes any row, so it matches the rows
+  PostgreSQL and SQLite match, even when the walk crosses the model being
+  changed or a model its delete cascades into. An exhaustive walk deeper than
+  `cte_max_recursion_depth` fails with the driver's error 3636.
 - **Cost.** The walk runs once per outer row. Index the foreign key
   (`parentId`) and the junction column the walk starts from (`parentId` of
   `teamParent` to walk `children`, `childId` to walk `parents`). A numeric
   `depth` (and `recurse: true`, which is 100) carries the hop count with each
-  row, so a cycle in the data is walked again at every level up to the depth;
-  `{ depth: false }` visits each row once. On PostgreSQL, `ANALYZE` a table
+  row, so a cycle in the data is walked again at every level up to the depth,
+  and the nested `some`/`every`/`none` condition is checked once per row and
+  level reached; `{ depth: false }` visits each row once. On PostgreSQL, `ANALYZE` a table
   after loading it in bulk: without statistics the planner overestimates the
   walk, and JIT compilation can then add seconds to every statement.
 

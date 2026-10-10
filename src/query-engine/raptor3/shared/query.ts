@@ -464,6 +464,20 @@ type PreparedPredicate =
 function states(predicate: PreparedPredicate): boolean {
   return predicate.kind !== "and" || predicate.predicates.some(states);
 }
+/** Does the predicate read another row: a relation subquery anywhere in it? */
+function readsRelation(predicate: PreparedPredicate): boolean {
+  switch (predicate.kind) {
+    case "relation":
+      return true;
+    case "and":
+    case "or":
+      return predicate.predicates.some(readsRelation);
+    case "not":
+      return readsRelation(predicate.predicate);
+    default:
+      return false;
+  }
+}
 /**
  * The smallest FINITE upper bound a distance filter states, or `undefined`
  * when it states none. A bound of zero or less bounds nothing worth probing:
@@ -625,12 +639,6 @@ const COUNT_LEAF: Leaf = freeze({
   type: "int",
   nullable: false,
 });
-/**
- * Why MySQL refuses an `updateMany`/`deleteMany` whose recursive filter walks
- * the table the statement changes (ERROR 1093 unwrapped, wrong rows wrapped).
- */
-export const RECURSIVE_FILTER_MUTATION_REFUSAL =
-  "MySQL re-reads a recursive filter's table while its own update or delete changes it, so the walk would see the statement's own writes. Read the matching keys first, then update or delete by key.";
 const QUANTIFIERS: ReadonlySet<string> = new Set([
   "is",
   "isNot",
@@ -1866,11 +1874,10 @@ export class Queries {
   }
   lowerSelector(
     selector: Pick<PreparedSelector, "model" | "predicate">,
-    alias?: string,
-    mutationTarget?: string
+    alias?: string
   ): Sql | undefined {
     return selector.predicate
-      ? this.#lowerPredicate(selector.predicate, alias, mutationTarget)
+      ? this.#lowerPredicate(selector.predicate, alias)
       : undefined;
   }
   /** An aggregate read's root filter: its `where` under the root domain. */
@@ -1937,22 +1944,32 @@ export class Queries {
     // engine passed the table name for exactly this reason
     // (`operations/update.ts:79-90`, `delete.ts:85-92`).
     const mutated = model["~"].names.sql!;
-    if (limit === undefined)
-      return { where: this.lowerSelector(selector, mutated, mutated) };
+    // MySQL answers an UPDATE/DELETE's subquery row by row while the statement
+    // and the referential actions it fires change the rows that subquery
+    // reads, which is also why it refuses to read the mutated table there
+    // (ERROR 1093). A selector that reads other rows is therefore its keys,
+    // read into a derived table before any write: the statement snapshot
+    // PostgreSQL and SQLite answer from.
+    const where =
+      !adapter.capabilities.supportsMutationTargetInSubquery &&
+      selector.predicate !== undefined &&
+      readsRelation(selector.predicate)
+        ? this.#capped(selector)
+        : this.lowerSelector(selector, mutated);
+    if (limit === undefined) return { where };
     // A limited write takes the first `limit` rows in key order, the order a
     // read's `take` completes with: every path picks the same rows. MySQL,
     // which refuses a `LIMIT` inside `IN`, states it on the statement itself.
     if (!adapter.capabilities.supportsMutationRowLimit)
       return {
         where: adapter.operators.and(
-          ...[
-            this.lowerSelector(selector, mutated, mutated),
-            this.#capped(selector, limit),
-          ].filter((condition): condition is Sql => condition !== undefined)
+          ...[where, this.#capped(selector, limit)].filter(
+            (condition): condition is Sql => condition !== undefined
+          )
         ),
       };
     return {
-      where: this.lowerSelector(selector, mutated, mutated),
+      where,
       suffix: sql`${adapter.clauses.orderBy(this.#ascendingKeys(model))} ${adapter.clauses.limit(this.value(limit))}`,
     };
   }
@@ -2011,13 +2028,15 @@ export class Queries {
    * `<keys> IN (SELECT * FROM (SELECT <keys> FROM <model> WHERE <selector>
    * ORDER BY <keys> LIMIT <limit>) AS <alias>)`, the keys outside addressed
    * through `alias`: the first `limit` rows in key order, a mutation's limit
-   * where the provider has no `UPDATE … LIMIT`, and a {@link window}. Where
-   * the provider cannot read a mutation's own table in a subquery (MySQL), the
-   * limited read sits in a derived table, as {@link hideMutationTarget}'s
-   * does: MySQL also refuses a `LIMIT` directly inside `IN (…)`, and the
-   * derived table answers both, in the premise's SELECT and in the effect.
+   * where the provider has no `UPDATE … LIMIT`, and a {@link window}; without
+   * a `limit`, every row, a MySQL mutation's keyed snapshot
+   * ({@link lowerMutationLimit}). Where the provider cannot read a mutation's
+   * own table in a subquery (MySQL), the read sits in a derived table, as
+   * {@link hideMutationTarget}'s does: MySQL also refuses a `LIMIT` directly
+   * inside `IN (…)`, and the derived table answers both, in the premise's
+   * SELECT and in the effect.
    */
-  #capped(selector: PreparedSelector, limit: number, alias?: string): Sql {
+  #capped(selector: PreparedSelector, limit?: number, alias?: string): Sql {
     const adapter = this.adapter;
     const model = selector.model;
     const inner = this.alias();
@@ -2029,8 +2048,12 @@ export class Queries {
       ),
       from: this.table(model, inner),
       where: this.lowerSelector(selector, inner),
-      orderBy: this.#ascendingKeys(model, inner),
-      limit: this.value(limit),
+      ...(limit === undefined
+        ? {}
+        : {
+            orderBy: this.#ascendingKeys(model, inner),
+            limit: this.value(limit),
+          }),
     });
     return adapter.operators.in(
       rowValue(keys.map((field) => this.column(model, field, alias))),
@@ -2700,52 +2723,40 @@ export class Queries {
     facts.reads.push(...nestedFacts.reads);
     return predicate;
   }
-  #lowerPredicate(
-    predicate: PreparedPredicate,
-    alias?: string,
-    mutationTarget?: string
-  ): Sql {
+  #lowerPredicate(predicate: PreparedPredicate, alias?: string): Sql {
     const a = this.adapter;
     // biome-ignore lint/style/useDefaultSwitchClause: the prepared predicate union is exhaustive; a default would be dead code.
     switch (predicate.kind) {
       case "and":
         if (predicate.predicates.length === 1)
           return a.operators.and(
-            this.#lowerPredicate(
-              predicate.predicates[0]!,
-              alias,
-              mutationTarget
-            )
+            this.#lowerPredicate(predicate.predicates[0]!, alias)
           );
         return a.operators.and(
           ...predicate.predicates.map((member) =>
-            this.#lowerPredicate(member, alias, mutationTarget)
+            this.#lowerPredicate(member, alias)
           )
         );
       case "or":
         if (predicate.predicates.length === 1)
           return a.operators.or(
-            this.#lowerPredicate(
-              predicate.predicates[0]!,
-              alias,
-              mutationTarget
-            )
+            this.#lowerPredicate(predicate.predicates[0]!, alias)
           );
         return a.operators.or(
           ...predicate.predicates.map((member) =>
-            this.#lowerPredicate(member, alias, mutationTarget)
+            this.#lowerPredicate(member, alias)
           )
         );
       case "not":
         return a.operators.not(
-          this.#lowerPredicate(predicate.predicate, alias, mutationTarget)
+          this.#lowerPredicate(predicate.predicate, alias)
         );
       case "always":
         return predicate.value ? a.literals.true() : a.literals.false();
       case "operation":
         return this.lowerOperation(predicate, alias);
       case "relation":
-        return this.#lowerRelationPredicate(predicate, alias, mutationTarget);
+        return this.#lowerRelationPredicate(predicate, alias);
       case "window":
         return this.#capped(predicate.selector, predicate.limit, alias);
       case "through": {
@@ -3280,8 +3291,7 @@ export class Queries {
   }
   #lowerRelationPredicate(
     predicate: Extract<PreparedPredicate, { kind: "relation" }>,
-    parentAlias?: string,
-    mutationTarget?: string
+    parentAlias?: string
   ): Sql {
     const a = this.adapter;
     if (
@@ -3292,7 +3302,7 @@ export class Queries {
     const { edge, closure } = predicate;
     const childAlias = this.alias();
     const nested = predicate.predicate
-      ? this.#lowerPredicate(predicate.predicate, childAlias, mutationTarget)
+      ? this.#lowerPredicate(predicate.predicate, childAlias)
       : undefined;
     const stated = nested
       ? [predicate.quantifier === "every" ? a.operators.not(nested) : nested]
@@ -3302,13 +3312,6 @@ export class Queries {
       // The walk is this EXISTS's OWN `WITH`, never wrapped in a derived table
       // or a LATERAL: MySQL answers every outer row from one evaluation of a
       // wrapped correlated recursive CTE wherever the EXISTS is not flattened.
-      // Unwrapped, it cannot hide the mutated table from ERROR 1093.
-      if (this.#hidesMutationTarget(edge.target, mutationTarget))
-        throw new FeatureNotSupportedError(
-          `where.${edge.name}`,
-          "recurse",
-          RECURSIVE_FILTER_MUTATION_REFUSAL
-        );
       // The walk owns membership and visibility; the reader joins by key.
       const walk = this.#walk(edge, parentAlias ?? "", closure.depth, closure);
       query = sql`${walk.cte} ${a.subqueries.existsCheck(
@@ -3323,21 +3326,17 @@ export class Queries {
         a.operators.and(...stated)
       )}`;
     } else
-      query = this.hideMutationTarget(
-        a.subqueries.existsCheck(
-          this.table(edge.target, childAlias),
-          a.operators.and(
-            this.correlation(
-              edge,
-              parentAlias ?? "",
-              childAlias,
-              predicate.unscoped === undefined
-            ),
-            ...stated
-          )
-        ),
-        edge.target,
-        mutationTarget
+      query = a.subqueries.existsCheck(
+        this.table(edge.target, childAlias),
+        a.operators.and(
+          this.correlation(
+            edge,
+            parentAlias ?? "",
+            childAlias,
+            predicate.unscoped === undefined
+          ),
+          ...stated
+        )
       );
     switch (predicate.quantifier) {
       case "some":
@@ -3366,29 +3365,25 @@ export class Queries {
    * write — while the correlation to the outer mutation survives as an outer
    * reference (MySQL 8.0.14+). The capability the adapter already declares
    * (`supportsMutationTargetInSubquery`) is the whole condition; the wrap goes
-   * inside the `EXISTS (…)`, which supplies its own parentheses.
+   * inside the caller's scalar subquery, which supplies its own parentheses.
+   * A mutation's own selector needs no wrap: on MySQL it is the keyed snapshot
+   * ({@link lowerMutationLimit}).
    */
   private hideMutationTarget(
     subquery: Sql,
     child: AnyModel,
     mutationTarget: string | undefined
   ): Sql {
-    if (!this.#hidesMutationTarget(child, mutationTarget)) return subquery;
+    if (
+      mutationTarget === undefined ||
+      this.adapter.capabilities.supportsMutationTargetInSubquery ||
+      child["~"].names.sql !== mutationTarget
+    )
+      return subquery;
     return sql`SELECT * FROM ${this.adapter.subqueries.correlate(
       subquery,
       this.alias()
     )}`;
-  }
-  /** Does reading `child` inside this statement meet MySQL ERROR 1093? */
-  #hidesMutationTarget(
-    child: AnyModel,
-    mutationTarget: string | undefined
-  ): boolean {
-    return (
-      mutationTarget !== undefined &&
-      !this.adapter.capabilities.supportsMutationTargetInSubquery &&
-      child["~"].names.sql === mutationTarget
-    );
   }
   /**
    * Does the PARENT row claim a membership in this arm?
