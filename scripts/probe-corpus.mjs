@@ -58,7 +58,7 @@ const STATUSES = new Set(["pass", "fail"]);
 const LOG_TAIL_LINES = 20;
 const REGEX_SPECIAL = /[.+?^${}()|[\]\\]/g;
 const GLOB_STAR = /\*/g;
-const TABLE_PIPE = /\|/g;
+const TABLE_SPECIAL = /[\\|]/g;
 
 const globMatcher = (pattern) =>
   new RegExp(
@@ -214,7 +214,7 @@ async function runProbe(consumerRoot, fixtureRoot, path, ctx, options) {
 }
 
 const firstLine = (text) => text.split("\n")[0];
-const cell = (text) => text.replace(TABLE_PIPE, "\\|");
+const cell = (text) => text.replace(TABLE_SPECIAL, "\\$&");
 
 function markdown(report) {
   const lines = [

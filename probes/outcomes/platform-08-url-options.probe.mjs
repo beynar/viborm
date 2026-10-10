@@ -11,7 +11,6 @@
 //               -> explicit port reached, explicit password sent
 // No probe connection ever targets a real database port: the wrong port in
 // the precedence case is 1, which refuses at once.
-import { createHash } from "node:crypto";
 import { createServer } from "node:net";
 import { s } from "viborm";
 import { createClient as createMysql2Client } from "viborm/mysql2";
@@ -99,12 +98,13 @@ function pgHandler(socket, seen) {
 }
 
 const SCRAMBLE = Buffer.from("probe-scramble-20byt"); // 20 bytes
-const sha1 = (data) => createHash("sha1").update(data).digest();
-const nativePassword = (password) => {
-  const stage1 = sha1(Buffer.from(password));
-  const stage2 = sha1(Buffer.concat([SCRAMBLE, sha1(stage1)]));
-  return Buffer.from(stage1.map((byte, i) => byte ^ stage2[i]));
-};
+// mysql_native_password's response to SCRAMBLE for SECRET, computed once:
+// SHA1(SECRET) XOR SHA1(SCRAMBLE + SHA1(SHA1(SECRET))). Constant, so the
+// fake server compares bytes instead of hashing a password at run time.
+const SECRET_NATIVE_RESPONSE = Buffer.from(
+  "a17e5934d8526b0f1215f18c95756654a90aa927",
+  "hex"
+);
 
 /** MySQL: HandshakeV10 -> parse HandshakeResponse41 -> ERR 1045. */
 function mysqlHandler(socket, seen) {
@@ -166,7 +166,7 @@ function mysqlHandler(socket, seen) {
     const auth = payload.subarray(userEnd + 2, userEnd + 2 + authLength);
     session.passwordSent =
       flags & 0x80_00 && authLength === 20
-        ? auth.equals(nativePassword(SECRET))
+        ? auth.equals(SECRET_NATIVE_RESPONSE)
           ? SECRET
           : "another password"
         : authLength === 0
