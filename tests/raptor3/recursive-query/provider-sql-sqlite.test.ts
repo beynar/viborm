@@ -1,19 +1,19 @@
 import assert from "node:assert/strict";
+import type { Schema } from "@client/types";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
-import { s } from "@schema";
 import type { QueryResult } from "@drivers/types";
+import { s } from "@schema";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
-import type { Schema } from "@client/types";
 import {
   type ColumnType,
   columnDefinitions,
+  FILTER_SQL_PINS,
   GRAPH_WORLD,
   HIERARCHY_WORLD,
   PLACEMENT_MATRIX_TABLES,
   providerSchema,
-  FILTER_SQL_PINS,
   runCase,
   runPlacementMatrix,
   SELECT_SQL_PINS,
@@ -28,7 +28,7 @@ class ObservedSQLiteDriver extends SQLite3Driver {
   protected override async execute<T>(
     client: Database.Database,
     statement: string,
-    parameters: unknown[],
+    parameters: unknown[]
   ): Promise<QueryResult<T>> {
     this.statements.push(statement);
     this.rows.push(undefined);
@@ -57,13 +57,13 @@ function openWorld(schema: Schema, tables: readonly TableSpec[]) {
       `CREATE TABLE ${quote(table.name)}(${columnDefinitions(
         table,
         SQLITE_TYPES,
-        quote,
-      )})`,
+        quote
+      )})`
     );
     const insert = database.prepare(
       `INSERT INTO "${table.name}"(${quoted.join(", ")}) VALUES (${quoted
         .map(() => "?")
-        .join(", ")})`,
+        .join(", ")})`
     );
     database.transaction(() => {
       for (const row of table.rows)
@@ -72,7 +72,7 @@ function openWorld(schema: Schema, tables: readonly TableSpec[]) {
             const value = row[column.name];
             // better-sqlite3 binds no booleans: the physical SQLite spelling.
             return typeof value === "boolean" ? Number(value) : value;
-          }),
+          })
         );
     })();
   }
@@ -93,7 +93,7 @@ describe("recursive relation provider SQL on SQLite", () => {
     try {
       assert.deepEqual(
         await sqlPins(opened.engine, opened.driver, SELECT_SQL_PINS),
-        SELECT_SQL,
+        SELECT_SQL
       );
     } finally {
       await opened.close();
@@ -105,7 +105,7 @@ describe("recursive relation provider SQL on SQLite", () => {
     try {
       assert.deepEqual(
         await sqlPins(opened.engine, opened.driver, FILTER_SQL_PINS),
-        FILTER_SQL,
+        FILTER_SQL
       );
     } finally {
       await opened.close();
@@ -141,10 +141,10 @@ describe("recursive relation provider SQL on SQLite", () => {
     })();
     const database = new Database(":memory:");
     database.exec(
-      `CREATE TABLE ${table}(moment TEXT PRIMARY KEY, label TEXT NOT NULL, parent_moment TEXT)`,
+      `CREATE TABLE ${table}(moment TEXT PRIMARY KEY, label TEXT NOT NULL, parent_moment TEXT)`
     );
     const insert = database.prepare(
-      `INSERT INTO ${table}(moment, label, parent_moment) VALUES (?, ?, ?)`,
+      `INSERT INTO ${table}(moment, label, parent_moment) VALUES (?, ?, ?)`
     );
     const root = "2023-12-31T00:00:00.000Z";
     insert.run(root, "root", null);
@@ -164,18 +164,15 @@ describe("recursive relation provider SQL on SQLite", () => {
           },
         },
       });
-      assert.deepEqual(
-        rows,
-        [
-          {
-            label: "root",
-            children: [
-              { label: "offset", moment: new Date("2024-01-02T00:00:00.000Z") },
-              { label: "utc", moment: new Date("2024-01-02T00:00:00.000Z") },
-            ],
-          },
-        ],
-      );
+      assert.deepEqual(rows, [
+        {
+          label: "root",
+          children: [
+            { label: "offset", moment: new Date("2024-01-02T00:00:00.000Z") },
+            { label: "utc", moment: new Date("2024-01-02T00:00:00.000Z") },
+          ],
+        },
+      ]);
       assert.equal(driver.statements.length, 1);
     } finally {
       await driver.disconnect();

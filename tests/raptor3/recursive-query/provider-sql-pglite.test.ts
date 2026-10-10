@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
-import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { PGliteDriver } from "@drivers/pglite";
 import type { QueryResult } from "@drivers/types";
+import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { afterAll, beforeAll, describe, it } from "vitest";
 import {
   type ColumnType,
   columnDefinitions,
+  FILTER_SQL_PINS,
   GRAPH_WORLD,
   HIERARCHY_WORLD,
   PLACEMENT_MATRIX_TABLES,
   providerSchema,
-  FILTER_SQL_PINS,
   runCase,
   runPlacementMatrix,
   SELECT_SQL_PINS,
@@ -25,7 +25,7 @@ class ObservedPGliteDriver extends PGliteDriver {
   protected override async execute<T>(
     client: PGlite | Transaction,
     statement: string,
-    parameters: unknown[],
+    parameters: unknown[]
   ): Promise<QueryResult<T>> {
     this.statements.push(statement);
     this.rows.push(undefined);
@@ -62,8 +62,8 @@ describe("recursive relation provider SQL on PGlite", () => {
         `CREATE TABLE ${quote(table.name)}(${columnDefinitions(
           table,
           PGLITE_TYPES,
-          quote,
-        )})`,
+          quote
+        )})`
       );
       const values: unknown[] = [];
       const tuples = table.rows.map(
@@ -73,11 +73,11 @@ describe("recursive relation provider SQL on PGlite", () => {
               values.push(row[column.name]);
               return `$${values.length}`;
             })
-            .join(", ")})`,
+            .join(", ")})`
       );
       await driver._executeRaw(
         `INSERT INTO "${table.name}"(${quoted.join(", ")}) VALUES ${tuples.join(", ")}`,
-        values,
+        values
       );
     }
     driver.statements.length = 0;
@@ -88,7 +88,7 @@ describe("recursive relation provider SQL on PGlite", () => {
     const engine = createTestCommandEngine({ schema: providerSchema, driver });
     assert.deepEqual(
       await sqlPins(engine, driver, FILTER_SQL_PINS),
-      FILTER_SQL,
+      FILTER_SQL
     );
     driver.statements.length = 0;
     driver.rows.length = 0;
@@ -103,7 +103,7 @@ describe("recursive relation provider SQL on PGlite", () => {
     const engine = createTestCommandEngine({ schema: providerSchema, driver });
     assert.deepEqual(
       await sqlPins(engine, driver, SELECT_SQL_PINS),
-      SELECT_SQL,
+      SELECT_SQL
     );
     driver.statements.length = 0;
     driver.rows.length = 0;
@@ -117,7 +117,10 @@ describe("recursive relation provider SQL on PGlite", () => {
   for (const world of [HIERARCHY_WORLD, GRAPH_WORLD])
     for (const group of world.groups)
       it(group.name, async () => {
-        const engine = createTestCommandEngine({ schema: world.schema, driver });
+        const engine = createTestCommandEngine({
+          schema: world.schema,
+          driver,
+        });
         for (const providerCase of group.cases)
           await runCase(engine, driver, providerCase);
       });

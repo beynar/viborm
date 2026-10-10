@@ -703,10 +703,7 @@ export const FILTER_SQL_PINS: readonly ProviderCase[] = Object.freeze([
             recurse: { depth: 2 },
             self: true,
             some: {
-              OR: [
-                { notes: { some: { position: 2 } } },
-                { label: "Nobody" },
-              ],
+              OR: [{ notes: { some: { position: 2 } } }, { label: "Nobody" }],
             },
           },
         },
@@ -898,7 +895,8 @@ export function chainSummary(relation: string, field = "label") {
       if (next === null) return { labels, end: "null" };
       if (Array.isArray(next)) {
         if (next.length === 0) return { labels, end: "empty" };
-        if (next.length !== 1) return { labels, end: `branching ${next.length}` };
+        if (next.length !== 1)
+          return { labels, end: `branching ${next.length}` };
         current = occurrence(next[0]);
       } else current = occurrence(next);
       labels.push(current[field]);
@@ -944,7 +942,7 @@ export const ALTERNATE_TABLE = "rq_provider_alternates";
 export const PAIR_TABLE = "rq_provider_pairs";
 export const PAIR_LINK_TABLE = "rq_provider_pair_links";
 /** Beyond MySQL's default recursion ceiling and the public depth ceiling. */
-export const SPINE_LENGTH = 1_100;
+export const SPINE_LENGTH = 1100;
 
 export const hierarchySchema = (() => {
   const spine = s
@@ -1108,10 +1106,34 @@ export const HIERARCHY_TABLES: readonly TableSpec[] = Object.freeze([
     // Three siblings tied on `rank`: by tenant they read a, b, c; by code the
     // reverse (w, x, y).
     rows: [
-      { tenant: "r", code: "root", rank: 0, parent_code: null, parent_tenant: null },
-      { tenant: "b", code: "x", rank: 1, parent_code: "root", parent_tenant: "r" },
-      { tenant: "a", code: "y", rank: 1, parent_code: "root", parent_tenant: "r" },
-      { tenant: "c", code: "w", rank: 1, parent_code: "root", parent_tenant: "r" },
+      {
+        tenant: "r",
+        code: "root",
+        rank: 0,
+        parent_code: null,
+        parent_tenant: null,
+      },
+      {
+        tenant: "b",
+        code: "x",
+        rank: 1,
+        parent_code: "root",
+        parent_tenant: "r",
+      },
+      {
+        tenant: "a",
+        code: "y",
+        rank: 1,
+        parent_code: "root",
+        parent_tenant: "r",
+      },
+      {
+        tenant: "c",
+        code: "w",
+        rank: 1,
+        parent_code: "root",
+        parent_tenant: "r",
+      },
     ],
   },
   {
@@ -1341,7 +1363,10 @@ export const HIERARCHY_GROUPS: readonly CaseGroup[] = Object.freeze([
         SPINE_LENGTH,
         "parent",
         { depth: 1000 },
-        { labels: labels("s", SPINE_LENGTH - 1, SPINE_LENGTH - 1000), end: "omitted" },
+        {
+          labels: labels("s", SPINE_LENGTH - 1, SPINE_LENGTH - 1000),
+          end: "omitted",
+        },
         1000
       ),
       spineChain(
@@ -1970,12 +1995,8 @@ const graphCase = (
 });
 
 const diamondTree = (relation: string) => [
-  node("d1", relation, [
-    node("d3", relation, [node("d4", relation, [])]),
-  ]),
-  node("d2", relation, [
-    node("d3", relation, [node("d4", relation, [])]),
-  ]),
+  node("d1", relation, [node("d3", relation, [node("d4", relation, [])])]),
+  node("d2", relation, [node("d3", relation, [node("d4", relation, [])])]),
 ];
 
 /** The same stored row on two paths is two public objects, leaves included. */
@@ -1992,7 +2013,10 @@ function assertFreshDiamond(value: unknown): void {
   assert.notStrictEqual(leftTail, rightTail);
   assert.notStrictEqual(leftTail.payload, rightTail.payload);
   (leftTail.payload as Record<string, unknown>).changed = true;
-  assert.equal((rightTail.payload as Record<string, unknown>).changed, undefined);
+  assert.equal(
+    (rightTail.payload as Record<string, unknown>).changed,
+    undefined
+  );
 }
 
 const ladder = (from: string, rungs: number): ProviderCase => ({
@@ -2244,9 +2268,7 @@ export const GRAPH_GROUPS: readonly CaseGroup[] = Object.freeze([
         },
         expected: [
           node("d0", "out", diamondTree("out")),
-          node("d1", "out", [
-            node("d3", "out", [node("d4", "out", [])]),
-          ]),
+          node("d1", "out", [node("d3", "out", [node("d4", "out", [])])]),
         ],
         check(value) {
           assert(Array.isArray(value));

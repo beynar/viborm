@@ -3,16 +3,17 @@ import assert from "node:assert/strict";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { describe, it } from "vitest";
 import {
-  liveProvider,
-  runLiveWorld,
   type LiveFixture,
   type LiveNames,
+  liveProvider,
+  runLiveWorld,
 } from "../transitions/live-world";
 import {
   type CaseEngine,
-  caseOutcome,
   type ColumnType,
+  caseOutcome,
   columnDefinitions,
+  FILTER_SQL_PINS,
   GRAPH_WORLD,
   HIERARCHY_WORLD,
   ORDINARY_MUTATION_CONTROL,
@@ -21,7 +22,6 @@ import {
   PROVIDER_CASES,
   type ProviderCase,
   providerSchema,
-  FILTER_SQL_PINS,
   type RecursiveWorld,
   SELECT_SQL_PINS,
   type TableSpec,
@@ -38,6 +38,9 @@ const NATIVE_TYPES: Readonly<Record<ColumnType, string>> = {
 
 /** MySQL's `ER_CTE_MAX_RECURSION_DEPTH`: "Recursive query aborted after N iterations". */
 const MYSQL_CTE_MAX_RECURSION_DEPTH = 3636;
+const RECURSIVE_STATEMENT = /WITH RECURSIVE/;
+const UPDATE_STATEMENT = /^UPDATE\b/;
+const DELETE_STATEMENT = /^DELETE\b/;
 
 /**
  * Whether one failure's cause chain is MySQL's recursion limit. The driver
@@ -70,7 +73,7 @@ function owed(providerCase: ProviderCase): unknown {
 
 async function observed(
   engine: CaseEngine,
-  providerCase: ProviderCase,
+  providerCase: ProviderCase
 ): Promise<unknown> {
   try {
     return await caseOutcome(engine, providerCase);
@@ -87,20 +90,17 @@ async function observed(
 
 /** A live world's own tables: their initial rows and their inspection order. */
 function liveTables(
-  tables: readonly TableSpec[],
+  tables: readonly TableSpec[]
 ): Pick<LiveFixture, "initial" | "tables"> {
   return {
     initial: Object.fromEntries(
-      tables.map((table) => [
-        table.name,
-        table.rows.map((row) => ({ ...row })),
-      ]),
+      tables.map((table) => [table.name, table.rows.map((row) => ({ ...row }))])
     ),
     tables: Object.fromEntries(
       tables.map((table) => [
         table.name,
         { name: table.name, order: table.primaryKey },
-      ]),
+      ])
     ),
   };
 }
@@ -112,9 +112,9 @@ function nativeDefinitions(tables: readonly TableSpec[]) {
       tables.map((table) => [
         table.name,
         columnDefinitions(table, NATIVE_TYPES, (identifier) =>
-          names.quote(identifier),
+          names.quote(identifier)
         ),
-      ]),
+      ])
     );
 }
 
@@ -141,7 +141,7 @@ async function runWorld(world: RecursiveWorld): Promise<void> {
   const live = await runLiveWorld(
     fixture,
     nativeDefinitions(world.tables),
-    createTestCommandEngine,
+    createTestCommandEngine
   );
   if (live.terminalFailure !== undefined) throw live.terminalFailure;
   fixture.assert(live.observation);
@@ -149,9 +149,10 @@ async function runWorld(world: RecursiveWorld): Promise<void> {
   // ordinary control carries its recursive projection in that statement.
   assert.equal(live.statements.length, cases.length);
   assert.equal(
-    live.statements.filter((statement) => /WITH RECURSIVE/.test(statement.sql))
-      .length,
-    cases.filter((providerCase) => providerCase.control === undefined).length,
+    live.statements.filter((statement) =>
+      RECURSIVE_STATEMENT.test(statement.sql)
+    ).length,
+    cases.filter((providerCase) => providerCase.control === undefined).length
   );
   live.assertHealthy();
 }
@@ -163,7 +164,7 @@ async function runWorld(world: RecursiveWorld): Promise<void> {
  * order, and no case changes a row.
  */
 async function nativeSqlPins(
-  cases: readonly ProviderCase[],
+  cases: readonly ProviderCase[]
 ): Promise<Record<string, readonly string[]>> {
   const owedHere = cases.map(owedOutcome);
   const fixture: LiveFixture = {
@@ -187,20 +188,20 @@ async function nativeSqlPins(
   const live = await runLiveWorld(
     fixture,
     nativeDefinitions(PLACEMENT_MATRIX_TABLES),
-    createTestCommandEngine,
+    createTestCommandEngine
   );
   if (live.terminalFailure !== undefined) throw live.terminalFailure;
   fixture.assert(live.observation);
   live.assertHealthy();
   const statements = live.statements.map((statement) =>
-    statement.sql.replaceAll(live.namespace, "<namespace>"),
+    statement.sql.replaceAll(live.namespace, "<namespace>")
   );
   assert.equal(statements.length, cases.length);
   return Object.fromEntries(
     cases.map((providerCase, index) => [
       providerCase.name,
       [statements[index]!],
-    ]),
+    ])
   );
 }
 
@@ -226,7 +227,7 @@ describe(`recursive relation provider SQL on native ${liveProvider}`, () => {
         const control = await engine.execute(
           ORDINARY_MUTATION_CONTROL.model,
           ORDINARY_MUTATION_CONTROL.operation,
-          ORDINARY_MUTATION_CONTROL.args,
+          ORDINARY_MUTATION_CONTROL.args
         );
         const values: unknown[] = [];
         for (const providerCase of PROVIDER_CASES)
@@ -234,35 +235,30 @@ describe(`recursive relation provider SQL on native ${liveProvider}`, () => {
             await engine.execute(
               providerCase.model,
               providerCase.operation,
-              providerCase.args,
-            ),
+              providerCase.args
+            )
           );
         return { control, values };
       },
       assert(observation) {
         assert.equal(observation.outcome.kind, "success");
         if (observation.outcome.kind === "success")
-          assert.deepEqual(
-            observation.outcome.value,
-            {
-              control: ORDINARY_MUTATION_CONTROL.expected,
-              values: PROVIDER_CASES.map(
-                (providerCase) => providerCase.expected,
-              ),
-            },
-          );
+          assert.deepEqual(observation.outcome.value, {
+            control: ORDINARY_MUTATION_CONTROL.expected,
+            values: PROVIDER_CASES.map((providerCase) => providerCase.expected),
+          });
       },
     };
     const world = await runLiveWorld(
       fixture,
       nativeDefinitions(PLACEMENT_MATRIX_TABLES),
-      createTestCommandEngine,
+      createTestCommandEngine
     );
     if (world.terminalFailure !== undefined) throw world.terminalFailure;
     fixture.assert(world.observation);
     const recursiveStatementIndexes = world.statements.flatMap(
       (statement, index) =>
-        /WITH RECURSIVE/.test(statement.sql) ? [index] : [],
+        RECURSIVE_STATEMENT.test(statement.sql) ? [index] : []
     );
     assert.equal(recursiveStatementIndexes.length, PROVIDER_CASES.length);
     const ordinaryMutationStatements = recursiveStatementIndexes[0]!;
@@ -271,20 +267,23 @@ describe(`recursive relation provider SQL on native ${liveProvider}`, () => {
       assert.equal(
         recursiveStatementIndexes[index],
         ordinaryMutationStatements + index,
-        `${PROVIDER_CASES[index]!.name}: statement count`,
+        `${PROVIDER_CASES[index]!.name}: statement count`
       );
     const updateStart = recursiveStatementIndexes[6]! + 1;
     const updateRead = recursiveStatementIndexes[7]!;
-    const updateStatements = world.statements.slice(updateStart, updateRead + 1);
+    const updateStatements = world.statements.slice(
+      updateStart,
+      updateRead + 1
+    );
     assert.equal(updateStatements.length, ordinaryMutationStatements);
     const updateWrite = updateStatements.findIndex((statement) =>
-      /^UPDATE\b/.test(statement.sql),
+      UPDATE_STATEMENT.test(statement.sql)
     );
     assert(updateWrite >= 0 && updateWrite < updateStatements.length - 1);
     const deleteRead = recursiveStatementIndexes[8]!;
     const deleteStatements = world.statements.slice(deleteRead);
     const deleteWrite = deleteStatements.findIndex((statement) =>
-      /^DELETE\b/.test(statement.sql),
+      DELETE_STATEMENT.test(statement.sql)
     );
     assert(deleteWrite > 0);
     world.assertHealthy();
