@@ -59,9 +59,10 @@ PostgreSQL forbids using an added value before its transaction commits. When
 the same push or migration may use a new value, VibORM instead replaces the
 type in that transaction (see below). A use is a default naming the value, a
 column converted to the enum, whose stored data may hold it, or a new
-partial-index predicate naming the enum type or one of its columns on the
-indexed table, however the value is spelled. A predicate over other columns,
-such as `title = 'archived'`, keeps the addition catalog-only.
+partial-index predicate naming the enum type or a column of it, however the
+value is spelled and even when it compares only existing values. A predicate
+over other columns, such as `title = 'archived'`, keeps the addition
+catalog-only.
 To keep the addition catalog-only, add the value in one migration and use it in
 a later one: `apply`, `down` and `reset` commit after each migration that adds
 enum values. Reset needs this too: before PostgreSQL 17, even a type created in

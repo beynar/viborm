@@ -195,9 +195,9 @@ function mayName(sql: string, identifier: string): boolean {
  * Whether an operation after `ALTER TYPE … ADD VALUE` in the same transaction
  * may read an added label, which PostgreSQL refuses until commit (55P04): a
  * default naming one, a cast of stored data into the enum, or a partial-index
- * predicate naming the type or one of its columns on the index's table. No
- * literal spelling is trusted: `$$archived$$`, `E'archived'` and a function
- * result compare the same.
+ * predicate naming the type or a column of it. No literal spelling is
+ * trusted: `$$archived$$`, `E'archived'` and a function result compare the
+ * same.
  */
 function readsAddedValue(
   enumName: string,
@@ -209,39 +209,28 @@ function readsAddedValue(
     const labels = enumDefaultLabels(column, enumName);
     return added.some((value) => labels.includes(value));
   };
-  const enumColumnsOf = (table: TableDef) =>
-    table.columns
-      .filter((column) => storesEnum(column, enumName))
-      .map((column) => ({ table: table.name, column: column.name }));
-  // Each column of the enum, as the batch has named it so far.
-  const columns = tables.flatMap(enumColumnsOf);
-  const predicateNamesEnum = (table: string, { where }: IndexDef) =>
-    where !== undefined &&
-    [
-      enumName,
-      ...columns
-        .filter((item) => item.table === table)
-        .map((item) => item.column),
-    ].some((name) => mayName(where, name));
+  // The type and every name the batch gives a column of it, on any table.
+  const names = new Set([enumName]);
+  const addEnumColumns = (columns: readonly ColumnDef[]) => {
+    for (const column of columns)
+      if (storesEnum(column, enumName)) names.add(column.name);
+  };
+  for (const table of tables) addEnumColumns(table.columns);
+  const predicateNamesEnum = ({ where }: IndexDef) =>
+    where !== undefined && [...names].some((name) => mayName(where, name));
   for (const operation of following) {
     switch (operation.type) {
-      case "createTable": {
-        const { table } = operation;
-        columns.push(...enumColumnsOf(table));
+      case "createTable":
+        addEnumColumns(operation.table.columns);
         if (
-          table.columns.some(defaultNamesAdded) ||
-          table.indexes.some((index) => predicateNamesEnum(table.name, index))
+          operation.table.columns.some(defaultNamesAdded) ||
+          operation.table.indexes.some(predicateNamesEnum)
         )
           return true;
         break;
-      }
       case "addColumn":
         if (defaultNamesAdded(operation.column)) return true;
-        if (storesEnum(operation.column, enumName))
-          columns.push({
-            table: operation.tableName,
-            column: operation.column.name,
-          });
+        addEnumColumns([operation.column]);
         break;
       // A column already of the enum is known; one cast into it may hold a label.
       case "alterColumn":
@@ -252,26 +241,11 @@ function readsAddedValue(
         )
           return true;
         break;
-      case "renameTable":
-        columns.push(
-          ...columns
-            .filter((item) => item.table === operation.from)
-            .map((item) => ({ ...item, table: operation.to }))
-        );
-        break;
       case "renameColumn":
-        if (
-          columns.some(
-            (item) =>
-              item.table === operation.tableName &&
-              item.column === operation.from
-          )
-        )
-          columns.push({ table: operation.tableName, column: operation.to });
+        if (names.has(operation.from)) names.add(operation.to);
         break;
       case "createIndex":
-        if (predicateNamesEnum(operation.tableName, operation.index))
-          return true;
+        if (predicateNamesEnum(operation.index)) return true;
         break;
       default:
         break;

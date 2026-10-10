@@ -45,7 +45,7 @@ Migration drivers generate DDL for these operations:
 | `dropPrimaryKey` | Direct | Direct | Table recreation |
 | `createEnum` | `CREATE TYPE` | No-op (inline in column) | No-op (TEXT) |
 | `dropEnum` | `DROP TYPE` | No-op | No-op |
-| `alterEnum` | `ADD VALUE [BEFORE]` for additions; type replacement for removals and reorders | `MODIFY COLUMN` per column | Table recreation |
+| `alterEnum` | `ADD VALUE [BEFORE]` for additions; type replacement for removals, reorders and additions the same migration may use (see [PostgreSQL](/docs/migration/drivers/postgresql)) | `MODIFY COLUMN` per column | Table recreation |
 
 ## Automatic Driver Selection
 

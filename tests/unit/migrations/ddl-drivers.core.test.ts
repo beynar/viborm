@@ -3239,7 +3239,11 @@ describe("PostgreSQL DDL Generation", () => {
           },
           {
             type: "createTable",
-            table: table("audits", [column("text")], `state = 'archived'`),
+            table: table(
+              "audits",
+              [{ ...column("text"), name: "label" }],
+              `label = 'archived'`
+            ),
           },
         ])
       ).toEqual([
