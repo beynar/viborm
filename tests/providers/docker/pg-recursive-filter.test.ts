@@ -13,12 +13,12 @@ import { dropEveryLiveTable, TEST_CONNECTION_STRING } from "./pg-fixtures";
 const describeIf = TEST_CONNECTION_STRING ? describe : describe.skip;
 
 describeIf("pg Driver", () => {
-  beforeEach(dropEveryLiveTable);
   // The provider files share one database: leave it as empty as it was found.
   afterAll(dropEveryLiveTable);
 
   runRecursiveRelationFilterBehavior({
     name: "pg",
     createDriver: () => new PgDriver({ databaseUrl: TEST_CONNECTION_STRING }),
+    reset: dropEveryLiveTable,
   });
 });
