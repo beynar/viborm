@@ -15,27 +15,47 @@ describe("PostgreSQL partial-index predicate canonicalization", () => {
     expect(driver.statements).toEqual([]);
   });
 
-  test("deparses predicates positionally through temporary views", async () => {
+  test("deparses predicates positionally through temporary views, then deparses each answer once more", async () => {
     const driver = pgEstateDriver("tenant");
+    const answers = [
+      {
+        d0: " SELECT 1 AS c\n   FROM account\n  WHERE (((age >= 18) AND (age <= 65)) AND active);",
+        d1: null,
+      },
+      {
+        d0: " SELECT 1 AS c\n   FROM account\n  WHERE ((age >= 18) AND (age <= 65) AND active);",
+        // Still the first pass's view: no answer, not a fixed point.
+        d1: " SELECT 1 AS c\n   FROM account\n  WHERE (deleted_at IS NULL);",
+      },
+    ];
     driver.respond = (sql) =>
       sql.startsWith("SELECT pg_catalog.pg_get_viewdef")
-        ? [{ d0: "(active = true)", d1: null }]
+        ? [answers.shift()]
         : [];
 
     const result = await canonicalizeIndexPredicates(
       '"tenant"."account"',
-      ["active = true", "deleted_at IS NULL"],
+      ['"age" BETWEEN 18 AND 65 AND active', "deleted_at IS NULL"],
       (sql, parameters) => driver._executeRaw(sql, parameters)
     );
 
-    expect(result).toEqual(["(active = true)", undefined]);
+    expect(result).toEqual([
+      " SELECT 1 AS c\n   FROM account\n  WHERE ((age >= 18) AND (age <= 65) AND active);",
+      undefined,
+    ]);
+    const viewdefs =
+      'SELECT pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_0"\'::regclass) AS "d0", pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_1"\'::regclass) AS "d1"';
     expect(driver.statements.slice(1)).toEqual([
-      'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_0" AS SELECT 1 AS c FROM "tenant"."account" WHERE active = true',
+      'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_0" AS SELECT 1 AS c FROM "tenant"."account" WHERE "age" BETWEEN 18 AND 65 AND active',
       'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_1" AS SELECT 1 AS c FROM "tenant"."account" WHERE deleted_at IS NULL',
-      'SELECT pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_0"\'::regclass) AS "d0", pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_1"\'::regclass) AS "d1"',
+      viewdefs,
+      // The first answer reparsed, without its terminator; a position with
+      // no answer is not reparsed.
+      'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_0" AS  SELECT 1 AS c\n   FROM account\n  WHERE (((age >= 18) AND (age <= 65)) AND active)',
+      viewdefs,
       'DROP VIEW pg_temp."viborm_index_predicate_0", pg_temp."viborm_index_predicate_1"',
     ]);
-    expect(driver.parameters).toEqual([[], [], [], [], []]);
+    expect(driver.parameters).toEqual([[], [], [], [], [], [], []]);
   });
 
   test("leaves cleanup to the caller transaction after a failed deparse", async () => {

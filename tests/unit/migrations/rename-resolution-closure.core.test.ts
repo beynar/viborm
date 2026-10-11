@@ -1,3 +1,4 @@
+import { VibORMErrorCode } from "@errors";
 import {
   type DiffOptions,
   diff,
@@ -5,6 +6,7 @@ import {
 } from "@migrations/differ";
 import { invertOperations } from "@migrations/invert";
 import {
+  alwaysAddDropResolver,
   alwaysRenameResolver,
   resolveAmbiguousChanges,
 } from "@migrations/resolver";
@@ -343,4 +345,58 @@ it("treats PostgreSQL int4 and integer as one non-destructive type", () => {
       to: { name: "sequence", type: "integer", nullable: false },
     })
   ).toBe(false);
+});
+
+it("an add-and-drop answer re-diffs only its own table: the others stay as they were", async () => {
+  const text = (name: string) => ({ name, type: "text", nullable: false });
+  const current: SchemaSnapshot = {
+    tables: [
+      table("accounts", [text("id"), text("handle")]),
+      table("teams", [text("id"), text("label")]),
+    ],
+  };
+  const desired: SchemaSnapshot = {
+    tables: [
+      table("accounts", [text("id"), text("username")]),
+      table("teams", [text("id"), text("label")]),
+    ],
+  };
+
+  const operations = await resolveAmbiguousChanges(
+    await diff(current, desired),
+    current,
+    desired,
+    alwaysAddDropResolver
+  );
+
+  expect(operations).toEqual([
+    { type: "dropColumn", tableName: "accounts", columnName: "handle" },
+    { type: "addColumn", tableName: "accounts", column: text("username") },
+  ]);
+});
+
+it("a resolver that leaves an ambiguous change unanswered is refused, naming it", async () => {
+  const current: SchemaSnapshot = {
+    tables: [
+      table("accounts", [{ name: "handle", type: "text", nullable: false }]),
+    ],
+  };
+  const desired: SchemaSnapshot = {
+    tables: [
+      table("accounts", [{ name: "username", type: "text", nullable: false }]),
+    ],
+  };
+  const silent: Resolver = () => Promise.resolve(new Map());
+
+  await expect(
+    resolveAmbiguousChanges(
+      await diff(current, desired),
+      current,
+      desired,
+      silent
+    )
+  ).rejects.toMatchObject({
+    code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
+    message: expect.stringContaining("Missing resolution for"),
+  });
 });

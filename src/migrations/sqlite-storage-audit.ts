@@ -1,3 +1,4 @@
+import { errorCause } from "../drivers/shared/driver-options";
 /**
  * SQLite storage that typed queries compare but never inspect: text DateTime
  * and Time (scalar or JSON list) and checked decimals.
@@ -267,7 +268,7 @@ export async function canonicalizeSqliteStorage(
         throw new MigrationError(
           `The manual SQL left "${target.table}"."${target.column}" holding a ${target.type}${target.list ? " list" : ""} value that cannot be rewritten into canonical storage (${error instanceof Error ? error.message : String(error)}); the marker did not move`,
           VibORMErrorCode.MIGRATION_DRIFT,
-          { cause: error instanceof Error ? error : undefined }
+          { cause: errorCause(error) }
         );
       }
     }

@@ -25,6 +25,7 @@ const boundary = vi.hoisted(() => {
     graph: vi.fn(),
     list: vi.fn(),
     log: vi.fn(),
+    reanchor: vi.fn(),
     reset: vi.fn(),
     resolve: vi.fn(),
     show: vi.fn(),
@@ -155,6 +156,7 @@ describe("migrate command routing", () => {
     boundary.migrations.graph.mockResolvedValue({ roots: [], leaves: [] });
     boundary.migrations.list.mockResolvedValue([]);
     boundary.migrations.log.mockResolvedValue(["first", "second"]);
+    boundary.migrations.reanchor.mockResolvedValue({ stateId: SHA256 });
     boundary.migrations.reset.mockResolvedValue({ outcome: "reset" });
     boundary.migrations.resolve.mockResolvedValue({ outcome: "complete" });
     boundary.migrations.show.mockResolvedValue({ stateId: SHA256 });
@@ -180,6 +182,7 @@ describe("migrate command routing", () => {
       "apply",
       "down",
       "baseline",
+      "reanchor",
       "resolve",
       "reset",
     ]);
@@ -628,6 +631,12 @@ describe("migrate command routing", () => {
       to: { id: SHA256 },
       via: ["root", "merge"],
     });
+
+    await invoke(["reanchor"]);
+    expectCall("reanchor", { to: undefined, via: undefined });
+    boundary.migrations.reanchor.mockClear();
+    await invoke(["reanchor", "--to", PREFIX]);
+    expectCall("reanchor", { to: { prefix: PREFIX }, via: undefined });
   });
 
   it("routes every resolve outcome and refuses an absent outcome", async () => {

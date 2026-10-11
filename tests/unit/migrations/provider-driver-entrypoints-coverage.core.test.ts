@@ -75,6 +75,44 @@ describe("provider migration-driver public entrypoints", () => {
     expect(driver.generateSelectTarget()).toBe("USE `billing`");
   });
 
+  test("MySQL creates a non-key AUTO_INCREMENT column with its leading index inline", () => {
+    // MySQL refuses AUTO_INCREMENT on a column no key leads with, so the
+    // index cannot follow as its own statement: it is part of CREATE TABLE.
+    const create = (unique: boolean) =>
+      mysqlMigrationDriver.compileStatements(
+        {
+          type: "createTable",
+          table: {
+            ...EMPTY_TABLE,
+            name: "events",
+            columns: [
+              { name: "id", type: "VARCHAR(191)", nullable: false },
+              {
+                name: "seq",
+                type: "INT",
+                nullable: false,
+                autoIncrement: true,
+              },
+            ],
+            primaryKey: { columns: ["id"] },
+            indexes: [{ name: "events_seq_idx", columns: ["seq"], unique }],
+          },
+        },
+        ddlContext("artifact")
+      );
+
+    for (const [unique, key] of [
+      [false, "KEY `events_seq_idx` (`seq`)"],
+      [true, "UNIQUE KEY `events_seq_idx` (`seq`)"],
+    ] as const) {
+      const statements = create(unique);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toContain(
+        `\`seq\` INT AUTO_INCREMENT NOT NULL,\n  ${key},\n  PRIMARY KEY (\`id\`)`
+      );
+    }
+  });
+
   test("MySQL identifies a decimal-list narrowing as an irreversible inverse", () => {
     const reason = mysqlMigrationDriver.getIrreversibleRollbackReason({
       type: "alterColumn",

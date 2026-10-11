@@ -157,13 +157,14 @@ when the preview holds an operation that `show()` labels `destructive` (a drop,
 a narrowing type change, a removed enum value), or when a published state
 `apply` would reach first carries one or an approval. Use it to take a restore
 point, such as a database branch. If it throws, the change is `refused` and
-nothing is published.
+nothing is published. A tenant's first change has nothing to lose, so it is
+never asked.
 
-## Status, Log, Resolve and Down
+## Status, Log, Resolve, Down and Reanchor
 
-`status()`, `log()`, `resolve()` and `down()` are the migration client's own,
-over the migrator's `client` and `history`, and return plain data. `resolve`
-and `down` wait in the queue. On SQLite, give the migrator a client over the
+`status()`, `log()`, `resolve()`, `down()` and `reanchor()` are the migration
+client's own, over the migrator's `client` and `history`, and return plain
+data. `resolve`, `down` and `reanchor` wait in the queue. On SQLite, give the migrator a client over the
 tenant's current schema: a resumed SQLite transition rewrites temporal columns
 by that schema.
 
@@ -177,7 +178,41 @@ tenant's query client (`skipSchemaValidation: true`).
 ## Restores
 
 The history lives in the object, the marker in the database: restore both to
-matching points. A history restored behind the marker, or wiped, makes
-`change` return `failed` with V11002: the database is left alone, but the
-document was published into that history. Restore the history to the marker's
-point before the next change.
+matching points when you can.
+
+- **The database restored behind the history**: the next `change` applies the
+  states the database lacks, as any change does.
+- **The history restored behind the database, or wiped**: `change` returns
+  `failed` with V11002. The database is left alone, but the document was
+  published into that history. `status().markerState` is `"ahead"` (or
+  `"unknown"` for a wiped history).
+
+To repair an older history, regenerate the lost states first: send each schema
+document since the restore point again, in order, with its decisions. With the
+same VibORM version, each change reproduces the lost state's id exactly. The
+changes before the last return `failed` with V11002, since the marker is still
+ahead of them; the last one reaches the marker's own state and returns
+`applied` with an empty `path`. This needs the documents and decisions kept
+outside the object, which is worth doing anyway.
+
+When those documents are gone, or the history took another route (one change
+in place of several), the state the document published has another id. Moving
+the marker onto it is a deliberate operator step, never an automatic reaction
+to V11002, which also means a database of another tenant or a lost transition
+that only moved data. `status()` already reports `markerState`; give the object
+an operator-only method:
+
+```ts
+  // Called by an operator who saw status().markerState === "ahead"
+  // and knows a restore is the cause.
+  reanchorAfterRestore() {
+    return this.migrator.reanchor();
+  }
+```
+
+`reanchor()` checks that the live schema matches exactly one state of the
+history, with no manual or data-only transition on its route and not a state
+the marker already passed through, and refuses otherwise;
+[History older than the database](/docs/migration/migrate#history-older-than-the-database)
+lists the cases. After it, the next `change` with the same document returns
+`noop`.

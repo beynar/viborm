@@ -471,7 +471,8 @@ was restored behind Postgres) or `"unknown"` (nothing on that path belongs
 here), with `pending: []`. `apply()` refuses both with `V11002` by default;
 `apply({ ifAhead: "noop" })` returns `{ outcome: "noop" }` for an ahead marker
 without touching the database, so old code can boot against a newer schema. An
-unknown marker is always refused.
+unknown marker is always refused. When the history is the side a restore left
+behind, see [History older than the database](#history-older-than-the-database).
 
 ### Apply Options
 
@@ -486,6 +487,8 @@ unknown marker is always refused.
 There is no `--force`, no numeric `--to 5`, and no tracking-table name flag. Control tables are `_viborm_migration_state` and `_viborm_migration_log`.
 
 If the marker is absent, ordinary apply requires the managed target to be empty apart from control objects. Adopting an existing schema is `baseline`, not an implicit first apply.
+
+On PostgreSQL an `apply` with nothing to do sends 2 statements: the control tables' definition, then one statement that reads the marker, any unfinished attempt and a digest of the managed schema computed by the server, while no other migration command holds the lock. It still proves there is no drift: a digest that does not match is decided again under the lock, which names the difference. Partial-index predicates are compared as PostgreSQL deparses them (`"deletedAt" IS NULL` reads back as `("deletedAt" IS NULL)`), against the text the apply that reached the state read from the catalog and stored beside the marker. A marker without that text (written by 1.1.0, or by a command other than `apply`), a server that now deparses a predicate differently (after a major upgrade), and a schema the digest cannot reproduce (some literal defaults) get the same answer from the locked proof, in about 30 statements.
 
 A statement the migration dispatches that the database refuses fails the command with `MigrationError` V11001 (`MIGRATION_FAILED`). Its `meta` names `fromState`, `toState`, `operationId`, `dispatchId`, `statementIndex` and the provider's `providerCode`/`providerSqlState`, and its `cause` is the provider error. A transactional attempt rolls back and is recorded as `failed` (see `status().lastFailure`). When a COMMIT's reply is lost, apply re-reads the marker: `applied` when it shows the commit, V11020 when it cannot be read. A COMMIT the database refuses (for example a deferred constraint) keeps its provider error. When ending the session fails after the commit, apply returns `applied` with `warnings`.
 
@@ -644,6 +647,68 @@ leaves behind are dropped the same way. `resolve` never touches an invalid index
 the attempt did not name, or an unnamed build: another session's build may still
 be running. Drop or rebuild that index yourself, then resolve.
 
+### History Older Than the Database
+
+A restore can leave the history and the database at different points.
+
+- **The database is older** (it was restored from an earlier backup): nothing
+  needs repair. The marker names a state the history holds, and `apply` runs
+  the states the database lacks.
+- **The history is older** (the estate directory, or a Durable Object's
+  storage, was restored from an earlier backup): the marker names a state the
+  history lacks. `status().markerState` is `"ahead"` or `"unknown"`, and
+  `apply` refuses with `V11002`.
+
+The cheaper repair comes first. State ids are content-addressed. Generating the
+lost states again, with the same schema documents, names, parents and decisions
+and the same VibORM version, reproduces their ids exactly. The marker is then
+known again, and nothing else is needed. Keep every schema document and its
+decisions somewhere durable so this stays possible.
+
+Otherwise, generate the schema the database runs as a state of the history you
+have. Its id differs from the lost one, because its parent or its name does.
+Then re-anchor the marker on it:
+
+<Tabs>
+  <Tab title="CLI">
+```bash
+npx viborm migrate reanchor --json
+npx viborm migrate reanchor --to add-users --json
+```
+  </Tab>
+  <Tab title="Migration Client">
+```ts
+const { stateId } = await migrations.reanchor();
+await migrations.reanchor({ to: { name: "add-users" } });
+```
+  </Tab>
+</Tabs>
+
+Under the target lock, `reanchor` moves the marker onto the one state of this
+history whose snapshot the live schema matches exactly, by the fingerprint
+`verify` compares. It runs no migration SQL. It refuses in these cases:
+
+- The marker names a state this history holds (`apply` and `verify` handle
+  it), or there is no marker (use `baseline`). `V11009`.
+- An attempt is unfinished: resolve it first. `V11009`.
+- No state matches the live schema. `V11014`, with the differences from the
+  history's latest state.
+- Several states match. Equal schemas never say which data the database
+  holds. `V11009`, naming them.
+- The route from the root to the state has a manual, opaque or data-only
+  transition, as for `baseline`. `V11009`.
+- The marker's own path passed through the state: the transitions lost after
+  it changed no schema, so they may have moved data, and moving back would
+  run them again. Regenerate the lost states instead. `V11009`.
+
+The new marker path starts at the history's root with a baseline boundary, as
+`baseline` records it, so `down` cannot cross it. The ledger records a
+`reanchored` event, whose `fromState` is the state the marker named before.
+
+`reanchor({ to })` adopts the named state as the new baseline. It is the
+explicit consent to take the live schema as that state, which several matching
+states need. It still requires exact live equality and a structural route.
+
 ## Reset
 
 `reset` preloads and authenticates the complete clear-and-replay program before the first drop. It keeps the estate, both control tables, every ledger event, and the old marker until final success. On PostgreSQL, the replay commits after each migration that adds enum values, so a later migration can use them. If it is interrupted after such a commit, running `reset` again resumes from the recorded progress.
@@ -753,7 +818,9 @@ Above `limits.largeTableRows` (default 1,000,000), `apply`, `down` and
 `push`, including push's dry run, refuse such a change before any statement
 runs, with `V11009` naming the operation, the table and the planner's estimate.
 The estimate is what `EXPLAIN` reports: `pg_class.reltuples` from the last
-`ANALYZE` or autovacuum, scaled to the table's current size. Manual SQL is
+`ANALYZE` or autovacuum, scaled to the table's current size. A plan that
+reports no estimate is refused the same way, since nothing measured the table.
+Manual SQL is
 classified by the same patterns: the forms VibORM generates and their common
 manual spellings. A table the same migration creates first, as a force reset
 does, is empty and never refused. `apply({ dryRun: true })` previews without
@@ -923,6 +990,47 @@ if (status.pending.length > 0) {
   await migrations.apply();
 }
 ```
+
+## Upgrading from 1.1.0
+
+Upgrade every machine and CI job that runs migration commands against a
+database, or reads its history, together. VibORM 1.1.0 reads every control row
+and every history file strictly, and refuses three things 1.2.0 can write:
+
+- **A destructive state's approvals** (see
+  [Destructive changes need an approval](#destructive-changes-need-an-approval)).
+  They are part of the state in the history, so keep 1.2.0 for a history that
+  holds one.
+- **The marker's `predicates` record** (PostgreSQL). An `apply` that reaches a
+  state with partial indexes stores their predicates beside the marker (see
+  [Apply](#apply)). 1.1.0 then refuses the marker with `V11012` ("migration
+  marker has unknown key predicates"). Before running 1.1.0 against that
+  database, remove the record:
+
+  ```sql
+  UPDATE "<schema>"."_viborm_migration_state" SET payload = (payload::jsonb - 'predicates')::text WHERE singleton = 1;
+  ```
+
+  1.2.0 still answers a no-op on that database, through the locked proof
+  (about 30 statements), until its next `apply` reaches a state.
+- **A `reanchored` ledger event**, written by `reanchor()` (see
+  [History Older Than the Database](#history-older-than-the-database)). 1.1.0
+  reads the whole ledger and refuses that database with `V11012` ("ledger event
+  .kind is not a V1 kind"). The re-anchored marker itself is one 1.1.0 reads: its
+  path starts at a baseline boundary, as `baseline` writes it. To run 1.1.0
+  against that database, delete the event, which also deletes the database's
+  record of the re-anchor:
+
+  ```sql
+  DELETE FROM "<schema>"."_viborm_migration_log" WHERE kind = 'reanchored';
+  ```
+
+  On MySQL and SQLite, drop the `"<schema>".` qualifier (MySQL keeps it, with
+  backticks, when the client sets a namespace).
+
+`<schema>` is the client's namespace (`public` when it sets none). Rolled back
+this way, 1.1.0 runs `status`, `verify` and `apply` against the database as 1.2.0 left
+it, with the history 1.2.0 used.
 
 ## Next Steps
 

@@ -22,7 +22,7 @@ import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { canPinSession } from "./pinned-session";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodeSnapshot } from "./v1-parse-snapshot";
-import type { PushTargetIdentity } from "./v1-types";
+import type { MarkerIndexPredicateV1, PushTargetIdentity } from "./v1-types";
 
 export async function pushTargetIdentity(
   producer: AnyDriver,
@@ -127,6 +127,34 @@ export async function fingerprintLive(
     ),
     driver
   );
+}
+
+/**
+ * `fingerprintSnapshot` with each partial-index predicate as PostgreSQL
+ * deparsed it, from the record beside the marker: what the catalog digest
+ * hashes when it reads predicates as deparsed. `undefined` when the record
+ * lacks one of them.
+ */
+export function fingerprintDeparsed(
+  snapshot: SchemaSnapshot,
+  predicates: readonly MarkerIndexPredicateV1[],
+  driver: MigrationDriver
+): Sha256 | undefined {
+  let recorded = true;
+  const tables = snapshot.tables.map((table) => ({
+    ...table,
+    indexes: table.indexes.map((index) => {
+      if (!index.where) return index;
+      const where = predicates.find(
+        (record) => record.table === table.name && record.index === index.name
+      )?.deparsed;
+      recorded &&= where !== undefined;
+      return { ...index, where };
+    }),
+  }));
+  return recorded
+    ? fingerprintSnapshot({ ...snapshot, tables }, driver)
+    : undefined;
 }
 
 export function fingerprintSnapshot(

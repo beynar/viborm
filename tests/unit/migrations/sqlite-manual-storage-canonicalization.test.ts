@@ -25,7 +25,7 @@ import { sql } from "@sql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
-import { MemoryStorage } from "./_estate";
+import { MemoryStorage, pgEstateDriver } from "./_estate";
 
 const ROWS = 10_000;
 const CANONICAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -491,4 +491,67 @@ describe("SQLite zone-less DateTime text in table recreation", () => {
       ]);
     }
   );
+});
+
+describe("auditStorage before and outside SQLite storage", () => {
+  it("reports every audited column of a table not created yet as missing, scanning nothing", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({ schema: schema(), driver });
+
+    const audits = await auditStorage(client);
+
+    expect(audits).toEqual([
+      expect.objectContaining({ column: "occurredAt", noncanonical: null }),
+      expect.objectContaining({ column: "endedAt", noncanonical: null }),
+      expect.objectContaining({ column: "startsAt", noncanonical: null }),
+      expect.objectContaining({ column: "reminders", noncanonical: null }),
+      {
+        table: "s12_events",
+        column: "prices",
+        type: "decimal",
+        declared: null,
+        checked: false,
+      },
+      expect.objectContaining({ column: "createdAt", noncanonical: null }),
+      expect.objectContaining({ column: "updatedAt", noncanonical: null }),
+    ]);
+  });
+
+  it("checks a pushed decimal scalar and list against their scaled-integer storage", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const client = createClient({
+      schema: {
+        ledger: s
+          .model({
+            id: s.string().id(),
+            amount: s.decimal({ precision: 10, scale: 2 }),
+            splits: s.decimal({ precision: 10, scale: 2 }).array(),
+          })
+          .map("s12_ledger"),
+      },
+      driver,
+    });
+    await push(client, { force: true });
+
+    await expect(auditStorage(client)).resolves.toEqual([
+      expect.objectContaining({
+        column: "amount",
+        type: "decimal",
+        checked: true,
+      }),
+      expect.objectContaining({
+        column: "splits",
+        type: "decimal",
+        checked: true,
+      }),
+    ]);
+  });
+
+  it("audits nothing on a dialect that stores native types", async () => {
+    const driver = pgEstateDriver("public");
+    const client = createClient({ schema: schema(), driver });
+
+    await expect(auditStorage(client)).resolves.toEqual([]);
+    expect(driver.statements).toEqual([]);
+  });
 });

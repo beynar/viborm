@@ -16,8 +16,12 @@
  * statement answers NULL instead of a digest, and the caller introspects as
  * before. That is every case the introspection or the managed-table list
  * refuses (its refusal is then raised with its own message), and:
- * - a partial index, whose predicate the database canonicalizes through a
- *   scratch view, which one SELECT cannot create;
+ * - a partial index, whose predicate `fingerprintLive` canonicalizes through
+ *   a scratch view, which one SELECT cannot create — unless the caller asks
+ *   for predicates as deparsed (`$6`): the digest is then
+ *   `fingerprintSnapshot` of the introspection itself, each predicate as
+ *   `pg_get_expr` spells it, which the no-op compares with the spelling the
+ *   apply that wrote the marker recorded from its introspection;
  * - a default that is a temporal literal, a JSON literal other than `{}`,
  *   `[]`, `null`, `true` or `false`, an array literal other than `{}`, a
  *   `date_trunc(…)` clock, an exponent or more than 15 significant digits in
@@ -242,7 +246,8 @@ indexes AS (
 kept_indexes AS (
   SELECT table_name, name, columns,
     is_unique AND predicate = '' AND method = 'btree' AS total_unique,
-    '{"columns":' || columns || ',"name":' || to_json(name)::text || ',"type":' || to_json(method)::text || ',"unique":' || is_unique::text || ',"where":null}' AS json
+    '{"columns":' || columns || ',"name":' || to_json(name)::text || ',"type":' || to_json(method)::text || ',"unique":' || is_unique::text
+      || ',"where":' || coalesce(to_json(nullif(${trim("predicate")}, ''))::text, 'null') || '}' AS json
   FROM indexes
   WHERE kept AND method IN ('btree', 'hash', 'gin', 'gist') AND NOT expression
 ),
@@ -299,7 +304,7 @@ SELECT CASE WHEN
   AND pg_catalog.getdatabaseencoding() = 'UTF8'
   AND NOT EXISTS (SELECT 1 FROM scope WHERE selected AND partitioned)
   AND NOT EXISTS (SELECT 1 FROM columns WHERE selected AND (generated OR type IS NULL OR NOT decimal_valid OR (kept AND json IS NULL)))
-  AND NOT EXISTS (SELECT 1 FROM indexes WHERE selected AND (NOT valid OR unsupported OR method NOT IN ('btree', 'hash', 'gin', 'gist') OR (kept AND NOT expression AND predicate <> '')))
+  AND NOT EXISTS (SELECT 1 FROM indexes WHERE selected AND (NOT valid OR unsupported OR method NOT IN ('btree', 'hash', 'gin', 'gist') OR (kept AND NOT expression AND predicate <> '' AND NOT $6::boolean)))
   AND NOT EXISTS (SELECT 1 FROM fk WHERE $4::text[] IS NOT NULL AND ${managedOrControl("fk.table_name")} <> ${managedOrControl("fk.foreign_table_name")})
   AND NOT EXISTS (SELECT 1 FROM columns c WHERE NOT c.selected AND c.kept AND ${elementType("c.type")} IN (SELECT name FROM enums))
   AND NOT EXISTS (SELECT 1 FROM xfk WHERE $4::text[] IS NULL OR (owning_schema::text = $1::text AND owning_table::text = ANY ($4::text[])) OR (referenced_schema::text = $1::text AND referenced_table::text = ANY ($4::text[])))
@@ -330,11 +335,14 @@ export interface ControlTableNames {
 /**
  * The statement and its parameters, for a caller that embeds it in a
  * statement of its own: `$1` is the namespace and `$2`, `$3` the state and log
- * control tables, as in the control catalog read; `$4` and `$5` are its own.
+ * control tables, as in the control catalog read; `$4` to `$6` are its own.
+ * `deparsedPredicates` hashes each partial-index predicate as the server
+ * deparses it instead of abstaining (see the header).
  */
 export function postgresCatalogDigestQuery(
   driver: BoundMigrationDriver,
-  control: ControlTableNames
+  control: ControlTableNames,
+  deparsedPredicates = false
 ): {
   readonly sql: string;
   readonly parameters: unknown[];
@@ -348,6 +356,7 @@ export function postgresCatalogDigestQuery(
       control.log,
       tables === undefined ? null : arrayLiteralText(tables),
       arrayLiteralText([...admittedExtensionTypes(driver.executionDriver)]),
+      deparsedPredicates,
     ],
   };
 }

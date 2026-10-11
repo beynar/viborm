@@ -545,8 +545,7 @@ export class MySQLMigrationDriver
    */
   private validateAutoIncrementType(column: ColumnDef): void {
     // Extract base type (e.g., "INT UNSIGNED" -> "int", "BIGINT(20)" -> "bigint")
-    const baseType =
-      column.type.toLowerCase().split(BASE_TYPE_PATTERN)[0] ?? "";
+    const baseType = column.type.toLowerCase().split(BASE_TYPE_PATTERN)[0]!;
 
     if (!MySQLMigrationDriver.AUTO_INCREMENT_TYPES.has(baseType)) {
       throw new MigrationError(

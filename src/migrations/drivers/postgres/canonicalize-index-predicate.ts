@@ -38,6 +38,7 @@
  */
 
 const SCRATCH_VIEW_PREFIX = "viborm_index_predicate_";
+const TRAILING_SEMICOLON = /;\s*$/;
 
 type RawExecutor = <T>(
   sql: string,
@@ -74,29 +75,48 @@ export async function canonicalizeIndexPredicates(
     quoteIdentifier(`${SCRATCH_VIEW_PREFIX}${position}`)
   );
 
-  for (const [position, predicate] of predicates.entries()) {
-    // OR REPLACE, not a bare CREATE: the projection is always `1 AS c`, so a
-    // scratch view left by an earlier call on this pooled connection is
-    // replaceable rather than a collision.
-    await executeRaw(
-      `CREATE OR REPLACE TEMP VIEW ${views[position]} AS SELECT 1 AS c FROM ${table} WHERE ${predicate}`
-    );
-  }
-
   const projection = views
     .map(
       (view, position) =>
         `pg_catalog.pg_get_viewdef('pg_temp.${view}'::regclass) AS "d${position}"`
     )
     .join(", ");
-  const { rows } = await executeRaw<Record<string, string | null>>(
-    `SELECT ${projection}`
+  const deparse = async (queries: readonly (string | undefined)[]) => {
+    for (const [position, query] of queries.entries()) {
+      // OR REPLACE, not a bare CREATE: the projection is always `1 AS c`, so
+      // a scratch view left by an earlier call on this pooled connection, or
+      // by the first pass, is replaceable rather than a collision.
+      if (query === undefined) continue;
+      await executeRaw(
+        `CREATE OR REPLACE TEMP VIEW ${views[position]} AS ${query}`
+      );
+    }
+    const { rows } = await executeRaw<Record<string, string | null>>(
+      `SELECT ${projection}`
+    );
+    // A position not reparsed has no answer: its view still holds the
+    // previous pass's definition, which is not a fixed point.
+    return queries.map((query, position) =>
+      query === undefined ? undefined : (rows[0]?.[`d${position}`] ?? undefined)
+    );
+  };
+
+  // Two passes: one parse and deparse is not a fixed point. PostgreSQL
+  // expands BETWEEN after its grammar has flattened AND, so a declared
+  // `a BETWEEN x AND y AND b` parses to a nested AND, which its own deparse
+  // (the catalog's text) reparses flat. Parsing each answer once more gives
+  // the declared and the catalog spelling the same tree.
+  const once = await deparse(
+    predicates.map(
+      (predicate) => `SELECT 1 AS c FROM ${table} WHERE ${predicate}`
+    )
+  );
+  const twice = await deparse(
+    once.map((query) => query?.replace(TRAILING_SEMICOLON, ""))
   );
 
   await executeRaw(
     `DROP VIEW ${views.map((view) => `pg_temp.${view}`).join(", ")}`
   );
-
-  const row = rows[0];
-  return predicates.map((_, position) => row?.[`d${position}`] ?? undefined);
+  return twice;
 }

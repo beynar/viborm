@@ -12,6 +12,7 @@ import {
   baselineV1,
   downV1,
   logV1,
+  reanchorV1,
   resetV1,
   resolveV1,
   type StatusV1Result,
@@ -52,6 +53,7 @@ import type {
   GenerateV1Options,
   LedgerEventV1,
   PushOptionsV1,
+  ReanchorOptions,
   ResetV1Options,
   ResolveV1Options,
   StateSelector,
@@ -95,6 +97,9 @@ export type DownResult = DownV1Result;
 export interface BaselineResult {
   readonly stateId: string;
 }
+export interface ReanchorResult {
+  readonly stateId: string;
+}
 export interface ResolveResult {
   readonly outcome: ResolveV1Options["outcome"];
 }
@@ -121,6 +126,7 @@ export interface ReadableMigrations extends LiveMigrations {
   apply(options?: ApplyV1Options): Promise<ApplyResult>;
   down(options?: DownV1Options): Promise<DownResult>;
   baseline(options: BaselineOptions): Promise<BaselineResult>;
+  reanchor(options?: ReanchorOptions): Promise<ReanchorResult>;
   resolve(options: ResolveV1Options): Promise<ResolveResult>;
 }
 
@@ -228,6 +234,8 @@ export function createMigrationClient(
       downV1(executionClient, readableStorage, downOptions),
     baseline: (baselineOptions) =>
       baselineV1(executionClient, readableStorage, baselineOptions),
+    reanchor: (reanchorOptions) =>
+      reanchorV1(executionClient, readableStorage, reanchorOptions),
     resolve: (resolveOptions) =>
       resolveV1(executionClient, readableStorage, resolveOptions),
   });

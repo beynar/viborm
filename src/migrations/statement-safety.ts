@@ -291,8 +291,8 @@ function scanStatements(
   let governing: string | undefined;
 
   while (index < sql.length) {
-    const char = sql[index] ?? "";
-    const next = sql[index + 1] ?? "";
+    const char = sql.charAt(index);
+    const next = sql.charAt(index + 1);
 
     if (char === "-" && next === "-" && opensLineComment(sql, index, dialect)) {
       index = skipLine(sql, index);
@@ -356,7 +356,7 @@ function scanStatements(
     if (characters.start.test(char)) {
       const start = index;
       index += 1;
-      while (index < sql.length && characters.part.test(sql[index] ?? "")) {
+      while (index < sql.length && characters.part.test(sql.charAt(index))) {
         index += 1;
       }
       const text = sql
@@ -487,7 +487,7 @@ function callsArguments(
   }
   let cursor = end;
   while (cursor < sql.length) {
-    const char = sql[cursor] ?? "";
+    const char = sql.charAt(cursor);
     if (
       char === "-" &&
       sql[cursor + 1] === "-" &&
@@ -561,7 +561,7 @@ function skipLine(sql: string, start: number): number {
  */
 function openExecutableComment(sql: string, start: number): number {
   let cursor = start + 3;
-  while (cursor < sql.length && VERSION_DIGIT.test(sql[cursor] ?? "")) {
+  while (cursor < sql.length && VERSION_DIGIT.test(sql.charAt(cursor))) {
     cursor += 1;
   }
   return cursor;
@@ -664,7 +664,7 @@ function skipQuoted(
  */
 function skipDollarQuoted(sql: string, start: number): number | null {
   let cursor = start + 1;
-  while (cursor < sql.length && DOLLAR_TAG_PART.test(sql[cursor] ?? "")) {
+  while (cursor < sql.length && DOLLAR_TAG_PART.test(sql.charAt(cursor))) {
     cursor += 1;
   }
   if (sql[cursor] !== "$") {
@@ -759,10 +759,8 @@ function classifyOne(
   dialect: ClassifiedDialect,
   artifact: string
 ): void {
-  const leader = words[0]?.text;
-  if (leader === undefined) {
-    return;
-  }
+  // `scanStatements` keeps only statements with at least one word.
+  const leader = words[0]!.text;
 
   if (dialect === "postgresql") {
     const control = leadingTransactionCommand(

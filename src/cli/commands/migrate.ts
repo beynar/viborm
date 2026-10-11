@@ -506,6 +506,37 @@ export function createMigrateCommand(): Command {
     );
 
   migrate
+    .command("reanchor")
+    .description(
+      "After a restore left the history older than the database, move the marker to the state the live schema matches"
+    )
+    .option("--to <selector>", "Adopt this state as the new baseline")
+    .option("--via <stateId...>", "Force the recorded root path")
+    .option("-d, --dir <dir>", "Estate directory")
+    .option("--json", "Print machine-readable output")
+    .action(
+      async (opts: {
+        to?: string;
+        via?: string[];
+        dir?: string;
+        json?: boolean;
+      }) => {
+        await withMigrations(
+          { ...opts, config: migrate.opts<{ config?: string }>().config },
+          async (migrations) => {
+            printJson(
+              await migrations.reanchor({
+                to: selector(opts.to),
+                via: opts.via,
+              }),
+              Boolean(opts.json)
+            );
+          }
+        );
+      }
+    );
+
+  migrate
     .command("resolve")
     .description("Resolve an unfinished attempt after live proof")
     .option("-d, --dir <dir>", "Estate directory")

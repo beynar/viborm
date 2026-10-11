@@ -42,6 +42,7 @@ vi.mock("@migrations/compile", async (importOriginal) => {
 });
 
 const NICKNAME = /ADD COLUMN "nickname"/;
+const V2 = /^v2\b/;
 const TEAMS = /CREATE TABLE "public"."teams"/;
 const LOW_LOCK = /CONCURRENTLY|NOT VALID|VALIDATE/;
 const STEP_FORM = /CONCURRENTLY|NOT VALID/;
@@ -105,7 +106,9 @@ function schemaWith(options: {
 
 async function generated(
   options: Parameters<typeof schemaWith>[0],
-  lowLock = true
+  lowLock = true,
+  /** `null` generates without a name. */
+  name: string | null = "v2"
 ) {
   const storage = new MemoryStorage();
   const migrationsFor = (shape: Parameters<typeof schemaWith>[0]) => {
@@ -120,7 +123,10 @@ async function generated(
   };
   const root = await migrationsFor({}).migrations.generate({ name: "v1" });
   const { client, migrations } = migrationsFor(options);
-  const result = await migrations.generate({ name: "v2", lowLock });
+  const result = await migrations.generate({
+    ...(name === null ? {} : { name }),
+    lowLock,
+  });
   const graph = await loadMigrationGraph(storage);
   const driver = getPushMigrationDriver(client);
   // The states from v1 to v2, in order, with what each one runs.
@@ -199,6 +205,23 @@ describe("a generated PostgreSQL change on tables that hold rows", () => {
     );
     // The review shows every state the call published.
     expect(result.reviewSql.match(/VibORM review/g)).toHaveLength(5);
+  });
+
+  it("names the steps after the generated name when none is given", async () => {
+    const { states } = await generated(
+      { linked: true, indexed: true, nickname: true, team: true },
+      true,
+      null
+    );
+    const final = states.at(-1)!.name;
+    expect(final).not.toMatch(V2);
+    expect(states.map(({ name }) => name)).toEqual([
+      `${final} (step 1 of 5)`,
+      `${final} (step 2 of 5)`,
+      `${final} (step 3 of 5)`,
+      `${final} (step 4 of 5)`,
+      final,
+    ]);
   });
 
   it("keeps one state when a single build is the whole change", async () => {

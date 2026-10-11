@@ -85,9 +85,12 @@ function armedCommit(
   });
 }
 
-/** A handle whose statements containing `match` throw `code` while armed. */
+/**
+ * A handle whose statements containing `match` throw `code` while armed, at
+ * most `times` times.
+ */
 function failing(db: Database.Database, match: string, code: string) {
-  const state = { armed: true, thrown: 0 };
+  const state = { armed: true, thrown: 0, times: Number.POSITIVE_INFINITY };
   const handle = new Proxy(db, {
     get(target, property) {
       const value = Reflect.get(target, property, target);
@@ -96,7 +99,7 @@ function failing(db: Database.Database, match: string, code: string) {
         return value.bind(target);
       }
       return (text: string, ...rest: unknown[]) => {
-        if (state.armed && text.includes(match)) {
+        if (state.armed && state.thrown < state.times && text.includes(match)) {
           state.thrown += 1;
           throw Object.assign(new Error(`injected ${code}`), { code });
         }
@@ -152,6 +155,21 @@ describe("tenant migrator outcomes", () => {
     });
     expect(await migrator.log()).toEqual(expect.any(Array));
     expect((await migrator.status()).pending).toEqual([]);
+  });
+
+  it("applies a tenant's first change given beforeDestructive, without asking: there is nothing to lose", async () => {
+    const db = new Database(":memory:");
+    const { history, migrator } = tenant(db);
+    let asked = 0;
+    const result = await migrator.change(schemaOf(memberDocument), {
+      beforeDestructive: () => {
+        asked += 1;
+      },
+    });
+    expect(kindOf(result)).toBe("applied");
+    expect(asked).toBe(0);
+    expect(await history.listStates()).toHaveLength(1);
+    expect(columns(db)).toContain("legacyRef");
   });
 
   it("refuses an unapproved drop before any effect, and never asks beforeDestructive", async () => {
@@ -487,6 +505,48 @@ describe("tenant migrator concurrency, deadline and retry", () => {
     expect(kindOf(bounded)).toBe("failed");
     expect(state.thrown).toBeLessThan(4);
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it("a database another writer holds is retried with backoff, then applied", async () => {
+    const db = new Database(":memory:");
+    const { handle, state } = failing(db, "BEGIN IMMEDIATE", "SQLITE_BUSY");
+    state.armed = false;
+    const { migrator } = tenant(handle);
+    await seeded(migrator, db);
+    // SQLite's lock is its BEGIN IMMEDIATE: busy for the first attempt only.
+    state.armed = true;
+    state.times = 1;
+
+    const result = await migrator.change(schemaOf(noteDocument));
+
+    expect(kindOf(result)).toBe("applied");
+    expect(state.thrown).toBe(1);
+    expect(columns(db)).toContain("note");
+  });
+
+  it("a history that cannot be written is failed, not refused, and nothing ran", async () => {
+    const db = new Database(":memory:");
+    const unavailable = new Error("storage unavailable");
+    const history = new (class extends MemoryEstateStorage {
+      override publishState(): never {
+        throw unavailable;
+      }
+    })();
+    const client = createClient({
+      client: db,
+      schema: schemaOf(memberDocument),
+    });
+    const migrator = createTenantMigrator({ client, history });
+
+    const result = await migrator.change(schemaOf(memberDocument));
+
+    expect(kindOf(result)).toBe("failed");
+    expect(result).toMatchObject({ error: { message: "storage unavailable" } });
+    expect(
+      db
+        .prepare(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'`)
+        .get()
+    ).toEqual({ n: 0 });
   });
 
   it("refuses invalid decisions as data", async () => {

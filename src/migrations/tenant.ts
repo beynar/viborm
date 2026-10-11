@@ -17,15 +17,18 @@ import { isDestructiveOperation } from "./differ";
 import type { Sha256 } from "./identity";
 import type { MigrationClient } from "./push/planner";
 import { createPredefinedResolver } from "./resolver";
-import type { MigrationStorageWriter } from "./storage/contract";
+import type {
+  MigrationStorageReader,
+  MigrationStorageWriter,
+} from "./storage/contract";
 import type { ResolveCallback } from "./types";
 import type { MigrationDecisionV1, MigrationMarkerV1 } from "./v1-types";
 
 export interface TenantMigratorOptions {
   /**
    * Any client on the tenant's database. `change` uses its connection with
-   * the schema it is given; `status`, `log`, `resolve` and `down` use the
-   * client as it is.
+   * the schema it is given; `status`, `log`, `resolve`, `down` and
+   * `reanchor` use the client as it is.
    */
   readonly client: MigrationClient;
   /** The tenant's history: `createDurableObjectStorageWriter(ctx.storage)`. */
@@ -88,6 +91,8 @@ export interface TenantMigrator {
   log: ReadableMigrations["log"];
   resolve: ReadableMigrations["resolve"];
   down: ReadableMigrations["down"];
+  /** After a restore left this object's history older than the database. */
+  reanchor: ReadableMigrations["reanchor"];
 }
 
 const AMBIGUOUS = new Set<string>([
@@ -104,7 +109,7 @@ const ATTEMPTS = 4;
 const BACKOFF_MS = 200;
 
 /**
- * `change`, `resolve` and `down` run one at a time: a call made while another
+ * `change`, `resolve`, `down` and `reanchor` run one at a time: a call made while another
  * runs waits for it, and leaves the queue as `failed` if its signal aborts
  * first. Call them from a request or an alarm, never from the constructor or
  * `blockConcurrencyWhile`.
@@ -148,7 +153,10 @@ export function createTenantMigrator({
         options
       );
       const resolve = createPredefinedResolver(decisions);
-      if (beforeDestructive && (await isDestructive(migrations, resolve))) {
+      if (
+        beforeDestructive &&
+        (await isDestructive(migrations, resolve, history))
+      ) {
         signal?.throwIfAborted();
         try {
           await beforeDestructive();
@@ -199,6 +207,7 @@ export function createTenantMigrator({
     log: () => current.log(),
     resolve: (options) => exclusive(() => current.resolve(options)),
     down: (options) => exclusive(() => current.down(options)),
+    reanchor: (options) => exclusive(() => current.reanchor(options)),
   });
 }
 
@@ -208,10 +217,14 @@ export function createTenantMigrator({
  */
 async function isDestructive(
   migrations: WritableMigrations,
-  resolve: ResolveCallback
+  resolve: ResolveCallback,
+  history: MigrationStorageReader
 ): Promise<boolean> {
   const preview = await migrations.generate({ dryRun: true, resolve });
   if (preview.operations.some(isDestructiveOperation)) return true;
+  // A first change has no history (`graph()` refuses it): nothing published
+  // can carry a loss.
+  if (!(await history.readEstate())) return false;
   const { states, edges } = await migrations.graph();
   if (states.length === 0) return false;
   const { path } = await migrations.apply({ dryRun: true });

@@ -18,7 +18,12 @@ import {
 import type { Sha256 } from "./identity";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodePathHash, parseLedgerEvent, parseMarkerRow } from "./v1-parse";
-import type { LedgerEventV1, MigrationMarkerV1 } from "./v1-types";
+import { exactObject, parseRequiredString, refuse } from "./v1-parse-shared";
+import type {
+  LedgerEventV1,
+  MarkerIndexPredicateV1,
+  MigrationMarkerV1,
+} from "./v1-types";
 
 export const DEFAULT_CONTROL_BASE = "_viborm_migration";
 
@@ -639,6 +644,7 @@ const CLOSING_KINDS: ReadonlySet<LedgerEventV1["kind"]> = new Set([
   "rolled-back",
   "failed",
   "baselined",
+  "reanchored",
   "resolved",
   "reset-applied",
 ]);
@@ -669,10 +675,11 @@ export async function readControlState(
   const ledgerResult = await producer._executeRaw<{ payload: unknown }>(
     ledgerSql(driver, names, all)
   );
-  return {
-    presence,
-    ...decodeControlRows(markerResult.rows, ledgerResult.rows),
-  };
+  const { marker, ledger } = decodeControlRows(
+    markerResult.rows,
+    ledgerResult.rows
+  );
+  return { presence, marker, ledger };
 }
 
 /**
@@ -700,14 +707,47 @@ function decodeControlRows(
   ledgerRows: readonly { readonly payload: unknown }[]
 ): {
   readonly marker: MigrationMarkerV1 | null;
+  readonly predicates: readonly MarkerIndexPredicateV1[];
   readonly ledger: readonly LedgerEventV1[];
 } {
   const markerRow = markerRows[0];
+  const stored =
+    markerRow && parseMarkerPayload(parsePayload(markerRow.payload));
   return {
-    marker: markerRow ? parseMarkerRow(parsePayload(markerRow.payload)) : null,
+    marker: stored ? stored.marker : null,
+    predicates: stored ? stored.predicates : [],
     ledger: inCausalOrder(
       ledgerRows.map((row) => parseLedgerEvent(parsePayload(row.payload)))
     ),
+  };
+}
+
+const PREDICATE_KEYS = ["deparsed", "index", "table"] as const;
+
+/**
+ * The marker row: the marker and, beside it, the partial-index predicates an
+ * apply on PostgreSQL recorded as the server deparsed them (`casMarker`).
+ */
+function parseMarkerPayload(value: unknown): {
+  readonly marker: MigrationMarkerV1;
+  readonly predicates: readonly MarkerIndexPredicateV1[];
+} {
+  if (!(isRecord(value) && "predicates" in value)) {
+    return { marker: parseMarkerRow(value), predicates: [] };
+  }
+  const { predicates, ...marker } = value;
+  if (!Array.isArray(predicates)) refuse("marker predicates must be an array");
+  return {
+    marker: parseMarkerRow(marker),
+    predicates: predicates.map((item: unknown, position) => {
+      const label = `marker predicates[${position}]`;
+      const record = exactObject(item, PREDICATE_KEYS, PREDICATE_KEYS, label);
+      return {
+        table: parseRequiredString(record.table, `${label}.table`),
+        index: parseRequiredString(record.index, `${label}.index`),
+        deparsed: parseRequiredString(record.deparsed, `${label}.deparsed`),
+      };
+    }),
   };
 }
 
@@ -719,7 +759,9 @@ function decodeControlRows(
  * no no-op to prove, so the ledger is never read whole here. `undefined`
  * unless both control tables are present, so no statement here names a table
  * that is not there, and while another command holds the lock; a pair that is
- * not exactly VibORM's is refused.
+ * not exactly VibORM's is refused. The digest hashes partial-index predicates
+ * as the server deparses them, for comparison with those recorded beside the
+ * marker.
  */
 export async function readPostgresDecision(
   producer: AnyDriver,
@@ -729,6 +771,7 @@ export async function readPostgresDecision(
 ): Promise<
   | {
       readonly marker: MigrationMarkerV1 | null;
+      readonly predicates: readonly MarkerIndexPredicateV1[];
       readonly ledger: readonly LedgerEventV1[];
       readonly digest: Sha256 | undefined;
     }
@@ -738,7 +781,7 @@ export async function readPostgresDecision(
   const catalog = await readPostgresControlCatalog(producer, driver, names);
   if (!(catalog.state && catalog.log)) return;
   assertPostgresControlAuthentic(catalog, names);
-  const digest = postgresCatalogDigestQuery(driver, names);
+  const digest = postgresCatalogDigestQuery(driver, names, true);
   const { rows } = await producer._executeRaw<{
     marker: unknown;
     ledger: unknown;
@@ -1095,15 +1138,23 @@ export async function ensureControlTables(
   await assertControlTablesAuthentic(producer, driver, base);
 }
 
+/**
+ * Moves the marker. `predicates`, recorded beside it, are the partial-index
+ * predicates of `next`'s snapshot as PostgreSQL deparsed them; a marker
+ * without them proves its no-op under the lock.
+ */
 export async function casMarker(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
   base: string,
   expected: { revision: number; pathHash: Sha256 } | null,
-  next: MigrationMarkerV1
+  next: MigrationMarkerV1,
+  predicates: readonly MarkerIndexPredicateV1[] = []
 ): Promise<void> {
   const table = qualifyControl(driver, controlTableNames(base).state);
-  const payload = canonicalizeJsonText(next);
+  const payload = canonicalizeJsonText(
+    predicates.length > 0 ? { ...next, predicates } : next
+  );
   const dialect = driver.target.dialect;
   if (expected === null) {
     try {

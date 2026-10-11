@@ -472,6 +472,7 @@ export function parseStateManifest(
   const parents = record.parents.map((parent, index) =>
     parseParent(parent, `state.parents[${index}]`)
   );
+  // Strictly ascending, so no fromState appears twice.
   for (let i = 1; i < parents.length; i++) {
     if (
       compareFromState(parents[i - 1]!.fromState, parents[i]!.fromState) >= 0
@@ -480,12 +481,6 @@ export function parseStateManifest(
         "state manifest parents must be sorted by fromState with null first"
       );
     }
-  }
-  const seen = new Set<string>();
-  for (const parent of parents) {
-    const key = parent.fromState ?? "null";
-    if (seen.has(key)) refuse("state manifest has a duplicate parent");
-    seen.add(key);
   }
   const withoutId: Omit<MigrationStateManifestV1, "stateId"> = {
     format: parseFormat(record.format, "state manifest"),

@@ -156,6 +156,7 @@ describe("migration V1 parser edge contracts", () => {
       "failed",
       "rolled-back",
       "baselined",
+      "reanchored",
       "resolved",
       "reset-step-confirmed",
       "reset-applied",

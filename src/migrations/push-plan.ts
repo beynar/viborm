@@ -1,3 +1,4 @@
+import { errorCause } from "../drivers/shared/driver-options";
 import { isDestructiveOperation } from "./differ";
 import { formatOperation } from "./push/format";
 /**
@@ -18,7 +19,6 @@ import type {
   DDLContext,
   MigrationDriver,
 } from "./drivers";
-import { postgresCatalogDigest } from "./drivers/postgres/catalog-digest";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
@@ -368,29 +368,6 @@ export async function introspectManaged(
   );
 }
 
-/**
- * `fingerprintLive` of the live managed schema. PostgreSQL computes it in one
- * statement (plan D5, `catalog-digest.ts`); where that digest abstains, and on
- * every other dialect, it is read through a full introspection.
- */
-export async function liveFingerprint(
-  producer: AnyDriver,
-  driver: BoundMigrationDriver
-): Promise<Sha256> {
-  const digest =
-    driver.target.dialect === "postgresql"
-      ? await postgresCatalogDigest(
-          producer,
-          driver,
-          controlTableNames(DEFAULT_CONTROL_BASE)
-        )
-      : undefined;
-  return (
-    digest ??
-    fingerprintLive(await introspectManaged(producer, driver), driver, producer)
-  );
-}
-
 function requiredDispatch(
   dispatches: readonly MigrationDispatchV1[],
   index: number
@@ -643,7 +620,7 @@ function parseResolutionMap(text: string): Record<string, string | null> {
     throw new MigrationError(
       "Push consent contains a malformed enum resolution",
       VibORMErrorCode.MIGRATION_CONSENT_MISMATCH,
-      { cause: cause instanceof Error ? cause : undefined }
+      { cause: errorCause(cause) }
     );
   }
   if (!isRecord(parsed) || canonicalizeJsonText(parsed) !== text) {

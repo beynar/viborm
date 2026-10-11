@@ -243,9 +243,9 @@ export async function introspect(
       );
     if (
       selected &&
-      sqliteDefinitionKeywords(
-        (tableRow.sql ?? "").split("(")[0] ?? ""
-      ).includes("VIRTUAL")
+      sqliteDefinitionKeywords((tableRow.sql ?? "").split("(")[0]!).includes(
+        "VIRTUAL"
+      )
     )
       throw new MigrationError(
         `SQLite virtual table "${tableName}" cannot be faithfully reconstructed. Synchronization refuses before effects.`,

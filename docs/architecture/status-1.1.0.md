@@ -2,7 +2,7 @@
 
 The 1.2.0 probe corpus (`probes/`, run by `pnpm probes`) against the published `viborm@1.1.0`. A probe passes when the 1.2.0 target behaviour from the 1.2.0 completion plan (2026-10-10) holds, so on 1.1.0 an open item fails, with the observed behaviour as evidence.
 
-**Result:** 67 probes: 63 fail, 4 pass, 0 skip, 0 error. The five `postgres/*` probes that need a server ran against the Docker PostgreSQL 16 (`VIBORM_PROBE_PG_URL`, 127.0.0.1:5434).
+**Result:** 68 probes: 64 fail, 4 pass, 0 skip, 0 error. The five `postgres/*` probes that need a server ran against the Docker PostgreSQL 16 (`VIBORM_PROBE_PG_URL`, 127.0.0.1:5434).
 
 Reproduce:
 
@@ -56,6 +56,7 @@ The "code-check" column is the verdict of the plan's code check for the item (ga
 | T2 | `outcomes/t2-predefined-resolver` | phase-2/D4 step 9 (T2) | partially-exists | fail | viborm/migrations has no export createPredefinedResolver |
 | D5 | `postgres/d5-ledger-read` | phase-2/D5 | gap-confirmed | fail | no-op apply read 12 ledger rows of 12, none open ("SELECT payload FROM "public"."_viborm_migration_log""); status() read 12 ledger rows of 12, none open ("SELECT payload FROM "public"."_viborm_migration_log""); log() is not in causal order for same-millisecond events \| no-op noop, unfinished false; log(): step-confirmed,started,step-confirmed,applied,step-confirmed,step-confirmed,started,applied, |
 | D5 | `postgres/d5-round-trips` | phase-2/D5 | gap-confirmed | fail | 17 control statements between the first DDL and COMMIT (max 3); no-op apply sent 29 statements (max 3) \| change: 53 statements, window 20 through COMMIT = 2 DDL + 17 control + COMMIT; no-op: 29; status: 16; drifted no-op: refused V11014 |
+| D5 | `postgres/d5-partial-index-noop` | phase-2/D5 (partial-index follow-up) | gap-confirmed | fail | no-op apply sent 37 statements (max 3) \| no-op: noop in 37 statements; predicate-only drift: refused V11014 |
 | D6 | `postgres/d6-neon-ws-pool` | phase-2/D6 | partially-exists | pass | apply v1: applied; apply v2: applied; status: ok; advisory locks left: 0 |
 | T3 | `outcomes/t3-reanchor` | phase-3/T3 | gap-confirmed | fail | older history: apply V11002; migration client has no reanchor() (same-name regeneration reproduces the id: true) |
 | T5A | `postgres/t5a-concurrently-transactional` | phase-3/T5a | — | fail | CREATE INDEX CONCURRENTLY: generate ok, apply V2001 (cause 25001), sent inside BEGIN \| CREATE UNIQUE INDEX CONCURRENTLY: generate ok, apply V2001 (cause 25001), sent inside BEGIN |

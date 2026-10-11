@@ -571,8 +571,7 @@ function resolveParents(
     return [options.from];
   }
   if (graph.states.size === 0) return [null];
-  if (graph.leaves.length === 1) return [graph.leaves[0]!];
-  if (graph.leaves.length === 0) return [null];
+  // `loadMigrationGraph` refuses a cycle, so a graph with states has a leaf.
   return [...graph.leaves];
 }
 
@@ -599,8 +598,8 @@ function ancestryHasCustom(
 ): boolean {
   if (stateId === null || seen.has(stateId)) return false;
   seen.add(stateId);
-  const state = graph.states.get(stateId);
-  if (!state) return false;
+  // Every id here is a validated state or a validated parent edge's source.
+  const state = graph.states.get(stateId)!;
   for (const transition of state.parents) {
     if (
       transition.operations.some(

@@ -12,6 +12,7 @@
  * `postgres-session-limits-docker.test.ts` (PostgreSQL 16).
  */
 
+import { createClient } from "@client/client";
 import { BunSQLDriver } from "@drivers/bun-sql";
 import type { PinnedSessionReservation } from "@drivers/shared";
 import {
@@ -21,6 +22,7 @@ import {
 } from "@drivers/shared/pinned-session";
 import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
 import { ConnectionError, VibORMErrorCode } from "@errors";
+import { createMigrationClient } from "@migrations/client";
 import { getMigrationDriver } from "@migrations/drivers";
 import {
   resolveMigrationLimits,
@@ -28,7 +30,12 @@ import {
   withPinnedSession,
 } from "@migrations/pinned-session";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { mysqlEstateDriver, pgEstateDriver, RecordingDriver } from "./_estate";
+import {
+  mysqlEstateDriver,
+  pgEstateDriver,
+  RecordingDriver,
+  sqliteEstateDriver,
+} from "./_estate";
 
 const LIMITS_ENTER = /^DO \$viborm_limits\$/;
 const LIMITS_RESET = /set_config\(name, reset_val, false\)/;
@@ -61,6 +68,20 @@ class ObservedSessionDriver extends RecordingDriver {
         this.releases.push({ discard, lost });
         return Promise.resolve();
       },
+    });
+  }
+}
+
+const RELEASE_REJECTED = new Error("the pool refused the connection back");
+
+/** A reservation whose release the pool rejects. */
+class RejectingReleaseDriver extends RecordingDriver {
+  protected override pinnedSession(): Promise<
+    PinnedSessionReservation<{ tag: "client" } | { tag: "tx" }>
+  > {
+    return Promise.resolve({
+      session: { tag: "tx" },
+      release: () => Promise.reject(RELEASE_REJECTED),
     });
   }
 }
@@ -435,6 +456,213 @@ describe("a session whose connection was lost is never written to again", () => 
   });
 });
 
+describe("a lock protocol statement that fails", () => {
+  /** One locked command that only reads: the decision transaction it opens is committed by the command's end. */
+  const lockedRead = (driver: RecordingDriver) =>
+    withLockedMigrationProducer(
+      driver,
+      getMigrationDriver(driver),
+      async (pinned) => {
+        await pinned._executeRaw("SELECT 1");
+        return "read";
+      }
+    );
+
+  test("a busy SQLite database is a lock failure: its lock IS its BEGIN IMMEDIATE", async () => {
+    const driver = sqliteEstateDriver();
+    const busy = Object.assign(new Error("database is locked"), {
+      code: "SQLITE_BUSY",
+    });
+    driver.respond = (sql) => (sql === "BEGIN IMMEDIATE" ? busy : []);
+
+    const failure = await lockedRead(driver).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_LOCK_FAILED,
+      message: expect.stringContaining(
+        "Failed to acquire the migration lock for the SQLite database: the lock statement itself failed."
+      ),
+      // The driver's normalized report of the provider's own failure.
+      cause: expect.objectContaining({ originalCause: expect.any(Error) }),
+    });
+    expect(driver.statements.at(-1)).toBe("BEGIN IMMEDIATE");
+    expect(driver.statements).not.toContain("SELECT 1");
+  });
+
+  test("a PostgreSQL BEGIN the server rejects is that rejection, not a lock failure", async () => {
+    const driver = observedPg();
+    const refused = Object.assign(new Error("out of shared memory"), {
+      code: "53200",
+    });
+    driver.respond = (sql) =>
+      sql === "BEGIN" ? refused : answerPublicSchema(sql);
+
+    const failure = await lockedRead(driver).catch((error: unknown) => error);
+
+    expect(failure).not.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_LOCK_FAILED,
+    });
+    expect(failure).not.toBeInstanceOf(ConnectionError);
+    expect(driver.statements.at(-1)).toBe("BEGIN");
+    expect(driver.statements).not.toContain("SELECT 1");
+    expect(driver.releases).toEqual([{ discard: true, lost: false }]);
+  });
+
+  test("a COMMIT that fails at the command's end fails it, after a ROLLBACK on the same session", async () => {
+    const driver = observedPg();
+    driver.respond = (sql) =>
+      sql === "COMMIT"
+        ? Object.assign(new Error("could not serialize access"), {
+            code: "40001",
+          })
+        : answerPublicSchema(sql);
+
+    const failure = await lockedRead(driver).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ meta: { providerCode: "40001" } });
+    expect(driver.statements.slice(-2)).toEqual(["COMMIT", "ROLLBACK"]);
+    expect(driver.releases).toEqual([{ discard: true, lost: false }]);
+  });
+
+  test("a ROLLBACK that fails is recorded beside the command's failure, never instead of it", async () => {
+    const driver = observedPg();
+    driver.respond = (sql) =>
+      sql === "ROLLBACK"
+        ? Object.assign(new Error("rollback refused"), { code: "XX000" })
+        : answerPublicSchema(sql);
+    const bodyFailure = new Error("the command failed after its read");
+
+    const failure = await withLockedMigrationProducer(
+      driver,
+      getMigrationDriver(driver),
+      async (pinned) => {
+        await pinned._executeRaw("SELECT 1");
+        throw bodyFailure;
+      }
+    ).catch((error: unknown) => error);
+
+    expect(failure).toBe(bodyFailure);
+    expect(readSuppressedFailures(failure)).toEqual([
+      expect.objectContaining({
+        meta: expect.objectContaining({ providerCode: "XX000" }),
+      }),
+    ]);
+    expect(driver.statements.at(-1)).toBe("ROLLBACK");
+    expect(driver.releases).toEqual([{ discard: true, lost: false }]);
+  });
+
+  test("after stepwise work, a lost connection sends neither ROLLBACK nor the unlock", async () => {
+    const driver = observedPg();
+    const dead = new Error("Connection terminated unexpectedly");
+    driver.respond = (sql) => {
+      if (sql.startsWith("ALTER TABLE")) {
+        driver.lostConnection = dead;
+        return dead;
+      }
+      return answerPublicSchema(sql);
+    };
+
+    const failure = await lockedStepwiseDdl(driver).catch(
+      (error: unknown) => error
+    );
+
+    expect(failure).toMatchObject({ code: VibORMErrorCode.CONNECTION_FAILED });
+    // The server frees the session lock with the session.
+    expect(driver.statements.at(-1)).toBe("ALTER TABLE t ADD c int");
+    expect(driver.statements.some((sql) => UNLOCK.test(sql))).toBe(false);
+    expect(driver.releases).toEqual([{ discard: true, lost: true }]);
+  });
+
+  test("a release the pool rejects after a failure is recorded beside it", async () => {
+    const driver = new RejectingReleaseDriver(
+      "postgresql",
+      "pg",
+      pgEstateDriver("public").adapter
+    );
+    driver.respond = (sql) =>
+      sql.startsWith("ALTER TABLE")
+        ? Object.assign(new Error("column exists"), { code: "42701" })
+        : answerPublicSchema(sql);
+
+    const failure = await lockedDdl(driver).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_FAILED });
+    expect(readSuppressedFailures(failure)).toEqual([RELEASE_REJECTED]);
+  });
+
+  test("stepwise work after a committed group first re-takes the transaction lock, then the session lock", async () => {
+    const driver = observedPg();
+    driver.respond = answerPublicSchema;
+
+    await expect(
+      withLockedMigrationProducer(
+        driver,
+        getMigrationDriver(driver),
+        async (pinned) => {
+          await pinned._transaction(() =>
+            pinned._executeRaw("ALTER TABLE t ADD c int")
+          );
+          await pinned._executeRaw(CONCURRENT_BUILD);
+          return "ran";
+        }
+      )
+    ).resolves.toBe("ran");
+
+    const afterCommit = driver.statements.slice(
+      driver.statements.indexOf("COMMIT") + 1
+    );
+    expect(afterCommit[0]).toBe("BEGIN");
+    expect(afterCommit[1]).toBe(TRANSACTION_LIMITS);
+    expect(afterCommit[2]).toMatch(XACT_LOCK);
+    expect(afterCommit[3]).toMatch(LOCK);
+    expect(afterCommit).toContain(CONCURRENT_BUILD);
+    expect(driver.releases).toEqual([{ discard: false, lost: false }]);
+  });
+
+  test("a lost connection at the unlock is the connection failure, not a lock failure", async () => {
+    const driver = observedPg();
+    driver.respond = answerPublicSchema;
+    driver.lockAnswers.release = Object.assign(new Error("read ECONNRESET"), {
+      code: "ECONNRESET",
+    });
+
+    const failure = await lockedStepwiseDdl(driver).catch(
+      (error: unknown) => error
+    );
+
+    expect(failure).toMatchObject({ code: VibORMErrorCode.CONNECTION_FAILED });
+    expect(driver.statements.at(-1)).toMatch(UNLOCK);
+    // Nothing is sent after it: no limits reset on a dead session.
+    expect(driver.releases).toEqual([{ discard: true, lost: true }]);
+  });
+
+  test("an unlock the server rejects discards the session with a lock failure naming the schema", async () => {
+    const driver = observedPg();
+    driver.respond = answerPublicSchema;
+    driver.lockAnswers.release = Object.assign(new Error("unlock rejected"), {
+      code: "XX000",
+    });
+
+    const failure = await lockedStepwiseDdl(driver).catch(
+      (error: unknown) => error
+    );
+
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_LOCK_FAILED,
+      message: expect.stringContaining(
+        'Failed to release the migration lock for schema "public". The pinned session was discarded'
+      ),
+      // The provider's rejection, as the driver reports a failed statement.
+      cause: expect.objectContaining({ code: VibORMErrorCode.QUERY_FAILED }),
+    });
+    // The connection is alive, so its limits are still reset before it is
+    // discarded.
+    expect(driver.statements.at(-2)).toMatch(UNLOCK);
+    expect(driver.statements.at(-1)).toMatch(LIMITS_RESET);
+    expect(driver.releases).toEqual([{ discard: true, lost: false }]);
+  });
+});
+
 describe("a session whose limits could not be reset is never handed back", () => {
   /**
    * An ordinary failure, then a limits reset the server refuses. Only a
@@ -595,6 +823,21 @@ describe("Bun SQL hands its lost reserved session to the shared release", () => 
 });
 
 describe("migration time limits are settled once", () => {
+  test("a migration client refuses invalid limits when it is created, before any command", () => {
+    const driver = pgEstateDriver("public");
+    const client = createClient({ driver, schema: {} });
+
+    expect(() =>
+      createMigrationClient(client, { limits: { lockWait: 0 } })
+    ).toThrowError(
+      expect.objectContaining({
+        code: VibORMErrorCode.INVALID_INPUT,
+        message: expect.stringContaining("lockWait"),
+      })
+    );
+    expect(driver.statements).toEqual([]);
+  });
+
   test("defaults fill every key the caller left out", () => {
     expect(resolveMigrationLimits(undefined)).toBe(DEFAULT_MIGRATION_LIMITS);
     expect(resolveMigrationLimits({ lockTimeout: 0 })).toEqual({

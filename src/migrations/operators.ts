@@ -1,5 +1,6 @@
 /**
- * V1 operator commands: status, verify, log, baseline, down, resolve, reset.
+ * V1 operator commands: status, verify, log, baseline, reanchor, down,
+ * resolve, reset.
  * Status/verify/log are read-only and never bootstrap missing control tables.
  */
 
@@ -78,6 +79,7 @@ import type {
   LedgerEventV1,
   MarkerPathEdgeV1,
   MigrationMarkerV1,
+  ReanchorOptions,
   ResolveV1Options,
 } from "./v1-types";
 
@@ -261,27 +263,7 @@ export async function baselineV1(
         );
       }
       refuseIncompatibleHistory(marker, ledger);
-      for (const [index, stateId] of path.entries()) {
-        const from = index === 0 ? null : path[index - 1]!;
-        const transition = parentTransition(graph, from, stateId);
-        const parentSnapshot =
-          from === null
-            ? graph.emptySnapshotHash
-            : graph.states.get(from)?.snapshotHash;
-        const childSnapshot = graph.states.get(stateId)?.snapshotHash;
-        if (
-          transition.operations.some(
-            (operation) =>
-              operation.origin === "manual" || operation.risk === "opaque"
-          ) ||
-          parentSnapshot === childSnapshot
-        ) {
-          throw new MigrationError(
-            "baseline refuses a path containing manual, opaque, or data-only transitions",
-            VibORMErrorCode.MIGRATION_INVALID_STATE
-          );
-        }
-      }
+      assertStructuralRoute(graph, path, "baseline");
       const expected = requireStateSnapshot(graph, target);
       await command.preflightSchemaRequirements([expected], (sql, params) =>
         pinned._executeRaw(sql, params)
@@ -296,58 +278,190 @@ export async function baselineV1(
           VibORMErrorCode.MIGRATION_DRIFT
         );
       }
-      const edges = path.map((stateId, index) => ({
-        stateId,
-        transitionHash: parentTransition(
-          graph,
-          index === 0 ? null : path[index - 1]!,
-          stateId
-        ).transitionHash,
-        baselineBoundary: index === 0,
-      }));
-      const next = markerFromPath(
-        graph.estateHash,
-        graph.states.get(target)!.snapshotHash,
-        edges,
-        1
-      );
-      const event = {
-        format: "1" as const,
-        attemptId: next.pathHash,
-        kind: "baselined" as const,
-        estateHash: graph.estateHash,
-        snapshotHash: next.snapshotHash,
-        sqlHash: null,
-        fromState: null,
-        toState: target,
-        transitionHash: null,
-        direction: "baseline" as const,
-        operationId: null,
-        dispatchId: null,
-        effectState: "none" as const,
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-        toolVersion: "v1",
-        failure: null,
-      };
-      const publish = async (producer: Parameters<typeof casMarker>[0]) => {
-        if (needsBootstrap) {
-          await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
-        }
-        await casMarker(producer, command, DEFAULT_CONTROL_BASE, null, next);
-        await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
-          ...event,
-          eventId: eventIdFor(event),
-        });
-      };
-      if (pinned.supportsTransactions) {
-        await pinned.withTransaction((transaction) => publish(transaction));
-      } else {
-        await publish(pinned);
-      }
+      await adoptRoute(pinned, command, graph, path, null, needsBootstrap);
       return { stateId: target };
     }
   );
+}
+
+/**
+ * Plan T3: after a restore left this history older than the database, moves
+ * a marker naming a state the history lacks onto the one known state the live
+ * schema matches, with baseline's proof and a baseline boundary. `to` adopts
+ * the state it names instead: the consent several matching states need.
+ */
+export async function reanchorV1(
+  client: MigrationClient,
+  storage: MigrationStorageReader,
+  options: ReanchorOptions = {}
+): Promise<{ readonly stateId: Sha256 }> {
+  const graph = await loadMigrationGraph(storage);
+  const driver = getPushMigrationDriver(client);
+  assertEstateTargetMatches(graph.descriptor.target, driver.target);
+  admitLiveMigrationCapability(driver, "effectful", "reanchor()");
+  const named = options.to && resolveStateSelector(graph, options.to);
+  return withLockedMigrationProducer(
+    client.$driver,
+    driver,
+    async (pinned, command) => {
+      const control = await readControlState(
+        pinned,
+        command,
+        DEFAULT_CONTROL_BASE,
+        { ledger: "open" }
+      );
+      refusePartialControl(control.presence);
+      const { marker, ledger } = control;
+      if (!marker || markerStanding(graph, marker) === "known") {
+        throw new MigrationError(
+          "reanchor moves only a marker naming a state this history does not hold; apply, verify and baseline handle the others",
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      if (unfinishedAttempts(ledger).length > 0) {
+        throw new MigrationError(
+          "reanchor refuses while an attempt is unfinished: resolve it first",
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      const live = await introspectManaged(pinned, command);
+      const liveHash = await fingerprintLive(live, command, pinned);
+      const matches: Sha256[] = [];
+      for (const stateId of named ? [named] : graph.states.keys()) {
+        const snapshot = requireStateSnapshot(graph, stateId);
+        if ((await fingerprintLive(snapshot, command, pinned)) === liveHash) {
+          matches.push(stateId);
+        }
+      }
+      const reference =
+        named ?? (graph.leaves.length === 1 ? graph.leaves[0] : undefined);
+      if (matches.length === 0) {
+        const differences = reference
+          ? ` Differences from ${reference}: ${JSON.stringify(await diff(live, requireStateSnapshot(graph, reference)))}`
+          : "";
+        throw new MigrationError(
+          `reanchor found no state of this history that the live schema matches.${differences}`,
+          VibORMErrorCode.MIGRATION_DRIFT
+        );
+      }
+      if (matches.length > 1) {
+        throw new MigrationError(
+          `Several states of this history match the live schema (${matches.join(", ")}), and equal schemas never say which data the database holds: name one with reanchor({ to }).`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      const target = matches[0]!;
+      if (marker.path.some((edge) => edge.stateId === target)) {
+        throw new MigrationError(
+          `reanchor refuses ${target}: the marker passed through it, so the transitions lost after it changed no schema and may have moved data. Regenerate the lost states from the same documents instead: their ids come back identical.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      const path = selectRoute(graph, null, target, options.via);
+      assertStructuralRoute(graph, path, "reanchor");
+      await command.preflightSchemaRequirements(
+        [requireStateSnapshot(graph, target)],
+        (sql, params) => pinned._executeRaw(sql, params)
+      );
+      await adoptRoute(pinned, command, graph, path, marker, false);
+      return { stateId: target };
+    }
+  );
+}
+
+/** Baseline's proof of a root route: no manual, opaque or data-only edge. */
+function assertStructuralRoute(
+  graph: MigrationGraph,
+  path: readonly Sha256[],
+  command: "baseline" | "reanchor"
+): void {
+  for (const [index, stateId] of path.entries()) {
+    const from = index === 0 ? null : path[index - 1]!;
+    const transition = parentTransition(graph, from, stateId);
+    const parentSnapshot =
+      from === null
+        ? graph.emptySnapshotHash
+        : graph.states.get(from)?.snapshotHash;
+    const childSnapshot = graph.states.get(stateId)?.snapshotHash;
+    if (
+      transition.operations.some(
+        (operation) =>
+          operation.origin === "manual" || operation.risk === "opaque"
+      ) ||
+      parentSnapshot === childSnapshot
+    ) {
+      throw new MigrationError(
+        `${command} refuses a path containing manual, opaque, or data-only transitions`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
+  }
+}
+
+/**
+ * Publishes the marker re-rooted on `path`, its first edge a baseline
+ * boundary, in place of `current` (compare-and-swap), with the event that
+ * says so: `baselined` without a marker before, `reanchored` with one. In one
+ * transaction when the producer can.
+ */
+async function adoptRoute(
+  pinned: Parameters<typeof casMarker>[0],
+  command: Parameters<typeof casMarker>[1],
+  graph: MigrationGraph,
+  path: readonly Sha256[],
+  current: MigrationMarkerV1 | null,
+  needsBootstrap: boolean
+): Promise<void> {
+  const edges = path.map((stateId, index) => ({
+    stateId,
+    transitionHash: parentTransition(
+      graph,
+      index === 0 ? null : path[index - 1]!,
+      stateId
+    ).transitionHash,
+    baselineBoundary: index === 0,
+  }));
+  const target = path.at(-1)!;
+  const next = markerFromPath(
+    graph.estateHash,
+    graph.states.get(target)!.snapshotHash,
+    edges,
+    (current?.revision ?? 0) + 1
+  );
+  const event = {
+    format: "1" as const,
+    attemptId: next.pathHash,
+    kind: current ? ("reanchored" as const) : ("baselined" as const),
+    estateHash: graph.estateHash,
+    snapshotHash: next.snapshotHash,
+    sqlHash: null,
+    fromState: current?.stateId ?? null,
+    toState: target,
+    transitionHash: null,
+    direction: "baseline" as const,
+    operationId: null,
+    dispatchId: null,
+    effectState: "none" as const,
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+    toolVersion: "v1",
+    failure: null,
+  };
+  const publish = async (producer: Parameters<typeof casMarker>[0]) => {
+    if (needsBootstrap) {
+      await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
+    }
+    await casMarker(producer, command, DEFAULT_CONTROL_BASE, current, next);
+    await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
+      ...event,
+      eventId: eventIdFor(event),
+    });
+  };
+  if (pinned.supportsTransactions) {
+    await pinned.withTransaction((transaction) => publish(transaction));
+  } else {
+    await publish(pinned);
+  }
 }
 
 export async function downV1(

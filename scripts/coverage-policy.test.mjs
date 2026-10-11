@@ -74,10 +74,12 @@ const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
     "tests/unit/migrations/control-ledger-read.core.test.ts",
     "in-memory-sqlite",
   ],
+  ["tests/unit/migrations/marker-predicates.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/read-only-tracking.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-apply.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-operators.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-push.core.test.ts", "in-memory-sqlite"],
+  ["tests/unit/migrations/v1-reanchor.core.test.ts", "in-memory-sqlite"],
   [
     "tests/unit/migrations/generate-destructive-approval.core.test.ts",
     "in-memory-sqlite",

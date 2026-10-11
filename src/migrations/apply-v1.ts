@@ -14,6 +14,7 @@ import {
 import {
   appendLedger,
   casMarker,
+  controlTableNames,
   DEFAULT_CONTROL_BASE,
   ensureControlTables,
   markerFromPath,
@@ -25,6 +26,7 @@ import {
 } from "./control";
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
+import { postgresCatalogDigest } from "./drivers/postgres/catalog-digest";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { evaluateAllChecks, executeOperations } from "./execute-dispatch";
 import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
@@ -44,8 +46,8 @@ import {
   withLockedMigrationProducer,
 } from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
-import { fingerprintLive } from "./push-fingerprint";
-import { introspectManaged, liveFingerprint } from "./push-plan";
+import { fingerprintDeparsed, fingerprintLive } from "./push-fingerprint";
+import { introspectManaged } from "./push-plan";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
@@ -53,6 +55,7 @@ import { eventIdFor } from "./v1-parse";
 import type {
   ApplyV1Options,
   LedgerEventV1,
+  MarkerIndexPredicateV1,
   MarkerPathEdgeV1,
   MigrationBooleanCheckV1,
   MigrationMarkerV1,
@@ -221,13 +224,11 @@ async function provenNoop(
   }
   if (marker.stateId !== target || decision.digest === undefined) return;
   const expected = snapshotOf(graph, markedSnapshotHash(graph, marker));
-  // A declared partial-index predicate is canonicalized through scratch
-  // views, which this read does not create.
-  if (expected?.tables.some((table) => table.indexes.some((i) => i.where))) {
-    return;
-  }
+  // Partial-index predicates compare as the server deparsed them: the live
+  // ones in the digest, the snapshot's from the record beside the marker.
   return expected &&
-    decision.digest === (await fingerprintLive(expected, driver, session))
+    decision.digest ===
+      fingerprintDeparsed(expected, decision.predicates, driver)
     ? { outcome: "noop", path: [], statements: [] }
     : undefined;
 }
@@ -502,7 +503,12 @@ async function executeAtomicGroup(
     );
   }
   const { snapshotHash } = items.at(-1)!.state;
-  await assertFingerprint(producer, command, graph, snapshotHash);
+  const predicates = await assertFingerprint(
+    producer,
+    command,
+    graph,
+    snapshotHash
+  );
   const next = markerFromPath(
     graph.estateHash,
     snapshotHash,
@@ -514,7 +520,8 @@ async function executeAtomicGroup(
     command,
     DEFAULT_CONTROL_BASE,
     current ? { revision: current.revision, pathHash: current.pathHash } : null,
-    next
+    next,
+    predicates
   );
   await appendLedger(producer, command, DEFAULT_CONTROL_BASE, ...arrivals);
   return next;
@@ -777,7 +784,12 @@ async function executeForwardEdge(
     state.destinationChecks,
     "destination"
   );
-  await assertFingerprint(producer, command, graph, state.snapshotHash);
+  const predicates = await assertFingerprint(
+    producer,
+    command,
+    graph,
+    state.snapshotHash
+  );
   nextPath.push({
     stateId: to,
     transitionHash: transition.transitionHash,
@@ -794,7 +806,8 @@ async function executeForwardEdge(
     command,
     DEFAULT_CONTROL_BASE,
     current ? { revision: current.revision, pathHash: current.pathHash } : null,
-    next
+    next,
+    predicates
   );
   await appendLedger(
     producer,
@@ -938,27 +951,53 @@ function markedSnapshotHash(
   return snapshotHash;
 }
 
+/**
+ * Proves the live managed schema is the snapshot: on PostgreSQL in one
+ * statement (plan D5, `catalog-digest.ts`), else, and where that digest
+ * abstains, through an introspection, read once. On PostgreSQL it returns each
+ * partial-index predicate that introspection read, the server's own deparse
+ * (`pg_get_expr`), which a forward apply records beside the marker
+ * (`casMarker`) for the no-op; the digest abstains on any partial index, so
+ * a proof without introspection has none to record.
+ */
 async function assertFingerprint(
   producer: Parameters<typeof introspectManaged>[0],
   command: BoundMigrationDriver,
   graph: MigrationGraph,
   snapshotHash: Sha256
-): Promise<void> {
+): Promise<readonly MarkerIndexPredicateV1[]> {
   const expected = snapshotOf(graph, snapshotHash);
   const fingerprint =
     expected && (await fingerprintLive(expected, command, producer));
-  if ((await liveFingerprint(producer, command)) === fingerprint) return;
-  // The difference is read only to say what drifted.
+  const postgres = command.target.dialect === "postgresql";
+  const digest = postgres
+    ? await postgresCatalogDigest(
+        producer,
+        command,
+        controlTableNames(DEFAULT_CONTROL_BASE)
+      )
+    : undefined;
+  if (digest !== undefined && digest === fingerprint) return [];
   const live = await introspectManaged(producer, command);
-  if ((await fingerprintLive(live, command, producer)) === fingerprint) {
+  if ((await fingerprintLive(live, command, producer)) !== fingerprint) {
+    throw new MigrationError(
+      `Live managed schema drifted from the authenticated snapshot. Differences: ${expected ? JSON.stringify(await diff(live, expected)) : "authenticated snapshot is missing"}`,
+      VibORMErrorCode.MIGRATION_DRIFT
+    );
+  }
+  if (digest !== undefined) {
     throw new MigrationError(
       "The PostgreSQL catalog digest disagrees with the introspected schema, which matches the authenticated snapshot. This is a VibORM defect in the digest (drivers/postgres/catalog-digest.ts), not drift: nothing ran. Please report it with the snapshot.",
       VibORMErrorCode.INTERNAL_ERROR
     );
   }
-  throw new MigrationError(
-    `Live managed schema drifted from the authenticated snapshot. Differences: ${expected ? JSON.stringify(await diff(live, expected)) : "authenticated snapshot is missing"}`,
-    VibORMErrorCode.MIGRATION_DRIFT
+  if (!postgres) return [];
+  return live.tables.flatMap((table) =>
+    table.indexes.flatMap((index) =>
+      index.where
+        ? [{ table: table.name, index: index.name, deparsed: index.where }]
+        : []
+    )
   );
 }
 

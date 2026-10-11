@@ -249,6 +249,54 @@ describe("representatives", () => {
     );
   });
 
+  test("a DateTime .now() default reads the clock in the column's own SQLite form", () => {
+    const nowIn = (dateTime: ReturnType<typeof s.dateTime>) =>
+      columnsOf(event(dateTime.now()), "sqlite", "ntm_events").at?.default;
+
+    // Milliseconds since the epoch, to the millisecond SQLite's %f carries.
+    expect(nowIn(s.dateTime({ sqlite: SQLITE.DATETIME.INTEGER }))).toBe(
+      "(CAST(strftime('%s','now') AS INTEGER) * 1000 + CAST(substr(strftime('%f','now'),4,3) AS INTEGER))"
+    );
+    expect(nowIn(s.dateTime({ sqlite: SQLITE.DATETIME.REAL }))).toBe(
+      "(julianday('now'))"
+    );
+    expect(nowIn(s.dateTime())).toBe("(strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
+  });
+
+  test("a PostgreSQL clock default stays a millisecond value whatever the native precision", () => {
+    const defaultOf = (at: Scalar) =>
+      columnsOf(event(at), "pg", "ntm_events").at?.default;
+
+    // An omitted precision is PostgreSQL's six: truncated to milliseconds.
+    expect(defaultOf(s.dateTime({ pg: PG.DATETIME.TIMESTAMP() }).now())).toBe(
+      "date_trunc('milliseconds', (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'))"
+    );
+    expect(
+      defaultOf(s.dateTime({ pg: PG.DATETIME.TIMESTAMPTZ(6) }).now())
+    ).toBe("date_trunc('milliseconds', CURRENT_TIMESTAMP)");
+    expect(defaultOf(s.dateTime({ pg: PG.DATETIME.TIMESTAMP(3) }).now())).toBe(
+      "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"
+    );
+    expect(defaultOf(s.time({ pg: PG.DATETIME.TIME() }).now())).toBe(
+      "timezone('UTC', CURRENT_TIME(3))"
+    );
+  });
+
+  test("a PostgreSQL list default renders each member in its own storage", () => {
+    const defaultOf = (at: Scalar) =>
+      columnsOf(event(at), "pg", "ntm_events").at?.default;
+
+    // A fixed decimal carries its declared scale in every member.
+    expect(
+      defaultOf(
+        s.decimal({ precision: 10, scale: 2 }).array().default(["1.50", "-2"])
+      )
+    ).toBe("'{1.50,-2.00}'");
+    expect(
+      defaultOf(s.dateTime().array().default(["2026-01-01T00:00:00.000Z"]))
+    ).toBe(`'{"2026-01-01T00:00:00.000Z"}'`);
+  });
+
   test("DateTime default renders in the column's own physical form", () => {
     const iso = "2026-01-01T00:00:00.000Z";
     const mapped = event(

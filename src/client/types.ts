@@ -907,10 +907,14 @@ type NoExtraClauseKeys<
  * the root clause. Neither maps over a payload's own keys, which is what
  * expands the recursive payloads (see above). Cycle detection uses the exact
  * spelled-value/model pair, never a numeric depth cap, so a held value typed
- * as a recursive payload stops at its first repeat.
+ * as a recursive payload stops at its first repeat. `NoInfer` keeps that
+ * comparison from inferring through a relinked model (a mapped type), which
+ * would walk its whole relation graph.
  */
 type SameValue<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+  (<T>() => T extends NoInfer<A> ? 1 : 2) extends <T>() => T extends NoInfer<B>
+    ? 1
+    : 2
     ? true
     : false;
 type SeenValue<Given, M, Seen> = true extends (

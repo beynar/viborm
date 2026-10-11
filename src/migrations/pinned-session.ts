@@ -1426,7 +1426,7 @@ function partialProgramFailure(
       `The last statement that completed was: ${boundary}. ` +
       "Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.",
     VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
-    { cause: cause instanceof Error ? cause : undefined }
+    { cause: errorCause(cause) }
   );
 }
 
@@ -1476,7 +1476,7 @@ function lockStatementFailed(
   return new MigrationError(
     `Failed to acquire the migration lock for ${describeEstate(migrationDriver)}: the lock statement itself failed.`,
     VibORMErrorCode.MIGRATION_LOCK_FAILED,
-    { cause: error instanceof Error ? error : undefined }
+    { cause: errorCause(error) }
   );
 }
 
@@ -1553,7 +1553,7 @@ async function releaseLock(
     throw new MigrationError(
       `Failed to release the migration lock for ${describeEstate(migrationDriver)}. The pinned session was discarded rather than returned to the pool.`,
       VibORMErrorCode.MIGRATION_LOCK_FAILED,
-      { cause: error instanceof Error ? error : undefined }
+      { cause: errorCause(error) }
     );
   }
 

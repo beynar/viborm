@@ -111,6 +111,23 @@ const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 describeIfPg("tenant migrator in a Durable Object (PostgreSQL)", () => {
+  it("applies a new tenant's first change given beforeDestructive, without asking", async () => {
+    const stub = env.TENANT.get(env.TENANT.newUniqueId());
+    const outcome = await request(stub, async (tenant) => {
+      await tenant.pool.query(`CREATE SCHEMA "${tenant.namespace}"`);
+      let asked = 0;
+      const result = await tenant.migrator.change(schemaOf(memberDocument), {
+        beforeDestructive: () => {
+          asked += 1;
+        },
+      });
+      return { kind: kindOf(result), asked, columns: await columns(tenant) };
+    });
+    expect(outcome).toMatchObject({ kind: "applied", asked: 0 });
+    expect(outcome.columns).toContain("legacyRef");
+    await dispose(stub);
+  });
+
   it("serializes concurrent requests, so the history stays linear", async () => {
     const stub = await seededTenant();
     const results = await Promise.all(

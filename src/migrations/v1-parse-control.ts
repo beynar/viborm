@@ -109,6 +109,7 @@ const LEDGER_KINDS: readonly LedgerEventKindV1[] = [
   "failed",
   "rolled-back",
   "baselined",
+  "reanchored",
   "resolved",
   "reset-started",
   "reset-step-confirmed",

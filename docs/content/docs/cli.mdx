@@ -26,6 +26,7 @@ then discovers `viborm.config.ts` (also `.mts`, `.js`, or `.mjs`). See
 | `viborm migrate apply` | Apply pending migration states |
 | `viborm migrate down --dry-run` | Preview rollback along the recorded arrival path |
 | `viborm migrate baseline --to <state>` | Adopt an existing database only after exact schema verification |
+| `viborm migrate reanchor [--to <state>]` | After a restore left the history older than the database, move the marker onto the state the live schema matches |
 | `viborm migrate resolve` | Resolve unfinished work after proving its live state |
 
 Use `--help` on a command for all options. `--config <path>` selects a config;

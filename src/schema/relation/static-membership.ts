@@ -200,9 +200,16 @@ type IsExactly<Union, Value> = [Union] extends [Value]
     : false
   : false;
 
-/** Type IDENTITY, the strictest test TypeScript exposes to a conditional. */
+/**
+ * Type IDENTITY, the strictest test TypeScript exposes to a conditional.
+ * `NoInfer` keeps the signature comparison from inferring through both sides:
+ * a client's relinked model state is a mapped type, so that inference would
+ * walk its whole relation graph even when both sides are the same type.
+ */
 type Equal<Left, Right> =
-  (<T>() => T extends Left ? 1 : 2) extends <T>() => T extends Right ? 1 : 2
+  (<T>() => T extends NoInfer<Left> ? 1 : 2) extends <
+    T,
+  >() => T extends NoInfer<Right> ? 1 : 2
     ? true
     : false;
 
@@ -252,14 +259,18 @@ type VariantPointsAt<Entries, Source> = true extends {
  * Steps 2-4. The keys of `Relations` that point at `Source`, carry the same
  * relation-name claim as the asker (an unnamed slot pairs only with an unnamed
  * candidate), and are not the excluded slot.
+ *
+ * The name test runs before the target test: comparing two literals rejects
+ * nearly every slot of a hub model, while `PointsAt` must materialize each
+ * slot's target model to compare identities.
  */
 type CandidateKeys<Relations, Source, AskingName, ExcludedKey> = {
   [Key in keyof Relations]: IsProvableRelationName<AskingName> extends true
     ? Key extends ExcludedKey
       ? never
-      : PointsAt<Relations[Key], Source> extends true
-        ? IsProvableRelationName<RelationName<Relations[Key]>> extends true
-          ? IsExactly<RelationName<Relations[Key]>, AskingName> extends true
+      : IsProvableRelationName<RelationName<Relations[Key]>> extends true
+        ? IsExactly<RelationName<Relations[Key]>, AskingName> extends true
+          ? PointsAt<Relations[Key], Source> extends true
             ? Key
             : never
           : never

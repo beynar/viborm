@@ -562,6 +562,40 @@ describe("migration v1 authenticated push", () => {
     await client.$disconnect();
   });
 
+  test("a required column added to a renamed populated table is refused before any effect", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const fields = { id: s.string().id(), name: s.string() };
+    const before = createClient({
+      schema: { account: s.model(fields).map("accounts") },
+      driver,
+    });
+    await pushV1(before);
+    await before.account.create({ data: { id: "a1", name: "Ada" } });
+    const after = createClient({
+      schema: {
+        account: s.model({ ...fields, tier: s.string() }).map("members"),
+      },
+      driver,
+    });
+    const resolve: ResolveCallback = (change) => {
+      if (change.type === "ambiguous") return change.rename();
+      return change.type === "destructive" ? change.proceed() : undefined;
+    };
+
+    // The rename is accepted, so the populated table is still read under its
+    // live name, "accounts".
+    await expect(pushV1(after, { resolve })).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining(
+        'Cannot add required column "members.tier" without a database default to a populated table'
+      ),
+    });
+    await expect(before.account.findMany()).resolves.toEqual([
+      { id: "a1", name: "Ada" },
+    ]);
+    await before.$disconnect();
+  });
+
   test("a resolved destructive change still requires consent, then applies the locked replan", async () => {
     const driver = createInMemorySQLite3Driver();
     const initial = createClient({ schema: { user }, driver });

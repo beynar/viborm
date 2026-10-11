@@ -121,7 +121,9 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // (`LIMIT 1`) on the producer under the lock.
   // D4b (1.2.0): `down({ dryRun: true })` runs down's read-only schema
   // preflight on the unlocked producer it previews from.
-  "src/migrations/operators.ts executeRaw 9",
+  // T3 (1.2.0): reanchor runs the chosen state's schema preflight on
+  // `pinned`, under the lock, as baseline does.
+  "src/migrations/operators.ts executeRaw 10",
   // §3.5's pinned-session owner: target selection, the command-view catalog
   // read, and the sequential program's recording view. Exact-decimal migration
   // recovery adds two sites in THIS SAME owner: its catalog read and execution

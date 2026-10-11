@@ -6,7 +6,6 @@ import {
   arrayLiteralText,
   readArrayLiteralText,
 } from "../../../adapters/databases/postgres/array-literal";
-import { stringifyJson } from "../../../adapters/shared/standard-sql";
 /**
  * PostgreSQL Migration Driver
  *
@@ -421,12 +420,14 @@ export class PostgresMigrationDriver extends MigrationDriver {
             ).rows;
       for (const [index, { relation }] of relations.entries()) {
         if (relation === null) continue;
-        const plan = await executeRaw<Record<string, string>>(
-          `EXPLAIN SELECT 1 FROM ${relation}`
-        );
+        const explain = `EXPLAIN SELECT 1 FROM ${relation}`;
+        const plan = await executeRaw<Record<string, string>>(explain);
         const line = Object.values(plan.rows[0] ?? {})[0] ?? "";
-        const estimatedRows = Number(PLAN_ROWS.exec(line)?.[1]);
-        if (estimatedRows <= largeTableRows) continue;
+        const estimate = PLAN_ROWS.exec(line)?.[1];
+        // A plan without an estimate is not admitted: it was not measured.
+        if (estimate !== undefined && Number(estimate) <= largeTableRows) {
+          continue;
+        }
         const table = tables[index]!;
         const operations = [
           ...new Set(
@@ -440,8 +441,12 @@ export class PostgresMigrationDriver extends MigrationDriver {
         const steps = operations.every((name) => name.endsWith(" validation"))
           ? " Or add the constraint NOT VALID and validate it (VALIDATE CONSTRAINT) in a later migration: neither step blocks writes. generate({ lowLock: true }) does this for foreign keys."
           : "";
+        const size =
+          estimate === undefined
+            ? `whose row estimate ${explain} did not report (${JSON.stringify(line)}), so limits.largeTableRows (${largeTableRows}) cannot admit it`
+            : `which the planner estimates at ${estimate} rows, above limits.largeTableRows (${largeTableRows})`;
         throw new MigrationError(
-          `This migration runs a ${operation} on ${table}, which the planner estimates at ${estimatedRows} rows, above limits.largeTableRows (${largeTableRows}). It rewrites or scans the whole table while holding a lock that blocks it, longer than a request should wait. Nothing ran: the schema and data are unchanged. Run it outside the request with a client whose largeTableRows is higher, or 0 for no limit.${steps}`,
+          `This migration runs a ${operation} on ${table}, ${size}. It rewrites or scans the whole table while holding a lock that blocks it, longer than a request should wait. Nothing ran: the schema and data are unchanged. Run it outside the request with a client whose largeTableRows is higher, or 0 for no limit.${steps}`,
           VibORMErrorCode.MIGRATION_INVALID_STATE,
           {
             meta: { table, operation, feature: "large table rewrite" },
@@ -695,13 +700,12 @@ export class PostgresMigrationDriver extends MigrationDriver {
     ) {
       if (scalarState.decimal)
         return super.getDefaultExpression(scalar, scalarState);
+      // A JSON field has no list form: members are scalars or temporals.
       const members = literal.map((value) =>
-        scalarState.type === "json"
-          ? stringifyJson(value)
-          : (scalarState.type === "datetime" || scalarState.type === "date") &&
-              typeof value === "string"
-            ? encodePostgresTemporal(value)
-            : value
+        (scalarState.type === "datetime" || scalarState.type === "date") &&
+        typeof value === "string"
+          ? encodePostgresTemporal(value)
+          : value
       );
       return this.escapeValue(arrayLiteralText(members));
     }

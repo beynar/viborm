@@ -1,3 +1,4 @@
+import { errorCause } from "../drivers/shared/driver-options";
 /**
  * One execution owner for authenticated SQL slices and typed parameters.
  * Apply, down, reset, and push consume this. There is no second executor.
@@ -272,7 +273,7 @@ async function executeStep(
         `Opaque stepwise dispatch ${step.execute.dispatchId} failed with an ambiguous outcome`,
         VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
         {
-          cause: error instanceof Error ? error : undefined,
+          cause: errorCause(error),
           meta: {
             ...siteMeta(site, step.execute.dispatchId),
             lastConfirmedStep: step.execute.dispatchId,

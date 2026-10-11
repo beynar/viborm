@@ -197,6 +197,14 @@ describe("migration operation formatting", () => {
       text: '[destructive] Alter column "id" in "user"',
     },
     {
+      operation: {
+        type: "addColumn",
+        tableName: "user",
+        column: { name: "tier", type: "text", nullable: false },
+      },
+      text: '[destructive] Add required column "user.tier" without a backfill default',
+    },
+    {
       operation: { type: "dropEnum", enumName: "role" },
       text: "[destructive] dropEnum",
     },

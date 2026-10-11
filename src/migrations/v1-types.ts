@@ -175,6 +175,17 @@ export interface BaselineOptions {
 }
 
 /**
+ * `reanchor()` (plan T3) moves a marker this history does not hold onto the
+ * one state the live schema matches. `to` adopts the state it names instead:
+ * the explicit consent to take the live schema as a new baseline there, which
+ * several matching states need.
+ */
+export interface ReanchorOptions {
+  readonly to?: StateSelector;
+  readonly via?: readonly Sha256[];
+}
+
+/**
  * `down({ to })` is the form for automation: a retry finds the marker already
  * there and does nothing. The relative `steps` form takes `expectRevision`, the
  * `marker.revision` the caller read, so a retried call refuses (V11015)
@@ -301,6 +312,19 @@ export interface MigrationMarkerV1 {
   readonly updatedAt: string;
 }
 
+/**
+ * PostgreSQL: a partial index of the marked snapshot and its predicate as the
+ * server deparsed it (`pg_get_expr`), read from the catalog by the apply that
+ * wrote the marker once it proved the snapshot. Stored in the marker row
+ * beside the marker (`predicates`), never in a snapshot, so state ids do not
+ * change; a no-op compares the live deparse with it in one statement.
+ */
+export interface MarkerIndexPredicateV1 {
+  readonly table: string;
+  readonly index: string;
+  readonly deparsed: string;
+}
+
 export type LedgerEventKindV1 =
   | "started"
   | "step-confirmed"
@@ -308,6 +332,7 @@ export type LedgerEventKindV1 =
   | "failed"
   | "rolled-back"
   | "baselined"
+  | "reanchored"
   | "resolved"
   | "reset-started"
   | "reset-step-confirmed"

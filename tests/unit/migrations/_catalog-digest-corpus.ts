@@ -142,6 +142,45 @@ export const catalogDigestCorpus: readonly DigestCase[] = [
 ];
 
 /**
+ * A soft-delete estate: partial indexes on the tombstone column, one also
+ * comparing an enum, whose predicates PostgreSQL stores parsed and deparses
+ * its own way (`("deletedAt" IS NULL)`, `'churned'::…`).
+ */
+const softDeleteFields = () => ({
+  id: s.string().id(),
+  email: s.string(),
+  status: s.enum(["trial", "active", "churned"]).default("trial"),
+  country: s.string().default("FR"),
+  deletedAt: s.dateTime().nullable(),
+});
+const LIVE_EMAIL = {
+  name: "accounts_live_email",
+  unique: true,
+  where: `"deletedAt" IS NULL`,
+} as const;
+const LIVE_COUNTRY = {
+  name: "accounts_live_country",
+  where: `"deletedAt" IS NULL AND "status" <> 'churned'`,
+} as const;
+
+/** The estate, and with `nickname` its next state: one more column. */
+export const softDeleteAccounts = (
+  nickname = false
+): Record<string, AnyModel> => ({
+  account: nickname
+    ? s
+        .model({ ...softDeleteFields(), nickname: s.string().nullable() })
+        .index(["email"], LIVE_EMAIL)
+        .index(["country", "status"], LIVE_COUNTRY)
+        .map("accounts")
+    : s
+        .model(softDeleteFields())
+        .index(["email"], LIVE_EMAIL)
+        .index(["country", "status"], LIVE_COUNTRY)
+        .map("accounts"),
+});
+
+/**
  * The one-statement digest beside the fingerprint of a full introspection,
  * for the client's whole namespace or only the managed tables `tables` lists.
  */

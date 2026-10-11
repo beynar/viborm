@@ -66,15 +66,22 @@ type SingularFieldTree<M> = M extends {
         : true;
     }
   : never;
-type SchemaKeyOf<S, T> = {
-  [J in keyof S]-?: [SingularFieldTree<S[J]>] extends [SingularFieldTree<T>]
-    ? [SingularFieldTree<T>] extends [SingularFieldTree<S[J]>]
-      ? IsIdentical<S[J], T> extends true
-        ? J
+// Each schema entry's projection is built once per schema. `Extract` filters
+// those entries in one native pass, and only the survivors pay for the reverse
+// projection test and full equality.
+type TreeEntries<S> = {
+  [J in keyof S]-?: [SingularFieldTree<S[J]>, J];
+}[keyof S];
+type SchemaKeyOf<S, T> =
+  Extract<TreeEntries<S>, [SingularFieldTree<T>, unknown]> extends infer Hit
+    ? Hit extends [infer Tree, infer J extends keyof S]
+      ? [SingularFieldTree<T>] extends [Tree]
+        ? IsIdentical<S[J], T> extends true
+          ? J
+          : never
         : never
       : never
     : never;
-}[keyof S];
 type TargetLinks<S, Target> = Target extends {
   readonly kind: "model";
   readonly getter: infer G;
@@ -103,9 +110,7 @@ export type RelationLinks<S extends Schema> = {
       S[K]["~"]["state"]["relations"][R]["~"]["state"]["target"]
     >;
   };
-} extends infer U
-  ? { [K in keyof U]: U[K] }
-  : never;
+};
 
 type LinkAt<L, K, R> = K extends keyof L
   ? R extends keyof L[K]
@@ -126,25 +131,25 @@ export type FlatSchema<S extends Schema, L> = {
                   ? RS extends ModelToOneState
                     ? ModelToOneRelation<{
                         [Q in keyof RS]: Q extends "target"
-                          ? [LinkAt<L, K, F>] extends [never]
-                            ? RS[Q]
-                            : {
-                                [T in keyof RS[Q]]: T extends "getter"
-                                  ? unknown
-                                  : RS[Q][T];
-                              }
+                          ? {
+                              [T in keyof RS[Q]]: T extends "getter"
+                                ? [LinkAt<L, K, F>] extends [never]
+                                  ? RS[Q][T]
+                                  : unknown
+                                : RS[Q][T];
+                            }
                           : RS[Q];
                       }>
                     : RS extends ModelToManyState
                       ? ModelToManyRelation<{
                           [Q in keyof RS]: Q extends "target"
-                            ? [LinkAt<L, K, F>] extends [never]
-                              ? RS[Q]
-                              : {
-                                  [T in keyof RS[Q]]: T extends "getter"
-                                    ? unknown
-                                    : RS[Q][T];
-                                }
+                            ? {
+                                [T in keyof RS[Q]]: T extends "getter"
+                                  ? [LinkAt<L, K, F>] extends [never]
+                                    ? RS[Q][T]
+                                    : unknown
+                                  : RS[Q][T];
+                              }
                             : RS[Q];
                         }>
                       : RS extends VariantToOneState
@@ -236,73 +241,86 @@ export type FlatSchema<S extends Schema, L> = {
     : never;
 };
 
-type RepointTarget<Target, Link, S extends Schema, L> = Target extends {
+/** One linked target; a union of twin keys answers a union of targets. */
+type LinkedTarget<S extends Schema, L, J> = J extends keyof S
+  ? Linked<S, L, J>
+  : never;
+
+// A getter the flat view kept is an unlinked target and stays as it was. A
+// model target's erased getter is relinked behind a function return type, so
+// its link is resolved only when something follows the slot: comparing a hub
+// model's state, or reading its slot names, no longer resolves every link it
+// holds. Variant members keep their eager links: resolved inside the member
+// mapping, every member's getter answered the union of all member targets.
+type RepointTarget<Target, S extends Schema, L, K, F> = Target extends {
   readonly kind: "model";
 }
-  ? [Link] extends [never]
-    ? Target
-    : Link extends keyof S
-      ? {
-          [P in keyof Target]: P extends "getter"
-            ? () => Linked<S, L, Link>
-            : Target[P];
-        }
-      : Target
+  ? {
+      [P in keyof Target]: P extends "getter"
+        ? Target[P] extends () => unknown
+          ? Target[P]
+          : () => LinkedTarget<S, L, LinkAt<L, K, F>>
+        : Target[P];
+    }
   : Target extends {
         readonly kind: "variants";
         readonly entries: infer Entries;
       }
-    ? {
-        [P in keyof Target]: P extends "entries"
-          ? {
-              [V in keyof Entries]: {
-                [E in keyof Entries[V]]: E extends "getter"
-                  ? VariantLink<Link, V> extends infer J
-                    ? [J] extends [never]
-                      ? Entries[V][E]
-                      : J extends keyof S
-                        ? () => Linked<S, L, J>
-                        : Entries[V][E]
-                    : Entries[V][E]
-                  : Entries[V][E];
-              };
-            }
-          : Target[P];
-      }
+    ? RepointVariants<Target, Entries, LinkAt<L, K, F>, S, L>
     : Target;
 
-type RepointState<State, Link, S extends Schema, L> = {
+type RepointVariants<Target, Entries, Link, S extends Schema, L> = {
+  [P in keyof Target]: P extends "entries"
+    ? {
+        [V in keyof Entries]: {
+          [E in keyof Entries[V]]: E extends "getter"
+            ? VariantLink<Link, V> extends infer J
+              ? [J] extends [never]
+                ? Entries[V][E]
+                : J extends keyof S
+                  ? () => Linked<S, L, J>
+                  : Entries[V][E]
+              : Entries[V][E]
+            : Entries[V][E];
+        };
+      }
+    : Target[P];
+};
+
+type RepointState<State, S extends Schema, L, K, F> = {
   [P in keyof State]: P extends "target"
-    ? RepointTarget<State[P], Link, S, L>
+    ? RepointTarget<State[P], S, L, K, F>
     : State[P];
 };
-type LinkedRelation<R, Link, S extends Schema, L> = R extends AnyRelation
-  ? R["~"]["state"] extends infer State extends RelationState
-    ? State extends ModelToOneState
-      ? ModelToOneRelation<RepointState<State, Link, S, L>>
-      : State extends ModelToManyState
-        ? ModelToManyRelation<RepointState<State, Link, S, L>>
-        : State extends VariantToOneState
-          ? VariantToOneRelation<RepointState<State, Link, S, L>>
-          : State extends VariantToManyState
-            ? VariantToManyRelation<RepointState<State, Link, S, L>>
-            : R
-    : R
+// The arms are told apart by cardinality and target kind alone: matching the
+// full declaration states would resolve each slot's link to compare getters.
+type LinkedRelation<R, S extends Schema, L, K, F> = R extends {
+  readonly "~": { readonly state: infer State };
+}
+  ? State extends SlotKind<"one", "model">
+    ? ModelToOneRelation<RepointState<State, S, L, K, F>>
+    : State extends SlotKind<"many", "model">
+      ? ModelToManyRelation<RepointState<State, S, L, K, F>>
+      : State extends SlotKind<"one", "variants">
+        ? VariantToOneRelation<RepointState<State, S, L, K, F>>
+        : State extends SlotKind<"many", "variants">
+          ? VariantToManyRelation<RepointState<State, S, L, K, F>>
+          : R
   : R;
+type SlotKind<Cardinality, Kind> = {
+  readonly kind: "relation";
+  readonly cardinality: Cardinality;
+  readonly target: { readonly kind: Kind };
+};
 
-/** Relinking operates only on the already-flat schema and resolved literal links. */
+/** Relinking operates only on the already-flat schema and its literal links. */
 type LinkedState<S extends Schema, L, K extends keyof S> = S[K] extends Model<
   infer State
 >
   ? {
       [P in keyof State]: P extends "shape" | "relations"
         ? {
-            [F in keyof State[P]]: LinkedRelation<
-              State[P][F],
-              LinkAt<L, K, F>,
-              S,
-              L
-            >;
+            [F in keyof State[P]]: LinkedRelation<State[P][F], S, L, K, F>;
           }
         : State[P];
     }
@@ -321,7 +339,11 @@ type SchemaLinks<S extends Schema> = string extends keyof S
   ? never
   : [SchemaRelationKeys<S>] extends [never]
     ? never
-    : RelationLinks<S>;
+    : // Re-mapped once so emitted declarations print the literal table, not
+      // `RelationLinks` over the original recursive models.
+      RelationLinks<S> extends infer U
+      ? { [K in keyof U]: U[K] }
+      : never;
 
 type SchemaSnapshot<S extends Schema, L> = {
   [K in keyof S]: [L] extends [never] ? S[K] : FlatSchema<S, L>[K];

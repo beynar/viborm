@@ -498,6 +498,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "PushOptions",
       "PushPreview",
       "ReadableMigrations",
+      "ReanchorOptions",
+      "ReanchorResult",
       "ResetOptions",
       "ResetResult",
       "ResolveCallback",

@@ -4,6 +4,7 @@ import type {
   OperationResult,
   ValidatedOperationPayload,
 } from "@client/exports";
+import { PGliteDriver } from "@drivers/pglite";
 import { s } from "@schema";
 import type {
   Model,
@@ -12,6 +13,7 @@ import type {
   RelationLinks,
 } from "@src/index";
 import {
+  createClient,
   getOperationPayloadSchema,
   renderOperationResultType,
   renderSchemaType,
@@ -273,6 +275,27 @@ describe("declaration links preserve full model identity", () => {
     expectTypeOf<
       RelationLinks<typeof variants>["variantOwner"]["subjects"]["video"]
     >().toEqualTypeOf<"video">();
+  });
+
+  test("relinks twin-keyed and out-of-schema targets in client results", () => {
+    const twinClient = createClient({
+      schema: twins,
+      driver: new PGliteDriver(),
+    });
+    const outsideClient = createClient({
+      schema: unlinked,
+      driver: new PGliteDriver(),
+    });
+    const twinRows = () =>
+      twinClient.twinOwner.findMany({ include: { twin: true } });
+    const outsideRows = () =>
+      outsideClient.outsideOwner.findMany({ include: { outside: true } });
+    expectTypeOf<
+      Awaited<ReturnType<typeof twinRows>>[number]["twin"]
+    >().toEqualTypeOf<{ id: string; value: number } | null>();
+    expectTypeOf<
+      Awaited<ReturnType<typeof outsideRows>>[number]["outside"]
+    >().toEqualTypeOf<{ code: string; outside: boolean } | null>();
   });
 
   test("preserves a genuine cycle of singular slots", () => {
