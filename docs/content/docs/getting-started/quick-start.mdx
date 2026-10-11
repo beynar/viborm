@@ -229,11 +229,36 @@ await client.user.findMany({
 });
 ```
 
-The types reject unknown keys at the top level of every argument, as above.
-Deeper inside an argument, some misuse still type-checks. VibORM also validates
-every call at runtime, before any SQL runs: input the types let through but the
-schema does not admit is rejected there with a `ValidationError` (code `V4001`)
-whose message names the path, such as `data.posts.create`.
+The types reject a misspelled key, even beside a correct one, at the top level
+of every argument. They also reject one inside nested write data (`create`,
+`createMany`, `connectOrCreate`, `update`, `upsert`), inside a nested `select`
+or `include` and its `where`, inside an operator object of a top-level `where`
+field (`{ contains: "x", mdoe: "insensitive" }`), and in a `groupBy` `orderBy`
+field that is not in `by`.
+
+Some misuse still type-checks:
+
+- an operator typo below a top-level `where` field: inside a relation filter,
+  an `AND` / `OR` / `NOT` group, or a nested `include` / `select` `where`;
+- a misspelled relation operation (`conect`), or a misspelled key in a nested
+  selector (`connect`, or the `where` of a nested `update`, `delete` or
+  `upsert`), in `cursor` or in `having`;
+- a typo inside a polymorphic relation's variant;
+- a typo in an aggregate selector, and `_min` / `_max` on a boolean;
+- a foreign key written beside its relation's `connect`;
+- `groupBy` with an empty `by`, and `select: {}` on a bulk write.
+
+A type parameter that stands for a whole nested write object, a whole operator
+object or a nested `include` / `select` `where` is rejected, because its keys
+cannot be checked. Write the object out at the call site, or give it the
+payload type. A `groupBy` `orderBy` value whose type names a field outside `by`
+is rejected even when that key is optional: narrow its type to the grouped
+fields and aggregates.
+
+VibORM also validates every call at runtime, before any SQL runs. Input that the
+types let through but the schema does not admit is rejected with a
+`ValidationError` (code `V4001`). The message names the path, such as
+`data.posts.create`.
 
 ## Next Steps
 

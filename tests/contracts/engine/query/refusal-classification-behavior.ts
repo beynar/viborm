@@ -350,6 +350,7 @@ export function runRefusalClassificationBehavior(options: {
           await refusalOf(() =>
             client.account.groupBy({
               by: ["role"],
+              // @ts-expect-error - orderBy outside by is a compile error since 1.2.0; the runtime refusal is asserted here
               orderBy: { email: "asc" },
             })
           ),
@@ -361,6 +362,7 @@ export function runRefusalClassificationBehavior(options: {
           await refusalOf(() =>
             client.account.groupBy({
               by: ["role"],
+              // @ts-expect-error - orderBy outside by is a compile error since 1.2.0; the runtime refusal is asserted here
               orderBy: [{ role: "asc" }, { email: "desc" }],
             })
           ),

@@ -537,6 +537,7 @@ const typoProbes = () => {
     },
   } satisfies OperationPayload<"create", typeof optionalArticle>);
   inverseClient.optionalArticle.create({
+    // @ts-expect-error - the nested-data walk refuses the clause as well
     data: {
       id: "article-2",
       comments: {
