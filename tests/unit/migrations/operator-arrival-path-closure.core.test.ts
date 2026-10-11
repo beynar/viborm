@@ -113,7 +113,7 @@ async function publishArrivalGraph() {
 }
 
 function controlRespond(
-  marker: MigrationMarkerV1,
+  marker: MigrationMarkerV1 | null,
   ledger: readonly LedgerEventV1[] = []
 ) {
   return (statement: string, parameters: unknown[]): unknown[] | Error => {
@@ -131,7 +131,7 @@ function controlRespond(
       statement.includes("SELECT payload FROM") &&
       statement.includes("_viborm_migration_state")
     ) {
-      return [{ payload: canonicalizeJsonText(marker) }];
+      return marker ? [{ payload: canonicalizeJsonText(marker) }] : [];
     }
     if (
       statement.includes("SELECT payload FROM") &&
@@ -229,7 +229,13 @@ describe("down arrival-path planning", () => {
         to: { id: graph.root.stateId },
         dryRun: true,
       })
-    ).resolves.toEqual({ path: [graph.child.stateId], preview: true });
+    ).resolves.toMatchObject({
+      path: [graph.child.stateId],
+      preview: true,
+      edges: [{ stateId: graph.child.stateId, toState: graph.root.stateId }],
+      // The preview refuses where down refuses: this child is irreversible.
+      refusal: { code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED },
+    });
   });
 
   test("refuses a graph state that is not on the actual arrival path", async () => {
@@ -268,31 +274,39 @@ describe("down arrival-path planning", () => {
     });
   });
 
-  test("refuses forward work and multiple attempts before rollback planning", async () => {
+  test("refuses forward work and multiple attempts before rollback planning, and so does the preview", async () => {
     const graph = await publishArrivalGraph();
-    const marker = arrivalMarker(graph);
-    const one = sqliteEstateDriver();
-    one.respond = controlRespond(marker, [
-      forwardAttempt(graph, "a".repeat(64)),
-    ]);
-    await expect(
-      downV1({ $driver: one, $schema: {} }, graph.storage)
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT,
-      message: expect.stringContaining("blocking ordinary work"),
-    });
-
-    const multiple = sqliteEstateDriver();
-    multiple.respond = controlRespond(marker, [
-      forwardAttempt(graph, "a".repeat(64)),
-      forwardAttempt(graph, "b".repeat(64)),
-    ]);
-    await expect(
-      downV1({ $driver: multiple, $schema: {} }, graph.storage)
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT,
-      message: expect.stringContaining("Multiple unfinished"),
-    });
+    // A first apply that crashed leaves no marker: the attempt still refuses.
+    for (const [marker, attempts, message] of [
+      [
+        arrivalMarker(graph),
+        [forwardAttempt(graph, "a".repeat(64))],
+        "blocking ordinary work",
+      ],
+      [null, [forwardAttempt(graph, "a".repeat(64))], "blocking ordinary work"],
+      [
+        arrivalMarker(graph),
+        [
+          forwardAttempt(graph, "a".repeat(64)),
+          forwardAttempt(graph, "b".repeat(64)),
+        ],
+        "Multiple unfinished",
+      ],
+    ] as const) {
+      const down = (dryRun: boolean) => {
+        const driver = sqliteEstateDriver();
+        driver.respond = controlRespond(marker, [...attempts]);
+        return downV1({ $driver: driver, $schema: {} }, graph.storage, {
+          dryRun,
+        });
+      };
+      const refusal = {
+        code: VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT,
+        message: expect.stringContaining(message),
+      };
+      await expect(down(false)).rejects.toMatchObject(refusal);
+      await expect(down(true)).resolves.toMatchObject({ refusal });
+    }
   });
 
   test("baseline reports live-schema drift before it publishes a marker", async () => {

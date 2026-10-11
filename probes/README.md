@@ -25,7 +25,7 @@ export default async function probe(ctx) {
 
 - The runner reports `skip` when `needs` names a service without a URL. Such a probe is imported but never run.
 - Throwing, an invalid result, or exceeding the time limit is reported as `error`.
-- Each probe runs in its own Node process, in a temporary consumer holding the tarball as `node_modules/viborm` plus `better-sqlite3`, `@electric-sql/pglite`, `pg`, `postgres`, `mysql2`, `@libsql/client` and `@neondatabase/serverless`. These are linked from this checkout's install; nothing is installed from npm.
+- Each probe runs in its own Node process and process group, which may hold up to 2560 MiB of RSS (the allowance for one PGlite database, above the ordinary 1536 MiB ceiling); the runner itself runs unbounded and bounds each probe. Interrupting `pnpm probes` kills the running probe and writes no report. The probe runs in a temporary consumer holding the tarball as `node_modules/viborm` plus `better-sqlite3`, `@electric-sql/pglite`, `pg`, `postgres`, `mysql2`, `@libsql/client` and `@neondatabase/serverless`. These are linked from this checkout's install; nothing is installed from npm.
 - The module must load on 1.1.0, so it can report `fail` rather than `error`. To reach an API that 1.1.0 lacks, use a namespace import (`import * as migrations from "viborm/migrations"`) or a dynamic `import()` inside `probe`.
 - Write files only under `ctx.tmpDir`, a fresh directory for each probe.
 

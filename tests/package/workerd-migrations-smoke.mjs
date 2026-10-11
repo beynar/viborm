@@ -33,6 +33,7 @@ const WORKER_CONDITIONS = ["workerd", "worker", "browser", "import", "default"];
 const HISTORY_BINDINGS = {
   "./migrations/storage/durable-object": "createDurableObjectStorageWriter",
   "./migrations/storage/r2": "createR2StorageWriter",
+  "./migrations/tenant": "createTenantMigrator",
 };
 
 // A named import of a missing export fails when workerd links the Worker.

@@ -17,6 +17,7 @@ import {
   type DecimalDescriptor,
   decimalDefaultText,
 } from "@validation/primitives/decimal-codec";
+import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { readStoredDecimalDescriptor } from "../../decimal";
 import type {
@@ -63,6 +64,38 @@ export interface PostgresIntrospectionScope {
   readonly admittedExtensionTypes: ReadonlySet<string>;
 }
 
+/**
+ * Extension-owned base types whose SERVER-FORMATTED spelling introspection
+ * reads, keyed by the adapter capability that declares them.
+ *
+ * These are the types whose modifiers a snapshot cannot be written without
+ * (`vector(3)`, `geometry(Point,4326)`), so introspection reads
+ * `format_type` for them instead of `udt_name`. The set admits a SPELLING,
+ * never a type: an extension type outside it — `citext`, and anything else a
+ * database has installed — reads back through `udt_name` like every built-in,
+ * which is the spelling this driver's own renderer emits for it.
+ */
+const EXTENSION_TYPES_BY_CAPABILITY = {
+  supportsVector: ["vector", "halfvec", "sparsevec"],
+  geoPoint: ["geometry", "geography"],
+} as const;
+
+/**
+ * The extension-owned base types the bound execution driver's adapter
+ * declares, and whose `format_type` spelling introspection therefore reads.
+ */
+export function admittedExtensionTypes(
+  executionDriver: AnyDriver | undefined
+): ReadonlySet<string> {
+  const adapter = executionDriver?.adapter;
+  return new Set([
+    ...(adapter?.capabilities.supportsVector
+      ? EXTENSION_TYPES_BY_CAPABILITY.supportsVector
+      : []),
+    ...(adapter?.geoPoint ? EXTENSION_TYPES_BY_CAPABILITY.geoPoint : []),
+  ]);
+}
+
 /** An index row, with the validity an interrupted CONCURRENTLY build clears. */
 type PgIndexRow = PgIndex & { readonly is_valid: boolean };
 
@@ -75,7 +108,7 @@ type RawExecutor = <T>(
 // SQL QUERIES
 // =============================================================================
 
-export const POSTGRES_MANAGED_TABLE_NAMES_QUERY = `
+export const POSTGRES_MANAGED_TABLE_NAMES_SOURCE = `
 SELECT tables.table_name, tables.table_name AS name, relation.relkind AS relation_kind, relation.relispartition AS is_partition
 FROM information_schema.tables tables
 JOIN pg_catalog.pg_class relation
@@ -95,7 +128,8 @@ WHERE tables.table_schema = $1
       AND dependency.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
       AND dependency.deptype = 'e'
   )
-ORDER BY tables.table_name;
+`;
+export const POSTGRES_MANAGED_TABLE_NAMES_QUERY = `${POSTGRES_MANAGED_TABLE_NAMES_SOURCE}ORDER BY tables.table_name;
 `;
 
 /**
@@ -108,7 +142,7 @@ ORDER BY tables.table_name;
  * dependency is looked up on the ELEMENT type (`typcategory = 'A'`), because
  * the array type's own dependency is on its element, not on the extension.
  */
-const COLUMNS_QUERY = `
+export const COLUMNS_SOURCE = `
 SELECT
   c.table_name,
   c.column_name,
@@ -161,10 +195,11 @@ WHERE c.table_schema = $1
       AND relation_dependency.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
       AND relation_dependency.deptype = 'e'
   )
-ORDER BY c.table_name, c.ordinal_position;
+`;
+const COLUMNS_QUERY = `${COLUMNS_SOURCE}ORDER BY c.table_name, c.ordinal_position;
 `;
 
-const PRIMARY_KEYS_QUERY = `
+export const PRIMARY_KEYS_SOURCE = `
 SELECT
   tc.table_name,
   tc.constraint_name,
@@ -176,7 +211,8 @@ JOIN information_schema.key_column_usage kcu
   AND tc.table_schema = kcu.table_schema
 WHERE tc.table_schema = $1
   AND tc.constraint_type = 'PRIMARY KEY'
-ORDER BY tc.table_name, kcu.ordinal_position;
+`;
+const PRIMARY_KEYS_QUERY = `${PRIMARY_KEYS_SOURCE}ORDER BY tc.table_name, kcu.ordinal_position;
 `;
 
 /**
@@ -186,7 +222,7 @@ ORDER BY tc.table_name, kcu.ordinal_position;
  * join must not treat that as ownership or a unique-index FK target vanishes
  * from both lists.
  */
-const INDEXES_QUERY = `
+export const INDEXES_SOURCE = `
 SELECT
   t.relname AS table_name,
   i.relname AS index_name,
@@ -213,7 +249,8 @@ WHERE n.nspname = $1
   AND NOT ix.indisprimary
   AND c.oid IS NULL
   AND t.relkind = 'r'
-ORDER BY t.relname, i.relname, array_position(ix.indkey, a.attnum);
+`;
+const INDEXES_QUERY = `${INDEXES_SOURCE}ORDER BY t.relname, i.relname, array_position(ix.indkey, a.attnum);
 `;
 
 /**
@@ -228,7 +265,7 @@ ORDER BY t.relname, i.relname, array_position(ix.indkey, a.attnum);
  * silently dropped — `CROSS_SCHEMA_FOREIGN_KEYS_QUERY` inventories both
  * directions and refuses the whole run before this snapshot is published.
  */
-const FOREIGN_KEYS_QUERY = `
+export const FOREIGN_KEYS_SOURCE = `
 SELECT
   owner.relname AS table_name,
   con.conname AS constraint_name,
@@ -266,7 +303,8 @@ JOIN pg_catalog.pg_attribute referenced_att
 WHERE con.contype = 'f'
   AND owner_ns.nspname = $1
   AND referenced_ns.nspname = $1
-ORDER BY owner.relname, con.conname, local.ordinality;
+`;
+const FOREIGN_KEYS_QUERY = `${FOREIGN_KEYS_SOURCE}ORDER BY owner.relname, con.conname, local.ordinality;
 `;
 
 /**
@@ -278,7 +316,7 @@ ORDER BY owner.relname, con.conname, local.ordinality;
  * The exclusive-or in the predicate is the whole test: a key with both sides in
  * the schema is ordinary, a key with neither belongs to somebody else.
  */
-const CROSS_SCHEMA_FOREIGN_KEYS_QUERY = `
+export const CROSS_SCHEMA_FOREIGN_KEYS_SOURCE = `
 SELECT
   con.conname AS constraint_name,
   owner_ns.nspname AS owning_schema,
@@ -292,10 +330,11 @@ JOIN pg_catalog.pg_class referenced ON referenced.oid = con.confrelid
 JOIN pg_catalog.pg_namespace referenced_ns ON referenced_ns.oid = referenced.relnamespace
 WHERE con.contype = 'f'
   AND (owner_ns.nspname = $1) <> (referenced_ns.nspname = $1)
-ORDER BY owner_ns.nspname, owner.relname, con.conname;
+`;
+const CROSS_SCHEMA_FOREIGN_KEYS_QUERY = `${CROSS_SCHEMA_FOREIGN_KEYS_SOURCE}ORDER BY owner_ns.nspname, owner.relname, con.conname;
 `;
 
-const UNIQUE_CONSTRAINTS_QUERY = `
+export const UNIQUE_CONSTRAINTS_SOURCE = `
 SELECT
   tc.table_name,
   tc.constraint_name,
@@ -307,10 +346,11 @@ JOIN information_schema.key_column_usage kcu
   AND tc.table_schema = kcu.table_schema
 WHERE tc.table_schema = $1
   AND tc.constraint_type = 'UNIQUE'
-ORDER BY tc.table_name, tc.constraint_name, kcu.ordinal_position;
+`;
+const UNIQUE_CONSTRAINTS_QUERY = `${UNIQUE_CONSTRAINTS_SOURCE}ORDER BY tc.table_name, tc.constraint_name, kcu.ordinal_position;
 `;
 
-const ENUMS_QUERY = `
+export const ENUMS_SOURCE = `
 SELECT
   t.typname AS enum_name,
   e.enumlabel AS enum_value,
@@ -319,7 +359,8 @@ FROM pg_type t
 JOIN pg_enum e ON t.oid = e.enumtypid
 JOIN pg_namespace n ON n.oid = t.typnamespace
 WHERE n.nspname = $1
-ORDER BY t.typname, e.enumsortorder;
+`;
+const ENUMS_QUERY = `${ENUMS_SOURCE}ORDER BY t.typname, e.enumsortorder;
 `;
 
 // =============================================================================

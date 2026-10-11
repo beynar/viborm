@@ -18,6 +18,7 @@ import type {
   DDLContext,
   MigrationDriver,
 } from "./drivers";
+import { postgresCatalogDigest } from "./drivers/postgres/catalog-digest";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
@@ -364,6 +365,29 @@ export async function introspectManaged(
 ): Promise<SchemaSnapshot> {
   return withoutControlTables(
     await driver.introspect((sql, params) => producer._executeRaw(sql, params))
+  );
+}
+
+/**
+ * `fingerprintLive` of the live managed schema. PostgreSQL computes it in one
+ * statement (plan D5, `catalog-digest.ts`); where that digest abstains, and on
+ * every other dialect, it is read through a full introspection.
+ */
+export async function liveFingerprint(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver
+): Promise<Sha256> {
+  const digest =
+    driver.target.dialect === "postgresql"
+      ? await postgresCatalogDigest(
+          producer,
+          driver,
+          controlTableNames(DEFAULT_CONTROL_BASE)
+        )
+      : undefined;
+  return (
+    digest ??
+    fingerprintLive(await introspectManaged(producer, driver), driver, producer)
   );
 }
 

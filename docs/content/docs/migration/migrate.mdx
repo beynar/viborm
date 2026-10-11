@@ -160,6 +160,7 @@ const preview = await migrations.generate({ dryRun: true });
 | Dry run | `--dry-run` | `dryRun: boolean` | Return the complete candidate without publishing. |
 | Resolver | `migrations.resolve` (config) | `resolve` | Answers ambiguous renames, enum value removals, and destructive changes (drops, type changes, NOT NULL tightening, narrower decimals, required columns without a default). |
 | Manual artifact | — | `manualMigration` | Caller-owned transitions. No CLI flag. |
+| Low-lock steps | `--low-lock` | `lowLock: boolean` | PostgreSQL: publish index builds and foreign keys on existing tables as recoverable steps. See [Indexes and foreign keys as steps](#indexes-and-foreign-keys-as-steps). |
 
 `--from empty` and `from: null` mean the virtual empty root. A second virtual-root transition is refused. Numeric file indexes do not exist.
 
@@ -207,6 +208,40 @@ await migrations.generate({
   resolve: (change) =>
     change.type === "destructive" ? change.proceed() : undefined,
 });
+```
+
+### Decisions as data
+
+`createPredefinedResolver(decisions)` builds that resolver from plain JSON, so
+an API or an RPC call can carry a tenant's intent (type `MigrationDecision`).
+Each decision names the change it answers by that change's own fields:
+
+| Decision | Answers |
+|----------|---------|
+| `{ type: "column", tableName, from, to, resolution }` | The ambiguous column pair, with `"rename"` or `"addAndDrop"`. |
+| `{ type: "table", from, to, resolution }` | The ambiguous table pair. |
+| `{ type: "enumValueRemoval", tableName, columnName, mapValues }` | That column's removed enum values; `mapValues` maps each to a kept value or `null`. |
+| `{ type: "destructive", operation, table, column }` | Approves that destructive change: the `MigrationApproval` identity, `column: null` for a table. |
+
+A change no decision names is unanswered and refused, as without a resolver
+(`V11010`). An entry that is not one of these shapes is refused when the
+resolver is built (`V4002`), and `generate` refuses (`V4002`, nothing
+published) a decision that answered no change of its plan: a table or column
+the plan does not touch, or a change that is not there. A document already
+published is a `noop` without that check, so resending the same document with
+the same decisions is safe. A predefined resolver serves one request: build
+one per `generate`.
+
+```ts
+import { createPredefinedResolver } from "viborm/migrations";
+
+const decisions = [
+  { type: "column", tableName: "account", from: "name", to: "displayName", resolution: "rename" },
+  { type: "destructive", operation: "dropColumn", table: "account", column: "legacyCode" },
+  { type: "enumValueRemoval", tableName: "account", columnName: "tier", mapValues: { legacy: "free" } },
+] as const;
+
+await migrations.generate({ resolve: createPredefinedResolver(decisions) });
 ```
 
 ### Manual Transitions
@@ -377,7 +412,7 @@ const events = await migrations.log();
 |---------|------|-----------------|
 | `status` | no | Marker, pending path to the unique leaf, unfinished attempts, a marker this estate does not hold (`markerState`), INVALID PostgreSQL indexes (`invalidIndexes`), and the latest failed attempt (`lastFailure`). |
 | `verify` | yes | Live managed schema matches the marker's authenticated snapshot. A marker this estate does not hold returns `{ ok: false, markerState }`. |
-| `log` | no | Authenticated database-ledger events, sorted by start time and event id. It does not inspect estate artifacts. |
+| `log` | no | Authenticated database-ledger events in causal order: by time, then attempt by attempt along the state chain, and within an attempt its start, steps and end. A transactional apply records one `applied` event per state; stepwise and MySQL applies also record `started` and per-step events. It does not inspect estate artifacts. |
 
 CLI `log --limit <n>` keeps the last `n` events after that stable ordering. The
 programmatic `log()` call returns the complete ledger so callers can slice or
@@ -514,6 +549,23 @@ rollback already did. A manual rollback is not asked again: its author wrote
 and published that SQL, often to move the rows back before a drop. The CLI
 asks on a terminal; `--accept-data-loss` or `migrations.resolve` in
 `viborm.config.ts` answers instead.
+
+**Preview a rollback.** `down({ dryRun: true })` changes nothing and returns,
+for each edge in the order `down` would roll it back, its rollback SQL
+(`edges[i].sql`, rendered as `show --sql` renders it) and `refusal`: the
+`{ code, message }` that `down` with the same options would raise before its
+first effect, or `null`. It runs the same read-only checks: an irreversible
+step (`V11010` with its reason), a loss of rows not approved by `resolve`
+(`V11017` or `V11010`), drift, and an unfinished attempt `down` cannot resume
+(a forward attempt, or more than one: `V11016`). `viborm migrate down --dry-run`
+prints the SQL, prints the refusal on stderr and exits non-zero where `down`
+would refuse. A rollback that finished but was not recorded is closed by
+`down` without rolling anything back; its preview still shows the selected
+path.
+
+The results of `status()`, `log()`, `show()`, `resolve()` and the `down`
+preview are plain data: they survive `structuredClone` and JSON, so a Durable
+Object or any RPC boundary can return them as they are.
 
 `down` is the only rollback verb. There is no tracking-only `rollback()`, `drop`, or `pending()` untrack. Removing a marker row while the schema stays live is not a supported operation.
 
@@ -721,6 +773,83 @@ await migrations.apply();
 The limit is PostgreSQL's. MySQL and SQLite apply such changes without this
 check: SQLite has no row estimate unless `ANALYZE` has run, and counting rows
 would scan the table it protects.
+
+### Indexes and foreign keys as steps
+
+On PostgreSQL, `generate({ lowLock: true })` (`viborm migrate generate
+--low-lock`) builds each index on, and adds
+each foreign key to, a table the migration does not create without a lock that
+blocks writes while it reads the table. It publishes the change as consecutive
+states, each with a commit of its own:
+
+1. the rest of the change, in one transaction, as before;
+2. each index, built with `CREATE [UNIQUE] INDEX CONCURRENTLY` outside any
+   transaction;
+3. the foreign keys, added `NOT VALID`: PostgreSQL checks new rows and scans
+   nothing;
+4. a last state that validates them with `VALIDATE CONSTRAINT`, whose scan
+   blocks no write.
+
+The last state carries the name you gave; the others are named
+`<name> (step i of n)`. `apply` runs them as one path, `down({ steps: 1 })`
+steps back one of them, and undoing the validation changes nothing. No step is
+refused for the table's size, and the `V11009` refusal of a foreign key's
+validation names this form.
+
+It is opt-in: `generate` cannot see the database, so it cannot tell a large
+table from an empty one, and a step outside a transaction needs the direct
+session that `apply` takes for stepwise work, which a transaction pooler
+cannot give (see [PostgreSQL](/docs/migration/drivers/postgresql#guarantees-and-limits)). Without
+it, `generate` publishes one transactional state, as before.
+
+An interrupted step leaves something `apply` or `resolve` settles:
+
+- A failed or interrupted index build leaves one unfinished attempt and an
+  INVALID index ([see above](#interrupted-create-index-concurrently)).
+  `resolve({ outcome: "rolled-back" })` drops the index and `apply()` builds it
+  again; `resolve({ outcome: "complete" })` rebuilds it in place.
+- A failed validation (rows the key refuses, a time limit) rolls back alone,
+  records a `failed` event, and leaves the marker at the state that added the
+  key `NOT VALID`. Fix the rows and run `apply()` again.
+- `generate` seals every state before it publishes the first, so a refusal
+  publishes nothing. Only storage that fails between two manifests leaves the
+  states before in storage, each a complete state. Run the same `generate`
+  again with `from` set to the state it started from: the published states have
+  the same ids, and the missing ones follow. Without `from` it continues from
+  the last one, except after the keys' state, whose schema is already the
+  target's: that call is a `noop`, and only `from` publishes the validation.
+
+The build runs without the session's time limits; the validation runs under
+`limits.statementTimeout` (10 minutes by default), which a very large table
+may need raised.
+
+Only the forward direction has the step form. Rolling a step back uses the
+blocking forms: `down` drops a concurrently built index with a plain `DROP
+INDEX`, and restores an index a step dropped with a plain `CREATE INDEX`. An
+index redefined under the same name is dropped one state before it is built
+again, so a unique index enforces nothing between those two commits, and a
+duplicate written then makes the build fail and leaves an INVALID index. Give
+the new definition a new name, or generate that change without `lowLock`.
+
+The other changes listed above have no step form and stay refused: a type
+change rewrites the table and a volatile default fills every row. `SET NOT
+NULL` scans the table, which PostgreSQL 12+ skips behind a validated `CHECK
+(column IS NOT NULL)`; VibORM does not generate that form, because its
+snapshot does not record CHECK constraints: nothing would prove the check is
+there between the steps, and undoing the last step would leave a check whose
+validation must scan again. A manual transition can add the check `NOT VALID`
+and validate it in states of its own; the `SET NOT NULL` that follows reads no
+rows, but `largeTableRows` cannot tell, so run that last state from a client
+that raises the limit. A key or check that manual SQL or `push` validates in
+place is refused the same way.
+
+A change is not split, and `generate` returns a warning saying so, when it
+merges several parents, or when something other than an index build, an index
+drop or a foreign key follows its first build (an enum drop, for one). `push`
+has no history to split a change into. A unique constraint (`.unique()` on a
+field) is still added with `ADD CONSTRAINT … UNIQUE`, which blocks writes while
+its index builds; an index declared with `.index([...], { unique: true })` is
+built concurrently.
 
 ## Expand / Contract Deployments
 

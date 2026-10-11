@@ -110,6 +110,7 @@ test("workflow keeps every delegated check and shallow sparse checkout", () => {
     ["docker-providers", "--project=provider-pgbouncer\n"],
     ["platform-providers", "--project=provider-bun"],
     ["platform-providers", "--project=provider-d1"],
+    ["platform-providers", "--project=provider-tenant-do"],
     ["local-providers", "run: pnpm test:all --ci-local"],
   ]) {
     const body = workflow.split(`  ${job}:\n`)[1]?.split(jobBoundary)[0];

@@ -70,6 +70,10 @@ const PROVIDER_RESOURCE_SPECIFIERS = new Set([
  */
 const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
   ["tests/unit/migrations/control-bootstrap.core.test.ts", "in-memory-sqlite"],
+  [
+    "tests/unit/migrations/control-ledger-read.core.test.ts",
+    "in-memory-sqlite",
+  ],
   ["tests/unit/migrations/read-only-tracking.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-apply.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-operators.core.test.ts", "in-memory-sqlite"],
@@ -78,6 +82,7 @@ const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
     "tests/unit/migrations/generate-destructive-approval.core.test.ts",
     "in-memory-sqlite",
   ],
+  ["tests/unit/migrations/tenant-intent.core.test.ts", "in-memory-sqlite"],
   [
     "tests/unit/migrations/sqlite-rebuild-refusals.core.test.ts",
     "in-memory-sqlite",

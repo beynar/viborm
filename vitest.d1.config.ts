@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { defineWorkersConfig } from "@cloudflare/vitest-pool-workers/config";
+import { configDefaults } from "vitest/config";
 
 export default defineWorkersConfig({
   resolve: {
@@ -24,6 +25,8 @@ export default defineWorkersConfig({
     name: "provider-d1",
     globals: true,
     include: ["tests/providers/workers/**/*.test.ts"],
+    // Its own project (vitest.tenant-do.config.ts): `pg` needs nodejs_compat.
+    exclude: [...configDefaults.exclude, "tests/providers/workers/tenant/**"],
     poolOptions: {
       workers: {
         isolatedStorage: true,

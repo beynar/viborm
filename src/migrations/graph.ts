@@ -4,8 +4,10 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { bytesEqual } from "./canonical-json";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import type { Sha256 } from "./identity";
+import { freezeDeep } from "./push-fingerprint";
 import { sliceDispatch, validateSqlRanges } from "./sql-blob";
 import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageReader } from "./storage/contract";
@@ -58,8 +60,77 @@ export function requireStateSnapshot(
   return snapshot;
 }
 
+type CachedArtifact =
+  | { readonly bytes: Uint8Array; readonly snapshot: SchemaSnapshot }
+  | { readonly bytes: Uint8Array; readonly manifest: MigrationStateManifestV1 };
+
+/**
+ * Parsed artifacts, keyed by their own content hash: never by the estate
+ * hash, which every estate with the same target shares. Only the parse is
+ * skipped. Every command still lists and reads the tenant's storage, and an
+ * entry answers only bytes identical to the ones it was parsed from, so
+ * changed bytes are parsed, and refused, as if nothing were cached. Values
+ * are deep-frozen because commands and tenants share them. Least recently
+ * used entries are dropped once the held bytes exceed `maxBytes`.
+ */
+export class ArtifactCache {
+  private readonly entries = new Map<Sha256, CachedArtifact>();
+  private readonly maxBytes: number;
+  private held = 0;
+
+  constructor(maxBytes: number) {
+    this.maxBytes = maxBytes;
+  }
+
+  get heldBytes(): number {
+    return this.held;
+  }
+
+  snapshot(hash: Sha256, bytes: Uint8Array): SchemaSnapshot {
+    const hit = this.hit(hash, bytes);
+    if (hit && "snapshot" in hit) return hit.snapshot;
+    const snapshot = freezeDeep(parseSnapshotDocument(bytes, hash));
+    return this.keep(hash, { bytes: bytes.slice(), snapshot }).snapshot;
+  }
+
+  manifest(id: Sha256, bytes: Uint8Array): MigrationStateManifestV1 {
+    const hit = this.hit(id, bytes);
+    if (hit && "manifest" in hit) return hit.manifest;
+    const manifest = freezeDeep(parseStateManifest(bytes, id));
+    return this.keep(id, { bytes: bytes.slice(), manifest }).manifest;
+  }
+
+  private hit(hash: Sha256, bytes: Uint8Array): CachedArtifact | undefined {
+    const entry = this.entries.get(hash);
+    if (!(entry && bytesEqual(entry.bytes, bytes))) return undefined;
+    this.entries.delete(hash);
+    this.entries.set(hash, entry);
+    return entry;
+  }
+
+  private keep<T extends CachedArtifact>(hash: Sha256, entry: T): T {
+    // Only a miss parses, and a miss on a held hash has other bytes, which
+    // the parse refuses, so `hash` is never already held here.
+    this.entries.set(hash, entry);
+    this.held += entry.bytes.length;
+    for (const [key, oldest] of this.entries) {
+      if (this.held <= this.maxBytes) break;
+      this.entries.delete(key);
+      this.held -= oldest.bytes.length;
+    }
+    return entry;
+  }
+}
+
+/**
+ * One per isolate. 8 MiB of artifact bytes hold a 200-state estate of twenty
+ * 15-column tables; the parsed values add about as much again.
+ */
+const artifacts = new ArtifactCache(8 * 1024 * 1024);
+
 export async function loadMigrationGraph(
-  storage: MigrationStorageReader
+  storage: MigrationStorageReader,
+  cache: ArtifactCache = artifacts
 ): Promise<MigrationGraph> {
   const estateBytes = await storage.readEstate();
   if (!estateBytes) {
@@ -89,7 +160,7 @@ export async function loadMigrationGraph(
         VibORMErrorCode.MIGRATION_CORRUPTION
       );
     }
-    const manifest = parseStateManifest(bytes, id);
+    const manifest = cache.manifest(id, bytes);
     if (manifest.estateHash !== estateHash) {
       throw new MigrationError(
         `State ${id} belongs to a different estate`,
@@ -112,7 +183,7 @@ export async function loadMigrationGraph(
         VibORMErrorCode.MIGRATION_CORRUPTION
       );
     }
-    snapshots.set(hash, parseSnapshotDocument(bytes, hash));
+    snapshots.set(hash, cache.snapshot(hash, bytes));
   }
 
   const sql = new Map<Sha256, Uint8Array>();

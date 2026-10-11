@@ -1,0 +1,183 @@
+---
+title: Tenant Migrator
+description: Change one tenant's schema from its Durable Object, with every outcome returned
+icon: building
+---
+
+`createTenantMigrator` changes one tenant's database to a new schema from a
+request or an alarm of that tenant's Durable Object. It is a helper over
+[`createMigrationClient`](/docs/migration/migrate): each change is that
+client's `generate` and `apply`, run one at a time, and what they would throw
+comes back as one of five outcomes.
+
+## Quick Start
+
+```ts
+import { DurableObject } from "cloudflare:workers";
+import { Pool } from "pg";
+import { createClient } from "viborm/pg";
+import type { MigrationDecision } from "viborm/migrations";
+import { createDurableObjectStorageWriter } from "viborm/migrations/storage/durable-object";
+import { createTenantMigrator } from "viborm/migrations/tenant";
+import { parseSchema } from "viborm/schema/json";
+
+export class Tenant extends DurableObject<Env> {
+  pool = new Pool({ connectionString: this.env.TENANT_DATABASE_URL, max: 2 });
+  migrator = createTenantMigrator({
+    // Any client on the tenant's database: the migrator uses its connection.
+    client: createClient({ pool: this.pool, schema: {} }),
+    history: createDurableObjectStorageWriter(this.ctx.storage),
+    limits: { statementTimeout: 15_000 },
+  });
+
+  async changeSchema(document: object, decisions: MigrationDecision[]) {
+    return this.migrator.change(parseSchema(document, { validate: true }), {
+      decisions,
+      signal: AbortSignal.timeout(20_000),
+      beforeDestructive: () => this.takeRestorePoint(),
+    });
+  }
+
+  status() {
+    return this.migrator.status();
+  }
+}
+```
+
+The history lives in the object's own storage
+([Durable Object storage](/docs/migration/storage/durable-object)); an
+[R2 bucket](/docs/migration/storage/r2) works too. Create the migrator once per
+object, as a field, so every request shares it. When the tenant's database
+holds tables its document does not own, pass `tables`, the managed tables, as
+to [`createMigrationClient`](/docs/migration/migrate).
+`pg` needs the Worker's `nodejs_compat` compatibility flag; VibORM's migration
+entries load without it.
+
+Call `change` from a request or an alarm. Never call it from the constructor or
+inside `blockConcurrencyWhile`: that gate holds every other request of the
+object, including `status()`, for as long as the database takes, and the
+platform resets an object whose gate stays shut too long.
+
+## Outcomes
+
+`change` never throws. It returns plain data, so the result crosses Durable
+Object RPC intact.
+
+| `kind` | Meaning | Fields |
+|--------|---------|--------|
+| `applied` | The database reached the schema. | `path`: the states applied; `warnings` when ending the session failed after the commit |
+| `noop` | Nothing to do: the schema is the database's, or differs only in field or model order. Nothing is published. | |
+| `refused` | Something said no, and this call changed nothing: the history, the database and the marker are as they were. | `error`; `marker` when an apply ran |
+| `failed` | The change did not reach its schema, and its state may be published; calling again may. | `error`; `marker` when an apply ran |
+| `ambiguous` | The database may be between two states. | `error`; `marker` when it could be read |
+
+`error` is `{ name, code, message }`, with `code` a VibORM error code when
+there is one:
+
+- **refused:** V11010 (a rename, enum or destructive change that `decisions`
+  did not answer), V4002 (a decision that is not one, or that answers nothing),
+  V11013 (a forked history), a schema validation error, or the error
+  `beforeDestructive` threw. These come before anything is published.
+- **refused, or failed:** V11009 (a rewrite of a table above
+  `limits.largeTableRows`), V11014 (drift) and V11002 (the database's marker is
+  not in this history, as after a [restore](#restores)). Only `apply` can see
+  them, after `change` published its state: they are `failed` when this call
+  published that state, and `refused` when it was already pending.
+- **failed:** V11001 (a statement refused by the database, rolled back), V11005
+  (the migration lock stayed held), V11015 (another writer moved the marker), a
+  transient failure that outlived its retries (V1001, V1002, V1005, V2002,
+  V5003, V5004, V5006, or V11001 caused by one), the signal's reason, or an
+  unexpected error.
+- **ambiguous:** V11020 (a COMMIT whose reply was lost), V11019 (some steps of a
+  stepwise change committed), V11016 (an earlier attempt is unfinished).
+
+After `failed`, `marker` is `status().marker` read again: a change can commit in
+steps (an enum-adding change commits its enum first), so the database may sit
+at an intermediate state. The failed attempt is also recorded durably as a
+`failed` ledger event, which `status().lastFailure` returns. The state the
+change published stays in the history, and the next `change` applies it first,
+whatever document it carries. So remove the cause first: repair the drift, or
+apply a V11009 rewrite outside the request, as its message says, with
+`limits.largeTableRows` higher or `0` (from an alarm, while no `change` is in
+flight: another client does not share the migrator's queue). Until then
+`change` returns the same code: `refused` for the same document, `failed` for
+a new one, whose state is published after the pending one.
+
+After `ambiguous`, read `status()`. When `marker` names the state you asked
+for and `unfinished` is false, the change landed, and calling `change` again
+returns `noop`. When `unfinished` is true, finish the transition by hand and
+call `resolve({ outcome: "complete" })` or `"rolled-back"` (see
+[recover an unfinished attempt](/docs/migration/migrate#recover-an-unfinished-attempt)).
+
+## One Change at a Time
+
+`change`, `resolve` and `down` share one queue per migrator: a call made while
+another runs waits for it. The database lock does not queue (a second
+PostgreSQL migration gives up after `limits.lockWait`), and two `generate`
+calls racing from one state would fork the history.
+
+The queue lives in the object's memory. After an eviction the next instance
+starts with an empty one, and the history and the database's marker carry the
+state: a change interrupted before it published leaves nothing, and one
+interrupted after publishing is applied by the next `change`.
+
+## Deadlines
+
+`signal` is checked while the call waits in the queue, before
+`beforeDestructive`, before the change publishes its state, and during a retry's
+backoff. A call whose signal aborts before it publishes returns `failed` with
+the signal's reason, and leaves nothing behind.
+
+Once a state is published, `apply` runs, and is never interrupted: stopping a
+migration halfway is what the deadline is meant to avoid. Bound it with `limits` instead:
+`statementTimeout`, `lockTimeout` and `lockWait` (see
+[PostgreSQL limits](/docs/migration/drivers/postgresql#limits)).
+
+## Retries
+
+`apply` is retried when it fails with a transient error (V1001, V1002, V1005,
+V2002, V5003, V5004, V5006, or a V11001 whose `cause` is one of them) or with
+V11005, the migration lock another command holds. There are at most four
+attempts, with a jittered exponential backoff of 100–200 ms, then 200–400 ms,
+then 400–800 ms. An abort of `signal` ends the wait. A retry is safe because
+`apply` re-reads the marker under the lock, and refuses to run again a step an
+unfinished attempt may have run. An `ambiguous` failure is never retried, even
+when its `cause` is transient: the change may have landed, so it is yours to
+read.
+
+## Destructive Changes
+
+`decisions` is the intent the request carries, as plain JSON: renames, enum
+mappings and the destructive changes it approves (see
+[decisions as data](/docs/migration/migrate#decisions-as-data)). A drop or a type change it does not
+approve is `refused` before anything is published.
+
+`beforeDestructive` is awaited once, after the preview and before any effect,
+when the preview holds an operation that `show()` labels `destructive` (a drop,
+a narrowing type change, a removed enum value), or when a published state
+`apply` would reach first carries one or an approval. Use it to take a restore
+point, such as a database branch. If it throws, the change is `refused` and
+nothing is published.
+
+## Status, Log, Resolve and Down
+
+`status()`, `log()`, `resolve()` and `down()` are the migration client's own,
+over the migrator's `client` and `history`, and return plain data. `resolve`
+and `down` wait in the queue. On SQLite, give the migrator a client over the
+tenant's current schema: a resumed SQLite transition rewrites temporal columns
+by that schema.
+
+## Schema Documents
+
+Parse each tenant document once with `parseSchema(document, { validate: true })`
+and cache the schema by document hash, as described in
+[one document per tenant](/docs/schema/json#one-document-per-tenant). The same schema serves `change` and the
+tenant's query client (`skipSchemaValidation: true`).
+
+## Restores
+
+The history lives in the object, the marker in the database: restore both to
+matching points. A history restored behind the marker, or wiped, makes
+`change` return `failed` with V11002: the database is left alone, but the
+document was published into that history. Restore the history to the marker's
+point before the next change.

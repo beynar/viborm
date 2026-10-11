@@ -3,6 +3,11 @@
  * Durable Object SQL API over a Map, and an R2 bucket whose put
  * checks its condition and writes in one step and whose list pages at two
  * keys. The real bindings run the same suite in Miniflare (provider-d1).
+ *
+ * Two hosted R2 behaviours Miniflare lacks (hosted check 2026-10-11): a put
+ * that loses a race for one key may throw error 10058 instead of returning
+ * `null`, storing nothing, and a listing pages short of its limit (485, 485,
+ * 31 keys of 1,001) while it reports `truncated`.
  */
 
 import type { DurableObjectStorage, R2Bucket } from "@cloudflare/workers-types";
@@ -19,6 +24,9 @@ import { encodeSqlBlob } from "@src/migrations/v1-parse";
 import { expect, test } from "vitest";
 
 const R2_PAGE = 2;
+const R2_CONTENTION = new Error(
+  "put: Reduce your concurrent request rate for the same object. (10058)"
+);
 
 /**
  * The binding's four statements over a Map. `exec` is synchronous, as the
@@ -49,7 +57,22 @@ function durableObjectStorage(): DurableObjectStorage {
   return { sql: { exec } } as unknown as DurableObjectStorage;
 }
 
-function r2Bucket(objects = new Map<string, Uint8Array>()): R2Bucket {
+/**
+ * `contended`: a conditional put on a present key throws 10058, as hosted R2
+ * may to a racing loser; `refused` keys throw it whether present or not.
+ */
+function r2Bucket(
+  objects = new Map<string, Uint8Array>(),
+  {
+    contended = false,
+    refused = new Set<string>(),
+    pageSize = R2_PAGE,
+  }: {
+    readonly contended?: boolean;
+    readonly refused?: ReadonlySet<string>;
+    readonly pageSize?: number;
+  } = {}
+): R2Bucket {
   return {
     async put(
       key: string,
@@ -57,7 +80,9 @@ function r2Bucket(objects = new Map<string, Uint8Array>()): R2Bucket {
       options?: { onlyIf?: { etagDoesNotMatch?: string } }
     ) {
       await Promise.resolve();
+      if (refused.has(key)) throw R2_CONTENTION;
       if (options?.onlyIf?.etagDoesNotMatch === "*" && objects.has(key)) {
+        if (contended) throw R2_CONTENTION;
         return null;
       }
       objects.set(key, value.slice());
@@ -67,11 +92,14 @@ function r2Bucket(objects = new Map<string, Uint8Array>()): R2Bucket {
       const bytes = objects.get(key);
       return bytes ? { arrayBuffer: async () => bytes.slice().buffer } : null;
     },
+    async head(key: string) {
+      return objects.has(key) ? { key } : null;
+    },
     async list({ prefix, cursor }: { prefix: string; cursor?: string }) {
       const keys = [...objects.keys()]
         .filter((key) => key.startsWith(prefix) && !(cursor && key <= cursor))
         .sort();
-      const page = keys.slice(0, R2_PAGE);
+      const page = keys.slice(0, pageSize);
       const truncated = keys.length > page.length;
       return {
         objects: page.map((key) => ({ key })),
@@ -104,6 +132,50 @@ test("the R2 binding passes the conformance suite across listing pages", async (
   expect(await failingCases(() => createR2StorageWriter(r2Bucket()))).toEqual(
     []
   );
+});
+
+test("an R2 put that loses with 10058 is a lost put-if-absent", async () => {
+  expect(
+    await failingCases(() =>
+      createR2StorageWriter(
+        r2Bucket(undefined, {
+          contended: true,
+        })
+      )
+    )
+  ).toEqual([]);
+  const objects = new Map<string, Uint8Array>();
+  const winner = createR2StorageWriter(r2Bucket(objects));
+  const loser = createR2StorageWriter(r2Bucket(objects, { contended: true }));
+  const bytes = utf8Bytes("SELECT 1;");
+  const id = encodeSqlBlob(bytes);
+  expect(await winner.publishSql(id, bytes)).toEqual({ outcome: "created" });
+  expect(await loser.publishSql(id, bytes)).toEqual({ outcome: "identical" });
+  await expect(
+    loser.publishSql(id, utf8Bytes("SELECT 2;"))
+  ).rejects.toMatchObject({ code: "V11022" });
+});
+
+test("an R2 put refused with 10058 where no object exists stays an error", async () => {
+  const bytes = utf8Bytes("SELECT 1;");
+  const id = encodeSqlBlob(bytes);
+  const writer = createR2StorageWriter(
+    r2Bucket(undefined, { refused: new Set([`sql/${id}.sql`]) })
+  );
+  await expect(writer.publishSql(id, bytes)).rejects.toBe(R2_CONTENTION);
+});
+
+test("an R2 listing follows truncated pages shorter than their limit", async () => {
+  const objects = new Map<string, Uint8Array>();
+  const writer = createR2StorageWriter(r2Bucket(objects, { pageSize: 485 }), {
+    prefix: "tenants/1/",
+  });
+  const ids = Array.from({ length: 1001 }, (_, index) => {
+    const bytes = utf8Bytes(`state ${index}`);
+    return { bytes, id: encodeSqlBlob(bytes) };
+  });
+  for (const { bytes, id } of ids) await writer.publishState(id, bytes);
+  expect(await writer.listStates()).toEqual(ids.map(({ id }) => id).sort());
 });
 
 test("R2 estates under different prefixes share a bucket apart", async () => {

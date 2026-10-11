@@ -120,11 +120,16 @@ interface DispatchSite {
   readonly statementIndex: number;
 }
 
+/**
+ * `atomic` is a program inside a real transaction (plan D5): its rollback
+ * undoes whatever a failure leaves half done, so no step is probed and no
+ * progress is reported, and the caller proves the destination once.
+ */
 export async function executeOperations(
   producer: AnyDriver,
   blob: Uint8Array,
   operations: readonly MigrationOperationV1[],
-  boundary: "transactional" | "stepwise",
+  boundary: "transactional" | "stepwise" | "atomic",
   onProgress?: (
     progress: StepProgress,
     effect: LedgerEffectStateV1
@@ -203,7 +208,7 @@ async function executeStep(
   blob: Uint8Array,
   site: DispatchSite,
   step: MigrationStepV1,
-  boundary: "transactional" | "stepwise",
+  boundary: "transactional" | "stepwise" | "atomic",
   onProgress?: (
     progress: StepProgress,
     effect: LedgerEffectStateV1
@@ -211,6 +216,10 @@ async function executeStep(
   targetNamespace?: string
 ): Promise<void> {
   const { operationId } = site;
+  if (boundary === "atomic") {
+    await runDispatch(producer, blob, site, step.execute, targetNamespace);
+    return;
+  }
   if (step.retry === "proven") {
     if (await evaluateCheck(producer, blob, step.postcheck, targetNamespace)) {
       await onProgress?.(

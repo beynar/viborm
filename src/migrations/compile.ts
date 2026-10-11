@@ -50,10 +50,15 @@ export function stepStatements(
   );
 }
 
+const VALIDATE_CONSTRAINT = /\bVALIDATE\s+CONSTRAINT\b/i;
+
 /**
  * Contiguous edges of one boundary share a commit, except that an edge adding
  * a PostgreSQL enum value ends its group: a later edge may use that value,
- * which PostgreSQL refuses until the addition commits (55P04).
+ * which PostgreSQL refuses until the addition commits (55P04). An edge that
+ * validates a constraint commits alone (T5b): sharing a transaction with the
+ * edge that added it `NOT VALID` would hold that addition's lock through the
+ * scan the split exists to free.
  */
 export function groupContiguousAtomicity<
   T extends { readonly boundary: string },
@@ -70,15 +75,162 @@ export function groupContiguousAtomicity<
   }[] = [];
   let mustCommit = false;
   for (const item of items) {
+    const statements = statementsOf(item);
+    const alone = statements.some((text) => VALIDATE_CONSTRAINT.test(text));
     const current = groups.at(-1);
-    if (current?.boundary === item.boundary && !mustCommit) {
+    if (current?.boundary === item.boundary && !(mustCommit || alone)) {
       current.items.push(item);
     } else {
       groups.push({ boundary: item.boundary, items: [item] });
     }
-    mustCommit = needsEnumAdditionCommitBoundary(statementsOf(item));
+    mustCommit = alone || needsEnumAdditionCommitBoundary(statements);
   }
   return groups;
+}
+
+/**
+ * The context a generated statement compiles in. `lowLock` asks PostgreSQL
+ * for the form of a step that blocks no write while it reads the table (T5b):
+ * `"add"` builds an index `CONCURRENTLY` or adds a foreign key `NOT VALID`,
+ * `"validate"` validates that key. Only `generate({ lowLock: true })` sets
+ * it, and only on a table that existed before the migration.
+ */
+export type LowLockContext = DDLContext & {
+  readonly lowLock?: "add" | "validate";
+};
+
+/** One state of a generated program split at its low-lock steps. */
+export interface LowLockState {
+  readonly operations: readonly DiffOperation[];
+  /** The schema the state reaches. */
+  readonly snapshot: SchemaSnapshot;
+  /** Whether it validates the keys an earlier state added `NOT VALID`. */
+  readonly validates: boolean;
+}
+
+/**
+ * Splits a generated PostgreSQL program into the states that give each
+ * low-lock step its own commit (T5b), or returns `undefined` when it has none
+ * to give. A step is an index built on, or a foreign key added to, a table
+ * the program does not create (a table it creates is empty). Each index build
+ * is a state of its own: `CREATE INDEX CONCURRENTLY` runs outside any
+ * transaction, and an interrupted build is then one unfinished single-step
+ * attempt that `resolve` repairs either way. The keys are added `NOT VALID`
+ * with the last state, and a final state validates them in a commit of its
+ * own; a failed validation rolls back alone and `apply` resumes from the
+ * marker.
+ *
+ * The schemas between states are the target's with the later states' effects
+ * undone, so only an index build, an index drop or a key may follow the first
+ * build; otherwise, or when a dropped index cannot be read back from the
+ * origin, the program is not split and keeps its blocking forms.
+ */
+export function lowLockStates(
+  operations: readonly DiffOperation[],
+  current: SchemaSnapshot,
+  desired: SchemaSnapshot
+): { states: LowLockState[]; steps: ReadonlySet<DiffOperation> } | undefined {
+  const steps = lowLockSteps(operations);
+  if (steps.size === 0) return;
+  const first = operations.findIndex(
+    (op) => op.type === "createIndex" && steps.has(op)
+  );
+  const tail = first < 0 ? [] : operations.slice(first);
+  const renames = operations.some(
+    (op) => op.type === "renameTable" || op.type === "renameColumn"
+  );
+  if (
+    !tail.every((op) =>
+      op.type === "createIndex"
+        ? steps.has(op)
+        : op.type === "addForeignKey" || (op.type === "dropIndex" && !renames)
+    )
+  ) {
+    return;
+  }
+  const ends: number[] = [];
+  for (const [index, op] of operations.entries()) {
+    if (op.type === "createIndex" && steps.has(op)) {
+      if (index > (ends.at(-1) ?? 0)) ends.push(index);
+      ends.push(index + 1);
+    }
+  }
+  if (ends.at(-1) !== operations.length) ends.push(operations.length);
+  const states: LowLockState[] = [];
+  for (const [index, end] of ends.entries()) {
+    const snapshot = withoutEffects(desired, current, operations.slice(end));
+    if (!snapshot) return;
+    states.push({
+      operations: operations.slice(ends[index - 1] ?? 0, end),
+      snapshot,
+      validates: false,
+    });
+  }
+  const keys = operations.filter(
+    (op) => op.type === "addForeignKey" && steps.has(op)
+  );
+  if (keys.length > 0) {
+    states.push({ operations: keys, snapshot: desired, validates: true });
+  }
+  return { states, steps };
+}
+
+/** The index builds and keys of `operations` on tables it does not create. */
+export function lowLockSteps(
+  operations: readonly DiffOperation[]
+): ReadonlySet<DiffOperation> {
+  const created = new Set(
+    operations.flatMap((op) => (op.type === "createTable" ? op.table.name : []))
+  );
+  return new Set(
+    operations.filter(
+      (op) =>
+        (op.type === "createIndex" || op.type === "addForeignKey") &&
+        !created.has(op.tableName)
+    )
+  );
+}
+
+/** `desired` before `later`: an index build, an index drop or a key. */
+function withoutEffects(
+  desired: SchemaSnapshot,
+  current: SchemaSnapshot,
+  later: readonly DiffOperation[]
+): SchemaSnapshot | undefined {
+  let readable = later.every(
+    (op) =>
+      "tableName" in op &&
+      desired.tables.some((table) => table.name === op.tableName)
+  );
+  const tables = desired.tables.map((table) => {
+    const own = later.filter(
+      (op) => "tableName" in op && op.tableName === table.name
+    );
+    if (own.length === 0) return table;
+    const built = new Set(
+      own.flatMap((op) => (op.type === "createIndex" ? op.index.name : []))
+    );
+    const keys = new Set(
+      own.flatMap((op) => (op.type === "addForeignKey" ? op.fk.name : []))
+    );
+    const restored = own.flatMap((op) => {
+      if (op.type !== "dropIndex") return [];
+      const index = current.tables
+        .find((origin) => origin.name === table.name)
+        ?.indexes.find((item) => item.name === op.indexName);
+      if (!index) readable = false;
+      return index ?? [];
+    });
+    return {
+      ...table,
+      indexes: [
+        ...table.indexes.filter((index) => !built.has(index.name)),
+        ...restored,
+      ],
+      foreignKeys: table.foreignKeys.filter((key) => !keys.has(key.name)),
+    };
+  });
+  return readable ? { ...desired, tables } : undefined;
 }
 
 export function compileGeneratedTransition(
@@ -87,7 +239,8 @@ export function compileGeneratedTransition(
   destination: DDLContext["destination"],
   currentSchema: SchemaSnapshot,
   desiredSchema: SchemaSnapshot,
-  assembly: SqlAssembly
+  assembly: SqlAssembly,
+  lowLock: ReadonlySet<DiffOperation> = new Set()
 ): CompiledTransition {
   const compiled = operations
     .map((operation, index) =>
@@ -98,7 +251,8 @@ export function compileGeneratedTransition(
         currentSchema,
         operations,
         index,
-        assembly
+        assembly,
+        lowLock.has(operation) ? "add" : undefined
       )
     )
     .filter((operation) => operation.steps.length > 0);
@@ -158,6 +312,36 @@ export function compileGeneratedTransition(
   };
 }
 
+/**
+ * The state that validates the foreign keys an earlier state added `NOT VALID`
+ * (T5b). Undoing it is nothing: the keys stay, as their state declares them.
+ */
+export function compileValidationTransition(
+  keys: readonly DiffOperation[],
+  driver: MigrationDriver,
+  currentSchema: SchemaSnapshot,
+  assembly: SqlAssembly
+): CompiledTransition {
+  return {
+    operations: keys.map((key, index) =>
+      compileGeneratedOperation(
+        key,
+        driver,
+        "artifact",
+        currentSchema,
+        keys,
+        index,
+        assembly,
+        "validate"
+      )
+    ),
+    rollback: { kind: "schema", operations: [] },
+    originChecks: [],
+    requestedForwardBoundary: null,
+    atomicity: "transactional",
+  };
+}
+
 function compileGeneratedOperation(
   operation: DiffOperation,
   driver: MigrationDriver,
@@ -165,13 +349,15 @@ function compileGeneratedOperation(
   currentSchema: SchemaSnapshot,
   batch: readonly DiffOperation[],
   index: number,
-  assembly: SqlAssembly
+  assembly: SqlAssembly,
+  lowLock?: LowLockContext["lowLock"]
 ): MigrationOperationV1 {
-  const context: DDLContext = {
+  const context: LowLockContext = {
     destination,
     currentSchema,
     precedingOperations: batch.slice(0, index),
     followingOperations: batch.slice(index + 1),
+    ...(lowLock === undefined ? {} : { lowLock }),
   };
   const statements = driver.compileStatements(operation, context);
   const steps: MigrationStepV1[] = statements.map((statement) => {

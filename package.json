@@ -129,6 +129,11 @@
       "import": "./dist/migrations/storage/r2.mjs",
       "default": "./dist/migrations/storage/r2.mjs"
     },
+    "./migrations/tenant": {
+      "types": "./dist/migrations/tenant.d.mts",
+      "import": "./dist/migrations/tenant.mjs",
+      "default": "./dist/migrations/tenant.mjs"
+    },
     "./config": {
       "types": "./dist/config.d.mts",
       "import": "./dist/config.mjs",
@@ -233,7 +238,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "package:build": "node scripts/run-node-safe.mjs 1280 300000 node_modules/tsdown/dist/run.mjs",
-    "probes": "node scripts/run-node-safe.mjs 512 3600000 scripts/probe-corpus.mjs",
+    "probes": "node scripts/probe-corpus.mjs",
     "package:dev": "tsdown --watch",
     "package:lint": "publint run --strict && attw --pack . --profile esm-only",
     "size": "node scripts/measure-bundle.mjs --emit node_modules/.cache/viborm-size && size-limit",

@@ -17,6 +17,7 @@ then discovers `viborm.config.ts` (also `.mts`, `.js`, or `.mjs`). See
 | `viborm push --dry-run` | Preview direct synchronization without applying it |
 | `viborm push --yes` | Apply a non-destructive synchronization without a prompt |
 | `viborm migrate generate --name change` | Generate the next migration state |
+| `viborm migrate generate --low-lock` | PostgreSQL: publish index builds and foreign keys on existing tables as recoverable steps ([lowLock](/docs/migration/migrate#indexes-and-foreign-keys-as-steps)); apply them over a direct, unpooled connection |
 | `viborm migrate check` | Validate migration artifacts without querying the database |
 | `viborm migrate list` / `show <state>` / `graph` | Inspect recorded states and paths |
 | `viborm migrate status` | Inspect the live marker and unfinished work |

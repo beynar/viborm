@@ -18,12 +18,27 @@ import type {
 export function normalizeGenerateOptions(options: unknown): GenerateV1Options {
   const record = snapshotExactRecord(
     options,
-    ["name", "from", "dryRun", "resolve", "skipValidation", "manualMigration"],
+    [
+      "name",
+      "from",
+      "dryRun",
+      "resolve",
+      "skipValidation",
+      "manualMigration",
+      "lowLock",
+    ],
     "generate options",
     refuseGenerateOptions
   );
-  const { name, from, dryRun, resolve, skipValidation, manualMigration } =
-    record;
+  const {
+    name,
+    from,
+    dryRun,
+    resolve,
+    skipValidation,
+    manualMigration,
+    lowLock,
+  } = record;
   if (name !== undefined && typeof name !== "string") {
     return refuseGenerateOptions("generate name must be a string");
   }
@@ -36,6 +51,9 @@ export function normalizeGenerateOptions(options: unknown): GenerateV1Options {
   if (skipValidation !== undefined && typeof skipValidation !== "boolean") {
     return refuseGenerateOptions("generate skipValidation must be a boolean");
   }
+  if (lowLock !== undefined && typeof lowLock !== "boolean") {
+    return refuseGenerateOptions("generate lowLock must be a boolean");
+  }
   if (resolve !== undefined && !isResolveCallback(resolve)) {
     return refuseGenerateOptions("generate resolve must be a function");
   }
@@ -45,6 +63,7 @@ export function normalizeGenerateOptions(options: unknown): GenerateV1Options {
     ...(dryRun === undefined ? {} : { dryRun }),
     ...(resolve === undefined ? {} : { resolve }),
     ...(skipValidation === undefined ? {} : { skipValidation }),
+    ...(lowLock === undefined ? {} : { lowLock }),
     ...(manualMigration === undefined
       ? {}
       : { manualMigration: snapshotManualMigration(manualMigration) }),

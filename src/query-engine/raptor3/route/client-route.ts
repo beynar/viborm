@@ -199,7 +199,11 @@ class RoutedOperation implements RoutedCandidateOperation {
     return this.#prepared.prepareBatch(context);
   }
 
-  async execute<T>(execution: RoutedOperationExecution): Promise<T> {
+  // Not `async`: the candidate's promise is handed back as it is. An async
+  // function adopts a returned promise a microtask later, so a refusal thrown
+  // before any I/O (V8003) sat rejected with no handler in between, which
+  // workerd under nodejs_compat reports as an unhandled rejection.
+  execute<T>(execution: RoutedOperationExecution): Promise<T> {
     try {
       const outcome = execution.isWrite
         ? routeWriteOutcome(execution)

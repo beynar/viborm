@@ -292,21 +292,23 @@ describe("migration planning boundaries", () => {
       oldName: "user",
       newName: "account",
     });
-    const resolver = createPredefinedResolver([
-      {
-        type: "column",
-        from: "name",
-        to: "display_name",
-        tableName: "user",
-        resolution: "rename",
-      },
-      {
-        type: "table",
-        from: "user",
-        to: "account",
-        resolution: "addAndDrop",
-      },
-    ]);
+    const resolver = callbackAsResolver(
+      createPredefinedResolver([
+        {
+          type: "column",
+          from: "name",
+          to: "display_name",
+          tableName: "user",
+          resolution: "rename",
+        },
+        {
+          type: "table",
+          from: "user",
+          to: "account",
+          resolution: "addAndDrop",
+        },
+      ])
+    );
     const resolutions = await resolver([columnAmbiguity, tableAmbiguity]);
     expect(resolutions.get(columnAmbiguity)).toEqual({ type: "rename" });
     expect(resolutions.get(tableAmbiguity)).toEqual({ type: "addAndDrop" });

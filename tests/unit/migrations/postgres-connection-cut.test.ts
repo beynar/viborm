@@ -7,8 +7,10 @@
  * `killSessionOn(text, at)` destroys the client socket on the statement that
  * opens a phase, and the session then ends as a PostgreSQL backend's does, its
  * transaction rolled back and its advisory locks released. Every await on the
- * cut command is bounded: one that does not settle within `BOUND_MS` is a
- * hang, and an exception that escapes to the process is a crash.
+ * cut command is bounded: one that does not settle within `BOUND_MS` of the
+ * cut is a hang, and an exception that escapes to the process is a crash. The
+ * bound starts at the cut, not at the command: the work before it is as slow
+ * as the runner, but a session that is gone must be given up at once.
  *
  * The target (plan S2) is one typed error at every cut: no hang, no crash, no
  * cleanup statement sent to the dead session. 1.1.0 missed it (review finding
@@ -39,6 +41,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const BOUND_MS = 2500;
+const FALLBACK_MS = 10 * BOUND_MS;
 
 const fields = {
   id: s.string().id(),
@@ -224,16 +227,29 @@ const TARGET: Omit<Observed, "cut" | "landed"> = {
 
 const PENDING = Symbol("pending");
 
-/** `promise`, or `PENDING` once `BOUND_MS` passed. */
-async function within<T>(promise: Promise<T>): Promise<T | typeof PENDING> {
+/** `promise`, or `PENDING` once `BOUND_MS` passed after `from` settled, or
+ * once `FALLBACK_MS` passed if `from` never does (still under the 30 s test
+ * timeout, so a cut that never fires reports `pending`, not a timeout). */
+async function within<T>(
+  promise: Promise<T>,
+  from: Promise<unknown> = Promise.resolve()
+): Promise<T | typeof PENDING> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let fallback: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
   const bound = new Promise<typeof PENDING>((resolve) => {
-    timer = setTimeout(() => resolve(PENDING), BOUND_MS);
+    const arm = () => {
+      if (!settled) timer = setTimeout(() => resolve(PENDING), BOUND_MS);
+    };
+    fallback = setTimeout(() => resolve(PENDING), FALLBACK_MS);
+    from.then(arm, arm);
   });
   try {
     return await Promise.race([promise, bound]);
   } finally {
+    settled = true;
     clearTimeout(timer);
+    clearTimeout(fallback);
   }
 }
 
@@ -247,13 +263,15 @@ function describeFailure(failure: unknown): string {
     : failure.name;
 }
 
-async function settle(promise: Promise<string>): Promise<string> {
-  const settled = await within(
-    promise.then(
-      (value) => `resolved${value ? ` ${value}` : ""}`,
-      (failure: unknown) => `rejected ${describeFailure(failure)}`
-    )
+async function settle(
+  promise: Promise<string>,
+  from?: Promise<unknown>
+): Promise<string> {
+  const outcome = promise.then(
+    (value) => `resolved${value ? ` ${value}` : ""}`,
+    (failure: unknown) => `rejected ${describeFailure(failure)}`
   );
+  const settled = await within(outcome, from);
   return settled === PENDING ? "pending" : settled;
 }
 
@@ -325,8 +343,10 @@ async function cutDuring(
         command === "push"
           ? createMigrationClient(next).push()
           : createMigrationClient(next, { storage }).apply();
+      const outcome = run.then(({ outcome }) => outcome);
       return {
-        command: await settle(run.then(({ outcome }) => outcome)),
+        // Bounded from the cut, or from the command's end if it never fires.
+        command: await settle(outcome, Promise.race([fired, outcome])),
         cut: (await within(fired)) !== PENDING,
         disconnect: await settle(next.$disconnect().then(() => "")),
         crashes,

@@ -27,6 +27,10 @@ export const meta = {
 
 const DDL = /^(ALTER TABLE|CREATE (UNIQUE )?INDEX|CREATE TABLE|DROP )/i;
 const LOCK = /pg_try_advisory(_xact)?_lock/i;
+const STATE_TABLE = /_viborm_migration_state/i;
+// A statement that tries the transaction lock AND reads the state table is a
+// PostgreSQL apply's pre-lock no-op proof (plan D5, decision 7): autocommit,
+// its lock released with the statement, so it is not the command's lock.
 const CONCURRENTLY = /^CREATE INDEX CONCURRENTLY/i;
 const SETTINGS = ["lock_timeout", "statement_timeout"];
 const UNIT_MS = {
@@ -119,7 +123,8 @@ async function observe(db, command) {
       const text = decoder
         .decode(message.subarray(start, message.indexOf(0, start)))
         .trim();
-      if (!seen.lock && LOCK.test(text)) seen.lock = await show(send, db);
+      if (!(seen.lock || STATE_TABLE.test(text)) && LOCK.test(text))
+        seen.lock = await show(send, db);
       if (!seen.ddl && DDL.test(text)) seen.ddl = await show(send, db);
       if (!seen.concurrently && CONCURRENTLY.test(text))
         seen.concurrently = await show(send, db);

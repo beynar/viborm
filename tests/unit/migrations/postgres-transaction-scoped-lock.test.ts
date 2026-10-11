@@ -170,6 +170,30 @@ function readProtocol(statements: readonly string[]) {
   };
 }
 
+const READ_ONLY = /^SELECT\b/;
+
+/**
+ * A PostgreSQL `apply` first tries to prove a no-op without the lock (plan D5,
+ * decision 7): the control tables' definition, then one snapshot of the marker,
+ * the open attempts and the catalog digest — two read-only SELECTs before the
+ * first BEGIN. Anything they cannot answer is decided again under the lock,
+ * and what follows them is the locked protocol.
+ */
+function splitNoopProof(statements: readonly string[]) {
+  const begin = statements.findIndex((q) => BEGIN.test(q));
+  const proof = statements.slice(0, begin);
+  return {
+    proof: {
+      statements: proof.length,
+      readOnly: proof.every((q) => READ_ONLY.test(q)),
+    },
+    locked: statements.slice(begin),
+  };
+}
+
+/** The no-op proof an `apply` with a marker sends before its lock. */
+const NOOP_PROOF = { statements: 2, readOnly: true };
+
 /** What every transaction-scoped command's statements read as. */
 const SCOPED = {
   sessionLocks: [],
@@ -192,7 +216,9 @@ describe("every locked PostgreSQL command is transaction-scoped (D1)", () => {
     const { statements, failure } = await record(() => second.apply());
 
     expect(failure).toBeUndefined();
-    const applied = readProtocol(statements);
+    const { proof, locked } = splitNoopProof(statements);
+    expect(proof).toEqual(NOOP_PROOF);
+    const applied = readProtocol(locked);
     expect(applied).toMatchObject(SCOPED);
     expect(applied.firstRead).toBeGreaterThan(applied.lock);
     expect(applied.firstEffect).toBeGreaterThan(applied.firstRead);
@@ -296,7 +322,9 @@ describe("every locked PostgreSQL command is transaction-scoped (D1)", () => {
     const { statements, failure } = await record(() => last.apply());
 
     expect(failure).toBeUndefined();
-    expect(readProtocol(statements)).toMatchObject(SCOPED);
+    const { proof, locked } = splitNoopProof(statements);
+    expect(proof).toEqual(NOOP_PROOF);
+    expect(readProtocol(locked)).toMatchObject(SCOPED);
     const begins = statements.flatMap((q, i) => (BEGIN.test(q) ? [i] : []));
     expect(begins).toHaveLength(2);
     const relocked = readProtocol(statements.slice(begins[1]));
@@ -346,9 +374,11 @@ describe("stepwise PostgreSQL work keeps a session lock, with no gap (D1)", () =
       },
     });
 
-    const { statements, failure } = await record(() => second.apply());
+    const recorded = await record(() => second.apply());
 
-    expect(failure).toBeUndefined();
+    expect(recorded.failure).toBeUndefined();
+    const { proof, locked: statements } = splitNoopProof(recorded.statements);
+    expect(proof).toEqual(NOOP_PROOF);
     const at = (pattern: RegExp) =>
       statements.findIndex((q) => pattern.test(q));
     const xact = at(XACT_LOCK);

@@ -1,21 +1,24 @@
 // D4 (with T1's noop, T6's beforeDestructive): the tenant migrator helper
-// over createMigrationClient. The call shape follows the plan's sketch
-// (completion-plan-2026-10.md D4, "names not final"):
-//   createTenantMigrator({ ctx, connection, history }).change(doc, { decisions, deadlineMs, beforeDestructive })
+// over createMigrationClient. The plan's sketch (completion-plan-2026-10.md
+// D4, "names not final") is pinned as:
+//   createTenantMigrator({ client, history, limits? })
+//     .change(parseSchema(doc, { validate: true }), { decisions, signal, beforeDestructive })
 //   -> { kind: 'applied' | 'noop' | 'refused' | 'failed' | 'ambiguous' }
-// Outside workerd, `ctx` is a minimal in-memory DurableObjectState stand-in,
-// `connection` a PGlite instance and `history` an ObjectStoreEstateStorage
-// over MemoryConditionalObjectStore (the ObjectStoreConditionalPut seam D3
-// binds to ctx.storage). Checked: first document -> applied; same document ->
-// noop; reorder-only document -> noop with no new state (decision 8); a
-// destructive document without decisions -> refused, beforeDestructive not
-// called, data kept; status/log/resolve exposed. When the D4 API is pinned,
-// update the construction below; the Miniflare suite is D4's own gate.
+// from `viborm/migrations/tenant`. `client` is any client on the tenant's
+// database (here PGlite with an empty schema); `history` is the
+// ObjectStoreConditionalPut seam D3 binds to a Durable Object's ctx.storage,
+// in memory here; the deadline is an AbortSignal. Checked: first document ->
+// applied; same document -> noop; reorder-only document -> noop with no new
+// state (decision 8); a destructive document without decisions -> refused,
+// beforeDestructive not called, data kept; status/log/resolve exposed. The
+// Miniflare Durable Object suite is D4's own gate.
 import { PGlite } from "@electric-sql/pglite";
 import {
   MemoryConditionalObjectStore,
   ObjectStoreEstateStorage,
 } from "viborm/migrations";
+import { createClient } from "viborm/pglite";
+import { parseSchema } from "viborm/schema/json";
 
 export const meta = {
   id: "D4-tenant-migrator",
@@ -55,26 +58,6 @@ const docDrop = {
   models: { member: { fields: remaining } },
 };
 
-/** The DurableObjectState surface a helper may touch, in memory. */
-function fakeDurableObjectState() {
-  const data = new Map();
-  const storage = {
-    get: async (key) => data.get(key),
-    put: async (key, value) => {
-      data.set(key, value);
-    },
-    delete: async (key) => data.delete(key),
-    list: async () => new Map(data),
-    transaction: async (fn) => fn(storage),
-  };
-  return {
-    id: { toString: () => "tenant-probe" },
-    storage,
-    blockConcurrencyWhile: async (fn) => fn(),
-    waitUntil: () => undefined,
-  };
-}
-
 const bounded = (promise, ms, label) => {
   let timer;
   return Promise.race([
@@ -89,11 +72,13 @@ const bounded = (promise, ms, label) => {
 };
 
 export default async function probe() {
-  const { createTenantMigrator } = await import("viborm/migrations");
-  if (typeof createTenantMigrator !== "function") {
+  let createTenantMigrator;
+  try {
+    ({ createTenantMigrator } = await import("viborm/migrations/tenant"));
+  } catch {
     return {
       status: "fail",
-      evidence: "viborm/migrations has no export createTenantMigrator",
+      evidence: "viborm has no viborm/migrations/tenant createTenantMigrator",
     };
   }
   const pg = new PGlite();
@@ -102,13 +87,15 @@ export default async function probe() {
       new MemoryConditionalObjectStore()
     );
     const migrator = createTenantMigrator({
-      ctx: fakeDurableObjectState(),
-      connection: pg,
+      client: createClient({ client: pg, schema: {} }),
       history,
     });
     const change = (doc, options = {}) =>
       bounded(
-        migrator.change(doc, { deadlineMs: 20_000, ...options }),
+        migrator.change(parseSchema(doc, { validate: true }), {
+          signal: AbortSignal.timeout(20_000),
+          ...options,
+        }),
         30_000,
         "change"
       );

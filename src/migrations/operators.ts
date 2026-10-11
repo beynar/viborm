@@ -54,6 +54,7 @@ import {
   runSequentialProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
+import { renderMigrationReview } from "./public-view";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
@@ -71,7 +72,9 @@ import type {
 import { eventIdFor } from "./v1-parse";
 import type {
   BaselineOptions,
+  DownPreviewEdgeV1,
   DownV1Options,
+  DownV1Result,
   LedgerEventV1,
   MarkerPathEdgeV1,
   MigrationMarkerV1,
@@ -113,7 +116,8 @@ export async function statusV1(
   const control = await readControlState(
     client.$driver,
     command,
-    DEFAULT_CONTROL_BASE
+    DEFAULT_CONTROL_BASE,
+    { ledger: "open" }
   );
   const invalidIndexes = await readInvalidIndexes(client.$driver, command);
   const listed = invalidIndexes.length === 0 ? {} : { invalidIndexes };
@@ -173,7 +177,8 @@ export async function verifyV1(
       const control = await readControlState(
         pinned,
         command,
-        DEFAULT_CONTROL_BASE
+        DEFAULT_CONTROL_BASE,
+        { ledger: "open" }
       );
       if (control.presence.kind !== "present") {
         refusePartialControl(control.presence);
@@ -241,7 +246,8 @@ export async function baselineV1(
       const control = await readControlState(
         pinned,
         command,
-        DEFAULT_CONTROL_BASE
+        DEFAULT_CONTROL_BASE,
+        { ledger: "open" }
       );
       if (control.presence.kind === "missing-table") {
         refusePartialControl(control.presence);
@@ -348,7 +354,7 @@ export async function downV1(
   client: MigrationClient,
   storage: MigrationStorageReader,
   options: DownV1Options = {}
-): Promise<{ readonly path: readonly Sha256[]; readonly preview: boolean }> {
+): Promise<DownV1Result> {
   const request = normalizeDownOptions(options);
   const graph = await loadMigrationGraph(storage);
   const driver = getPushMigrationDriver(client);
@@ -360,22 +366,99 @@ export async function downV1(
     "down()"
   );
   if (dryRun) {
+    const producer = client.$driver;
+    const command = await resolveCommandDriver(producer, driver);
     const control = await readControlState(
-      client.$driver,
-      driver,
-      DEFAULT_CONTROL_BASE
+      producer,
+      command,
+      DEFAULT_CONTROL_BASE,
+      { ledger: "open" }
     );
     refusePartialControl(control.presence);
     const { marker } = control;
     assertExpectedRevision(marker, request);
+    // The checks `down` runs before its first effect, read-only, in its order,
+    // so the preview refuses where `down` refuses.
+    let refusal: { code: string; message: string } | null = null;
+    let attempt: LedgerEventV1 | undefined;
+    try {
+      attempt = admitRollbackAttempt(control.ledger);
+    } catch (error) {
+      refusal = refusalOf(error);
+    }
+    if (attempt && attempt.toState === (marker?.stateId ?? null)) {
+      // A rollback that finished before it was recorded: `down` closes it.
+      const item = prepareRollbackAttempt(
+        graph,
+        command,
+        producer.supportsTransactions,
+        attempt
+      );
+      return { path: [item.edge.stateId], preview: true, edges: [], refusal };
+    }
     if (!marker) {
+      // `down` refuses the attempt before it finds nothing to roll back.
+      if (refusal) return { path: [], preview: true, edges: [], refusal };
       throw new MigrationError(
         "Nothing to roll back",
         VibORMErrorCode.MIGRATION_NOT_FOUND
       );
     }
     const removed = rollbackSlice(graph, marker, request);
-    return { path: removed.map((edge) => edge.stateId), preview: true };
+    const reverse = [...removed].reverse();
+    const edges = reverse.map((edge) => previewRollbackEdge(graph, edge));
+    try {
+      // `down` checks nothing more when it has nothing to roll back.
+      if (!refusal && reverse.length > 0) {
+        for (const edge of reverse) assertReversibleEdge(graph, edge);
+        const prepared = reverse.map((edge) =>
+          prepareRollbackEdge(
+            graph,
+            command,
+            producer.supportsTransactions,
+            edge
+          )
+        );
+        await command.preflightSchemaRequirements(
+          [
+            requireStateSnapshot(graph, marker.stateId),
+            ...prepared.map((item) =>
+              requireStateSnapshot(graph, item.nextState)
+            ),
+          ],
+          (sql, params) => producer._executeRaw(sql, params),
+          prepared.flatMap((item) =>
+            stepStatements(item.blob, item.rollback.operations)
+          )
+        );
+        if (attempt) {
+          assertResumesSelectedPath(
+            graph,
+            command,
+            producer.supportsTransactions,
+            attempt,
+            prepared[0]!
+          );
+        } else {
+          await assertNoDrift(producer, command, graph, marker);
+        }
+        await approveRollbackLosses(
+          producer,
+          command,
+          graph,
+          prepared,
+          request.resolve
+        );
+      }
+    } catch (error) {
+      refusal = refusalOf(error);
+    }
+    return {
+      path: removed.map((edge) => edge.stateId),
+      preview: true,
+      edges,
+      refusal,
+    };
   }
   return withLockedMigrationProducer(
     client.$driver,
@@ -384,29 +467,13 @@ export async function downV1(
       const control = await readControlState(
         pinned,
         command,
-        DEFAULT_CONTROL_BASE
+        DEFAULT_CONTROL_BASE,
+        { ledger: "open" }
       );
       refusePartialControl(control.presence);
       const { ledger, marker } = control;
       assertExpectedRevision(marker, request);
-      const open = unfinishedAttempts(ledger);
-      if (open.length > 1) {
-        throw new MigrationError(
-          "Multiple unfinished migration attempts require manual repair",
-          VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
-        );
-      }
-      const rollbackAttempt = open[0];
-      if (
-        rollbackAttempt &&
-        (rollbackAttempt.kind !== "started" ||
-          rollbackAttempt.direction !== "rollback")
-      ) {
-        throw new MigrationError(
-          "An unfinished migration attempt is blocking ordinary work",
-          VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
-        );
-      }
+      const rollbackAttempt = admitRollbackAttempt(ledger);
       if (!marker) {
         if (rollbackAttempt?.toState === null) {
           const item = prepareRollbackAttempt(
@@ -488,27 +555,16 @@ export async function downV1(
           stepStatements(item.blob, item.rollback.operations)
         )
       );
-      if (!rollbackAttempt) {
-        await assertNoDrift(pinned, command, graph, marker);
-      }
       if (rollbackAttempt) {
-        const resumed = prepareRollbackAttempt(
+        assertResumesSelectedPath(
           graph,
           command,
           pinned.supportsTransactions,
-          rollbackAttempt
+          rollbackAttempt,
+          prepared[0]!
         );
-        const first = prepared[0]!;
-        if (
-          resumed.edge.stateId !== first.edge.stateId ||
-          resumed.nextState !== first.nextState ||
-          resumed.edge.transitionHash !== first.edge.transitionHash
-        ) {
-          throw new MigrationError(
-            "An unfinished rollback does not match the selected reverse path",
-            VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
-          );
-        }
+      } else {
+        await assertNoDrift(pinned, command, graph, marker);
       }
       await approveRollbackLosses(
         pinned,
@@ -590,7 +646,8 @@ export async function resolveV1(
       const control = await readControlState(
         pinned,
         command,
-        DEFAULT_CONTROL_BASE
+        DEFAULT_CONTROL_BASE,
+        { ledger: "open" }
       );
       refusePartialControl(control.presence);
       const { ledger } = control;
@@ -894,7 +951,12 @@ async function finishResolve(
   kind: "applied" | "rolled-back",
   to: Sha256 | null
 ): Promise<void> {
-  const control = await readControlState(pinned, command, DEFAULT_CONTROL_BASE);
+  const control = await readControlState(
+    pinned,
+    command,
+    DEFAULT_CONTROL_BASE,
+    { ledger: "open" }
+  );
   refusePartialControl(control.presence);
   const { marker } = control;
   if (kind === "applied" && to && marker?.stateId !== to) {
@@ -1006,6 +1068,96 @@ function prepareRollbackEdge(
     ),
     nextState: parent.fromState,
   };
+}
+
+/**
+ * One edge of a down preview: its rollback rendered as `show --sql` renders
+ * it, without the forward half or its forward approvals.
+ */
+function previewRollbackEdge(
+  graph: MigrationGraph,
+  edge: MarkerPathEdgeV1
+): DownPreviewEdgeV1 {
+  const state = graph.states.get(edge.stateId);
+  const parent = state?.parents.find(
+    (item) => item.transitionHash === edge.transitionHash
+  );
+  const blob = state && graph.sql.get(state.sqlHash);
+  if (!(parent && blob)) {
+    throw new MigrationError(
+      "Rollback cannot find the arrival transition or its SQL",
+      VibORMErrorCode.MIGRATION_CORRUPTION
+    );
+  }
+  const { approvals: _forward, ...transition } = parent;
+  return {
+    stateId: edge.stateId,
+    toState: parent.fromState,
+    sql: renderMigrationReview(
+      [{ ...transition, originChecks: [], operations: [] }],
+      [],
+      blob
+    ),
+  };
+}
+
+/** A migration refusal as plain data; any other error is rethrown. */
+function refusalOf(error: unknown): { code: string; message: string } {
+  if (!(error instanceof MigrationError)) throw error;
+  return { code: error.code, message: error.message };
+}
+
+/**
+ * The one unfinished attempt `down` may resume: none, or a started rollback.
+ * Anything else needs repair first.
+ */
+function admitRollbackAttempt(
+  ledger: readonly LedgerEventV1[]
+): LedgerEventV1 | undefined {
+  const open = unfinishedAttempts(ledger);
+  if (open.length > 1) {
+    throw new MigrationError(
+      "Multiple unfinished migration attempts require manual repair",
+      VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
+    );
+  }
+  const attempt = open[0];
+  if (
+    attempt &&
+    (attempt.kind !== "started" || attempt.direction !== "rollback")
+  ) {
+    throw new MigrationError(
+      "An unfinished migration attempt is blocking ordinary work",
+      VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
+    );
+  }
+  return attempt;
+}
+
+/** An unfinished rollback resumes only as the first edge `down` selected. */
+function assertResumesSelectedPath(
+  graph: MigrationGraph,
+  command: Parameters<typeof appendLedger>[1],
+  supportsTransactions: boolean,
+  attempt: LedgerEventV1,
+  first: ReturnType<typeof prepareRollbackEdge>
+): void {
+  const resumed = prepareRollbackAttempt(
+    graph,
+    command,
+    supportsTransactions,
+    attempt
+  );
+  if (
+    resumed.edge.stateId !== first.edge.stateId ||
+    resumed.nextState !== first.nextState ||
+    resumed.edge.transitionHash !== first.edge.transitionHash
+  ) {
+    throw new MigrationError(
+      "An unfinished rollback does not match the selected reverse path",
+      VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
+    );
+  }
 }
 
 function prepareRollbackAttempt(

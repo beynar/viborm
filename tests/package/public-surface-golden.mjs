@@ -445,6 +445,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "addDropResolver",
       "auditStorage",
       "createMigrationClient",
+      "createPredefinedResolver",
       "createStorageConformanceSuite",
       "identifierConversionChecks",
       "isMigrationError",
@@ -462,6 +463,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "CheckFinding",
       "CheckResult",
       "DownOptions",
+      "DownPreviewEdge",
       "DownResult",
       "ExactPushOptions",
       "GenerateOptions",
@@ -477,6 +479,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "MigrationApproval",
       "MigrationCheckInput",
       "MigrationClientOptions",
+      "MigrationDecision",
       "MigrationEdgeMetadata",
       "MigrationEstateDescriptorV1",
       "MigrationLimits",
@@ -523,6 +526,17 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     []
   ),
   "./migrations/storage/r2": surface(["createR2StorageWriter"], [], []),
+  "./migrations/tenant": surface(
+    ["createTenantMigrator"],
+    [
+      "TenantChangeError",
+      "TenantChangeOptions",
+      "TenantChangeResult",
+      "TenantMigrator",
+      "TenantMigratorOptions",
+    ],
+    []
+  ),
   "./config": surface(
     ["defineConfig"],
     ["MigrationConfig", "VibORMConfig"],

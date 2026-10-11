@@ -49,6 +49,16 @@ const EXPECTED_SUMS = {
   mixed: 1.5,
 };
 
+/** The six groups by their sum, the order `orderBy` answers. */
+const ASCENDING_SUMS = [
+  "below",
+  "subnormal",
+  "ordinary",
+  "mixed",
+  "returns",
+  "above",
+];
+
 const HALF = 2n ** 62n;
 
 /** One account per question about an int64 `_sum` (bigint, decimal). */
@@ -63,6 +73,14 @@ const LEDGER = {
 /** The widest SQLite decimal a thousand rows overflow the int64 coefficient of. */
 const AMOUNT = "99999999999999.99";
 const AMOUNT_ROWS = 1000;
+/** Fewer rows of `AMOUNT` that still leave the int64 coefficient range. */
+const CREDIT_ROWS = 950;
+/**
+ * `-AMOUNT` rows and a last amount totalling -92233720368547758.09: one cent
+ * past the int64 coefficient range, whose nearest double is -2^63 itself.
+ */
+const DEBIT_ROWS = 922;
+const DEBIT_LAST = "-33720368547767.31";
 
 /**
  * An `s.int()` column whose `_sum` passes 2^53, as rows the database generates
@@ -177,6 +195,45 @@ export function runAggregateSumOverflowCases(options: {
       );
     });
 
+    test("orderBy sorts by the sum the projection answers, the infinities outermost", async () => {
+      const db = await open();
+      for (const direction of ["asc", "desc"] as const) {
+        const rows = await db.reading.groupBy({
+          by: ["sensor"],
+          _sum: { score: true },
+          orderBy: { _sum: { score: direction } },
+        });
+        expect(rows.map((row) => row.sensor)).toEqual(
+          direction === "asc" ? ASCENDING_SUMS : [...ASCENDING_SUMS].reverse()
+        );
+      }
+    });
+
+    test("having compares the sum the projection answers", async () => {
+      const db = await open();
+      const matching = async (filter: {
+        gt?: number;
+        lt?: number;
+        equals?: number;
+      }) =>
+        (
+          await db.reading.groupBy({
+            by: ["sensor"],
+            having: { score: { _sum: filter } },
+            orderBy: { sensor: "asc" },
+          })
+        ).map((row) => row.sensor);
+      expect(await matching({ gt: 1 })).toEqual(["above", "mixed", "returns"]);
+      expect(await matching({ lt: 0 })).toEqual(["below"]);
+      expect(await matching({ lt: 1e-300 })).toEqual(["below", "subnormal"]);
+      expect(await matching({ gt: -MAX, lt: MAX })).toEqual([
+        "mixed",
+        "ordinary",
+        "subnormal",
+      ]);
+      expect(await matching({ equals: 1.5 })).toEqual(["mixed"]);
+    });
+
     test("an empty window still sums to null", async () => {
       const db = await open();
       expect(
@@ -250,7 +307,123 @@ export function runAggregateSumOverflowCases(options: {
     return db;
   }
 
+  /**
+   * Two more accounts past the int64 range, each beyond its neighbour in the
+   * same direction: `debit` below `down`, `credit` between `up` and `bulk`
+   * (`DEBIT_ROWS`, `CREDIT_ROWS`).
+   */
+  async function openWideLedger() {
+    const db = await openLedger();
+    const rows = (
+      account: string,
+      count: number,
+      from: number,
+      total: bigint,
+      amount: string
+    ) =>
+      Array.from({ length: count }, (_, index) => ({
+        id: from + index,
+        account,
+        total,
+        amount,
+        age: 0,
+      }));
+    await db.ledger.createMany({
+      data: [
+        ...rows("debit", DEBIT_ROWS, 10_000, -HALF, `-${AMOUNT}`),
+        ...rows("debit", 1, 10_000 + DEBIT_ROWS, -HALF, DEBIT_LAST),
+        ...rows("credit", CREDIT_ROWS, 20_000, HALF, AMOUNT),
+      ],
+    });
+    return db;
+  }
+
   describe(`${options.driverName}: an int64 _sum past the int64 range`, () => {
+    test("orderBy sorts by the exact sum, past the int64 range included", async () => {
+      const db = await openWideLedger();
+      const order = async (
+        field: "total" | "amount",
+        direction: "asc" | "desc"
+      ) =>
+        (
+          await db.ledger.groupBy({
+            by: ["account"],
+            _sum: { total: true, amount: true },
+            orderBy: [{ _sum: { [field]: direction } }, { account: "asc" }],
+          })
+        ).map((row) => row.account);
+      const byTotal = ["debit", "down", "ends", "bulk", "up", "credit"];
+      expect(await order("total", "asc")).toEqual(byTotal);
+      expect(await order("total", "desc")).toEqual([...byTotal].reverse());
+      expect(await order("amount", "asc")).toEqual([
+        "debit",
+        "ends",
+        "up",
+        "down",
+        "credit",
+        "bulk",
+      ]);
+      expect(await order("amount", "desc")).toEqual([
+        "bulk",
+        "credit",
+        "down",
+        "ends",
+        "up",
+        "debit",
+      ]);
+    });
+
+    test("having compares the exact sum, past the int64 range included", async () => {
+      const db = await openWideLedger();
+      const accounts = (rows: { account: string }[]) =>
+        rows.map((row) => row.account);
+      // A bigint `_sum` operand is a number (`numericFilterOps`).
+      const total = async (filter: {
+        gt?: number;
+        lt?: number;
+        equals?: number;
+      }) =>
+        accounts(
+          await db.ledger.groupBy({
+            by: ["account"],
+            having: { total: { _sum: filter } },
+            orderBy: { account: "asc" },
+          })
+        );
+      const amount = async (filter: {
+        gt?: string;
+        lt?: string;
+        equals?: string;
+      }) =>
+        accounts(
+          await db.ledger.groupBy({
+            by: ["account"],
+            having: { amount: { _sum: filter } },
+            orderBy: { account: "asc" },
+          })
+        );
+      expect(await total({ gt: 9.2e18 })).toEqual(["credit", "up"]);
+      expect(await total({ lt: -9.2e18 })).toEqual(["debit", "down"]);
+      expect(await total({ equals: -1 })).toEqual(["ends"]);
+      expect(await total({ gt: -2, lt: 9.2e18 })).toEqual(["bulk", "ends"]);
+      // Operands past int64; `up` is exactly 2^63.
+      expect(await total({ gt: 2 ** 63 })).toEqual(["credit"]);
+      expect(await total({ lt: 1e20 })).toEqual([
+        "bulk",
+        "debit",
+        "down",
+        "ends",
+        "up",
+      ]);
+      expect(await total({ lt: -1e21 })).toEqual(["debit"]);
+      expect(await amount({ gt: "92233720368547758.07" })).toEqual([
+        "bulk",
+        "credit",
+      ]);
+      expect(await amount({ lt: "-92233720368547758.08" })).toEqual(["debit"]);
+      expect(await amount({ equals: "0.02" })).toEqual(["ends", "up"]);
+    });
+
     test("a bigint sum is exact beside the unrelated aggregates", async () => {
       const db = await openLedger();
       expect(

@@ -78,10 +78,15 @@ runtime or provider combinations are not implied by an HTTP or WASM label.
 
 ## Migrations through a pooler
 
-Migrations hold a session-scoped advisory lock on one server session for the
-whole command. A transaction-pooling endpoint hands consecutive transactions to
-whichever server session is free, so the lock and the DDL can land on
-different backends and the lock protects nothing. Effectful migration commands
+Each transaction a migration command runs takes a transaction-scoped advisory
+lock (`pg_try_advisory_xact_lock`) that ends with that transaction. Stepwise
+work (a manual `execution: "stepwise"` transition, or an index statement run
+`CONCURRENTLY`) runs outside a transaction and adds a session-scoped lock,
+held on one server session until the command ends (see
+[PostgreSQL guarantees](/docs/migration/drivers/postgresql#guarantees-and-limits)).
+A transaction-pooling endpoint hands consecutive transactions to whichever
+server session is free, so stepwise work and its lock can land on different
+backends and the lock protects nothing. Effectful migration commands
 (`apply`, `down`, `reset`, `baseline`, `resolve`, `verify`, `push`) are
 therefore refused with `V8002`, before any connection, when the driver's
 configuration names one of these hosts:

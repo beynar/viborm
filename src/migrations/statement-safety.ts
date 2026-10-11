@@ -872,3 +872,24 @@ export function needsEnumAdditionCommitBoundary(
   }
   return false;
 }
+
+/**
+ * Whether `sql` holds a PostgreSQL index statement run `CONCURRENTLY`:
+ * `CREATE [UNIQUE] INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY` or a
+ * `REINDEX … CONCURRENTLY`. Only these wait, by design, for every older
+ * transaction without blocking anyone (plan S1). Read from each statement's
+ * executable words, so the words in a comment or a literal are not one, and
+ * neither is `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
+ */
+export function buildsIndexConcurrently(sql: string): boolean {
+  return readExecutableStatements(sql, "postgresql").some((words) => {
+    const [verb] = words;
+    if (verb === "REINDEX") return words.includes("CONCURRENTLY");
+    const index = verb === "CREATE" && words[1] === "UNIQUE" ? 2 : 1;
+    return (
+      (verb === "CREATE" || verb === "DROP") &&
+      words[index] === "INDEX" &&
+      words[index + 1] === "CONCURRENTLY"
+    );
+  });
+}

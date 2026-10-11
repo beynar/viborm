@@ -31,6 +31,10 @@ const STATE_TABLE = /_viborm_migration_state/i;
 const STATE_WRITE =
   /^(CREATE|ALTER|DROP)\b|\b(UPDATE|INSERT INTO|DELETE FROM)\s+[^\s(]*_viborm_migration_state/i;
 const isMarkerRead = (q) => STATE_TABLE.test(q) && !STATE_WRITE.test(q);
+// A statement that tries the transaction lock AND reads the state table is a
+// PostgreSQL apply's pre-lock no-op proof (plan D5, decision 7): autocommit,
+// its lock released with the statement, so it is not the command's lock.
+const isCommandLock = (q) => XACT_LOCK.test(q) && !STATE_TABLE.test(q);
 const DDL = /^(ALTER TABLE|CREATE (UNIQUE )?INDEX|CREATE TABLE)/i;
 
 const fields = () => ({
@@ -91,7 +95,7 @@ function judge(label, statements, readsMarker) {
   const begin = at(BEGIN);
   const commit = statements.findLastIndex((q) => COMMIT.test(q));
   const sessionLock = at(SESSION_LOCK);
-  const xactLock = at(XACT_LOCK);
+  const xactLock = statements.findIndex(isCommandLock);
   const ddl = at(DDL);
   const marker = statements
     .slice(0, ddl < 0 ? undefined : ddl)

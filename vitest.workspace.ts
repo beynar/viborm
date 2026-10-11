@@ -250,7 +250,9 @@ export default defineWorkspace([
   providerProject("pg", [
     "tests/providers/docker/pg*.test.ts",
     "tests/unit/migrations/pinned-session-docker.test.ts",
+    "tests/unit/migrations/postgres-catalog-digest-docker.test.ts",
     "tests/unit/migrations/postgres-namespace-docker.test.ts",
+    "tests/unit/migrations/postgres-recoverable-steps-docker.test.ts",
     "tests/unit/migrations/postgres-session-limits-docker.test.ts",
     "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
     "tests/unit/migrations/shared-pool-estates-docker.test.ts",
@@ -299,4 +301,5 @@ export default defineWorkspace([
     },
   },
   "./vitest.d1.config.ts",
+  "./vitest.tenant-do.config.ts",
 ]);

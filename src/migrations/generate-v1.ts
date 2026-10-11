@@ -15,7 +15,11 @@ import {
   compileGeneratedTransition,
   compileManualTransition,
   compileTrustedCheck,
+  compileValidationTransition,
   hashParent,
+  type LowLockState,
+  lowLockStates,
+  lowLockSteps,
   rebindChecks,
   rebindDispatches,
   rebindRollback,
@@ -36,6 +40,7 @@ import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import {
   approveDestructiveOperations,
   callbackAsResolver,
+  refuseUnusedDecisions,
   rejectAllResolver,
   resolveAmbiguousChanges,
   strictResolver,
@@ -50,7 +55,7 @@ import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageWriter } from "./storage/contract";
 import { isMigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
-import type { DiffOperation, ResolveCallback } from "./types";
+import type { DiffOperation, ResolveCallback, SchemaSnapshot } from "./types";
 import { generateMigrationName, prepareSchemaProgram } from "./utils";
 import {
   encodeEstateDescriptor,
@@ -62,9 +67,9 @@ import type {
   GenerateV1Options,
   ManualMigrationInput,
   ManualTransitionInput,
+  MigrationApprovalV1,
   MigrationBooleanCheckV1,
   MigrationParentTransitionV1,
-  MigrationStateManifestV1,
 } from "./v1-types";
 
 export interface GenerateV1Result {
@@ -130,6 +135,16 @@ export async function generateV1(
   const desiredEncoded = encodeSnapshot(desired);
   const parents = resolveParents(loaded, request);
   refuseUnprovedMerge(loaded, parents, request.manualMigration);
+  const parentState =
+    parents.length === 1 && parents[0]
+      ? loaded.states.get(parents[0])
+      : undefined;
+  const parentSnapshot =
+    parentState && loaded.snapshots.get(parentState.snapshotHash);
+  const unchangedSnapshot =
+    parentSnapshot !== undefined &&
+    encodeSnapshot(orderFree(parentSnapshot)).snapshotHash ===
+      encodeSnapshot(orderFree(desired)).snapshotHash;
 
   const assembly = new SqlAssembly();
   const parentBodies: Omit<MigrationParentTransitionV1, "transitionHash">[] =
@@ -141,6 +156,8 @@ export async function generateV1(
     operations: DiffOperation[];
   }[] = [];
   const destinationPlaceholders: MigrationBooleanCheckV1[] = [];
+  // Each state a low-lock split publishes before this one, parent first.
+  const stepStates: SealedLowLockState[] = [];
 
   if (request.manualMigration) {
     assertManualParents(loaded, request.manualMigration.transitions);
@@ -180,7 +197,7 @@ export async function generateV1(
       );
     }
   } else {
-    for (const from of parents) {
+    for (const [index, from] of parents.entries()) {
       const current =
         from === null
           ? emptyManagedSnapshot()
@@ -222,47 +239,88 @@ export async function generateV1(
       const staged = prepareSchemaProgram(withEnumMappings, current, driver);
       reported.push(...staged);
       operationsByParent.push({ fromState: from, operations: staged });
-      const compiled = compileGeneratedTransition(
-        staged,
-        driver,
-        "artifact",
-        current,
-        desired,
-        assembly
-      );
+      // T2: the plan has asked every decision once its last parent is
+      // planned, before a low-lock split publishes. A document already
+      // published (a re-drive) asks none and stays a noop.
+      if (index === parents.length - 1 && !unchangedSnapshot) {
+        refuseUnusedDecisions(request.resolve);
+      }
+      // T5b, asked for with `lowLock`: one parent's PostgreSQL program gives
+      // each low-lock step a commit of its own, as states published before
+      // this one. Opt-in, because a step outside a transaction needs the
+      // direct session a transaction pooler cannot give.
+      const lowLock =
+        request.lowLock === true && driver.dialect === "postgresql";
+      const split =
+        lowLock && parents.length === 1
+          ? lowLockStates(staged, current, desired)
+          : undefined;
+      if (lowLock && !split && lowLockSteps(staged).size > 0) {
+        warnings.push(
+          "lowLock: this change keeps its blocking index builds and validating foreign keys, because it merges several parents or changes something other than an index or a foreign key after its first index build. Generate those indexes and keys in a migration of their own to get their step form."
+        );
+      }
+      let origin = { from, current, approvals };
+      const before = split?.states.slice(0, -1) ?? [];
+      for (const [index, state] of before.entries()) {
+        const step = sealLowLockState(
+          estateHash,
+          driver,
+          `${request.name?.trim() || generateMigrationName(staged)} (step ${index + 1} of ${before.length + 1})`,
+          origin,
+          state,
+          split?.steps
+        );
+        warnings.push(...step.warnings);
+        stepStates.push(step);
+        origin = {
+          from: step.encoded.stateId,
+          current: state.snapshot,
+          approvals: [],
+        };
+      }
+      const last = split?.states.at(-1);
+      const compiled = last?.validates
+        ? compileValidationTransition(
+            last.operations,
+            driver,
+            origin.current,
+            assembly
+          )
+        : compileGeneratedTransition(
+            last?.operations ?? staged,
+            driver,
+            "artifact",
+            origin.current,
+            desired,
+            assembly,
+            split?.steps
+          );
       warnings.push(...(compiled.warnings ?? []));
       if (compiled.rollback.kind === "irreversible")
         warnings.push(compiled.rollback.reason);
-      const parent = sealParent(from, compiled);
+      const parent = sealParent(origin.from, compiled);
       parentBodies.push(
-        approvals.length === 0 ? parent : { ...parent, approvals }
+        origin.approvals.length === 0
+          ? parent
+          : { ...parent, approvals: origin.approvals }
       );
     }
   }
 
-  const sealed = assembly.seal();
   const named = request.name?.trim() || generateMigrationName(reported);
-  assertArtifactExecutionSafe(
-    sealed.dispatches.map((dispatch) => sliceDispatch(sealed.bytes, dispatch)),
+  const { sealed, hashedParents, destinationChecks, encoded } = sealState(
+    assembly,
+    parentBodies,
+    destinationPlaceholders,
     driver.target.dialect,
-    named
+    estateHash,
+    named,
+    desiredEncoded.snapshotHash
   );
 
-  const hashedParents = parentBodies
-    .map((parent) => ({
-      ...parent,
-      originChecks: rebindChecks(parent.originChecks, sealed.dispatches),
-      operations: rebindDispatches(parent.operations, sealed.dispatches),
-      rollback: rebindRollback(parent.rollback, sealed.dispatches),
-    }))
-    .map((parent) => hashParent(parent));
-
-  const singleParent = parents.length === 1;
-  const unchangedSnapshot =
-    singleParent &&
-    parents[0] !== null &&
-    loaded.states.get(parents[0]!)?.snapshotHash ===
-      desiredEncoded.snapshotHash;
+  // Decision 8: field and model order is cosmetic, so a document that only
+  // reorders them is a noop and publishes nothing.
   const emptyProgram = hashedParents.every((parent) =>
     parent.operations.every((operation) => operation.steps.length === 0)
   );
@@ -282,23 +340,20 @@ export async function generateV1(
     };
   }
 
-  const withoutId: Omit<MigrationStateManifestV1, "stateId"> = {
-    format: "1",
-    estateHash,
-    name: named,
-    snapshotHash: desiredEncoded.snapshotHash,
-    sqlHash: sealed.sqlHash,
-    destinationChecks: rebindChecks(destinationPlaceholders, sealed.dispatches),
-    parents: hashedParents,
-  };
-  const encoded = encodeStateManifest(withoutId);
-  const sqlText = new TextDecoder().decode(sealed.bytes);
-  const reviewSql = renderMigrationReview(
-    hashedParents,
-    rebindChecks(destinationPlaceholders, sealed.dispatches),
-    sealed.bytes,
-    request.resolve ? undefined : "Needs approval at generate"
-  );
+  const final = { snapshot: desiredEncoded, sealed, encoded };
+  const states = [...stepStates, final];
+  const sqlText = states
+    .map((state) => new TextDecoder().decode(state.sealed.bytes))
+    .join("\n\n");
+  const reviewSql = [
+    ...stepStates.map(({ review }) => review),
+    renderMigrationReview(
+      hashedParents,
+      destinationChecks,
+      sealed.bytes,
+      request.resolve ? undefined : "Needs approval at generate"
+    ),
+  ].join("\n\n");
   if (request.dryRun) {
     return {
       outcome: "preview",
@@ -318,12 +373,13 @@ export async function generateV1(
   if (!publishedEstate) {
     await storage.publishEstate(estateBytes);
   }
-  await storage.publishSnapshot(
-    desiredEncoded.snapshotHash,
-    desiredEncoded.bytes
-  );
-  await storage.publishSql(sealed.sqlHash, sealed.bytes);
-  await storage.publishState(encoded.stateId, encoded.bytes);
+  // Every state is complete before the first publishes. A low-lock split's
+  // states publish parent first, each manifest after its snapshot and SQL.
+  for (const { snapshot, sealed: sql, encoded: manifest } of states) {
+    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    await storage.publishSql(sql.sqlHash, sql.bytes);
+    await storage.publishState(manifest.stateId, manifest.bytes);
+  }
   return {
     outcome: "published",
     stateId: encoded.stateId,
@@ -336,6 +392,129 @@ export async function generateV1(
     operationsByParent,
     sql: sqlText,
     reviewSql,
+  };
+}
+
+/** A snapshot with its tables, columns, keys and enums sorted by name. */
+function orderFree(snapshot: SchemaSnapshot): SchemaSnapshot {
+  const byName = (a: { name: string }, b: { name: string }) =>
+    a.name < b.name ? -1 : Number(a.name > b.name);
+  return {
+    ...snapshot,
+    tables: snapshot.tables
+      .map((table) => ({
+        ...table,
+        columns: [...table.columns].sort(byName),
+        indexes: [...table.indexes].sort(byName),
+        foreignKeys: [...table.foreignKeys].sort(byName),
+        uniqueConstraints: [...table.uniqueConstraints].sort(byName),
+      }))
+      .sort(byName),
+    enums: snapshot.enums && [...snapshot.enums].sort(byName),
+  };
+}
+
+/**
+ * Seals one state's manifest from its compiled parents: refuses unsafe SQL,
+ * binds every check and dispatch to the sealed bytes and hashes each parent.
+ */
+function sealState(
+  assembly: SqlAssembly,
+  parentBodies: readonly Omit<MigrationParentTransitionV1, "transitionHash">[],
+  destinationPlaceholders: readonly MigrationBooleanCheckV1[],
+  dialect: Parameters<typeof assertArtifactExecutionSafe>[1],
+  estateHash: Sha256,
+  name: string,
+  snapshotHash: Sha256
+) {
+  const sealed = assembly.seal();
+  assertArtifactExecutionSafe(
+    sealed.dispatches.map((dispatch) => sliceDispatch(sealed.bytes, dispatch)),
+    dialect,
+    name
+  );
+  const hashedParents = parentBodies.map((parent) =>
+    hashParent({
+      ...parent,
+      originChecks: rebindChecks(parent.originChecks, sealed.dispatches),
+      operations: rebindDispatches(parent.operations, sealed.dispatches),
+      rollback: rebindRollback(parent.rollback, sealed.dispatches),
+    })
+  );
+  const destinationChecks = rebindChecks(
+    destinationPlaceholders,
+    sealed.dispatches
+  );
+  const encoded = encodeStateManifest({
+    format: "1",
+    estateHash,
+    name,
+    snapshotHash,
+    sqlHash: sealed.sqlHash,
+    destinationChecks,
+    parents: hashedParents,
+  });
+  return { sealed, hashedParents, destinationChecks, encoded };
+}
+
+type SealedLowLockState = ReturnType<typeof sealLowLockState>;
+
+/**
+ * Seals one state a low-lock split puts before the generated one (T5b); it
+ * becomes the next state's parent. Nothing publishes until every state of the
+ * candidate is sealed.
+ */
+function sealLowLockState(
+  estateHash: Sha256,
+  driver: ReturnType<typeof getPushMigrationDriver>,
+  name: string,
+  origin: {
+    readonly from: Sha256 | null;
+    readonly current: SchemaSnapshot;
+    readonly approvals: readonly MigrationApprovalV1[];
+  },
+  state: LowLockState,
+  steps: ReadonlySet<DiffOperation> | undefined
+) {
+  const assembly = new SqlAssembly();
+  const compiled = compileGeneratedTransition(
+    state.operations,
+    driver,
+    "artifact",
+    origin.current,
+    state.snapshot,
+    assembly,
+    steps
+  );
+  const body = sealParent(origin.from, compiled);
+  const snapshot = encodeSnapshot(state.snapshot);
+  const sealed = sealState(
+    assembly,
+    [
+      origin.approvals.length === 0
+        ? body
+        : { ...body, approvals: origin.approvals },
+    ],
+    [],
+    driver.target.dialect,
+    estateHash,
+    name,
+    snapshot.snapshotHash
+  );
+  return {
+    ...sealed,
+    snapshot,
+    review: renderMigrationReview(
+      sealed.hashedParents,
+      [],
+      sealed.sealed.bytes
+    ),
+    warnings: [
+      ...(compiled.warnings ?? []),
+      ...(compiled.rollback.kind === "irreversible"
+        ? [compiled.rollback.reason]
+        : []),
+    ],
   };
 }
 

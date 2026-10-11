@@ -103,7 +103,7 @@ describe("migration marker compare-and-swap", () => {
 });
 
 describe("migration ledger read ordering", () => {
-  test("orders events by timestamp and then event identity", async () => {
+  test("orders events by timestamp, then unrelated attempts of one instant by attempt identity", async () => {
     const later = startedEvent("d".repeat(64), "2026-08-31T00:00:01.000Z");
     const tiedA = startedEvent("e".repeat(64), "2026-08-31T00:00:00.000Z");
     const tiedB = startedEvent("f".repeat(64), "2026-08-31T00:00:00.000Z");
@@ -141,8 +141,12 @@ describe("migration ledger read ordering", () => {
       getMigrationDriver(driver),
       DEFAULT_CONTROL_BASE
     );
+    // Neither tied attempt follows the other on the state chain, and both
+    // open in that instant: their attempt ids settle it (plan D5,
+    // `inCausalOrder`).
     expect(control.ledger.map((event) => event.eventId)).toEqual([
-      ...[tiedA.eventId, tiedB.eventId].sort(),
+      tiedA.eventId,
+      tiedB.eventId,
       later.eventId,
     ]);
   });

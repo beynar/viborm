@@ -2,6 +2,7 @@ import { VibORMErrorCode } from "@src/errors";
 import { applyNativeRename } from "@src/migrations/native-rename";
 import {
   alwaysAddDropResolver,
+  ambiguousToResolveChange,
   applyResolutions,
   callbackAsResolver,
   createPredefinedResolver,
@@ -214,9 +215,8 @@ describe("resolution edge contracts", () => {
         resolution: "rename",
       },
     ]);
-    const resolutions = await predefined([column, table]);
-    expect(resolutions.get(column)).toEqual({ type: "rename" });
-    expect(resolutions.has(table)).toBe(false);
+    expect(await predefined(ambiguousToResolveChange(column))).toBe("rename");
+    expect(await predefined(ambiguousToResolveChange(table))).toBeUndefined();
 
     const callback = callbackAsResolver((change) =>
       change.type === "ambiguous" ? change.addAndDrop() : undefined

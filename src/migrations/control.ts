@@ -7,9 +7,14 @@ import { normalizeType } from "./push-fingerprint";
 import type { AnyDriver } from "../drivers/driver";
 import { errorCause } from "../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { isRecord } from "../validation/value-guards";
 import { canonicalizeJsonText } from "./canonical-json";
-import { tableExistsProbe } from "./catalog-probes";
+import { boundNamespace, tableExistsProbe } from "./catalog-probes";
 import type { BoundMigrationDriver } from "./drivers";
+import {
+  postgresCatalogDigestQuery,
+  readDigest,
+} from "./drivers/postgres/catalog-digest";
 import type { Sha256 } from "./identity";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodePathHash, parseLedgerEvent, parseMarkerRow } from "./v1-parse";
@@ -219,6 +224,13 @@ export async function assertControlTablesAuthentic(
   base: string
 ): Promise<void> {
   const names = controlTableNames(base);
+  if (driver.target.dialect === "postgresql") {
+    assertPostgresControlAuthentic(
+      await readPostgresControlCatalog(producer, driver, names),
+      names
+    );
+    return;
+  }
   let snapshot: SchemaSnapshot;
   try {
     snapshot = await introspectControlTables(producer, driver, names);
@@ -292,6 +304,22 @@ async function assertExpectedStateControlTable(
   names: { readonly state: string; readonly log: string }
 ): Promise<void> {
   const tableName = names.state;
+  if (driver.target.dialect === "postgresql") {
+    const { state } = await readPostgresControlCatalog(producer, driver, names);
+    if (!(state && hasPostgresStateShape(state, tableName))) {
+      throw new MigrationError(
+        "A partial migration control state table has an unexpected definition",
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
+    if (!isAbsentCatalogFlag(state.executable)) {
+      throw new MigrationError(
+        "A partial migration control state table has executable attachments",
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
+    return;
+  }
   let snapshot: SchemaSnapshot;
   try {
     snapshot = await introspectControlTables(producer, driver, names);
@@ -360,12 +388,7 @@ function hasExpectedStateTableShape(
 ): boolean {
   const singleton = table.columns[0];
   const payload = table.columns[1];
-  const singletonType =
-    driver.target.dialect === "postgresql"
-      ? "int4"
-      : driver.target.dialect === "mysql"
-        ? "INT"
-        : "INTEGER";
+  const singletonType = driver.target.dialect === "mysql" ? "INT" : "INTEGER";
   const payloadType = driver.target.dialect === "mysql" ? "TEXT" : "text";
   const primaryKeyName =
     driver.target.dialect === "mysql" ? "PRIMARY" : `${tableName}_pkey`;
@@ -457,19 +480,8 @@ async function hasExpectedSingletonCheck(
       sqliteDefinitionBody(expected)
     );
   }
-  const result =
-    driver.target.dialect === "postgresql"
-      ? await producer._executeRaw<{ definition: unknown }>(
-          `SELECT pg_get_constraintdef(c.oid, true) AS definition
-FROM pg_catalog.pg_constraint c
-JOIN pg_catalog.pg_class t ON t.oid = c.conrelid
-JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
-WHERE n.nspname = $1 AND t.relname = $2 AND c.contype = 'c'
-ORDER BY c.conname`,
-          [driver.namespace ?? driver.target.namespace, tableName]
-        )
-      : await producer._executeRaw<{ definition: unknown }>(
-          `SELECT cc.CHECK_CLAUSE AS definition
+  const result = await producer._executeRaw<{ definition: unknown }>(
+    `SELECT cc.CHECK_CLAUSE AS definition
 FROM information_schema.TABLE_CONSTRAINTS tc
 JOIN information_schema.CHECK_CONSTRAINTS cc
   ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
@@ -478,8 +490,8 @@ WHERE tc.CONSTRAINT_SCHEMA = ?
   AND tc.TABLE_NAME = ?
   AND tc.CONSTRAINT_TYPE = 'CHECK'
 ORDER BY tc.CONSTRAINT_NAME`,
-          [driver.namespace, tableName]
-        );
+    [driver.namespace, tableName]
+  );
   return (
     result.rows.length === 1 &&
     normalizeSingletonCheck(result.rows[0]?.definition) === "singleton=1"
@@ -510,49 +522,10 @@ async function hasControlAttachments(
           "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND tbl_name IN (?, ?)) AS attached",
           [names.state, names.log]
         )
-      : driver.target.dialect === "mysql"
-        ? await producer._executeRaw<Record<string, unknown>>(
-            "SELECT EXISTS (SELECT 1 FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE IN (?, ?)) AS attached",
-            [driver.namespace, names.state, names.log]
-          )
-        : await producer._executeRaw<Record<string, unknown>>(
-            `SELECT EXISTS (
-  SELECT 1
-  FROM pg_catalog.pg_trigger trigger
-  JOIN pg_catalog.pg_class table_class ON table_class.oid = trigger.tgrelid
-  JOIN pg_catalog.pg_namespace namespace ON namespace.oid = table_class.relnamespace
-  WHERE namespace.nspname = $1
-    AND table_class.relname IN ($2, $3)
-    AND NOT trigger.tgisinternal
-  UNION ALL
-  SELECT 1
-  FROM pg_catalog.pg_rewrite rule
-  JOIN pg_catalog.pg_class table_class ON table_class.oid = rule.ev_class
-  JOIN pg_catalog.pg_namespace namespace ON namespace.oid = table_class.relnamespace
-  WHERE namespace.nspname = $1
-    AND table_class.relname IN ($2, $3)
-    AND rule.rulename <> '_RETURN'
-  UNION ALL
-  SELECT 1
-  FROM pg_catalog.pg_policy policy
-  JOIN pg_catalog.pg_class table_class ON table_class.oid = policy.polrelid
-  JOIN pg_catalog.pg_namespace namespace ON namespace.oid = table_class.relnamespace
-  WHERE namespace.nspname = $1
-    AND table_class.relname IN ($2, $3)
-  UNION ALL
-  SELECT 1
-  FROM pg_catalog.pg_class table_class
-  JOIN pg_catalog.pg_namespace namespace ON namespace.oid = table_class.relnamespace
-  WHERE namespace.nspname = $1
-    AND table_class.relname IN ($2, $3)
-    AND (table_class.relrowsecurity OR table_class.relforcerowsecurity)
-) AS attached`,
-            [
-              driver.namespace ?? driver.target.namespace,
-              names.state,
-              names.log,
-            ]
-          );
+      : await producer._executeRaw<Record<string, unknown>>(
+          "SELECT EXISTS (SELECT 1 FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE IN (?, ?)) AS attached",
+          [driver.namespace, names.state, names.log]
+        );
   if (result.rows.length !== 1) {
     throw new MigrationError(
       "Migration control attachment probe must return exactly one row",
@@ -646,18 +619,40 @@ function isAbsentCatalogFlag(value: unknown): boolean {
 export interface MigrationControlRead {
   readonly presence: ControlPresence;
   readonly marker: MigrationMarkerV1 | null;
+  /**
+   * The ledger events, in causal order (`inCausalOrder`): every event, or
+   * with `{ ledger: "open" }` those of an unfinished attempt and the latest
+   * `failed` one (plan D5, new defect 6). Without a marker the history may
+   * only hold attempts that never reached a state, and all of it is read so
+   * `refuseIncompatibleHistory` can say so.
+   */
   readonly ledger: readonly LedgerEventV1[];
 }
 
+/** The event kinds that open an attempt, and those that close one. */
+const OPENING_KINDS: ReadonlySet<LedgerEventV1["kind"]> = new Set([
+  "started",
+  "reset-started",
+]);
+const CLOSING_KINDS: ReadonlySet<LedgerEventV1["kind"]> = new Set([
+  "applied",
+  "rolled-back",
+  "failed",
+  "baselined",
+  "resolved",
+  "reset-applied",
+]);
+
 /**
- * Reads the complete control-plane view. A present pair is authenticated once
- * before either table is trusted; callers decide whether total absence or the
+ * Reads the control-plane view. A present pair is authenticated once before
+ * either table is trusted; callers decide whether total absence or the
  * recoverable bootstrap arm is valid for their command.
  */
 export async function readControlState(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string
+  base: string,
+  { ledger: scope = "all" }: { readonly ledger?: "open" | "all" } = {}
 ): Promise<MigrationControlRead> {
   const presence = await inspectControlPresence(producer, driver, base);
   if (presence.kind !== "present") {
@@ -668,22 +663,391 @@ export async function readControlState(
   const markerResult = await producer._executeRaw<{ payload: unknown }>(
     `SELECT payload FROM ${qualifyControl(driver, names.state)} WHERE singleton = 1`
   );
-  const markerRow = markerResult.rows[0];
-  const marker = markerRow
-    ? parseMarkerRow(parsePayload(markerRow.payload))
-    : null;
+  // Without a marker every event is read: `refuseIncompatibleHistory` judges
+  // the whole history then.
+  const all = scope === "all" || markerResult.rows.length === 0;
   const ledgerResult = await producer._executeRaw<{ payload: unknown }>(
-    `SELECT payload FROM ${qualifyControl(driver, names.log)}`
+    ledgerSql(driver, names, all)
   );
-  const ledger = ledgerResult.rows
-    .map((row) => parseLedgerEvent(parsePayload(row.payload)))
-    .sort((left, right) => {
-      if (left.startedAt !== right.startedAt) {
-        return left.startedAt < right.startedAt ? -1 : 1;
-      }
-      return left.eventId < right.eventId ? -1 : 1;
-    });
-  return { presence, marker, ledger };
+  return {
+    presence,
+    ...decodeControlRows(markerResult.rows, ledgerResult.rows),
+  };
+}
+
+/**
+ * The ledger events a command reads, selected by their columns, which the
+ * one writer (`appendLedger`) fills from the event it appends: every event,
+ * or those of an unfinished attempt and the latest `failed` one (plan D5,
+ * new defect 6).
+ */
+function ledgerSql(
+  driver: BoundMigrationDriver,
+  names: { readonly state: string; readonly log: string },
+  all: boolean
+): string {
+  const log = qualifyControl(driver, names.log);
+  if (all) return `SELECT payload FROM ${log}`;
+  const list = (kinds: ReadonlySet<string>) =>
+    [...kinds].map((kind) => `'${kind}'`).join(", ");
+  return `SELECT payload FROM ${log} WHERE (attempt_id IN (SELECT attempt_id FROM ${log} WHERE kind IN (${list(OPENING_KINDS)}))
+    AND attempt_id NOT IN (SELECT attempt_id FROM ${log} WHERE kind IN (${list(CLOSING_KINDS)})))
+  OR event_id = (SELECT event_id FROM ${log} WHERE kind = 'failed' ORDER BY ${jsonField(driver.target.dialect, "startedAt")} DESC, event_id DESC LIMIT 1)`;
+}
+
+function decodeControlRows(
+  markerRows: readonly { readonly payload: unknown }[],
+  ledgerRows: readonly { readonly payload: unknown }[]
+): {
+  readonly marker: MigrationMarkerV1 | null;
+  readonly ledger: readonly LedgerEventV1[];
+} {
+  const markerRow = markerRows[0];
+  return {
+    marker: markerRow ? parseMarkerRow(parsePayload(markerRow.payload)) : null,
+    ledger: inCausalOrder(
+      ledgerRows.map((row) => parseLedgerEvent(parsePayload(row.payload)))
+    ),
+  };
+}
+
+/**
+ * Plan D5: what a PostgreSQL no-op decides on, in two statements: the control
+ * tables' definition, then the marker, the open attempts and the catalog
+ * digest, read together and so in one snapshot, provided `lockFree` (the
+ * migration lock taken and released at once) holds. Without a marker there is
+ * no no-op to prove, so the ledger is never read whole here. `undefined`
+ * unless both control tables are present, so no statement here names a table
+ * that is not there, and while another command holds the lock; a pair that is
+ * not exactly VibORM's is refused.
+ */
+export async function readPostgresDecision(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver,
+  base: string,
+  lockFree: string
+): Promise<
+  | {
+      readonly marker: MigrationMarkerV1 | null;
+      readonly ledger: readonly LedgerEventV1[];
+      readonly digest: Sha256 | undefined;
+    }
+  | undefined
+> {
+  const names = controlTableNames(base);
+  const catalog = await readPostgresControlCatalog(producer, driver, names);
+  if (!(catalog.state && catalog.log)) return;
+  assertPostgresControlAuthentic(catalog, names);
+  const digest = postgresCatalogDigestQuery(driver, names);
+  const { rows } = await producer._executeRaw<{
+    marker: unknown;
+    ledger: unknown;
+    digest: unknown;
+  }>(
+    `SELECT (SELECT json_agg(row_to_json(marker)) FROM (SELECT payload FROM ${qualifyControl(driver, names.state)} WHERE singleton = 1) marker)::text AS marker,
+  (SELECT json_agg(row_to_json(ledger)) FROM (${ledgerSql(driver, names, false)}) ledger)::text AS ledger,
+  (${digest.sql}) AS digest WHERE ${lockFree}`,
+    digest.parameters
+  );
+  if (rows.length === 0) return;
+  return {
+    ...decodeControlRows(
+      readPayloadRows(rows[0]?.marker),
+      readPayloadRows(rows[0]?.ledger)
+    ),
+    digest: readDigest(rows[0]?.digest),
+  };
+}
+
+/** The `{ payload }` rows a JSON aggregate carries; none for SQL NULL. */
+function readPayloadRows(value: unknown): { readonly payload: unknown }[] {
+  const rows: unknown = readCatalogJson(value);
+  return Array.isArray(rows)
+    ? rows.flatMap((row: unknown) =>
+        isRecord(row) ? [{ payload: row.payload }] : []
+      )
+    : [];
+}
+
+/**
+ * The ledger in causal order (new defect 6). Without a sequence column the
+ * clock is the order, and it ties: one millisecond can hold a whole
+ * transactional group, or one attempt's close and the next one's start. The
+ * events of one instant come attempt by attempt — the one opened earliest
+ * first, then along the state chain (an attempt leaving the state another one
+ * arrives at follows it), then by attempt id — and inside an attempt as it
+ * ran: it opens, confirms steps, then closes. Only a cycle of attempts within
+ * one millisecond (up, down, up) falls back to attempt ids.
+ */
+function inCausalOrder(events: readonly LedgerEventV1[]): LedgerEventV1[] {
+  const opened = new Map<Sha256, string>();
+  for (const { attemptId, startedAt } of events) {
+    const first = opened.get(attemptId);
+    if (first === undefined || startedAt < first) {
+      opened.set(attemptId, startedAt);
+    }
+  }
+  const byTime = [...events].sort((left, right) =>
+    compareText(left.startedAt, right.startedAt)
+  );
+  const ordered: LedgerEventV1[] = [];
+  for (let start = 0; start < byTime.length; ) {
+    const instant = byTime[start]!.startedAt;
+    let end = start;
+    while (byTime[end]?.startedAt === instant) end += 1;
+    ordered.push(...instantInOrder(byTime.slice(start, end), opened));
+    start = end;
+  }
+  return ordered;
+}
+
+function instantInOrder(
+  events: readonly LedgerEventV1[],
+  opened: ReadonlyMap<Sha256, string>
+): LedgerEventV1[] {
+  const pending = new Map<Sha256, LedgerEventV1[]>();
+  for (const event of events) {
+    const attempt = pending.get(event.attemptId);
+    if (attempt) attempt.push(event);
+    else pending.set(event.attemptId, [event]);
+  }
+  const follows = ({ attemptId, fromState }: LedgerEventV1) =>
+    fromState !== null &&
+    [...pending.values()].some(
+      ([other]) =>
+        other!.attemptId !== attemptId && other!.toState === fromState
+    );
+  const ordered: LedgerEventV1[] = [];
+  while (pending.size > 0) {
+    const [next] = [...pending.values()]
+      .map(([first]) => first!)
+      .sort(
+        (left, right) =>
+          compareText(
+            opened.get(left.attemptId)!,
+            opened.get(right.attemptId)!
+          ) ||
+          Number(follows(left)) - Number(follows(right)) ||
+          compareText(left.attemptId, right.attemptId)
+      );
+    ordered.push(
+      ...pending
+        .get(next!.attemptId)!
+        .sort(
+          (left, right) =>
+            causalRank(left) - causalRank(right) ||
+            compareText(left.eventId, right.eventId)
+        )
+    );
+    pending.delete(next!.attemptId);
+  }
+  return ordered;
+}
+
+function compareText(left: string, right: string): number {
+  return Number(left > right) - Number(left < right);
+}
+
+function causalRank(event: LedgerEventV1): number {
+  if (OPENING_KINDS.has(event.kind)) return 0;
+  return CLOSING_KINDS.has(event.kind) ? 2 : 1;
+}
+
+/** The text of one top-level field of a JSON payload, per dialect. */
+function jsonField(
+  dialect: BoundMigrationDriver["target"]["dialect"],
+  field: string
+): string {
+  if (dialect === "postgresql") return `payload::json->>'${field}'`;
+  if (dialect === "mysql") {
+    return `JSON_UNQUOTE(JSON_EXTRACT(payload, '$.${field}'))`;
+  }
+  return `json_extract(payload, '$.${field}')`;
+}
+
+/** One control table as the PostgreSQL catalog read reports it. */
+interface PostgresControlTable {
+  readonly kind: unknown;
+  readonly partition: unknown;
+  readonly columns: unknown;
+  readonly constraints: unknown;
+  readonly indexes: unknown;
+  readonly executable: unknown;
+}
+
+interface PostgresControlCatalog {
+  readonly state: PostgresControlTable | undefined;
+  readonly log: PostgresControlTable | undefined;
+}
+
+/**
+ * Both control tables' definitions in one statement (plan D5): the columns,
+ * the constraints but PostgreSQL 18's catalogued NOT NULLs, how many indexes,
+ * and whether a trigger, rule, policy or row security is attached. It reads
+ * these two relations only, so no managed table's state — an INVALID index
+ * among them (plan S7) — can make the control plane unreadable.
+ */
+const POSTGRES_CONTROL_CATALOG = `SELECT control.position, c.relkind::text AS kind, c.relispartition AS partition,
+  (SELECT json_agg(json_build_array(a.attname::text, pg_catalog.format_type(a.atttypid, a.atttypmod), a.attnotnull, a.atthasdef, a.attidentity::text, a.attgenerated::text) ORDER BY a.attnum) FROM pg_catalog.pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)::text AS columns,
+  (SELECT json_agg(json_build_array(k.contype::text, k.conname::text, pg_catalog.pg_get_constraintdef(k.oid, true)) ORDER BY k.conname) FROM pg_catalog.pg_constraint k WHERE k.conrelid = c.oid AND k.contype <> 'n')::text AS constraints,
+  (SELECT count(*) FROM pg_catalog.pg_index i WHERE i.indrelid = c.oid)::text AS indexes,
+  (EXISTS (SELECT 1 FROM pg_catalog.pg_trigger g WHERE g.tgrelid = c.oid AND NOT g.tgisinternal)
+    OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite w WHERE w.ev_class = c.oid AND w.rulename <> '_RETURN')
+    OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy p WHERE p.polrelid = c.oid)
+    OR c.relrowsecurity OR c.relforcerowsecurity) AS executable
+FROM (VALUES (1, $2::text), (2, $3::text)) AS control(position, name)
+LEFT JOIN pg_catalog.pg_class c ON c.relname = control.name AND c.relkind IN ('r', 'p')
+  AND c.relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = $1::text)
+ORDER BY control.position`;
+
+async function readPostgresControlCatalog(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver,
+  names: { readonly state: string; readonly log: string }
+): Promise<PostgresControlCatalog> {
+  let rows: readonly Record<string, unknown>[];
+  try {
+    ({ rows } = await producer._executeRaw<Record<string, unknown>>(
+      POSTGRES_CONTROL_CATALOG,
+      [boundNamespace(driver), names.state, names.log]
+    ));
+  } catch (failure) {
+    throw new MigrationError(
+      "Migration control tables cannot be authenticated",
+      VibORMErrorCode.MIGRATION_INVALID_STATE,
+      { cause: errorCause(failure) }
+    );
+  }
+  if (rows.length !== 2) {
+    throw new MigrationError(
+      "Migration control catalog read must return one row per control table",
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
+  }
+  return {
+    state: presentControlTable(rows[0]),
+    log: presentControlTable(rows[1]),
+  };
+}
+
+/** One row of the catalog read, or `undefined` when that table is absent. */
+function presentControlTable(row: unknown): PostgresControlTable | undefined {
+  if (!isRecord(row) || row.kind === null || row.kind === undefined) return;
+  const { kind, partition, columns, constraints, indexes, executable } = row;
+  return { kind, partition, columns, constraints, indexes, executable };
+}
+
+function assertPostgresControlAuthentic(
+  { state, log }: PostgresControlCatalog,
+  names: { readonly state: string; readonly log: string }
+): void {
+  if (
+    !(
+      state &&
+      log &&
+      hasPostgresStateShape(state, names.state) &&
+      hasPostgresShape(log, LOG_COLUMNS, `${names.log}_pkey`, "event_id", false)
+    )
+  ) {
+    throw new MigrationError(
+      "Migration control tables have an unexpected definition",
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
+  }
+  if (
+    !(
+      isAbsentCatalogFlag(state.executable) &&
+      isAbsentCatalogFlag(log.executable)
+    )
+  ) {
+    throw new MigrationError(
+      "Migration control tables have executable attachments",
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
+  }
+}
+
+const STATE_COLUMNS = [
+  ["singleton", "integer"],
+  ["payload", "text"],
+] as const;
+const LOG_COLUMNS = [
+  ["event_id", "text"],
+  ["attempt_id", "text"],
+  ["kind", "text"],
+  ["payload", "text"],
+] as const;
+
+function hasPostgresStateShape(
+  table: PostgresControlTable,
+  name: string
+): boolean {
+  return hasPostgresShape(
+    table,
+    STATE_COLUMNS,
+    `${name}_pkey`,
+    "singleton",
+    true
+  );
+}
+
+/**
+ * The exact definition VibORM creates: an ordinary table of NOT NULL columns
+ * with no default, identity or generation, its primary key, the state
+ * table's one `singleton = 1` CHECK, and no other constraint or index.
+ */
+function hasPostgresShape(
+  table: PostgresControlTable,
+  columns: readonly (readonly [string, string])[],
+  primaryKeyName: string,
+  primaryKeyColumn: string,
+  singletonCheck: boolean
+): boolean {
+  const constraints = readCatalogRows(table.constraints);
+  if (constraints === undefined) return false;
+  const checks = constraints.filter((constraint) => constraint[0] === "c");
+  const keys = constraints.filter((constraint) => constraint[0] === "p");
+  return (
+    table.kind === "r" &&
+    isAbsentCatalogFlag(table.partition) &&
+    String(table.indexes) === "1" &&
+    canonicalizeJsonText(readCatalogJson(table.columns)) ===
+      canonicalizeJsonText(
+        columns.map(([name, type]) => [name, type, true, false, "", ""])
+      ) &&
+    constraints.length === keys.length + checks.length &&
+    keys.length === 1 &&
+    keys[0]?.[1] === primaryKeyName &&
+    keys[0]?.[2] === `PRIMARY KEY (${primaryKeyColumn})` &&
+    checks.length === (singletonCheck ? 1 : 0) &&
+    checks.every((check) => normalizeSingletonCheck(check[2]) === "singleton=1")
+  );
+}
+
+/** A JSON column of the catalog read, or `null` when it is not JSON text. */
+function readCatalogJson(value: unknown): unknown {
+  if (typeof value !== "string") return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+/** A JSON array of arrays (no rows: SQL NULL), or `undefined`. */
+function readCatalogRows(
+  value: unknown
+): readonly (readonly unknown[])[] | undefined {
+  if (value === null) return [];
+  const rows: unknown = readCatalogJson(value);
+  if (!Array.isArray(rows)) return undefined;
+  const checked: (readonly unknown[])[] = [];
+  for (const row of rows) {
+    const entry: unknown = row;
+    if (!Array.isArray(entry)) return undefined;
+    checked.push(entry);
+  }
+  return checked;
 }
 
 export async function ensureControlTables(
@@ -770,12 +1134,7 @@ export async function casMarker(
       : dialect === "mysql"
         ? `CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.revision')) AS UNSIGNED) = ${placeholder(dialect, 2)}`
         : `CAST(json_extract(payload, '$.revision') AS INTEGER) = ${placeholder(dialect, 2)}`;
-  const pathMatch =
-    dialect === "postgresql"
-      ? `payload::json->>'pathHash' = ${placeholder(dialect, 3)}`
-      : dialect === "mysql"
-        ? `JSON_UNQUOTE(JSON_EXTRACT(payload, '$.pathHash')) = ${placeholder(dialect, 3)}`
-        : `json_extract(payload, '$.pathHash') = ${placeholder(dialect, 3)}`;
+  const pathMatch = `${jsonField(dialect, "pathHash")} = ${placeholder(dialect, 3)}`;
   const result = await producer._executeRaw(
     `UPDATE ${table} SET payload = ${placeholder(dialect, 1)} WHERE singleton = 1 AND ${revisionMatch} AND ${pathMatch}`,
     [payload, expected.revision, expected.pathHash]
@@ -788,17 +1147,26 @@ export async function casMarker(
   }
 }
 
+/** Appends events in one statement, in their order. */
 export async function appendLedger(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
   base: string,
-  event: LedgerEventV1
+  ...events: readonly LedgerEventV1[]
 ): Promise<void> {
   const table = qualifyControl(driver, controlTableNames(base).log);
   const dialect = driver.target.dialect;
+  const rows = events.map((_, index) =>
+    [1, 2, 3, 4].map((column) => placeholder(dialect, index * 4 + column))
+  );
   await producer._executeRaw(
-    `INSERT INTO ${table} (event_id, attempt_id, kind, payload) VALUES (${placeholder(dialect, 1)}, ${placeholder(dialect, 2)}, ${placeholder(dialect, 3)}, ${placeholder(dialect, 4)})`,
-    [event.eventId, event.attemptId, event.kind, canonicalizeJsonText(event)]
+    `INSERT INTO ${table} (event_id, attempt_id, kind, payload) VALUES ${rows.map((row) => `(${row.join(", ")})`).join(", ")}`,
+    events.flatMap((event) => [
+      event.eventId,
+      event.attemptId,
+      event.kind,
+      canonicalizeJsonText(event),
+    ])
   );
 }
 
@@ -832,19 +1200,8 @@ export function unfinishedAttempts(
   const started = new Map<string, LedgerEventV1>();
   const closed = new Set<string>();
   for (const event of events) {
-    if (event.kind === "started" || event.kind === "reset-started") {
-      started.set(event.attemptId, event);
-    }
-    if (
-      event.kind === "applied" ||
-      event.kind === "rolled-back" ||
-      event.kind === "failed" ||
-      event.kind === "baselined" ||
-      event.kind === "resolved" ||
-      event.kind === "reset-applied"
-    ) {
-      closed.add(event.attemptId);
-    }
+    if (OPENING_KINDS.has(event.kind)) started.set(event.attemptId, event);
+    if (CLOSING_KINDS.has(event.kind)) closed.add(event.attemptId);
   }
   return [...started.values()].filter((event) => !closed.has(event.attemptId));
 }

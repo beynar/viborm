@@ -67,6 +67,28 @@ listed state's snapshot and SQL are already readable. It does not upgrade a stor
 service whose consistency or conditional-write contract is weaker than the
 interface promises.
 
+## Caching
+
+Storage is the source of truth. Every command lists the estate's states again
+and reads every artifact it needs again, so the next command sees a state
+published by another process or a history restored from a backup.
+
+Only the parse is cached. Each state manifest and snapshot is parsed once per
+process (one Worker isolate, one Node process), keyed by its own content hash.
+It is never keyed by the estate hash, because every estate with the same
+target has the same `estate.json`. A cached parse is used only when the bytes
+just read are identical to the bytes it was parsed from. Changed bytes under a
+known name are parsed again and refused, exactly as without the cache. Two
+tenants share a cached value only when they store the same artifact, byte for
+byte, and shared values are frozen. SQL blobs are not cached: they are not
+parsed, and hashing their bytes is their identity check.
+
+The cache holds at most 8 MiB of artifact bytes. That covers the snapshots and
+manifests of a 200-state estate of twenty 15-column tables; the parsed values
+take about as much memory again. The least recently used entries are dropped
+first. An estate larger than the bound still works, but its commands parse
+every artifact, as without the cache.
+
 ## Directory Structure
 
 The filesystem writer uses this estate layout:

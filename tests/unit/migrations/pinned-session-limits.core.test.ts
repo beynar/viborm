@@ -231,6 +231,34 @@ describe("the session's time limits", () => {
     ]);
   });
 
+  test("the limits are lifted by an index statement's head, never by the words in a comment", async () => {
+    const driver = pgEstateDriver("public");
+    driver.respond = answerPublicSchema;
+    const annotated =
+      'ALTER TABLE "public"."a" ADD "c" int /* INDEX CONCURRENTLY */';
+    const noted =
+      '-- note\nCREATE INDEX CONCURRENTLY "a_idx" ON "public"."a" ("b")';
+    const lift =
+      "SELECT set_config('lock_timeout', '0', false), set_config('statement_timeout', '0', false)";
+
+    await withLockedMigrationProducer(
+      driver,
+      getMigrationDriver(driver),
+      async (pinned) => {
+        await pinned._executeRaw(annotated);
+        await pinned._executeRaw(noted);
+      }
+    );
+
+    const { statements } = driver;
+    expect(statements.filter((sql) => sql === lift)).toHaveLength(1);
+    expect(statements[statements.indexOf(noted) - 1]).toBe(lift);
+    expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_LIMITS]);
+    expect(statements.indexOf(annotated)).toBeLessThan(
+      statements.indexOf("COMMIT")
+    );
+  });
+
   test("MySQL keeps its own session: no PostgreSQL limits are sent", async () => {
     const driver = mysqlEstateDriver({ namespace: "alpha", attested: true });
     driver.respond = (sql) => {

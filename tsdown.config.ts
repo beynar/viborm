@@ -49,6 +49,7 @@ const runtime = {
     "migrations/storage/durable-object":
       "./src/migrations/storage/durable-object.ts",
     "migrations/storage/r2": "./src/migrations/storage/r2.ts",
+    "migrations/tenant": "./src/migrations/tenant.ts",
 
     // Config helper (viborm/config)
     config: "./src/config.ts",

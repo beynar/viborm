@@ -47,6 +47,7 @@ import type {
   ApplyV1Options,
   BaselineOptions,
   DownV1Options,
+  DownV1Result,
   ExactPushOptions,
   GenerateV1Options,
   LedgerEventV1,
@@ -90,10 +91,7 @@ export type StatusResult = StatusV1Result;
 export type VerifyResult = VerifyV1Result;
 export type LogResult = readonly LedgerEventV1[];
 export type ApplyResult = ApplyV1Result;
-export interface DownResult {
-  readonly path: readonly string[];
-  readonly preview: boolean;
-}
+export type DownResult = DownV1Result;
 export interface BaselineResult {
   readonly stateId: string;
 }

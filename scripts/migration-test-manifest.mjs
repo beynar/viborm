@@ -23,6 +23,7 @@ const localExtendedMigrationTests = Object.freeze([
   "sqlite-unique-constraint.test.ts",
   "sqlite-verified-foreign-key-lift.test.ts",
   "table-drop-order.test.ts",
+  "tenant-migrator.test.ts",
 ]);
 
 export const MIGRATION_COVERAGE_TESTS = Object.freeze(

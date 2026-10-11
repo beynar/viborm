@@ -40,6 +40,7 @@ import {
   ISOLATED_PGLITE_PROVIDER_RSS_CEILING,
   startBoundedProcess,
 } from "./bounded-process.mjs";
+import { acquireTestRunLock } from "./test-run-lock.mjs";
 
 const PROBE_SUFFIX = ".probe.mjs";
 const SELF_TEST_AREA = "runner";
@@ -165,13 +166,16 @@ function logTail(logFile) {
   return lines.slice(-LOG_TAIL_LINES).join("\n");
 }
 
+let runningProbe;
+let interrupted = false;
+
 async function runProbe(consumerRoot, fixtureRoot, path, ctx, options) {
   const scratch = join(fixtureRoot, "probe-tmp", path.replace("/", "--"));
   mkdirSync(join(scratch, "tmp"), { recursive: true });
   const resultFile = join(scratch, ".result.json");
   const logFile = join(scratch, ".output.log");
   const log = openSync(logFile, "w");
-  const run = startBoundedProcess({
+  runningProbe = startBoundedProcess({
     command: process.execPath,
     arguments: [
       import.meta.filename,
@@ -187,7 +191,8 @@ async function runProbe(consumerRoot, fixtureRoot, path, ctx, options) {
     stdio: ["ignore", log, log],
     wallLimitMs: options.timeout,
   });
-  const completion = await run.completion;
+  const completion = await runningProbe.completion;
+  runningProbe = undefined;
   closeSync(log);
   const written = existsSync(resultFile)
     ? JSON.parse(readFileSync(resultFile, "utf8"))
@@ -277,10 +282,22 @@ async function main() {
     throw new Error("--timeout takes a positive number of milliseconds.");
   }
 
+  // `pnpm probes` runs this runner unbounded: an enclosing process-group
+  // ceiling would not see the probes, which run in their own groups under their
+  // own allowance, and its teardown would not reach them. The runner kills the
+  // running probe itself.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+    process.on(signal, () => {
+      interrupted = true;
+      process.exitCode = 1;
+      runningProbe?.terminate("SIGKILL", "interrupted");
+    });
+  }
   const probesRoot = join(repositoryRoot, "probes");
   const pathPattern = options.only?.includes("/") ? options.only : undefined;
   options.idPattern = pathPattern ? "" : (options.only ?? "");
   const paths = discover(probesRoot, pathPattern);
+  const releaseTestRunLock = acquireTestRunLock("probe corpus");
   const fixtureRoot = mkdtempSync(join(tmpdir(), "viborm-probes-"));
   try {
     const consumerRoot = join(fixtureRoot, "consumer");
@@ -311,6 +328,7 @@ async function main() {
         ctx,
         options
       );
+      if (interrupted) throw new Error("Interrupted.");
       if (probe.status === "excluded") continue;
       probes.push(probe);
       process.stdout.write(
@@ -345,6 +363,7 @@ async function main() {
     }
   } finally {
     rmSync(fixtureRoot, { force: true, recursive: true });
+    releaseTestRunLock();
   }
 }
 

@@ -112,7 +112,8 @@ export async function resetV1(
       const control = await readControlState(
         pinned,
         command,
-        DEFAULT_CONTROL_BASE
+        DEFAULT_CONTROL_BASE,
+        { ledger: "open" }
       );
       if (control.presence.kind === "missing-table") {
         refusePartialControl(control.presence);

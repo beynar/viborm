@@ -31,7 +31,12 @@ import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const ROWS = 10_000;
-const LOCK = /pg_try_advisory_xact_lock/i;
+/**
+ * The lock a command takes and holds: the bounded poll. A PostgreSQL apply's
+ * pre-lock no-op proof (plan D5) only tries the lock inside its one read and
+ * holds nothing, so it is not this statement.
+ */
+const LOCK = /^WITH RECURSIVE lock_attempt\b/i;
 const DDL = /^(ALTER TABLE|CREATE (UNIQUE )?INDEX|CREATE TABLE|DROP )/i;
 const CONCURRENTLY = /^CREATE INDEX CONCURRENTLY/i;
 const SETTINGS = ["lock_timeout", "statement_timeout"] as const;

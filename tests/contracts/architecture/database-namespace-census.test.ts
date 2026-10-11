@@ -104,6 +104,10 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // S7 (1.2.0): control authentication no longer interprets managed tables;
   // its two scoped reads became one.
   "src/migrations/control.ts executeRaw 17",
+  // D5 (1.2.0): the PostgreSQL catalog digest, one read-only statement on the
+  // producer its caller hands it (the pinned session, or the pre-lock no-op
+  // proof's own read).
+  "src/migrations/drivers/postgres/catalog-digest.ts executeRaw 1",
   "src/migrations/execute-dispatch.ts executeRaw 2",
   // S10 (1.2.0): the verified foreign-key lift reads `PRAGMA foreign_keys`
   // back after each toggle, and its execution view runs each `DROP TABLE`
@@ -115,7 +119,9 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // S7 (1.2.0): resolve repairs the attempt's own INVALID index on `pinned`.
   // 1.2.0: down's loss approval reads whether a table holds rows
   // (`LIMIT 1`) on the producer under the lock.
-  "src/migrations/operators.ts executeRaw 8",
+  // D4b (1.2.0): `down({ dryRun: true })` runs down's read-only schema
+  // preflight on the unlocked producer it previews from.
+  "src/migrations/operators.ts executeRaw 9",
   // §3.5's pinned-session owner: target selection, the command-view catalog
   // read, and the sequential program's recording view. Exact-decimal migration
   // recovery adds two sites in THIS SAME owner: its catalog read and execution

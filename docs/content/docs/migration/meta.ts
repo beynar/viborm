@@ -10,6 +10,7 @@ export default defineMeta({
     "identifiers",
     "comparison",
     "storage",
+    "tenant-migrator",
     "drivers",
   ],
 });

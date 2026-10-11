@@ -234,6 +234,23 @@ describe("migrate command routing", () => {
     });
   });
 
+  it("routes --low-lock to a low-lock generate and omits the option otherwise", async () => {
+    const lowLock = await invoke(["generate", "--low-lock"]);
+    expect(lowLock.thrown).toBeUndefined();
+    expectCall("generate", {
+      name: undefined,
+      from: undefined,
+      dryRun: undefined,
+      lowLock: true,
+    });
+
+    boundary.migrations.generate.mockClear();
+    await invoke(["generate"]);
+    expect(boundary.migrations.generate.mock.calls[0]?.[0]).not.toHaveProperty(
+      "lowLock"
+    );
+  });
+
   it("uses CLI directory, config directory, storage, and default precedence", async () => {
     await invoke(["generate", "--dir", "command-estate"], "/work/project");
     expect(boundary.createFsStorageWriter).toHaveBeenLastCalledWith(
@@ -735,6 +752,32 @@ describe("coverage low value", () => {
     ]);
     expect(unsafe.thrown).toBeDefined();
     expect(unsafe.output).toContain("positive safe integer");
+  });
+
+  it("prints the down preview's rollback SQL and fails where down would refuse", async () => {
+    const preview = {
+      path: [SHA256],
+      preview: true,
+      edges: [{ stateId: SHA256, toState: null, sql: 'DROP TABLE "a";\n' }],
+      refusal: { code: "V11010", message: "sku case is lost" },
+    };
+    boundary.migrations.down.mockResolvedValue(preview);
+    const refused = await invoke(["down", "--dry-run"]);
+    expect(refused.thrown).toBeUndefined();
+    expect(refused.exitCode).toBe(1);
+    expect(refused.output).toBe(
+      'DROP TABLE "a";\ndown would refuse: V11010: sku case is lost\n'
+    );
+
+    boundary.migrations.down.mockResolvedValue({ ...preview, refusal: null });
+    const clean = await invoke(["down", "--dry-run"]);
+    expect(clean.exitCode).toBeUndefined();
+    expect(clean.output).toBe('DROP TABLE "a";\n');
+
+    boundary.migrations.down.mockResolvedValue(preview);
+    const json = await invoke(["down", "--dry-run", "--json"]);
+    expect(json.exitCode).toBe(1);
+    expect(JSON.parse(json.output)).toEqual(preview);
   });
 });
 

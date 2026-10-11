@@ -115,16 +115,33 @@ type StandardAggregates = Omit<
  * dialects do not agree on, so each adapter states it.
  * `decimalSumOperandPrecision` is absent because each dialect also owns exact
  * admission of an operand compared with a widened sum.
+ *
+ * `infinity` is the dialect's infinite double literal; MySQL has none.
  */
-export const createAggregateFunctions = (): StandardAggregates => ({
+export const createAggregateFunctions = (
+  infinity?: string
+): StandardAggregates => ({
   count: (expr?: Sql): Sql =>
     expr ? sql`COUNT(${expr})` : sql.raw("COUNT(*)"),
   countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
   sum: (expr: Sql): Sql => sql`SUM(${expr})`,
-  numberSum: (expr: Sql): [Sql, Sql] => [
-    sql`SUM(CASE WHEN ABS(${expr}) >= 1e-288 THEN ${expr} / 4294967296.0 / 4294967296.0 END)`,
-    sql`SUM(CASE WHEN ABS(${expr}) < 1e-288 THEN ${expr} END)`,
-  ],
+  numberSum: (expr: Sql) => {
+    const high = sql`SUM(CASE WHEN ABS(${expr}) >= 1e-288 THEN ${expr} / 4294967296.0 / 4294967296.0 END)`;
+    const low = sql`SUM(CASE WHEN ABS(${expr}) < 1e-288 THEN ${expr} END)`;
+    // The reader's join in SQL: scaling `high` back by 2^64 is exact below
+    // 2^960 and leaves the double range from there, where this multiplies
+    // nothing — PostgreSQL and MySQL raise on an overflowing product. Without
+    // an infinite double (MySQL) the overflow clamps to the largest finite
+    // one, which a `having` operand of exactly that value cannot tell apart,
+    // and `high` then sorts an infinite sum past a clamped one.
+    const bound = sql.raw(infinity ?? "1.7976931348623157e308");
+    const value = sql`CASE WHEN ${high} IS NULL THEN ${low} WHEN ABS(${high}) < 9.7453140114e288 THEN ${high} * 4294967296.0 * 4294967296.0 + COALESCE(${low}, 0) WHEN ${high} > 0 THEN ${bound} ELSE -${bound} END`;
+    return {
+      parts: [high, low] as const,
+      value,
+      order: infinity ? [value] : [value, high],
+    };
+  },
   avg: (expr: Sql): Sql => sql`AVG(${expr})`,
   min: (expr: Sql): Sql => sql`MIN(${expr})`,
   max: (expr: Sql): Sql => sql`MAX(${expr})`,

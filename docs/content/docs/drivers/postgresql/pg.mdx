@@ -30,6 +30,7 @@ const client = createClient({
 | `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
+| `migrationSessionAttestation` | `"dedicated-session"` | Your claim, at your risk, that every connection of the pool is one server session for its whole life; lifts the migration refusal of Hyperdrive and Neon `-pooler` hosts (see [Migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler)) |
 
 `createClient` refuses any other key with a `ClientInitializationError` that
 names it.
@@ -112,7 +113,9 @@ and lifecycle under your control.
 ### Neon WebSocket Pool
 
 A `Pool` from `@neondatabase/serverless` is node-postgres's pool over a
-WebSocket, and runs as the supplied `pool` unchanged:
+WebSocket, and runs as the supplied `pool` unchanged. `viborm/pg` still
+imports `pg`, so a Worker installs `pg` next to `@neondatabase/serverless` and
+enables the `nodejs_compat` compatibility flag:
 
 ```typescript
 import { Pool } from "@neondatabase/serverless";
@@ -129,7 +132,10 @@ its `end()`, as above. It holds a session for interactive transactions and
 migrations; run migrations through the direct endpoint, since a `-pooler` host
 is refused for effectful migration commands (see
 [Migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler)).
-It is not yet qualified against a hosted Neon endpoint. For one-shot HTTP
+It was qualified against hosted Neon (PostgreSQL 18) from a Worker on
+2026-10-11: `generate`, `apply`, `status`, `verify` and `log` through the
+direct endpoint, with no advisory lock left behind, and `apply` through the
+`-pooler` URL refused with `V8002` before any connection. For one-shot HTTP
 queries, use [Neon HTTP](/docs/drivers/postgresql/neon-http).
 
 ### With pgvector

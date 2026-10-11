@@ -18,6 +18,7 @@ import {
   ensureControlTables,
   markerFromPath,
   readControlState,
+  readPostgresDecision,
   refuseIncompatibleHistory,
   refusePartialControl,
   unfinishedAttempts,
@@ -44,7 +45,7 @@ import {
 } from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
-import { introspectManaged } from "./push-plan";
+import { introspectManaged, liveFingerprint } from "./push-plan";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
@@ -53,6 +54,7 @@ import type {
   ApplyV1Options,
   LedgerEventV1,
   MarkerPathEdgeV1,
+  MigrationBooleanCheckV1,
   MigrationMarkerV1,
   MigrationStateManifestV1,
 } from "./v1-types";
@@ -89,7 +91,8 @@ export async function applyV1(
     const control = await readControlState(
       client.$driver,
       driver,
-      DEFAULT_CONTROL_BASE
+      DEFAULT_CONTROL_BASE,
+      { ledger: "open" }
     );
     refusePartialControl(control.presence);
     const { marker } = control;
@@ -116,7 +119,8 @@ export async function applyV1(
       const control = await readControlState(
         pinned,
         command,
-        DEFAULT_CONTROL_BASE
+        DEFAULT_CONTROL_BASE,
+        { ledger: "open" }
       );
       if (control.presence.kind === "missing-table") {
         refusePartialControl(control.presence);
@@ -176,9 +180,56 @@ export async function applyV1(
       }
       committed.result = { outcome: "applied", path, statements };
       return committed.result;
-    }
+    },
+    driver.target.dialect === "postgresql"
+      ? (session, lockFree) =>
+          provenNoop(session, lockFree, driver, graph, target, options)
+      : undefined
   );
   return keepCommittedOutcome(committed, locked);
+}
+
+/**
+ * Plan D5 (decision 7): a PostgreSQL apply with nothing to do proves it
+ * before the lock, in two statements: the control tables' definition, then
+ * the marker, the open attempts and the catalog digest, read in one snapshot
+ * while no other command holds the lock (`lockFree`). A database at the
+ * target, with nothing open and no drift, was there at that instant, which is
+ * all a no-op claims, and it writes nothing a lock would protect. Anything
+ * else — another command at work included — or anything this read cannot
+ * decide, goes to the locked path, which decides again under the lock.
+ */
+async function provenNoop(
+  session: Parameters<typeof introspectManaged>[0],
+  lockFree: string,
+  driver: BoundMigrationDriver,
+  graph: MigrationGraph,
+  target: Sha256,
+  options: ApplyV1Options
+): Promise<ApplyV1Result | undefined> {
+  const decision = await readPostgresDecision(
+    session,
+    driver,
+    DEFAULT_CONTROL_BASE,
+    lockFree
+  );
+  const marker = decision?.marker;
+  if (!marker || unfinishedAttempts(decision.ledger).length > 0) return;
+  // A refusal thrown here is decided again, and thrown, under the lock.
+  if (followsAheadPolicy(graph, marker, options)) {
+    return { outcome: "noop", path: [], statements: [] };
+  }
+  if (marker.stateId !== target || decision.digest === undefined) return;
+  const expected = snapshotOf(graph, markedSnapshotHash(graph, marker));
+  // A declared partial-index predicate is canonicalized through scratch
+  // views, which this read does not create.
+  if (expected?.tables.some((table) => table.indexes.some((i) => i.where))) {
+    return;
+  }
+  return expected &&
+    decision.digest === (await fingerprintLive(expected, driver, session))
+    ? { outcome: "noop", path: [], statements: [] }
+    : undefined;
 }
 
 /**
@@ -307,11 +358,27 @@ export async function applyPathUnderLock(
     const statements = group.items.flatMap(statementsOf);
     const lifted = liftForeignKeyPragmas(pinned, statements);
     const running: { attempt?: ForwardAttempt } = {};
-    const run = async (producer: Parameters<typeof appendLedger>[0]) => {
+    const run = async (
+      producer: Parameters<typeof appendLedger>[0],
+      atomic: boolean
+    ) => {
       await assertLockedSinceDecision(pinned, producer, command, current);
       if (bootstrapPending) {
         await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
         bootstrapPending = false;
+      }
+      if (atomic) {
+        current = await executeAtomicGroup(
+          producer,
+          command,
+          graph,
+          group.items,
+          running,
+          current,
+          nextPath,
+          models
+        );
+        return;
       }
       for (const item of group.items) {
         running.attempt = { item, attemptId: forwardAttemptId(graph, item) };
@@ -338,7 +405,7 @@ export async function applyPathUnderLock(
       try {
         await withForeignKeysLifted(pinned, lifted.bracket, async (inside) => {
           await pinned.withTransaction(async (transaction) => {
-            await inside(transaction, run);
+            await inside(transaction, (producer) => run(producer, true));
             committing = true;
           });
           committed = true;
@@ -356,9 +423,120 @@ export async function applyPathUnderLock(
         throw failure;
       }
     } else {
-      await run(pinned);
+      await run(pinned, false);
     }
   }
+}
+
+/**
+ * One group inside a real transaction (plan D5). Its rollback is the proof
+ * of every step, so the statements run unprobed and leave no progress rows
+ * or `started` events; the group's last state is proven once, the marker
+ * moves once (by one revision per edge, as edge by edge), and every edge's
+ * `applied` event lands in one statement. Between the first DDL and the
+ * COMMIT this sends the DDL, the authored checks and three control
+ * statements.
+ */
+async function executeAtomicGroup(
+  producer: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  items: readonly PreparedForwardEdge[],
+  running: { attempt?: ForwardAttempt },
+  current: MigrationMarkerV1 | null,
+  nextPath: MarkerPathEdgeV1[],
+  models: MigrationClient["$schema"]
+): Promise<MigrationMarkerV1> {
+  const arrivals: LedgerEventV1[] = [];
+  for (const item of items) {
+    const attemptId = forwardAttemptId(graph, item);
+    running.attempt = { item, attemptId };
+    const { from, to, transition, state, blob } = item;
+    await assertChecks(
+      producer,
+      command,
+      blob,
+      transition.originChecks,
+      "origin"
+    );
+    await executeOperations(
+      producer,
+      blob,
+      transition.operations,
+      "atomic",
+      undefined,
+      command.namespace,
+      { fromState: from, toState: to }
+    );
+    // Manual SQL may store text typed queries cannot compare (`datetime('now')`).
+    await canonicalizeSqliteStorage(
+      producer,
+      transition.operations,
+      models,
+      requireStateSnapshot(graph, to)
+    );
+    await assertChecks(
+      producer,
+      command,
+      blob,
+      state.destinationChecks,
+      "destination"
+    );
+    nextPath.push({
+      stateId: to,
+      transitionHash: transition.transitionHash,
+      baselineBoundary: false,
+    });
+    arrivals.push(
+      ledgerEvent(
+        graph,
+        attemptId,
+        "applied",
+        from,
+        to,
+        "committed",
+        null,
+        null,
+        transition.transitionHash
+      )
+    );
+  }
+  const { snapshotHash } = items.at(-1)!.state;
+  await assertFingerprint(producer, command, graph, snapshotHash);
+  const next = markerFromPath(
+    graph.estateHash,
+    snapshotHash,
+    [...nextPath],
+    (current?.revision ?? 0) + items.length
+  );
+  await casMarker(
+    producer,
+    command,
+    DEFAULT_CONTROL_BASE,
+    current ? { revision: current.revision, pathHash: current.pathHash } : null,
+    next
+  );
+  await appendLedger(producer, command, DEFAULT_CONTROL_BASE, ...arrivals);
+  return next;
+}
+
+/** An edge's authored origin or destination checks, which must all hold. */
+async function assertChecks(
+  producer: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  blob: Uint8Array,
+  checks: readonly MigrationBooleanCheckV1[],
+  side: "origin" | "destination"
+): Promise<void> {
+  if (await evaluateAllChecks(producer, blob, checks, command.namespace)) {
+    return;
+  }
+  throw new MigrationError(
+    side === "origin"
+      ? "Origin checks failed before the first dispatch"
+      : "Destination checks failed before the marker could advance",
+    VibORMErrorCode.MIGRATION_DRIFT
+  );
 }
 
 /**
@@ -381,7 +559,8 @@ export async function assertLockedSinceDecision(
   const { marker, ledger } = await readControlState(
     producer,
     command,
-    DEFAULT_CONTROL_BASE
+    DEFAULT_CONTROL_BASE,
+    { ledger: "open" }
   );
   if (
     marker?.revision === expected?.revision &&
@@ -420,7 +599,8 @@ async function commitLanded(
     ({ marker } = await readControlState(
       pinned,
       command,
-      DEFAULT_CONTROL_BASE
+      DEFAULT_CONTROL_BASE,
+      { ledger: "open" }
     ));
   } catch {
     const fromState = items[0]?.from ?? null;
@@ -550,19 +730,13 @@ async function executeForwardEdge(
       transition.transitionHash
     )
   );
-  if (
-    !(await evaluateAllChecks(
-      producer,
-      blob,
-      transition.originChecks,
-      command.namespace
-    ))
-  ) {
-    throw new MigrationError(
-      "Origin checks failed before the first dispatch",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
+  await assertChecks(
+    producer,
+    command,
+    blob,
+    transition.originChecks,
+    "origin"
+  );
   await executeOperations(
     producer,
     blob,
@@ -596,19 +770,13 @@ async function executeForwardEdge(
     models,
     requireStateSnapshot(graph, to)
   );
-  if (
-    !(await evaluateAllChecks(
-      producer,
-      blob,
-      state.destinationChecks,
-      command.namespace
-    ))
-  ) {
-    throw new MigrationError(
-      "Destination checks failed before the marker could advance",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
+  await assertChecks(
+    producer,
+    command,
+    blob,
+    state.destinationChecks,
+    "destination"
+  );
   await assertFingerprint(producer, command, graph, state.snapshotHash);
   nextPath.push({
     stateId: to,
@@ -688,6 +856,19 @@ export async function assertNoDrift(
   graph: MigrationGraph,
   marker: MigrationMarkerV1
 ): Promise<void> {
+  await assertFingerprint(
+    producer,
+    command,
+    graph,
+    markedSnapshotHash(graph, marker)
+  );
+}
+
+/** The authenticated snapshot a marker names, once its identity is proven. */
+function markedSnapshotHash(
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1
+): Sha256 {
   if (marker.estateHash !== graph.estateHash) {
     throw new MigrationError(
       "Live marker estate does not match storage",
@@ -754,7 +935,7 @@ export async function assertNoDrift(
       VibORMErrorCode.MIGRATION_CORRUPTION
     );
   }
-  await assertFingerprint(producer, command, graph, snapshotHash);
+  return snapshotHash;
 }
 
 async function assertFingerprint(
@@ -763,20 +944,29 @@ async function assertFingerprint(
   graph: MigrationGraph,
   snapshotHash: Sha256
 ): Promise<void> {
+  const expected = snapshotOf(graph, snapshotHash);
+  const fingerprint =
+    expected && (await fingerprintLive(expected, command, producer));
+  if ((await liveFingerprint(producer, command)) === fingerprint) return;
+  // The difference is read only to say what drifted.
   const live = await introspectManaged(producer, command);
-  const expected =
-    graph.snapshots.get(snapshotHash) ??
-    (snapshotHash === graph.emptySnapshotHash ? emptyManagedSnapshot() : null);
-  if (
-    !expected ||
-    (await fingerprintLive(live, command, producer)) !==
-      (await fingerprintLive(expected, command, producer))
-  ) {
+  if ((await fingerprintLive(live, command, producer)) === fingerprint) {
     throw new MigrationError(
-      `Live managed schema drifted from the authenticated snapshot. Differences: ${expected ? JSON.stringify(await diff(live, expected)) : "authenticated snapshot is missing"}`,
-      VibORMErrorCode.MIGRATION_DRIFT
+      "The PostgreSQL catalog digest disagrees with the introspected schema, which matches the authenticated snapshot. This is a VibORM defect in the digest (drivers/postgres/catalog-digest.ts), not drift: nothing ran. Please report it with the snapshot.",
+      VibORMErrorCode.INTERNAL_ERROR
     );
   }
+  throw new MigrationError(
+    `Live managed schema drifted from the authenticated snapshot. Differences: ${expected ? JSON.stringify(await diff(live, expected)) : "authenticated snapshot is missing"}`,
+    VibORMErrorCode.MIGRATION_DRIFT
+  );
+}
+
+function snapshotOf(graph: MigrationGraph, snapshotHash: Sha256) {
+  return (
+    graph.snapshots.get(snapshotHash) ??
+    (snapshotHash === graph.emptySnapshotHash ? emptyManagedSnapshot() : null)
+  );
 }
 
 async function assertEmptyManaged(

@@ -7,7 +7,9 @@ import {
   addDropResolver,
   alwaysAddDropResolver,
   alwaysRenameResolver,
+  ambiguousToResolveChange,
   applyResolutions,
+  callbackAsResolver,
   createPredefinedResolver,
   createResolver,
   // Unified resolvers
@@ -279,16 +281,18 @@ describe("createResolver", () => {
 });
 
 describe("createPredefinedResolver", () => {
-  it("should match column changes by name", async () => {
-    const resolver = createPredefinedResolver([
-      {
-        type: "column",
-        from: "username",
-        to: "name",
-        tableName: "users",
-        resolution: "rename",
-      },
-    ]);
+  it("should match column changes by table and name", async () => {
+    const resolver = callbackAsResolver(
+      createPredefinedResolver([
+        {
+          type: "column",
+          from: "username",
+          to: "name",
+          tableName: "users",
+          resolution: "rename",
+        },
+      ])
+    );
 
     const changes = [makeColumnChange("users", "username", "name")];
     const resolutions = await resolver(changes);
@@ -297,35 +301,189 @@ describe("createPredefinedResolver", () => {
   });
 
   it("should match table changes by name", async () => {
-    const resolver = createPredefinedResolver([
-      {
-        type: "table",
-        from: "posts",
-        to: "articles",
-        resolution: "rename",
-      },
-    ]);
+    const resolver = callbackAsResolver(
+      createPredefinedResolver([
+        {
+          type: "table",
+          from: "posts",
+          to: "articles",
+          resolution: "addAndDrop",
+        },
+      ])
+    );
 
     const changes = [makeTableChange("posts", "articles")];
     const resolutions = await resolver(changes);
 
-    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
+    expect(resolutions.get(changes[0]!)).toEqual({ type: "addAndDrop" });
   });
 
-  it("should not set resolution for unmatched changes", async () => {
-    const resolver = createPredefinedResolver([
+  it("should leave a change no decision names unanswered", async () => {
+    const resolve = createPredefinedResolver([
       {
         type: "column",
-        from: "foo",
-        to: "bar",
+        from: "username",
+        to: "name",
+        tableName: "accounts",
         resolution: "rename",
+      },
+      { type: "table", from: "users", to: "name", resolution: "rename" },
+      {
+        type: "destructive",
+        operation: "dropColumn",
+        table: "users",
+        column: "email",
+      },
+      {
+        type: "enumValueRemoval",
+        tableName: "users",
+        columnName: "status",
+        mapValues: { old: null },
       },
     ]);
 
-    const changes = [makeColumnChange("users", "username", "name")];
-    const resolutions = await resolver(changes);
+    const column = ambiguousToResolveChange(
+      makeColumnChange("users", "username", "name")
+    );
+    const drop = createDestructiveChange({
+      operation: "dropTable",
+      table: "users",
+      description: "Drop table users",
+    });
+    const removal = createEnumValueRemovalChange({
+      enumName: "status",
+      tableName: "users",
+      columnName: "role",
+      isNullable: true,
+      removedValues: ["old"],
+      availableValues: ["new"],
+      description: "remove old",
+    });
+    for (const change of [column, drop, removal]) {
+      expect(await resolve(change)).toBeUndefined();
+    }
+  });
 
-    expect(resolutions.has(changes[0]!)).toBe(false);
+  it("should answer destructive and enum value removal changes it names", async () => {
+    const resolve = createPredefinedResolver([
+      {
+        type: "destructive",
+        operation: "dropTable",
+        table: "logs",
+        column: null,
+      },
+      {
+        type: "enumValueRemoval",
+        tableName: "users",
+        columnName: "status",
+        mapValues: { archived: "inactive", deleted: null },
+      },
+    ]);
+    expect(
+      await resolve(
+        createDestructiveChange({
+          operation: "dropTable",
+          table: "logs",
+          description: "Drop table logs",
+        })
+      )
+    ).toBe("proceed");
+    const removal = createEnumValueRemovalChange({
+      enumName: "status",
+      tableName: "users",
+      columnName: "status",
+      isNullable: true,
+      removedValues: ["archived", "deleted"],
+      availableValues: ["active", "inactive"],
+      description: "remove archived and deleted",
+    });
+    expect(await resolve(removal)).toBe("enumMapped");
+    expect(readEnumResolutionDecision(removal)).toEqual({
+      kind: "mapValues",
+      mappings: { archived: "inactive", deleted: null },
+    });
+  });
+
+  it.each([
+    ["a list", { type: "column" }, "must be an array"],
+    [
+      "an unknown type",
+      [{ type: "bogus", from: "a", to: "b" }],
+      "type must be one of",
+    ],
+    [
+      "a missing key",
+      [{ type: "column", from: "a", to: "b", resolution: "rename" }],
+      "decisions[0].tableName must be a string",
+    ],
+    [
+      "an unknown key",
+      [
+        {
+          type: "table",
+          from: "a",
+          to: "b",
+          resolution: "rename",
+          tableName: "x",
+        },
+      ],
+      "decisions[0] contains unknown key tableName",
+    ],
+    [
+      "a non-string name",
+      [{ type: "table", from: 1, to: "b", resolution: "rename" }],
+      "from must be a string",
+    ],
+    [
+      "an unknown resolution",
+      [{ type: "table", from: "a", to: "b", resolution: "renam" }],
+      "resolution must be rename or addAndDrop",
+    ],
+    [
+      "an unknown operation",
+      [
+        {
+          type: "destructive",
+          operation: "truncate",
+          table: "a",
+          column: null,
+        },
+      ],
+      "operation must be one of",
+    ],
+    [
+      "a mapping that is not an object",
+      [
+        {
+          type: "enumValueRemoval",
+          tableName: "a",
+          columnName: "b",
+          mapValues: "x",
+        },
+      ],
+      "mapValues must be an object",
+    ],
+    [
+      "a mapping to a non-string",
+      [
+        {
+          type: "enumValueRemoval",
+          tableName: "a",
+          columnName: "b",
+          mapValues: { x: 1 },
+        },
+      ],
+      "mapValues.x must be a string or null",
+    ],
+  ])("refuses %s with V4002", (_label, decisions, message) => {
+    expect(() =>
+      createPredefinedResolver(JSON.parse(JSON.stringify(decisions)))
+    ).toThrow(
+      expect.objectContaining({
+        code: "V4002",
+        message: expect.stringContaining(message),
+      })
+    );
   });
 });
 

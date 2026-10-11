@@ -411,16 +411,26 @@ export interface DatabaseAdapter {
      * part is the plain sum scaled exactly, and the reader's
      * `high * 2^64 + low` is that sum — `±Infinity` past the double range,
      * where PostgreSQL's own `SUM` raises and MySQL's answers 0 (engine-10).
+     *
+     * `having` compares `value` and a grouped `orderBy` sorts by `order`, so
+     * a group is kept and placed by the sum the projection publishes.
      */
-    numberSum: (expr: Sql) => [high: Sql, low: Sql];
+    numberSum: (expr: Sql) => {
+      readonly parts: readonly [high: Sql, low: Sql];
+      /** The joined sum as one comparable expression. */
+      readonly value: Sql;
+      /** Sort keys, most significant first, ordering by the joined sum. */
+      readonly order: readonly Sql[];
+    };
     /**
      * Stated only where an integer `SUM` is int64 and raises past it
      * (SQLite): an int64 column's sum as two `SUM`s no realistic row count
      * can overflow — each member's high 32 bits and the rest — read back
-     * exactly as `high * 2^32 + low` (engine-10). PostgreSQL and MySQL already
-     * sum integers as exact numerics.
+     * exactly as `high * 2^32 + low` (engine-10), compared and sorted as
+     * `numberSum` states. PostgreSQL and MySQL already sum integers as exact
+     * numerics.
      */
-    integerSum?: (expr: Sql) => [high: Sql, low: Sql];
+    integerSum?: DatabaseAdapter["aggregates"]["numberSum"];
     avg: (expr: Sql) => Sql;
     min: (expr: Sql, boolean?: boolean) => Sql;
     max: (expr: Sql, boolean?: boolean) => Sql;

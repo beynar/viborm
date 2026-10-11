@@ -551,7 +551,13 @@ relation-free D1 table can still use the guarded recreation.
 6. compile every parent-specific transition completely;
 7. compute all hashes and return the complete candidate for `dryRun`;
 8. otherwise publish snapshot and SQL bytes first, then publish the state
-   manifest as the sole visibility boundary.
+   manifest as the sole visibility boundary. A `lowLock` generate (PostgreSQL,
+   T5b) seals its step states together with the final state before anything
+   publishes, then publishes them in parent order, each manifest after its own
+   snapshot and SQL. Only a storage failure between two manifests can leave a
+   published prefix, each a complete state, and
+   `generate({ lowLock: true, from: <origin> })` completes it with identical
+   state ids.
 
 Manual work enters only through `GenerateOptions.manualMigration`. It supplies
 complete parent transitions and destination checks before generation. The
@@ -584,7 +590,15 @@ state remains distinct from total absence. Only the bootstrap owner may drop
 and recreate it; push and every other command refuse it. A colliding or
 malformed empty table, a state table with a marker, or a log-only shape remains
 corrupt partial history. `readControlState` is the one reader: it authenticates
-a present pair once before returning marker and ledger truth. Transactional
+a present pair once before returning marker and ledger truth. It returns every
+event by default (`log()`); a command that needs only the open attempts and the
+latest `failed` event passes `{ ledger: "open" }` (plan D5), and without a
+marker every event is read regardless. Events come back in causal order: by
+time, then within one millisecond attempt by attempt (the earliest opened, then
+along the state chain, then attempt id), and within an attempt its start,
+steps, close. On PostgreSQL the pair is authenticated by one catalog read of
+the two control tables (columns, constraints, index count, triggers, rules,
+policies, row security), never by introspecting the namespace. Transactional
 apply, baseline, and reset perform a required bootstrap inside their first real
 effect/publication transaction, and a failed one leaves only the control
 tables and its `failed` ledger event, written in a transaction of its own after
@@ -600,9 +614,20 @@ dispatches, and parameters. Under one pinned target lock it then:
 3. selects from the actual marker;
 4. proves the live schema matches the marker's authenticated snapshot;
 5. executes only authenticated SQL slices with typed parameters;
-6. proves operation postconditions and the final target fingerprint;
+6. proves operation postconditions and the final target fingerprint; inside a
+   real transaction a group proves only its authored checks per edge and its
+   final fingerprint once;
 7. compare-and-swaps the marker and appends ledger evidence;
 8. releases the lock on the same physical producer.
+
+On PostgreSQL a no-op `apply` is proven before the lock (plan D5, decision 7):
+the control catalog read, then one statement that reads the marker, the open
+attempts and the catalog digest in one snapshot, provided
+`pg_try_advisory_xact_lock` on the migration key succeeds (released with the
+statement). A marker at the target with nothing open, whose digest equals
+`fingerprintLive` of the marked snapshot, answers `noop`. Anything else,
+including another command holding the lock or an abstaining digest, is decided
+again under the lock.
 
 On SQLite, every program that runs manual SQL — a forward transition with a
 manual operation, a `manual` rollback, and `resolve` completing a manual
@@ -615,7 +640,13 @@ snapshot; Time columns and DateTime lists come from the client's models,
 matched by table, column and physical type.
 
 Transactional providers keep effects, final proof, marker, and success evidence
-inside the real transaction when the complete transition permits it. Stepwise
+inside the real transaction when the complete transition permits it. Inside a
+real transaction a group runs its dispatches unprobed and writes no `started`
+or `step-confirmed` rows; its rollback is the proof. Its last state is proven
+once, the marker moves once (one revision per edge), and one statement appends
+every edge's `applied` event. A failure is recorded as one `failed` event
+against the edge that was running. Stepwise and MySQL work keeps per-step
+probes and progress rows. Stepwise
 providers record durable progress and honest `partial` or
 `may-have-committed` outcomes. An ambiguous opaque dispatch blocks later work;
 the system never claims rollback merely because code opened a nominal
@@ -716,7 +747,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Invariant or action | One owner |
 | --- | --- |
 | Domain-separated SHA-256 identity | `identity.ts` |
-| Live physical fingerprint | `push-fingerprint.ts` `fingerprintLive` |
+| Live physical fingerprint | `push-fingerprint.ts` `fingerprintLive`; on PostgreSQL `drivers/postgres/catalog-digest.ts` computes the same hash in one statement from introspection's own catalog sources and abstains where SQL cannot reproduce a fact exactly (partial-index predicates, some literal defaults). A change to `fingerprintSnapshot`, `normalizeType`, `normalizeDefault`, `cleanDefault`, `selectManagedSnapshot` or the introspection sources must change the digest with it; `postgres-catalog-digest*.test.ts` prove equality, and a live divergence surfaces as V9001 from `assertFingerprint`. |
 | Operation execution order | `utils.ts` `sortOperations` |
 | Generated schema compile order | `utils.ts` `prepareSchemaProgram` |
 | Table drop order, its delete-action rule and the refusal of drops no order satisfies | `drop-order.ts` `orderTableDrops`; namespace reset shares only its `childrenBeforeParents` rule |

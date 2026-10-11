@@ -33,15 +33,21 @@ const STATE_WRITE =
   /^\s*(CREATE|ALTER|DROP)\b|\b(UPDATE|INSERT INTO|DELETE FROM)\s+[^\s(]*_viborm_migration_state/i;
 
 /**
- * Fires on the first read of the state table, however it is spelled (D5 may
- * fold it into one WITH query), sent once the runner took the advisory lock
- * (session- or transaction-scoped, possibly in the same statement).
+ * Fires on the first read of the state table sent once the runner took the
+ * advisory lock (session- or transaction-scoped). A statement that tries the
+ * lock and reads the state table itself is a PostgreSQL apply's pre-lock no-op
+ * proof (plan D5, decision 7): autocommit, its lock released with the
+ * statement, so it holds nothing to strand.
  */
 function markerReadUnderLock() {
   let locked = false;
   return (text) => {
-    locked ||= LOCK.test(text);
-    return locked && STATE_TABLE.test(text) && !STATE_WRITE.test(text);
+    const read = STATE_TABLE.test(text) && !STATE_WRITE.test(text);
+    if (LOCK.test(text)) {
+      locked ||= !read;
+      return false;
+    }
+    return locked && read;
   };
 }
 

@@ -303,6 +303,14 @@ describe("one process (S5)", () => {
     try {
       const before = balanceSum(file);
       const eventsBefore = appliedEvents(file);
+      // A transactional apply writes no `started` event (plan D5), so the
+      // count to keep is the one before this apply, not the applied count.
+      const startedEvents = () =>
+        read(
+          file,
+          `SELECT count(*) AS n FROM "_viborm_migration_log" WHERE "kind" = 'started'`
+        );
+      const startedBefore = startedEvents();
       await expect(
         createMigrationClient(client, {
           storage: createFsStorageWriter(prepared.estate),
@@ -312,11 +320,7 @@ describe("one process (S5)", () => {
       });
       expect(balanceSum(file)).toBe(before);
       expect(appliedEvents(file)).toBe(eventsBefore);
-      const started = read(
-        file,
-        `SELECT count(*) AS n FROM "_viborm_migration_log" WHERE "kind" = 'started'`
-      );
-      expect(started).toBe(eventsBefore);
+      expect(startedEvents()).toBe(startedBefore);
 
       // The upgrade step: no database applied it, so its state leaves the
       // estate (its `states/<id>.json` file) and is generated again from the

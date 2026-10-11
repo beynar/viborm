@@ -201,6 +201,63 @@ export type DownV1Options = (
   readonly resolve?: ResolveCallback;
 };
 
+/**
+ * One edge of a `down({ dryRun: true })` preview, in the order `down` would
+ * roll it back: the state left, the state reached, and the review of its
+ * rollback SQL.
+ */
+export interface DownPreviewEdgeV1 {
+  readonly stateId: Sha256;
+  readonly toState: Sha256 | null;
+  readonly sql: string;
+}
+
+/**
+ * `down` itself returns `preview: false`. A dry run returns each edge's
+ * rollback SQL and `refusal`: the error `down` would raise with the same
+ * options (an irreversible step, an unapproved loss of rows, drift), or `null`.
+ * Plain data, so it crosses an RPC boundary intact.
+ */
+export type DownV1Result =
+  | { readonly path: readonly Sha256[]; readonly preview: false }
+  | {
+      readonly path: readonly Sha256[];
+      readonly preview: true;
+      readonly edges: readonly DownPreviewEdgeV1[];
+      readonly refusal: {
+        readonly code: string;
+        readonly message: string;
+      } | null;
+    };
+
+/**
+ * One `createPredefinedResolver` decision, plain JSON. Each names the change
+ * it answers by that change's own fields: a rename by table and old and new
+ * name, an enum value removal by its column, a destructive change by its
+ * approval identity (`column` is `null` for a table).
+ */
+export type MigrationDecisionV1 =
+  | {
+      readonly type: "column";
+      readonly tableName: string;
+      readonly from: string;
+      readonly to: string;
+      readonly resolution: "rename" | "addAndDrop";
+    }
+  | {
+      readonly type: "table";
+      readonly from: string;
+      readonly to: string;
+      readonly resolution: "rename" | "addAndDrop";
+    }
+  | {
+      readonly type: "enumValueRemoval";
+      readonly tableName: string;
+      readonly columnName: string;
+      readonly mapValues: Readonly<Record<string, string | null>>;
+    }
+  | ({ readonly type: "destructive" } & MigrationApprovalV1);
+
 export interface ResolveV1Options {
   readonly outcome: "complete" | "rolled-back" | "retry";
 }
@@ -213,6 +270,16 @@ export interface GenerateV1Options {
   readonly resolve?: ResolveCallback;
   readonly skipValidation?: boolean;
   readonly manualMigration?: ManualMigrationInput;
+  /**
+   * PostgreSQL (plan T5b): build each index on, and add each foreign key to,
+   * a table the migration does not create without a lock that blocks writes
+   * while it reads the table. The change is published as consecutive states:
+   * the rest of it in one transaction, each index `CREATE INDEX CONCURRENTLY`
+   * outside any, the keys `NOT VALID`, then their `VALIDATE CONSTRAINT` in a
+   * commit of its own. A step outside a transaction needs a direct session,
+   * which a transaction pooler cannot give. Other dialects ignore it.
+   */
+  readonly lowLock?: boolean;
 }
 
 export type PathHash = Sha256;

@@ -37,6 +37,12 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
     );
     let failFirstLogCreate = true;
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: statePresent,
+        log: logPresent,
+        check: SINGLETON_CHECK,
+      });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: statePresent,
         log: logPresent,
@@ -112,6 +118,12 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       getMigrationDriver(driver)
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: false,
+        check: SINGLETON_CHECK,
+      });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
         log: false,
@@ -162,6 +174,12 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       true
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: false,
+        malformed: true,
+      });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
         log: false,
@@ -187,6 +205,8 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       getMigrationDriver(driver)
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, { state: true, log: false });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
         log: false,
@@ -222,6 +242,13 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       true
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: SINGLETON_CHECK,
+        malformedLog: true,
+      });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
         log: true,
@@ -266,6 +293,13 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       () => true
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: SINGLETON_CHECK,
+        attached: true,
+      });
+      if (pg) return pg;
       if (sql.includes("AS attached")) return [{ attached: 1 }];
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
@@ -303,6 +337,75 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
     });
   });
 });
+
+const SINGLETON_CHECK = "CHECK (singleton = 1)";
+
+/**
+ * PostgreSQL authenticates both control tables in one catalog read (plan D5);
+ * this answers it from the description the other dialects' fakes give: the
+ * state table's second column, its singleton CHECK as the catalog prints it
+ * (absent when `undefined`), the log's primary key, and any attachment.
+ */
+function postgresControlCatalogAnswer(
+  sql: string,
+  shape: {
+    readonly state: boolean;
+    readonly log: boolean;
+    readonly malformed?: boolean;
+    readonly malformedLog?: boolean;
+    readonly check?: string | null;
+    readonly attached?: boolean;
+  }
+): unknown[] | undefined {
+  if (!sql.includes("AS control(position, name)")) return;
+  const column = (name: string, type: string) => [
+    name,
+    type,
+    true,
+    false,
+    "",
+    "",
+  ];
+  const table = (
+    present: boolean,
+    columns: readonly unknown[],
+    constraints: readonly (readonly unknown[])[]
+  ) =>
+    present
+      ? {
+          kind: "r",
+          partition: false,
+          columns: JSON.stringify(columns),
+          constraints: JSON.stringify(constraints),
+          indexes: String(constraints.filter((c) => c[0] === "p").length),
+          executable: shape.attached ?? false,
+        }
+      : { kind: null };
+  return [
+    table(
+      shape.state,
+      [
+        column("singleton", "integer"),
+        column(shape.malformed ? "intruder" : "payload", "text"),
+      ],
+      [
+        ...(shape.check === undefined
+          ? []
+          : [["c", "_viborm_migration_state_singleton_check", shape.check]]),
+        ["p", "_viborm_migration_state_pkey", "PRIMARY KEY (singleton)"],
+      ]
+    ),
+    table(
+      shape.log,
+      ["event_id", "attempt_id", "kind", "payload"].map((name) =>
+        column(name, "text")
+      ),
+      shape.malformedLog
+        ? []
+        : [["p", "_viborm_migration_log_pkey", "PRIMARY KEY (event_id)"]]
+    ),
+  ];
+}
 
 function commandWithStateDefinition(
   driver: BoundMigrationDriver,
@@ -482,6 +585,12 @@ describe.each([
       () => true
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: null,
+      });
+      if (pg) return pg;
       if (sql.includes("AS attached")) return [{ attached: 0 }];
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,

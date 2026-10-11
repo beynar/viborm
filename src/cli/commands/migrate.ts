@@ -154,6 +154,10 @@ export function createMigrateCommand(): Command {
     )
     .option("--dry-run", "Preview without publishing")
     .option(
+      "--low-lock",
+      "PostgreSQL: publish index builds and foreign keys on existing tables as recoverable steps"
+    )
+    .option(
       "--accept-data-loss",
       "Approve destructive changes (drops, type changes) for this generate"
     )
@@ -164,6 +168,7 @@ export function createMigrateCommand(): Command {
         dir?: string;
         from?: string;
         dryRun?: boolean;
+        lowLock?: boolean;
         acceptDataLoss?: boolean;
         custom?: string;
         review?: string;
@@ -215,6 +220,7 @@ export function createMigrateCommand(): Command {
               name: opts.name,
               from,
               dryRun: opts.dryRun,
+              ...(opts.lowLock ? { lowLock: true } : {}),
               ...(approve ? { resolve: approve } : {}),
               ...(manualMigration ? { manualMigration } : {}),
             });
@@ -448,14 +454,23 @@ export function createMigrateCommand(): Command {
                 ? {}
                 : { expectRevision: opts.expectRevision }),
             };
-            printJson(
-              await migrations.down(
-                opts.to
-                  ? { to: selector(opts.to)!, ...common }
-                  : { steps: opts.steps, ...common }
-              ),
-              Boolean(opts.json)
+            const result = await migrations.down(
+              opts.to
+                ? { to: selector(opts.to)!, ...common }
+                : { steps: opts.steps, ...common }
             );
+            if (!result.preview || opts.json) {
+              printJson(result, Boolean(opts.json));
+            } else {
+              for (const edge of result.edges) process.stdout.write(edge.sql);
+              if (result.refusal) {
+                process.stderr.write(
+                  `down would refuse: ${result.refusal.code}: ${result.refusal.message}\n`
+                );
+              }
+            }
+            // The preview fails where `down` would fail.
+            if (result.preview && result.refusal) process.exitCode = 1;
           }
         );
       }

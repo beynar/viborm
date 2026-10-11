@@ -446,7 +446,7 @@ export class PostgresAdapter implements DatabaseAdapter {
   // ============================================================
 
   aggregates = {
-    ...createAggregateFunctions(),
+    ...createAggregateFunctions("'Infinity'::float8"),
 
     min: (column: Sql, boolean = false): Sql =>
       boolean ? sql`BOOL_AND(${column})` : sql`MIN(${column})`,

@@ -21,7 +21,7 @@ import { errorCause } from "../../../drivers/shared/driver-options";
 import { DEFAULT_MIGRATION_LIMITS } from "../../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
-import { tableRewrites } from "../../compile";
+import { type LowLockContext, tableRewrites } from "../../compile";
 import {
   decimalConversionConstraintName,
   decimalConversionRequired,
@@ -66,6 +66,7 @@ import { getPostgresType, PG_TYPE_DEFAULTS } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { canonicalizeIndexPredicates } from "./canonicalize-index-predicate";
 import {
+  admittedExtensionTypes,
   introspectPostgresSchema,
   POSTGRES_MANAGED_TABLE_NAMES_QUERY,
 } from "./introspect";
@@ -91,22 +92,6 @@ const PLAN_ROWS = /\brows=(\d+)/;
 
 const NAMESPACE_EXISTS_QUERY =
   "SELECT 1 AS present FROM pg_catalog.pg_namespace WHERE nspname = $1";
-
-/**
- * Extension-owned base types whose SERVER-FORMATTED spelling introspection
- * reads, keyed by the adapter capability that declares them.
- *
- * These are the types whose modifiers a snapshot cannot be written without
- * (`vector(3)`, `geometry(Point,4326)`), so introspection reads
- * `format_type` for them instead of `udt_name`. The set admits a SPELLING,
- * never a type: an extension type outside it — `citext`, and anything else a
- * database has installed — reads back through `udt_name` like every built-in,
- * which is the spelling this driver's own renderer emits for it.
- */
-const EXTENSION_TYPES_BY_CAPABILITY = {
-  supportsVector: ["vector", "halfvec", "sparsevec"],
-  geoPoint: ["geometry", "geography"],
-} as const;
 
 const POSTGIS_PREFLIGHT_QUERY = `
 WITH postgis AS (
@@ -391,26 +376,6 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return isArray ? `${qualified}[]` : qualified;
   }
 
-  /**
-   * The extension-owned base types this driver's adapter declares, and whose
-   * `format_type` spelling introspection therefore reads.
-   */
-  private admittedExtensionTypes(): ReadonlySet<string> {
-    const capabilities = this.executionDriver?.adapter.capabilities;
-    const admitted = new Set<string>();
-    if (capabilities?.supportsVector) {
-      for (const type of EXTENSION_TYPES_BY_CAPABILITY.supportsVector) {
-        admitted.add(type);
-      }
-    }
-    if (this.executionDriver?.adapter.geoPoint) {
-      for (const type of EXTENSION_TYPES_BY_CAPABILITY.geoPoint) {
-        admitted.add(type);
-      }
-    }
-    return admitted;
-  }
-
   // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
@@ -428,7 +393,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return await introspectPostgresSchema(executeRaw, {
       namespace: this.requireEstateNamespace(),
       tables: this.target?.tables,
-      admittedExtensionTypes: this.admittedExtensionTypes(),
+      admittedExtensionTypes: admittedExtensionTypes(this.executionDriver),
     });
   }
 
@@ -463,15 +428,20 @@ export class PostgresMigrationDriver extends MigrationDriver {
         const estimatedRows = Number(PLAN_ROWS.exec(line)?.[1]);
         if (estimatedRows <= largeTableRows) continue;
         const table = tables[index]!;
-        const operation = [
+        const operations = [
           ...new Set(
             rewrites.flatMap((item) =>
               item.table === table ? [item.operation] : []
             )
           ),
-        ].join(" and ");
+        ];
+        const operation = operations.join(" and ");
+        // T5b: a validation alone has a step form that blocks no write.
+        const steps = operations.every((name) => name.endsWith(" validation"))
+          ? " Or add the constraint NOT VALID and validate it (VALIDATE CONSTRAINT) in a later migration: neither step blocks writes. generate({ lowLock: true }) does this for foreign keys."
+          : "";
         throw new MigrationError(
-          `This migration runs a ${operation} on ${table}, which the planner estimates at ${estimatedRows} rows, above limits.largeTableRows (${largeTableRows}). It rewrites or scans the whole table while holding a lock that blocks it, longer than a request should wait. Nothing ran: the schema and data are unchanged. Run it outside the request with a client whose largeTableRows is higher, or 0 for no limit.`,
+          `This migration runs a ${operation} on ${table}, which the planner estimates at ${estimatedRows} rows, above limits.largeTableRows (${largeTableRows}). It rewrites or scans the whole table while holding a lock that blocks it, longer than a request should wait. Nothing ran: the schema and data are unchanged. Run it outside the request with a client whose largeTableRows is higher, or 0 for no limit.${steps}`,
           VibORMErrorCode.MIGRATION_INVALID_STATE,
           {
             meta: { table, operation, feature: "large table rewrite" },
@@ -1222,7 +1192,13 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Index Operations
   // ===========================================================================
 
-  generateCreateIndex(op: CreateIndexOperation, _context: DDLContext): string {
+  // A low-lock build (T5b) runs CONCURRENTLY: writes keep flowing while it
+  // reads the table, and an interrupted one leaves the index INVALID for
+  // `resolve` to repair.
+  generateCreateIndex(
+    op: CreateIndexOperation,
+    context: LowLockContext
+  ): string {
     const { tableName, index } = op;
     const physicalType = index.type === "spatial" ? "gist" : index.type;
 
@@ -1236,7 +1212,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
     // PostgreSQL does not allow a schema on the index name in CREATE INDEX —
     // the index is created in the target table's schema, which is why the
     // TABLE carries the qualification and the index name is one identifier.
-    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.qualify(tableName)} ${indexType}(${cols})${where}`;
+    const concurrently = context.lowLock === "add" ? " CONCURRENTLY" : "";
+    return `CREATE ${unique}INDEX${concurrently} ${this.escapeIdentifier(index.name)} ON ${this.qualify(tableName)} ${indexType}(${cols})${where}`;
   }
 
   // DROP INDEX names the index itself, which lives in a schema and takes one
@@ -1249,11 +1226,16 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Foreign Key Operations
   // ===========================================================================
 
+  // A low-lock key (T5b) is added NOT VALID, which checks new rows only and
+  // scans nothing, and validated by a later commit, whose scan blocks no write.
   generateAddForeignKey(
     op: AddForeignKeyOperation,
-    _context: DDLContext
+    context: LowLockContext
   ): string {
     const { tableName, fk } = op;
+    if (context.lowLock === "validate") {
+      return `ALTER TABLE ${this.qualify(tableName)} VALIDATE CONSTRAINT ${this.escapeIdentifier(fk.name)}`;
+    }
     const cols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
     const refCols = fk.referencedColumns
       .map((c) => this.escapeIdentifier(c))
@@ -1267,7 +1249,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
     // Both TABLE positions are qualified — the owner and the reference target.
     // A bare `REFERENCES` target resolves through `search_path` and would let
     // one estate's constraint point at another schema's table.
-    return `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} FOREIGN KEY (${cols}) REFERENCES ${this.qualify(fk.referencedTable)} (${refCols})${onDelete}${onUpdate}`;
+    const notValid = context.lowLock === "add" ? " NOT VALID" : "";
+    return `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} FOREIGN KEY (${cols}) REFERENCES ${this.qualify(fk.referencedTable)} (${refCols})${onDelete}${onUpdate}${notValid}`;
   }
 
   generateDropForeignKey(

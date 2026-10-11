@@ -499,7 +499,7 @@ const SQLITE_EXPRESSIONS = {
 };
 
 const SQLITE_AGGREGATES = {
-  ...createAggregateFunctions(),
+  ...createAggregateFunctions("9e999"),
 
   // The average of a coefficient column IS the half-even integer quotient of
   // its exact sum by its non-null count: dividing both the sum and the count
@@ -517,17 +517,32 @@ const SQLITE_AGGREGATES = {
   // A SQLite decimal aggregate is an int64 `SUM` over coefficients. Exact
   // operand admission follows the signed range rather than digit count: some
   // 19-digit values fit, while the next value past either endpoint would make
-  // `CAST(... AS INTEGER)` saturate. SUM results are not capped here; SQLite
-  // raises on actual overflow.
+  // `CAST(... AS INTEGER)` saturate. The sum itself is `integerSum`'s, exact
+  // past that range.
   decimalSumOperandPrecision: sqliteIntegerPrecision,
 
   // `>>` is arithmetic, so an int64 member is exactly `(x >> 32) * 2^32` plus
   // its second part. That part stays REAL for a non-integer member, which the
   // reader refuses as it refused the plain `SUM`.
-  integerSum: (column: Sql): [Sql, Sql] => [
-    sql`SUM(${column} >> 32)`,
-    sql`SUM(${column} - ((${column} >> 32) << 32))`,
-  ],
+  // `low` sums non-negative 32-bit remainders: carrying its high bits into
+  // `high` leaves a pair that sorts exactly as the total. `value` is that
+  // total inside int64 and its nearest double outside, below -2^63 at most
+  // `-2^63 - 2048`: SQLite compares an integer with a double exactly, so it
+  // is exact against every int64 operand (a decimal coefficient's whole
+  // domain), and a number operand past int64 is told apart from every total
+  // but those that round to it.
+  integerSum: (column: Sql) => {
+    const high = sql`SUM(${column} >> 32)`;
+    const low = sql`SUM(${column} - ((${column} >> 32) << 32))`;
+    const carried = sql`(${high} + (${low} >> 32))`;
+    const rest = sql`(${low} & 4294967295)`;
+    const double = sql`${carried} * 4294967296.0 + ${rest}`;
+    return {
+      parts: [high, low] as const,
+      value: sql`CASE WHEN ${carried} > 2147483647 THEN ${double} WHEN ${carried} >= -2147483648 THEN ${carried} * 4294967296 + ${rest} ELSE MIN(${double}, -9223372036854777856.0) END`,
+      order: [carried, rest],
+    };
+  },
 };
 
 // Compare every node, including empty containers. Array indices remain part

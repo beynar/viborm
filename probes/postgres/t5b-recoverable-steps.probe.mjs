@@ -171,8 +171,12 @@ export default async function probe() {
       )
     );
     const states = [];
+    // The step form is asked for at generate (T5b decision: `lowLock`
+    // opt-in), which cannot see the table's size.
     for (const [i, client] of clients.entries())
-      states.push((await client.generate({ name: `v${i + 1}` })).stateId);
+      states.push(
+        (await client.generate({ name: `v${i + 1}`, lowLock: true })).stateId
+      );
     await clients[0].apply({ to: { id: states[0] } });
     await db.query(
       `INSERT INTO "orgs" ("id", "name") SELECT 'org-' || g, 'Org ' || g FROM generate_series(1, 50) g`

@@ -95,11 +95,22 @@ transactional one in `apply`, `down` or `reset`) locks again and re-reads the
 marker before it acts: if another command moved it in between, the command
 refuses with `V11015` and nothing of the rest of its path runs.
 
+An `apply` with nothing to do is proven before that transaction, in two
+statements: the control tables' definition, then the marker, the open attempts
+and a digest of the managed schema that the server computes, read together and
+only while `pg_try_advisory_xact_lock` succeeds (the statement releases it). A
+marker at the target, nothing open and a matching digest answer `noop`;
+anything else, another command holding the lock included, takes the locked
+path above. The digest abstains where SQL cannot reproduce the schema exactly:
+partial indexes (for example the soft-delete extension's partial unique
+indexes) and some literal defaults. Such schemas keep the locked no-op and
+introspect for the proof after a change, as in 1.1.0.
+
 The lock ends with its transaction, so it cannot outlive the command, and a
 transaction pooler such as PgBouncer in transaction mode may hand each
 transaction to a different server session: `apply`, `push` and the other
 locked commands run through one. Stepwise work (a manual
-`execution: "stepwise"` transition, or an `INDEX CONCURRENTLY` statement) runs
+`execution: "stepwise"` transition, or an index statement run `CONCURRENTLY`) runs
 outside a transaction and needs a session lock: it is taken inside the locked
 transaction before that transaction commits, held to the end of the command and
 released with `pg_advisory_unlock`. It needs a direct session. Cloudflare
@@ -168,10 +179,12 @@ Transactional work sets nothing on the session: its limits end with each
 transaction, which is what lets it run through a transaction pooler. Settings
 stepwise work put on the session are reset before its connection goes back to
 your pool, to the values the connection started with; a session whose reset
-fails is never returned to the pool. A `CREATE`, `DROP` or `REINDEX INDEX
-CONCURRENTLY` statement in a manual stepwise migration runs with no
+fails is never returned to the pool. A `CREATE [UNIQUE] INDEX CONCURRENTLY`,
+`DROP INDEX CONCURRENTLY` or `REINDEX … CONCURRENTLY` statement runs with no
 `lock_timeout` and no `statement_timeout`: it waits for older transactions by
-design, without blocking anyone. PGlite gets
+design, without blocking anyone. Only the statement itself counts, after any
+leading comment: the words in a comment or a string literal of another
+statement leave its limits in place. PGlite gets
 `statement_timeout` and `lock_timeout` only: an in-process database has no
 client to lose.
 

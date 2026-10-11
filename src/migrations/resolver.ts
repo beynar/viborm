@@ -6,12 +6,14 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { isRecord } from "../validation/value-guards";
 import {
   type DiffOptions,
   diff,
   getDestructiveOperationDescriptions,
   isDestructiveOperation,
 } from "./differ";
+import { snapshotExactArray, snapshotExactRecord } from "./input-boundary";
 import { applyNativeRename } from "./native-rename";
 import type {
   AmbiguousChange,
@@ -33,7 +35,7 @@ import {
   readEnumResolutionDecision,
 } from "./types";
 import { sortOperations } from "./utils";
-import type { MigrationApprovalV1 } from "./v1-types";
+import type { MigrationApprovalV1, MigrationDecisionV1 } from "./v1-types";
 
 export function validateResolveResult(
   expected: "ambiguous",
@@ -555,44 +557,198 @@ export function createResolver(
   };
 }
 
+const DECISION_KEYS = {
+  column: ["type", "tableName", "from", "to", "resolution"],
+  table: ["type", "from", "to", "resolution"],
+  enumValueRemoval: ["type", "tableName", "columnName", "mapValues"],
+  destructive: ["type", "operation", "table", "column"],
+} as const satisfies Record<MigrationDecisionV1["type"], readonly string[]>;
+const DECISION_TYPES = [
+  "column",
+  "table",
+  "enumValueRemoval",
+  "destructive",
+] as const;
+const ALL_DECISION_KEYS = [...new Set(Object.values(DECISION_KEYS).flat())];
+const RESOLUTIONS = ["rename", "addAndDrop"] as const;
+const APPROVAL_OPERATIONS = [
+  "dropTable",
+  "dropColumn",
+  "addColumn",
+  "alterColumn",
+] as const;
+
+/** Each predefined resolver's decisions, and those a plan used since the last check. */
+const decisionUse = new WeakMap<
+  ResolveCallback,
+  {
+    readonly decisions: readonly MigrationDecisionV1[];
+    readonly used: Set<MigrationDecisionV1>;
+  }
+>();
+
 /**
- * Creates a resolver that uses predefined resolutions
+ * Intent as data (plan T2): a resolve callback built from plain JSON
+ * decisions, so an API can carry them. It answers each change one decision
+ * names and leaves every other change unanswered, which refuses it. An entry
+ * that is not a decision is refused here (V4002); `generate` refuses (V4002)
+ * a decision that answered no change of its plan, such as one naming a table
+ * or column the plan does not touch. It serves one request: build one per
+ * `generate`.
  */
 export function createPredefinedResolver(
-  predefined: Array<{
-    type: "column" | "table";
-    from: string;
-    to: string;
-    tableName?: string;
-    resolution: "rename" | "addAndDrop";
-  }>
-): Resolver {
-  return async (changes) => {
-    const resolutions = new Map<AmbiguousChange, ChangeResolution>();
-
-    for (const change of changes) {
-      const match = predefined.find((p) => {
-        if (change.type === "ambiguousColumn" && p.type === "column") {
-          return (
-            p.from === change.droppedColumn.name &&
-            p.to === change.addedColumn.name &&
-            (!p.tableName || p.tableName === change.tableName)
-          );
-        }
-        if (change.type === "ambiguousTable" && p.type === "table") {
-          return p.from === change.droppedTable && p.to === change.addedTable;
-        }
-        return false;
-      });
-
-      if (match) {
-        resolutions.set(change, { type: match.resolution });
-      }
-      // If no match found, the change will be handled by the default (add+drop)
+  decisions: readonly MigrationDecisionV1[]
+): ResolveCallback {
+  const admitted = snapshotExactArray(
+    decisions,
+    "decisions",
+    refuseDecision
+  ).map(parseDecision);
+  const used = new Set<MigrationDecisionV1>();
+  const resolve: ResolveCallback = (change) => {
+    for (const decision of admitted) {
+      const answer = answerChange(decision, change);
+      if (answer === undefined) continue;
+      used.add(decision);
+      return answer;
     }
-
-    return resolutions;
+    return undefined;
   };
+  decisionUse.set(resolve, { decisions: admitted, used });
+  return resolve;
+}
+
+/** Refuses the decisions of a predefined resolver that answered no change. */
+export function refuseUnusedDecisions(
+  resolve: ResolveCallback | undefined
+): void {
+  const use = resolve && decisionUse.get(resolve);
+  if (!use) return;
+  const unused = use.decisions.filter((decision) => !use.used.has(decision));
+  use.used.clear();
+  if (unused.length > 0) {
+    refuseDecision(
+      `These decisions match no change of the plan (an unknown table or column, or nothing to decide): ${JSON.stringify(unused)}`
+    );
+  }
+}
+
+function answerChange(
+  decision: MigrationDecisionV1,
+  change: ResolveChange
+): ResolveResult | undefined {
+  switch (decision.type) {
+    case "destructive":
+      return change.type === "destructive" &&
+        change.operation === decision.operation &&
+        change.table === decision.table &&
+        (change.column ?? null) === decision.column
+        ? change.proceed()
+        : undefined;
+    case "enumValueRemoval":
+      return change.type === "enumValueRemoval" &&
+        change.tableName === decision.tableName &&
+        change.columnName === decision.columnName
+        ? change.mapValues(decision.mapValues)
+        : undefined;
+    default: {
+      const named =
+        change.type === "ambiguous" &&
+        change.oldName === decision.from &&
+        change.newName === decision.to &&
+        (decision.type === "table"
+          ? change.operation === "renameTable"
+          : change.operation === "renameColumn" &&
+            change.table === decision.tableName);
+      if (!named) return undefined;
+      return decision.resolution === "rename"
+        ? change.rename()
+        : change.addAndDrop();
+    }
+  }
+}
+
+function parseDecision(entry: unknown, index: number): MigrationDecisionV1 {
+  const label = `decisions[${index}]`;
+  const raw = snapshotExactRecord(
+    entry,
+    ALL_DECISION_KEYS,
+    label,
+    refuseDecision
+  );
+  const type =
+    DECISION_TYPES.find((name) => name === raw.type) ??
+    refuseDecision(`${label}.type must be one of ${DECISION_TYPES.join(", ")}`);
+  // A missing key is refused by its reader below.
+  const record = snapshotExactRecord(
+    raw,
+    DECISION_KEYS[type],
+    label,
+    refuseDecision
+  );
+  const text = (key: string): string => {
+    const value = record[key];
+    return typeof value === "string"
+      ? value
+      : refuseDecision(`${label}.${key} must be a string`);
+  };
+  const resolution = () =>
+    RESOLUTIONS.find((name) => name === record.resolution) ??
+    refuseDecision(`${label}.resolution must be rename or addAndDrop`);
+  switch (type) {
+    case "column":
+      return {
+        type,
+        tableName: text("tableName"),
+        from: text("from"),
+        to: text("to"),
+        resolution: resolution(),
+      };
+    case "table":
+      return {
+        type,
+        from: text("from"),
+        to: text("to"),
+        resolution: resolution(),
+      };
+    case "enumValueRemoval":
+      return {
+        type,
+        tableName: text("tableName"),
+        columnName: text("columnName"),
+        mapValues: parseValueMapping(record.mapValues, `${label}.mapValues`),
+      };
+    default:
+      return {
+        type,
+        operation:
+          APPROVAL_OPERATIONS.find((name) => name === record.operation) ??
+          refuseDecision(
+            `${label}.operation must be one of ${APPROVAL_OPERATIONS.join(", ")}`
+          ),
+        table: text("table"),
+        column: record.column === null ? null : text("column"),
+      };
+  }
+}
+
+function parseValueMapping(
+  value: unknown,
+  label: string
+): Readonly<Record<string, string | null>> {
+  if (!isRecord(value)) return refuseDecision(`${label} must be an object`);
+  const mapping: Record<string, string | null> = {};
+  for (const [from, to] of Object.entries(value)) {
+    if (!(typeof to === "string" || to === null)) {
+      refuseDecision(`${label}.${from} must be a string or null`);
+    }
+    mapping[from] = to;
+  }
+  return Object.freeze(mapping);
+}
+
+function refuseDecision(message: string, cause?: Error): never {
+  throw new MigrationError(message, VibORMErrorCode.INVALID_INPUT, { cause });
 }
 
 /**

@@ -43,6 +43,7 @@ export type {
 export type { PushApplyResult, PushPreview } from "./push-v1";
 export {
   addDropResolver,
+  createPredefinedResolver,
   lenientResolver,
   rejectAllResolver,
 } from "./resolver";
@@ -69,6 +70,7 @@ export type {
 export type {
   ApplyV1Options as ApplyOptions,
   BaselineOptions,
+  DownPreviewEdgeV1 as DownPreviewEdge,
   DownV1Options as DownOptions,
   ExactPushOptions,
   GenerateV1Options as GenerateOptions,
@@ -76,6 +78,7 @@ export type {
   ManualTransitionInput,
   MigrationApprovalV1 as MigrationApproval,
   MigrationCheckInput,
+  MigrationDecisionV1 as MigrationDecision,
   MigrationEstateDescriptorV1,
   MigrationStateManifestV1,
   PushConsent,

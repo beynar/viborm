@@ -3189,9 +3189,9 @@ export class Queries {
    * operand as a plain value.
    *
    * Everything compares inside the field's own domain except a `_sum` over an
-   * exact decimal: the compared expression is `SUM(col)`, whose value is wider
-   * than one column can hold, so the operand's cast widens the PRECISION while
-   * keeping the field's SCALE — every summed row carries that scale, and an
+   * exact decimal: the compared expression is the column's sum, whose value is
+   * wider than one column can hold, so the operand's cast widens the PRECISION
+   * while keeping the field's SCALE — every summed row carries that scale, and an
    * operand at another one would be a different number on SQLite. The adapter
    * states how wide its exact HAVING cast can be; the refusal below is the
    * shipped sentence, verbatim.
@@ -4404,8 +4404,8 @@ export class Queries {
                 field,
                 a.json.array(
                   split
-                    .parts(this.#preparedColumn(scalar!, alias))
-                    .map((part) => this.#carriedValue(leaf, part))
+                    .sql(this.#preparedColumn(scalar!, alias))
+                    .parts.map((part) => this.#carriedValue(leaf, part))
                 ),
               ];
             return [
@@ -4425,7 +4425,7 @@ export class Queries {
       columns: (alias) => builders.map((build) => build(alias)),
     };
   }
-  /** One aggregate leaf classification, shared by projection and `having`. */
+  /** One aggregate leaf classification: projection, `having` and `orderBy`. */
   #aggregateLeaf(model: AnyModel, aggregate: Aggregate, field: string): Leaf {
     if (aggregate === "_count") return COUNT_LEAF;
     const leaf = this.scalarShape(model, field);
@@ -4455,14 +4455,23 @@ export class Queries {
   #splitSum(leaf: Leaf): SplitSum | undefined {
     if (!leaf.widened) return undefined;
     const { numberSum, integerSum } = this.adapter.aggregates;
-    if (leaf.type === "number")
-      return { parts: numberSum, join: joinNumberSum };
+    if (leaf.type === "number") return { sql: numberSum, join: joinNumberSum };
     return (
       integerSum && {
-        parts: integerSum,
+        sql: integerSum,
         join: (parts) => joinIntegerSum(parts, leaf.type),
       }
     );
+  }
+  /**
+   * A split `_sum` as `having` compares it and a grouped `orderBy` sorts it:
+   * the sum the projection publishes, not the provider's own `SUM`, which
+   * can raise or answer another number (engine-10).
+   */
+  #splitSumSql(scalar: PreparedScalar, column: Sql): SplitSumSql | undefined {
+    return this.#splitSum(
+      this.#aggregateLeaf(scalar.model, "_sum", scalar.field)
+    )?.sql(column);
   }
   #aggregateExpression(
     aggregate: Aggregate,
@@ -4477,7 +4486,10 @@ export class Queries {
       case "_count":
         return a.aggregates.count(column);
       case "_sum":
-        return a.aggregates.sum(column!);
+        return (
+          this.#splitSumSql(scalar!, column!)?.value ??
+          a.aggregates.sum(column!)
+        );
       case "_min":
       case "_max": {
         // Admission admits `_all` under `_count` alone, so these name a
@@ -5870,24 +5882,24 @@ export class Queries {
         if (direction === undefined) return [];
         if (!isAggregate(name))
           return [this.#orderTerm(model, name, direction, alias)];
-        return Object.entries(record(direction)).map(([field, sort]) =>
-          this.#sortKey(
-            this.#aggregateExpression(
-              name,
-              field === "_all"
-                ? undefined
-                : freeze({
-                    model,
-                    field,
-                    physical: physicalField(this.schema, model, field),
-                  }),
-              alias
-            ),
-            sort === "desc",
-            undefined,
-            false
-          )
-        );
+        return Object.entries(record(direction)).flatMap(([field, sort]) => {
+          const scalar =
+            field === "_all"
+              ? undefined
+              : freeze({
+                  model,
+                  field,
+                  physical: physicalField(this.schema, model, field),
+                });
+          const split =
+            name === "_sum" &&
+            this.#splitSumSql(scalar!, this.#preparedColumn(scalar!, alias));
+          return (
+            split
+              ? split.order
+              : [this.#aggregateExpression(name, scalar, alias)]
+          ).map((key) => this.#sortKey(key, sort === "desc", undefined, false));
+        });
       })
     );
     const ordered = new Set(terms.map((term) => term.field));
@@ -6848,9 +6860,10 @@ function decodeNumber(value: unknown): number {
   return parsed;
 }
 
-/** A widened `_sum`'s two SQL parts and the join its reader reads. */
+/** A widened `_sum`'s SQL and the join its reader reads. */
+type SplitSumSql = ReturnType<DatabaseAdapter["aggregates"]["numberSum"]>;
 interface SplitSum {
-  readonly parts: (expr: Sql) => [Sql, Sql];
+  readonly sql: (expr: Sql) => SplitSumSql;
   readonly join: (parts: unknown) => unknown;
 }
 

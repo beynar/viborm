@@ -47,12 +47,16 @@ target shares the first tenant's states.
 A publish is a put conditioned on `etagDoesNotMatch: "*"`
 (`If-None-Match: *`). R2 checks the condition and stores the object in one
 step; when the key already exists it stores nothing and returns `null`.
-VibORM then reads the stored bytes: identical bytes are an idempotent publish,
-different bytes are refused as corruption.
+Under contention for one key, hosted R2 may instead reject the losing put with
+error 10058 ("Reduce your concurrent request rate for the same object"),
+having stored nothing; once the winner's object is there, VibORM treats that
+put as lost the same way. VibORM then reads the stored bytes: identical bytes
+are an idempotent publish, different bytes are refused as corruption.
 
 R2 writes and listings are strongly consistent, so a state is listed as soon
-as its publish returns. Listing follows R2's cursor until the listing is
-complete, past the 1,000 keys of one page.
+as its publish returns. Listing follows R2's cursor until R2 reports the
+listing complete: a page may hold fewer keys than its limit while more remain
+(hosted R2 returned 1,001 keys as pages of 485, 485 and 31).
 
 ## Layout
 

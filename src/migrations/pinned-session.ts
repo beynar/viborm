@@ -54,6 +54,7 @@ import {
 import type { BoundMigrationDriver } from "./drivers";
 import { planInterruptedMySQLDecimalRecovery } from "./drivers/mysql/decimal-recovery";
 import { snapshotExactRecord } from "./input-boundary";
+import { buildsIndexConcurrently } from "./statement-safety";
 import { type CatalogRead, readsCommandNamespace } from "./target";
 import { createQueryExecutor } from "./utils";
 
@@ -479,7 +480,7 @@ function createPinnedSessionView<D extends AnyDriver>(
         const locked = LOCKED.get(this);
         await locked?.before(sql);
         const run = async () => {
-          if (limits === undefined || !CONCURRENTLY.test(sql)) {
+          if (limits === undefined || !buildsIndexConcurrently(sql)) {
             return executeRaw.call(this, client, sql, params, context);
           }
           await executeRaw.call(
@@ -622,11 +623,20 @@ function runPinnedTransaction<T>(
  * This is the primitive both entry points share — estate commands through
  * {@link withLockedMigrationProducer}, and `push()`, which owns no migration
  * storage.
+ *
+ * `unlocked` (PostgreSQL and SQLite) runs first, on the same reserved session
+ * and before any lock: an answer ends the command there. It is for a decision
+ * one statement proves while no command holds the lock (plan D5: a no-op
+ * `apply`); on PostgreSQL that statement includes `lockFree`, which takes the
+ * transaction lock and releases it with the statement, and is false while
+ * another session holds it. A failure that is not the lost connection only
+ * means it could not decide, and the locked command decides again.
  */
 export function withLockedMigrationProducer<T>(
   driver: AnyDriver,
   migrationDriver: BoundMigrationDriver,
-  body: (pinned: AnyDriver, command: BoundMigrationDriver) => Promise<T>
+  body: (pinned: AnyDriver, command: BoundMigrationDriver) => Promise<T>,
+  unlocked?: (session: AnyDriver, lockFree: string) => Promise<T | undefined>
 ): Promise<T> {
   const { dialect } = migrationDriver.target;
   const limits = migrationDriver.limits;
@@ -674,6 +684,15 @@ export function withLockedMigrationProducer<T>(
   return withPinnedSession(
     driver,
     async (pinned, control) => {
+      try {
+        const answer = await unlocked?.(
+          pinned,
+          `pg_try_advisory_xact_lock(${MIGRATION_LOCK_ID})`
+        );
+        if (answer !== undefined) return answer;
+      } catch (failure) {
+        if (control.lost(failure)) throw failure;
+      }
       if (!pinned.supportsTransactions) {
         return body(
           pinned,
@@ -720,8 +739,9 @@ export function withLockedMigrationProducer<T>(
  * and nothing outlives it.
  *
  * Three things cannot run inside such a transaction:
- * - PostgreSQL stepwise work (`mayWrapTransaction` arms it) and any
- *   `INDEX CONCURRENTLY` statement. They need the session lock: it is taken
+ * - PostgreSQL stepwise work (`mayWrapTransaction` arms it) and any index
+ *   statement run `CONCURRENTLY` (`buildsIndexConcurrently`, read from the
+ *   statement's own words). They need the session lock: it is taken
  *   inside the open locked transaction — at once, since the session already
  *   holds the transaction lock on the same key — before that transaction
  *   commits, so the lock is never let go between the decision and the work.
@@ -866,7 +886,7 @@ function lockTransactions(
         await between();
         return;
       }
-      if (!sqlite && (armed || CONCURRENTLY.test(sql))) {
+      if (!sqlite && (armed || buildsIndexConcurrently(sql))) {
         await escalate();
         return;
       }
@@ -921,13 +941,6 @@ function lockTransactions(
 export function lockedSinceDecision(producer: AnyDriver): boolean {
   return LOCKED.get(producer)?.continuous() ?? true;
 }
-
-/**
- * A `CREATE`, `DROP` or `REINDEX INDEX CONCURRENTLY` statement — the only
- * kind whose waits block nobody. `REFRESH MATERIALIZED VIEW CONCURRENTLY` and
- * the word in a comment or a literal keep the limits.
- */
-const CONCURRENTLY = /\bINDEX\s+CONCURRENTLY\b/i;
 
 /**
  * The PostgreSQL statements behind one command's time limits (plan S1).

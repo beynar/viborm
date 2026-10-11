@@ -425,7 +425,8 @@ async function assertPushControlInterlock(
   const control = await readControlState(
     producer,
     command,
-    DEFAULT_CONTROL_BASE
+    DEFAULT_CONTROL_BASE,
+    { ledger: "open" }
   );
   if (control.presence.kind !== "present") {
     refusePartialControl(control.presence);

@@ -3,13 +3,15 @@
  * not one of the words the change object hands out.
  *
  * Both are public contracts: `createPredefinedResolver` leaves unmatched changes
- * unresolved (destructive guessing is refused), and `validateResolveResult` is the
- * boundary that refuses whatever a caller's own callback returned.
+ * unanswered, so they are refused (no destructive guessing), and
+ * `validateResolveResult` is the boundary that refuses whatever a caller's own
+ * callback returned.
  */
 
 import { VibORMErrorCode } from "@src/errors";
 import { diff } from "@src/migrations/differ";
 import {
+  callbackAsResolver,
   createPredefinedResolver,
   resolveAmbiguousChanges,
   validateResolveResult,
@@ -92,7 +94,7 @@ describe("unanswered ambiguities", () => {
         initial,
         current,
         desired,
-        createPredefinedResolver([])
+        callbackAsResolver(createPredefinedResolver([]))
       )
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,

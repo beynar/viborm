@@ -1,6 +1,7 @@
 import { VibORMErrorCode } from "@src/errors";
 import {
   assertArtifactExecutionSafe,
+  buildsIndexConcurrently,
   needsEnumAdditionCommitBoundary,
   readExecutableStatements,
 } from "@src/migrations/statement-safety";
@@ -194,5 +195,21 @@ describe("migration artifact statement safety", () => {
         "CREATE TABLE account(id int); ALTER TYPE status ADD VALUE 'pending'",
       ])
     ).toBe(true);
+  });
+
+  test.each([
+    ['CREATE INDEX CONCURRENTLY "a_b" ON "a" ("b")', true],
+    ['CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "a_b" ON "a" ("b")', true],
+    ['DROP INDEX CONCURRENTLY IF EXISTS "public"."a_b"', true],
+    ['REINDEX INDEX CONCURRENTLY "a_b"', true],
+    ['REINDEX (VERBOSE, CONCURRENTLY) TABLE "a"', true],
+    ['-- built online\nCREATE INDEX CONCURRENTLY "a_b" ON "a" ("b")', true],
+    ['CREATE INDEX "a_b" ON "a" ("b")', false],
+    ['REINDEX INDEX "a_b"', false],
+    ['REFRESH MATERIALIZED VIEW CONCURRENTLY "v"', false],
+    ['ALTER TABLE "a" ADD "c" int /* INDEX CONCURRENTLY */', false],
+    ["COMMENT ON TABLE \"a\" IS 'CREATE INDEX CONCURRENTLY'", false],
+  ])("reads %j as an index statement run CONCURRENTLY: %s", (sql, builds) => {
+    expect(buildsIndexConcurrently(sql)).toBe(builds);
   });
 });
