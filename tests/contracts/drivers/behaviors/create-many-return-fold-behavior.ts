@@ -67,20 +67,26 @@ type ExecuteSeam = (
  * concrete driver implements and through which a transaction-bound driver also
  * routes — so one hook sees both substrates on all five legs. Patched as an own
  * property of the instance so it shadows the prototype method the driver calls
- * on itself.
+ * on itself. Each statement keeps its bind-parameter count, which the nested
+ * create batching witnesses (`nested-create-batch-behavior.ts`) compare.
  */
-function recordStatements(driver: AnyDriver): {
+export interface SentStatement {
+  readonly sql: string;
+  readonly params: number;
+}
+
+export function recordStatements(driver: AnyDriver): {
   start(): void;
-  drain(): string[];
+  drain(): SentStatement[];
 } {
-  const statements: string[] = [];
+  const statements: SentStatement[] = [];
   let recording = false;
   const seam = driver as unknown as Record<string, ExecuteSeam>;
   for (const method of ["execute", "executeRaw"]) {
     const original = seam[method]?.bind(driver);
     if (!original) continue;
     seam[method] = (client, sql, params, context) => {
-      if (recording) statements.push(sql);
+      if (recording) statements.push({ sql, params: params?.length ?? 0 });
       return original(client, sql, params, context);
     };
   }
@@ -142,7 +148,7 @@ export function runCreateManyReturnFoldBehavior(options: {
         ],
         select: { id: true, code: true, label: true },
       });
-      const statements = recorder?.drain() ?? [];
+      const statements = (recorder?.drain() ?? []).map(({ sql }) => sql);
 
       expect(rows.map((row) => row.label)).toEqual([
         "first",
@@ -202,7 +208,7 @@ export function runCreateManyReturnFoldBehavior(options: {
         ],
         select: { id: true, label: true },
       });
-      const statements = recorder?.drain() ?? [];
+      const statements = (recorder?.drain() ?? []).map(({ sql }) => sql);
 
       expect(rows.map((row) => row.label)).toEqual([
         "explicit-high",
@@ -259,7 +265,7 @@ export function runCreateManyReturnFoldBehavior(options: {
 
       recorder?.start();
       const rows = await call();
-      const statements = recorder?.drain() ?? [];
+      const statements = (recorder?.drain() ?? []).map(({ sql }) => sql);
 
       // THE CONTRACT the fold pins for a skip: RETURNING yields exactly the rows
       // the statement inserted, in the payload's order. A skipped row is ABSENT

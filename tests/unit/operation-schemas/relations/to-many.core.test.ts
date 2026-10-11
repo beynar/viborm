@@ -485,17 +485,18 @@ describe("ToMany Update - Author.posts (oneToMany)", () => {
     expect(result.issues).toBeUndefined();
   });
 
-  test("rejects adding before clearing at relation admission", () => {
-    expect(
-      parse(schema, { posts: { create: { id: "new", title: "New" }, set: [] } })
-        .issues
-    ).toEqual([
-      {
-        message:
-          "Collection mutation must spell clearing verb 'set' before adding verb 'create'.",
-        path: ["posts"],
-      },
-    ]);
+  // engine-04: spelling order is not admission's business — the relation body
+  // runs every to-many payload in its canonical clear-first order.
+  test("admits adding verbs spelled before clearing verbs", () => {
+    const result = parse(schema, {
+      posts: { create: { id: "new", title: "New" }, set: [] },
+    });
+    expect(result.issues).toBeUndefined();
+    if (!result.issues)
+      expect(Object.keys(result.value.posts!).sort()).toEqual([
+        "create",
+        "set",
+      ]);
   });
 
   // Output normalization tests

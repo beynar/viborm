@@ -3342,9 +3342,10 @@ describe("PostgreSQL DDL Generation", () => {
   });
 
   describe("locking", () => {
-    it("should generate pg_advisory_lock for acquire, with a stable alias", () => {
+    it("should generate a transaction-scoped advisory lock for acquire, with a stable alias", () => {
       const sql = postgresMigrationDriver.generateAcquireLock(12_345);
-      expect(sql).toContain("pg_try_advisory_lock(12345)");
+      expect(sql).toContain("pg_try_advisory_xact_lock(12345)");
+      expect(sql).not.toContain("pg_try_advisory_lock(");
       expect(sql).toContain("interval '10 seconds'");
     });
 

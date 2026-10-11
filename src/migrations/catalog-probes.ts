@@ -4,6 +4,7 @@ import { renderQualifiedIdentifier } from "../sql/identifiers";
  * Manual trusted-read checks are a different arm.
  */
 
+import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { BoundMigrationDriver, MigrationDriver } from "./drivers";
 import type { DiffOperation } from "./types";
@@ -138,7 +139,10 @@ export function indexExistsProbe(
     const schema = boundCatalogNamespace(driver);
     return {
       id: `index:${exists ? "exists" : "absent"}:${indexName}`,
-      sql: `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'i')`,
+      // An index exists only once it is VALID: an interrupted CONCURRENTLY
+      // build leaves the relation behind with indisvalid = false. Absence
+      // still means no relation of that name at all.
+      sql: `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace${exists ? " JOIN pg_catalog.pg_index x ON x.indexrelid = c.oid AND x.indisvalid" : ""} WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind = 'i')`,
       parameters: [stringParam(schema), stringParam(indexName)],
       equals: exists,
     };
@@ -326,6 +330,31 @@ export function probeForGeneratedStatement(
     default:
       return null;
   }
+}
+
+/** One index an interrupted CONCURRENTLY build left INVALID. */
+export interface InvalidIndex {
+  readonly table: string;
+  readonly index: string;
+}
+
+/**
+ * The INVALID indexes on the estate's managed tables. Only PostgreSQL has the
+ * state: MySQL and SQLite build an index or fail without leaving one behind.
+ */
+export async function readInvalidIndexes(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver
+): Promise<readonly InvalidIndex[]> {
+  if (driver.dialect !== "postgresql") return [];
+  const result = await producer._executeRaw<InvalidIndex>(
+    `SELECT t.relname AS "table", i.relname AS "index" FROM pg_catalog.pg_index x JOIN pg_catalog.pg_class i ON i.oid = x.indexrelid JOIN pg_catalog.pg_class t ON t.oid = x.indrelid JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace WHERE n.nspname = $1 AND t.relkind = 'r' AND NOT (x.indisvalid AND x.indisready) ORDER BY t.relname, i.relname`,
+    [boundCatalogNamespace(driver)]
+  );
+  const managed = driver.target.tables;
+  return result.rows.filter(
+    (row) => managed === undefined || managed.includes(row.table)
+  );
 }
 
 export function boundNamespace(

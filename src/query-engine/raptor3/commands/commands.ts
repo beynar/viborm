@@ -7,6 +7,7 @@ import {
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
+import { exactDecimalDomain } from "../shared/decimal";
 import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
@@ -1841,7 +1842,8 @@ export class Commands {
    * conjuncts (`write-engine/UpsertOperation.ts` `buildOnConflictFold`): a
    * targeted-upsert adapter, no conditional filter, a `where` naming one
    * constraint and nothing else, the create spelling every column of that
-   * constraint with the primitive value the `where` names, a set-only update;
+   * constraint with the primitive value the `where` names, an update of values
+   * and counters (engine-08);
    * (2) otherwise the probe-first path — the locate read runs at preparation
    * ({@link OperationContext.read}) and the selected scalar arm rides the
    * owner's batch as ONE statement with RETURNING, the existing owners of a
@@ -1896,6 +1898,21 @@ export class Commands {
     // probe does not lock the absence it may find (`Selection.insertsWhenAbsent`).
     lookup.insertsWhenAbsent = true;
     const key = lookup.selector.uniqueKey;
+    // A counter folds too (engine-08): `upsertOne` names each value over the
+    // conflicting row through `Queries.updateValue`, which has no form for a
+    // list operator or an exact decimal's rounding multiply/divide.
+    const folds = (field: string): boolean => {
+      const value = updates[field];
+      if (wholeValue(value)) return true;
+      const state = physicalField(ctx.schema, model, field).scalar["~"].state;
+      const operation = record(value);
+      return !(
+        state.array ||
+        (exactDecimalDomain(state) &&
+          (Object.hasOwn(operation, "multiply") ||
+            Object.hasOwn(operation, "divide")))
+      );
+    };
     // The targeted fold evaluates no selector: under a domain its conflict
     // could be a hidden row, which it would update.
     const spelled =
@@ -1903,7 +1920,7 @@ export class Commands {
       lookup.selector.scoped === undefined &&
       key !== undefined &&
       lookup.selector.uniqueValues !== undefined &&
-      fields.every((field) => wholeValue(updates[field])) &&
+      fields.every(folds) &&
       key.fields.every((field) => {
         const value = values[field];
         return (

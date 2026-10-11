@@ -22,14 +22,27 @@ export interface BigIntSchema<TInput = bigint, TOutput = bigint>
 
 // Pre-computed error for fast path
 const BIGINT_ERROR = Object.freeze({
-  issues: Object.freeze([Object.freeze({ message: "Expected bigint" })]),
+  issues: Object.freeze([
+    Object.freeze({ message: "Expected bigint or an integer string" }),
+  ]),
 });
 
 /**
- * Validate that a value is a bigint.
+ * The integer TEXT a bigint is also admitted as: what a JSON boundary carries,
+ * since a JSON number past 2^53 has already lost digits. The JSON Schema
+ * export states this same grammar as the bigint's `pattern`.
+ */
+export const BIGINT_TEXT_PATTERN = "^[+-]?\\d+$";
+const BIGINT_TEXT = new RegExp(BIGINT_TEXT_PATTERN);
+
+/**
+ * Validate that a value is a bigint, or an integer string read as one.
  */
 function validateBigInt(value: unknown) {
-  return isBigInt(value) ? ok(value) : BIGINT_ERROR;
+  if (isBigInt(value)) return ok(value);
+  return typeof value === "string" && BIGINT_TEXT.test(value)
+    ? ok(BigInt(value))
+    : BIGINT_ERROR;
 }
 
 /**

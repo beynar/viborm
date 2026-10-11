@@ -238,7 +238,8 @@ Raw SQL, cascades, and external writers do not run this generator. See
 Use `createMigrationClient()` with `createFsStorageWriter()`:
 
 ```ts
-import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
 import { client } from "./client";
 
 const migrations = createMigrationClient(client, {

@@ -43,6 +43,27 @@ const posts = await client.post.findMany({
 });
 ```
 
+`isNot: P` is the negation of `is: P`: it matches when the related record does
+not match `P`, and on an optional relation also when there is no related
+record. A related record whose compared field is `NULL` does not match `P`, so
+`isNot` keeps it: above, posts whose author's `status` is `NULL` are returned.
+This differs from `NOT` on a model's own field, which follows SQL's
+three-valued logic and drops rows whose field is `NULL`, and from Prisma, whose
+`isNot` drops them too. To drop them, put the negation inside `is`:
+
+```ts
+// Posts whose author has a status other than BANNED
+const posts = await client.post.findMany({
+  where: {
+    author: {
+      is: { NOT: { status: "BANNED" } },
+    },
+  },
+});
+```
+
+On an optional relation this form also drops records with no related record.
+
 ## Null Checks
 
 Null checks are available only when the to-one relation is optional. Bare

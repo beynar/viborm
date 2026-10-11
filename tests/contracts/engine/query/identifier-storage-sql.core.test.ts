@@ -651,7 +651,7 @@ describe("filtering an identifier column", () => {
         where: { id: { notIn: [USER] } },
         select: { slug: true },
       }).toStatement("$n")
-    ).toContain(`"q0"."id" NOT IN ($1)`);
+    ).toContain(`"q0"."id" NOT IN (SELECT unhex(value) FROM json_each($1))`);
   });
 
   test("a SUBSTRING operand binds as the fragment it is, never as a value", () => {

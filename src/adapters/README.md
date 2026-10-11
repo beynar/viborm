@@ -88,7 +88,7 @@ adapter.literals.value("hello")  // → $1 (parameterized)
 adapter.literals.null()          // → NULL
 adapter.literals.true()          // → TRUE (PG/MySQL) or 1 (SQLite)
 adapter.literals.false()         // → FALSE (PG/MySQL) or 0 (SQLite)
-adapter.literals.list([a, b, c]) // → (a, b, c)
+adapter.literals.list([a, b, c]) // → the in/notIn operand: (a, b, c) on MySQL, one array parameter on PostgreSQL, (SELECT value FROM json_each(?)) on SQLite
 ```
 
 ### `operators`

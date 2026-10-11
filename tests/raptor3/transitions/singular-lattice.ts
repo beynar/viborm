@@ -333,7 +333,7 @@ export const singularLatticeScenarios: ScenarioDefinition[] =
             assert.equal(failure.code, "V4001");
             assert.equal(
               failure.message,
-              `Validation failed for update: data.badge: Unsupported to-one operation combination: ${recipe.rejectedKinds}`
+              `Validation failed for station.update: data.badge: Unsupported to-one operation combination: ${recipe.rejectedKinds}`
             );
             return;
           }

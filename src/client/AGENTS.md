@@ -121,11 +121,20 @@ would reintroduce the emitted graph. Export the type names required by inferred
 declarations, including nominal extension capability interfaces; their unique
 symbol keys remain private and have no runtime representation.
 
-`NoExtraOperationKeys` checks ordinary nested WHERE model-field names by walking
-the caller's spelled relation and logical clauses. Declared model fields shadow
-`AND`, `OR` and `NOT`, matching `WhereSchema`. Cycle detection uses the exact
-caller-value/model pair, never a numeric depth cap. This guard does not claim
-scalar-operator, variant-filter or nested-projection/mutation key exactness.
+`NoExtraOperationKeys` keys what the caller SPELLED, walking the literal and
+never the payload. `NestedClauseGuard` checks WHERE model-field names through
+relation and logical filters, and nested write data (create, createMany.data,
+connectOrCreate.create, upsert, update/updateMany data) against each target's
+fields; declared model fields shadow `AND`, `OR` and `NOT`, matching
+`WhereSchema`. `RecursiveProjectionRootGuard` keys a nested `select` (fields), `include`
+(relations) and `where` at the key. `OperatorBagGuard` seals root WHERE operator
+bags. `GroupByOrderGuard` keeps groupBy `orderBy` inside `by` and the aggregates.
+Only required (spelled) keys are walked, so payload types and union-normalised
+`?: undefined` members are never expanded. A guard that inspects a type
+parameter refuses it, so projection and operator guards keep each leaf's own arm
+in a union, and generic leaves stay assignable. Cycle detection uses the exact
+caller-value/model pair, never a numeric depth cap. Not claimed: operator bags
+below the root WHERE, selectors, relation-verb keys, variant arms, cursor/having.
 
 ### Select/Include Aware Results
 

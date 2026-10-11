@@ -3,7 +3,7 @@
  * then CAS the marker. Production never evaluates TypeScript.
  */
 
-import { MigrationError, VibORMErrorCode } from "../errors";
+import { isVibORMError, MigrationError, VibORMErrorCode } from "../errors";
 import { admitLiveMigrationCapability } from "./admission";
 import {
   assertTransactionalBoundaryHonored,
@@ -26,11 +26,7 @@ import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { evaluateAllChecks, executeOperations } from "./execute-dispatch";
-import {
-  assertForeignKeysIntact,
-  liftForeignKeyPragmas,
-  withForeignKeysLifted,
-} from "./foreign-keys";
+import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
 import {
   loadMigrationGraph,
   type MigrationGraph,
@@ -41,6 +37,7 @@ import {
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
+  lockedSinceDecision,
   mayWrapTransaction,
   runSequentialProgram,
   withLockedMigrationProducer,
@@ -48,6 +45,7 @@ import {
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
+import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import { eventIdFor } from "./v1-parse";
@@ -63,6 +61,12 @@ export interface ApplyV1Result {
   readonly outcome: "applied" | "noop" | "preview";
   readonly path: readonly Sha256[];
   readonly statements: readonly string[];
+  /**
+   * Present only when the migration committed but releasing a session lock
+   * failed after it (MySQL, PostgreSQL). The session was discarded, so the
+   * lock does not outlive it.
+   */
+  readonly warnings?: readonly string[];
 }
 
 export async function applyV1(
@@ -89,6 +93,9 @@ export async function applyV1(
     );
     refusePartialControl(control.presence);
     const { marker } = control;
+    if (followsAheadPolicy(graph, marker, options)) {
+      return { outcome: "noop", path: [], statements: [] };
+    }
     const origin = marker?.stateId ?? null;
     if (origin === target) return { outcome: "noop", path: [], statements: [] };
     const path = selectRoute(graph, origin, target, options.via);
@@ -100,7 +107,9 @@ export async function applyV1(
     };
   }
 
-  return withLockedMigrationProducer(
+  // Set once the path committed: a failure after it is the lock's release.
+  const committed: { result?: ApplyV1Result } = {};
+  const locked = withLockedMigrationProducer<ApplyV1Result>(
     client.$driver,
     driver,
     async (pinned, command) => {
@@ -122,18 +131,23 @@ export async function applyV1(
           VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
         );
       }
+      if (followsAheadPolicy(graph, marker, options)) {
+        return { outcome: "noop", path: [], statements: [] };
+      }
       const origin = marker?.stateId ?? null;
       const path =
         origin === target
           ? []
           : selectRoute(graph, origin, target, options.via);
       assertPathArtifacts(graph, origin, path);
+      const statements = previewStatements(graph, origin, path);
       await command.preflightSchemaRequirements(
         [
           requireStateSnapshot(graph, origin),
           ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
         ],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        statements
       );
       if (marker) {
         await assertNoDrift(pinned, command, graph, marker);
@@ -143,7 +157,6 @@ export async function applyV1(
       if (origin === target) {
         return { outcome: "noop", path: [], statements: [] };
       }
-      const statements = previewStatements(graph, origin, path);
       const run = async (producer: Parameters<typeof appendLedger>[0]) => {
         await applyPathUnderLock(
           producer,
@@ -152,6 +165,7 @@ export async function applyV1(
           marker,
           origin,
           path,
+          client.$schema,
           needsBootstrap
         );
       };
@@ -160,8 +174,68 @@ export async function applyV1(
       } else {
         await run(pinned);
       }
-      return { outcome: "applied", path, statements };
+      committed.result = { outcome: "applied", path, statements };
+      return committed.result;
     }
+  );
+  return keepCommittedOutcome(committed, locked);
+}
+
+/**
+ * The outcome of a command whose work committed, even when ending its session
+ * afterwards failed (releasing a session lock, or closing a locked read): the
+ * marker already proves the commit (plan S3).
+ */
+async function keepCommittedOutcome(
+  committed: { readonly result?: ApplyV1Result },
+  command: Promise<ApplyV1Result>
+): Promise<ApplyV1Result> {
+  try {
+    return await command;
+  } catch (failure) {
+    if (committed.result === undefined) throw failure;
+    return {
+      ...committed.result,
+      warnings: [
+        `The migration committed, but ending its session failed (${describeFailure(failure)}).`,
+      ],
+    };
+  }
+}
+
+/**
+ * Where the live marker stands relative to this history. A marker naming a
+ * state the graph holds — or no state — is `known`, and `assertNoDrift` proves
+ * the rest. Otherwise its arrival path tells version skew from a stranger: the
+ * marker is `ahead` when that path passes through a state of this estate
+ * before leaving it (newer code applied the rest), and `unknown` when nothing
+ * on it belongs here.
+ */
+export function markerStanding(
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null
+): "known" | "ahead" | "unknown" {
+  if (!marker?.stateId || graph.states.has(marker.stateId)) return "known";
+  return marker.estateHash === graph.estateHash &&
+    marker.path.some((edge) => graph.states.has(edge.stateId))
+    ? "ahead"
+    : "unknown";
+}
+
+/** True when `ifAhead: "noop"` applies; refuses every other marker this history does not hold. */
+function followsAheadPolicy(
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  options: ApplyV1Options
+): boolean {
+  const standing = markerStanding(graph, marker);
+  if (standing === "known") return false;
+  if (standing === "ahead" && options.ifAhead === "noop") return true;
+  throw new MigrationError(
+    standing === "ahead"
+      ? `The database marker is ahead of this migration history: it names state ${marker?.stateId}, which newer code applied after a state this estate holds. Deploy that code, or pass apply({ ifAhead: "noop" }) to run against the newer schema without migrating.`
+      : `The database marker names state ${marker?.stateId}, which is unknown to this migration estate: no state on its arrival path belongs to this history.`,
+    VibORMErrorCode.MIGRATION_NOT_FOUND
   );
 }
 
@@ -172,6 +246,7 @@ export async function applyPathUnderLock(
   marker: MigrationMarkerV1 | null,
   origin: Sha256 | null,
   path: readonly Sha256[],
+  models: MigrationClient["$schema"],
   needsBootstrap = false
 ): Promise<void> {
   const prepared = path.map((to, index) => {
@@ -189,6 +264,25 @@ export async function applyPathUnderLock(
       pinned.supportsTransactions,
       transition.requestedForwardBoundary
     );
+    // Plan S5: only a transaction holds SQLite's write lock, under which a
+    // transition applies exactly once, and every SQLite statement can run in
+    // one. Refused while the path is prepared, before any of it runs.
+    if (
+      command.target.dialect === "sqlite" &&
+      transition.requestedForwardBoundary === "stepwise"
+    ) {
+      throw new MigrationError(
+        'SQLite applies no stepwise transition: only a transaction holds the write lock under which a migration applies exactly once, and every SQLite statement can run in one. Nothing ran. Apply it with VibORM 1.1.0, or, if no database applied it, remove its state from migration storage and generate it again with `execution: "transactional"`.',
+        VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+        {
+          meta: {
+            dialect: "sqlite",
+            toState: to,
+            feature: "stepwise execution",
+          },
+        }
+      );
+    }
     return {
       from,
       to,
@@ -212,19 +306,23 @@ export async function applyPathUnderLock(
   for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
     const statements = group.items.flatMap(statementsOf);
     const lifted = liftForeignKeyPragmas(pinned, statements);
+    const running: { attempt?: ForwardAttempt } = {};
     const run = async (producer: Parameters<typeof appendLedger>[0]) => {
+      await assertLockedSinceDecision(pinned, producer, command, current);
       if (bootstrapPending) {
         await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
         bootstrapPending = false;
       }
       for (const item of group.items) {
+        running.attempt = { item, attemptId: forwardAttemptId(graph, item) };
         current = await executeForwardEdge(
           producer,
           command,
           graph,
-          item,
+          running.attempt,
           current,
-          nextPath
+          nextPath,
+          models
         );
       }
     };
@@ -235,16 +333,161 @@ export async function applyPathUnderLock(
         group.boundary === "transactional"
       )
     ) {
-      await withForeignKeysLifted(pinned, lifted.bracket, () =>
-        pinned.withTransaction(async (transaction) => {
-          await run(transaction);
-          await assertForeignKeysIntact(transaction, lifted.bracket);
-        })
-      );
+      let committing = false;
+      let committed = false;
+      try {
+        await withForeignKeysLifted(pinned, lifted.bracket, async (inside) => {
+          await pinned.withTransaction(async (transaction) => {
+            await inside(transaction, run);
+            committing = true;
+          });
+          committed = true;
+        });
+      } catch (failure) {
+        // Past the commit only the foreign-key restore can fail: it is reported.
+        if (committed) throw failure;
+        if (
+          committing &&
+          (await commitLanded(pinned, command, group.items, current, failure))
+        ) {
+          continue;
+        }
+        await recordFailedAttempt(pinned, command, graph, running, failure);
+        throw failure;
+      }
     } else {
       await run(pinned);
     }
   }
+}
+
+/**
+ * Refuses a group whose decision was taken under a lock the command has since
+ * let go (plans D1, S5): an earlier group committed, or SQLite committed the
+ * decision's transaction to switch foreign keys. Read as the group's first
+ * statements, under its own lock: if another command moved the marker in
+ * between, nothing of this group runs. Apply never leaves an attempt of its own
+ * open between two groups, so an unfinished one is another command's; `down`
+ * and `reset` carry theirs across groups and pass `ownAttempt`.
+ */
+export async function assertLockedSinceDecision(
+  pinned: Parameters<typeof appendLedger>[0],
+  producer: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  expected: MigrationMarkerV1 | null,
+  ownAttempt = false
+): Promise<void> {
+  if (lockedSinceDecision(pinned)) return;
+  const { marker, ledger } = await readControlState(
+    producer,
+    command,
+    DEFAULT_CONTROL_BASE
+  );
+  if (
+    marker?.revision === expected?.revision &&
+    marker?.pathHash === expected?.pathHash &&
+    (ownAttempt || unfinishedAttempts(ledger).length === 0)
+  ) {
+    return;
+  }
+  throw new MigrationError(
+    "Another migration command moved the marker between two of this command's transactions. Nothing of the remaining path ran; running the command again re-reads the marker.",
+    VibORMErrorCode.MIGRATION_MARKER_CONFLICT
+  );
+}
+
+interface ForwardAttempt {
+  readonly item: PreparedForwardEdge;
+  readonly attemptId: Sha256;
+}
+
+/**
+ * Whether a transaction whose COMMIT was sent, and then failed, committed.
+ * The marker it compare-and-swapped answers: it commits with the transition
+ * or not at all. When even the marker cannot be read, the outcome is the
+ * ambiguous commit V11020 it is (plan S3).
+ */
+async function commitLanded(
+  pinned: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  items: readonly PreparedForwardEdge[],
+  expected: MigrationMarkerV1 | null,
+  failure: unknown
+): Promise<boolean> {
+  let marker: MigrationMarkerV1 | null;
+  try {
+    // On a lost connection the pinned view refuses this read (plan S2).
+    ({ marker } = await readControlState(
+      pinned,
+      command,
+      DEFAULT_CONTROL_BASE
+    ));
+  } catch {
+    const fromState = items[0]?.from ?? null;
+    throw new MigrationError(
+      "The migration's COMMIT was sent but its reply was lost, and the marker cannot be re-read: the transition may have committed. status() and apply() re-read the marker.",
+      VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
+      {
+        cause: failure instanceof Error ? failure : undefined,
+        meta: {
+          ...(fromState === null ? {} : { fromState }),
+          toState: items.at(-1)?.to,
+          effectState: "may-have-committed",
+          commitCertainty: "may-have-committed",
+        },
+      }
+    );
+  }
+  return (
+    marker !== null &&
+    marker.revision === expected?.revision &&
+    marker.pathHash === expected.pathHash
+  );
+}
+
+/**
+ * Leaves the durable record of a rolled-back attempt, whose own events the
+ * rollback took with it: a `failed` event, in a transaction of its own, after
+ * bootstrapping the control tables a failed first apply rolled back. The pinned
+ * view sends nothing on a lost connection (plan S2), and a record that cannot be written
+ * never replaces the failure it records.
+ */
+async function recordFailedAttempt(
+  pinned: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  running: { readonly attempt?: ForwardAttempt },
+  failure: unknown
+): Promise<void> {
+  const { attempt } = running;
+  if (attempt === undefined) return;
+  const { item, attemptId } = attempt;
+  const meta = isVibORMError(failure) ? failure.meta : {};
+  const event = ledgerEvent(
+    graph,
+    attemptId,
+    "failed",
+    item.from,
+    item.to,
+    "none",
+    typeof meta.operationId === "string" ? meta.operationId : null,
+    typeof meta.dispatchId === "string" ? meta.dispatchId : null,
+    item.transition.transitionHash,
+    describeFailure(failure)
+  );
+  try {
+    await pinned.withTransaction(async (transaction) => {
+      await ensureControlTables(transaction, command, DEFAULT_CONTROL_BASE);
+      await appendLedger(transaction, command, DEFAULT_CONTROL_BASE, event);
+    });
+  } catch {
+    // Best effort: the caller is owed the failure itself, not this one.
+  }
+}
+
+function describeFailure(failure: unknown): string {
+  if (isVibORMError(failure)) return `${failure.code}: ${failure.message}`;
+  return failure instanceof Error ? failure.name : "a non-error value";
 }
 
 interface PreparedForwardEdge {
@@ -256,16 +499,11 @@ interface PreparedForwardEdge {
   readonly boundary: "transactional" | "stepwise";
 }
 
-async function executeForwardEdge(
-  producer: Parameters<typeof appendLedger>[0],
-  command: BoundMigrationDriver,
+function forwardAttemptId(
   graph: MigrationGraph,
-  item: PreparedForwardEdge,
-  current: MigrationMarkerV1 | null,
-  nextPath: MarkerPathEdgeV1[]
-): Promise<MigrationMarkerV1> {
-  const { from, to, transition, state, blob, boundary } = item;
-  const attemptId = eventIdFor({
+  { from, to, transition, state }: PreparedForwardEdge
+): Sha256 {
+  return eventIdFor({
     format: "1",
     attemptId: "0".repeat(64),
     kind: "started",
@@ -284,6 +522,18 @@ async function executeForwardEdge(
     toolVersion: "v1",
     failure: null,
   });
+}
+
+async function executeForwardEdge(
+  producer: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  { item, attemptId }: ForwardAttempt,
+  current: MigrationMarkerV1 | null,
+  nextPath: MarkerPathEdgeV1[],
+  models: MigrationClient["$schema"]
+): Promise<MigrationMarkerV1> {
+  const { from, to, transition, state, blob, boundary } = item;
   await appendLedger(
     producer,
     command,
@@ -336,7 +586,15 @@ async function executeForwardEdge(
         )
       );
     },
-    command.namespace
+    command.namespace,
+    { fromState: from, toState: to }
+  );
+  // Manual SQL may store text typed queries cannot compare (`datetime('now')`).
+  await canonicalizeSqliteStorage(
+    producer,
+    transition.operations,
+    models,
+    requireStateSnapshot(graph, to)
   );
   if (
     !(await evaluateAllChecks(
@@ -543,7 +801,8 @@ function ledgerEvent(
   effectState: LedgerEventV1["effectState"],
   operationId: string | null = null,
   dispatchId: string | null = null,
-  transitionHash: Sha256 | null = null
+  transitionHash: Sha256 | null = null,
+  failure: string | null = null
 ): LedgerEventV1 {
   const event = {
     format: "1" as const,
@@ -562,7 +821,7 @@ function ledgerEvent(
     startedAt: new Date().toISOString(),
     finishedAt: kind === "started" ? null : new Date().toISOString(),
     toolVersion: "v1",
-    failure: null,
+    failure,
   };
   return { ...event, eventId: eventIdFor(event) };
 }

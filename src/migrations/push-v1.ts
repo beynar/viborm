@@ -27,7 +27,7 @@ import {
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
 import { executeDispatch } from "./execute-dispatch";
-import { assertForeignKeysIntact, liftForeignKeyPragmas } from "./foreign-keys";
+import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
   mayWrapTransaction,
@@ -289,8 +289,16 @@ async function executeLockedPlan(
     const fingerprint = await attestFinalFingerprint(pinned, command, plan);
     return appliedResult(plan, fingerprint, "applied");
   }
+  // A recreation is refused here: without a transaction its lift is unproven.
+  liftForeignKeyPragmas(pinned, planSql(plan));
   const fingerprint = await execute(pinned);
   return appliedResult(plan, fingerprint, "applied");
+}
+
+function planSql(plan: InternalPushPlan): string[] {
+  return plan.statements.map((statement) =>
+    sliceDispatch(plan.sqlBlob, statement.dispatch)
+  );
 }
 
 async function executeAndAttest(
@@ -315,49 +323,20 @@ async function executeTransactional(
   command: BoundMigrationDriver,
   plan: InternalPushPlan
 ): Promise<Sha256> {
-  const sql = plan.statements.map((statement) =>
-    sliceDispatch(plan.sqlBlob, statement.dispatch)
+  const { bracket } = liftForeignKeyPragmas(pinned, planSql(plan));
+  const statements = bracket
+    ? takeStatements(plan, [
+        findStatement(plan, bracket.disable).dispatch.dispatchId,
+        findStatement(plan, bracket.enable).dispatch.dispatchId,
+      ])
+    : plan.statements;
+  return withForeignKeysLifted(pinned, bracket, (inside) =>
+    pinned.withTransaction((transaction) =>
+      inside(transaction, (producer) =>
+        executeAndAttest(producer, command, plan, statements)
+      )
+    )
   );
-  const lifted = liftForeignKeyPragmas(pinned, sql);
-  if (!lifted.bracket) {
-    return pinned.withTransaction((transaction) =>
-      executeAndAttest(transaction, command, plan, plan.statements)
-    );
-  }
-
-  const disable = findStatement(plan, lifted.bracket.disable);
-  const enable = findStatement(plan, lifted.bracket.enable);
-  const remaining = takeStatements(plan, [
-    disable.dispatch.dispatchId,
-    enable.dispatch.dispatchId,
-  ]);
-  await executeDispatch(
-    pinned,
-    plan.sqlBlob,
-    disable.dispatch,
-    command.namespace
-  );
-  try {
-    return await pinned.withTransaction(async (transaction) => {
-      for (const statement of remaining) {
-        await executeDispatch(
-          transaction,
-          plan.sqlBlob,
-          statement.dispatch,
-          command.namespace
-        );
-      }
-      await assertForeignKeysIntact(transaction, lifted.bracket);
-      return attestFinalFingerprint(transaction, command, plan);
-    });
-  } finally {
-    await executeDispatch(
-      pinned,
-      plan.sqlBlob,
-      enable.dispatch,
-      command.namespace
-    );
-  }
 }
 
 async function attestFinalFingerprint(

@@ -46,6 +46,9 @@ const runtime = {
     // Migrations (viborm/migrations)
     migrations: "./src/migrations/index.ts",
     "migrations/storage/fs": "./src/migrations/storage/fs.ts",
+    "migrations/storage/durable-object":
+      "./src/migrations/storage/durable-object.ts",
+    "migrations/storage/r2": "./src/migrations/storage/r2.ts",
 
     // Config helper (viborm/config)
     config: "./src/config.ts",

@@ -4,12 +4,14 @@ import { decodeProviderTimestamp } from "../validation/primitives/datetime-physi
 /**
  * Live schema fingerprint and push target identity.
  *
- * `bindingId` is minted from the original client driver, never a pinned
- * producer. This module hashes the snapshot it is given; callers strip
- * control tables before fingerprinting.
+ * The target identity names the database itself (dialect, database and
+ * namespace), never a client instance: a consent previewed by one client is
+ * replayed by any other on the same database, and the plan hash it carries
+ * still binds it to the exact live fingerprint and statements. This module
+ * hashes the snapshot it is given; callers strip control tables before
+ * fingerprinting.
  */
 
-import { randomUUID } from "node:crypto";
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { isRecord } from "../validation/value-guards";
@@ -17,27 +19,15 @@ import { canonicalizeJson, canonicalizeJsonText } from "./canonical-json";
 import type { IndexPredicateCanonicalizer } from "./differ";
 import type { BoundMigrationDriver, MigrationDriver } from "./drivers";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
-import type { MigrationClient } from "./push/planner";
+import { canPinSession } from "./pinned-session";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodeSnapshot } from "./v1-parse-snapshot";
 import type { PushTargetIdentity } from "./v1-types";
 
-const BINDINGS = new WeakMap<object, string>();
-
-export function bindingId(client: MigrationClient): string {
-  const existing = BINDINGS.get(client.$driver);
-  if (existing) return existing;
-  const id = randomUUID();
-  BINDINGS.set(client.$driver, id);
-  return id;
-}
-
 export async function pushTargetIdentity(
-  client: MigrationClient,
   producer: AnyDriver,
   driver: BoundMigrationDriver
 ): Promise<PushTargetIdentity> {
-  const id = bindingId(client);
   if (driver.target.dialect === "postgresql") {
     const result = await producer._executeRaw<{ database: unknown }>(
       "SELECT current_database() AS database"
@@ -53,7 +43,6 @@ export async function pushTargetIdentity(
       dialect: "postgresql",
       database,
       namespace: driver.namespace ?? driver.target.namespace,
-      bindingId: id,
     };
   }
   if (driver.target.dialect === "mysql") {
@@ -66,10 +55,9 @@ export async function pushTargetIdentity(
     return {
       dialect: "mysql",
       database: driver.namespace,
-      bindingId: id,
     };
   }
-  return { dialect: "sqlite", location: null, bindingId: id };
+  return { dialect: "sqlite", location: null };
 }
 
 export function hashSnapshot(snapshot: SchemaSnapshot): Sha256 {
@@ -83,13 +71,17 @@ export function bindIndexPredicateCanonicalizer(
   const canonicalize = driver.canonicalizeIndexPredicates;
   if (!canonicalize) return;
   return async (tableName, predicates) => {
-    try {
-      return await canonicalize.call(
-        driver,
-        tableName,
-        predicates,
-        (sql, params) => producer._executeRaw(sql, params)
+    const run = (on: AnyDriver) =>
+      canonicalize.call(driver, tableName, predicates, (sql, params) =>
+        on._executeRaw(sql, params)
       );
+    try {
+      // Its scratch views are session-local, so on a pool, or behind a
+      // transaction pooler, its statements must share one transaction. A
+      // locked command's pinned producer is already inside one (plan D1).
+      return await (canPinSession(producer) && producer.supportsTransactions
+        ? producer.withTransaction(run)
+        : run(producer));
     } catch {
       return predicates.map(() => undefined);
     }
@@ -267,6 +259,7 @@ const UTC_CURRENT_TIME_DEFAULT =
   /^timezone\(\s*'utc'\s*,\s*current_time(?:\(3\))?\s*\)$/;
 const NUMERIC_PHYSICAL_TYPE =
   /^(integer|bigint|smallint|real|double precision|float|int|tinyint)/;
+const INTEGER_PHYSICAL_TYPE = /^(integer|bigint|smallint|int|tinyint)/;
 const INTEGER_LITERAL = /^[-+]?\d+$/;
 const TEMPORAL_PHYSICAL_TYPE = /^(timestamp|time|date)/;
 const ISO_UTC_SUFFIX = /Z$/;
@@ -366,7 +359,10 @@ export function normalizeDefault(
     }
   }
   if (NUMERIC_PHYSICAL_TYPE.test(physical) && NUMBER_LITERAL.test(unquoted)) {
-    return INTEGER_LITERAL.test(unquoted)
+    // BigInt keeps integer columns exact; a float catalog spells 1e21 as
+    // '1000000000000000000000', which only Number() reads back as 1e+21.
+    return INTEGER_PHYSICAL_TYPE.test(physical) &&
+      INTEGER_LITERAL.test(unquoted)
       ? BigInt(unquoted).toString()
       : String(Number(unquoted));
   }

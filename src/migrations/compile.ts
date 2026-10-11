@@ -213,7 +213,13 @@ export function compileManualTransition(
   originChecks: readonly MigrationCheckInput[] | undefined,
   assembly: SqlAssembly
 ): CompiledTransition {
-  const operations = compileManualOperations(up, dialect, assembly, "forward");
+  const operations = compileManualOperations(
+    up,
+    dialect,
+    assembly,
+    "forward",
+    requested
+  );
   if (rollback.kind === "irreversible" && rollback.reason.trim().length === 0) {
     throw new MigrationError(
       "Irreversible rollback requires a non-empty reason",
@@ -230,7 +236,8 @@ export function compileManualTransition(
             rollback.sql,
             dialect,
             assembly,
-            "rollback"
+            "rollback",
+            rollback.execution
           ),
         };
   return {
@@ -265,7 +272,8 @@ function compileManualOperations(
   fragments: readonly Sql[],
   dialect: "postgresql" | "mysql" | "sqlite",
   assembly: SqlAssembly,
-  prefix: string
+  prefix: string,
+  execution: AtomicityClass
 ): MigrationOperationV1[] {
   if (fragments.length === 0) {
     throw new MigrationError(
@@ -278,6 +286,14 @@ function compileManualOperations(
     if (text.trim().length === 0) {
       throw new MigrationError(
         `Manual ${prefix} SQL dispatch ${index} must contain non-whitespace text`,
+        VibORMErrorCode.MIGRATION_INVALID_ESTATE
+      );
+    }
+    // Refused before the state is published: sent after BEGIN, PostgreSQL
+    // rejects it (25001), so the transition could never apply.
+    if (execution === "transactional" && CONCURRENTLY.test(text)) {
+      throw new MigrationError(
+        `Manual ${prefix} SQL dispatch ${index} runs CONCURRENTLY, which PostgreSQL refuses inside a transaction. Declare execution: "stepwise" for it.`,
         VibORMErrorCode.MIGRATION_INVALID_ESTATE
       );
     }
@@ -426,11 +442,93 @@ export function rebindRollback(
   };
 }
 
-const CREATE_INDEX_CONCURRENTLY = /CREATE\s+INDEX\s+CONCURRENTLY/i;
+const IDENTIFIER = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)`;
+const QUALIFIED = String.raw`${IDENTIFIER}(?:\.${IDENTIFIER})?`;
+
+/**
+ * A statement PostgreSQL refuses inside a transaction block (25001):
+ * `CREATE [UNIQUE] INDEX`, `DROP INDEX`, `REINDEX INDEX|TABLE|SCHEMA|DATABASE`
+ * and `REINDEX (…, CONCURRENTLY)` with `CONCURRENTLY`, and `DETACH PARTITION
+ * … CONCURRENTLY`. `REFRESH MATERIALIZED VIEW CONCURRENTLY` runs in a
+ * transaction and is not one.
+ */
+const CONCURRENTLY = new RegExp(
+  String.raw`\b(?:INDEX|TABLE|SCHEMA|DATABASE|PARTITION\s+${QUALIFIED})\s+CONCURRENTLY\b|\bREINDEX\s*\([^)]*\bCONCURRENTLY\b`,
+  "i"
+);
 const ALTER_TYPE_ADD_VALUE = /ALTER\s+TYPE\s+\S+\s+ADD\s+VALUE/i;
 
+/** `CREATE TABLE <name>` (group 1), or `ALTER TABLE <name>` (2) and its actions (3). */
+const TABLE_STATEMENT = new RegExp(
+  String.raw`\bCREATE\s+(?:(?:GLOBAL|LOCAL|TEMP|TEMPORARY|UNLOGGED)\s+)*TABLE\s+(?!IF\s+NOT\s+EXISTS\b)(${QUALIFIED})|\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${QUALIFIED})([^;]*)`,
+  "gi"
+);
+/** Each action that rewrites or scans the table, and how a refusal names it. */
+const TABLE_REWRITES: readonly (readonly [RegExp, (name: string) => string])[] =
+  [
+    [
+      new RegExp(
+        String.raw`\bALTER\s+(?:COLUMN\s+)?(${IDENTIFIER})\s+(?:SET\s+DATA\s+)?TYPE\b`,
+        "i"
+      ),
+      (column) => `column type change of ${column}`,
+    ],
+    [
+      new RegExp(
+        String.raw`\bALTER\s+(?:COLUMN\s+)?(${IDENTIFIER})\s+SET\s+NOT\s+NULL\b`,
+        "i"
+      ),
+      (column) => `SET NOT NULL on ${column}`,
+    ],
+    [
+      new RegExp(
+        String.raw`\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?!(?:CONSTRAINT|PRIMARY|UNIQUE|FOREIGN|CHECK|EXCLUDE)\b)(${IDENTIFIER})[\s\S]*?(?:\b(?:gen_random_uuid|uuidv[47]|uuid_generate_v[14]|random|clock_timestamp|timeofday|nextval)\s*\(|\b(?:SMALL|BIG)?SERIAL\b|\bGENERATED\b)`,
+        "i"
+      ),
+      (column) => `volatile default on new column ${column}`,
+    ],
+    [
+      // `NOT VALID` counts up to the next `, ADD` action, not past it.
+      new RegExp(
+        String.raw`\bADD\s+(?:CONSTRAINT\s+${IDENTIFIER}\s+)?(FOREIGN\s+KEY|CHECK)\b(?!(?:(?!,\s*ADD\b)[\s\S])*\bNOT\s+VALID\b)`,
+        "i"
+      ),
+      (constraint) => `${constraint.toUpperCase()} validation`,
+    ],
+  ];
+
+/**
+ * The PostgreSQL statements of `program` that rewrite or scan an existing
+ * table while holding a lock that blocks it (T5a): a column type change (an
+ * enum replacement and a decimal descriptor change are ones), `SET NOT NULL`,
+ * a new column whose default is volatile, and a FOREIGN KEY or CHECK added
+ * without `NOT VALID`. One entry per `ALTER TABLE`, naming its table as the
+ * statement spells it and its first such action. A table the program has
+ * already created by that spelling is empty, so it is left out (a force
+ * reset, a drop and recreate). A plain `CREATE INDEX` (writes blocked, reads
+ * not) is not one.
+ */
+export function tableRewrites(
+  program: readonly string[]
+): { readonly table: string; readonly operation: string }[] {
+  const created = new Set<string>();
+  return program.flatMap((statement) =>
+    [...statement.matchAll(TABLE_STATEMENT)].flatMap(
+      ([, made, table, clause]) => {
+        if (made) created.add(made);
+        if (!table || created.has(table)) return [];
+        for (const [pattern, name] of TABLE_REWRITES) {
+          const action = pattern.exec(clause ?? "")?.[1];
+          if (action) return [{ table, operation: name(action) }];
+        }
+        return [];
+      }
+    )
+  );
+}
+
 function isNonTransactionalSql(driver: MigrationDriver, sql: string): boolean {
-  if (CREATE_INDEX_CONCURRENTLY.test(sql)) return true;
+  if (CONCURRENTLY.test(sql)) return true;
   return (
     ALTER_TYPE_ADD_VALUE.test(sql) &&
     !driver.capabilities.supportsAddEnumValueInTransaction

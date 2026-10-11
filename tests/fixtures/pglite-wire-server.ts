@@ -12,14 +12,24 @@ export interface FrontendMessage {
 }
 
 /**
+ * When an armed cut kills the session. `"before"`: the statement never runs.
+ * `"after"`: the whole request runs, through its Sync, as it does on a server
+ * that already read it, and the session dies before the reply leaves: a COMMIT
+ * commits and the client never learns it.
+ */
+export type CutPoint = "before" | "after";
+
+/**
  * PGlite behind a minimal PostgreSQL wire bridge on a loopback port, for
- * driving postgres.js against a real server.
+ * driving postgres.js and node-postgres against a real server.
  *
  * `stop()` refuses every connection the way a restarting server does,
- * `start(port)` serves the same database again, `killSessionOn(text)` kills
- * the session that sends `text` before answering it, and `frontend` records
- * every message clients send. Use one connection at a time (`max: 1`), because
- * PGlite is a single session.
+ * `start(port)` serves the same database again, `killSessionOn(text, at)` kills
+ * the next session that sends `text`, once, and resolves when it did, and
+ * `frontend` records every message clients send. A killed or stopped session
+ * ends as a PostgreSQL backend does: its transaction rolls back and its session
+ * advisory locks are released. Use one connection at a time (`max: 1`),
+ * because PGlite is a single session.
  */
 export function pgliteWireServer(database: PGlite) {
   const sockets = new Set<Socket>();
@@ -27,12 +37,26 @@ export function pgliteWireServer(database: PGlite) {
   // PGlite is one session, so every connection's messages share one queue.
   let replies = Promise.resolve();
   let server: Server | undefined;
-  let fatal: string | undefined;
+  let armed: { text: string; at: CutPoint; fired: () => void } | undefined;
+  const endSession = () => {
+    replies = replies.then(async () => {
+      await database.exec("ROLLBACK; SELECT pg_advisory_unlock_all()");
+    });
+  };
   const serve = (socket: Socket) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => undefined);
+    const kill = (fired: () => void) => {
+      socket.destroy();
+      endSession();
+      replies = replies.then(fired);
+    };
     let pending = Buffer.alloc(0);
+    // An "after" cut that matched on this socket: from its Execute (or simple
+    // Query) on, every reply goes to nobody, and its Sync ends the session.
+    let after: (() => void) | undefined;
+    let silent = false;
     socket.on("data", (chunk) => {
       pending = Buffer.concat([pending, chunk]);
       for (;;) {
@@ -46,19 +70,24 @@ export function pgliteWireServer(database: PGlite) {
         if (pending.length < length) return;
         const message = pending.subarray(0, length);
         pending = pending.subarray(length);
-        if (!startup) frontend.push(describeMessage(message));
-        if (fatal && message.includes(fatal)) {
-          // PostgreSQL ends a dead session's transaction.
-          replies = replies.then(async () => {
-            await database.exec("ROLLBACK");
-          });
-          socket.destroy();
-          return;
+        const described = startup ? undefined : describeMessage(message);
+        if (described) frontend.push(described);
+        if (armed && message.includes(armed.text)) {
+          const { at, fired } = armed;
+          armed = undefined;
+          if (at === "before") return kill(fired);
+          after = fired;
         }
+        const type = described?.type;
+        silent ||= after !== undefined && (type === "E" || type === "Q");
+        const quiet = silent;
         replies = replies.then(async () => {
           const reply = await database.execProtocolRaw(message);
-          if (!socket.destroyed) socket.write(reply);
+          if (!(quiet || socket.destroyed)) socket.write(reply);
         });
+        if (after && quiet && (type === "S" || type === "Q")) {
+          return kill(after);
+        }
       }
     });
   };
@@ -78,11 +107,13 @@ export function pgliteWireServer(database: PGlite) {
         ...[...sockets].map((socket) => once(socket.destroy(), "close")),
         new Promise((resolve) => server?.close(resolve)),
       ]);
+      endSession();
       await replies;
     },
-    killSessionOn: (text: string) => {
-      fatal = text;
-    },
+    killSessionOn: (text: string, at: CutPoint = "before") =>
+      new Promise<void>((fired) => {
+        armed = { text, at, fired };
+      }),
   };
 }
 

@@ -81,11 +81,121 @@ mapping may target a newly added value; nullable removal still requires explicit
 `useNull()` or `mapValues()`. DateTime storage conversions validate and convert
 source values rather than reinterpreting physical bytes.
 
+Reconstruction drops the source table. SQLite drops that table's triggers with
+it, and a view or another table's trigger that reads the table breaks the swap.
+So before any statement runs, `apply`, `down` and `push` refuse a migration that
+rebuilds a table any trigger or view depends on, and the error (`V11009`) names
+each table and dependent. The check reads the stored SQL, together with the
+triggers and views the same migration path creates or drops before the rebuild.
+String literals and comments are ignored, and so is a bare word SQLite never
+accepts as an unquoted name (such as `ORDER` or `GROUP`), so a table named
+`order` is not refused for an unrelated `ORDER BY`. Any other identifier spelled
+like the table, a column included, counts as a reference. To proceed, drop the
+dependents before the change and recreate them after it. A SQL step earlier on
+the same migration path counts when it is a `DROP TRIGGER` or `DROP VIEW`
+statement (leading comments and a `main.` qualifier are fine).
+
+A type change that moves a column's SQLite affinity into INTEGER, REAL or TEXT
+copies each value through `CAST`, and keeps the result only if it compares equal
+to the source under SQLite's own rules. Numeric text such as `'12'` becomes
+`12`. Anything else aborts the reconstruction inside its transaction and leaves
+the table unchanged, with `V2005` (out of range). That includes `'twelve'`,
+`'1.5'` or `''` into INTEGER, a fractional REAL into INTEGER, an integer that
+REAL cannot hold exactly, a BLOB into TEXT, and an infinite REAL into TEXT
+(VibORM never writes one; only raw SQL can). To find the values that block a
+change to INTEGER, run
+`SELECT rowid, "c" FROM "t" WHERE "c" IS NOT NULL AND CAST("c" AS INTEGER) <> "c"`
+(use `REAL` or `TEXT` for those targets). Migrations generated before 1.2.0 keep
+the copy they were generated with.
+
+A fixed-decimal column stores its scaled integer coefficient (`1.23` at scale 2
+is `123`), so a change that drops the decimal domain divides it back out. Only
+an INTEGER target can hold the result: a value with a fraction, or a stored
+value that is not a coefficient, aborts the reconstruction and leaves the table
+unchanged, and a TEXT, REAL or list target
+is refused before any statement runs (`V8001`).
+
+Dropping a table that other tables reference fires their `ON DELETE` actions
+unless foreign keys are really off, so every reconstruction is verified.
+`PRAGMA foreign_keys` is turned off between two transactions and must then read
+`0`, or the change is refused before any statement runs (`V11021`). Inside the
+transaction, each `DROP TABLE` runs between two counts of every table that
+references the dropped one: each must keep its row count and the number of
+non-null values in each referencing column, or the change rolls back
+(`V11001`). Writes the migration makes to those tables before or after the drop
+are not affected. A `DROP TABLE` in such a migration whose table name VibORM
+cannot read (anything but `"name"` or a plain identifier) is rolled back the
+same way. A driver without transactions (`supportsTransactions: false`) cannot
+prove any of this, and a reconstruction is refused on it before any statement
+runs (`V11021`). A driver that must flush pending writes before the pragma can
+take effect implements the optional `beforeForeignKeysOff()` hook, which runs
+just before it, outside any transaction: a Durable Object driver calls
+`await ctx.storage.sync()` there. If `PRAGMA foreign_keys` does not read `1`
+after it is turned back on, the change has committed but the command reports it
+(`V11021`): do not reuse that connection.
+
 ## Scope and providers
 
 An explicit `migrations.tables` list selects exact physical tables and refuses
 cross-boundary foreign keys. Reset previews list the tables actually selected.
-SQLite's transaction owns its write lock; there is no advisory-lock statement.
+
+## Concurrent commands
+
+SQLite has no advisory lock: the write lock of `BEGIN IMMEDIATE` is the
+migration lock. Every effectful command runs in transactions that open with it,
+reads the marker and the unfinished attempts first, and runs the first group of
+its path in the transaction that read them. So two processes applying one
+migration apply it once: the second waits for the write lock (the connection's
+busy timeout, 5 s on the stock drivers; past it the command refuses with
+`V11005` before any effect), then reads the first one's marker and reports
+`noop`, or refuses with `V11015`. Within one process, the driver's connection
+queue runs one migration command at a time.
+
+A table rebuild commits that transaction to switch `PRAGMA foreign_keys`
+between two; its group then locks again and re-reads the marker before it acts.
+
+Applying a transition declared `execution: "stepwise"` is refused (`V11021`)
+before any of the path runs: every SQLite statement can run in a transaction,
+and only a transaction holds the lock. Declare manual transitions
+`execution: "transactional"`. A stepwise transition published with 1.1.0 that
+some database still needs is applied with 1.1.0 before upgrading. One that no
+database has applied can instead be removed from migration storage (its
+`states/<id>.json` file) and generated again, from the same parent with the
+same SQL, as `"transactional"`. Generating it again without removing it would
+leave two children of one state, and the next `generate` refuses to merge them.
+Legacy stepwise work that `down`, `reset` or `resolve` reaches still runs, inside
+the locked transaction.
+
+## Driver admission
+
+Effectful migration commands run only on a SQLite driver that declares
+`sqliteMigrationCapability`. The stock `sqlite3` and `bun-sqlite` drivers declare
+it. D1 and libSQL do not, so they keep offline generation, check and read-only
+previews, while effectful commands are refused with `V8002`.
+
+A custom SQLite driver binds to migrations only by declaring it, after
+confirming its three claims:
+
+- `PRAGMA foreign_keys` run between transactions on its connection takes effect
+  and reads back;
+- the platform reserves no table names;
+- every transaction it opens begins with `BEGIN IMMEDIATE`.
+
+```ts
+import { Driver, SQLITE_MIGRATION_CAPABILITY } from "viborm/driver";
+
+class MySQLiteDriver extends Driver<Client, Client> {
+  readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
+  // ...
+}
+```
+
+A declaring driver always runs on the sqlite3 migration implementation, which
+alters columns by table recreation, whatever its name. Subclassing
+`LibSQLDriver` with the declaration therefore never uses libSQL's native
+`ALTER COLUMN`, which does not validate existing rows. An undeclared custom
+SQLite driver has no migration binding: every migration command refuses it,
+generation included.
 
 ## LibSQL / Turso
 
@@ -104,83 +214,133 @@ reconstructs a legacy carrier once and records the new encoding in schema
 proofs. The conversion preserves the double still stored in the legacy table;
 it cannot recover digits that an earlier writer already rounded away.
 
-## Repairing foreign timestamp and Time text
+## Timestamps written by SQL
 
 VibORM writes canonical text: DateTime as `YYYY-MM-DDTHH:mm:ss.sssZ`, Time as
 `HH:mm:ss.sss`. Typed filters, ordering and unique lookups compare that stored
-text, so they assume it is canonical. Text written in another spelling by raw
-SQL, another writer, or a release candidate that stored string input verbatim
-(`2024-01-15T10:30:00Z`, a `+00:00` offset, SQLite's `datetime('now')`) still
-reads back as the right instant, but comparisons can miss or misorder its rows.
-Typed queries do not inspect storage per statement. Run `viborm check --db` to
-count noncanonical values per column; it exits nonzero when any exist and
-names the repair below for each. It audits a pushed schema: one catalog read
-per table reports an audited column missing from its table, or every audited
-column of a missing table, and fails the audit, so run `viborm push` or apply
-migrations first.
+text, so they assume it is canonical.
 
-The manual migration helpers quote a physical column name and return a SQLite
-expression. DateTime conversion uses the same calendar, instant range and
-wide-offset rules as the migration converter, including year zero and offsets
-up to ±23:59. NULL remains NULL; malformed or out-of-range values abort the
-statement. Time padding preserves its clock value and refuses an invalid clock.
-Text without a zone, such as `datetime('now')`, is refused because its instant
-is unknown. If that writer used UTC, state it first:
-`UPDATE "events" SET "created_at" = replace("created_at", ' ', 'T') || 'Z' WHERE "created_at" GLOB '????-??-?? ??:??:??'`.
-A DateTime or Time list is a JSON array: read it through the typed client and
-write it back with `update`, which stores canonical members. D1 refuses the
-timestamp patterns these expressions and the audit use (`LIKE or GLOB pattern
-too complex`); audit and repair a D1 database through an exported SQLite copy.
+Stored DateTime text may also use SQLite's own zone-less spelling,
+`YYYY-MM-DD HH:MM:SS` with an optional fraction of up to three digits, which
+`datetime('now')`, `datetime('now', 'subsec')` and `CURRENT_TIMESTAMP` write.
+SQLite defines it as UTC, and so does VibORM. Query input is unchanged: a
+DateTime string passed to the typed client still needs `T` and a zone.
 
-```ts title="repair-temporal.ts"
+After manual SQL runs, the program that ran it rewrites its destination
+state's text DateTime and Time columns into canonical text, inside its
+transaction and before its checks and marker move. That program is `apply` of a
+transition with manual SQL, `down` through a `manual` rollback,
+`resolve({ outcome: "complete" })` of an unfinished manual transition, and
+`reset` replaying a manual transition:
+
+- each scalar column with one `UPDATE … SET col = <canonical> WHERE NOT <canonical>`;
+- each DateTime or Time list member by member, rewriting its JSON array in order;
+- each decimal list member by member, checked against the column's scale.
+
+Zoned spellings are converted to UTC, zone-less ones are read as UTC, and Time
+is padded to milliseconds. A row that cannot be rewritten aborts the program
+with `V11014`, naming the column and SQLite's reason: nothing of a
+transactional program is kept and the marker does not move. That is a value
+outside the grammar (`'next tuesday'`, a `T` without a zone, `25:00`, a
+non-text list member, a decimal-list member that is not a coefficient string
+of the column's scale), or a rewrite that meets a constraint, such as two
+spellings of one instant in a unique column (`UNIQUE constraint failed`).
+
+Every row of each column is checked, so a malformed value stored before the
+transition aborts it too. Find DateTime and Time values first with
+`viborm check --db` or `auditStorage`. Neither inspects decimal-list members:
+the abort names such a column; rewrite the row's list through the typed client
+(`update({ where, data: { prices } })`), which stores canonical members.
+
+A `stepwise` transition left unfinished by VibORM 1.1.0 (1.2.0 refuses to
+apply one on SQLite) had no enclosing transaction: its statements stay applied
+and the attempt stays unfinished. Repair the value, then
+`resolve({ outcome: "complete" })` canonicalizes and moves the marker (it needs
+destination checks, as for any manual transition). `resolve` never retries
+manual SQL.
+
+The snapshot marks scalar DateTime and decimal columns itself. Time columns and
+DateTime lists are taken from the client's current models, matched by table,
+column and physical type. On a path through an older state where a column of
+the same name and type held plain strings, that column is checked as temporal
+too; run such a path with a client whose models match it.
+
+```ts title="migrations/fill-shipped-at.ts"
 import { sql } from "viborm";
-import {
-  sqliteCanonicalDateTimeExpression,
-  sqliteCanonicalTimeExpression,
-  type ManualMigrationInput,
-} from "viborm/migrations";
-
-const stamp = sqliteCanonicalDateTimeExpression("created_at");
-const clock = sqliteCanonicalTimeExpression("start_time");
+import type { ManualMigrationInput } from "viborm/migrations";
 
 export default (parents: readonly (string | null)[]): ManualMigrationInput => ({
   transitions: parents.map((from) => ({
     from,
     execution: "transactional",
-    // These reads validate every non-NULL value before the update.
-    originChecks: [{
-      kind: "trusted-read",
-      query: sql.raw(`SELECT NOT EXISTS (
-        SELECT 1 FROM "events"
-        WHERE ("created_at" IS NOT NULL AND ${stamp} IS NULL)
-           OR ("start_time" IS NOT NULL AND ${clock} IS NULL)
-      )`),
-      equals: true,
-    }],
-    up: [sql.raw(`UPDATE "events"
-      SET "created_at" = ${stamp}, "start_time" = ${clock}`)],
-    rollback: {
-      kind: "irreversible",
-      reason: "Original text offsets and fractional spellings are not retained",
-    },
+    // Stored as '2026-10-10 12:34:56'; apply rewrites it to '2026-10-10T12:34:56.000Z'.
+    up: [sql.raw(`UPDATE "orders" SET "shipped_at" = datetime('now') WHERE "shipped_at" IS NULL`)],
+    rollback: { kind: "irreversible", reason: "Backfill" },
   })),
-  destinationChecks: [{
-    kind: "trusted-read",
-    query: sql.raw(`SELECT NOT EXISTS (
-      SELECT 1 FROM "events"
-      WHERE "created_at" <> ${stamp} OR "start_time" <> ${clock}
-    )`),
-    equals: true,
-  }],
 });
 ```
 
-Review the resulting checked transition with
-`viborm migrate generate --custom ./repair-temporal.ts --dry-run --review ./repair.sql`.
-The helper generates SQL only. It does not inspect, update, or automatically
-repair an application database. Back up and authorize the intended data update
-before applying the reviewed migration, then rerun `viborm check --db`.
+## Repairing foreign timestamp and Time text
 
+Text written outside migrations, by raw SQL, another writer, or a release
+candidate that stored string input verbatim (`2024-01-15T10:30:00Z`, a
+`+00:00` offset, `datetime('now')`), still reads back as the right instant, but
+comparisons can miss or misorder its rows. Typed queries do not inspect storage
+per statement. Run `viborm check --db` to count noncanonical values per column;
+it exits nonzero when any exist and names the repair for each. It audits a
+pushed schema: one catalog read per table reports an audited column missing
+from its table, or every audited column of a missing table, and fails the
+audit, so run `viborm push` or apply migrations first.
+
+The same audit is a function, for runtime and Durable Object callers that have
+no CLI. It reads SQLite storage only and returns an empty list on other
+dialects:
+
+```ts
+import { auditStorage } from "viborm/migrations";
+
+const audits = await auditStorage(client);
+const dirty = audits.filter((audit) =>
+  audit.type === "decimal" ? !audit.checked : audit.noncanonical !== 0
+);
+```
+
+Each entry names `table` and `column`. A DateTime or Time entry carries `list`
+and `noncanonical`, the count of rows outside canonical text; a decimal entry
+carries `declared`, the catalog's type, and `checked`. A `null` count or
+declaration means the column is missing.
+
+The manual migration helpers quote a physical column name and return a SQLite
+expression. DateTime conversion uses the same calendar, instant range and
+wide-offset rules as the migration converter, including year zero and offsets
+up to ±23:59, and reads zone-less text as UTC. NULL remains NULL; malformed or
+out-of-range values abort the statement. Time padding preserves its clock value
+and refuses an invalid clock. A database managed by migrations is repaired by
+any manual transition, since every column is canonicalized after its SQL; a
+pushed database can run the helpers directly:
+
+```ts title="repair-temporal.ts"
+import {
+  sqliteCanonicalDateTimeExpression,
+  sqliteCanonicalTimeExpression,
+} from "viborm/migrations";
+
+await client.$executeRawUnsafe(
+  `UPDATE "events" SET "created_at" = ${sqliteCanonicalDateTimeExpression("created_at")}, "start_time" = ${sqliteCanonicalTimeExpression("start_time")}`
+);
+```
+
+`push` adopting a plain TEXT column as a TEXT DateTime validates every row
+against this grammar and keeps its spelling: an offset or zone-less value
+stays as written, and `check --db` counts it. Adoption into INTEGER or REAL
+storage converts each value, zone-less text as UTC.
+
+Outside migrations, a DateTime or Time list is a JSON array: read it through
+the typed client and write it back with `update`, which stores canonical
+members. D1 refuses the timestamp patterns these expressions and the audit use
+(`LIKE or GLOB pattern too complex`); audit and repair a D1 database through an
+exported SQLite copy. Back up the database before a repair, then rerun
+`viborm check --db`.
 
 ## Native indexes
 

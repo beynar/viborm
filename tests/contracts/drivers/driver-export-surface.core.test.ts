@@ -1,23 +1,32 @@
 import { VibORM } from "@client/client";
 // biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
 import * as drivers from "@drivers";
+import { createClient as createBunSQLClient } from "@drivers/bun-sql";
 import {
   BunSQLiteDriver,
   createClient as createBunSQLiteClient,
 } from "@drivers/bun-sqlite";
 import { createClient as createD1Client, D1Driver } from "@drivers/d1";
-import { Driver } from "@drivers/driver";
+import { Driver, TransactionBoundDriver } from "@drivers/driver";
 // biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
 import * as driverBase from "@drivers/exports";
 import {
   createClient as createLibSQLClient,
   LibSQLDriver,
 } from "@drivers/libsql";
+import { createClient as createMySQL2Client } from "@drivers/mysql2";
+import { createClient as createNeonHTTPClient } from "@drivers/neon-http";
+import { createClient as createPgClient } from "@drivers/pg";
+import { createClient as createPGliteClient } from "@drivers/pglite";
+import { createClient as createPlanetScaleClient } from "@drivers/planetscale";
+import { borrowPositionalResult } from "@drivers/positional-result";
+import { createClient as createPostgresClient } from "@drivers/postgres";
 import { sqliteResultParser } from "@drivers/shared";
 import {
   createClient as createSQLite3Client,
   SQLite3Driver,
 } from "@drivers/sqlite3";
+import { ClientInitializationError } from "@errors";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 afterEach(() => {
@@ -80,6 +89,7 @@ describe("driver runtime export surface", () => {
       "ForeignKeyError",
       "NotNullConstraintError",
       "QueryError",
+      "SQLITE_MIGRATION_CAPABILITY",
       "TransactionError",
       "UniqueConstraintError",
       "isRetryableError",
@@ -87,6 +97,55 @@ describe("driver runtime export surface", () => {
     ]);
     expect(driverBase.Driver).toBe(Driver);
     expect(driverBase.sqliteResultParser).toBe(sqliteResultParser);
+  });
+
+  test("a transaction view owns no client: it never opens one, and closes none", async () => {
+    const view = new TransactionBoundDriver(new SQLite3Driver({}), null);
+    expect(() =>
+      Reflect.apply(Reflect.get(view, "initClient"), view, [])
+    ).toThrow("TransactionBoundDriver does not initialize clients");
+    await expect(
+      Reflect.apply(Reflect.get(view, "closeClient"), view, [])
+    ).resolves.toBeUndefined();
+  });
+
+  test("a borrowed positional result is keyed by its columns", () => {
+    expect(
+      borrowPositionalResult({
+        kind: "positional",
+        columns: ["id", "name"],
+        rows: [
+          [1, "a"],
+          [2, "b"],
+        ],
+      })
+    ).toEqual({
+      rows: [
+        { id: 1, name: "a" },
+        { id: 2, name: "b" },
+      ],
+      rowCount: 2,
+    });
+  });
+
+  // platform-16: the key is refused before any provider is reached.
+  test.each([
+    ["bun-sql", createBunSQLClient],
+    ["bun-sqlite", createBunSQLiteClient],
+    ["d1", createD1Client],
+    ["libsql", createLibSQLClient],
+    ["mysql2", createMySQL2Client],
+    ["neon-http", createNeonHTTPClient],
+    ["pg", createPgClient],
+    ["pglite", createPGliteClient],
+    ["planetscale", createPlanetScaleClient],
+    ["postgres", createPostgresClient],
+    ["sqlite3", createSQLite3Client],
+  ] as const)("viborm/%s refuses a configuration key it does not read", (name, create) => {
+    const attempt = () =>
+      Reflect.apply(create, undefined, [{ schema: {}, notAKey: true }]);
+    expect(attempt).toThrow(ClientInitializationError);
+    expect(attempt).toThrow(`viborm/${name} does not accept "notAKey"`);
   });
 
   test("the aggregate driver barrel exposes every shipped runtime driver", () => {

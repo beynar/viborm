@@ -53,8 +53,10 @@ and captured-row arguments. Query and exact-producer sources are distinct;
 operation's output during construction. Interpretation does not rediscover the
 public verb. `Queries` owns one membership predicate across alias-to-alias
 correlation and captured-source values; `correlation()` and `memberWhere()` only
-select that operand form, and a walk's `step` is the one join-form reader of a
-junction membership. Positive observations live in `CommandAttempt`;
+select that operand form, and a walk's `step` and a relation page's
+`memberSource` are the two join-form readers of a junction membership, both
+through `junctionTarget` (parity-04: SQLite, after ANALYZE, scans a small
+target behind the `IN (SELECT …)` form once per parent). Positive observations live in `CommandAttempt`;
 absence is consumed lexically and is deliberately not cached across re-entry.
 Junction capture stores the exact membership pair, not a synthetic row lookup.
 
@@ -1434,10 +1436,9 @@ private fit, became the public `recurse` option, and its sentences are counted
 with the public ones. A sentence another owner states for both result views
 is read at the engine's throw site when the engine imports it as an
 `export const` (`DISTANCE_SELECTED_TWICE`) or calls an imported
-`export function` whose body is one `return` of a template
-(`emptySelectRefusal(model)`); a builder that computes before it returns
-leaves its site sentence-less, so keep a shared sentence in one of those two
-shapes. Do not add a second enumeration of an admitted
+`export function` whose body is one `return` of a template; a builder that
+computes before it returns leaves its site sentence-less, so keep a shared
+sentence in one of those two shapes. Do not add a second enumeration of an admitted
 vocabulary inside a lowerer to close a union the admission already closed —
 where the type cannot say the invariant, the class carries the distinction.
 A declared field named like a combinator (`AND`, `OR`, `NOT`) is that field:
@@ -1453,10 +1454,16 @@ a refusal. Execution order is the run order of `CommandExecution.run`: the
 `before` children, the record's own write, the captures, the `after` children,
 each in body order — where the body order is the relation body's canonical
 verb order (`mutationOrder`, `collectionMutationOrder`: a to-many runs
-`disconnect, delete, update, upsert, connectOrCreate, set, updateMany,
-deleteMany, connect, create, createMany`), relations in declaration order,
+`disconnect, delete, set, updateMany, deleteMany, update, upsert,
+connectOrCreate, connect, create, createMany` — clear-first, whatever the
+payload's key order), relations in declaration order,
 and each payload ENTRY of a verb is its own mutation with its own origin (a
-set's targets share the set's). The write's and the read's execution points
+set's targets share the set's). Consecutive `after` records that pass the
+createMany sharing predicate (`#sharesInsert`: same model, `create`, no
+demands, same written columns in order, no suppression, located row, children
+or refusal) are written through `OperationContext.insertMany` as one grouped,
+bind-budgeted INSERT in body order; where insertMany declines (the batch
+route, or outside the operation's region) they run one by one. The write's and the read's execution points
 are the two children of their nearest common ancestor on each path; a
 membership contribution executes with the record whose fields carry it (a
 parent-held choice publishes the parent's key for the parent's own UPDATE);

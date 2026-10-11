@@ -15,6 +15,7 @@ import {
 } from "@validation/primitives/decimal-codec";
 import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
+import type { ResolvedMigrationLimits } from "../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { refuseBinaryReencoding } from "../binary-conversion";
 import {
@@ -191,6 +192,12 @@ export abstract class MigrationDriver {
    */
   declare readonly namespace?: string;
 
+  /**
+   * The limits of the command this instance is bound for (plans S1, T5a).
+   * Absent on the unbound singleton, which renders under the defaults.
+   */
+  declare readonly limits?: ResolvedMigrationLimits;
+
   // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
@@ -208,10 +215,15 @@ export abstract class MigrationDriver {
   /**
    * Proves external physical requirements encoded by authenticated snapshots.
    * Dialects with no such requirement keep the no-op owner here.
+   *
+   * `program` is the statement list the command is about to run, when it has
+   * one, so a dialect can refuse what that program would destroy (SQLite: a
+   * recreation's dependent triggers and views).
    */
   async preflightSchemaRequirements(
     _snapshots: readonly SchemaSnapshot[],
-    _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+    _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
+    _program: readonly string[] = []
   ): Promise<void> {
     // Most dialects have no external schema requirement to prove.
   }

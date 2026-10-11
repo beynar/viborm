@@ -33,6 +33,7 @@ import {
   runTransactionLifecycle,
   type TransactionOptionSupport,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import type { QueryResult } from "../types";
 import { createValidatedPlanetScaleFetch } from "./response-contract";
 
@@ -57,6 +58,13 @@ export interface PlanetScaleDriverOptions {
 
 export type PlanetScaleClientConfig<C extends DriverConfig> =
   PlanetScaleDriverOptions & C;
+
+const PLANETSCALE_CONFIG_KEYS: Record<keyof PlanetScaleDriverOptions, true> = {
+  client: true,
+  databaseUrl: true,
+  options: true,
+  namespace: true,
+};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -221,6 +229,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: PlanetScaleDriver }
   >]: LinkedClientConfig<C & { driver: PlanetScaleDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "planetscale", PLANETSCALE_CONFIG_KEYS);
   const { client, databaseUrl, options } = config;
   const namespace = resolveNamespaceOption(config);
 

@@ -299,9 +299,10 @@ function actorScript(
         // bytes it saw are not the bytes the column holds when the consumer
         // runs. The statement binds that identity and the sub-select's limit
         // in place of the captured literal; a PRODUCED supplier's value is
-        // this unit's own and is carried, unchanged.
+        // this unit's own and is carried, unchanged. The identity is a
+        // one-member list, bound as one PostgreSQL array (engine-09).
         parameters: found
-          ? [actor.tokenId, actor.accountId, 1]
+          ? [actor.tokenId, `{"${actor.accountId}"}`, 1]
           : [actor.tokenId, actor.code],
       },
       {

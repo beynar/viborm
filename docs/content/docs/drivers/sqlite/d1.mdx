@@ -31,6 +31,9 @@ export default {
 |--------|------|-------------|
 | `database` | `D1Database \| D1DatabaseSession` | D1 database binding or session from Worker env |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
 ### Database sessions
 
 Pass a session created for the current request as the database:

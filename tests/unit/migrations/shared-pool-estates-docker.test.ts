@@ -222,6 +222,59 @@ describeIfPg("two PostgreSQL estates over one pg.Pool", () => {
     expect(await tablesIn("public")).not.toContain(CONTROL_LOG);
   });
 
+  it("two runners racing one estate through the pool apply it once and leave no advisory lock (D1)", async () => {
+    // Through the PgBouncer lane each transaction may land on another server
+    // session: the lock must be a transaction lock, read with the marker.
+    const namespace = "viborm_sp_race";
+    await admin._executeRaw(`DROP SCHEMA IF EXISTS "${namespace}" CASCADE`);
+    await admin._executeRaw(`CREATE SCHEMA "${namespace}"`);
+    try {
+      const storage = new MemoryStorage();
+      const runner = () =>
+        createClient({
+          schema: applySchema,
+          driver: new PgDriver({ pool, namespace }),
+        });
+      await generate(runner(), storage, { name: "sp_race_entry" });
+
+      const outcomes = await Promise.all(
+        [runner(), runner()].map((client) =>
+          apply(client, storage).then(
+            (result) => result.outcome,
+            (error: unknown) =>
+              error instanceof Error
+                ? String(Reflect.get(error, "code"))
+                : String(error)
+          )
+        )
+      );
+
+      expect(outcomes.filter((outcome) => outcome === "applied")).toHaveLength(
+        1
+      );
+      expect(
+        outcomes.every(
+          (outcome) =>
+            outcome === "applied" ||
+            outcome === "noop" ||
+            outcome === VibORMErrorCode.MIGRATION_MARKER_CONFLICT
+        )
+      ).toBe(true);
+      expect(await tablesIn(namespace)).toEqual([
+        CONTROL_LOG,
+        CONTROL_STATE,
+        "sp_notes",
+        "sp_relative",
+      ]);
+      const locks = await admin._executeRaw<{ held: number }>(
+        "SELECT count(*)::int AS held FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_database d ON d.oid = l.database WHERE l.locktype = 'advisory' AND d.datname = current_database()"
+      );
+      expect(locks.rows[0]?.held).toBe(0);
+    } finally {
+      await admin._executeRaw(`DROP SCHEMA IF EXISTS "${namespace}" CASCADE`);
+    }
+  });
+
   it("refuses a cross-estate foreign key at the exact declared boundary", async () => {
     await admin._executeRaw(
       `ALTER TABLE "${BETA}"."sp_notes" ADD COLUMN "alpha_id" TEXT REFERENCES "${ALPHA}"."sp_notes"("id")`

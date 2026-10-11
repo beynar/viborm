@@ -633,7 +633,7 @@ describe("Nested Mutation Routing", () => {
     } as unknown as Parameters<typeof client.user.update>[0];
 
     await expect(client.user.update(invalidUpdate)).rejects.toThrow(
-      "Validation failed for update"
+      "Validation failed for user.update"
     );
 
     const [user, post] = await Promise.all([

@@ -204,11 +204,15 @@ namespaces, or caches a tenant-client registry.
 MySQL2 resolves one immutable target in this order:
 
 1. an explicit `namespace`;
-2. for a **driver-created** pool, a non-empty database path in `databaseUrl`;
-3. for a **driver-created** pool, `options.database`;
+2. for a **driver-created** pool, `options.database`;
+3. for a **driver-created** pool, a non-empty database path in `databaseUrl`;
 4. otherwise no bound namespace, and the existing unqualified runtime mode.
 
-A URL overrides copied pool options, mirroring the existing provider precedence.
+`options.database` wins over the URL path, like every explicit option (see [MySQL2](/docs/drivers/mysql/mysql2#url-and-options-together)).
+`viborm/mysql2`, `viborm/pg` and `viborm/postgres` share that rule: the URL
+supplies only the keys it carries, and a key set in `options` wins. On
+PostgreSQL the database is not the namespace (a schema is), so there it only
+picks the database the pool connects to.
 An absent or empty URL path contributes no namespace and no pool-database
 override. A supplied `Pool` is opaque: only an explicit `namespace` can bind it,
 and VibORM never inspects mysql2 internals or mutates the caller's `options`

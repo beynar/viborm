@@ -2,22 +2,25 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { snapshotExactRecord } from "./input-boundary";
+import type { ResolveCallback } from "./types";
 import type { StateSelector } from "./v1-types";
 
 export interface NormalizedDownOptions {
   readonly steps: number;
   readonly to?: StateSelector;
   readonly dryRun: boolean;
+  readonly expectRevision?: number;
+  readonly resolve?: ResolveCallback;
 }
 
 export function normalizeDownOptions(options: unknown): NormalizedDownOptions {
   const record = snapshotExactRecord(
     options,
-    ["steps", "to", "dryRun"],
+    ["steps", "to", "dryRun", "expectRevision", "resolve"],
     "down options",
     refuseDownOptions
   );
-  const { steps, to, dryRun } = record;
+  const { steps, to, dryRun, expectRevision, resolve } = record;
   if (steps !== undefined && to !== undefined) {
     return refuseDownOptions("down accepts either steps or to, not both");
   }
@@ -35,10 +38,25 @@ export function normalizeDownOptions(options: unknown): NormalizedDownOptions {
   if (dryRun !== undefined && typeof dryRun !== "boolean") {
     return refuseDownOptions("down dryRun must be a boolean");
   }
+  if (
+    expectRevision !== undefined &&
+    (typeof expectRevision !== "number" ||
+      !Number.isSafeInteger(expectRevision) ||
+      expectRevision <= 0)
+  ) {
+    return refuseDownOptions(
+      "down expectRevision must be a positive safe integer"
+    );
+  }
+  if (resolve !== undefined && !isResolveCallback(resolve)) {
+    return refuseDownOptions("down resolve must be a function");
+  }
   return Object.freeze({
     steps: normalizedSteps,
     ...(to === undefined ? {} : { to: normalizeStateSelector(to) }),
     dryRun: dryRun === true,
+    ...(expectRevision === undefined ? {} : { expectRevision }),
+    ...(resolve === undefined ? {} : { resolve }),
   });
 }
 
@@ -67,6 +85,10 @@ function normalizeStateSelector(value: unknown): StateSelector {
   if (key === "id") return { id: selected };
   if (key === "prefix") return { prefix: selected };
   return { name: selected };
+}
+
+function isResolveCallback(value: unknown): value is ResolveCallback {
+  return typeof value === "function";
 }
 
 function refuseDownOptions(message: string, cause?: Error): never {

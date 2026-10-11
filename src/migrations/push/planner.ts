@@ -1,4 +1,5 @@
 import type { AnyDriver } from "../../drivers/driver";
+import type { ResolvedMigrationLimits } from "../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { AnyModel } from "../../schema/model";
 import type { ResolvedRelationIndex } from "../../schema/validation/relation-resolution";
@@ -6,7 +7,6 @@ import { admitLiveMigrationCapability } from "../admission";
 import {
   type DiffOptions,
   diff,
-  getDestructiveOperationDescriptions,
   type IndexPredicateCanonicalizer,
   isDestructiveOperation,
 } from "../differ";
@@ -16,18 +16,18 @@ import { emptyManagedSnapshot } from "../empty-snapshot";
 import { applyNativeRename } from "../native-rename";
 import {
   alwaysAddDropResolver,
+  ambiguousDropKey,
+  approveDestructiveOperations,
   resolveAmbiguousChanges,
   validateResolveResult,
 } from "../resolver";
 import { serializeResolvedModels } from "../serializer";
-import { MANAGED_TABLES } from "../target";
+import { MANAGED_TABLES, MIGRATION_LIMITS } from "../target";
 import {
   type AmbiguousChange,
   type AmbiguousResolveChange,
   type ChangeResolution,
   createAmbiguousChange,
-  createDestructiveChange,
-  type DestructiveResolveChange,
   type DiffOperation,
   type DiffResult,
   type ResolveCallback,
@@ -54,7 +54,8 @@ import {
 export interface MigrationClient {
   $driver: AnyDriver;
   $schema: Record<string, AnyModel>;
-  readonly [MANAGED_TABLES]?: readonly string[];
+  readonly [MANAGED_TABLES]?: readonly string[] | undefined;
+  readonly [MIGRATION_LIMITS]?: ResolvedMigrationLimits | undefined;
 }
 
 export interface PushOptions {
@@ -83,25 +84,21 @@ export interface PushOptions {
    * - Ambiguous: `change.rename()`, `change.addAndDrop()`, `change.reject()`
    * - Enum value removal: `change.mapValues({...})`, `change.useNull()`, `change.reject()`
    *
-   * **Combining with `force`:**
-   * When both `resolve` and `force: true` are provided, the resolver takes precedence.
-   * If the resolver returns `undefined` (doesn't handle a change), force mode kicks in:
-   * - Destructive: auto-accepted
-   * - Ambiguous: treated as add+drop
-   * - Enum removal: set to NULL
-   *
-   * This allows patterns like "accept everything except dropping table X".
+   * A change the callback leaves undecided (returns `undefined`) refuses the
+   * plan with MIGRATION_DESTRUCTIVE_REJECTED. Public `migrations.push()` has no
+   * `force`; only the planner-internal `force` above turns an undecided change
+   * into add+drop, acceptance or NULL.
    *
    * @example
    * ```ts
-   * // Protect specific tables while auto-accepting everything else
+   * // Accept dropping a column, refuse everything else
    * await migrations.push({
-   *   force: true,
+   *   dryRun: true,
    *   resolve: async (change) => {
-   *     if (change.type === "destructive" && change.table === "users") {
-   *       return change.reject(); // Protect users table
+   *     if (change.type === "destructive" && change.operation === "dropColumn") {
+   *       return change.proceed();
    *     }
-   *     // Return undefined to let force handle the rest
+   *     return change.reject();
    *   },
    * });
    * ```
@@ -122,7 +119,11 @@ export interface PushPlan {
 export function getPushMigrationDriver(
   client: MigrationClient
 ): BoundMigrationDriver {
-  return getMigrationDriver(client.$driver, client[MANAGED_TABLES]);
+  return getMigrationDriver(
+    client.$driver,
+    client[MANAGED_TABLES],
+    client[MIGRATION_LIMITS]
+  );
 }
 
 /**
@@ -389,11 +390,14 @@ async function resolveWithCallback(
     resolvedOperations,
     diffOptions.projectRename
   );
-  const finalOperations = await resolveDestructiveOperations(
-    resolvedOperations.filter((op) => op.type !== "alterEnum"),
+  await approveDestructiveOperations(
+    resolvedOperations,
     resolve,
     force,
     admittedAmbiguousDrops
+  );
+  const finalOperations: DiffOperation[] = resolvedOperations.filter(
+    (op) => op.type !== "alterEnum"
   );
   const enumColumnMappings = await resolveEnumValueRemovalMappings(
     resolvedEnumRemovals,
@@ -442,69 +446,6 @@ function retargetEnumRemovals(
   });
 }
 
-async function resolveDestructiveOperations(
-  operations: DiffOperation[],
-  resolve: ResolveCallback,
-  force: boolean,
-  admittedDrops: ReadonlySet<string> = new Set()
-): Promise<DiffOperation[]> {
-  const admitted: DiffOperation[] = [];
-  for (const op of operations) {
-    if (
-      !isDestructiveOperation(op) ||
-      admittedDrops.has(destructiveDropKey(op))
-    ) {
-      admitted.push(op);
-      continue;
-    }
-
-    const change = operationToResolveChange(op);
-    const result = validateResolveResult(
-      "destructive",
-      change,
-      await resolve(change)
-    );
-    if (result === "reject") {
-      throw new MigrationError(
-        `Change rejected: ${change.description}`,
-        VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
-      );
-    }
-    if (result === undefined) {
-      if (force) {
-        admitted.push(op);
-      } else {
-        throw new MigrationError(
-          `Unresolved destructive change: ${change.description}\n` +
-            "Return change.proceed() or change.reject() from the resolver.",
-          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
-        );
-      }
-      continue;
-    }
-    if (result === "proceed") {
-      admitted.push(op);
-    }
-  }
-  return admitted;
-}
-
-function ambiguousDropKey(change: AmbiguousChange): string {
-  return change.type === "ambiguousTable"
-    ? `table\u0000${change.droppedTable}`
-    : `column\u0000${change.tableName}\u0000${change.droppedColumn.name}`;
-}
-
-function destructiveDropKey(operation: DiffOperation): string {
-  if (operation.type === "dropTable") {
-    return `table\u0000${operation.tableName}`;
-  }
-  if (operation.type === "dropColumn") {
-    return `column\u0000${operation.tableName}\u0000${operation.columnName}`;
-  }
-  return "";
-}
-
 function rejectUnresolvedChanges(
   diffResult: {
     operations: DiffOperation[];
@@ -544,51 +485,6 @@ function rejectUnresolvedChanges(
       "Provide a resolve callback to choose each change explicitly.",
     VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
   );
-}
-
-function operationToResolveChange(op: DiffOperation): DestructiveResolveChange {
-  switch (op.type) {
-    case "dropTable":
-      return createDestructiveChange({
-        operation: "dropTable",
-        table: op.tableName,
-        description: `Drop table "${op.tableName}" (all data will be lost)`,
-      });
-    case "dropColumn":
-      return createDestructiveChange({
-        operation: "dropColumn",
-        table: op.tableName,
-        column: op.columnName,
-        description: `Drop column "${op.columnName}" from table "${op.tableName}" (data will be lost)`,
-      });
-    case "addColumn":
-      return createDestructiveChange({
-        operation: "addColumn",
-        table: op.tableName,
-        column: op.column.name,
-        description: `Add required column "${op.tableName}.${op.column.name}" without a backfill default (fails on populated tables)`,
-      });
-    case "alterColumn":
-      return createDestructiveChange({
-        operation: "alterColumn",
-        table: op.tableName,
-        column: op.columnName,
-        // The SAME sentences the differ already writes for this operation, and
-        // not a second summary of it. Rendering `from.type → to.type` here was
-        // silent about the one change whose type does not move: a narrowing
-        // decimal domain on SQLite reads `(INTEGER → INTEGER)`, so the user was
-        // asked to accept a data-refusing change with nothing on screen to say
-        // what it was. Every destructive alterColumn produces at least one
-        // description, because the differ's description and classifier share
-        // the same owner and ask the same three questions.
-        description: getDestructiveOperationDescriptions([op]).join("; "),
-      });
-    default:
-      throw new MigrationError(
-        `Unexpected operation type: ${op.type}`,
-        VibORMErrorCode.INTERNAL_ERROR
-      );
-  }
 }
 
 function ambiguousToResolveChange(

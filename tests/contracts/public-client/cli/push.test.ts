@@ -14,7 +14,6 @@ const PLAN_HASH = "a".repeat(64);
 const TARGET = {
   dialect: "sqlite",
   location: null,
-  bindingId: "test-binding",
 } as const;
 const CONSENT = {
   format: "viborm-migration-v1",

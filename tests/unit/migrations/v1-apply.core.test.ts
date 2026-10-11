@@ -358,12 +358,12 @@ describe("migration v1 apply control-plane refusals", () => {
     await client.$disconnect();
   });
 
-  test("rolls control bootstrap back with the first transactional migration", async () => {
+  test("rolls the first transactional migration back and records it as failed", async () => {
     const storage = new MemoryEstateStorage();
     const driver = createInMemorySQLite3Driver();
     const client = createClient({ schema: { user }, driver });
     const migrations = createMigrationClient(client, { storage });
-    await migrations.generate({
+    const failing = await migrations.generate({
       name: "failing-init",
       manualMigration: {
         transitions: [
@@ -384,17 +384,30 @@ describe("migration v1 apply control-plane refusals", () => {
       createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
     );
 
-    await expect(migrations.apply()).rejects.toThrow();
+    await expect(migrations.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_FAILED,
+      meta: { toState: failing.stateId, statementIndex: 1 },
+    });
     const tables = await driver._executeRaw<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
     );
-    expect(tables.rows.map((row) => row.name)).toContain(
-      "_viborm_migration_state"
-    );
-    expect(tables.rows.map((row) => row.name)).not.toContain(
-      "_viborm_migration_log"
-    );
-    expect(tables.rows.map((row) => row.name)).not.toContain("transient");
+    expect(tables.rows.map((row) => row.name)).toEqual([
+      "_viborm_migration_log",
+      "_viborm_migration_state",
+    ]);
+    // The rollback took the attempt's own events; the bootstrap the failure
+    // record needs completes outside it, holding exactly that record.
+    const log = await migrations.log();
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({
+      kind: "failed",
+      fromState: null,
+      toState: failing.stateId,
+      effectState: "none",
+    });
+    const status = await migrations.status();
+    expect(status).toMatchObject({ marker: null, unfinished: false });
+    expect(status.lastFailure).toEqual(log[0]);
     await client.$disconnect();
   });
 

@@ -258,6 +258,10 @@ describe("migration execution and control contracts", () => {
       )
     ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_LOCK_FAILED });
 
+    // Only stepwise work holds a session lock to release (plan D1): a
+    // CONCURRENTLY statement takes it.
+    const stepwise = (pinned: { _executeRaw(sql: string): Promise<unknown> }) =>
+      pinned._executeRaw('CREATE INDEX CONCURRENTLY "i" ON "public"."t" ("c")');
     const release = pgEstateDriver("public");
     release.respond = (statement) =>
       statement.includes("pg_namespace") ? [{ present: 1 }] : [];
@@ -266,7 +270,10 @@ describe("migration execution and control contracts", () => {
       withLockedMigrationProducer(
         release,
         getMigrationDriver(release),
-        async () => "ran"
+        async (pinned) => {
+          await stepwise(pinned);
+          return "ran";
+        }
       )
     ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_LOCK_FAILED });
     expect(release.sessions).toEqual(["reserve", "destroy"]);
@@ -278,7 +285,8 @@ describe("migration execution and control contracts", () => {
     const caught = await withLockedMigrationProducer(
       primary,
       getMigrationDriver(primary),
-      async () => {
+      async (pinned) => {
+        await stepwise(pinned);
         throw bodyFailure;
       }
     ).catch((error: unknown) => error);

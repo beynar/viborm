@@ -314,6 +314,7 @@ describe("migration v1 compiler", () => {
     expect(classifyStoredAtomicity(sqlite, "stepwise", [])).toBe("stepwise");
     for (const statement of [
       "CREATE INDEX CONCURRENTLY ix_user_email ON user (email)",
+      "CREATE UNIQUE INDEX CONCURRENTLY ux_user_email ON user (email)",
       "ALTER TYPE status ADD VALUE 'ready'",
     ]) {
       const assembly = new SqlAssembly();
@@ -321,7 +322,7 @@ describe("migration v1 compiler", () => {
         [sql.raw(statement)],
         { kind: "irreversible", reason: "test" },
         "postgresql",
-        "transactional",
+        "stepwise",
         undefined,
         assembly
       );
@@ -335,6 +336,20 @@ describe("migration v1 compiler", () => {
         )
       ).toBe(statement.includes("CONCURRENTLY") ? "stepwise" : "transactional");
     }
+    // PostgreSQL refuses CONCURRENTLY after BEGIN: such a transition declared
+    // transactional is refused before its state is published.
+    expect(() =>
+      compileManualTransition(
+        [sql.raw("CREATE INDEX CONCURRENTLY ix_user_email ON user (email)")],
+        { kind: "irreversible", reason: "test" },
+        "postgresql",
+        "transactional",
+        undefined,
+        new SqlAssembly()
+      )
+    ).toThrow(
+      "runs CONCURRENTLY, which PostgreSQL refuses inside a transaction"
+    );
     expect(() =>
       assertTransactionalBoundaryHonored(false, "transactional")
     ).toThrowError(

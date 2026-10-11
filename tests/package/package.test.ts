@@ -35,6 +35,10 @@ const scripts = [
   ["preserves packaged error names", "./error-names-smoke.mjs"],
   ["works without the optional OpenTelemetry peer", "./otel-absent-smoke.mjs"],
   [
+    "loads viborm/migrations in workerd without compatibility flags",
+    "./workerd-migrations-smoke.mjs",
+  ],
+  [
     "lets a third party build soft delete from public exports alone",
     "./soft-delete-consumer-smoke.mjs",
   ],
@@ -42,11 +46,19 @@ const scripts = [
     "lets a third party build the guide's extension recipes from public exports alone",
     "./extension-recipes-consumer-smoke.mjs",
   ],
+  [
+    "runs the probe corpus against the packed package",
+    "./probe-corpus-smoke.mjs",
+  ],
   ["enforces the release artifact contract", "./release-contract-smoke.mjs"],
   ["requires exact-main CI before release", "./release-ci-smoke.mjs"],
   [
     "keeps root/schema declarations independent of optional provider peers",
     "./optional-peer-declarations-smoke.mjs",
+  ],
+  [
+    "resolves its peer ranges as npm does (workers-types 5 installs)",
+    "./peer-resolution-smoke.mjs",
   ],
   [
     "supports genuine CommonJS runtime and typed consumers",
@@ -57,8 +69,16 @@ const scripts = [
     "./driver-setup-consumer-smoke.mjs",
   ],
   [
+    "type-checks a Neon WebSocket Pool on viborm/pg with the newest @types/pg",
+    "./neon-pool-types-smoke.mjs",
+  ],
+  [
     "loads installed CLI TypeScript configuration and environment files",
     "./cli-config-consumer-smoke.mjs",
+  ],
+  [
+    "runs the quick start from npm init -y as written",
+    "./quick-start-consumer-smoke.mjs",
   ],
   [
     "preserves dependency security regressions",
@@ -72,10 +92,19 @@ const scripts = [
     "preserves the published consumer type floor",
     "../../scripts/consumer-type-floor.mjs",
   ],
-  [
-    "type-checks a 100-model three-level include on the TypeScript 5.9 floor",
-    "./type-floor-scale-smoke.mjs",
-  ],
+  ...(["50", "100"] as const).flatMap((models) =>
+    (["base", "deep", "filter", "create"] as const).map(
+      (entry) =>
+        [
+          `type-checks the ${models}-model ${entry} entry within its TypeScript 5.9 budget`,
+          "./type-floor-scale-smoke.mjs",
+          {
+            VIBORM_TYPE_SCALE_MODELS: models,
+            VIBORM_TYPE_BUDGET_ENTRY: entry,
+          },
+        ] as const
+    )
+  ),
   [
     "retains TS5.9 public query inference for extends10",
     "./declaration-consumer-smoke.mjs",

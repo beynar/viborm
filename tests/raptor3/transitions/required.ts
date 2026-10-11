@@ -156,7 +156,7 @@ function requiredMembership(
           assert.equal(
             observation.outcome.failure.message,
             disconnect
-              ? "Validation failed for update: data.crate.disconnect: Unknown key: disconnect"
+              ? "Validation failed for box.update: data.crate.disconnect: Unknown key: disconnect"
               : "Cannot set relation 'boxes' because foreign key field(s) crateId are required: rows removed from the set cannot be disconnected. Delete them instead."
           );
           if (disconnect) assert.equal(completedStatements, 0);

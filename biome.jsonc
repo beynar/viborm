@@ -46,6 +46,11 @@
   },
   "overrides": [
     {
+      // JSONC files (the Workers test config) carry comments by definition.
+      "includes": ["**/*.jsonc"],
+      "json": { "parser": { "allowComments": true } }
+    },
+    {
       // Blume page overrides use PascalCase component names, and Biome does not
       // connect Astro frontmatter imports to their template references.
       "includes": ["docs/**/*.astro"],

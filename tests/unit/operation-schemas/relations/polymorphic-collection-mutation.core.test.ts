@@ -103,13 +103,15 @@ describe("the tagged collection verb grammar", () => {
     expect(accepts("create", {})).toBe(true);
   });
 
-  test("collection admission rejects a late clearing verb", () => {
+  test("collection admission admits a clearing verb spelled after an adding one", () => {
+    // engine-04: the relation body runs the bag clear-first whatever the
+    // spelling, so admission does not police key order.
     expect(
       accepts("update", {
         connect: [{ type: "photo", where: { id: "p" } }],
         disconnect: [{ type: "article", where: { id: "a" } }],
       })
-    ).toBe(false);
+    ).toBe(true);
   });
 
   test("the CREATE bag offers four supply verbs and nothing else", () => {

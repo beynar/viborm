@@ -96,6 +96,7 @@ export enum VibORMErrorCode {
   MIGRATION_AMBIGUOUS_COMMIT = "V11020",
   MIGRATION_UNSUPPORTED_PROVIDER = "V11021",
   MIGRATION_CORRUPTION = "V11022",
+  MIGRATION_INVALID_INDEX = "V11023",
 
   // Pending operation errors (12xxx)
   OPERATION_ALREADY_EXECUTED = "V12001",
@@ -501,6 +502,7 @@ interface CodeDisposition {
   [VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT]: "expected";
   [VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER]: "expected";
   [VibORMErrorCode.MIGRATION_CORRUPTION]: "expected";
+  [VibORMErrorCode.MIGRATION_INVALID_INDEX]: "expected";
 
   // Pending operations (12xxx). Caller misuse of the operation lifecycle — awaiting twice,
   // mixing transaction scopes. A refusal aimed at the person writing the call.

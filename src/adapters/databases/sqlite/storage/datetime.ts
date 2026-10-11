@@ -7,13 +7,25 @@ import { createIdentifierQuoter } from "../../../../sql/identifiers";
 
 const MILLISECONDS_PER_DAY = 86_400_000;
 const UNIX_EPOCH_JULIAN_DAY = 2_440_587.5;
-/** SQL literals mirroring the public four-digit UTC DateTime domain. */
-const SQLITE_MIN_INTEGER = "-9223372036854775808";
+/**
+ * `abs(INT64_MIN)` raises SQLite's "integer overflow" error: the one abort
+ * every copy and rewrite expression uses to stop on a value it cannot convert.
+ */
+export const SQLITE_ABORT = "abs(-9223372036854775808)";
 
 const ISO_DATE = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]";
 const ISO_TIME = "[0-9][0-9]:[0-9][0-9]:[0-9][0-9]";
 const ISO_OFFSET = "[+-][0-9][0-9]:[0-9][0-9]";
+/**
+ * The stored-text grammar: the client's ISO input grammar plus SQLite's own
+ * zone-less spelling (`datetime('now')`, `CURRENT_TIMESTAMP`), which SQLite
+ * defines as UTC.
+ */
 const ISO_TIMESTAMP_SHAPES = [
+  `${ISO_DATE} ${ISO_TIME}`,
+  `${ISO_DATE} ${ISO_TIME}.[0-9]`,
+  `${ISO_DATE} ${ISO_TIME}.[0-9][0-9]`,
+  `${ISO_DATE} ${ISO_TIME}.[0-9][0-9][0-9]`,
   `${ISO_DATE}T${ISO_TIME}Z`,
   `${ISO_DATE}T${ISO_TIME}.[0-9]Z`,
   `${ISO_DATE}T${ISO_TIME}.[0-9][0-9]Z`,
@@ -68,12 +80,17 @@ function textFractionMilliseconds(source: string): string {
   );
 }
 
+/** SQLite's zone-less UTC spelling separates date and time with a space. */
+function isZoneless(source: string): string {
+  return `substr(${source}, 11, 1) = ' '`;
+}
+
 function textOffsetMilliseconds(source: string): string {
   const magnitude =
     `((CAST(substr(${source}, -5, 2) AS INTEGER) * 60 + ` +
     `CAST(substr(${source}, -2, 2) AS INTEGER)) * 60000)`;
   return (
-    `(CASE WHEN substr(${source}, -1, 1) = 'Z' THEN 0 ` +
+    `(CASE WHEN substr(${source}, -1, 1) = 'Z' OR ${isZoneless(source)} THEN 0 ` +
     `WHEN substr(${source}, -6, 1) = '+' THEN ${magnitude} ` +
     `ELSE -${magnitude} END)`
   );
@@ -114,7 +131,7 @@ function epochMilliseconds(source: string, form: DateTimePhysicalForm): string {
   return textToEpochMilliseconds(source);
 }
 
-/** SQL transcription of `validateIsoTimestamp`'s accepted string grammar. */
+/** SQL transcription of the stored-text grammar (`ISO_TIMESTAMP_SHAPES`). */
 function isIsoTimestamp(source: string): string {
   return `(${ISO_TIMESTAMP_SHAPES.map((shape) => `${source} GLOB '${shape}'`).join(" OR ")})`;
 }
@@ -140,7 +157,7 @@ function isAdmittedIsoTimestamp(source: string): string {
     `${isIsoTimestamp(source)} AND ${month} BETWEEN 1 AND 12 AND ` +
     `${day} BETWEEN 1 AND ${lastDay} AND ${hour} BETWEEN 0 AND 23 AND ` +
     `${minute} BETWEEN 0 AND 59 AND ${second} BETWEEN 0 AND 59 AND ` +
-    `(${zulu} OR (${offsetHour} BETWEEN 0 AND 23 AND ${offsetMinute} BETWEEN 0 AND 59)) AND ` +
+    `(${zulu} OR ${isZoneless(source)} OR (${offsetHour} BETWEEN 0 AND 23 AND ${offsetMinute} BETWEEN 0 AND 59)) AND ` +
     `julianday(substr(${source}, 1, 10) || 'T00:00:00Z') IS NOT NULL`
   );
 }
@@ -215,7 +232,7 @@ export function sqliteDateTimeCopyExpression(
   return (
     `CASE WHEN ${source} IS NULL THEN NULL ` +
     `WHEN ${exact} THEN ${value} ` +
-    `ELSE abs(${SQLITE_MIN_INTEGER}) END`
+    `ELSE ${SQLITE_ABORT} END`
   );
 }
 
@@ -224,7 +241,7 @@ export function sqliteCanonicalDateTimeExpression(columnName: string): string {
   const source = createIdentifierQuoter('"')(columnName);
   const epoch = textToEpochMilliseconds(source);
   const value = epochMillisecondsToText(epoch);
-  return `CASE WHEN ${source} IS NULL THEN NULL WHEN ${sourceIsExact(source, "text", epoch)} AND ${targetIsExact(epoch, "text", value)} THEN ${value} ELSE abs(${SQLITE_MIN_INTEGER}) END`;
+  return `CASE WHEN ${source} IS NULL THEN NULL WHEN ${sourceIsExact(source, "text", epoch)} AND ${targetIsExact(epoch, "text", value)} THEN ${value} ELSE ${SQLITE_ABORT} END`;
 }
 
 /** The Time writer, the `viborm check --db` audit and the repair share one physical grammar. */
@@ -244,7 +261,7 @@ function timeSource(source: string): { valid: string; value: string } {
 export function sqliteCanonicalTimeExpression(columnName: string): string {
   const source = createIdentifierQuoter('"')(columnName);
   const { valid, value } = timeSource(source);
-  return `CASE WHEN ${source} IS NULL THEN NULL WHEN ${valid} THEN ${value} ELSE abs(${SQLITE_MIN_INTEGER}) END`;
+  return `CASE WHEN ${source} IS NULL THEN NULL WHEN ${valid} THEN ${value} ELSE ${SQLITE_ABORT} END`;
 }
 
 /** Exact canonical carrier predicates for `viborm check --db`: NULL passes, unknown/malformed does not. */
@@ -261,23 +278,64 @@ export function sqliteCanonicalTimePredicate(columnName: string): string {
   return `CASE WHEN ${source} IS NULL THEN 1 WHEN ${valid} AND ${source} = ${value} THEN 1 ELSE 0 END`;
 }
 
-/** Counts one text DateTime/Time column's rows (scalar or JSON list) outside the canonical carrier. */
+type TemporalType = "datetime" | "time";
+
+/**
+ * One text DateTime/Time column (scalar or JSON list): which rows lie outside
+ * the canonical carrier, and the canonical value a row rewrites to. NULL is
+ * canonical. A list is rewritten member by member, in array order; a non-text
+ * member or a non-array carrier aborts like a malformed scalar.
+ */
+function temporalCarrier(
+  table: string,
+  column: string,
+  type: TemporalType,
+  list: boolean
+): { readonly noncanonical: string; readonly canonical: string } {
+  const [predicate, expression] =
+    type === "time"
+      ? [sqliteCanonicalTimePredicate, sqliteCanonicalTimeExpression]
+      : [sqliteCanonicalDateTimePredicate, sqliteCanonicalDateTimeExpression];
+  if (!list) {
+    return {
+      noncanonical: `NOT ${predicate(column)}`,
+      canonical: expression(column),
+    };
+  }
+  const quote = createIdentifierQuoter('"');
+  const name = `${quote(table)}.${quote(column)}`;
+  // json_each is reached only after proving an array carrier.
+  const array = `json_valid(${name}) AND json_type(${name}) = 'array'`;
+  return {
+    noncanonical: `CASE WHEN ${name} IS NULL THEN 0 WHEN ${array} THEN EXISTS (SELECT 1 FROM json_each(${name}) WHERE type <> 'text' OR NOT ${predicate("value")}) ELSE 1 END`,
+    canonical: `CASE WHEN ${array} THEN (SELECT json_group_array(CASE WHEN "type" = 'text' THEN ${expression("value")} ELSE ${SQLITE_ABORT} END) FROM (SELECT "value", "type" FROM json_each(${name}) ORDER BY "key")) ELSE ${SQLITE_ABORT} END`,
+  };
+}
+
+/** Counts one text DateTime/Time column's rows outside the canonical carrier. */
 export function sqliteNoncanonicalTemporalCount(
   table: string,
   column: string,
-  type: "datetime" | "time",
+  type: TemporalType,
+  list: boolean
+): string {
+  const { noncanonical } = temporalCarrier(table, column, type, list);
+  return `SELECT count(*) AS noncanonical FROM ${createIdentifierQuoter('"')(table)} WHERE ${noncanonical}`;
+}
+
+/** Rewrites one column's noncanonical rows into canonical text; a malformed value aborts the statement. */
+export function sqliteCanonicalTemporalUpdate(
+  table: string,
+  column: string,
+  type: TemporalType,
   list: boolean
 ): string {
   const quote = createIdentifierQuoter('"');
-  const canonical =
-    type === "time"
-      ? sqliteCanonicalTimePredicate
-      : sqliteCanonicalDateTimePredicate;
-  const name = quote(column);
-  // json_each is reached only after proving an array carrier. Each member
-  // uses the same temporal domain as a scalar column.
-  const noncanonical = list
-    ? `CASE WHEN ${name} IS NULL THEN 0 WHEN json_valid(${name}) AND json_type(${name}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(${name}) WHERE type <> 'text' OR NOT ${canonical("value")}) ELSE 1 END`
-    : `NOT ${canonical(column)}`;
-  return `SELECT count(*) AS noncanonical FROM ${quote(table)} WHERE ${noncanonical}`;
+  const { noncanonical, canonical } = temporalCarrier(
+    table,
+    column,
+    type,
+    list
+  );
+  return `UPDATE ${quote(table)} SET ${quote(column)} = ${canonical} WHERE ${noncanonical}`;
 }

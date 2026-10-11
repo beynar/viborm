@@ -814,17 +814,19 @@ function controlRespond(options: {
 }
 
 describe("migration v1 resolve and reset shapes", () => {
-  test("apply keeps transactional edges atomic around a stepwise edge", async () => {
+  // Plan S5: SQLite applies no stepwise transition. The path is refused while
+  // it is prepared, before any edge of it runs.
+  test("apply refuses a SQLite path around a stepwise edge before any of it runs", async () => {
     const program = await publishMixedApplyProgram();
     const driver = sqliteEstateDriver();
     driver.respond = controlRespond({});
 
     await expect(
       applyV1(clientFor(driver), program.storage)
-    ).resolves.toMatchObject({ outcome: "applied", path: program.stateIds });
-    expect(driver.statements.filter((sql) => sql === "<begin>")).toHaveLength(
-      2
-    );
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+    });
+    expect(driver.statements.some((sql) => sql.includes("mixed-"))).toBe(false);
   });
 
   test("reset keeps transactional replay groups atomic around a stepwise edge", async () => {
@@ -835,9 +837,11 @@ describe("migration v1 resolve and reset shapes", () => {
     await expect(
       resetV1(clientFor(driver), program.storage)
     ).resolves.toMatchObject({ preview: false, path: program.stateIds });
-    expect(driver.statements.filter((sql) => sql === "<begin>")).toHaveLength(
-      2
-    );
+    // Every statement runs in a locked transaction (plan S5): the stepwise
+    // edge's in the transaction the last group continues and commits.
+    expect(
+      driver.statements.filter((sql) => sql === "BEGIN IMMEDIATE")
+    ).toHaveLength(2);
   });
 
   test("reset resumes after the last committed replay dispatch", async () => {

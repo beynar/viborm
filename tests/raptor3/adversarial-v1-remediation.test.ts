@@ -21,7 +21,6 @@ import { describe, it } from "vitest";
 
 const IN_PATTERN = / IN /;
 const INSERT_UPDATE_DELETE_PATTERN = /\b(?:INSERT|UPDATE|DELETE)\b/i;
-const MUST_SPELL_CLEARING_VERB_PATTERN = /must spell clearing verb/;
 const REQUIRED_AGGREGATE_RESULT_ROW_PATTERN = /required aggregate result row/;
 const EXISTS_PATTERN = /EXISTS/i;
 const REQUIRED_EXISTENCE_RESULT_ROW_PATTERN = /required existence result row/;
@@ -419,7 +418,7 @@ describe("adversarial V1 query repairs", () => {
       }
     });
   });
-  it("clears before adopting children, and refuses contradictory spelling before writes", () =>
+  it("clears before adopting children, whatever order the verbs are spelled in", () =>
     withWorld(async (w) => {
       await w.engine.execute("parent", "update", {
         where: { id: 1 },
@@ -434,20 +433,19 @@ describe("adversarial V1 query repairs", () => {
         w.database.prepare("SELECT id FROM v1_child WHERE parentId=1").all(),
         [{ id: 2 }]
       );
-      await assert.rejects(
-        w.engine.execute("parent", "update", {
-          where: { id: 1 },
-          data: { children: { create: { id: 4, rank: 2 }, deleteMany: {} } },
-        }),
-        MUST_SPELL_CLEARING_VERB_PATTERN
+      // engine-04: `deleteMany` spelled after `create` still runs first, so it
+      // removes child 2 and leaves the created child 4 standing.
+      await w.engine.execute("parent", "update", {
+        where: { id: 1 },
+        data: { children: { create: { id: 4, rank: 2 }, deleteMany: {} } },
+      });
+      assert.deepEqual(
+        w.database.prepare("SELECT id FROM v1_child ORDER BY id").all(),
+        [{ id: 1 }, { id: 3 }, { id: 4 }]
       );
-      assert.equal(
-        w.database
-          .prepare<[], { n: number }>(
-            "SELECT count(*) AS n FROM v1_child WHERE id=4"
-          )
-          .get()!.n,
-        0
+      assert.deepEqual(
+        w.database.prepare("SELECT id FROM v1_child WHERE parentId=1").all(),
+        [{ id: 4 }]
       );
     }));
   it("keeps one null policy and tie-break across complete and offset pages", () =>

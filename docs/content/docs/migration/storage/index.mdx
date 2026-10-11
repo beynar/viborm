@@ -15,6 +15,8 @@ icon: hard-drive
 | Writer | Storage | Best For |
 |--------|---------|----------|
 | [Filesystem](/docs/migration/storage/filesystem) | Local files | Development, CI/CD, version control |
+| [Durable Object](/docs/migration/storage/durable-object) | A SQLite-backed Durable Object's `ctx.storage` | One history per tenant object |
+| [R2](/docs/migration/storage/r2) | An R2 bucket, one key prefix per estate | Histories shared outside one object |
 | `ObjectStoreEstateStorage` | Strongly consistent object store with conditional create | Shared remote estates |
 | `MemoryEstateStorage` | Process memory | Tests and storage conformance fixtures |
 
@@ -59,7 +61,9 @@ strongly consistent object storage with conditional writes can be used.
 Custom writable storage should run the exported
 `createStorageConformanceSuite()` against a fresh writer. The suite proves
 idempotent identical publication, corruption refusal, committed-manifest
-inventory, and immutable estate publication. It does not upgrade a storage
+inventory, immutable estate publication, one winner among concurrent creates,
+`null` for absent artifacts, listing as soon as a publish returns, and that a
+listed state's snapshot and SQL are already readable. It does not upgrade a storage
 service whose consistency or conditional-write contract is weaker than the
 interface promises.
 
@@ -81,7 +85,8 @@ migrations/
 Use a writer with `createMigrationClient`:
 
 ```ts
-import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
 
 const migrations = createMigrationClient(client, {
   storage: createFsStorageWriter("./migrations"),
@@ -95,6 +100,16 @@ const migrations = createMigrationClient(client, {
     title="Filesystem Storage"
     href="/docs/migration/storage/filesystem">
     Store an estate on the local filesystem
+  </Card>
+  <Card
+    title="Durable Object Storage"
+    href="/docs/migration/storage/durable-object">
+    Keep a tenant's history in its Durable Object
+  </Card>
+  <Card
+    title="R2 Storage"
+    href="/docs/migration/storage/r2">
+    Share histories in an R2 bucket
   </Card>
   <Card
     title="Migrations"

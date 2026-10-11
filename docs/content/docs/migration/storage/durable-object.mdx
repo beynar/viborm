@@ -1,0 +1,98 @@
+---
+title: Durable Object Storage
+description: Keep a tenant's migration history in its Durable Object's own storage
+icon: box
+---
+
+## Quick Start
+
+The history lives next to the object that changes it: reads are local, and the
+object is the only writer.
+
+```ts
+import { DurableObject } from "cloudflare:workers";
+import { createMigrationClient } from "viborm/migrations";
+import { createDurableObjectStorageWriter } from "viborm/migrations/storage/durable-object";
+
+export class Tenant extends DurableObject<Env> {
+  // this.client: the tenant's VibORM client
+  async generate(name: string) {
+    const migrations = createMigrationClient(this.client, {
+      storage: createDurableObjectStorageWriter(this.ctx.storage),
+    });
+    return migrations.generate({ name });
+  }
+}
+```
+
+The class must be SQLite-backed. Declare it under `new_sqlite_classes` in its
+first migration:
+
+```jsonc
+// wrangler.jsonc
+{
+  "durable_objects": {
+    "bindings": [{ "name": "TENANT", "class_name": "Tenant" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Tenant"] }]
+}
+```
+
+The entry loads without `nodejs_compat`. The database driver you pair it with
+may still need it: `pg` and postgres.js do.
+
+## Configuration
+
+```ts
+const storage = createDurableObjectStorageWriter(ctx.storage);
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `storage` | `DurableObjectStorage` | `ctx.storage` of a SQLite-backed Durable Object |
+
+## How Publication Stays Atomic
+
+Every artifact is one row of the `viborm_migration_estate` table, created on
+first use. A publish is one statement:
+
+```sql
+INSERT INTO viborm_migration_estate (key, bytes) VALUES (?, ?)
+ON CONFLICT (key) DO NOTHING RETURNING key
+```
+
+The SQL API is synchronous, so the existence check and the write are one
+SQLite statement with nothing awaited between them. Concurrent requests to the
+object, or concurrent publishes from one request, cannot interleave inside it:
+exactly one creates the key, and every other one reads the stored bytes back
+and is refused as corruption if they differ.
+
+## Limits
+
+- **One estate per object.** The table holds one history. Use one object per
+  tenant, or an [R2 bucket](/docs/migration/storage/r2) with a prefix per
+  estate.
+- **2 MB per artifact.** A snapshot, SQL blob or manifest is one row, so it is
+  bounded by the Durable Object row size.
+- **Leave the table alone.** Rows are content-addressed and immutable; writing
+  or deleting them yourself corrupts the history.
+- **Restores.** The history lives in the object and the migration marker in
+  the database, so restore both to matching points. A history restored behind
+  the database's marker makes `apply` refuse with `MIGRATION_NOT_FOUND` (the
+  marker is ahead of, or unknown to, this history); a history ahead of the
+  marker shows its later states as pending migrations.
+
+## Next Steps
+
+<CardGroup>
+  <Card
+    title="R2 Storage"
+    href="/docs/migration/storage/r2">
+    Share histories in an R2 bucket
+  </Card>
+  <Card
+    title="Storage"
+    href="/docs/migration/storage">
+    Semantic estate readers and writers
+  </Card>
+</CardGroup>

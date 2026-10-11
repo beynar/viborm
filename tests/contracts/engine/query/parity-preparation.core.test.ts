@@ -96,10 +96,12 @@ function build(
 
 describe.each(dialectCases)("$name empty projections", (dialectCase) => {
   test("an explicit empty select is a refusal, not 'everything'", () => {
+    // Admission refuses it at its path (engine-14), as it does a select whose
+    // only key is a `_count` that counts nothing (below).
     expect(() =>
       build(dialectCase, author, "findMany", { select: {} })
     ).toThrow(
-      "The 'select' statement for model 'author' needs at least one truthy value."
+      "Validation failed for author.findMany: select: select needs at least one truthy value"
     );
   });
 
@@ -143,7 +145,9 @@ describe.each(dialectCases)("$name empty projections", (dialectCase) => {
   test("a select that names only an empty _count is still a refusal", () => {
     expect(() =>
       build(dialectCase, post, "findMany", { select: { _count: true } })
-    ).toThrow("needs at least one truthy value");
+    ).toThrow(
+      "Validation failed for post.findMany: select: select needs at least one truthy value"
+    );
   });
 });
 
@@ -154,7 +158,9 @@ describe.each(dialectCases)("$name grouped reads", (dialectCase) => {
         by: ["authorId"],
         having: { title: "A1" },
       })
-    ).toThrow("Scalar 'title' used in 'having' must be included in 'by'.");
+    ).toThrow(
+      "Validation failed for post.groupBy: having.title: Scalar 'title' used in 'having' must be included in 'by'."
+    );
   });
 
   test("…including inside an OR arm", () => {

@@ -66,7 +66,8 @@ function names(projection: { fields: readonly { name: string }[] }): string[] {
 /** Whether any alias or lowered SQL is reachable from a value that is shared. */
 function holdsSql(value: unknown, seen = new WeakSet<object>()): boolean {
   if (value instanceof Sql) return true;
-  if (value === null || typeof value !== "object" || seen.has(value)) return false;
+  if (value === null || typeof value !== "object" || seen.has(value))
+    return false;
   seen.add(value);
   for (const key of Reflect.ownKeys(value))
     if (holdsSql(Reflect.get(value, key), seen)) return true;
@@ -95,7 +96,11 @@ describe("G4 perf pass 2 item 2 — one default projection per (adapter, model)"
     assert.equal(Object.isFrozen(one), true);
     assert.equal(Object.isFrozen(one.fields), true);
     assert.equal(Object.isFrozen(one.shape), true);
-    assert.equal(holdsSql(one), false, "a shared projection retained lowered SQL");
+    assert.equal(
+      holdsSql(one),
+      false,
+      "a shared projection retained lowered SQL"
+    );
 
     // And a different MODEL of the same schema gets its own, not this one.
     const other = first.prepareProjection(schema.post, {});
@@ -245,12 +250,15 @@ describe("G4 perf pass 2 item 4 — one freeze per predicate, not per member", (
     );
 
     // The one thing a consumer can see: the same selector lowers to the same
-    // statement and the same parameters, twice.
+    // statement and the same parameters, twice — every member once, in the
+    // one list parameter SQLite reads through `json_each` (engine-09).
     const first = queries.lowerSelector(selector, "q0");
     const second = queries.lowerSelector(selector, "q0");
     assert.ok(first && second);
     assert.equal(first.toStatement("?"), second.toStatement("?"));
-    assert.deepEqual(first.values, ids);
-    assert.deepEqual(second.values, ids);
+    for (const { values } of [first, second]) {
+      assert.equal(values.length, 1);
+      assert.deepEqual(JSON.parse(String(values[0])), ids);
+    }
   });
 });

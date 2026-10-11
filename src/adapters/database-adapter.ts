@@ -135,7 +135,11 @@ export interface DatabaseAdapter {
     true: () => Sql;
     /** FALSE literal (database-specific: FALSE vs 0) */
     false: () => Sql;
-    /** Create a value list: ($1, $2, $3) */
+    /**
+     * Returns the dialect's membership operand, valid only as `operators.in` /
+     * `notIn` input: a parenthesized list, a PostgreSQL array parameter, or a
+     * SQLite `json_each` subquery.
+     */
     list: (values: Sql[]) => Sql;
     /** JSON value (PG: native, MySQL/SQLite: JSON.stringify) */
     json: (v: unknown) => Sql;
@@ -400,6 +404,23 @@ export interface DatabaseAdapter {
     count: (expr?: Sql) => Sql;
     countDistinct: (expr: Sql) => Sql;
     sum: (expr: Sql) => Sql;
+    /**
+     * A double column's sum as two `SUM`s no row count can overflow: its
+     * members of magnitude at least 1e-288 divided by 2^64, and the smaller
+     * ones as they are. Dividing such a double by 2^64 is exact, so the first
+     * part is the plain sum scaled exactly, and the reader's
+     * `high * 2^64 + low` is that sum — `±Infinity` past the double range,
+     * where PostgreSQL's own `SUM` raises and MySQL's answers 0 (engine-10).
+     */
+    numberSum: (expr: Sql) => [high: Sql, low: Sql];
+    /**
+     * Stated only where an integer `SUM` is int64 and raises past it
+     * (SQLite): an int64 column's sum as two `SUM`s no realistic row count
+     * can overflow — each member's high 32 bits and the rest — read back
+     * exactly as `high * 2^32 + low` (engine-10). PostgreSQL and MySQL already
+     * sum integers as exact numerics.
+     */
+    integerSum?: (expr: Sql) => [high: Sql, low: Sql];
     avg: (expr: Sql) => Sql;
     min: (expr: Sql, boolean?: boolean) => Sql;
     max: (expr: Sql, boolean?: boolean) => Sql;

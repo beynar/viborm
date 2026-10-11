@@ -68,7 +68,7 @@ describe("E5-U3 the upsert envelope", () => {
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.prismaCode).toBe("P2009");
     expect(error.message).toBe(
-      "Validation failed for upsert: update: Missing required field: update"
+      "Validation failed for account.upsert: update: Missing required field: update"
     );
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
@@ -86,7 +86,7 @@ describe("E5-U3 the upsert envelope", () => {
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.prismaCode).toBe("P2009");
     expect(error.message).toBe(
-      "Validation failed for upsert: update: Expected object, received string"
+      "Validation failed for account.upsert: update: Expected object, received string"
     );
     expect(error.issues?.[0]?.path).toBe("update");
     expect(await client.account.count({})).toBe(0);
@@ -105,7 +105,7 @@ describe("E5-U3 the upsert envelope", () => {
     );
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.message).toBe(
-      "Validation failed for upsert: update: Expected object, received array"
+      "Validation failed for account.upsert: update: Expected object, received array"
     );
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
@@ -121,7 +121,7 @@ describe("E5-U3 the upsert envelope", () => {
     );
     expect(error.constructor.name).toBe("ValidationError");
     expect(error.message).toBe(
-      "Validation failed for upsert: nonsense: Unknown key: nonsense"
+      "Validation failed for account.upsert: nonsense: Unknown key: nonsense"
     );
     expect(await client.account.count({})).toBe(0);
   }, 120_000);
@@ -159,7 +159,7 @@ describe("E5-U3 the upsert envelope", () => {
       })
     );
     expect(projection.message).toBe(
-      "Validation failed for upsert: select: Expected object"
+      "Validation failed for account.upsert: select: Expected object"
     );
     // targetWhere owns its object admission too, before either arm can write.
     const target = await refusal(
@@ -172,7 +172,7 @@ describe("E5-U3 the upsert envelope", () => {
     );
     expect(target.constructor.name).toBe("ValidationError");
     expect(target.message).toBe(
-      "Validation failed for upsert: targetWhere: Expected object"
+      "Validation failed for account.upsert: targetWhere: Expected object"
     );
     expect(target.issues?.[0]?.path).toBe("targetWhere");
     expect(await client.account.count({ where: { id: "a7" } })).toBe(0);
@@ -209,7 +209,7 @@ describe("E5-U3 the upsert envelope", () => {
           expect(error.prismaCode).toBe("P2009");
           expect(error.issues?.[0]?.path).toBe(field);
           expect(error.message).toBe(
-            `Validation failed for upsert: ${field}: Expected object`
+            `Validation failed for account.upsert: ${field}: Expected object`
           );
           expect(
             await client.account.findUnique({

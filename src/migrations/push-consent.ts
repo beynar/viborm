@@ -199,37 +199,31 @@ export function hasConsent(
 function parseTarget(value: unknown): PushTargetIdentity {
   const record = snapshotExactRecord(
     value,
-    ["bindingId", "database", "dialect", "location", "namespace"],
+    ["database", "dialect", "location", "namespace"],
     "consent.target",
     consentMismatch
   );
   if (record.dialect === "postgresql") {
-    refuseTargetKeys(record, ["bindingId", "database", "dialect", "namespace"]);
+    refuseTargetKeys(record, ["database", "dialect", "namespace"]);
     return {
       dialect: "postgresql",
       database: requiredString(record.database, "consent.target.database"),
       namespace: requiredString(record.namespace, "consent.target.namespace"),
-      bindingId: requiredString(record.bindingId, "consent.target.bindingId"),
     };
   }
   if (record.dialect === "mysql") {
-    refuseTargetKeys(record, ["bindingId", "database", "dialect"]);
+    refuseTargetKeys(record, ["database", "dialect"]);
     return {
       dialect: "mysql",
       database: requiredString(record.database, "consent.target.database"),
-      bindingId: requiredString(record.bindingId, "consent.target.bindingId"),
     };
   }
   if (record.dialect === "sqlite") {
-    refuseTargetKeys(record, ["bindingId", "dialect", "location"]);
+    refuseTargetKeys(record, ["dialect", "location"]);
     if (record.location !== null && typeof record.location !== "string") {
       consentMismatch("consent.target.location must be string or null");
     }
-    return {
-      dialect: "sqlite",
-      location: record.location,
-      bindingId: requiredString(record.bindingId, "consent.target.bindingId"),
-    };
+    return { dialect: "sqlite", location: record.location };
   }
   consentMismatch("consent.target.dialect is invalid");
 }

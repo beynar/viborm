@@ -4,6 +4,7 @@
 
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { confirm, isCancel } from "@clack/prompts";
 import { Command, InvalidArgumentError } from "commander";
 import {
   createMigrationClient,
@@ -15,6 +16,7 @@ import { renderMigrationReview } from "../../migrations/public-view";
 import { formatOperation } from "../../migrations/push/format";
 import type { MigrationStorageWriter } from "../../migrations/storage/contract";
 import { createFsStorageWriter } from "../../migrations/storage/fs-estate";
+import type { ResolveCallback } from "../../migrations/types";
 import type {
   ManualMigrationInput,
   StateSelector,
@@ -69,6 +71,36 @@ function printJson(value: unknown, json: boolean): void {
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 
+/** `--accept-data-loss`: every destructive change approved, nothing else decided. */
+const approveDestructive: ResolveCallback = (change) =>
+  change.type === "destructive" ? change.proceed() : undefined;
+
+/** One prompt per destructive change, as `viborm push` asks for its plan. */
+const confirmDestructive: ResolveCallback = async (change) => {
+  if (change.type !== "destructive") return;
+  const approved = await confirm({
+    message: `${change.description} — approve?`,
+    initialValue: false,
+  });
+  return !isCancel(approved) && approved ? change.proceed() : change.reject();
+};
+
+/**
+ * The resolver `migrate generate` publishes under, and `migrate down` rolls
+ * back under: the config's own, else
+ * `--accept-data-loss`, else a prompt on an interactive terminal. With none,
+ * generate refuses a destructive change with `V11017`.
+ */
+function generateResolver(
+  config: LoadedConfig,
+  opts: { acceptDataLoss?: boolean; dryRun?: boolean; json?: boolean }
+): ResolveCallback | undefined {
+  if (config.migrations?.resolve) return config.migrations.resolve;
+  if (opts.acceptDataLoss) return approveDestructive;
+  if (opts.dryRun || opts.json || !process.stdin.isTTY) return;
+  return confirmDestructive;
+}
+
 async function withMigrations(
   options: { dir?: string; config?: string; json?: boolean },
   run: (
@@ -121,6 +153,10 @@ export function createMigrateCommand(): Command {
       "Write labelled forward/check/rollback review SQL"
     )
     .option("--dry-run", "Preview without publishing")
+    .option(
+      "--accept-data-loss",
+      "Approve destructive changes (drops, type changes) for this generate"
+    )
     .option("--json", "Print machine-readable output")
     .action(
       async (opts: {
@@ -128,6 +164,7 @@ export function createMigrateCommand(): Command {
         dir?: string;
         from?: string;
         dryRun?: boolean;
+        acceptDataLoss?: boolean;
         custom?: string;
         review?: string;
         json?: boolean;
@@ -173,13 +210,12 @@ export function createMigrateCommand(): Command {
               manualMigration =
                 typeof author === "function" ? await author(parents) : author;
             }
+            const approve = generateResolver(config, opts);
             const result = await migrations.generate({
               name: opts.name,
               from,
               dryRun: opts.dryRun,
-              ...(config.migrations?.resolve
-                ? { resolve: config.migrations.resolve }
-                : {}),
+              ...(approve ? { resolve: approve } : {}),
               ...(manualMigration ? { manualMigration } : {}),
             });
             if (opts.json) printJson(result, true);
@@ -378,6 +414,15 @@ export function createMigrateCommand(): Command {
     .option("-d, --dir <dir>", "Estate directory")
     .option("--to <selector>", "Roll back to this state")
     .option("--steps <n>", "Number of states to roll back", positiveInteger)
+    .option(
+      "--accept-data-loss",
+      "Approve destructive changes the rollback makes to populated tables"
+    )
+    .option(
+      "--expect-revision <n>",
+      "Refuse unless the marker is at this revision",
+      positiveInteger
+    )
     .option("--dry-run", "Plan without executing")
     .option("--json", "Print machine-readable output")
     .action(
@@ -385,19 +430,29 @@ export function createMigrateCommand(): Command {
         dir?: string;
         to?: string;
         steps?: number;
+        acceptDataLoss?: boolean;
+        expectRevision?: number;
         dryRun?: boolean;
         json?: boolean;
       }) => {
         await withMigrations(
           { ...opts, config: migrate.opts<{ config?: string }>().config },
-          async (migrations) => {
+          async (migrations, config) => {
             if (opts.to !== undefined && opts.steps !== undefined)
               throw new Error("down accepts --to or --steps, not both");
+            const approve = generateResolver(config, opts);
+            const common = {
+              dryRun: opts.dryRun,
+              ...(approve ? { resolve: approve } : {}),
+              ...(opts.expectRevision === undefined
+                ? {}
+                : { expectRevision: opts.expectRevision }),
+            };
             printJson(
               await migrations.down(
                 opts.to
-                  ? { to: selector(opts.to)!, dryRun: opts.dryRun }
-                  : { steps: opts.steps, dryRun: opts.dryRun }
+                  ? { to: selector(opts.to)!, ...common }
+                  : { steps: opts.steps, ...common }
               ),
               Boolean(opts.json)
             );

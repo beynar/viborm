@@ -83,8 +83,31 @@ preflight requires PostgreSQL 12 or later.
 
 ## Guarantees and limits
 
-A bounded advisory try-lock retries for at most ten seconds. One successful
-acquisition is released once; a timeout refuses before migration effects.
+Every migration transaction opens with `BEGIN`, its limits and a
+transaction-scoped advisory lock (`pg_try_advisory_xact_lock`), retried for at
+most `lockWait` (ten seconds by default, see [Limits](#limits)); a
+timeout refuses before migration effects. The marker, the ledger and the drift
+check are read under that lock, in the transaction that then runs the first
+group of the path, so two runners apply a migration once: the second sees the
+first one's marker and reports `noop`, or refuses with `V11015`. A later group
+(after an edge that adds an enum value, or a stepwise group after a
+transactional one in `apply`, `down` or `reset`) locks again and re-reads the
+marker before it acts: if another command moved it in between, the command
+refuses with `V11015` and nothing of the rest of its path runs.
+
+The lock ends with its transaction, so it cannot outlive the command, and a
+transaction pooler such as PgBouncer in transaction mode may hand each
+transaction to a different server session: `apply`, `push` and the other
+locked commands run through one. Stepwise work (a manual
+`execution: "stepwise"` transition, or an `INDEX CONCURRENTLY` statement) runs
+outside a transaction and needs a session lock: it is taken inside the locked
+transaction before that transaction commits, held to the end of the command and
+released with `pg_advisory_unlock`. It needs a direct session. Cloudflare
+Hyperdrive and Neon `-pooler` hosts are refused for effectful commands unless
+you pass `migrationSessionAttestation: "dedicated-session"`. The lock key is
+one per database: independent schema estates in one database serialize with
+each other.
+
 Transactional DDL, schema proof, marker compare-and-swap, and the append-only
 ledger govern effectful operations. A native type swap cannot recover data
 already deleted by an earlier migration.
@@ -97,6 +120,94 @@ crossing its boundary, including an enum shared with an unselected table.
 PostgreSQL connections from hosted transports that lack a proven session/lock
 contract.
 
+
+## Limits
+
+Every locked command (`apply`, `down`, `reset`, `baseline`, `resolve`,
+`verify` and `push`) runs on one reserved session, and VibORM bounds it:
+
+| Limit | Default | What it bounds |
+| --- | --- | --- |
+| `lockTimeout` | 4 s | `lock_timeout`, with `SET LOCAL` in every migration transaction (and on the session during stepwise work): a DDL statement waiting for a table lock gives up instead of stalling every query queued behind it. |
+| `statementTimeout` | 10 min | `statement_timeout`, likewise; the lock wait runs under it. A longer statement, such as a large table rewrite, fails with `V11001` whose `cause` is `V2002`: raise it for such migrations. Must be 0 or longer than `lockWait`. |
+| `idleTimeout` | 1 s | `idle_in_transaction_session_timeout` in every migration transaction, and during stepwise work `idle_session_timeout` on PostgreSQL 14+: the server ends a migration whose client stopped talking, and frees its migration lock with it. |
+| `lockWait` | 10 s | How long the command retries for the migration lock another command holds. |
+| `connectionWait` | 10 s | How long the command waits for its connection. Applies to MySQL too. |
+| `largeTableRows` | 1,000,000 | A row count, not milliseconds: the planner's estimate above which a change that rewrites or scans a table under a lock that blocks it (a column type change, `SET NOT NULL`, a volatile `ADD COLUMN` default, a validated `FOREIGN KEY`/`CHECK`) is refused before any effect with `V11009`. See [Large tables](/docs/migration/migrate#large-tables). 0 admits every size. |
+
+Pass any of them as `limits` (milliseconds, and rows for `largeTableRows`):
+
+```ts
+import { createMigrationClient } from "viborm/migrations";
+
+const migrations = createMigrationClient(client, {
+  storage,
+  limits: { lockTimeout: 2000, statementTimeout: 30 * 60_000 },
+});
+```
+
+`0` turns a server limit, or `largeTableRows`, off. `lockWait` and `connectionWait` must be at least
+1, and no value may exceed 2147483647. On PostgreSQL 14+ stepwise work also
+sets `client_connection_check_interval` to 1 s where the server supports it,
+so a statement whose client disconnected stops within a second.
+
+A command reads and decides inside its first migration transaction, so
+`idleTimeout` also bounds the client's own pauses between two of those
+statements, such as a `down` loss-approval callback. On PostgreSQL 14+ 1.1.0
+bounded them too (`idle_session_timeout`); on PostgreSQL 12 and 13 this is
+new. A callback that waits longer needs a larger `idleTimeout`.
+
+A limit that fires surfaces as a retryable error: `V5006` for `lock_timeout`,
+`V2002` for `statement_timeout`, and `V1001` or `V1002` for a lost or
+unanswered connection. On a statement the migration dispatches, `V5006` and
+`V2002` arrive as the `cause` of the `V11001` it fails with. Nothing is retried for you; run the command again. It
+re-reads the marker under the lock, so a transaction that committed before
+its connection failed reports `noop`.
+
+Transactional work sets nothing on the session: its limits end with each
+transaction, which is what lets it run through a transaction pooler. Settings
+stepwise work put on the session are reset before its connection goes back to
+your pool, to the values the connection started with; a session whose reset
+fails is never returned to the pool. A `CREATE`, `DROP` or `REINDEX INDEX
+CONCURRENTLY` statement in a manual stepwise migration runs with no
+`lock_timeout` and no `statement_timeout`: it waits for older transactions by
+design, without blocking anyone. PGlite gets
+`statement_timeout` and `lock_timeout` only: an in-process database has no
+client to lose.
+
+When the connection is lost mid-command, VibORM sends nothing more on it: no
+`ROLLBACK`, no unlock. PostgreSQL rolls back the open transaction and frees the
+migration lock when the session ends. With postgres.js, a transport VibORM
+created is then closed (in-flight queries on it get up to 5 s to finish); a
+`client` you supplied is left to you: its reserved connection is abandoned,
+never returned to its pool, and the thrown `V1001` records that as a `V1003`
+in its `suppressedFailures` property.
+
+### A dedicated migration pool
+
+Settings VibORM does not manage (TCP keepalives, a `search_path`, a role) and
+a pool your application cannot exhaust come from a client built only for
+migrations. Every setting below reaches the migration session as its starting
+value:
+
+```ts
+import { createClient } from "viborm/pg";
+
+const migrationClient = createClient({
+  schema,
+  databaseUrl: process.env.DATABASE_URL,
+  options: {
+    max: 1,
+    connectionTimeoutMillis: 10_000,
+    keepAlive: true,
+    lock_timeout: 4000,
+    statement_timeout: 600_000,
+    idle_in_transaction_session_timeout: 1000,
+  },
+});
+```
+
+`limits` still applies on top, and its reset restores these values.
 
 ## Native index and constraint fidelity
 

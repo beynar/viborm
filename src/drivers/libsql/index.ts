@@ -42,6 +42,7 @@ import {
   sqliteResultParser,
   type TransactionOptionSupport,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import type { QueryResult } from "../types";
 
 // ============================================================
@@ -64,6 +65,14 @@ export interface LibSQLDriverOptions {
 
 export type LibSQLClientConfig<C extends DriverConfig> = LibSQLDriverOptions &
   C;
+
+const LIBSQL_CONFIG_KEYS: Record<keyof LibSQLDriverOptions, true> = {
+  client: true,
+  databaseUrl: true,
+  dataDir: true,
+  authToken: true,
+  options: true,
+};
 
 function convertValuesForLibSQL(values: unknown[]): InValue[] {
   return values.map((parameter) => {
@@ -330,6 +339,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: LibSQLDriver }
   >]: LinkedClientConfig<C & { driver: LibSQLDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "libsql", LIBSQL_CONFIG_KEYS);
   const { client, databaseUrl, dataDir, authToken, options } = config;
 
   const driver = new LibSQLDriver({

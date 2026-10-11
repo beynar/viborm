@@ -37,23 +37,33 @@ describe("migration v1 live admission", () => {
     ).not.toThrow();
   });
 
-  test("D1 and D1-HTTP refuse effectful work and still admit reads", () => {
-    for (const name of ["d1", "d1-http"] as const) {
-      const driver = getMigrationDriver(
-        new RecordingDriver("sqlite", name, new SQLiteAdapter())
-      );
-      expect(() =>
-        admitLiveMigrationCapability(driver, "read-only", "status()")
-      ).not.toThrow();
-      try {
-        admitLiveMigrationCapability(driver, "effectful", "apply()");
-        throw new Error(`expected ${name} refusal`);
-      } catch (error) {
-        expect(error).toMatchObject({
-          code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
-        });
-      }
+  test("D1 refuses effectful work and still admits reads", () => {
+    const driver = getMigrationDriver(
+      new RecordingDriver("sqlite", "d1", new SQLiteAdapter())
+    );
+    expect(() =>
+      admitLiveMigrationCapability(driver, "read-only", "status()")
+    ).not.toThrow();
+    try {
+      admitLiveMigrationCapability(driver, "effectful", "apply()");
+      throw new Error("expected d1 refusal");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      });
     }
+  });
+
+  test("an undeclared d1-http driver has no migration binding at all", () => {
+    // No stock driver has this name, so it binds only by declaring the
+    // SQLite migration capability; undeclared, every command refuses it.
+    expect(() =>
+      getMigrationDriver(
+        new RecordingDriver("sqlite", "d1-http", new SQLiteAdapter())
+      )
+    ).toThrow(
+      expect.objectContaining({ code: VibORMErrorCode.DRIVER_NOT_SUPPORTED })
+    );
   });
 
   test("libsql refuses effectful work", () => {

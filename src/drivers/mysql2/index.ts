@@ -17,6 +17,7 @@ import {
 import type { Schema } from "@client/types";
 import {
   ClientInitializationError,
+  isVibORMError,
   QueryError,
   TransactionError,
 } from "@errors";
@@ -44,6 +45,7 @@ import {
   runTransactionLifecycle,
   type TransactionOptionSupport,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import type { QueryResult } from "../types";
 
 // ============================================================
@@ -73,6 +75,14 @@ export interface MySQL2DriverOptions {
 
 export type MySQL2ClientConfig<C extends DriverConfig> = MySQL2DriverOptions &
   C;
+
+const MYSQL2_CONFIG_KEYS: Record<keyof MySQL2DriverOptions, true> = {
+  pool: true,
+  options: true,
+  databaseUrl: true,
+  namespace: true,
+  migrationNamespaceAttestation: true,
+};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -169,8 +179,9 @@ function toQueryResult<T>(
 }
 
 /**
- * The target derived from a pool this driver will create: the URL's database
- * path, then the connection options' `database`. A supplied `Pool` is opaque —
+ * The target derived from a pool this driver will create: the `database` it
+ * connects with, which is the caller's option when given and otherwise the
+ * URL's path (see `resolveMySQL2Configuration`). A supplied `Pool` is opaque —
  * VibORM does not inspect mysql2 internals, so only an explicit `namespace` can
  * bind one. A pathless URL contributes nothing, and neither does an empty
  * `options.database`: §1.3's empty candidate is an absent one rather than a
@@ -181,17 +192,13 @@ function deriveMySQL2Namespace(
   configuration: Omit<MySQL2Configuration, "namespace">
 ): string | undefined {
   if (configuration.suppliedPool) return undefined;
-  const configured =
-    configuration.urlOptions?.database ??
-    configuration.connectionOptions.database;
+  const configured = configuration.connectionOptions.database;
   return configured === "" ? undefined : configured;
 }
 
 /** What this driver settles from its caller's object, each source read once. */
 interface MySQL2Configuration {
   readonly namespace: string | undefined;
-  /** The parsed `databaseUrl`, or `undefined` when the caller supplied none. */
-  readonly urlOptions: MySQLConnectionOptions | undefined;
   /**
    * The EXACT pool the caller supplied, or absent when this driver makes its
    * own. Identity, settled once, is the whole ownership answer: the caller's
@@ -200,7 +207,10 @@ interface MySQL2Configuration {
    */
   readonly suppliedPool: Pool | undefined;
   /**
-   * The caller's connection record, copied once.
+   * The caller's connection record, copied once, over the keys its
+   * `databaseUrl` carries: the URL fills only what the record leaves out, and
+   * a key the record sets to `undefined` (an unset environment variable) is
+   * left out. A per-tenant URL plus a password from a secret is this shape.
    *
    * A copy of THIS record, not of what it points at: a nested `ssl` object or
    * stream is the caller's to own, and the keys that decide where a pool
@@ -234,22 +244,27 @@ function resolveMySQL2Configuration(
   const urlOptions = databaseUrl
     ? parseMySQL2ConfiguredUrl(databaseUrl)
     : undefined;
-  const captured = {
-    urlOptions,
-    suppliedPool: options.pool,
-    connectionOptions: { ...options.options, ...urlOptions },
-  };
+  const connectionOptions: PoolOptions = { ...urlOptions };
+  for (const [key, value] of Object.entries(options.options ?? {})) {
+    if (value !== undefined) Reflect.set(connectionOptions, key, value);
+  }
+  const captured = { suppliedPool: options.pool, connectionOptions };
   return {
     namespace: explicit ?? deriveMySQL2Namespace(captured),
     ...captured,
   };
 }
 
-/** The URL now decides a target, so a malformed one fails at construction. */
+/**
+ * The URL now decides a target, so a malformed one fails at construction. A
+ * TLS refusal is VibORM's own secret-free text and passes through; the URL
+ * parser's failure can carry the URL, so it is replaced and redacted.
+ */
 function parseMySQL2ConfiguredUrl(databaseUrl: string): MySQLConnectionOptions {
   try {
     return parseMySQLUrl(databaseUrl);
   } catch (cause) {
+    if (isVibORMError(cause)) throw cause;
     throw new ClientInitializationError(
       'Driver "mysql2" could not parse its databaseUrl.',
       { cause: cause instanceof Error ? cause : undefined }
@@ -261,8 +276,6 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
   declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
-  /** The caller's `databaseUrl` as parsed at construction; see above. */
-  private readonly urlOptions: MySQLConnectionOptions | undefined;
   /** The caller's pool and connection record, as construction captured them. */
   private readonly suppliedPool: Pool | undefined;
   private readonly connectionOptions: PoolOptions;
@@ -294,7 +307,6 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
         { meta: { driver: "mysql2", operation: "configuration" } }
       );
     }
-    this.urlOptions = configuration.urlOptions;
     this.suppliedPool = configuration.suppliedPool;
     this.connectionOptions = configuration.connectionOptions;
     defineImmutableDriverFact(
@@ -332,16 +344,10 @@ export class MySQL2Driver extends Driver<Pool, PoolConnection> {
       // DATE as plain "YYYY-MM-DD" — the result parser builds a UTC-midnight
       // Date, matching every other driver (mysql2 would build local midnight)
       dateStrings: ["DATE"],
+      // Already merged with the URL, from the one parse construction made:
+      // this driver never re-reads the caller's `databaseUrl`.
       ...this.connectionOptions,
     };
-
-    // The URL still wins over the copied connection options, from the one
-    // parse construction made: this driver never re-reads the caller's
-    // `databaseUrl`, so the pool cannot be pointed somewhere the resolved
-    // target never saw.
-    if (this.urlOptions) {
-      options = { ...options, ...this.urlOptions };
-    }
 
     // The pool this driver creates defaults to the same database the adapter
     // qualifies with, whichever source resolved it. A supplied pool never
@@ -533,18 +539,12 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: MySQL2Driver }
   >]: LinkedClientConfig<C & { driver: MySQL2Driver }>[P];
 }> {
-  const { pool, options = {}, databaseUrl } = config;
+  refuseUnknownDriverConfigKeys(config, "mysql2", MYSQL2_CONFIG_KEYS);
+  const { pool, options, databaseUrl } = config;
   const attestation = resolveMigrationNamespaceAttestationOption(config);
   const namespace = resolveNamespaceOption(config);
 
-  const driverOptions: MySQL2DriverOptions = {
-    pool,
-    // The URL still wins over the caller's option keys, on a copy this wrapper
-    // owns rather than in the caller's record.
-    options: databaseUrl
-      ? { ...options, ...parseMySQL2ConfiguredUrl(databaseUrl) }
-      : options,
-  };
+  const driverOptions: MySQL2DriverOptions = { pool, options, databaseUrl };
   if (namespace !== undefined) driverOptions.namespace = namespace;
   if (attestation !== undefined) {
     driverOptions.migrationNamespaceAttestation = attestation;

@@ -428,13 +428,21 @@ function applyDefault(
     return modify(scalar, "default", [value], document.type, defaultPath);
   }
   const verdict = scalar["~"].state.base["~standard"].validate(value);
-  if (verdict.issues) {
+  // A bigint field also READS integer text, the spelling a JSON payload
+  // carries; a default is the value the domain holds, so it stays tagged.
+  const untaggedBigInt =
+    document.type === "bigint" &&
+    [value].flat().some((item) => typeof item === "string");
+  if (verdict.issues || untaggedBigInt) {
+    const reason = verdict.issues
+      ? verdict.issues.map((issue) => issue.message).join("; ")
+      : 'a bigint is written {"$bigint": "<integer>"}';
     const issues: DocumentIssues = [];
     addIssue(
       issues,
       defaultPath,
       "J008",
-      `A '${document.type}' default must be a value of the field's own domain: ${verdict.issues.map((issue) => issue.message).join("; ")}`
+      `A '${document.type}' default must be a value of the field's own domain: ${reason}`
     );
     throw refuseDocument(issues);
   }

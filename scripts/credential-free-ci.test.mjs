@@ -106,6 +106,8 @@ test("workflow keeps every delegated check and shallow sparse checkout", () => {
     ["quality", "run: pnpm test:types"],
     ["core", "run: pnpm test:core"],
     ["package", "run: pnpm test:package"],
+    ["docker-providers", "--project=provider-pg\n"],
+    ["docker-providers", "--project=provider-pgbouncer\n"],
     ["platform-providers", "--project=provider-bun"],
     ["platform-providers", "--project=provider-d1"],
     ["local-providers", "run: pnpm test:all --ci-local"],

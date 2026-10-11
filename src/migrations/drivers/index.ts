@@ -5,7 +5,14 @@
  * driver name and can be looked up by driver name or dialect.
  */
 
-import type { AnyDriver } from "../../drivers/driver";
+import type {
+  AnyDriver,
+  SqliteMigrationCapability,
+} from "../../drivers/driver";
+import {
+  DEFAULT_MIGRATION_LIMITS,
+  type ResolvedMigrationLimits,
+} from "../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { resolveMigrationEstate, selectManagedSnapshot } from "../target";
 import type { MigrationTarget } from "../types";
@@ -47,13 +54,34 @@ export type { Dialect, MigrationCapabilities } from "./types";
 const driverRegistry = new Map<string, MigrationDriver>();
 
 /**
- * Map of dialects to their default driver names.
+ * The implementation each stock SQLite driver binds to, by name.
+ *
+ * SQLite is the one dialect with two implementations, so a SQLite driver never
+ * binds by dialect: a driver declaring `sqliteMigrationCapability` binds to
+ * `sqlite3` whatever its name (so a declaring libSQL subclass never reaches the
+ * libsql implementation's unvalidated native ALTER COLUMN), an undeclared stock
+ * driver binds here, and an undeclared custom one has no binding at all.
+ * Binding is not admission: effectful work still needs the declaration
+ * (`admission.ts`). PostgreSQL and MySQL have one implementation each,
+ * registered under the dialect's name.
  */
-const dialectDefaults = new Map<Dialect, string>([
-  ["postgresql", "postgresql"],
-  ["sqlite", "sqlite3"],
-  ["mysql", "mysql"],
+const STOCK_SQLITE_BINDINGS: ReadonlyMap<string, string> = new Map([
+  ["sqlite3", "sqlite3"],
+  ["bun-sqlite", "sqlite3"],
+  ["d1", "sqlite3"],
+  ["libsql", "libsql"],
 ]);
+
+/**
+ * The one admitted declaration, as bound. Its type admits no other value, so
+ * it cannot drift from the `SQLITE_MIGRATION_CAPABILITY` drivers declare; it is
+ * spelled here so the migration bundle does not import the driver module.
+ */
+const SQLITE_MIGRATION_CAPABILITY: SqliteMigrationCapability = Object.freeze({
+  foreignKeys: "pragma",
+  reservedTablePrefixes: "none",
+  exclusion: "database-write-lock",
+});
 
 /**
  * Registers a migration driver.
@@ -76,6 +104,10 @@ export function registerMigrationDriver(driver: MigrationDriver): void {
 export interface BoundMigrationDriver extends MigrationDriver {
   readonly target: MigrationTarget;
   readonly executionDriver: AnyDriver;
+  /** The SQLite capability read once at binding; admission decides from it. */
+  readonly sqliteMigrationCapability: SqliteMigrationCapability | undefined;
+  /** The command's limits: the client's own, or the defaults. */
+  readonly limits: ResolvedMigrationLimits;
 }
 
 /**
@@ -103,20 +135,31 @@ export interface BoundMigrationDriver extends MigrationDriver {
  */
 export function getMigrationDriver(
   driver: AnyDriver,
-  tables?: readonly string[]
+  tables?: readonly string[],
+  limits: ResolvedMigrationLimits = DEFAULT_MIGRATION_LIMITS
 ): BoundMigrationDriver {
   const { target: baseTarget, namespace } = resolveMigrationEstate(driver);
   const target =
     tables === undefined
       ? baseTarget
       : Object.freeze({ ...baseTarget, tables });
-  const implementation = findMigrationDriver(driver.driverName, target.dialect);
+  const capability =
+    target.dialect === "sqlite"
+      ? readSqliteMigrationCapability(driver)
+      : undefined;
+  const implementation = findMigrationDriver(
+    driver.driverName,
+    target.dialect,
+    capability
+  );
 
   const bound: BoundMigrationDriver = Object.create(implementation);
   Object.defineProperties(bound, {
     target: { value: target, enumerable: true },
     executionDriver: { value: driver, enumerable: true },
     namespace: { value: namespace, enumerable: true },
+    sqliteMigrationCapability: { value: capability, enumerable: true },
+    limits: { value: limits, enumerable: true },
     introspect: {
       async value(
         this: MigrationDriver,
@@ -134,31 +177,39 @@ export function getMigrationDriver(
 }
 
 /**
- * Resolves the registered implementation.
- *
- * Lookup order:
- * 1. Exact match by driver name
- * 2. Fallback to dialect default
+ * The driver's SQLite migration capability, read ONCE, or undefined when it
+ * declares none. Only the exact values count: each is a safety claim, and a
+ * mistyped claim must not read as an approximate one.
  */
+function readSqliteMigrationCapability(
+  driver: AnyDriver
+): SqliteMigrationCapability | undefined {
+  const declared: unknown = driver.sqliteMigrationCapability;
+  if (typeof declared !== "object" || declared === null) return;
+  for (const [key, value] of Object.entries(SQLITE_MIGRATION_CAPABILITY)) {
+    if (Reflect.get(declared, key) !== value) return;
+  }
+  return SQLITE_MIGRATION_CAPABILITY;
+}
+
+/** Resolves the registered implementation this driver binds to. */
 function findMigrationDriver(
   driverName: string,
-  dialect: Dialect
+  dialect: Dialect,
+  capability: SqliteMigrationCapability | undefined
 ): MigrationDriver {
-  // Try exact driver name match
-  let driver = driverRegistry.get(driverName);
-  if (driver) return driver;
-
-  // Try dialect default
-  const defaultDriverName = dialectDefaults.get(dialect);
-  if (defaultDriverName) {
-    driver = driverRegistry.get(defaultDriverName);
-    if (driver) return driver;
+  let name: string | undefined = dialect;
+  if (dialect === "sqlite") {
+    name = capability ? "sqlite3" : STOCK_SQLITE_BINDINGS.get(driverName);
   }
-
+  const driver = name === undefined ? undefined : driverRegistry.get(name);
+  if (driver) return driver;
   throw new MigrationError(
-    `No migration driver registered for "${driverName}" (dialect: ${dialect}). ` +
-      `Available drivers: ${[...driverRegistry.keys()].join(", ") || "none"}`,
-    VibORMErrorCode.DRIVER_NOT_SUPPORTED
+    name === undefined
+      ? `The SQLite driver "${driverName}" declares no \`sqliteMigrationCapability\`, so no migration implementation binds to it.`
+      : `No migration driver registered for "${driverName}" (dialect: ${dialect}).`,
+    VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+    { meta: { driver: driverName, dialect } }
   );
 }
 

@@ -22,6 +22,13 @@ export interface MigrationErrorMeta extends VibORMErrorMeta {
   stateId?: string;
   /** Push plan digest involved in the refusal */
   planHash?: string;
+  /** Origin state of the edge (absent for the empty root) */
+  fromState?: string;
+  /** Destination state of the edge */
+  toState?: string;
+  /** Operation and dispatch the failure names */
+  operationId?: string;
+  dispatchId?: string;
   /** Honest effect classification after a non-transactional failure */
   effectState?: "none" | "committed" | "partial" | "may-have-committed";
   /** True when some provider work may already have committed */
@@ -60,6 +67,7 @@ export type MigrationErrorCode =
   | typeof VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT
   | typeof VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
   | typeof VibORMErrorCode.MIGRATION_CORRUPTION
+  | typeof VibORMErrorCode.MIGRATION_INVALID_INDEX
   | typeof VibORMErrorCode.INVALID_INPUT
   | typeof VibORMErrorCode.FEATURE_NOT_SUPPORTED
   | typeof VibORMErrorCode.DRIVER_NOT_SUPPORTED

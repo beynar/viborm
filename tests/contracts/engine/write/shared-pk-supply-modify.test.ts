@@ -23,7 +23,7 @@ import { describe, expect, test } from "vitest";
  *
  * THE WITNESS WAS STAGED, and all three steps have now been taken:
  *   1. before H2 — the LATTICE refused it, in `to-one-mutation-schema.ts`:
- *      "Validation failed for update: Unsupported to-one operation combination:
+ *      "Validation failed for card.update: Unsupported to-one operation combination:
  *      connect, update";
  *   2. after H2 — validation accepted and the ENGINE's parent-held arity guard refused;
  *   3. after H3 (HERE) — it EXECUTES. The card's key becomes `a2` and `account.name`
@@ -185,7 +185,7 @@ describe("Package H — shared-primary-key supplier + modify", () => {
       }),
     }).toEqual({
       message:
-        "Validation failed for update: data.account.disconnect: Unknown key: disconnect",
+        "Validation failed for stub.update: data.account.disconnect: Unknown key: disconnect",
       // A refusal that fires after a write is not a refusal: the row never moved.
       stubs: [{ accountId: "a1", memo: "m" }],
     });

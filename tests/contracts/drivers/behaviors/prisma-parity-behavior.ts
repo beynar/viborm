@@ -508,6 +508,7 @@ export function runPrismaParityBehavior({
         await expect(
           requireClient(client).post.groupBy({
             by: ["authorId"],
+            // @ts-expect-error - orderBy outside by is a compile error since 1.2.0; the runtime refusal is asserted here
             orderBy: { views: "asc" },
           })
         ).rejects.toThrow(UNGROUPED_COLUMN_REFUSAL);

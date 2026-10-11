@@ -14,8 +14,10 @@
  * before it answers.
  */
 
+import type { DriverConfig } from "@client/client";
 import { ClientInitializationError } from "@errors";
 import { isError } from "../../errors/diagnostic-safety";
+import type { MigrationSessionAttestation } from "../driver";
 
 /**
  * MySQL2's transport assertion. It selects nothing: it states that qualified
@@ -26,6 +28,9 @@ export type MigrationNamespaceAttestation = "non-redirecting";
 
 const MIGRATION_NAMESPACE_ATTESTATION: MigrationNamespaceAttestation =
   "non-redirecting";
+
+const MIGRATION_SESSION_ATTESTATION: MigrationSessionAttestation =
+  "dedicated-session";
 
 /**
  * The ONE normalizer for a thrown value that has to become an error's cause.
@@ -91,21 +96,71 @@ export function resolveNamespaceOption(source: object): string | undefined {
 }
 
 /**
- * The attestation this configuration makes, or `undefined` when it makes none.
- * Only the exact literal is admitted: a truthy value, a near-miss spelling, or
- * any other literal is a refusal, because this is a safety claim and a
- * mistyped claim must not read as an approximate one.
+ * The attestation this configuration makes under `key`, or `undefined` when it
+ * makes none. Only the exact literal is admitted: a truthy value, a near-miss
+ * spelling, or any other literal is a refusal, because this is a safety claim
+ * and a mistyped claim must not read as an approximate one.
  */
+function resolveAttestationOption<T extends string>(
+  source: object,
+  key: string,
+  literal: T
+): T | undefined {
+  const value = readOptionOnce(source, key);
+  if (value === undefined) return undefined;
+  if (value === literal) return literal;
+  throw new ClientInitializationError(
+    `The "${key}" option admits only "${literal}".`
+  );
+}
+
+/** MySQL2's `migrationNamespaceAttestation`, read once. */
 export function resolveMigrationNamespaceAttestationOption(
   source: object
 ): MigrationNamespaceAttestation | undefined {
-  const value = readOptionOnce(source, "migrationNamespaceAttestation");
-  if (value === undefined) return undefined;
-  if (value === MIGRATION_NAMESPACE_ATTESTATION) {
-    return MIGRATION_NAMESPACE_ATTESTATION;
-  }
+  return resolveAttestationOption(
+    source,
+    "migrationNamespaceAttestation",
+    MIGRATION_NAMESPACE_ATTESTATION
+  );
+}
+
+/**
+ * A PostgreSQL driver's `migrationSessionAttestation`, read once: the caller's
+ * claim that every connection is one server session for its whole life, which
+ * lifts migration admission's pooler-host refusal at their risk.
+ */
+export function resolveMigrationSessionAttestationOption(
+  source: object
+): MigrationSessionAttestation | undefined {
+  return resolveAttestationOption(
+    source,
+    "migrationSessionAttestation",
+    MIGRATION_SESSION_ATTESTATION
+  );
+}
+
+/**
+ * Refuses a `databaseUrl` key that is present but empty or undefined — almost
+ * always an unset environment variable — when nothing else in the
+ * configuration names a target. The PostgreSQL clients would otherwise fall
+ * back to libpq's defaults (the `PG*` environment, then localhost:5432) and
+ * connect to a server nobody named. An absent key keeps those defaults.
+ */
+export function refuseEmptyDatabaseUrl(
+  driver: string,
+  source: { databaseUrl?: string },
+  namesTarget: boolean
+): void {
+  if (
+    namesTarget ||
+    source.databaseUrl ||
+    !Object.hasOwn(source, "databaseUrl")
+  )
+    return;
   throw new ClientInitializationError(
-    `The "migrationNamespaceAttestation" option admits only "${MIGRATION_NAMESPACE_ATTESTATION}".`
+    `Driver "${driver}" was given an empty databaseUrl and no host; set the URL or name the host in options.`,
+    { meta: { driver, operation: "configuration" } }
   );
 }
 
@@ -129,4 +184,39 @@ export function defineImmutableDriverFact(
     enumerable: true,
     configurable: false,
   });
+}
+
+/** The keys every convenience wrapper reads beside its driver's own. */
+const CLIENT_CONFIG_KEYS: Readonly<Record<keyof DriverConfig, true>> = {
+  schema: true,
+  skipSchemaValidation: true,
+};
+
+/**
+ * Refuse a key a driver's `createClient` does not read.
+ *
+ * The types refuse it already, but a JavaScript caller, or a configuration
+ * written for another driver, reaches run time with it: `databaseUrl` on
+ * viborm/sqlite3 used to open an in-memory database while its caller believed
+ * a file was named. A present own key is refused whatever its value; an
+ * inherited one is not a request (see `readOptionOnce`). Each driver types its
+ * `accepted` record as `Record<keyof ItsOptions, true>`, so the run-time list
+ * cannot drift from the options interface the types check.
+ */
+export function refuseUnknownDriverConfigKeys(
+  config: object,
+  driver: string,
+  accepted: Readonly<Record<string, true>>,
+  hints: Readonly<Record<string, string>> = {}
+): void {
+  for (const key of Object.keys(config)) {
+    if (Object.hasOwn(CLIENT_CONFIG_KEYS, key) || Object.hasOwn(accepted, key))
+      continue;
+    const hint = Object.hasOwn(hints, key) ? hints[key] : undefined;
+    const keys = [...Object.keys(CLIENT_CONFIG_KEYS), ...Object.keys(accepted)];
+    throw new ClientInitializationError(
+      `viborm/${driver} does not accept "${key}"; ${hint ?? `it accepts ${keys.join(", ")}`}.`,
+      { meta: { driver, operation: "configuration" } }
+    );
+  }
 }

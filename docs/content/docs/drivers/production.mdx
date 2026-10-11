@@ -60,17 +60,57 @@ users of a supplied handle.
 
 ## Poolers and edge runtimes
 
-A PostgreSQL pooler endpoint is still a PostgreSQL URL. Its session/transaction
-pooling mode and prepared-statement policy belong to the pooler. The postgres.js
-driver sends unprepared statements by default; opt in with
-`options: { prepare: true }` only when the endpoint supports prepared statements
-(see [postgres.js prepared statements](/docs/drivers/postgresql/postgres#prepared-statements)).
+A PostgreSQL pooler endpoint is still a PostgreSQL URL for application queries.
+Its session/transaction pooling mode and prepared-statement policy belong to the
+pooler. The postgres.js driver sends unprepared statements by default; opt in
+with `options: { prepare: true }` only when the endpoint supports prepared
+statements (see [postgres.js prepared statements](/docs/drivers/postgresql/postgres#prepared-statements)).
 Namespace qualification does not depend on session search_path.
 
 Use [Neon HTTP](/docs/drivers/postgresql/neon-http) for stateless HTTP requests.
 Its ordered batch/isolation support does not provide interactive callbacks.
-A Neon WebSocket Pool is not a pg Pool and is not accepted as one. pg/postgres.js
-on Workers, Hyperdrive, Deno and other TCP/runtime combinations need qualification
-for their native client/runtime pairing; the Node.js driver qualification does
-not establish those combinations. Unsupported runtime or provider combinations
-are not implied by an HTTP or WASM label.
+A Neon WebSocket `Pool` from `@neondatabase/serverless` runs as the pg driver's
+supplied `pool` and type-checks with any `@types/pg` (see
+[Neon WebSocket Pool](/docs/drivers/postgresql/pg#neon-websocket-pool)). pg/postgres.js on Workers, Hyperdrive, Deno and other TCP/runtime
+combinations need qualification for their native client/runtime pairing; the
+Node.js driver qualification does not establish those combinations. Unsupported
+runtime or provider combinations are not implied by an HTTP or WASM label.
+
+## Migrations through a pooler
+
+Migrations hold a session-scoped advisory lock on one server session for the
+whole command. A transaction-pooling endpoint hands consecutive transactions to
+whichever server session is free, so the lock and the DDL can land on
+different backends and the lock protects nothing. Effectful migration commands
+(`apply`, `down`, `reset`, `baseline`, `resolve`, `verify`, `push`) are
+therefore refused with `V8002`, before any connection, when the driver's
+configuration names one of these hosts:
+
+- a Cloudflare Hyperdrive endpoint (`*.hyperdrive.local`);
+- a Neon pooled endpoint (`ep-…-pooler.…`).
+
+The pg, postgres.js and Bun SQL drivers read the host from `databaseUrl`
+(including a libpq `host` query parameter), their connection options (`host`,
+`connectionString`, `hostname`) or a supplied pool/client. Application queries, `status`, `log`, push dry-runs and offline
+commands are unaffected. Run migrations through the direct endpoint instead:
+for Neon, the same host without `-pooler`; for Hyperdrive, the origin database
+URL (for example from a deploy step outside the Worker).
+
+If you have verified that the endpoint gives each connection one server session
+for its whole life, you can lift the refusal at your own risk:
+
+```ts
+import { createClient } from "viborm/pg";
+
+const client = createClient({
+  schema,
+  databaseUrl: env.HYPERDRIVE.connectionString,
+  migrationSessionAttestation: "dedicated-session",
+});
+```
+
+Only the exact `"dedicated-session"` literal is accepted; any other value fails
+client construction. The attestation does not admit a transport with no
+interactive session at all, such as Neon HTTP. VibORM still requires the
+advisory unlock to succeed after the work, but that check runs after commit:
+the attestation is your guarantee, not VibORM's.

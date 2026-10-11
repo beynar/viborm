@@ -34,6 +34,7 @@ import {
 } from "./push/enum-removals";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import {
+  approveDestructiveOperations,
   callbackAsResolver,
   rejectAllResolver,
   resolveAmbiguousChanges,
@@ -49,7 +50,7 @@ import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageWriter } from "./storage/contract";
 import { isMigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
-import type { DiffOperation } from "./types";
+import type { DiffOperation, ResolveCallback } from "./types";
 import { generateMigrationName, prepareSchemaProgram } from "./utils";
 import {
   encodeEstateDescriptor,
@@ -86,6 +87,13 @@ export interface GenerateV1Result {
 const AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS: DiffOptions = {
   compareDateTimeDeclarations: true,
 };
+
+/**
+ * A dry run without a resolver previews the state as an approval would publish
+ * it, as push's preview does; publishing still needs the resolver's answer.
+ */
+const previewApproval: ResolveCallback = (change) =>
+  change.type === "destructive" ? change.proceed() : undefined;
 
 export async function generateV1(
   client: MigrationClient,
@@ -185,12 +193,21 @@ export async function generateV1(
           driver.capabilities.introspectionReadsConstraintNames,
       };
       const diffed = await diff(current, desired, diffOptions);
+      const admittedDrops = new Set<string>();
       const resolved = await resolveAmbiguousChanges(
         diffed,
         current,
         desired,
-        request.resolve ? callbackAsResolver(request.resolve) : strictResolver,
+        request.resolve
+          ? callbackAsResolver(request.resolve, admittedDrops)
+          : strictResolver,
         diffOptions
+      );
+      const approvals = await approveDestructiveOperations(
+        resolved,
+        request.resolve ?? (request.dryRun ? previewApproval : undefined),
+        false,
+        admittedDrops
       );
       const enumMappings = await resolveEnumValueRemovalMappings(
         detectEnumValueRemovals(resolved, current),
@@ -216,7 +233,10 @@ export async function generateV1(
       warnings.push(...(compiled.warnings ?? []));
       if (compiled.rollback.kind === "irreversible")
         warnings.push(compiled.rollback.reason);
-      parentBodies.push(sealParent(from, compiled));
+      const parent = sealParent(from, compiled);
+      parentBodies.push(
+        approvals.length === 0 ? parent : { ...parent, approvals }
+      );
     }
   }
 
@@ -276,7 +296,8 @@ export async function generateV1(
   const reviewSql = renderMigrationReview(
     hashedParents,
     rebindChecks(destinationPlaceholders, sealed.dispatches),
-    sealed.bytes
+    sealed.bytes,
+    request.resolve ? undefined : "Needs approval at generate"
   );
   if (request.dryRun) {
     return {

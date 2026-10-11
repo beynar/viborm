@@ -28,6 +28,7 @@ import type { MigrationTarget } from "./types";
 import { parseDispatch } from "./v1-parse-dispatch";
 import { exactObject, parseFormat, refuse } from "./v1-parse-shared";
 import type {
+  MigrationApprovalV1,
   MigrationBooleanCheckV1,
   MigrationEstateDescriptorV1,
   MigrationOperationV1,
@@ -64,6 +65,7 @@ const MANUAL_ROLLBACK_KEYS = [
 ] as const;
 const IRREVERSIBLE_KEYS = ["kind", "reason"] as const;
 const PARENT_KEYS = [
+  "approvals",
   "fromState",
   "operations",
   "originChecks",
@@ -90,13 +92,22 @@ const STATE_HASH_KEYS = [
   "snapshotHash",
   "sqlHash",
 ] as const;
+const PARENT_REQUIRED_KEYS = PARENT_KEYS.filter((key) => key !== "approvals");
 const TRANSITION_HASH_KEYS = [
+  "approvals",
   "fromState",
   "operations",
   "originChecks",
   "requestedForwardBoundary",
   "rollback",
 ] as const;
+const APPROVAL_KEYS = ["column", "operation", "table"] as const;
+const APPROVAL_OPERATIONS: readonly MigrationApprovalV1["operation"][] = [
+  "addColumn",
+  "alterColumn",
+  "dropColumn",
+  "dropTable",
+];
 
 function parseManagedTables(value: unknown, label: string): readonly string[] {
   try {
@@ -315,12 +326,40 @@ function parseRollback(value: unknown, label: string): MigrationRollbackV1 {
   refuse(`${label}.kind is not a V1 rollback`);
 }
 
+/** Absent, never empty: one encoding for "no destructive change". */
+function parseApprovals(
+  value: unknown,
+  label: string
+): readonly MigrationApprovalV1[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    refuse(`${label} must be a non-empty array`);
+  }
+  return value.map((entry, index) => {
+    const at = `${label}[${index}]`;
+    const { column, operation, table } = exactObject(
+      entry,
+      APPROVAL_KEYS,
+      APPROVAL_KEYS,
+      at
+    );
+    const known = APPROVAL_OPERATIONS.find((name) => name === operation);
+    if (!known) refuse(`${at}.operation is not a destructive operation`);
+    if (!isString(table) || table.length === 0) {
+      refuse(`${at}.table must be a non-empty string`);
+    }
+    if (column !== null && !(isString(column) && column.length > 0)) {
+      refuse(`${at}.column must be a non-empty string or null`);
+    }
+    return { operation: known, table, column };
+  });
+}
+
 export function encodeTransitionHash(
   transition: Omit<MigrationParentTransitionV1, "transitionHash">
 ): Sha256 {
   const body: Record<string, unknown> = {};
   for (const key of TRANSITION_HASH_KEYS) {
-    body[key] = transition[key];
+    if (transition[key] !== undefined) body[key] = transition[key];
   }
   return domainHash(HASH_DOMAIN.transition, canonicalizeJson(body));
 }
@@ -329,7 +368,7 @@ function parseParent(
   value: unknown,
   label: string
 ): MigrationParentTransitionV1 {
-  const record = exactObject(value, PARENT_KEYS, PARENT_KEYS, label);
+  const record = exactObject(value, PARENT_KEYS, PARENT_REQUIRED_KEYS, label);
   const fromState =
     record.fromState === null
       ? null
@@ -369,6 +408,9 @@ function parseParent(
     requestedForwardBoundary: record.requestedForwardBoundary,
     operations,
     rollback,
+    ...(record.approvals === undefined
+      ? {}
+      : { approvals: parseApprovals(record.approvals, `${label}.approvals`) }),
   };
   const transitionHash = parseSha256(
     record.transitionHash,

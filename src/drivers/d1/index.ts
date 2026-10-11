@@ -41,6 +41,7 @@ import {
   type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { parseSQLiteField } from "../shared/sqlite-utils";
 import type {
   BatchQuery,
@@ -57,6 +58,8 @@ export interface D1DriverOptions {
 }
 
 export type D1ClientConfig<C extends DriverConfig> = D1DriverOptions & C;
+
+const D1_CONFIG_KEYS: Record<keyof D1DriverOptions, true> = { database: true };
 
 interface D1BindingResult<T> {
   success: true;
@@ -454,6 +457,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: D1Driver }
   >[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "d1", D1_CONFIG_KEYS);
   const { database } = config;
 
   const driver = new D1Driver({ database });

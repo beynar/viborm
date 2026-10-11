@@ -336,7 +336,10 @@ export function resolveStateSelector(
         VibORMErrorCode.MIGRATION_NOT_FOUND
       );
     }
-    throw pathRequired(graph.leaves.map((leaf) => [leaf]));
+    throw pathRequired(
+      graph.leaves.map((leaf) => [leaf]),
+      "Multiple leaf states exist; choose the target with --to / { to }"
+    );
   }
   if ("id" in selector) {
     if (!graph.states.has(selector.id)) {
@@ -358,7 +361,10 @@ export function resolveStateSelector(
         VibORMErrorCode.MIGRATION_NOT_FOUND
       );
     }
-    throw pathRequired(matches.map((id) => [id]));
+    throw pathRequired(
+      matches.map((id) => [id]),
+      AMBIGUOUS_SELECTOR
+    );
   }
   const matches = [...graph.states.values()]
     .filter((state) => state.name === selector.name)
@@ -370,7 +376,10 @@ export function resolveStateSelector(
       VibORMErrorCode.MIGRATION_NOT_FOUND
     );
   }
-  throw pathRequired(matches.map((id) => [id]));
+  throw pathRequired(
+    matches.map((id) => [id]),
+    AMBIGUOUS_SELECTOR
+  );
 }
 
 export function selectRoute(
@@ -415,7 +424,10 @@ export function selectRoute(
       VibORMErrorCode.MIGRATION_NOT_FOUND
     );
   }
-  throw pathRequired(routes);
+  throw pathRequired(
+    routes,
+    "Multiple migration paths exist; choose one with --via / { via }"
+  );
 }
 
 function hasEdge(
@@ -472,14 +484,20 @@ function enumerateRoutes(
   return found;
 }
 
-function pathRequired(routes: readonly (readonly Sha256[])[]): never {
+const AMBIGUOUS_SELECTOR =
+  "The state selector matches several states; pass a longer prefix or the full state id";
+
+function pathRequired(
+  routes: readonly (readonly Sha256[])[],
+  hint: string
+): never {
   const witness: PathWitness = {
     routes: routes.slice(0, 2),
     frontier: firstFrontier(routes),
     more: routes.length > 2,
   };
   throw new MigrationError(
-    `Multiple migration paths exist; pass via. Candidates: ${witness.routes
+    `${hint}. Candidates: ${witness.routes
       .map((route) => route.join(" -> "))
       .join(" | ")}`,
     VibORMErrorCode.MIGRATION_PATH_REQUIRED,

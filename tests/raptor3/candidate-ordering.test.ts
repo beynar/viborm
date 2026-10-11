@@ -1,7 +1,4 @@
-// biome-ignore-all lint/suspicious/noMisplacedAssertion: The replay/scenario assertion helpers run from registered test cases.
-import assert from "node:assert/strict";
 import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
-import { isRecord } from "@validation/value-guards";
 import { describe, it } from "vitest";
 import type { ScenarioDefinition } from "./harness/protocol";
 import { verifyG0Pair } from "./harness/replay";
@@ -35,41 +32,9 @@ const reorderedDependency: ScenarioDefinition = {
     const memberData = publicInput.args.data.bins.updateMany.data;
     const { connectOrCreate, set } = memberData.targets;
     memberData.targets = { set, connectOrCreate };
-    return {
-      ...fixture,
-      requiredCuts: ["s2-selected-members-captured"],
-      assert(observation) {
-        assert.equal(observation.outcome.kind, "failure");
-        if (observation.outcome.kind !== "failure") return;
-        assert.equal(observation.outcome.failure.name, "UniqueConstraintError");
-        assert.equal(observation.outcome.failure.code, "V3001");
-        assert(isRecord(observation.outcome.failure.meta));
-        assert.equal(observation.outcome.failure.meta.table, "s2_targets");
-        assert.deepEqual(observation.outcome.failure.meta.columns, ["id"]);
-        assert.deepEqual(
-          observation.final,
-          controls.profile === "sqlite-interactive"
-            ? observation.initial
-            : {
-                shelves: [
-                  { id: 1, label: "before-series" },
-                  { id: 2, label: "untouched" },
-                ],
-                bins: [
-                  { id: 10, shelfId: 1 },
-                  { id: 11, shelfId: 1 },
-                  { id: 12, shelfId: 2 },
-                ],
-                targets: [{ id: 1 }, { id: 2 }, { id: 8 }],
-                memberships: [
-                  { binId: 10, targetId: 1 },
-                  { binId: 10, targetId: 2 },
-                  { binId: 12, targetId: 8 },
-                ],
-              }
-        );
-      },
-    };
+    // engine-04: both spellings answer to the fixture's ONE assertion — the
+    // relation body runs `set` before `connectOrCreate` either way.
+    return fixture;
   },
 };
 

@@ -295,8 +295,10 @@ describe("SQLite table recreation — the batch's own columns", () => {
     ]);
     // And the copy reads the column from the table that now has it.
     expect(
-      statements.some((s) =>
-        s.includes('SELECT "id", "author_id", "slug", "subtitle"')
+      statements.some(
+        (s) =>
+          s.startsWith('INSERT INTO "__new_posts"') &&
+          s.includes('"slug", "subtitle" FROM "posts"')
       )
     ).toBe(true);
   });

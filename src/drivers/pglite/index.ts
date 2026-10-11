@@ -32,6 +32,7 @@ import {
   runProviderManagedTransaction,
   type TransactionOptionSupport,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import {
   condemnPhysicalSession,
   type PinnedSessionReservation,
@@ -63,6 +64,26 @@ export interface PGliteDriverOptions {
 }
 
 export type PGliteConfig<C extends DriverConfig> = PGliteDriverOptions & C;
+
+const PGLITE_CONFIG_KEYS: Record<keyof PGliteDriverOptions, true> = {
+  client: true,
+  dataDir: true,
+  options: true,
+  pgvector: true,
+  postgis: true,
+  namespace: true,
+};
+
+/**
+ * The database, as opposed to a transaction handle, which has no `transaction`
+ * method. Not `instanceof PGlite`: a PGlite built by another copy of
+ * `@electric-sql/pglite` (its CommonJS build beside the ESM one, or a second
+ * installed version) has another class, and every transaction and pinned
+ * command on it used to fail as "nested provider state".
+ */
+function isPGliteDatabase(client: PGlite | Transaction): client is PGlite {
+  return "transaction" in client;
+}
 
 // ===  ======================================================
 // DRIVER IMPLEMENTATION
@@ -208,7 +229,7 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     fn: (tx: Transaction) => Promise<T>,
     context?: QueryExecutionContext
   ): Promise<T> {
-    if (!(client instanceof PGlite)) {
+    if (!isPGliteDatabase(client)) {
       throw nestedTransactionDispatchError(this.driverName);
     }
     return runProviderManagedTransaction({
@@ -256,7 +277,7 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     PinnedSessionReservation<PGlite | Transaction>
   > {
     const client = await this.getClient({ operation: "pinnedSession" });
-    if (!(client instanceof PGlite)) {
+    if (!isPGliteDatabase(client)) {
       throw nestedTransactionDispatchError(this.driverName);
     }
     return {
@@ -293,6 +314,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: PGliteDriver }
   >]: LinkedClientConfig<C & { driver: PGliteDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "pglite", PGLITE_CONFIG_KEYS);
   const { client, dataDir, options, pgvector, postgis } = config;
   const namespace = resolveNamespaceOption(config);
 

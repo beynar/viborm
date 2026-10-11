@@ -281,10 +281,9 @@ describe("what a callback may return", () => {
     expect(refusal.name).toBe("ValidationError");
     const [issue] = refusal.issues ?? [];
     // The scalar filter is a union (shorthand value | filter object), and a
-    // union reports at the key it was handed — `where.views` — with each arm's
-    // message inside. That is the existing shape for every filter refusal on
-    // this branch (a wrong-typed reference reads the same way).
-    expect(issue?.path).toBe("where.views");
+    // union reports through the member that read deepest: the filter object,
+    // at the operator that refused (a wrong-typed reference reads the same way).
+    expect(issue?.path).toBe("where.views.gt");
     expect(issue?.message).toContain("must return a field reference");
     expect(issue?.message).toContain("'number'");
   });
@@ -312,7 +311,7 @@ describe("what a callback may return", () => {
       })
     );
     expect(refusal.name).toBe("ValidationError");
-    expect(refusal.issues?.[0]?.path).toBe("where.views");
+    expect(refusal.issues?.[0]?.path).toBe("where.views.gt");
     expect(refusal.issues?.[0]?.message).toContain(
       "Filter callback threw: boom"
     );

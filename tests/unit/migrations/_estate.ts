@@ -8,7 +8,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { Driver } from "@drivers/driver";
+import { Driver, SQLITE_MIGRATION_CAPABILITY } from "@drivers/driver";
 import type { PinnedSessionReservation } from "@drivers/shared";
 import type { Dialect, QueryResult } from "@drivers/types";
 import type { DDLContext } from "@migrations/drivers";
@@ -212,7 +212,11 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
   private simulateLockAnswer(sql: string): unknown[] | Error | undefined {
     if (sql === "SELECT current_setting('server_version_num') AS version")
       return this.serverVersionAnswer ?? [{ version: "170000" }];
-    if (sql.includes("pg_try_advisory_lock") || sql.includes("GET_LOCK")) {
+    if (
+      sql.includes("pg_try_advisory_lock") ||
+      sql.includes("pg_try_advisory_xact_lock") ||
+      sql.includes("GET_LOCK")
+    ) {
       return (
         this.lockAnswers.acquire ??
         (this.dialect === "mysql" ? [{ acquired: 1 }] : [{ acquired: true }])
@@ -376,9 +380,14 @@ export function sqliteControlDefinitionAnswer(
   return undefined;
 }
 
+/** The stock sqlite3 shape: it declares the SQLite migration capability. */
+class DeclaredSqliteDriver extends RecordingDriver {
+  override readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
+}
+
 /** A SQLite recording driver. SQLite estates have no namespace at all. */
 export function sqliteEstateDriver(): RecordingDriver {
-  return new RecordingDriver(
+  return new DeclaredSqliteDriver(
     "sqlite",
     "sqlite3",
     adapterBoundTo(new SQLiteAdapter(), undefined)

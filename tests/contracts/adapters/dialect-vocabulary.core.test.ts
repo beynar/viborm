@@ -316,7 +316,22 @@ describe("dialect physical SQL vocabulary", () => {
   test("literals retain each provider's physical representation", () => {
     expectSql(postgres.literals.null(), "NULL");
     expectSql(postgres.literals.list([]), "()");
-    expectSql(postgres.literals.list([sql`${1}`, sql`${2}`]), "(?, ?)", [1, 2]);
+    // A list of parameters is ONE parameter (engine-09): PostgreSQL's array
+    // text, SQLite's JSON array; anything else keeps a parameter per member.
+    expectSql(postgres.literals.list([sql`${1}`, sql`${2}`]), "?", [
+      '{"1","2"}',
+    ]);
+    expectSql(
+      postgres.literals.list([sql`${1}`, sql.raw("NULL")]),
+      "(?, NULL)",
+      [1]
+    );
+    expectSql(
+      sqlite.literals.list([sql`${1}`, sql`${"a"}`]),
+      "(SELECT value FROM json_each(?))",
+      ['[1,"a"]']
+    );
+    expectSql(mysql.literals.list([sql`${1}`, sql`${2}`]), "(?, ?)", [1, 2]);
     expectSql(postgres.literals.value("x"), "?", ["x"]);
     expect(postgres.literals.json({ a: 1 }).values).toHaveLength(1);
     expectSql(mysql.literals.json({ a: 1 }), "?", ['{"a":1}']);
@@ -345,6 +360,73 @@ describe("dialect physical SQL vocabulary", () => {
     expectSql(sqlite.literals.decimal("12.30", decimal), "CAST(? AS INTEGER)", [
       "1230",
     ]);
+  });
+
+  // engine-09: every member spelling the array and JSON lists read back, and
+  // every member that keeps the list a parameter per member.
+  test("a bound list reads each member back as it was bound, or binds one per member", () => {
+    const bytes = new Uint8Array([0, 255]);
+    expectSql(
+      postgres.literals.list([sql`${bytes}`, sql`${9n}`, sql`${true}`]),
+      "?",
+      ['{"\\\\x00ff","9","true"}']
+    );
+    expectSql(
+      postgres.literals.list([
+        postgres.literals.decimal("12.30", decimal),
+        postgres.literals.decimal("1.00", decimal),
+      ]),
+      "CAST(? AS NUMERIC(6,2)[])",
+      ['{"12.30","1.00"}']
+    );
+    const date = new Date(0);
+    expectSql(postgres.literals.list([sql`${date}`]), "(?)", [date]);
+    expectSql(
+      postgres.literals.list([
+        postgres.literals.decimal("12.30", decimal),
+        sql`${1}`,
+      ]),
+      "(CAST(? AS NUMERIC(6,2)), ?)",
+      ["12.30", 1]
+    );
+    const column = sql.raw`col`;
+    const list = postgres.literals.list([sql`${1}`, sql`${2}`]);
+    expectSql(postgres.operators.in(column, list), "col = ANY(?)", [
+      '{"1","2"}',
+    ]);
+    expectSql(postgres.operators.notIn(column, list), "col <> ALL(?)", [
+      '{"1","2"}',
+    ]);
+
+    expectSql(
+      sqlite.literals.list([sql`${9n}`, sql`${false}`]),
+      "(SELECT value FROM json_each(?))",
+      ["[9,false]"]
+    );
+    expectSql(
+      sqlite.literals.list([sql`${bytes}`]),
+      "(SELECT unhex(value) FROM json_each(?))",
+      ['["00ff"]']
+    );
+    expectSql(
+      sqlite.literals.list([
+        sqlite.literals.decimal("12.30", decimal),
+        sqlite.literals.decimal("1.00", decimal),
+      ]),
+      "(SELECT CAST(value AS INTEGER) FROM json_each(?))",
+      ['["1230","100"]']
+    );
+    expectSql(sqlite.literals.list([]), "()");
+    for (const members of [
+      [sql`${bytes}`, sql`${1}`],
+      [sql`${1.5}`],
+      [sql`${"\ud800"}`],
+      [sql`${1}`, sqlite.literals.decimal("1.00", decimal)],
+    ]) {
+      expect(sqlite.literals.list(members).toStatement()).toBe(
+        `(${members.map((member) => member.toStatement()).join(", ")})`
+      );
+    }
   });
 
   test("text predicates pin case, wildcard, and prefix semantics", () => {

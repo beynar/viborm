@@ -5,6 +5,7 @@ import type { StringKeyOf } from "@schema/model/helper";
 import type { AnyRelation } from "@schema/relation";
 import type { ScalarState } from "@schema/scalars";
 import v, { type V } from "../../primitives/v";
+import { isRecord } from "../../value-guards";
 import type { ScalarSchemas } from "../index";
 import {
   type ProjectableScalarKeys,
@@ -214,6 +215,29 @@ const pointScalarSelectSchema = v.union([
 ]);
 type PointScalarSelectSchema = typeof pointScalarSelectSchema;
 
+const selects = (value: unknown): boolean =>
+  value !== undefined && value !== false;
+
+/**
+ * A written `select` names what the row carries, so one that names nothing
+ * (`{}`, only `false`, or a `_count` that counts no relation, as `_count: true`
+ * does on a model with no to-many relation) is a caller mistake, refused at its
+ * own path. Leaving `select` out is how a caller asks for the default row.
+ */
+const requireSelectedField = (
+  select: Record<string, unknown>
+): string | undefined =>
+  Object.entries(select).some(([key, value]) =>
+    key === "_count"
+      ? isRecord(value) && Object.values(new Object(value.select)).some(selects)
+      : selects(value)
+  )
+    ? undefined
+    : "select needs at least one truthy value; leave it out to return the default row.";
+
+/** The refusal every written `select` carries ({@link requireSelectedField}). */
+type SelectRefusal = { readonly refuse: typeof requireSelectedField };
+
 export type SelectSchema<
   M extends AnyModel,
   F extends ScalarSchemas<M>,
@@ -224,7 +248,8 @@ export type SelectSchema<
     V.FromObject<F["relations"], "select">["entries"] &
     V.FromObject<F["polymorphic"], "select">["entries"] & {
       _count: CountSchema<F>;
-    }
+    },
+  SelectRefusal
 >;
 
 /** The scalar half of a select schema, shared by both factories below. */
@@ -293,12 +318,14 @@ const getScalarSelectEntries = <M extends AnyModel>(model: M) => {
 export type ScalarSelectSchema<M extends AnyModel> = V.Object<
   V.FromKeys<PlainScalarKeys<M>[], typeof scalarSelectSchema>["entries"] &
     V.FromKeys<VectorScalarKeys<M>[], VectorScalarSelectSchema>["entries"] &
-    V.FromKeys<PointScalarKeys<M>[], PointScalarSelectSchema>["entries"]
+    V.FromKeys<PointScalarKeys<M>[], PointScalarSelectSchema>["entries"],
+  SelectRefusal
 >;
 
 export const getScalarSelectSchema = <M extends AnyModel>(
   model: M
-): ScalarSelectSchema<M> => v.object(getScalarSelectEntries(model));
+): ScalarSelectSchema<M> =>
+  v.object(getScalarSelectEntries(model), { refuse: requireSelectedField });
 
 export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
@@ -316,14 +343,17 @@ export const getSelectSchema = <M extends AnyModel, F extends ScalarSchemas<M>>(
     "select"
   );
 
-  return v.object({
-    ...scalarEntries,
-    ...relationEntries.entries,
-    ...polymorphicEntries.entries,
-    // Accepts `true` (count every to-many relation) or the explicit
-    // { select: { <relation>: true | { where } } } object.
-    _count: getCountSchema(model, fieldSchemas),
-  });
+  return v.object(
+    {
+      ...scalarEntries,
+      ...relationEntries.entries,
+      ...polymorphicEntries.entries,
+      // Accepts `true` (count every to-many relation) or the explicit
+      // { select: { <relation>: true | { where } } } object.
+      _count: getCountSchema(model, fieldSchemas),
+    },
+    { refuse: requireSelectedField }
+  );
 };
 
 // =============================================================================

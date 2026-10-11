@@ -161,7 +161,8 @@ export function runNestedWriteJsonEnvelopeBehavior({
   driverName,
   createDriver,
 }: NestedWriteJsonEnvelopeBehaviorOptions) {
-  describe(`${driverName} delegated nested update — JSON write envelope`, () => {
+  /** A fresh client per test, synced to the live schema. */
+  function useClient(): () => EnvelopeClient {
     let client: EnvelopeClient | undefined;
 
     beforeEach(async () => {
@@ -176,10 +177,14 @@ export function runNestedWriteJsonEnvelopeBehavior({
       }
     });
 
-    function db(): EnvelopeClient {
+    return () => {
       if (!client) throw new Error("client not initialized");
       return client;
-    }
+    };
+  }
+
+  describe(`${driverName} delegated nested update — JSON write envelope`, () => {
+    const db = useClient();
 
     // org "o1" → head "h1" → pet "p1" → collar "c1"; a sibling org "o2" → head
     // "h2" (never touched — the wrong-row witness), and member "m1" under o1.
@@ -479,6 +484,189 @@ export function runNestedWriteJsonEnvelopeBehavior({
       expect(head.payload).toEqual({ z: 7 });
       expect(head.note).toBe("n7");
       expect(head.score).toBe(3);
+    });
+  });
+
+  /**
+   * The `{ set: v }` envelope means "store v" on EVERY write path, create
+   * included (plan §6 decision 5). Before 1.2.0 only an update read it, so a
+   * create stored the envelope itself, the two arms of one upsert stored
+   * different documents, and copying a row through `{ set: row.meta }` changed
+   * it. A literal one-key `set` document is written `{ set: { set: v } }`
+   * everywhere.
+   *
+   * Every path reaches the field through its create schema
+   * (`src/validation/scalars/json.ts`); these witnesses pin the persisted value
+   * per path because a path that parsed its data twice would unwrap twice — the
+   * escape `{ set: { set: v } }` is what tells one parse from two.
+   *
+   * Falsified: drop the envelope from the create schema → every create-side
+   * witness stores `{"set": …}`, while the update controls stay green.
+   */
+  describe(`${driverName} JSON { set } envelope on every create path`, () => {
+    const db = useClient();
+    const metaOf = async (id: string) =>
+      (await db().pet.findUniqueOrThrow({ where: { id } })).meta;
+
+    test("create, createMany and both upsert arms store what update stores", async () => {
+      await db().pet.create({
+        data: { id: "c", tag: "t", meta: { set: ["a", "b"] } },
+      });
+      expect(await metaOf("c")).toEqual(["a", "b"]);
+      await db().pet.createMany({
+        data: [{ id: "m", tag: "t", meta: { set: 1 } }],
+      });
+      expect(await metaOf("m")).toBe(1);
+      const upsert = () =>
+        db().pet.upsert({
+          where: { id: "u" },
+          create: { id: "u", tag: "t", meta: { set: "c" } },
+          update: { meta: { set: "u" } },
+        });
+      await upsert();
+      expect(await metaOf("u")).toBe("c");
+      await upsert();
+      expect(await metaOf("u")).toBe("u");
+      // An upsert whose create arm writes a relation admits it as a create.
+      await db().pet.upsert({
+        where: { id: "w" },
+        create: {
+          id: "w",
+          tag: "t",
+          meta: { set: { set: 3 } },
+          collar: { create: { id: "cw", color: "red", spec: { set: [1] } } },
+        },
+        update: {},
+      });
+      expect(await metaOf("w")).toEqual({ set: 3 });
+      expect(
+        (await db().collar.findUniqueOrThrow({ where: { id: "cw" } })).spec
+      ).toEqual([1]);
+      // The control: update already stored the value.
+      await db().pet.update({
+        where: { id: "c" },
+        data: { meta: { set: ["a", "b"] } },
+      });
+      expect(await metaOf("c")).toEqual(["a", "b"]);
+    });
+
+    test("a one-key set document round-trips through { set: doc } on create and update", async () => {
+      const literal = { set: 7 };
+      await db().pet.create({
+        data: { id: "lit", tag: "t", meta: { set: literal } },
+      });
+      // What was stored is what was read; `literal` stands for it below.
+      expect(await metaOf("lit")).toEqual(literal);
+      // Read-modify-write: copy the stored document into a new row and back
+      // onto its own row with ONE spelling.
+      await db().pet.create({
+        data: { id: "copy", tag: "t", meta: { set: literal } },
+      });
+      await db().pet.update({
+        where: { id: "lit" },
+        data: { meta: { set: literal } },
+      });
+      expect(await metaOf("copy")).toEqual(literal);
+      expect(await metaOf("lit")).toEqual(literal);
+    });
+
+    test("nested creates store the value: to-one, to-many, createMany, connectOrCreate and nested upsert", async () => {
+      // To-one create on a parent-held relation (person holds petId).
+      await db().person.create({
+        data: {
+          id: "h1",
+          note: "n",
+          score: 1,
+          payload: { set: { set: 1 } },
+          pet: { create: { id: "p1", tag: "t", meta: { set: "one" } } },
+        },
+      });
+      expect(
+        (await db().person.findUniqueOrThrow({ where: { id: "h1" } })).payload
+      ).toEqual({ set: 1 });
+      expect(await metaOf("p1")).toBe("one");
+      // To-many create and createMany on child-held relations.
+      await db().pet.create({
+        data: {
+          id: "p2",
+          tag: "t",
+          people: {
+            create: [
+              { id: "h2", note: "n", score: 1, payload: { set: "many" } },
+            ],
+          },
+          members: {
+            createMany: {
+              data: [{ id: "m1", blob: { set: { set: "bulk" } } }],
+            },
+          },
+        },
+      });
+      expect(
+        (await db().person.findUniqueOrThrow({ where: { id: "h2" } })).payload
+      ).toBe("many");
+      expect(
+        (await db().member.findUniqueOrThrow({ where: { id: "m1" } })).blob
+      ).toEqual({ set: "bulk" });
+      // connectOrCreate's create arm.
+      await db().org.create({
+        data: {
+          id: "o1",
+          members: {
+            connectOrCreate: [
+              {
+                where: { id: "m2" },
+                create: { id: "m2", blob: { set: "coc" } },
+              },
+            ],
+          },
+        },
+      });
+      expect(
+        (await db().member.findUniqueOrThrow({ where: { id: "m2" } })).blob
+      ).toBe("coc");
+      // A nested upsert stores the value on both arms (h3 starts with no pet).
+      await db().person.create({ data: { id: "h3", note: "n", score: 1 } });
+      const nestedUpsert = () =>
+        db().person.update({
+          where: { id: "h3" },
+          data: {
+            pet: {
+              upsert: {
+                create: { id: "p3", tag: "t", meta: { set: "created" } },
+                update: { meta: { set: "updated" } },
+              },
+            },
+          },
+        });
+      await nestedUpsert();
+      expect(await metaOf("p3")).toBe("created");
+      await nestedUpsert();
+      expect(await metaOf("p3")).toBe("updated");
+    });
+
+    test("a create nested in a DELEGATED update target stores the value once", async () => {
+      await db().person.create({ data: { id: "h1", note: "n", score: 1 } });
+      await db().org.create({ data: { id: "o1", headId: "h1" } });
+      // `head` delegates: its data carries `pet: { create }`, a parent-held
+      // to-one write, so the create below crosses the delegation seam.
+      await db().org.update({
+        where: { id: "o1" },
+        data: {
+          head: {
+            update: {
+              payload: { set: "head" },
+              pet: {
+                create: { id: "p1", tag: "t", meta: { set: { set: 2 } } },
+              },
+            },
+          },
+        },
+      });
+      expect(
+        (await db().person.findUniqueOrThrow({ where: { id: "h1" } })).payload
+      ).toBe("head");
+      expect(await metaOf("p1")).toEqual({ set: 2 });
     });
   });
 }

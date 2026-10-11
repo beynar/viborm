@@ -4,7 +4,13 @@
  */
 
 import type { AnyDriver } from "../drivers/driver";
-import { MigrationError, VibORMErrorCode } from "../errors";
+import {
+  ConnectionError,
+  isVibORMError,
+  MigrationError,
+  type MigrationErrorMeta,
+  VibORMErrorCode,
+} from "../errors";
 import { decodeParameter } from "./compile";
 import { sliceDispatch } from "./sql-blob";
 import type {
@@ -101,6 +107,19 @@ export interface StepProgress {
   readonly skipped: boolean;
 }
 
+/** The edge a program runs: every dispatch failure names it. */
+export interface DispatchEdge {
+  readonly fromState: string | null;
+  readonly toState: string | null;
+}
+
+/** Where one dispatch sits: its edge, operation and statement position. */
+interface DispatchSite {
+  readonly edge: DispatchEdge | undefined;
+  readonly operationId: string;
+  readonly statementIndex: number;
+}
+
 export async function executeOperations(
   producer: AnyDriver,
   blob: Uint8Array,
@@ -110,27 +129,79 @@ export async function executeOperations(
     progress: StepProgress,
     effect: LedgerEffectStateV1
   ) => Promise<void>,
-  targetNamespace?: string
+  targetNamespace?: string,
+  edge?: DispatchEdge
 ): Promise<void> {
+  let statementIndex = 0;
   for (const operation of operations) {
     for (const step of operation.steps) {
       await executeStep(
         producer,
         blob,
-        operation.id,
+        { edge, operationId: operation.id, statementIndex },
         step,
         boundary,
         onProgress,
         targetNamespace
       );
+      statementIndex += 1;
     }
+  }
+}
+
+function siteMeta(site: DispatchSite, dispatchId: string): MigrationErrorMeta {
+  return {
+    ...(site.edge?.fromState ? { fromState: site.edge.fromState } : {}),
+    ...(site.edge?.toState ? { toState: site.edge.toState } : {}),
+    operationId: site.operationId,
+    dispatchId,
+    statementIndex: site.statementIndex,
+  };
+}
+
+/**
+ * Runs one dispatch. A statement the provider refused — its answer carries a
+ * provider code — becomes a MigrationError naming its edge, operation,
+ * dispatch and statement, with that code; SQL and parameters stay on the
+ * cause, behind diagnostics. A transport failure is not a refusal: it stays
+ * what it is, and the pinned session reports a lost connection as the
+ * retryable failure it is (plan S2).
+ */
+async function runDispatch(
+  producer: AnyDriver,
+  blob: Uint8Array,
+  site: DispatchSite,
+  dispatch: MigrationDispatchV1,
+  targetNamespace: string | undefined
+): Promise<void> {
+  try {
+    await executeDispatch(producer, blob, dispatch, targetNamespace);
+  } catch (error) {
+    const refused =
+      isVibORMError(error) &&
+      !(error instanceof ConnectionError) &&
+      (error.meta.providerCode !== undefined ||
+        error.meta.providerSqlState !== undefined);
+    if (!refused) throw error;
+    throw new MigrationError(
+      `Migration statement ${site.statementIndex} of operation ${site.operationId} failed`,
+      VibORMErrorCode.MIGRATION_FAILED,
+      {
+        cause: error,
+        meta: {
+          ...siteMeta(site, dispatch.dispatchId),
+          providerCode: error.meta.providerCode,
+          providerSqlState: error.meta.providerSqlState,
+        },
+      }
+    );
   }
 }
 
 async function executeStep(
   producer: AnyDriver,
   blob: Uint8Array,
-  operationId: string,
+  site: DispatchSite,
   step: MigrationStepV1,
   boundary: "transactional" | "stepwise",
   onProgress?: (
@@ -139,6 +210,7 @@ async function executeStep(
   ) => Promise<void>,
   targetNamespace?: string
 ): Promise<void> {
+  const { operationId } = site;
   if (step.retry === "proven") {
     if (await evaluateCheck(producer, blob, step.postcheck, targetNamespace)) {
       await onProgress?.(
@@ -156,7 +228,7 @@ async function executeStep(
         { meta: { lastConfirmedStep: step.execute.dispatchId } }
       );
     }
-    await executeDispatch(producer, blob, step.execute, targetNamespace);
+    await runDispatch(producer, blob, site, step.execute, targetNamespace);
     if (
       !(await evaluateCheck(producer, blob, step.postcheck, targetNamespace))
     ) {
@@ -193,6 +265,7 @@ async function executeStep(
         {
           cause: error instanceof Error ? error : undefined,
           meta: {
+            ...siteMeta(site, step.execute.dispatchId),
             lastConfirmedStep: step.execute.dispatchId,
             effectState: "may-have-committed",
             partial: true,
@@ -207,7 +280,7 @@ async function executeStep(
     return;
   }
 
-  await executeDispatch(producer, blob, step.execute, targetNamespace);
+  await runDispatch(producer, blob, site, step.execute, targetNamespace);
   await onProgress?.(
     { operationId, dispatchId: step.execute.dispatchId, skipped: false },
     "committed"

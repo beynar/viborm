@@ -3,7 +3,6 @@ import type { VariantEntries } from "@schema/relation/static-membership";
 import { refuseDefaultOnlySkipDuplicates } from "@validation/model/args/mutation";
 import v from "@validation/primitives/v";
 import type { VibSchema } from "@validation/types";
-import { refuseCollectionVerbOrder } from "../helpers";
 import type {
   CoreInputAt,
   CoreOutputAt,
@@ -379,20 +378,17 @@ export function polymorphicCollectionUpdateFactory<
   targetSchemas: ExactPolymorphicTargetSchemaGetters<State, Getters>
 ): PolymorphicCollectionUpdateSchema<Getters> {
   const verbs = collectionVerbs(state, targetSchemas);
-  return v.object(
-    {
-      create: verbs.create,
-      createMany: verbs.createMany,
-      connect: verbs.connect,
-      connectOrCreate: verbs.connectOrCreate,
-      set: verbs.set,
-      disconnect: verbs.disconnect,
-      delete: verbs.delete,
-      deleteMany: verbs.deleteMany,
-      update: verbs.update,
-      updateMany: verbs.updateMany,
-      upsert: verbs.upsert,
-    },
-    { refuse: refuseCollectionVerbOrder }
-  ) as unknown as PolymorphicCollectionUpdateSchema<Getters>;
+  return v.object({
+    create: verbs.create,
+    createMany: verbs.createMany,
+    connect: verbs.connect,
+    connectOrCreate: verbs.connectOrCreate,
+    set: verbs.set,
+    disconnect: verbs.disconnect,
+    delete: verbs.delete,
+    deleteMany: verbs.deleteMany,
+    update: verbs.update,
+    updateMany: verbs.updateMany,
+    upsert: verbs.upsert,
+  }) as unknown as PolymorphicCollectionUpdateSchema<Getters>;
 }

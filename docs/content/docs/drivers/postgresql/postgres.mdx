@@ -31,6 +31,9 @@ const client = createClient({
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
 ### Using Options
 
 ```typescript
@@ -48,6 +51,30 @@ const client = createClient({
   schema,
 });
 ```
+
+### URL and Options Together
+
+`databaseUrl` and `options` combine key by key: the URL supplies only the
+connection keys it carries, and every key set in `options` (`host`, `port`,
+`user`, `password`, `database`, and any query parameter's option) wins over the
+URL's. A URL per tenant with the password from a secret works as written:
+
+```typescript
+import { createClient } from "viborm/postgres";
+
+const client = createClient({
+  databaseUrl: "postgres://tenant_7@db.internal:5432/tenant_7",
+  options: { password: env.TENANT_DB_PASSWORD },
+  schema,
+});
+```
+
+This is postgres.js's own precedence; VibORM passes both through.
+`databaseUrl: undefined` or `""` (usually an unset environment variable) with no
+`client`, `host` or `hostname` fails at construction with
+`ClientInitializationError` (`V1004`) instead of connecting wherever
+postgres.js's defaults point. Leave the key out to use those defaults (the
+`PG*` environment variables, then `localhost:5432`).
 
 ### Using Existing Client
 

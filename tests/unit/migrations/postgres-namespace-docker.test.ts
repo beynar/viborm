@@ -151,10 +151,11 @@ describeIfDocker("PostgreSQL estate containment (docker)", () => {
       // The decoy's own column, which introspection would report if the
       // catalog filter had drifted to `public`.
       expect(columns).not.toContain("decoy");
-      // The estate's tables are its own — the tracking table above included —
+      // The estate's tables are its own — both control tables included —
       // and `public` contributes nothing to the snapshot.
       expect(snapshot.tables.map((table) => table.name).sort()).toEqual([
-        "_viborm_migrations",
+        "_viborm_migration_log",
+        "_viborm_migration_state",
         "nsd_accounts",
       ]);
     } finally {

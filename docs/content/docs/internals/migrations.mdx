@@ -96,7 +96,7 @@ A state becomes visible only after snapshot and SQL bytes are durable and the ma
 
 ## Public Surface
 
-`createMigrationClient` is the one composition root. `createFsStorageWriter` is the filesystem estate factory.
+`createMigrationClient` is the one composition root. `createFsStorageWriter`, from `viborm/migrations/storage/fs`, is the filesystem estate factory.
 
 ```text
 generate
@@ -162,7 +162,7 @@ Authenticated state graph. Generate publishes immutable artifacts. Apply execute
 
 Best for: production, review, branches that must converge.
 
-See `src/cli/commands/migrate.ts` and `viborm/migrations` (`createMigrationClient`, `createFsStorageWriter`, `previewPush`).
+See `src/cli/commands/migrate.ts`, `viborm/migrations` (`createMigrationClient`, `previewPush`) and `viborm/migrations/storage/fs` (`createFsStorageWriter`).
 
 ## Provider Limits
 

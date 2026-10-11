@@ -260,9 +260,9 @@ const onlyAllowList = (
   publicTypes: string[]
 ): VibSchema<readonly string[], string[]> => {
   const membership = v.enum(publicTypes, { array: true });
-  return createSchema<readonly string[], string[]>(
-    "polymorphic_only",
-    (value) => {
+  // `wrapped` is the membership list the JSON Schema export describes.
+  return Object.assign(
+    createSchema<readonly string[], string[]>("polymorphic_only", (value) => {
       const result = validateSchema(membership, value);
       if (result.issues) return result;
       const seen = new Set<string>();
@@ -273,7 +273,8 @@ const onlyAllowList = (
         seen.add(entry);
       }
       return ok(publicTypes.filter((publicType) => seen.has(publicType)));
-    }
+    }),
+    { wrapped: membership }
   );
 };
 

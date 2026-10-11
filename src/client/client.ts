@@ -619,7 +619,7 @@ export class VibORM<C extends VibORMConfig> {
       operationArgs = clientOmit
         ? applyClientOmit(model, operation, requestArgs, clientOmit)
         : requestArgs;
-      assertNonEmptyUniqueWhere(operation, operationArgs);
+      assertNonEmptyUniqueWhere(modelNameStr, operation, operationArgs);
     } else {
       // Request code stays behind PendingOperation's first preparation
       // boundary. That boundary memoizes both this callback's value and its
@@ -642,7 +642,7 @@ export class VibORM<C extends VibORMConfig> {
         const omittedArgs = clientOmit
           ? applyClientOmit(model, operation, requestArgs, clientOmit)
           : requestArgs;
-        assertNonEmptyUniqueWhere(operation, omittedArgs);
+        assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
         return omittedArgs;
       };
     }

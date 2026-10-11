@@ -151,6 +151,21 @@ describe("diagnostic disclosure contracts", () => {
       })
     ).toEqual({});
 
+    // A migration outcome keeps the estate's own addresses and its effect
+    // state, so a V11020 still says which state and dispatch it lost.
+    const outcome = {
+      effectState: "may-have-committed",
+      partial: true,
+      fromState: "a".repeat(64),
+      toState: "b".repeat(64),
+      dispatchId: "d1",
+      operationId: "o1",
+    };
+    expect(sanitizeErrorMetadata(outcome)).toEqual(outcome);
+    expect(
+      sanitizeErrorMetadata({ effectState: "maybe", partial: "yes" })
+    ).toEqual({});
+
     const sparseColumns = new Array<string>(1);
     expect(sanitizeErrorMetadata({ columns: sparseColumns })).toEqual({});
     expect(sanitizeErrorMetadata({ columns: [1] })).toEqual({});

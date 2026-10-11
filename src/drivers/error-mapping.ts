@@ -54,7 +54,9 @@ export const ASSERTION_MARKER = "__viborm_assert__";
 const POSTGRES_DIVISION_BY_ZERO = "22012";
 const MYSQL_INVALID_JSON_TEXT = 3141;
 
-const JSON_ACCESS_SIGNATURE = /json|->/i;
+// `json_each(?))` closes a bound member list (SQLite's `literals.list`): JSON
+// text the adapter stringified, which cannot raise "malformed JSON".
+const JSON_ACCESS_SIGNATURE = /json(?!_each\(\?\)\))|->/i;
 
 const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
   postgresql: /[/%]/,

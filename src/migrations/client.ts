@@ -1,6 +1,7 @@
 /** One capability-sensitive migration client composition root. */
 
 import { errorCause } from "../drivers/shared/driver-options";
+import type { MigrationLimits } from "../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { type ApplyV1Result, applyV1 } from "./apply-v1";
 import { type CheckResult, checkEstate } from "./check";
@@ -15,8 +16,10 @@ import {
   resolveV1,
   type StatusV1Result,
   statusV1,
+  type VerifyV1Result,
   verifyV1,
 } from "./operators";
+import { resolveMigrationLimits } from "./pinned-session";
 import {
   type GraphResult,
   type ListResult,
@@ -35,7 +38,11 @@ import {
   isMigrationStorageReader,
   isMigrationStorageWriter,
 } from "./storage/contract";
-import { MANAGED_TABLES, normalizeManagedTables } from "./target";
+import {
+  MANAGED_TABLES,
+  MIGRATION_LIMITS,
+  normalizeManagedTables,
+} from "./target";
 import type {
   ApplyV1Options,
   BaselineOptions,
@@ -54,18 +61,33 @@ export interface MigrationClientOptions<
 > {
   readonly storage: S;
   readonly tables?: readonly string[];
+  /**
+   * PostgreSQL session limits and VibORM's own waits, in milliseconds, and
+   * `largeTableRows`, the estimated table size above which a rewrite or scan
+   * is refused in-request.
+   */
+  readonly limits?: MigrationLimits;
 }
 
+/** A storage-less client's options: managed tables, limits, or both. */
+type LiveMigrationClientOptions =
+  | {
+      readonly tables: readonly string[];
+      readonly limits?: MigrationLimits;
+    }
+  | {
+      readonly tables?: readonly string[];
+      readonly limits: MigrationLimits;
+    };
+
 type NoExtraMigrationClientOptionKeys<Given> = Record<
-  Exclude<keyof Given, "storage" | "tables">,
+  Exclude<keyof Given, "storage" | "tables" | "limits">,
   never
 >;
 
 export type GenerateResult = GenerateV1Result;
 export type StatusResult = StatusV1Result;
-export interface VerifyResult {
-  readonly ok: boolean;
-}
+export type VerifyResult = VerifyV1Result;
 export type LogResult = readonly LedgerEventV1[];
 export type ApplyResult = ApplyV1Result;
 export interface DownResult {
@@ -122,10 +144,10 @@ export function createMigrationClient<
   options: Options & NoExtraMigrationClientOptionKeys<Options>
 ): ReadableMigrations;
 export function createMigrationClient<
-  Options extends { readonly tables: readonly string[] },
+  Options extends LiveMigrationClientOptions,
 >(
   client: MigrationClient,
-  options: Options & Record<Exclude<keyof Options, "tables">, never>
+  options: Options & NoExtraMigrationClientOptionKeys<Options>
 ): LiveMigrations;
 export function createMigrationClient(
   client: MigrationClient,
@@ -133,25 +155,30 @@ export function createMigrationClient(
 ): LiveMigrations;
 export function createMigrationClient(
   client: MigrationClient,
-  options?: MigrationClientOptions | { readonly tables: readonly string[] }
+  options?: MigrationClientOptions | LiveMigrationClientOptions
 ): LiveMigrations | ReadableMigrations | WritableMigrations {
   const record =
     options === undefined
       ? undefined
       : snapshotExactRecord(
           options,
-          ["storage", "tables"],
+          ["storage", "tables", "limits"],
           "migration client options",
           refuseClientOptions
         );
   const tables = normalizeManagedTables(record?.tables);
+  const limits =
+    record?.limits === undefined
+      ? undefined
+      : resolveMigrationLimits(record.limits);
   const executionClient: MigrationClient =
-    tables === undefined
+    tables === undefined && limits === undefined
       ? client
       : {
           $driver: client.$driver,
           $schema: client.$schema,
           [MANAGED_TABLES]: tables,
+          [MIGRATION_LIMITS]: limits,
         };
   const live: LiveMigrations = Object.freeze({
     log: () => logV1(executionClient),
@@ -164,9 +191,9 @@ export function createMigrationClient(
   if (record === undefined) return live;
   const storage = record.storage;
   if (storage === undefined) {
-    if (tables !== undefined) return live;
+    if (tables !== undefined || limits !== undefined) return live;
     return refuseClientOptions(
-      "migration client options must include storage when supplied"
+      "migration client options must include storage, tables or limits when supplied"
     );
   }
   let readableStorage: MigrationStorageReader;

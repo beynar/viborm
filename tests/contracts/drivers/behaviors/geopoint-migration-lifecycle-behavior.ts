@@ -101,7 +101,14 @@ export function runGeoPointMigrationLifecycleBehavior({
             select: { location: true },
           })
         ).resolves.toEqual({ location: { longitude: 180, latitude: 90 } });
-        await expect(migrations.down({ steps: 1 })).resolves.toMatchObject({
+        // This rollback drops the table that now holds a row: approved.
+        await expect(
+          migrations.down({
+            steps: 1,
+            resolve: (change) =>
+              change.type === "destructive" ? change.proceed() : undefined,
+          })
+        ).resolves.toMatchObject({
           preview: false,
         });
       } finally {

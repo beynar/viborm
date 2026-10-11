@@ -29,7 +29,7 @@ import { cache } from "@src/cache/exports";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
 import { afterEach, describe, it } from "vitest";
-import { RecordingSQLiteDriver } from "../unit02/world";
+import { RecordingSQLiteDriver, type Statement } from "../unit02/world";
 
 const board = s
   .model({
@@ -57,14 +57,19 @@ const CARD_SIDE = /card/i;
 /** The complement guard, as the adapter spells it. */
 const COMPLEMENT_GUARD =
   /NOT EXISTS[\s\S]*"u65_cards"[\s\S]*"board_card"[\s\S]*NOT \(/i;
-/** Only the captured id list, not the connected-membership subquery or filter. */
-const EXCLUDED_KEYS = /NOT \(\s*"q\d+"\."id" IN \((\?(?:,\s*\?)*)\)\s*\)/i;
+/**
+ * Only the captured id list, not the connected-membership subquery or filter:
+ * ONE bound JSON array, read by `json_each` (engine-09).
+ */
+const EXCLUDED_KEYS =
+  /NOT \(\s*"q\d+"\."id" IN \(SELECT value FROM json_each\(\?\)\)\s*\)/i;
 
-function excludedKeyCount(guard: string): number {
-  const placeholders = guard.match(EXCLUDED_KEYS)?.[1];
-  if (!placeholders)
-    throw new Error("the complement omitted its captured id list");
-  return placeholders.split(",").length;
+function excludedKeyCount({ sql, parameters }: Statement): number {
+  const list = sql.match(EXCLUDED_KEYS);
+  if (!list) throw new Error("the complement omitted its captured id list");
+  const position = sql.slice(0, list.index).split("?").length - 1;
+  const keys: unknown[] = JSON.parse(String(parameters[position]));
+  return keys.length;
 }
 /** The guard's own raceable sentence. */
 const ADDED_MEMBER = /member was added after the plan-time read/;
@@ -367,13 +372,16 @@ const removeMatchingCached = (client: CachedWorld["client"]) =>
   });
 
 /** The complement guards this operation emitted, one per plan-time capture. */
-function guardStatements(driver: StaleBatchSQLiteDriver): string[] {
+function guardStatements(driver: StaleBatchSQLiteDriver): Statement[] {
   return [
-    ...new Set(
+    ...new Map(
       driver.statements
-        .map((statement) => statement.sql)
-        .filter((sql) => COMPLEMENT_GUARD.test(sql))
-    ),
+        .filter(({ sql }) => COMPLEMENT_GUARD.test(sql))
+        .map((statement) => [
+          `${statement.sql}${JSON.stringify(statement.parameters)}`,
+          statement,
+        ])
+    ).values(),
   ];
 }
 
@@ -381,13 +389,7 @@ describe("integration — a captured member set asserts its own complement", () 
   it("rides the batch with one raceable complement guard naming the captured keys", async () => {
     world = await createWorld(0);
     await removeMatching(world.client);
-    const guards = [
-      ...new Set(
-        world.driver.statements
-          .map((statement) => statement.sql)
-          .filter((sql) => COMPLEMENT_GUARD.test(sql))
-      ),
-    ];
+    const guards = guardStatements(world.driver);
     assert.equal(guards.length, 1);
     // The complement is the captured set's own negation, not a re-read of the
     // filter: the guard names the key it captured.

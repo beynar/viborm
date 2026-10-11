@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 /**
  * Shared migration helpers that do not own a V1 command.
  */
@@ -7,17 +6,18 @@ import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { MigrationDriver } from "./drivers";
 import { orderTableDrops } from "./drop-order";
+import { sha256Hex, utf8Bytes } from "./identity";
 import type { Dialect, DiffOperation, SchemaSnapshot } from "./types";
 
 /** PostgreSQL/MySQL derived identifiers keep their uniqueness under byte caps. */
 export function derivedMigrationName(name: string): string {
-  if (Buffer.byteLength(name) <= 63) return name;
+  if (utf8Bytes(name).length <= 63) return name;
   let prefix = "";
   for (const character of name) {
-    if (Buffer.byteLength(prefix + character) > 54) break;
+    if (utf8Bytes(prefix + character).length > 54) break;
     prefix += character;
   }
-  return `${prefix}_${createHash("sha256").update(name).digest("hex").slice(0, 8)}`;
+  return `${prefix}_${sha256Hex(utf8Bytes(name)).slice(0, 8)}`;
 }
 
 /** Default generated-key spelling; dialects may supply their physical rule. */

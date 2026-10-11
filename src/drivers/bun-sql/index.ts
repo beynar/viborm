@@ -18,6 +18,7 @@ import { unsupportedVector } from "@errors";
 import {
   Driver,
   type DriverResultParser,
+  type MigrationSessionAttestation,
   type QueryExecutionContext,
 } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
@@ -27,10 +28,13 @@ import {
   nestedTransactionDispatchError,
   type PinnedSessionReservation,
   releaseReservedPostgresSession,
+  resolveMigrationSessionAttestationOption,
   resolveNamespaceOption,
   runProviderManagedTransaction,
   type TransactionOptionSupport,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
+import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import type { QueryResult } from "../types";
 
 // ============================================================
@@ -52,8 +56,11 @@ interface BunSQL {
     typeNameOrTypeID?: string
   ): { readonly serializedValues: string };
   begin<T>(fn: (sql: BunSQLTransaction) => Promise<T>): Promise<T>;
-  close(): Promise<void>;
+  /** `timeout` in seconds: past it, open connections are closed anyway. */
+  close(options?: { readonly timeout?: number }): Promise<void>;
   reserve(): Promise<BunSQLReservedConnection>;
+  /** Bun's resolved client options; migration admission reads its host. */
+  readonly options?: { readonly hostname?: unknown; readonly url?: unknown };
 }
 
 interface BunSQLTransaction {
@@ -140,10 +147,27 @@ export interface BunSQLDriverOptions {
   postgis?: boolean;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
+  /**
+   * Your claim, at your risk, that every connection this client opens is one
+   * server session for its whole life. It lifts migrations' refusal of
+   * Cloudflare Hyperdrive and Neon `-pooler` hosts; application queries never
+   * need it.
+   */
+  migrationSessionAttestation?: MigrationSessionAttestation;
 }
 
 export type BunSQLClientConfig<C extends DriverConfig> = BunSQLDriverOptions &
   C;
+
+const BUN_SQL_CONFIG_KEYS: Record<keyof BunSQLDriverOptions, true> = {
+  client: true,
+  databaseUrl: true,
+  options: true,
+  pgvector: true,
+  postgis: true,
+  namespace: true,
+  migrationSessionAttestation: true,
+};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -178,6 +202,18 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     defineImmutableDriverFact(this, "adapter", adapter);
+    defineImmutableDriverFact(
+      this,
+      "migrationSessionAttestation",
+      resolveMigrationSessionAttestationOption(options)
+    );
+  }
+
+  /** Every host or URL this driver's client connects through, for migration admission. */
+  protected override migrationSessionEndpoints(): readonly unknown[] {
+    const { databaseUrl, options } = this.driverOptions;
+    const supplied = this.suppliedClient?.options;
+    return [databaseUrl, options?.hostname, supplied?.hostname, supplied?.url];
   }
 
   /**
@@ -314,10 +350,11 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
     const reserved = await client.reserve();
     return {
       session: reserved,
-      release: (discard) =>
+      release: (discard, lost) =>
         releaseReservedPostgresSession({
           driverName: this.driverName,
           discard,
+          lost,
           reset: () => reserved.unsafe("SELECT pg_advisory_unlock_all()"),
           release: () => reserved.release(),
           // Settled at construction, never re-read: see `suppliedClient`.
@@ -331,7 +368,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
                   // transport installed for the next ordinary query.
                   this.client = null;
                   this.initPromise = null;
-                  await client.close();
+                  await client.close({ timeout: CLEANUP_BOUND_MS / 1000 });
                 },
         }),
     };
@@ -351,8 +388,11 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: BunSQLDriver }
   >]: LinkedClientConfig<C & { driver: BunSQLDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "bun-sql", BUN_SQL_CONFIG_KEYS);
   const { client, databaseUrl, options, pgvector, postgis } = config;
   const namespace = resolveNamespaceOption(config);
+  const migrationSessionAttestation =
+    resolveMigrationSessionAttestationOption(config);
 
   const driver = new BunSQLDriver({
     client,
@@ -361,6 +401,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     pgvector,
     postgis,
     namespace,
+    migrationSessionAttestation,
   });
 
   return createClientFromDriverConfig<S, C, BunSQLDriver>(config, driver);
