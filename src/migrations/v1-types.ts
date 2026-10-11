@@ -76,6 +76,17 @@ export type MigrationRollbackV1 =
     }
   | { readonly kind: "irreversible"; readonly reason: string };
 
+/**
+ * One destructive change of a generated transition, approved through the
+ * resolve callback at `generate`. It names the change by identity only, so the
+ * same decision on the same diff always encodes to the same bytes.
+ */
+export interface MigrationApprovalV1 {
+  readonly operation: "dropTable" | "dropColumn" | "addColumn" | "alterColumn";
+  readonly table: string;
+  readonly column: string | null;
+}
+
 export interface MigrationParentTransitionV1 {
   readonly fromState: Sha256 | null;
   readonly transitionHash: Sha256;
@@ -83,6 +94,12 @@ export interface MigrationParentTransitionV1 {
   readonly requestedForwardBoundary: "transactional" | "stepwise" | null;
   readonly operations: readonly MigrationOperationV1[];
   readonly rollback: MigrationRollbackV1;
+  /**
+   * Present, non-empty and part of `transitionHash` only when the transition
+   * carries destructive changes, so a transition without one keeps the bytes
+   * and the ids it had before approvals existed.
+   */
+  readonly approvals?: readonly MigrationApprovalV1[];
 }
 
 export interface MigrationStateManifestV1 {
@@ -136,6 +153,14 @@ export interface ApplyV1Options {
   readonly to?: StateSelector;
   readonly via?: readonly Sha256[];
   readonly dryRun?: boolean;
+  /**
+   * What to do when the database marker is AHEAD of this history — its arrival
+   * path leaves this estate after a state it holds, because newer code
+   * migrated the database. `"refuse"` (the default) throws V11002; `"noop"`
+   * returns a `noop` outcome without touching the database. A marker unknown
+   * to this estate altogether is always refused.
+   */
+  readonly ifAhead?: "noop" | "refuse";
 }
 
 export interface ResetV1Options {
@@ -256,17 +281,14 @@ export type PushTargetIdentity =
       readonly dialect: "postgresql";
       readonly database: string;
       readonly namespace: string;
-      readonly bindingId: string;
     }
   | {
       readonly dialect: "mysql";
       readonly database: string;
-      readonly bindingId: string;
     }
   | {
       readonly dialect: "sqlite";
       readonly location: string | null;
-      readonly bindingId: string;
     };
 
 export interface PushStatementPreview {

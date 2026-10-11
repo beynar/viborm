@@ -24,7 +24,11 @@ import {
 import type { Schema } from "@client/types";
 import { TransactionError, unsupportedVector } from "@errors";
 import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
-import { Driver, type QueryExecutionContext } from "../driver";
+import {
+  Driver,
+  type MigrationSessionAttestation,
+  type QueryExecutionContext,
+} from "../driver";
 import {
   normalizeDriverConnectionError,
   normalizeDriverError,
@@ -37,6 +41,7 @@ import {
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
   type PinnedSessionReservation,
+  resolveMigrationSessionAttestationOption,
   resolveNamespaceOption,
   runTransactionLifecycle,
   type TransactionOptionSupport,
@@ -131,6 +136,13 @@ export interface PgDriverOptions {
   databaseUrl?: string;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
+  /**
+   * Your claim, at your risk, that every connection this pool opens is one
+   * server session for its whole life. It lifts migrations' refusal of
+   * Cloudflare Hyperdrive and Neon `-pooler` hosts; application queries never
+   * need it.
+   */
+  migrationSessionAttestation?: MigrationSessionAttestation;
 }
 
 export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
@@ -186,6 +198,27 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     adapter.capabilities.supportsVector = options.pgvector === true;
     if (!options.pgvector) adapter.vector = unsupportedVector;
     defineImmutableDriverFact(this, "adapter", adapter);
+    defineImmutableDriverFact(
+      this,
+      "migrationSessionAttestation",
+      resolveMigrationSessionAttestationOption(options)
+    );
+  }
+
+  /** Every host or URL this driver's pool connects through, for migration admission. */
+  protected override migrationSessionEndpoints(): readonly unknown[] {
+    const supplied: unknown = this.suppliedPool
+      ? Reflect.get(this.suppliedPool, "options")
+      : undefined;
+    const pool =
+      typeof supplied === "object" && supplied !== null ? supplied : {};
+    return [
+      this.connectionOptions.host,
+      this.connectionOptions.connectionString,
+      this.connectionString,
+      Reflect.get(pool, "host"),
+      Reflect.get(pool, "connectionString"),
+    ];
   }
 
   /**
@@ -560,6 +593,10 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     const clientErrors = holdClientErrors(poolClient);
     return {
       session: poolClient,
+      // The client's own `error` event is how pg reports a socket that died
+      // between or under statements; the pinned session then sends nothing
+      // more on it (plan S2). Release destroys it either way.
+      lost: clientErrors.failure,
       release: (discard) => {
         try {
           poolClient.release(
@@ -589,6 +626,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
 }> {
   const { pool, options = {}, pgvector, postgis, databaseUrl } = config;
   const namespace = resolveNamespaceOption(config);
+  const attestation = resolveMigrationSessionAttestationOption(config);
 
   // The caller's `options` record is theirs: the connection string goes on a
   // copy this wrapper owns.
@@ -602,6 +640,9 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   if (pgvector !== undefined) driverOptions.pgvector = pgvector;
   if (postgis !== undefined) driverOptions.postgis = postgis;
   if (namespace !== undefined) driverOptions.namespace = namespace;
+  if (attestation !== undefined) {
+    driverOptions.migrationSessionAttestation = attestation;
+  }
 
   const driver = new PgDriver(driverOptions);
 

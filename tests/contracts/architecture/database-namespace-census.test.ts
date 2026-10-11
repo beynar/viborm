@@ -89,10 +89,6 @@ const NO_MIGRATION_CONTEXT_EXPORTS: string[] = [];
  * ledger I/O belong to `control.ts`.
  */
 const ADMITTED_LIVE_EXECUTION_OWNERS = [
-  // `check --db` (2026-10-09): read-only SQLite storage audit on the configured
-  // client's own driver. SQLite has no namespace to route, and the audit runs
-  // no migration program.
-  "src/cli/commands/check.ts executeRaw 2",
   "src/cli/commands/push.ts executeRaw 1",
   // apply-v1.ts and operators.ts, and the second sites in push-plan.ts and
   // reset-v1.ts, were admitted 2026-08-31 after auditing each one: every call
@@ -102,12 +98,18 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // drifted because it still named src/migrations/apply/index.ts, which became
   // apply-v1.ts, and because operators.ts did not exist when it was written.
   "src/migrations/apply-v1.ts executeRaw 1",
-  "src/migrations/control.ts executeRaw 18",
+  // S7 (1.2.0): status() lists INVALID PostgreSQL indexes with one read-only
+  // catalog query on the producer its caller hands it.
+  "src/migrations/catalog-probes.ts executeRaw 1",
+  // S7 (1.2.0): control authentication no longer interprets managed tables;
+  // its two scoped reads became one.
+  "src/migrations/control.ts executeRaw 17",
   "src/migrations/execute-dispatch.ts executeRaw 2",
   "src/migrations/foreign-keys.ts executeRaw 3",
   "src/migrations/live-reset.ts executeRaw 4",
   "src/migrations/live-reset.ts queryExecutorFactory 1",
-  "src/migrations/operators.ts executeRaw 6",
+  // S7 (1.2.0): resolve repairs the attempt's own INVALID index on `pinned`.
+  "src/migrations/operators.ts executeRaw 7",
   // §3.5's pinned-session owner: target selection, the command-view catalog
   // read, and the sequential program's recording view. Exact-decimal migration
   // recovery adds two sites in THIS SAME owner: its catalog read and execution
@@ -115,15 +117,24 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // remain here too: strict-mode proof, lock acquisition, and lock release.
   // The manifest counts sites so a new parallel path is red even when it is
   // added to an already admitted file.
-  "src/migrations/pinned-session.ts executeRaw 5",
+  // S1 (1.2.0): the session's time limits are set once it is reserved and
+  // reset before it goes back, both on the pinned view itself.
+  "src/migrations/pinned-session.ts executeRaw 7",
   "src/migrations/pinned-session.ts queryExecutorFactory 3",
   "src/migrations/push-fingerprint.ts executeRaw 2",
   // Selected-table population proof uses the handed producer and its adapter's
   // qualified identifier before refusing an unsafe required-column addition.
-  "src/migrations/push-plan.ts executeRaw 3",
+  // S11 (1.2.0): push preflights its compiled program on the handed producer,
+  // so SQLite refuses a rebuild that would lose a trigger or view.
+  "src/migrations/push-plan.ts executeRaw 4",
   "src/migrations/push/planner.ts executeRaw 2",
   // The added catalog probe uses the pinned producer and bound probe parameters.
   "src/migrations/reset-v1.ts executeRaw 3",
+  // S12 (1.2.0): the SQLite storage audit moved here from `check --db` and is
+  // exported as auditStorage: its catalog read and its count are read-only and
+  // run on the caller's driver. The post-transition rewrite runs through
+  // execute-dispatch's executeExactSql on the pinned producer.
+  "src/migrations/sqlite-storage-audit.ts executeRaw 2",
   "src/migrations/utils.ts executeRaw 1",
 ];
 

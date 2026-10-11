@@ -11,9 +11,11 @@
  * hang, and an exception that escapes to the process is a crash.
  *
  * The target (plan S2) is one typed error at every cut: no hang, no crash, no
- * cleanup statement sent to the dead session. `today` pins, exactly, each
- * scenario that misses it in 1.1.0 (review finding PGF-03), so S2 deletes those
- * entries as it fixes them.
+ * cleanup statement sent to the dead session. 1.1.0 missed it (review finding
+ * PGF-03): postgres.js wrote VibORM's ROLLBACK or unlock to the dead reserved
+ * connection, threw out of a timer and never settled; node-postgres reported
+ * the cut and the ROLLBACK sent after it as one AggregateError. Every cut now
+ * ends in the retryable connection failure V1001, on both drivers.
  */
 
 import { createClient as createPgClient } from "@drivers/pg";
@@ -89,22 +91,6 @@ interface Observed {
   readonly crashes: readonly string[];
   readonly landed: boolean;
 }
-type Today = Omit<Observed, "cut" | "landed">;
-
-/** postgres.js 3.4.8 writes VibORM's ROLLBACK or unlock to the dead reserved
- * connection (connection.js `nextWrite`), throws out of a timer, and never
- * settles the command or the disconnect. */
-const POSTGRES_JS_CRASH: Today = {
-  command: "pending",
-  disconnect: "pending",
-  crashes: ["TypeError: Cannot read properties of null (reading 'write')"],
-};
-/** node-postgres reports the cut, then the ROLLBACK sent to the dead session. */
-const ROLLBACK_ON_DEAD_SESSION: Today = {
-  command: "rejected AggregateError(V2001, V2001)",
-  disconnect: "resolved",
-  crashes: [],
-};
 
 interface Cut {
   readonly phase: string;
@@ -113,8 +99,6 @@ interface Cut {
   readonly commands: readonly Command[];
   /** Whether v2 is in the database afterwards: only a cut after COMMIT ran. */
   readonly lands: boolean;
-  /** 1.1.0's behaviour, per driver, where it misses the target. */
-  readonly today: Partial<Record<DriverName, Today>>;
 }
 
 /** One cut per phase of a locked command, on the statement that opens it. */
@@ -125,7 +109,6 @@ const CUTS: readonly Cut[] = [
     at: "after",
     commands: ["apply", "push"],
     lands: false,
-    today: { postgres: POSTGRES_JS_CRASH },
   },
   {
     phase: "before BEGIN",
@@ -133,7 +116,6 @@ const CUTS: readonly Cut[] = [
     at: "before",
     commands: ["apply", "push"],
     lands: false,
-    today: { postgres: POSTGRES_JS_CRASH },
   },
   {
     phase: "after BEGIN",
@@ -141,7 +123,6 @@ const CUTS: readonly Cut[] = [
     at: "after",
     commands: ["apply", "push"],
     lands: false,
-    today: { postgres: POSTGRES_JS_CRASH },
   },
   {
     phase: "during the DDL",
@@ -149,7 +130,6 @@ const CUTS: readonly Cut[] = [
     at: "after",
     commands: ["apply", "push"],
     lands: false,
-    today: { pg: ROLLBACK_ON_DEAD_SESSION, postgres: POSTGRES_JS_CRASH },
   },
   {
     phase: "after the marker CAS",
@@ -157,7 +137,6 @@ const CUTS: readonly Cut[] = [
     at: "after",
     commands: ["apply"],
     lands: false,
-    today: { pg: ROLLBACK_ON_DEAD_SESSION, postgres: POSTGRES_JS_CRASH },
   },
   {
     phase: "at COMMIT, before its reply",
@@ -165,7 +144,6 @@ const CUTS: readonly Cut[] = [
     at: "after",
     commands: ["apply", "push"],
     lands: true,
-    today: { pg: ROLLBACK_ON_DEAD_SESSION, postgres: POSTGRES_JS_CRASH },
   },
   {
     phase: "during lock release",
@@ -173,14 +151,13 @@ const CUTS: readonly Cut[] = [
     at: "after",
     commands: ["apply", "push"],
     lands: true,
-    today: { postgres: POSTGRES_JS_CRASH },
   },
 ];
 
-/** S2's target: the command rejects with one VibORM error, nothing escapes,
- * and the client still closes. Which code is the outcome lane's concern. */
-const TARGET: Today = {
-  command: expect.stringMatching(/^rejected V\d+$/),
+/** S2's target: the command rejects with the retryable connection failure,
+ * nothing escapes, and the client still closes. */
+const TARGET: Omit<Observed, "cut" | "landed"> = {
+  command: "rejected V1001",
   disconnect: "resolved",
   crashes: [],
 };
@@ -306,7 +283,7 @@ for (const driver of Object.keys(DRIVERS) as DriverName[]) {
           expect(await cutDuring(driver, command, cut)).toEqual({
             cut: true,
             landed: cut.lands,
-            ...(cut.today[driver] ?? TARGET),
+            ...TARGET,
           });
         });
       }

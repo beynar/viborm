@@ -1,3 +1,4 @@
+import { isGeneratorDefault } from "@schema/scalars/common";
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
 import type { IdDomain } from "@validation/primitives/id-codec";
@@ -17,6 +18,7 @@ import type { Scalar, ScalarState } from "@schema/scalars";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import { hasIdPrefix } from "@validation/primitives/id-formats";
 import { errorCause } from "../../../drivers/shared/driver-options";
+import { DEFAULT_MIGRATION_TIME_LIMITS } from "../../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import {
@@ -739,6 +741,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
     ) {
       return undefined;
     }
+    // DDL follows the scalar's own generator rule (string/scalar.ts
+    // `withIdentifier`): only a uuid generator the scalar INSTALLED becomes
+    // `gen_random_uuid()`. A non-key `.uuid()` and a `generate: false` key are
+    // caller-supplied, and a later `.default(...)` replaces the generator.
+    if (
+      scalarState.autoGenerate?.kind === "uuid" &&
+      !isGeneratorDefault(scalarState.default)
+    )
+      return undefined;
     return super.getDefaultExpression(scalar, scalarState);
   }
 
@@ -1294,9 +1305,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // MIGRATION LOCKING
   // ===========================================================================
 
+  /**
+   * The lock retries on the server until the command's `lockWait` (default
+   * 10 s) passes; the session's `statement_timeout` is longer by construction
+   * (`resolveMigrationTimeLimits`), so the loop is never cut short.
+   */
   generateAcquireLock(lockId: number): string | null {
+    const { lockWait } = this.timeLimits ?? DEFAULT_MIGRATION_TIME_LIMITS;
     return `WITH RECURSIVE lock_attempt AS (
-      SELECT pg_try_advisory_lock(${lockId}) AS acquired, clock_timestamp() + interval '10 seconds' AS deadline
+      SELECT pg_try_advisory_lock(${lockId}) AS acquired, clock_timestamp() + interval '${lockWait / 1000} seconds' AS deadline
       UNION ALL
       SELECT pg_try_advisory_lock(${lockId}), previous.deadline
       FROM lock_attempt previous

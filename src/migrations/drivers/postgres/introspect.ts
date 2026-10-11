@@ -63,6 +63,9 @@ export interface PostgresIntrospectionScope {
   readonly admittedExtensionTypes: ReadonlySet<string>;
 }
 
+/** An index row, with the validity an interrupted CONCURRENTLY build clears. */
+type PgIndexRow = PgIndex & { readonly is_valid: boolean };
+
 type RawExecutor = <T>(
   sql: string,
   params?: unknown[]
@@ -189,7 +192,8 @@ SELECT
   i.relname AS index_name,
   a.attname AS column_name,
   ix.indisunique AS is_unique,
-  (ix.indexprs IS NOT NULL OR ix.indnkeyatts <> ix.indnatts OR NOT ix.indisvalid OR NOT ix.indisready OR COALESCE((to_jsonb(ix)->>'indnullsnotdistinct')::boolean,false)
+  ix.indisvalid AND ix.indisready AS is_valid,
+  (ix.indexprs IS NOT NULL OR ix.indnkeyatts <> ix.indnatts OR COALESCE((to_jsonb(ix)->>'indnullsnotdistinct')::boolean,false)
    OR EXISTS (SELECT 1 FROM unnest(ix.indoption) AS flags(value) WHERE flags.value <> 0)
    OR EXISTS (SELECT 1 FROM unnest(ix.indclass) AS classes(oid) JOIN pg_opclass AS opc ON opc.oid=classes.oid WHERE NOT opc.opcdefault)
    OR EXISTS (SELECT 1 FROM generate_series(0,ix.indnkeyatts-1) AS key(position) LEFT JOIN pg_attribute AS attr ON attr.attrelid=t.oid AND attr.attnum=ix.indkey[key.position] WHERE ix.indcollation[key.position] <> COALESCE(attr.attcollation,0))) AS unsupported_structure,
@@ -705,7 +709,7 @@ export async function introspectPostgresSchema(
     PRIMARY_KEYS_QUERY,
     namespace
   );
-  const indexesResult = await executeRaw<PgIndex>(INDEXES_QUERY, namespace);
+  const indexesResult = await executeRaw<PgIndexRow>(INDEXES_QUERY, namespace);
   const foreignKeysResult = await executeRaw<PgForeignKey>(
     FOREIGN_KEYS_QUERY,
     namespace
@@ -824,6 +828,15 @@ export async function introspectPostgresSchema(
           const method = firstCol.index_type;
           const managed =
             scope.tables === undefined || scope.tables.includes(tableName);
+          // `=== false` is not fail-open: is_valid is a NOT NULL boolean, and
+          // a transport returning non-booleans fails unsupported_structure.
+          if (managed && firstCol.is_valid === false) {
+            throw new MigrationError(
+              `PostgreSQL index "${tableName}.${indexName}" is INVALID: a CREATE INDEX CONCURRENTLY or REINDEX CONCURRENTLY build of it was interrupted or is still running, and PostgreSQL never reads through it. status() lists it; resolve() repairs it when the unfinished migration attempt's own CONCURRENTLY statement named it, otherwise drop it with DROP INDEX CONCURRENTLY or rebuild it with REINDEX INDEX CONCURRENTLY.`,
+              VibORMErrorCode.MIGRATION_INVALID_INDEX,
+              { meta: { table: tableName, indexName } }
+            );
+          }
           if (
             managed &&
             (firstCol.unsupported_structure !== false ||

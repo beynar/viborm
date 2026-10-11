@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { s } from "@schema";
 import { createClient } from "@src/client/client";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
+import { queueAnswers } from "@tests/contracts/public-client/cli/_clack";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -123,6 +124,17 @@ function expectCall(
   // biome-ignore lint/suspicious/noMisplacedAssertion: this shared helper is invoked only from registered tests.
   if (arguments.length === 2) expect(calls[0]?.[0]).toEqual(expected);
 }
+
+// Piped by default: a run never prompts unless a test asks for a terminal.
+const originalTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+function setTty(value: boolean): void {
+  Object.defineProperty(process.stdin, "isTTY", { configurable: true, value });
+}
+beforeEach(() => setTty(false));
+afterEach(() => {
+  if (originalTty) Object.defineProperty(process.stdin, "isTTY", originalTty);
+  else Reflect.deleteProperty(process.stdin, "isTTY");
+});
 
 describe("migrate command routing", () => {
   beforeEach(() => {
@@ -705,5 +717,74 @@ describe("coverage low value", () => {
     ]);
     expect(unsafe.thrown).toBeDefined();
     expect(unsafe.output).toContain("positive safe integer");
+  });
+});
+
+describe("migrate generate approves destructive changes", () => {
+  const row = { id: s.string().id(), name: s.string() };
+  const before = { item: s.model({ ...row, legacy: s.string().nullable() }) };
+  const after = { item: s.model(row) };
+
+  async function droppingEstate() {
+    const actual = await vi.importActual<
+      typeof import("@src/migrations/client")
+    >("@src/migrations/client");
+    const driver = createInMemorySQLite3Driver();
+    const storage = new MemoryEstateStorage();
+    await actual
+      .createMigrationClient(createClient({ schema: before, driver }), {
+        storage,
+      })
+      .generate({ name: "initial" });
+    vi.clearAllMocks();
+    queueAnswers([]);
+    boundary.createMigrationClient.mockImplementation(
+      actual.createMigrationClient
+    );
+    boundary.loadConfig.mockResolvedValue({
+      client: createClient({ schema: after, driver }),
+      migrations: { storage },
+    });
+    const states = async () => (await storage.listStates()).length;
+    return { driver, states };
+  }
+
+  it("refuses a drop with V11017 on piped input, and publishes it with --accept-data-loss", async () => {
+    const { driver, states } = await droppingEstate();
+    try {
+      const refused = await invoke(["generate", "--name", "drop"]);
+      expect(refused.thrown).toMatchObject({ code: "V11017" });
+      expect(await states()).toBe(1);
+
+      const accepted = await invoke([
+        "generate",
+        "--name",
+        "drop",
+        "--accept-data-loss",
+      ]);
+      expect(accepted.thrown).toBeUndefined();
+      expect(accepted.output).toContain("published: drop");
+      expect(await states()).toBe(2);
+    } finally {
+      await driver.disconnect();
+    }
+  });
+
+  it("asks once per destructive change on a terminal", async () => {
+    const { driver, states } = await droppingEstate();
+    setTty(true);
+    try {
+      queueAnswers([false]);
+      const rejected = await invoke(["generate", "--name", "drop"]);
+      expect(rejected.thrown).toMatchObject({ code: "V11010" });
+      expect(await states()).toBe(1);
+
+      queueAnswers([true]);
+      const approved = await invoke(["generate", "--name", "drop"]);
+      expect(approved.thrown).toBeUndefined();
+      expect(await states()).toBe(2);
+    } finally {
+      await driver.disconnect();
+    }
   });
 });

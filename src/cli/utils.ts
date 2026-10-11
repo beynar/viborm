@@ -40,7 +40,7 @@ export interface MigrationConfig {
    *
    * @example
    * ```ts
-   * import { createFsStorageWriter } from "viborm/migrations";
+   * import { createFsStorageWriter } from "viborm/migrations/storage/fs";
    *
    * migrations: {
    *   storage: createFsStorageWriter("./migrations"),

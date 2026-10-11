@@ -32,6 +32,7 @@ Install the driver for your database:
   <Tab title="PostgreSQL">
 ```bash
 npm install pg
+npm install -D @types/pg
 ```
   </Tab>
   <Tab title="MySQL">
@@ -42,24 +43,53 @@ npm install mysql2
   <Tab title="SQLite">
 ```bash
 npm install better-sqlite3
+npm install -D @types/better-sqlite3
 ```
   </Tab>
 </Tabs>
 
 ## TypeScript Configuration
 
-Ensure your `tsconfig.json` has strict mode enabled for full type inference:
+Use strict mode for full type inference:
 
-```json
+```json title="tsconfig.json"
 {
   "compilerOptions": {
     "strict": true,
+    "skipLibCheck": true,
     "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "bundler"
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true
   }
 }
 ```
+
+`skipLibCheck` keeps the compiler from re-checking every installed declaration
+file, VibORM's included; without it the first check of a small project is
+several times slower. The driver's `@types` package above types the driver
+options. `allowImportingTsExtensions` and `noEmit` suit a project that runs its
+TypeScript directly, with `tsx` or a bundler, and lets relative imports name
+their `.ts` file as the [Quick Start](/docs/getting-started/quick-start) does.
+A project that compiles with `tsc` drops both and imports `./schema.js`
+instead.
+
+### CommonJS projects
+
+VibORM publishes ESM only, with ESM declarations. A CommonJS application can
+`require("viborm")` through Node.js's `require(esm)` on Node.js 22.12+ or 24.
+Two TypeScript settings type such a project:
+
+| `moduleResolution` | Use it when |
+|---|---|
+| `"nodenext"` (with `"module": "nodenext"`) | Node.js runs the CommonJS output, or the file is a `.cts`. Needs TypeScript 5.9+. |
+| `"bundler"` (with `"module": "preserve"` or `"esnext"`) | A bundler produces the CommonJS output. |
+
+`"node16"` reports `TS1479` on every VibORM import, and `"node10"` (`"node"`)
+cannot resolve the subpath entries such as `viborm/sqlite3` (`TS2307`). VibORM
+ships no `.d.cts` declarations for them. Node.js 22.0 to 22.11 need a flag for
+`require(esm)`.
 
 ## Project Structure
 

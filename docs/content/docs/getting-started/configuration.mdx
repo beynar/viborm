@@ -48,6 +48,10 @@ interface VibORMConfig {
   migrations?: {
     /** Estate directory (default: "./migrations") */
     dir?: string;
+    /** Exact physical table scope; include junctions and rename destinations. */
+    tables?: readonly string[];
+    /** Rename, destructive-change and enum-value decisions for CLI planning. */
+    resolve?: ResolveCallback;
     /** Estate storage writer. Defaults to filesystem storage at `dir`. */
     storage?: MigrationStorageWriter;
   };
@@ -58,7 +62,21 @@ interface VibORMConfig {
 |--------|------|----------|---------|-------------|
 | `client` | `VibORMClient` | Yes | - | VibORM client instance |
 | `migrations.dir` | `string` | No | `"./migrations"` | Estate directory |
+| `migrations.tables` | `readonly string[]` | No | Every table in the namespace | Tables `push` and `migrate` manage, by physical name |
+| `migrations.resolve` | `ResolveCallback` | No | None | Decisions for `push` and `migrate generate` |
 | `migrations.storage` | `MigrationStorageWriter` | No | Filesystem writer at `dir` | Estate storage writer |
+
+`tables` lists exact physical table names, junction tables included. Without
+it, the CLI manages every table in the namespace. A `migrate` estate freezes
+the list into its identity, so name both the old and the new table before
+publishing a rename. `resolve` receives each possible rename, destructive change
+and enum-value removal that `push` or `migrate generate` plans, and a change it
+leaves undecided refuses the plan. Without `resolve`, `push` refuses a possible
+rename or an enum-value removal, and runs a destructive change only with
+`--accept-data-loss`. See
+[Managed tables and CLI decisions](/docs/migration/push#managed-tables-and-cli-decisions)
+for an example and [Resolving Changes](/docs/migration/push#resolving-changes)
+for the callback's methods.
 
 :::info[CLI Override]
 `--dir` overrides `migrations.dir`.
@@ -74,7 +92,7 @@ By default, VibORM uses filesystem storage for migration files. You can configur
 
 ```ts title="viborm.config.ts"
 import { defineConfig } from "viborm/config";
-import { createFsStorageWriter } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
 import { client } from "./src/db";
 
 export default defineConfig({

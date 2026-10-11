@@ -76,7 +76,6 @@ describe("push plan helper contracts", () => {
       target: {
         dialect: "sqlite" as const,
         location: null,
-        bindingId: "binding",
       },
       sourceFingerprint: HASH_A,
       desiredFingerprint: HASH_A,

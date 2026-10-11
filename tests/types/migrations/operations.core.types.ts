@@ -1,10 +1,10 @@
+import { createFsStorageWriter } from "@migrations/storage/fs";
 import { sql } from "@sql";
 import {
   type ApplyOptions,
   type ApplyResult,
   type BaselineResult,
   type CheckResult,
-  createFsStorageWriter,
   createMigrationClient,
   type DownResult,
   type GenerateOptions,

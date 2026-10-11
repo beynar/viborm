@@ -7,7 +7,8 @@ icon: folder-open
 ## Quick Start
 
 ```ts
-import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
 
 const migrations = createMigrationClient(client, {
   storage: createFsStorageWriter("./migrations"),

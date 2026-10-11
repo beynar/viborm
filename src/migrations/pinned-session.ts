@@ -23,21 +23,32 @@
  */
 
 import type { AnyDriver } from "../drivers/driver";
+import { normalizeDriverError } from "../drivers/error-mapping";
+import { errorCause } from "../drivers/shared/driver-options";
 import {
+  CLEANUP_BOUND_MS,
+  DEFAULT_MIGRATION_TIME_LIMITS,
   leasePinnedCommand,
+  type MigrationTimeLimits,
   type PinnedSessionControl,
+  type PinnedSessionReservation,
+  type ResolvedMigrationTimeLimits,
+  settleWithin,
 } from "../drivers/shared/pinned-session";
 import { withSuppressedFailure } from "../drivers/shared/suppressed-failure";
 import type { TransactionOptionSupport } from "../drivers/shared/transaction-options";
 import { runTransactionLifecycle } from "../drivers/shared/transactions";
 import type { QueryExecutionContext } from "../drivers/types";
 import {
+  ConnectionError,
   FeatureNotSupportedError,
   MigrationError,
+  VibORMError,
   VibORMErrorCode,
 } from "../errors";
 import type { BoundMigrationDriver } from "./drivers";
 import { planInterruptedMySQLDecimalRecovery } from "./drivers/mysql/decimal-recovery";
+import { snapshotExactRecord } from "./input-boundary";
 import { type CatalogRead, readsCommandNamespace } from "./target";
 import { createQueryExecutor } from "./utils";
 
@@ -88,6 +99,32 @@ export function canPinSession(driver: AnyDriver): boolean {
 }
 
 /**
+ * What a pinned session runs under besides its body (plan S1).
+ *
+ * `connectionWait` bounds the reservation on every transport. `limits` is the
+ * PostgreSQL session's own: set once the session is reserved, reset before it
+ * goes back, repeated with `SET LOCAL` in each of its transactions, and lifted
+ * around a `CONCURRENTLY` statement.
+ */
+export interface PinnedSessionScope {
+  readonly connectionWait: number;
+  readonly limits?: PostgresSessionLimits | undefined;
+}
+
+/** The statements that impose, lift and reset one PostgreSQL session's limits. */
+interface PostgresSessionLimits {
+  readonly enter: string;
+  readonly exit: string;
+  readonly transaction: string;
+  readonly unbound: string;
+  readonly rebound: string;
+}
+
+const DEFAULT_SCOPE: PinnedSessionScope = {
+  connectionWait: DEFAULT_MIGRATION_TIME_LIMITS.connectionWait,
+};
+
+/**
  * Runs `body` against ONE reserved producer.
  *
  * The view handed to the body is this exact driver with its client pinned to
@@ -98,14 +135,17 @@ export function canPinSession(driver: AnyDriver): boolean {
  *
  * The producer is discarded rather than released when the body throws or
  * condemns it: a session whose lock state is unknown must not go back into a
- * pool.
+ * pool. A session whose connection was LOST is never written to again — no
+ * limits reset, no unlock, no rollback — and its failure surfaces as the
+ * retryable connection error it is (plan S2).
  *
  * On a driver whose one connection IS the session, the whole call is one job
  * of the queue that already owns that connection — see the lease below.
  */
 export async function withPinnedSession<D extends AnyDriver, T>(
   driver: D,
-  body: (pinned: D, control: PinnedSessionControl) => Promise<T>
+  body: (pinned: D, control: PinnedSessionControl) => Promise<T>,
+  scope: PinnedSessionScope = DEFAULT_SCOPE
 ): Promise<T> {
   const reserve = driver["pinnedSession"];
   if (reserve === undefined) {
@@ -124,37 +164,84 @@ export async function withPinnedSession<D extends AnyDriver, T>(
   }
 
   const runSession = async (): Promise<T> => {
-    const reservation = await reserve.call(driver);
-    let discarded = false;
-    const control: PinnedSessionControl = {
-      discard: () => {
-        discarded = true;
-      },
+    // New defect 5: a server that accepts the socket and never answers left
+    // this await pending for as long as the provider's own connect timeout —
+    // forever on `pg`, whose pool has none by default.
+    const reservation = await settleWithin(
+      reserve.call(driver),
+      scope.connectionWait,
+      () => connectionWaitError(driver.driverName, scope.connectionWait),
+      (late) => {
+        late.release(true).catch(() => undefined);
+      }
+    );
+    const control = controlSession(driver, reservation);
+    const { limits } = scope;
+    const view = createPinnedSessionView(
+      driver,
+      reservation.session,
+      control,
+      limits
+    );
+
+    // Converted only when the failure IS the loss: a failure the command hit
+    // first, whose cleanup then went unanswered, stays primary.
+    const surface = (failure: unknown): unknown =>
+      control.lost(failure, true)
+        ? connectionLostError(driver.driverName, failure)
+        : failure;
+
+    // The connection goes back to the application's pool, so the limits must
+    // not go with it. A session whose reset failed still carries them and is
+    // abandoned like a lost one; the reset's failure is RETURNED, so the
+    // release after it always runs.
+    const resetLimits = async (): Promise<unknown> => {
+      if (limits === undefined || control.lost()) return undefined;
+      try {
+        await control.cleanup(() => view._executeRaw(limits.exit));
+        return undefined;
+      } catch (resetFailure) {
+        control.abandon();
+        return resetFailure;
+      }
+    };
+
+    // The first failure is what the caller asked for and what the command
+    // has to report. Awaiting the release in a `finally` made a release
+    // rejection REPLACE it — the caller of a reset that dropped half an
+    // estate on a dying socket was told only that the producer would not go
+    // back. The release still runs, and still condemns the producer; every
+    // later failure is recorded beside the first (§3.5).
+    const releaseAfter = async (
+      surfaced: unknown,
+      resetFailure: unknown
+    ): Promise<unknown> => {
+      let failure =
+        resetFailure === undefined
+          ? surfaced
+          : withSuppressedFailure(surfaced, resetFailure);
+      try {
+        await reservation.release(true, control.lost());
+      } catch (releaseFailure) {
+        failure = withSuppressedFailure(failure, releaseFailure);
+      }
+      return failure;
     };
 
     let value: T;
     try {
-      value = await body(
-        createPinnedSessionView(driver, reservation.session),
-        control
-      );
+      if (limits !== undefined) await view._executeRaw(limits.enter);
+      value = await body(view, control);
     } catch (bodyFailure) {
-      // The body's failure is what the caller asked for and what the command
-      // has to report. Awaiting the release in a `finally` made a release
-      // rejection REPLACE it — the caller of a reset that dropped half an
-      // estate on a dying socket was told only that the producer would not go
-      // back. The release still runs, and still condemns the producer; its
-      // own failure is recorded beside the body's (§3.5).
-      discarded = true;
-      try {
-        await reservation.release(true);
-      } catch (releaseFailure) {
-        throw withSuppressedFailure(bodyFailure, releaseFailure);
-      }
-      throw bodyFailure;
+      // Surfaced first: it is what tells the reset the session is lost.
+      throw await releaseAfter(surface(bodyFailure), await resetLimits());
+    }
+    const resetFailure = await resetLimits();
+    if (resetFailure !== undefined) {
+      throw await releaseAfter(surface(resetFailure), undefined);
     }
     // Nothing else failed, so a release failure IS the failure.
-    await reservation.release(discarded);
+    await reservation.release(control.discarded(), false);
     return value;
   };
 
@@ -200,6 +287,105 @@ export async function withPinnedSession<D extends AnyDriver, T>(
   );
 }
 
+/** The control of one reserved session, and what it knows about its connection. */
+function controlSession(
+  driver: AnyDriver,
+  reservation: PinnedSessionReservation<unknown>
+): PinnedSessionControl & {
+  discarded(): boolean;
+  lost(failure?: unknown, reported?: boolean): boolean;
+  /** Sends nothing more on this session, whose state can no longer be made clean. */
+  abandon(): void;
+} {
+  let discarded = false;
+  let lost = false;
+  const control = {
+    discard: () => {
+      discarded = true;
+    },
+    discarded: () => discarded,
+    abandon: () => {
+      lost = true;
+    },
+    /** With `reported`, whether `failure` itself reports the loss. */
+    lost: (failure?: unknown, reported = false) => {
+      const reports =
+        reservation.lost?.() !== undefined ||
+        reportsLostConnection(driver, failure);
+      lost ||= reports;
+      return reported ? reports : lost;
+    },
+    cleanup: <R>(run: () => Promise<R>) =>
+      settleWithin(run(), CLEANUP_BOUND_MS, () => {
+        lost = true;
+        return new ConnectionError(
+          `A cleanup statement of the pinned migration session on driver "${driver.driverName}" went unanswered for ${CLEANUP_BOUND_MS} ms; its connection is treated as lost.`,
+          {
+            code: VibORMErrorCode.CONNECTION_TIMEOUT,
+            meta: { driver: driver.driverName, operation: "pinnedSession" },
+          }
+        );
+      }),
+  };
+  return control;
+}
+
+/**
+ * Whether `failure`, or anything it was caused by, is the provider reporting
+ * that the connection itself failed.
+ *
+ * The one classifier is the driver error mapping's: a statement sent through
+ * the driver arrives already normalized, and a provider error from the raw
+ * transaction statements is normalized here the same way.
+ */
+function reportsLostConnection(driver: AnyDriver, failure: unknown): boolean {
+  let link: unknown = failure;
+  for (let depth = 0; depth < 8 && link instanceof Error; depth += 1) {
+    const normalized =
+      link instanceof VibORMError
+        ? link
+        : normalizeDriverError(link, {
+            driverName: driver.driverName,
+            dialect: driver.dialect,
+          });
+    if (normalized instanceof ConnectionError) return true;
+    link = link.cause;
+  }
+  return false;
+}
+
+/**
+ * The failure a command on a lost session surfaces: the provider's own report
+ * when it already is a connection error or a migration outcome, otherwise a
+ * retryable connection error carrying it.
+ *
+ * pg reports a socket that died mid-statement as an ordinary query failure,
+ * and a caller deciding whether to retry needs to know it was the connection.
+ */
+function connectionLostError(driverName: string, failure: unknown): unknown {
+  if (failure instanceof ConnectionError || failure instanceof MigrationError) {
+    return failure;
+  }
+  return new ConnectionError(
+    `The connection of the pinned migration session on driver "${driverName}" was lost. VibORM sent nothing more on it: the server rolls back its open transaction and frees its migration lock when that session ends. Run the command again; it re-reads the marker under the lock.`,
+    {
+      code: VibORMErrorCode.CONNECTION_FAILED,
+      cause: errorCause(failure),
+      meta: { driver: driverName, operation: "pinnedSession" },
+    }
+  );
+}
+
+function connectionWaitError(driverName: string, ms: number): ConnectionError {
+  return new ConnectionError(
+    `Driver "${driverName}" got no connection for the migration session within ${ms} ms (connectionWait). Nothing was sent; the command can be retried.`,
+    {
+      code: VibORMErrorCode.CONNECTION_TIMEOUT,
+      meta: { driver: driverName, operation: "pinnedSession" },
+    }
+  );
+}
+
 /**
  * This driver, viewed with its client pinned to one reserved session.
  *
@@ -213,10 +399,13 @@ export async function withPinnedSession<D extends AnyDriver, T>(
  */
 function createPinnedSessionView<D extends AnyDriver>(
   driver: D,
-  session: unknown
+  session: unknown,
+  control: PinnedSessionControl,
+  limits: PostgresSessionLimits | undefined
 ): D {
   const view: D = Object.create(driver);
   const support = driver["transactionOptionSupport"]();
+  const executeRaw = driver["executeRaw"];
   Object.defineProperties(view, {
     client: { value: session, writable: true },
     // `getClient()` returns a present client without consulting `initPromise`,
@@ -240,7 +429,44 @@ function createPinnedSessionView<D extends AnyDriver>(
     // pinning exists to prevent. A descriptor is how a `protected abstract`
     // member is replaced per-instance; it is also where the transaction
     // handle widens to the session, which is the honest shape here.
-    transaction: { value: runPinnedTransaction },
+    transaction: {
+      value(
+        this: AnyDriver,
+        pinned: unknown,
+        fn: (tx: unknown) => Promise<unknown>,
+        context?: QueryExecutionContext
+      ) {
+        return runPinnedTransaction(this, pinned, fn, context, control, limits);
+      },
+    },
+    // A `CONCURRENTLY` index statement waits, by design, for every
+    // transaction older than it, without blocking anyone: the session's
+    // limits would cut it short and leave an INVALID index behind (plan S1).
+    // It runs with none, and they are restored once it completes; after a
+    // failure the command is over and its release resets the session anyway.
+    executeRaw: {
+      async value(
+        this: AnyDriver,
+        client: unknown,
+        sql: string,
+        params: unknown[] | undefined,
+        context?: QueryExecutionContext
+      ) {
+        if (limits === undefined || !CONCURRENTLY.test(sql)) {
+          return executeRaw.call(this, client, sql, params, context);
+        }
+        await executeRaw.call(this, client, limits.unbound, undefined, context);
+        const result = await executeRaw.call(
+          this,
+          client,
+          sql,
+          params,
+          context
+        );
+        await executeRaw.call(this, client, limits.rebound, undefined, context);
+        return result;
+      },
+    },
     // A driver whose `maxWait` bounds its connection-queue wait ("queue")
     // has nothing left to bound on this view: the lease already holds the
     // queue for the whole session, so accepting the option here would
@@ -266,7 +492,7 @@ function createPinnedSessionView<D extends AnyDriver>(
 
 /**
  * One transaction on the already-reserved session, installed as the pinned
- * view's `transaction` member (so `this` is that view).
+ * view's `transaction` member (so `view` is that view).
  *
  * Every provider's own `transaction()` acquires a connection — that is the
  * behaviour a pinned session exists to prevent — and most of them refuse
@@ -274,23 +500,46 @@ function createPinnedSessionView<D extends AnyDriver>(
  * `ROLLBACK` on the reserved producer is the one form that means the same
  * thing on every transport admitted to pinning, and it keeps the lock and the
  * transaction on one session.
+ *
+ * On PostgreSQL the transaction's first statement is its own `SET LOCAL`
+ * limits (plan S1): a DDL statement queued behind a long reader gives up after
+ * `lock_timeout` instead of stalling every read queued behind it. After a
+ * connection failure no `ROLLBACK` is sent: the server ends the transaction
+ * with its session, and a statement written to a dead connection only adds a
+ * failure — or, on postgres.js, crashes the process (plan S2).
  */
 function runPinnedTransaction<T>(
-  this: AnyDriver,
+  view: AnyDriver,
   session: unknown,
   fn: (tx: unknown) => Promise<T>,
-  context?: QueryExecutionContext
+  context: QueryExecutionContext | undefined,
+  control: PinnedSessionControl,
+  limits: PostgresSessionLimits | undefined
 ): Promise<T> {
   const statement = async (sql: string) => {
-    await this["executeRaw"](session, sql, undefined, context);
+    try {
+      await view["executeRaw"](session, sql, undefined, context);
+    } catch (failure) {
+      control.lost(failure);
+      throw failure;
+    }
   };
   return runTransactionLifecycle({
     begin: () => statement("BEGIN"),
     // The session IS the transaction here: there is no second handle to hand
     // out, and a nested `$transaction` on it runs as a SAVEPOINT.
-    callback: () => fn(session),
+    callback: async () => {
+      if (limits !== undefined) await statement(limits.transaction);
+      try {
+        return await fn(session);
+      } catch (failure) {
+        control.lost(failure);
+        throw failure;
+      }
+    },
     commit: () => statement("COMMIT"),
-    rollback: () => statement("ROLLBACK"),
+    rollback: () =>
+      control.lost() ? undefined : control.cleanup(() => statement("ROLLBACK")),
   });
 }
 
@@ -321,29 +570,164 @@ export function withLockedMigrationProducer<T>(
     return body(driver, migrationDriver);
   }
 
-  return withPinnedSession(driver, async (pinned, control) => {
-    // Acquisition stays OUTSIDE the release scope: a lock that was never proven
-    // is not this session's to release, and issuing one anyway would fail its
-    // own release proof and report that instead of the acquisition failure.
-    // Everything after it is inside, because everything after it happens with
-    // the lock HELD — §3.5's "unlocks through the same producer in `finally`"
-    // covers the post-acquisition proof and target selection too.
-    await acquireLock(pinned, migrationDriver);
+  const limits = migrationDriver.timeLimits;
+  return withPinnedSession(
+    driver,
+    async (pinned, control) => {
+      // Acquisition stays OUTSIDE the release scope: a lock that was never
+      // proven is not this session's to release, and issuing one anyway would
+      // fail its own release proof and report that instead of the acquisition
+      // failure. Everything after it is inside, because everything after it
+      // happens with the lock HELD — §3.5's "unlocks through the same producer
+      // in `finally`" covers the post-acquisition proof and target selection
+      // too.
+      await acquireLock(pinned, migrationDriver, control);
 
-    let result: T;
-    try {
-      const command = await validateAndSelectMigrationTarget(
-        pinned,
-        migrationDriver
-      );
-      result = await body(pinned, scopeMySQLDecimalRecovery(command));
-    } catch (error) {
-      await releaseAfterFailure(pinned, migrationDriver, control, error);
-      throw error;
+      let result: T;
+      try {
+        const command = await validateAndSelectMigrationTarget(
+          pinned,
+          migrationDriver
+        );
+        result = await body(pinned, scopeMySQLDecimalRecovery(command));
+      } catch (error) {
+        await releaseAfterFailure(pinned, migrationDriver, control, error);
+        throw error;
+      }
+      await releaseLock(pinned, migrationDriver, control);
+      return result;
+    },
+    {
+      connectionWait: limits.connectionWait,
+      limits:
+        migrationDriver.target.dialect === "postgresql"
+          ? postgresSessionLimits(limits)
+          : undefined,
     }
-    await releaseLock(pinned, migrationDriver, control);
-    return result;
-  });
+  );
+}
+
+/**
+ * A `CREATE`, `DROP` or `REINDEX INDEX CONCURRENTLY` statement — the only
+ * kind whose waits block nobody. `REFRESH MATERIALIZED VIEW CONCURRENTLY` and
+ * the word in a comment or a literal keep the limits.
+ */
+const CONCURRENTLY = /\bINDEX\s+CONCURRENTLY\b/i;
+
+/**
+ * The PostgreSQL statements behind one command's time limits (plan S1).
+ *
+ * The session's own limits are set once it is reserved, before the lock
+ * statement, and cover it and every stepwise program, whose statements run
+ * bare on the session: `lock_timeout`, so a DDL queued behind a long reader
+ * gives up instead of stalling every read queued behind it (the lock statement
+ * itself only polls `pg_try_advisory_lock`, which never waits on a lock); a
+ * `statement_timeout` longer than the lock wait (so it never cuts the wait
+ * short); and the idle limits that end a session whose client vanished while
+ * holding the lock.
+ *
+ * The idle limits are asked of the server rather than assumed: they exist only
+ * where `pg_settings` lists them (PostgreSQL 14+ for `idle_session_timeout` and
+ * `client_connection_check_interval`), and a server that cannot check a
+ * client's socket refuses `client_connection_check_interval`, which is then
+ * left alone. They are not set on PGlite (`emscripten` in `version()`): its
+ * in-process backend has no client to lose, and arming either idle timer there
+ * hangs it — measured on PGlite 0.5.
+ *
+ * The reset puts back each setting's session default (`reset_val`, which keeps
+ * a value the pool set at connect), because on success the connection returns
+ * to the application's pool.
+ */
+function postgresSessionLimits(
+  limits: ResolvedMigrationTimeLimits
+): PostgresSessionLimits {
+  const bound = (lock: number, statement: number, local: boolean) =>
+    `set_config('lock_timeout', '${lock}', ${local}), set_config('statement_timeout', '${statement}', ${local})`;
+  const { lockTimeout, statementTimeout } = limits;
+  return {
+    enter: `DO $viborm_limits$BEGIN
+PERFORM ${bound(lockTimeout, statementTimeout, false)};
+IF pg_catalog.version() NOT LIKE '%emscripten%' THEN
+PERFORM set_config(name, '${limits.idleTimeout}', false) FROM pg_catalog.pg_settings WHERE name IN ('idle_in_transaction_session_timeout', 'idle_session_timeout');
+BEGIN
+PERFORM set_config(name, '1000', false) FROM pg_catalog.pg_settings WHERE name = 'client_connection_check_interval';
+EXCEPTION WHEN invalid_parameter_value THEN NULL;
+END;
+END IF;
+END$viborm_limits$`,
+    exit: "SELECT count(set_config(name, reset_val, false)) AS reset FROM pg_catalog.pg_settings WHERE name IN ('lock_timeout', 'statement_timeout', 'idle_in_transaction_session_timeout', 'idle_session_timeout', 'client_connection_check_interval')",
+    // Repeated in each transaction: a migration's own SQL may change the
+    // session's values (pg_dump output opens with `SET lock_timeout = 0`),
+    // and every later transaction still runs under the command's limits.
+    transaction: `SELECT ${bound(lockTimeout, statementTimeout, true)}`,
+    unbound: `SELECT ${bound(0, 0, false)}`,
+    rebound: `SELECT ${bound(lockTimeout, statementTimeout, false)}`,
+  };
+}
+
+/** The largest PostgreSQL timeout setting, and the largest timer delay. */
+const MAX_TIME_LIMIT_MS = 2_147_483_647;
+
+const TIME_LIMIT_KEYS = [
+  "lockTimeout",
+  "statementTimeout",
+  "idleTimeout",
+  "lockWait",
+  "connectionWait",
+] as const satisfies readonly (keyof MigrationTimeLimits)[];
+
+/**
+ * The time limits a migration client was given, settled once: each key a
+ * whole number of milliseconds, the defaults filling in the rest.
+ *
+ * `lockWait` and `connectionWait` are waits VibORM bounds and must be
+ * positive; the server settings accept 0 ("no limit"). Every key stops at
+ * {@link MAX_TIME_LIMIT_MS}, the most both PostgreSQL's settings and a timer
+ * hold. A `statementTimeout` must outlast `lockWait`, which runs as one
+ * statement under it.
+ */
+export function resolveMigrationTimeLimits(
+  input: unknown
+): ResolvedMigrationTimeLimits {
+  if (input === undefined) return DEFAULT_MIGRATION_TIME_LIMITS;
+  const record = snapshotExactRecord(
+    input,
+    TIME_LIMIT_KEYS,
+    "migration time limits",
+    refuseTimeLimits
+  );
+  const limits: Record<(typeof TIME_LIMIT_KEYS)[number], number> = {
+    ...DEFAULT_MIGRATION_TIME_LIMITS,
+  };
+  for (const key of TIME_LIMIT_KEYS) {
+    const value = record[key];
+    if (value === undefined) continue;
+    const least = key === "lockWait" || key === "connectionWait" ? 1 : 0;
+    if (
+      typeof value !== "number" ||
+      !Number.isInteger(value) ||
+      value < least ||
+      value > MAX_TIME_LIMIT_MS
+    ) {
+      refuseTimeLimits(
+        `migration time limit ${key} must be a whole number of milliseconds, from ${least} to ${MAX_TIME_LIMIT_MS}`
+      );
+    }
+    limits[key] = value;
+  }
+  if (
+    limits.statementTimeout !== 0 &&
+    limits.statementTimeout <= limits.lockWait
+  ) {
+    refuseTimeLimits(
+      `migration time limit statementTimeout (${limits.statementTimeout} ms) must be 0 or longer than lockWait (${limits.lockWait} ms): the lock wait runs as one statement under it`
+    );
+  }
+  return Object.freeze(limits);
+}
+
+function refuseTimeLimits(message: string, cause?: Error): never {
+  throw new MigrationError(message, VibORMErrorCode.INVALID_INPUT, { cause });
 }
 
 /**
@@ -708,7 +1092,8 @@ function partialProgramFailure(
  */
 async function acquireLock(
   pinned: AnyDriver,
-  migrationDriver: BoundMigrationDriver
+  migrationDriver: BoundMigrationDriver,
+  control: PinnedSessionControl
 ): Promise<void> {
   const statement = migrationDriver.generateAcquireLock(MIGRATION_LOCK_ID);
   if (statement === null) {
@@ -720,6 +1105,9 @@ async function acquireLock(
   try {
     rows = await executor(statement);
   } catch (error) {
+    // A lost connection is not a lock failure: it is retryable, and the
+    // session surfaces it as such.
+    if (control.lost(error)) throw error;
     throw new MigrationError(
       `Failed to acquire the migration lock for ${describeEstate(migrationDriver)}: the lock statement itself failed.`,
       VibORMErrorCode.MIGRATION_LOCK_FAILED,
@@ -757,9 +1145,13 @@ async function acquireLock(
 async function releaseAfterFailure(
   pinned: AnyDriver,
   migrationDriver: BoundMigrationDriver,
-  control: { discard(): void },
+  control: PinnedSessionControl,
   cause: unknown
 ): Promise<void> {
+  // A session that lost its connection holds no lock to release: the server
+  // frees it with the session, and an unlock written to that connection only
+  // adds a failure — or, on postgres.js, crashes the process (plan S2).
+  if (control.lost(cause)) return;
   try {
     await releaseLock(pinned, migrationDriver, control);
   } catch (releaseFailure) {
@@ -788,7 +1180,7 @@ async function releaseAfterFailure(
 async function releaseLock(
   pinned: AnyDriver,
   migrationDriver: BoundMigrationDriver,
-  control: { discard(): void }
+  control: PinnedSessionControl
 ): Promise<void> {
   const statement = migrationDriver.generateReleaseLock(MIGRATION_LOCK_ID);
   if (statement === null) {
@@ -798,9 +1190,10 @@ async function releaseLock(
   const executor = createQueryExecutor(pinned);
   let rows: unknown[];
   try {
-    rows = await executor(statement);
+    rows = await control.cleanup(() => executor(statement));
   } catch (error) {
     control.discard();
+    if (control.lost(error)) throw error;
     throw new MigrationError(
       `Failed to release the migration lock for ${describeEstate(migrationDriver)}. The pinned session was discarded rather than returned to the pool.`,
       VibORMErrorCode.MIGRATION_LOCK_FAILED,

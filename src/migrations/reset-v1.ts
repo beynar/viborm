@@ -51,6 +51,7 @@ import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
 import { encodeSqlText } from "./sql-blob";
+import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import { encodeDispatchIdentity, encodeSqlBlob, eventIdFor } from "./v1-parse";
@@ -377,7 +378,8 @@ export async function resetV1(
           remaining,
           resetPlanHash,
           begin,
-          finish
+          finish,
+          client.$schema
         );
       };
       if (command.target.dialect === "mysql") {
@@ -883,7 +885,8 @@ async function executeResetProgram(
   beforeFirstEffect:
     | ((producer: Parameters<typeof appendLedger>[0]) => Promise<void>)
     | undefined,
-  finish: (producer: Parameters<typeof appendLedger>[0]) => Promise<void>
+  finish: (producer: Parameters<typeof appendLedger>[0]) => Promise<void>,
+  models: MigrationClient["$schema"]
 ): Promise<void> {
   const groups = groupContiguousAtomicity(replay, ({ blob, operations }) =>
     stepStatements(blob, operations)
@@ -988,7 +991,14 @@ async function executeResetProgram(
         clearEvidencePending = false;
       }
       for (const edge of group.items) {
-        await executeResetReplayEdge(target, command, graph, edge, attemptId);
+        await executeResetReplayEdge(
+          target,
+          command,
+          graph,
+          edge,
+          attemptId,
+          models
+        );
       }
       if (index === groups.length - 1) await finish(target);
     });
@@ -1000,7 +1010,8 @@ async function executeResetReplayEdge(
   command: BoundMigrationDriver,
   graph: MigrationGraph,
   edge: PreparedResetReplayEdge,
-  attemptId: Sha256
+  attemptId: Sha256,
+  models: MigrationClient["$schema"]
 ): Promise<void> {
   const { from, to, transition, state, blob, boundary, operations } = edge;
   await executeOperations(
@@ -1034,6 +1045,13 @@ async function executeResetReplayEdge(
       });
     },
     command.namespace
+  );
+  // Replayed manual SQL is canonicalized exactly as apply canonicalizes it.
+  await canonicalizeSqliteStorage(
+    pinned,
+    operations,
+    models,
+    requireStateSnapshot(graph, to)
   );
   if (
     state.destinationChecks.length > 0 &&

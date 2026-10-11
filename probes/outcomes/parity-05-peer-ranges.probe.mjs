@@ -2,15 +2,18 @@
 // current @cloudflare/workers-types 5.x (1.1.0's peer range ^4.20260103.0
 // makes npm fail with ERESOLVE). Checked offline against the installed
 // package.json's peerDependencies with a small semver range check; 4.x must
-// stay accepted. @planetscale/database 2 is reported, not judged: the plan
-// says "qualify or refuse" without choosing.
+// stay accepted. @planetscale/database 2 is refused (1.2.0 pinned "qualify or
+// refuse" to refuse): 2.0.0 throws "Query parameters are not supported" on
+// every `execute(query, args)` the driver sends, so its range must not admit
+// it.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const meta = {
   id: "parity-05-peer-ranges",
-  title: "The @cloudflare/workers-types peer range accepts 5.x (and still 4.x)",
+  title:
+    "The @cloudflare/workers-types peer accepts 5.x and 4.x; @planetscale/database 2 is refused",
   plan: "phase-1/lane-O/tenant-blockers (parity-05)",
   needs: [],
   source:
@@ -113,12 +116,14 @@ export default async function probe() {
   }
   const current = satisfies(WORKERS_TYPES_CURRENT, workers);
   const previous = satisfies(WORKERS_TYPES_PREVIOUS, workers);
+  const planetscaleRefused =
+    planetscale !== undefined && !satisfies(PLANETSCALE_CURRENT, planetscale);
   const planetscaleNote =
     planetscale === undefined
       ? "@planetscale/database peer absent"
-      : `@planetscale/database "${planetscale}" ${satisfies(PLANETSCALE_CURRENT, planetscale) ? "accepts" : "refuses"} ${PLANETSCALE_CURRENT}`;
+      : `@planetscale/database "${planetscale}" ${planetscaleRefused ? "refuses" : "accepts (its driver cannot run there)"} ${PLANETSCALE_CURRENT}`;
   return {
-    status: current && previous ? "pass" : "fail",
+    status: current && previous && planetscaleRefused ? "pass" : "fail",
     evidence: `viborm ${manifest.version}: @cloudflare/workers-types "${workers}" ${current ? "accepts" : "refuses (npm ERESOLVE)"} ${WORKERS_TYPES_CURRENT}, ${previous ? "accepts" : "refuses"} ${WORKERS_TYPES_PREVIOUS}; ${planetscaleNote}`,
   };
 }

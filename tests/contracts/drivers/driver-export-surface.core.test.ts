@@ -80,6 +80,7 @@ describe("driver runtime export surface", () => {
       "ForeignKeyError",
       "NotNullConstraintError",
       "QueryError",
+      "SQLITE_MIGRATION_CAPABILITY",
       "TransactionError",
       "UniqueConstraintError",
       "isRetryableError",

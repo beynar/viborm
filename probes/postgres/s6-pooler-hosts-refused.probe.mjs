@@ -2,8 +2,11 @@
 // the transport cannot hold the lock: a Cloudflare Hyperdrive host
 // (*.hyperdrive.local) or a Neon `-pooler` endpoint, whatever driver carries it
 // (pg URL, pg host option, a supplied pg Pool, postgres.js, a Neon WebSocket
-// Pool). Read-only status() and application queries stay admitted. 1.1.0
-// admits all of them (admission checks only that the driver can pin a session).
+// Pool). Read-only status() and application queries stay admitted, and the
+// caller's opt-in `migrationSessionAttestation: "dedicated-session"` (pinned in
+// 1.2.0, modelled on MySQL2's migrationNamespaceAttestation) lifts the refusal.
+// 1.1.0 admits all of them (admission checks only that the driver can pin a
+// session).
 //
 // Pure admission check: every outbound TCP connect is intercepted and failed
 // (and counted), so no DNS lookup or network traffic leaves the process.
@@ -49,40 +52,47 @@ const schema = {
     .map("accounts"),
 };
 
+// `attest` is `{}` or the opt-in, spread into each client's configuration.
 const transports = [
   [
     "pg databaseUrl (Hyperdrive)",
-    () => pgClient({ databaseUrl: url(HYPERDRIVE), schema }),
+    (attest = {}) =>
+      pgClient({ databaseUrl: url(HYPERDRIVE), schema, ...attest }),
   ],
   [
     "pg options.host (Hyperdrive)",
-    () =>
+    (attest = {}) =>
       pgClient({
         options: { host: HYPERDRIVE, user: "app", database: "app" },
         schema,
+        ...attest,
       }),
   ],
   [
     "pg supplied Pool (Neon -pooler)",
-    () =>
+    (attest = {}) =>
       pgClient({
         pool: new pg.Pool({ connectionString: url(NEON_POOLER) }),
         schema,
+        ...attest,
       }),
   ],
   [
     "postgres.js databaseUrl (Neon -pooler)",
-    () => postgresClient({ databaseUrl: url(NEON_POOLER), schema }),
+    (attest = {}) =>
+      postgresClient({ databaseUrl: url(NEON_POOLER), schema, ...attest }),
   ],
   [
     "Neon WebSocket Pool (-pooler)",
-    () =>
+    (attest = {}) =>
       pgClient({
         pool: new NeonPool({ connectionString: url(NEON_POOLER) }),
         schema,
+        ...attest,
       }),
   ],
 ];
+const OPT_IN = { migrationSessionAttestation: "dedicated-session" };
 
 let connects = 0;
 async function attempt(run) {
@@ -123,6 +133,10 @@ export default async function probe() {
       const push = await attempt(() => createMigrationClient(make()).push());
       const status = await attempt(() => migrations.status());
       const query = await attempt(() => client.account.findMany({ take: 1 }));
+      // The opt-in lifts the refusal: apply reaches the (blocked) network.
+      const optIn = await attempt(() =>
+        createMigrationClient(make(OPT_IN), { storage }).apply()
+      );
       const admitted = [
         ["apply", apply],
         ["verify", verify],
@@ -134,8 +148,12 @@ export default async function probe() {
         problems.push(`${label}: ${admitted.join("/")} admitted`);
       if (status.io === 0) problems.push(`${label}: status() refused`);
       if (query.io === 0) problems.push(`${label}: application query refused`);
+      if (optIn.io === 0)
+        problems.push(
+          `${label}: apply refused despite the opt-in (${optIn.code})`
+        );
       lines.push(
-        `${label}: apply ${apply.code}+${apply.io}io verify ${verify.code}+${verify.io}io push ${push.code}+${push.io}io status ${status.io}io query ${query.io}io`
+        `${label}: apply ${apply.code}+${apply.io}io verify ${verify.code}+${verify.io}io push ${push.code}+${push.io}io status ${status.io}io query ${query.io}io opt-in apply ${optIn.code}+${optIn.io}io`
       );
     }
     return {

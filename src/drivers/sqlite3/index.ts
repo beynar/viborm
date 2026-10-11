@@ -24,6 +24,7 @@ import {
   Driver,
   type DriverResultParser,
   type QueryExecutionContext,
+  SQLITE_MIGRATION_CAPABILITY,
 } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
 import { assertNormalizedQueryResult } from "../normalized-result";
@@ -133,6 +134,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 32_766;
   readonly result: DriverResultParser = sqliteResultParser;
+  readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: SQLite3DriverOptions;

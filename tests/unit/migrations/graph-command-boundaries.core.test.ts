@@ -163,7 +163,10 @@ describe("migration graph command boundaries", () => {
       expect.objectContaining({ code: VibORMErrorCode.MIGRATION_NOT_FOUND })
     );
     expect(() => resolveStateSelector(multipleLeaves, undefined)).toThrowError(
-      expect.objectContaining({ code: VibORMErrorCode.MIGRATION_PATH_REQUIRED })
+      expect.objectContaining({
+        code: VibORMErrorCode.MIGRATION_PATH_REQUIRED,
+        message: expect.stringContaining("choose the target with --to"),
+      })
     );
     expect(() =>
       resolveStateSelector(graph, { id: "0".repeat(64) })
@@ -174,7 +177,10 @@ describe("migration graph command boundaries", () => {
       expect.objectContaining({ code: VibORMErrorCode.MIGRATION_NOT_FOUND })
     );
     expect(() => resolveStateSelector(graph, { prefix: "" })).toThrowError(
-      expect.objectContaining({ code: VibORMErrorCode.MIGRATION_PATH_REQUIRED })
+      expect.objectContaining({
+        code: VibORMErrorCode.MIGRATION_PATH_REQUIRED,
+        message: expect.stringContaining("matches several states"),
+      })
     );
     expect(() => resolveStateSelector(graph, { name: "missing" })).toThrowError(
       expect.objectContaining({ code: VibORMErrorCode.MIGRATION_NOT_FOUND })
@@ -200,6 +206,12 @@ describe("migration graph command boundaries", () => {
       selectRoute(graph, null, HASH_D, [HASH_A, HASH_D])
     ).toThrowError(
       expect.objectContaining({ code: VibORMErrorCode.MIGRATION_PATH_REQUIRED })
+    );
+    expect(() => selectRoute(graph, null, HASH_D)).toThrowError(
+      expect.objectContaining({
+        code: VibORMErrorCode.MIGRATION_PATH_REQUIRED,
+        message: expect.stringContaining("choose one with --via"),
+      })
     );
     expect(() => selectRoute(graph, HASH_D, HASH_A)).toThrowError(
       expect.objectContaining({ code: VibORMErrorCode.MIGRATION_NOT_FOUND })

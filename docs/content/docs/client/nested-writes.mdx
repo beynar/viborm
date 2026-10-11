@@ -641,6 +641,35 @@ relation that cannot spell a key simply does not offer it — a required to-one
 has no `disconnect`, and a create root has no `update` — so those compositions
 are not merely rejected there, they are unspellable.
 
+## Combining operations on one to-many relation
+
+A to-many payload may combine any of its verbs. They run in one fixed order,
+clearing before adding, whatever order you spell them in:
+
+1. `disconnect`, `delete`, `set`, `updateMany`, `deleteMany`
+2. `update`, `upsert`
+3. `connectOrCreate`, `connect`, `create`, `createMany`
+
+Entries inside one verb run in the order you list them.
+
+```ts
+// Same result as { disconnect, connect }: t1 leaves, t2 joins
+await client.post.update({
+  where: { id: "p1" },
+  data: { tags: { connect: [{ id: "t2" }], disconnect: [{ id: "t1" }] } },
+});
+
+// A spread payload follows the same order: `set` clears, then `connect` adds t1
+await client.post.update({
+  where: { id: "p1" },
+  data: { tags: { ...{ connect: [{ id: "t1" }] }, set: [] } },
+});
+```
+
+A target named by both a clearing verb and an adding verb meets the clearing
+verb first. `{ connect: [{ id: "t1" }], disconnect: [{ id: "t1" }] }` leaves
+`t1` connected. To remove a row, do not add it in the same call.
+
 ## What's not allowed
 
 ### Required relations

@@ -3,7 +3,10 @@
 // driver (here a correct, transactional one over better-sqlite3, written the way
 // the custom-driver docs show) must be refused before any effect. The stock
 // sqlite3 and bun-sqlite drivers stay admitted; D1 and libSQL stay refused.
-// The plan fixes no refusal code, so any MigrationError counts as a refusal.
+// The same custom driver declaring the capability (the opt-in half, pinned in
+// 1.2.0 as `sqliteMigrationCapability`, the value viborm/driver exports as
+// SQLITE_MIGRATION_CAPABILITY) applies. The plan fixes no refusal code, so any
+// MigrationError counts as a refusal.
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { createClient, s } from "viborm";
@@ -82,6 +85,15 @@ class CustomSqliteDriver extends Driver {
       throw error;
     }
   }
+}
+
+/** The same driver with the declaration, written out as a JavaScript driver would. */
+class DeclaredCustomSqliteDriver extends CustomSqliteDriver {
+  sqliteMigrationCapability = {
+    foreignKeys: "pragma",
+    reservedTablePrefixes: "none",
+    exclusion: "database-write-lock",
+  };
 }
 
 /**
@@ -184,6 +196,22 @@ export default async function probe(ctx) {
     db.close();
   }
 
+  // (1b) The same driver declaring the capability: admitted and applies.
+  const declaredDb = new Database(join(ctx.tmpDir, "declared.sqlite"));
+  try {
+    const declared = await tryApply(
+      () => new DeclaredCustomSqliteDriver(declaredDb)
+    );
+    lines.push(`declared custom-sqlite: ${show(declared)}`);
+    if (declared.outcome !== "applied") {
+      failures.push(
+        `declared custom SQLite driver not admitted (${show(declared)})`
+      );
+    }
+  } finally {
+    declaredDb.close();
+  }
+
   // (2) Stock sqlite3: admitted and applies.
   const stock = await tryApply(
     () => new SQLite3Driver({ dataDir: join(ctx.tmpDir, "stock.sqlite") })
@@ -223,7 +251,7 @@ export default async function probe(ctx) {
   return failures.length === 0
     ? {
         status: "pass",
-        evidence: `undeclared custom driver refused; sqlite3/bun-sqlite admitted; d1/libsql refused\n${lines.join("\n")}`,
+        evidence: `undeclared custom driver refused, declared one applies; sqlite3/bun-sqlite admitted; d1/libsql refused\n${lines.join("\n")}`,
       }
     : {
         status: "fail",

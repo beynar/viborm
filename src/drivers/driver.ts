@@ -37,6 +37,41 @@ import type {
 export type { DriverResultParser } from "./driver-instrumentation";
 export type { QueryExecutionContext } from "./types";
 
+/** A PostgreSQL driver's transport assertion for migration sessions. */
+export type MigrationSessionAttestation = "dedicated-session";
+
+/**
+ * What a SQLite driver states to run effectful migration work. Each member is a
+ * safety claim with one admitted value; a driver that cannot make all of them
+ * does not declare the capability. Whether it runs callback transactions stays
+ * the driver's own `supportsTransactions` declaration, read beside this one.
+ */
+export interface SqliteMigrationCapability {
+  /**
+   * `PRAGMA foreign_keys` run between transactions on the migration's
+   * connection takes effect there and reads back.
+   */
+  readonly foreignKeys: "pragma";
+  /**
+   * The platform reserves no table names: every table outside `sqlite_*` is
+   * the caller's. Cloudflare's `_cf_*` tables are why D1 cannot declare it.
+   */
+  readonly reservedTablePrefixes: "none";
+  /**
+   * Every transaction this driver opens holds SQLite's database write lock
+   * from its BEGIN (`BEGIN IMMEDIATE`), so no other writer interleaves with a
+   * migration transaction before it commits or rolls back.
+   */
+  readonly exclusion: "database-write-lock";
+}
+
+export const SQLITE_MIGRATION_CAPABILITY: SqliteMigrationCapability =
+  Object.freeze({
+    foreignKeys: "pragma",
+    reservedTablePrefixes: "none",
+    exclusion: "database-write-lock",
+  });
+
 // biome-ignore lint/suspicious/noUnsafeDeclarationMerging: the `Driver` interface below is a deliberate merge — it declares the `await using` member, which is installed on the prototype (guarded on the runtime key) rather than in this body.
 export abstract class Driver<
   TClient,
@@ -186,6 +221,38 @@ export abstract class Driver<
    * client a caller may hand to several drivers.
    */
   protected physicalPinnedSession?(): Promise<object>;
+
+  /**
+   * Every endpoint this PostgreSQL driver's configuration names for its
+   * sessions — host names and connection URLs, as configured; entries that are
+   * not strings name nothing — read when a migration command is admitted.
+   * Absent on a driver that names none (PGlite, a custom driver). Migration
+   * admission is its one consumer: it refuses effectful commands when one of
+   * them is a transaction-pooling host it knows (Cloudflare Hyperdrive, a Neon
+   * `-pooler` endpoint), because a session lock taken there is held by
+   * whichever server session served that statement.
+   */
+  protected migrationSessionEndpoints?(): readonly unknown[];
+
+  /**
+   * The caller's claim, at their risk, that every connection this PostgreSQL
+   * driver opens is one server session for its whole life. It lifts only the
+   * pooler-host refusal; a driver with no pinned-session hook stays refused.
+   * Installed like `migrationNamespaceAttestation`: only the exact literal.
+   */
+  declare readonly migrationSessionAttestation:
+    | MigrationSessionAttestation
+    | undefined;
+
+  /**
+   * This SQLite driver's migration capability, or absent. Its presence binds a
+   * custom SQLite driver to VibORM's SQLite migration implementation, and
+   * effectful migration work is admitted only on a driver that declares it.
+   * Only the exact {@link SQLITE_MIGRATION_CAPABILITY} values count.
+   */
+  declare readonly sqliteMigrationCapability:
+    | SqliteMigrationCapability
+    | undefined;
 
   async disconnect(): Promise<void> {
     return this._disconnect();

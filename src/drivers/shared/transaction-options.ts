@@ -21,7 +21,8 @@ import {
   VibORMErrorCode,
 } from "@errors";
 import { isRecord } from "@validation/value-guards";
-import { type Clock, type ClockTimer, systemClock } from "../../clock";
+import { type Clock, systemClock } from "../../clock";
+import { settleWithin } from "./pinned-session";
 
 /** Prisma's isolation-level spellings, exactly. */
 export const TRANSACTION_ISOLATION_LEVELS = [
@@ -388,22 +389,13 @@ export async function runWithTransactionTimeout<T>(
   context: TransactionOptionContext,
   clock: Clock = systemClock
 ): Promise<T> {
-  let timer: ClockTimer | undefined;
-  const expiry = new Promise<never>((_resolve, reject) => {
-    timer = clock.setTimeout(
-      () => reject(transactionTimeoutError(timeoutMs, context)),
-      timeoutMs
-    );
-  });
-  // The abandoned body's rejection is observed here so an expired transaction
-  // never surfaces as an unhandled rejection.
-  const body = run();
-  body.catch(() => undefined);
-  try {
-    return await Promise.race([body, expiry]);
-  } finally {
-    timer?.cancel();
-  }
+  return settleWithin(
+    run(),
+    timeoutMs,
+    () => transactionTimeoutError(timeoutMs, context),
+    undefined,
+    clock
+  );
 }
 
 /**
@@ -422,33 +414,17 @@ export async function acquireWithMaxWait<T>(
 ): Promise<T> {
   const acquisition = acquire();
   if (maxWaitMs === undefined) return acquisition;
-
-  let timer: ClockTimer | undefined;
-  let abandoned = false;
-  const expiry = new Promise<never>((_resolve, reject) => {
-    timer = clock.setTimeout(() => {
-      abandoned = true;
-      reject(transactionMaxWaitError(maxWaitMs, context));
-    }, maxWaitMs);
-  });
-  acquisition.catch(() => undefined);
-  try {
-    return await Promise.race([acquisition, expiry]);
-  } catch (error) {
-    if (abandoned) {
-      acquisition.then(
-        (resource) => {
-          try {
-            release(resource);
-          } catch {
-            // The pool owns a connection we never used; nothing further to do.
-          }
-        },
-        () => undefined
-      );
-    }
-    throw error;
-  } finally {
-    timer?.cancel();
-  }
+  return settleWithin(
+    acquisition,
+    maxWaitMs,
+    () => transactionMaxWaitError(maxWaitMs, context),
+    (late) => {
+      try {
+        release(late);
+      } catch {
+        // The pool owns a connection we never used; nothing further to do.
+      }
+    },
+    clock
+  );
 }

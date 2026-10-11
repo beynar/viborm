@@ -15,6 +15,7 @@ import { encodePhysicalDateTime } from "@validation/primitives/datetime-physical
 import { sameDecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { validateIsoTime } from "@validation/primitives/iso";
 import {
+  SQLITE_ABORT,
   sqliteDateTimeCopyExpression,
   sqliteDateTimeTargetRequiresRecreation,
 } from "../../../adapters/databases/sqlite/storage/datetime";
@@ -28,6 +29,11 @@ import {
   sqliteGeoPointCheck,
   sqliteGeoPointEncoding,
 } from "../../../adapters/databases/sqlite/storage/geo-point";
+import {
+  isSqliteBareIdentifierCharacter,
+  readSqliteIdentifier,
+  skipSqlNonStructuralRegion,
+} from "../../../adapters/databases/sqlite/storage/sql-lexing";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import {
   decimalConversionRequired,
@@ -69,6 +75,180 @@ import type { MigrationCapabilities } from "../types";
 import { introspect } from "./introspect";
 
 const COMPUTED_DEFAULT_PREFIX = /^(?:CURRENT_(?:TIME|DATE|TIMESTAMP)|\()/i;
+
+/** The name a recreation builds its replacement under before the swap. */
+const RECREATION_PREFIX = "__new_";
+const CREATE_TABLE = /^CREATE\s+TABLE\s+/i;
+const ALTER_TABLE = /^ALTER\s+TABLE\s+/i;
+const RENAME_TO = /^\s+RENAME\s+TO\s+/i;
+const CREATE_DEPENDENT =
+  /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?(TRIGGER|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?/i;
+const DROP_DEPENDENT = /^DROP\s+(?:TRIGGER|VIEW)\s+(?:IF\s+EXISTS\s+)?/i;
+const IDENTIFIER_OPENERS = '"`[';
+const QUALIFIER_DOT = /^\s*\./;
+/**
+ * The words SQLite never reads as a bare table name (checked on 3.53 against
+ * every keyword, in FROM, INSERT, UPDATE, DELETE, JOIN and trigger `ON`). A
+ * table spelled like one is quoted wherever SQL names it, so its bare spelling
+ * is a keyword (`ORDER BY`), never a reference. Keywords SQLite also accepts
+ * as names (`END`, `BY`, `VIEW`) stay references, the safe reading.
+ */
+const SQLITE_RESERVED_WORD =
+  /^(?:add|all|alter|and|as|autoincrement|between|case|check|collate|commit|constraint|create|default|deferrable|delete|distinct|drop|else|escape|except|exists|foreign|from|group|having|in|index|insert|intersect|into|is|isnull|join|limit|not|nothing|notnull|null|on|or|order|primary|references|returning|select|set|table|then|to|transaction|union|unique|update|using|values|when|where)$/;
+const COLUMN_CHECK = /\s+CHECK\s*\(/;
+const TEXT_AFFINITY = /CHAR|CLOB|TEXT/;
+const REAL_AFFINITY = /REAL|FLOA|DOUB/;
+
+/** A trigger or view as `sqlite_master` stores it. */
+interface SqliteDependent {
+  readonly type: string;
+  readonly name: string;
+  readonly sql: string | null;
+}
+
+/**
+ * The triggers and views a program's recreations would lose, each with the
+ * live table it depends on.
+ *
+ * The program is walked in order from the catalog as it stands before it
+ * runs, past leading comments and a `schema.` qualifier: a
+ * `CREATE TRIGGER|VIEW` adds a dependent, a `DROP TRIGGER|VIEW` releases one,
+ * and each recreation — read from the one spelling
+ * `compileTableRecreation` writes, `CREATE TABLE "__new_<t>"`, as the
+ * foreign-key bracket is read from its pragmas — loses the dependents that
+ * name the table at that point. A native `ALTER TABLE … RENAME TO` earlier in
+ * the program maps the rebuilt name back to the live table, and both spellings
+ * count, because the catalog was read before the rename rewrote it.
+ */
+function lostDependents(
+  program: readonly string[],
+  catalog: readonly SqliteDependent[]
+): { readonly table: string; readonly dependent: SqliteDependent }[] {
+  const dependents = new Map(
+    catalog.map((row) => [row.name.toLowerCase(), row])
+  );
+  const formerNames = new Map<string, string>();
+  const lost: { table: string; dependent: SqliteDependent }[] = [];
+  for (const statement of program) {
+    let text = statement.trim();
+    // A leading comment does not hide the statement's head.
+    let skipped = skipSqlNonStructuralRegion(text, 0);
+    while (skipped > 0) {
+      text = text.slice(skipped).trimStart();
+      skipped = skipSqlNonStructuralRegion(text, 0);
+    }
+    const create = CREATE_TABLE.exec(text);
+    const alter = ALTER_TABLE.exec(text);
+    const created = CREATE_DEPENDENT.exec(text);
+    const drop = DROP_DEPENDENT.exec(text);
+    const head = create ?? alter ?? created ?? drop;
+    const name = head && readObjectName(text, head[0].length);
+    if (!name) continue;
+    const key = name.value.toLowerCase();
+    if (created) {
+      const type = created[1]!.toLowerCase();
+      dependents.set(key, { type, name: name.value, sql: text });
+    } else if (drop) {
+      dependents.delete(key);
+    } else if (create && key.startsWith(RECREATION_PREFIX)) {
+      const rebuilt = name.value.slice(RECREATION_PREFIX.length);
+      const table = formerNames.get(rebuilt.toLowerCase()) ?? rebuilt;
+      const spellings = [rebuilt.toLowerCase(), table.toLowerCase()];
+      for (const [dependentKey, dependent] of dependents) {
+        const sql = dependent.sql ?? "";
+        if (!spellings.some((s) => sqlNamesTable(sql, dependent.name, s)))
+          continue;
+        lost.push({ table, dependent });
+        dependents.delete(dependentKey);
+      }
+    } else if (alter && !key.startsWith(RECREATION_PREFIX)) {
+      const rename = RENAME_TO.exec(text.slice(name.end));
+      const to =
+        rename && readSqliteIdentifier(text, name.end + rename[0].length);
+      if (to)
+        formerNames.set(
+          to.value.toLowerCase(),
+          formerNames.get(key) ?? name.value
+        );
+    }
+  }
+  return lost;
+}
+
+/** The object a statement head names, past an optional `schema.` qualifier. */
+function readObjectName(text: string, index: number) {
+  const first = readSqliteIdentifier(text, index);
+  const dot = first ? QUALIFIER_DOT.exec(text.slice(first.end)) : null;
+  return first && dot
+    ? readSqliteIdentifier(text, first.end + dot[0].length)
+    : first;
+}
+
+/**
+ * Whether a stored view or trigger names the lower-cased `table` as an
+ * identifier, past its own name. String literals and comments are skipped, so
+ * a trigger that writes the text 'item' does not name the table `item`, and
+ * neither does a bare reserved word (`SQLITE_RESERVED_WORD`); a column spelled
+ * like the table does, and refusing is the safe reading.
+ */
+function sqlNamesTable(sql: string, ownName: string, table: string): boolean {
+  let ownNamePending = true;
+  let index = 0;
+  while (index < sql.length) {
+    const character = sql.charAt(index);
+    const token =
+      IDENTIFIER_OPENERS.includes(character) ||
+      isSqliteBareIdentifierCharacter(character)
+        ? readSqliteIdentifier(sql, index)
+        : undefined;
+    if (token) {
+      const name = token.value.toLowerCase();
+      if (ownNamePending && name === ownName.toLowerCase()) {
+        ownNamePending = false;
+      } else if (
+        name === table &&
+        (token.quoted || !SQLITE_RESERVED_WORD.test(name))
+      ) {
+        return true;
+      }
+      index = token.end;
+    } else {
+      index = Math.max(skipSqlNonStructuralRegion(sql, index), index + 1);
+    }
+  }
+  return false;
+}
+
+/** SQLite's declared-type affinity rules; a column CHECK is not part of the type name. */
+function sqliteAffinity(type: string): string {
+  const name = type.toUpperCase().split(COLUMN_CHECK)[0]!.trim();
+  if (name.includes("INT")) return "INTEGER";
+  if (TEXT_AFFINITY.test(name)) return "TEXT";
+  if (name === "" || name.includes("BLOB")) return "BLOB";
+  if (REAL_AFFINITY.test(name)) return "REAL";
+  return "NUMERIC";
+}
+
+/**
+ * The storage class a column type change converts copied values into, or
+ * `undefined` when the copy keeps them as they are.
+ *
+ * Only a change of affinity into INTEGER, REAL or TEXT is guarded, because
+ * SQLite converts into them silently and partially: an INTEGER column keeps
+ * 'twelve' as TEXT and 1.5 as REAL, and a REAL one rounds an integer past
+ * 2^53. A BLOB target stores values verbatim, and NUMERIC is the JSON
+ * container's, whose CAST would read every JSON object as 0.
+ */
+function sqliteConvertingAffinity(
+  from: ColumnDef,
+  to: ColumnDef
+): "INTEGER" | "REAL" | "TEXT" | undefined {
+  const target = sqliteAffinity(to.type);
+  if (target === sqliteAffinity(from.type)) return undefined;
+  return target === "INTEGER" || target === "REAL" || target === "TEXT"
+    ? target
+    : undefined;
+}
 
 /**
  * One preceding operation of the batch, applied to the table definition a later
@@ -252,9 +432,19 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // INTROSPECTION
   // ===========================================================================
 
+  /**
+   * Also refuses, by name, every trigger and view a table recreation in
+   * `program` would lose. A recreation drops the table, and SQLite drops its
+   * triggers with it silently; a view or another table's trigger that reads it
+   * fails the swap with an error that names neither. A trigger always names
+   * its own table (`ON "t"`), so one read of the stored SQL finds both kinds
+   * (`lostDependents`). A trigger or view the program drops before the
+   * recreation is its own business; one it creates earlier is checked too.
+   */
   override async preflightSchemaRequirements(
     snapshots: readonly SchemaSnapshot[],
-    executeRaw: Parameters<typeof introspect>[0]
+    executeRaw: Parameters<typeof introspect>[0],
+    program: readonly string[] = []
   ): Promise<void> {
     const names = [
       ...new Set(
@@ -263,16 +453,35 @@ export class SQLite3MigrationDriver extends MigrationDriver {
         )
       ),
     ];
-    if (names.length === 0) return;
-    const views = await executeRaw<{ name: string }>(
-      "SELECT name FROM sqlite_master WHERE type = 'view'"
+    if (names.length === 0 && program.length === 0) return;
+    const objects = await executeRaw<SqliteDependent>(
+      "SELECT type, name, sql FROM sqlite_master WHERE type IN ('view', 'trigger')"
     );
-    const collision = views.rows.find((row) => names.includes(row.name));
+    const collision = objects.rows.find(
+      (row) => row.type === "view" && names.includes(row.name)
+    );
     if (collision)
       throw new MigrationError(
         `SQLite relation "${collision.name}" is a view, but this schema declares a table. Synchronization refuses before effects and preserves the view.`,
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         { meta: { table: collision.name, feature: "view" } }
+      );
+    const lost = lostDependents(program, objects.rows);
+    if (lost.length > 0)
+      throw new MigrationError(
+        `This migration rebuilds SQLite ${lost.map(({ table, dependent }) => `table "${table}", which ${dependent.type} "${dependent.name}" depends on`).join("; ")}. ` +
+          "A rebuild drops the table, which silently drops its triggers and breaks every view or trigger that reads it. " +
+          "The migration is refused before any statement runs, so the schema and data are unchanged. Drop them before this change (a SQL step earlier in the same migration path counts) and recreate them after it.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        {
+          meta: {
+            table: lost[0]!.table,
+            dependents: lost.map(
+              ({ dependent }) => `${dependent.type}:${dependent.name}`
+            ),
+            feature: "table recreation",
+          },
+        }
       );
   }
 
@@ -488,7 +697,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     valueExpressions?: ReadonlyMap<string, string>
   ): string[] {
     const statements: string[] = [];
-    const tempName = `__new_${tableName}`;
+    const tempName = `${RECREATION_PREFIX}${tableName}`;
     const currentColumns = new Map(
       currentTable.columns.map((column) => [column.name, column])
     );
@@ -620,6 +829,12 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    * A TEXT source or a list target has no proven logical scale, and SQLite can
    * coerce numeric text after the copy, so every other unmarked source refuses
    * here before the recreation exists.
+   *
+   * A column with no decimal or DateTime target whose type changes affinity
+   * (`sqliteConvertingAffinity`) is converted with a `CAST` that must compare
+   * equal to the source under SQLite's own rules. A value that does not —
+   * 'twelve' or 1.5 into INTEGER, a BLOB into TEXT — aborts the rebuild like
+   * an inexact DateTime instead of being stored unconverted.
    */
   private copySourceExpression(
     tableName: string,
@@ -668,7 +883,13 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
     const to = targetColumn.decimal;
     const targetKind = sqliteDecimalStorageKind(targetColumn);
-    if (to === undefined || targetKind === undefined) return source;
+    if (to === undefined || targetKind === undefined) {
+      const affinity =
+        currentColumn && sqliteConvertingAffinity(currentColumn, targetColumn);
+      return affinity === undefined
+        ? source
+        : `CASE WHEN ${source} IS NULL THEN NULL WHEN CAST(${source} AS ${affinity}) = ${source} THEN CAST(${source} AS ${affinity}) ELSE ${SQLITE_ABORT} END`;
+    }
 
     const from = currentColumn?.decimal;
     if (from === undefined) {

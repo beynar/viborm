@@ -62,6 +62,10 @@ class CustomSQLiteDriver extends Driver<CustomClient, CustomTransaction> {
 The parser is required for typed SQLite booleans, integers, dates, JSON and
 other physical representations. Raw execution returns physical provider values.
 
+Declare `readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY` (from
+`viborm/driver`) to use migrations; see
+[SQLite migrations](/docs/migration/drivers/sqlite#driver-admission).
+
 ## Available Drivers
 
 | Driver | Entry Point | Client | Use Case |

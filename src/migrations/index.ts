@@ -8,7 +8,9 @@ export {
   sqliteCanonicalDateTimeExpression,
   sqliteCanonicalTimeExpression,
 } from "../adapters/databases/sqlite/storage/datetime";
+export type { MigrationTimeLimits } from "../drivers/shared/pinned-session";
 export { isMigrationError, MigrationError } from "../errors";
+export type { InvalidIndex } from "./catalog-probes";
 export type { CheckFinding, CheckResult } from "./check";
 export type {
   ApplyResult,
@@ -44,13 +46,13 @@ export {
   lenientResolver,
   rejectAllResolver,
 } from "./resolver";
+export { auditStorage, type StorageColumnAudit } from "./sqlite-storage-audit";
 export { createStorageConformanceSuite } from "./storage/conformance";
 export type {
   MigrationStorageReader,
   MigrationStorageWriter,
   PublishResult,
 } from "./storage/contract";
-export { createFsStorageWriter } from "./storage/fs-estate";
 export { MemoryEstateStorage } from "./storage/memory";
 export type { ObjectStoreConditionalPut } from "./storage/object-store";
 export {
@@ -72,6 +74,7 @@ export type {
   GenerateV1Options as GenerateOptions,
   ManualMigrationInput,
   ManualTransitionInput,
+  MigrationApprovalV1 as MigrationApproval,
   MigrationCheckInput,
   MigrationEstateDescriptorV1,
   MigrationStateManifestV1,

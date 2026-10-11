@@ -8,6 +8,7 @@ export {
   defineImmutableDriverFact,
   type MigrationNamespaceAttestation,
   resolveMigrationNamespaceAttestationOption,
+  resolveMigrationSessionAttestationOption,
   resolveNamespaceOption,
 } from "./driver-options";
 export {

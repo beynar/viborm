@@ -48,6 +48,7 @@ import {
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
+import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import { eventIdFor } from "./v1-parse";
@@ -89,6 +90,9 @@ export async function applyV1(
     );
     refusePartialControl(control.presence);
     const { marker } = control;
+    if (followsAheadPolicy(graph, marker, options)) {
+      return { outcome: "noop", path: [], statements: [] };
+    }
     const origin = marker?.stateId ?? null;
     if (origin === target) return { outcome: "noop", path: [], statements: [] };
     const path = selectRoute(graph, origin, target, options.via);
@@ -122,18 +126,23 @@ export async function applyV1(
           VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
         );
       }
+      if (followsAheadPolicy(graph, marker, options)) {
+        return { outcome: "noop", path: [], statements: [] };
+      }
       const origin = marker?.stateId ?? null;
       const path =
         origin === target
           ? []
           : selectRoute(graph, origin, target, options.via);
       assertPathArtifacts(graph, origin, path);
+      const statements = previewStatements(graph, origin, path);
       await command.preflightSchemaRequirements(
         [
           requireStateSnapshot(graph, origin),
           ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
         ],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        statements
       );
       if (marker) {
         await assertNoDrift(pinned, command, graph, marker);
@@ -143,7 +152,6 @@ export async function applyV1(
       if (origin === target) {
         return { outcome: "noop", path: [], statements: [] };
       }
-      const statements = previewStatements(graph, origin, path);
       const run = async (producer: Parameters<typeof appendLedger>[0]) => {
         await applyPathUnderLock(
           producer,
@@ -152,6 +160,7 @@ export async function applyV1(
           marker,
           origin,
           path,
+          client.$schema,
           needsBootstrap
         );
       };
@@ -165,6 +174,42 @@ export async function applyV1(
   );
 }
 
+/**
+ * Where the live marker stands relative to this history. A marker naming a
+ * state the graph holds — or no state — is `known`, and `assertNoDrift` proves
+ * the rest. Otherwise its arrival path tells version skew from a stranger: the
+ * marker is `ahead` when that path passes through a state of this estate
+ * before leaving it (newer code applied the rest), and `unknown` when nothing
+ * on it belongs here.
+ */
+export function markerStanding(
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null
+): "known" | "ahead" | "unknown" {
+  if (!marker?.stateId || graph.states.has(marker.stateId)) return "known";
+  return marker.estateHash === graph.estateHash &&
+    marker.path.some((edge) => graph.states.has(edge.stateId))
+    ? "ahead"
+    : "unknown";
+}
+
+/** True when `ifAhead: "noop"` applies; refuses every other marker this history does not hold. */
+function followsAheadPolicy(
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  options: ApplyV1Options
+): boolean {
+  const standing = markerStanding(graph, marker);
+  if (standing === "known") return false;
+  if (standing === "ahead" && options.ifAhead === "noop") return true;
+  throw new MigrationError(
+    standing === "ahead"
+      ? `The database marker is ahead of this migration history: it names state ${marker?.stateId}, which newer code applied after a state this estate holds. Deploy that code, or pass apply({ ifAhead: "noop" }) to run against the newer schema without migrating.`
+      : `The database marker names state ${marker?.stateId}, which is unknown to this migration estate: no state on its arrival path belongs to this history.`,
+    VibORMErrorCode.MIGRATION_NOT_FOUND
+  );
+}
+
 export async function applyPathUnderLock(
   pinned: import("../drivers/driver").AnyDriver,
   command: BoundMigrationDriver,
@@ -172,6 +217,7 @@ export async function applyPathUnderLock(
   marker: MigrationMarkerV1 | null,
   origin: Sha256 | null,
   path: readonly Sha256[],
+  models: MigrationClient["$schema"],
   needsBootstrap = false
 ): Promise<void> {
   const prepared = path.map((to, index) => {
@@ -224,7 +270,8 @@ export async function applyPathUnderLock(
           graph,
           item,
           current,
-          nextPath
+          nextPath,
+          models
         );
       }
     };
@@ -262,7 +309,8 @@ async function executeForwardEdge(
   graph: MigrationGraph,
   item: PreparedForwardEdge,
   current: MigrationMarkerV1 | null,
-  nextPath: MarkerPathEdgeV1[]
+  nextPath: MarkerPathEdgeV1[],
+  models: MigrationClient["$schema"]
 ): Promise<MigrationMarkerV1> {
   const { from, to, transition, state, blob, boundary } = item;
   const attemptId = eventIdFor({
@@ -337,6 +385,13 @@ async function executeForwardEdge(
       );
     },
     command.namespace
+  );
+  // Manual SQL may store text typed queries cannot compare (`datetime('now')`).
+  await canonicalizeSqliteStorage(
+    producer,
+    transition.operations,
+    models,
+    requireStateSnapshot(graph, to)
   );
   if (
     !(await evaluateAllChecks(

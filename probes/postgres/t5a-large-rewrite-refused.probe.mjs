@@ -102,7 +102,11 @@ export default async function probe() {
       createClient({ client: db, schema: v2 }),
       { storage }
     );
-    await second.generate({ name: "v2" });
+    await second.generate({
+      name: "v2",
+      resolve: (change) =>
+        change.type === "destructive" ? change.proceed() : undefined,
+    });
     const run = await record(db, () => second.apply());
     const sent = run.statements.filter((q) => DDL.test(q));
     const result = run.error

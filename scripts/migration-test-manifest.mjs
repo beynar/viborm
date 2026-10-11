@@ -14,6 +14,7 @@ const localExtendedMigrationTests = Object.freeze([
   "sqlite-batch-refs-introspection.test.ts",
   "sqlite-datetime-diff-boundary.test.ts",
   "sqlite-datetime-recreation.test.ts",
+  "sqlite-manual-storage-canonicalization.test.ts",
   "sqlite-recreation-foreign-key-parent.test.ts",
   "sqlite-recreation-indexes.test.ts",
   "sqlite-unique-constraint.test.ts",

@@ -21,6 +21,7 @@ import {
   Driver,
   type DriverResultParser,
   type QueryExecutionContext,
+  SQLITE_MIGRATION_CAPABILITY,
 } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
 import {
@@ -151,6 +152,7 @@ export class BunSQLiteDriver extends Driver<
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 32_766;
   readonly result: DriverResultParser = sqliteResultParser;
+  readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: BunSQLiteDriverOptions;

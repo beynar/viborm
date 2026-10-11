@@ -6,7 +6,12 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { type DiffOptions, diff } from "./differ";
+import {
+  type DiffOptions,
+  diff,
+  getDestructiveOperationDescriptions,
+  isDestructiveOperation,
+} from "./differ";
 import { applyNativeRename } from "./native-rename";
 import type {
   AmbiguousChange,
@@ -22,8 +27,13 @@ import type {
   Resolver,
   SchemaSnapshot,
 } from "./types";
-import { createAmbiguousChange, readEnumResolutionDecision } from "./types";
+import {
+  createAmbiguousChange,
+  createDestructiveChange,
+  readEnumResolutionDecision,
+} from "./types";
 import { sortOperations } from "./utils";
+import type { MigrationApprovalV1 } from "./v1-types";
 
 export function validateResolveResult(
   expected: "ambiguous",
@@ -310,7 +320,14 @@ export function ambiguousToResolveChange(
   });
 }
 
-export function callbackAsResolver(callback: ResolveCallback): Resolver {
+/**
+ * `admittedDrops` collects the drop each `addAndDrop` answer already decided,
+ * so the destructive question is not asked a second time for it.
+ */
+export function callbackAsResolver(
+  callback: ResolveCallback,
+  admittedDrops?: Set<string>
+): Resolver {
   return async (changes) => {
     const resolutions = new Map<AmbiguousChange, ChangeResolution>();
     for (const change of changes) {
@@ -322,6 +339,7 @@ export function callbackAsResolver(callback: ResolveCallback): Resolver {
       }
       if (result === "addAndDrop") {
         resolutions.set(change, { type: "addAndDrop" });
+        admittedDrops?.add(ambiguousDropKey(change));
         continue;
       }
       throw new MigrationError(
@@ -332,6 +350,137 @@ export function callbackAsResolver(callback: ResolveCallback): Resolver {
     }
     return resolutions;
   };
+}
+
+// =============================================================================
+// DESTRUCTIVE CHANGES
+// =============================================================================
+
+export function ambiguousDropKey(change: AmbiguousChange): string {
+  return change.type === "ambiguousTable"
+    ? `table\u0000${change.droppedTable}`
+    : `column\u0000${change.tableName}\u0000${change.droppedColumn.name}`;
+}
+
+function destructiveDropKey(operation: DiffOperation): string {
+  if (operation.type === "dropTable") {
+    return `table\u0000${operation.tableName}`;
+  }
+  if (operation.type === "dropColumn") {
+    return `column\u0000${operation.tableName}\u0000${operation.columnName}`;
+  }
+  return "";
+}
+
+/**
+ * Puts every destructive operation (enum value removals excepted: they have
+ * their own mapping question) to `resolve` once, for push and generate alike.
+ * A rejected or unanswered change refuses, unless `force` admits an unanswered
+ * one. Without a callback nothing is asked: the refusal names every change.
+ * Returns the approval of every destructive change, in operation order; a drop
+ * an `addAndDrop` answer already decided is approved by that answer.
+ */
+export async function approveDestructiveOperations(
+  operations: readonly DiffOperation[],
+  resolve: ResolveCallback | undefined,
+  force: boolean,
+  admittedDrops: ReadonlySet<string> = new Set()
+): Promise<MigrationApprovalV1[]> {
+  const destructive = operations.filter(
+    (operation) =>
+      operation.type !== "alterEnum" && isDestructiveOperation(operation)
+  );
+  const facts = destructive.map(describeDestructiveOperation);
+  const changes = facts.map(({ column, ...change }) =>
+    createDestructiveChange(column === null ? change : { ...change, column })
+  );
+  if (!resolve && changes.length > 0) {
+    throw new MigrationError(
+      `Destructive changes need an approval:\n${changes.map((change) => `- ${change.description}`).join("\n")}\n\n` +
+        "Pass a resolve callback that returns change.proceed() or change.reject() for each one.",
+      VibORMErrorCode.MIGRATION_CONSENT_REQUIRED,
+      {
+        meta: {
+          hint: "Review the changes, then pass generate() a resolve callback that approves them with change.proceed(); for the CLI, set migrations.resolve in viborm.config.ts.",
+        },
+      }
+    );
+  }
+  for (const [index, change] of changes.entries()) {
+    if (!admittedDrops.has(destructiveDropKey(destructive[index]!))) {
+      const result = validateResolveResult(
+        "destructive",
+        change,
+        await resolve?.(change)
+      );
+      if (result === "reject") {
+        throw new MigrationError(
+          `Change rejected: ${change.description}`,
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        );
+      }
+      if (result === undefined && !force) {
+        throw new MigrationError(
+          `Unresolved destructive change: ${change.description}\n` +
+            "Return change.proceed() or change.reject() from the resolver.",
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        );
+      }
+    }
+  }
+  return facts.map(({ operation, table, column }) => ({
+    operation,
+    table,
+    column,
+  }));
+}
+
+function describeDestructiveOperation(
+  op: DiffOperation
+): MigrationApprovalV1 & { readonly description: string } {
+  switch (op.type) {
+    case "dropTable":
+      return {
+        operation: "dropTable",
+        table: op.tableName,
+        column: null,
+        description: `Drop table "${op.tableName}" (all data will be lost)`,
+      };
+    case "dropColumn":
+      return {
+        operation: "dropColumn",
+        table: op.tableName,
+        column: op.columnName,
+        description: `Drop column "${op.columnName}" from table "${op.tableName}" (data will be lost)`,
+      };
+    case "addColumn":
+      return {
+        operation: "addColumn",
+        table: op.tableName,
+        column: op.column.name,
+        description: `Add required column "${op.tableName}.${op.column.name}" without a backfill default (fails on populated tables)`,
+      };
+    case "alterColumn":
+      return {
+        operation: "alterColumn",
+        table: op.tableName,
+        column: op.columnName,
+        // The SAME sentences the differ already writes for this operation, and
+        // not a second summary of it. Rendering `from.type → to.type` here was
+        // silent about the one change whose type does not move: a narrowing
+        // decimal domain on SQLite reads `(INTEGER → INTEGER)`, so the user was
+        // asked to accept a data-refusing change with nothing on screen to say
+        // what it was. Every destructive alterColumn produces at least one
+        // description, because the differ's description and classifier share
+        // the same owner and ask the same three questions.
+        description: getDestructiveOperationDescriptions([op]).join("; "),
+      };
+    default:
+      throw new MigrationError(
+        `Unexpected operation type: ${op.type}`,
+        VibORMErrorCode.INTERNAL_ERROR
+      );
+  }
 }
 
 // =============================================================================

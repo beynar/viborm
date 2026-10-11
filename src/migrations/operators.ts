@@ -4,8 +4,14 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { renderQualifiedIdentifier } from "../sql/identifiers";
 import { admitLiveMigrationCapability } from "./admission";
-import { assertNoDrift } from "./apply-v1";
+import { assertNoDrift, markerStanding } from "./apply-v1";
+import {
+  boundNamespace,
+  type InvalidIndex,
+  readInvalidIndexes,
+} from "./catalog-probes";
 import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
@@ -49,8 +55,10 @@ import {
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
+import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
+import type { SchemaSnapshot } from "./types";
 import { eventIdFor } from "./v1-parse";
 import type {
   BaselineOptions,
@@ -68,6 +76,15 @@ export interface StatusV1Result {
   readonly marker: MigrationMarkerV1 | null;
   readonly pending: readonly Sha256[];
   readonly unfinished: boolean;
+  /**
+   * Present only when the marker names a state this estate does not hold:
+   * `"ahead"` when its arrival path leaves this history after a state it holds
+   * (newer code migrated the database), `"unknown"` when nothing on that path
+   * belongs here. `pending` is then empty.
+   */
+  readonly markerState?: "ahead" | "unknown";
+  /** Present only when a managed table carries an INVALID index (PostgreSQL). */
+  readonly invalidIndexes?: readonly InvalidIndex[];
 }
 
 export async function statusV1(
@@ -84,6 +101,8 @@ export async function statusV1(
     command,
     DEFAULT_CONTROL_BASE
   );
+  const invalidIndexes = await readInvalidIndexes(client.$driver, command);
+  const listed = invalidIndexes.length === 0 ? {} : { invalidIndexes };
   if (control.presence.kind !== "present") {
     refusePartialControl(control.presence);
     return {
@@ -91,24 +110,39 @@ export async function statusV1(
       marker: null,
       pending: [...graph.roots],
       unfinished: false,
+      ...listed,
     };
   }
   const { marker, ledger } = control;
   const unfinished = unfinishedAttempts(ledger).length > 0;
+  const standing = markerStanding(graph, marker);
   let pending: Sha256[] = [];
-  if (graph.leaves.length === 1) {
+  if (standing === "known" && graph.leaves.length === 1) {
     const leaf = graph.leaves[0]!;
     if ((marker?.stateId ?? null) !== leaf) {
       pending = [...selectRoute(graph, marker?.stateId ?? null, leaf)];
     }
   }
-  return { control: "present", marker, pending, unfinished };
+  return {
+    control: "present",
+    marker,
+    pending,
+    unfinished,
+    ...(standing === "known" ? {} : { markerState: standing }),
+    ...listed,
+  };
+}
+
+export interface VerifyV1Result {
+  readonly ok: boolean;
+  /** Present, with `ok: false`, when the marker names a state this estate does not hold. */
+  readonly markerState?: "ahead" | "unknown";
 }
 
 export async function verifyV1(
   client: MigrationClient,
   storage: MigrationStorageReader
-): Promise<{ readonly ok: boolean }> {
+): Promise<VerifyV1Result> {
   const graph = await loadMigrationGraph(storage);
   const driver = getPushMigrationDriver(client);
   assertEstateTargetMatches(graph.descriptor.target, driver.target);
@@ -136,6 +170,8 @@ export async function verifyV1(
           VibORMErrorCode.MIGRATION_NOT_FOUND
         );
       }
+      const standing = markerStanding(graph, marker);
+      if (standing !== "known") return { ok: false, markerState: standing };
       const markedSnapshot = requireStateSnapshot(graph, marker.stateId);
       await command.preflightSchemaRequirements(
         [markedSnapshot],
@@ -425,7 +461,10 @@ export async function downV1(
       );
       await command.preflightSchemaRequirements(
         [requireStateSnapshot(graph, marker.stateId), ...rollbackSnapshots],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        prepared.flatMap((item) =>
+          stepStatements(item.blob, item.rollback.operations)
+        )
       );
       if (!rollbackAttempt) {
         await assertNoDrift(pinned, command, graph, marker);
@@ -467,7 +506,8 @@ export async function downV1(
                 item,
                 current,
                 item === prepared[0] ? rollbackAttempt : undefined,
-                ledger
+                ledger,
+                client.$schema
               );
             }
           };
@@ -570,6 +610,14 @@ export async function resolveV1(
         [originSnapshot, destSnapshot],
         (sql, params) => pinned._executeRaw(sql, params)
       );
+      if (options.outcome !== "retry") {
+        await repairInvalidIndexes(
+          pinned,
+          command,
+          stepStatements(blob, transition.operations),
+          options.outcome === "complete" ? destSnapshot : originSnapshot
+        );
+      }
       const live = await introspectManaged(pinned, command);
       const destHolds =
         (await fingerprintLive(live, command, pinned)) ===
@@ -604,8 +652,16 @@ export async function resolveV1(
             VibORMErrorCode.MIGRATION_INVALID_STATE
           );
         }
-        const finish = (producer: Parameters<typeof appendLedger>[0]) =>
-          finishResolve(producer, command, graph, attempt, "applied", to);
+        const finish = async (producer: Parameters<typeof appendLedger>[0]) => {
+          // Completing manual SQL canonicalizes what it stored, as apply does.
+          await canonicalizeSqliteStorage(
+            producer,
+            transition.operations,
+            client.$schema,
+            destSnapshot
+          );
+          await finishResolve(producer, command, graph, attempt, "applied", to);
+        };
         if (command.target.dialect === "mysql") {
           await runSequentialProgram(pinned, command, finish);
         } else if (pinned.supportsTransactions) {
@@ -723,6 +779,67 @@ export async function resolveV1(
       return { outcome: "retry" };
     }
   );
+}
+
+/**
+ * The index a `CREATE`/`DROP`/`REINDEX INDEX CONCURRENTLY` statement names,
+ * schema prefix dropped. An unnamed `CREATE INDEX CONCURRENTLY ON t` is never
+ * matched; its PG-chosen name is left to the V11023 refusal. (DROP INDEX
+ * CONCURRENTLY takes one name only.)
+ */
+const CONCURRENT_INDEX_NAME =
+  /\bINDEX\s+CONCURRENTLY\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?!ON\b)(?:(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)\s*\.\s*)?("(?:[^"]|"")+"|[A-Za-z_][\w$]*)/gi;
+/** The suffix of the `_ccnew`/`_ccold` copy an interrupted `REINDEX CONCURRENTLY` leaves INVALID. */
+const REINDEX_REMNANT = /^_cc(?:new|old)\d*$/;
+
+/**
+ * Repairs the INVALID indexes the unfinished attempt's own CONCURRENTLY
+ * statements left behind — the index each names, and the `<name>_ccnew` /
+ * `<name>_ccold` remnant of an interrupted `REINDEX CONCURRENTLY` — towards the snapshot the
+ * requested outcome asserts: an index that snapshot declares is rebuilt, any
+ * other is dropped, both CONCURRENTLY so writes keep flowing. An invalid index
+ * the attempt never named (another session's build, still running perhaps) is
+ * left alone, and the proof that follows refuses on it with V11023. An invalid
+ * index belongs to neither state, so the repair cannot turn a false proof true.
+ */
+async function repairInvalidIndexes(
+  pinned: Parameters<typeof appendLedger>[0],
+  command: Parameters<typeof appendLedger>[1],
+  statements: readonly string[],
+  expected: SchemaSnapshot
+): Promise<void> {
+  const named = statements.flatMap((text) =>
+    [...text.matchAll(CONCURRENT_INDEX_NAME)].map(([, name = ""]) =>
+      name.startsWith('"')
+        ? name.slice(1, -1).replaceAll('""', '"')
+        : name.toLowerCase()
+    )
+  );
+  if (named.length === 0) return;
+  for (const { table, index } of await readInvalidIndexes(pinned, command)) {
+    if (
+      !named.some(
+        (name) =>
+          index === name ||
+          (index.startsWith(name) &&
+            REINDEX_REMNANT.test(index.slice(name.length)))
+      )
+    )
+      continue;
+    const rebuild = expected.tables.some(
+      (declared) =>
+        declared.name === table &&
+        declared.indexes.some((item) => item.name === index)
+    );
+    const name = renderQualifiedIdentifier(
+      (part) => command.escapeIdentifier(part),
+      boundNamespace(command),
+      index
+    );
+    await pinned._executeRaw(
+      `${rebuild ? "REINDEX INDEX" : "DROP INDEX"} CONCURRENTLY ${name}`
+    );
+  }
 }
 
 async function finishResolve(
@@ -885,7 +1002,8 @@ async function executeRollbackEdge(
   item: ReturnType<typeof prepareRollbackEdge>,
   current: MigrationMarkerV1,
   resume: LedgerEventV1 | undefined,
-  ledger: readonly LedgerEventV1[]
+  ledger: readonly LedgerEventV1[],
+  models: MigrationClient["$schema"]
 ): Promise<MigrationMarkerV1> {
   const { edge, state, parent, blob, rollback, boundary, nextState } = item;
   if (
@@ -994,6 +1112,23 @@ async function executeRollbackEdge(
     },
     command.namespace
   );
+  const snapshotHash = nextState
+    ? graph.states.get(nextState)!.snapshotHash
+    : graph.emptySnapshotHash;
+  const expected =
+    graph.snapshots.get(snapshotHash) ??
+    (snapshotHash === graph.emptySnapshotHash
+      ? emptyManagedSnapshot()
+      : undefined);
+  // Manual rollback SQL may store text typed queries cannot compare.
+  if (expected) {
+    await canonicalizeSqliteStorage(
+      producer,
+      rollback.operations,
+      models,
+      expected
+    );
+  }
   if (
     parent.originChecks.length > 0 &&
     !(await evaluateAllChecks(
@@ -1008,14 +1143,6 @@ async function executeRollbackEdge(
       VibORMErrorCode.MIGRATION_DRIFT
     );
   }
-  const snapshotHash = nextState
-    ? graph.states.get(nextState)!.snapshotHash
-    : graph.emptySnapshotHash;
-  const expected =
-    graph.snapshots.get(snapshotHash) ??
-    (snapshotHash === graph.emptySnapshotHash
-      ? emptyManagedSnapshot()
-      : undefined);
   const live = await introspectManaged(producer, command);
   if (
     !expected ||

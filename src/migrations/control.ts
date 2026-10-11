@@ -169,6 +169,34 @@ export async function inspectControlPresence(
   return { kind: "present" };
 }
 
+/**
+ * Introspects with the managed-table scope narrowed to the two control tables.
+ *
+ * Every dialect's introspection already reads an unselected table without
+ * interpreting it (no refusal of its indexes, types or defaults), so a managed
+ * table's state — an INVALID index left by an interrupted `CREATE INDEX
+ * CONCURRENTLY` among them — can no longer make the control plane unreadable
+ * and take `status()` and `log()` down with it. The view restates `target`
+ * only, the way every execution view in this layer restates one member.
+ */
+function introspectControlTables(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver,
+  names: { readonly state: string; readonly log: string }
+): Promise<SchemaSnapshot> {
+  const scoped: BoundMigrationDriver = Object.create(driver);
+  Object.defineProperty(scoped, "target", {
+    value: Object.freeze({
+      ...driver.target,
+      tables: [names.log, names.state],
+    }),
+    enumerable: true,
+  });
+  return Object.freeze(scoped).introspect((sql, params) =>
+    producer._executeRaw(sql, params)
+  );
+}
+
 /** Proves that both reserved control tables still have VibORM's exact shape. */
 export async function assertControlTablesAuthentic(
   producer: AnyDriver,
@@ -178,9 +206,7 @@ export async function assertControlTablesAuthentic(
   const names = controlTableNames(base);
   let snapshot: SchemaSnapshot;
   try {
-    snapshot = await driver.introspect((sql, params) =>
-      producer._executeRaw(sql, params)
-    );
+    snapshot = await introspectControlTables(producer, driver, names);
   } catch (failure) {
     if (failure instanceof MigrationError) throw failure;
     throw new MigrationError(
@@ -253,9 +279,7 @@ async function assertExpectedStateControlTable(
   const tableName = names.state;
   let snapshot: SchemaSnapshot;
   try {
-    snapshot = await driver.introspect((sql, params) =>
-      producer._executeRaw(sql, params)
-    );
+    snapshot = await introspectControlTables(producer, driver, names);
   } catch (failure) {
     throw new MigrationError(
       "A partial migration control state table cannot be authenticated",

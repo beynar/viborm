@@ -36,6 +36,7 @@ import {
 } from "@src/migrations/v1-parse";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import Database from "better-sqlite3";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import { sqliteEstateDriver } from "./_estate";
 
@@ -392,23 +393,71 @@ describe("migration v1 authenticated push", () => {
     await client.$disconnect();
   });
 
-  test("consent from another driver binding is refused", async () => {
-    const first = createClient({
-      schema: { user },
-      driver: createInMemorySQLite3Driver(),
+  test("a consent previewed by one client instance applies through another on the same database", async () => {
+    // The tenant flow previews in one request and confirms in another, after
+    // the first client may have been evicted. 1.1.0 bound the consent to a
+    // random per-driver id and refused here with V11018.
+    const database = new Database(":memory:");
+    const legacy = s.model({
+      id: s.string().id(),
+      email: s.string().unique(),
+      legacyCode: s.string().nullable(),
     });
-    const second = createClient({
-      schema: { user },
-      driver: createInMemorySQLite3Driver(),
+    const seed = createClient({
+      schema: { user: legacy },
+      driver: new SQLite3Driver({ client: database }),
     });
-    const preview = await previewPush(first);
+    await pushV1(seed);
+    const insert = database.prepare(
+      'INSERT INTO "user" ("id", "email", "legacyCode") VALUES (?, ?, ?)'
+    );
+    database.transaction(() => {
+      for (let index = 0; index < 10_000; index++) {
+        insert.run(`u${index}`, `u${index}@example.test`, `L${index}`);
+      }
+    })();
+    const preview = await previewPush(
+      createClient({
+        schema: { user },
+        driver: new SQLite3Driver({ client: database }),
+      })
+    );
+    expect(preview.destructive).toBe(true);
+    const confirming = createClient({
+      schema: { user },
+      driver: new SQLite3Driver({ client: database }),
+    });
     await expect(
-      pushV1(second, { consent: preview.consent })
+      pushV1(confirming, {
+        consent: JSON.parse(JSON.stringify(preview.consent)),
+      })
+    ).resolves.toMatchObject({ outcome: "applied" });
+    expect(database.prepare('SELECT COUNT(*) AS n FROM "user"').get()).toEqual({
+      n: 10_000,
+    });
+    database.close();
+  });
+
+  test("a consent is refused by a database whose live schema differs from the previewed one", async () => {
+    const previewed = createClient({
+      schema: { user },
+      driver: createInMemorySQLite3Driver(),
+    });
+    const other = createClient({
+      schema: { user },
+      driver: createInMemorySQLite3Driver(),
+    });
+    await other.$driver._executeRaw(
+      'CREATE TABLE "user" ("id" TEXT PRIMARY KEY, "email" TEXT, "legacyCode" TEXT)'
+    );
+    const preview = await previewPush(previewed);
+    await expect(
+      pushV1(other, { consent: preview.consent })
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_CONSENT_MISMATCH,
     });
-    await first.$disconnect();
-    await second.$disconnect();
+    await previewed.$disconnect();
+    await other.$disconnect();
   });
 
   test("ordinary dry-run plans a diff and writes nothing", async () => {

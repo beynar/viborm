@@ -186,7 +186,7 @@ export async function buildPushPlan(
         );
     }
   const resolutions = controller.finish();
-  const target = await pushTargetIdentity(client, producer, command);
+  const target = await pushTargetIdentity(producer, command);
   const sourceFingerprint = await fingerprintLive(current, command, producer);
   const desiredFingerprint = await fingerprintLive(desired, command, producer);
   const schemaHash = hashSnapshot(desired);
@@ -195,6 +195,13 @@ export async function buildPushPlan(
     operations,
     planningDriver,
     options.forceReset ? emptyManagedSnapshot() : current
+  );
+  await command.preflightSchemaRequirements(
+    [],
+    (sql, params) => producer._executeRaw(sql, params),
+    compiled.statements.map((statement) =>
+      sliceDispatch(compiled.bytes, statement.dispatch)
+    )
   );
   const reportedOperations: PushOperation[] = operations.map(
     (operation, index) => ({

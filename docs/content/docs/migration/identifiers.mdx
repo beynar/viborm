@@ -215,7 +215,10 @@ Executed against the project's PostgreSQL 16 container. What it showed:
   in case survive as text and collide as `uuid`.
 
 `DEFAULT gen_random_uuid()` can go back on afterwards, and VibORM emits it for
-an unprefixed `.uuid()` field. There is no equivalent for `uuidv7`, for a
+an unprefixed uuid the scalar generates (`.id().uuid()` or
+`.uuid({ generate: true })`); a non-key `.uuid()` and
+`.id({ generate: false }).uuid()` are supplied by the caller and get no default.
+There is no equivalent for `uuidv7`, for a
 prefixed domain, or for any other format.
 
 ### A prefixed uuid, and ULID or KSUID

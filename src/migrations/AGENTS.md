@@ -516,14 +516,19 @@ composition owner and delegates the six directed DateTime SQL spellings to
 member of the source vocabulary and that the target decodes to the same
 millisecond; null remains null, and malformed, out-of-range, or inexact data
 aborts the recreation instead of being rounded or reinterpreted. TEXT parsing
-mirrors the public timestamp grammar: a real proleptic-Gregorian date, hour
-`00` through `23`, minute and second `00` through `59`, and `Z` or a signed
-offset through `±23:59`. It imports the exact inclusive epoch bounds for
+uses the stored-text grammar (`ISO_TIMESTAMP_SHAPES`): the public timestamp
+grammar — a real proleptic-Gregorian date, hour `00` through `23`, minute and
+second `00` through `59`, and `Z` or a signed offset through `±23:59` — plus
+SQLite's own zone-less `YYYY-MM-DD HH:MM:SS[.f{1,3}]`, read as UTC (decision
+4). The client's input grammar (`validateIsoTimestamp`) does not admit the
+zone-less form. A same-form unmarked TEXT adoption validates against this
+grammar and keeps the spelling; `check --db` counts it. It imports the exact inclusive epoch bounds for
 `0000-01-01T00:00:00.000Z` through `9999-12-31T23:59:59.999Z` from
 `datetime-values.ts`; do not hand-copy those numbers. Offset arithmetic stays
 integer-owned here rather than delegated to SQLite's `julianday`, whose accepted
 offset range is narrower. Fractional seconds consume only their one to three
-digits before the `Z` or signed-offset suffix; offset digits are never part of
+digits before the `Z` or signed-offset suffix, or the end of a zone-less value;
+offset digits are never part of
 the millisecond. A TEXT target must fit the same domain.
 
 LibSQL's native `ALTER COLUMN` does not convert stored values, so every
@@ -597,6 +602,16 @@ dispatches, and parameters. Under one pinned target lock it then:
 6. proves operation postconditions and the final target fingerprint;
 7. compare-and-swaps the marker and appends ledger evidence;
 8. releases the lock on the same physical producer.
+
+On SQLite, every program that runs manual SQL — a forward transition with a
+manual operation, a `manual` rollback, and `resolve` completing a manual
+transition — calls `canonicalizeSqliteStorage` (`sqlite-storage-audit.ts`)
+inside its transaction after the SQL and before checks, fingerprint and marker
+compare-and-swap. It rewrites text DateTime/Time columns (scalar and JSON list)
+into canonical text and checks decimal-list members. A row it cannot rewrite
+aborts with V11014. Scalar DateTime and decimal lists come from the destination
+snapshot; Time columns and DateTime lists come from the client's models,
+matched by table, column and physical type.
 
 Transactional providers keep effects, final proof, marker, and success evidence
 inside the real transaction when the complete transition permits it. Stepwise

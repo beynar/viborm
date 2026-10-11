@@ -353,6 +353,16 @@ plan always requires a dry preview followed by its exact consent. The second
 call reacquires the target lock, replans from the live catalog, and refuses if
 the target or plan changed.
 
+The consent is not tied to a client instance: any client may confirm it, for
+example a second request after the first was evicted. On Postgres and MySQL it
+is bound to the database and namespace name plus the plan hash; on SQLite and
+D1, only to the plan hash. The plan hash covers the live schema fingerprint, the
+desired schema fingerprint and the exact statements. A changed live schema or
+plan refuses it with `V11018`. A consent previewed against one database
+therefore also confirms on another database with the same name (on SQLite and
+D1, any database) whose live schema is identical, and it runs exactly the
+reviewed statements there. Do not carry consents between environments.
+
 ## API Result
 
 ```ts

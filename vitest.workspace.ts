@@ -250,6 +250,7 @@ export default defineWorkspace([
     "tests/providers/docker/pg*.test.ts",
     "tests/unit/migrations/pinned-session-docker.test.ts",
     "tests/unit/migrations/postgres-namespace-docker.test.ts",
+    "tests/unit/migrations/postgres-session-limits-docker.test.ts",
     "tests/unit/migrations/shared-pool-estates-docker.test.ts",
   ]),
   // Push, generate and apply again, through a transaction-mode PgBouncer. Only

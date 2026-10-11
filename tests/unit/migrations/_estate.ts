@@ -8,7 +8,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { Driver } from "@drivers/driver";
+import { Driver, SQLITE_MIGRATION_CAPABILITY } from "@drivers/driver";
 import type { PinnedSessionReservation } from "@drivers/shared";
 import type { Dialect, QueryResult } from "@drivers/types";
 import type { DDLContext } from "@migrations/drivers";
@@ -376,9 +376,14 @@ export function sqliteControlDefinitionAnswer(
   return undefined;
 }
 
+/** The stock sqlite3 shape: it declares the SQLite migration capability. */
+class DeclaredSqliteDriver extends RecordingDriver {
+  override readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
+}
+
 /** A SQLite recording driver. SQLite estates have no namespace at all. */
 export function sqliteEstateDriver(): RecordingDriver {
-  return new RecordingDriver(
+  return new DeclaredSqliteDriver(
     "sqlite",
     "sqlite3",
     adapterBoundTo(new SQLiteAdapter(), undefined)

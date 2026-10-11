@@ -16,6 +16,7 @@
 
 import { ClientInitializationError } from "@errors";
 import { isError } from "../../errors/diagnostic-safety";
+import type { MigrationSessionAttestation } from "../driver";
 
 /**
  * MySQL2's transport assertion. It selects nothing: it states that qualified
@@ -26,6 +27,9 @@ export type MigrationNamespaceAttestation = "non-redirecting";
 
 const MIGRATION_NAMESPACE_ATTESTATION: MigrationNamespaceAttestation =
   "non-redirecting";
+
+const MIGRATION_SESSION_ATTESTATION: MigrationSessionAttestation =
+  "dedicated-session";
 
 /**
  * The ONE normalizer for a thrown value that has to become an error's cause.
@@ -91,21 +95,47 @@ export function resolveNamespaceOption(source: object): string | undefined {
 }
 
 /**
- * The attestation this configuration makes, or `undefined` when it makes none.
- * Only the exact literal is admitted: a truthy value, a near-miss spelling, or
- * any other literal is a refusal, because this is a safety claim and a
- * mistyped claim must not read as an approximate one.
+ * The attestation this configuration makes under `key`, or `undefined` when it
+ * makes none. Only the exact literal is admitted: a truthy value, a near-miss
+ * spelling, or any other literal is a refusal, because this is a safety claim
+ * and a mistyped claim must not read as an approximate one.
  */
+function resolveAttestationOption<T extends string>(
+  source: object,
+  key: string,
+  literal: T
+): T | undefined {
+  const value = readOptionOnce(source, key);
+  if (value === undefined) return undefined;
+  if (value === literal) return literal;
+  throw new ClientInitializationError(
+    `The "${key}" option admits only "${literal}".`
+  );
+}
+
+/** MySQL2's `migrationNamespaceAttestation`, read once. */
 export function resolveMigrationNamespaceAttestationOption(
   source: object
 ): MigrationNamespaceAttestation | undefined {
-  const value = readOptionOnce(source, "migrationNamespaceAttestation");
-  if (value === undefined) return undefined;
-  if (value === MIGRATION_NAMESPACE_ATTESTATION) {
-    return MIGRATION_NAMESPACE_ATTESTATION;
-  }
-  throw new ClientInitializationError(
-    `The "migrationNamespaceAttestation" option admits only "${MIGRATION_NAMESPACE_ATTESTATION}".`
+  return resolveAttestationOption(
+    source,
+    "migrationNamespaceAttestation",
+    MIGRATION_NAMESPACE_ATTESTATION
+  );
+}
+
+/**
+ * A PostgreSQL driver's `migrationSessionAttestation`, read once: the caller's
+ * claim that every connection is one server session for its whole life, which
+ * lifts migration admission's pooler-host refusal at their risk.
+ */
+export function resolveMigrationSessionAttestationOption(
+  source: object
+): MigrationSessionAttestation | undefined {
+  return resolveAttestationOption(
+    source,
+    "migrationSessionAttestation",
+    MIGRATION_SESSION_ATTESTATION
   );
 }
 

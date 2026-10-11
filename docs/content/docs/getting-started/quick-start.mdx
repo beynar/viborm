@@ -4,7 +4,44 @@ description: Build your first VibORM schema in 5 minutes with a simple blog exam
 icon: zap
 ---
 
-## 1. Define Your Schema
+## 1. Set Up the Project
+
+Start from an empty directory. This guide uses SQLite through `better-sqlite3`,
+so it needs no database server:
+
+```bash
+mkdir blog && cd blog
+npm init -y
+npm pkg set type=module
+npm install viborm better-sqlite3
+npm install -D typescript tsx @types/node @types/better-sqlite3
+```
+
+`type=module` makes your files ES modules, which the top-level `await` in
+step 5 needs. `tsx` runs TypeScript files on Node.js. For another database,
+install its driver instead of `better-sqlite3`
+(see [Installation](/docs/getting-started#database-drivers)).
+
+Add a `tsconfig.json`:
+
+```json title="tsconfig.json"
+{
+  "compilerOptions": {
+    "strict": true,
+    "skipLibCheck": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  }
+}
+```
+
+Relative imports name their `.ts` file (`./schema.ts`), so the same files run
+under `tsx` and under Node.js's own type stripping.
+
+## 2. Define Your Schema
 
 Create a `schema.ts` file with your model definitions:
 
@@ -34,15 +71,26 @@ export const post = s.model({
 });
 ```
 
-## 2. Create the Client
+## 3. Create the Client
 
 Initialize your database client with your preferred database:
 
 <Tabs>
+  <Tab title="SQLite">
+```ts title="src/db/client.ts"
+import { createClient } from "viborm/sqlite3";
+import * as schema from "./schema.ts";
+
+export const client = createClient({
+  schema,
+  dataDir: "./data.db",
+});
+```
+  </Tab>
   <Tab title="postgres.js">
 ```ts title="src/db/client.ts"
 import { createClient } from "viborm/postgres";
-import * as schema from "./schema";
+import * as schema from "./schema.ts";
 
 export const client = createClient({
   schema,
@@ -53,7 +101,7 @@ export const client = createClient({
   <Tab title="node-postgres">
 ```ts title="src/db/client.ts"
 import { createClient } from "viborm/pg";
-import * as schema from "./schema";
+import * as schema from "./schema.ts";
 
 export const client = createClient({
   schema,
@@ -61,21 +109,10 @@ export const client = createClient({
 });
 ```
   </Tab>
-  <Tab title="SQLite">
-```ts title="src/db/client.ts"
-import { createClient } from "viborm/sqlite3";
-import * as schema from "./schema";
-
-export const client = createClient({
-  schema,
-  dataDir: "./data.db",
-});
-```
-  </Tab>
   <Tab title="PGlite">
 ```ts title="src/db/client.ts"
 import { createClient } from "viborm/pglite";
-import * as schema from "./schema";
+import * as schema from "./schema.ts";
 
 export const client = createClient({
   schema,
@@ -85,13 +122,13 @@ export const client = createClient({
   </Tab>
 </Tabs>
 
-## 3. Create the Database Tables
+## 4. Create the Database Tables
 
 Your database is still empty. Create a `viborm.config.ts` in your project root and push the schema:
 
 ```ts title="viborm.config.ts"
 import { defineConfig } from "viborm/config";
-import { client } from "./src/db/client";
+import { client } from "./src/db/client.ts";
 
 export default defineConfig({ client });
 ```
@@ -100,20 +137,20 @@ The CLI includes a TypeScript loader and reads the project `.env`. Run it with
 Node.js so a native Node driver such as `better-sqlite3` uses its supported runtime:
 
 ```bash
-pnpm exec viborm push
+npx viborm push
 ```
 
-With npm, use `npx viborm push`. A separately installed TypeScript loader is not
-required. Use the Bun SQLite driver when the application itself runs on Bun.
+With pnpm, use `pnpm exec viborm push`. The CLI does not need `tsx`. Use the
+Bun SQLite driver when the application itself runs on Bun.
 
 `push` syncs your models straight to the database without migration files — see [Push](/docs/migration/push) for details and [Configuration](/docs/getting-started/configuration) for config options.
 
-## 4. Query Your Data
+## 5. Query Your Data
 
 Now you can use the fully typed client:
 
 ```ts title="src/index.ts"
-import { client } from "./db/client";
+import { client } from "./db/client.ts";
 
 // Create a user
 const newUser = await client.user.create({
@@ -155,9 +192,18 @@ await client.post.update({
 await client.post.deleteMany({
   where: { published: false },
 });
+
+console.log(users);
 ```
 
-## 5. Type Safety in Action
+Type-check the project, then run the file:
+
+```bash
+npx tsc
+npx tsx src/index.ts
+```
+
+## 6. Type Safety in Action
 
 VibORM provides full type inference:
 
@@ -183,6 +229,12 @@ await client.user.findMany({
 });
 ```
 
+The types reject unknown keys at the top level of every argument, as above.
+Deeper inside an argument, some misuse still type-checks. VibORM also validates
+every call at runtime, before any SQL runs: input the types let through but the
+schema does not admit is rejected there with a `ValidationError` (code `V4001`)
+whose message names the path, such as `data.posts.create`.
+
 ## Next Steps
 
 <CardGroup>
@@ -202,9 +254,3 @@ await client.user.findMany({
     Master the filter operators
   </Card>
 </CardGroup>
-
-VibORM publishes ESM and supports Node.js 22+ for ESM applications. A CommonJS
-application can use `require("viborm")` through Node's `require(esm)` support
-on Node.js 22.12+ or 24. A `.cts` consumer should use TypeScript 5.9+ with
-`module` and `moduleResolution` set to `"NodeNext"`. This CommonJS path does
-not imply flag-free `require(esm)` on Node.js 22.0.

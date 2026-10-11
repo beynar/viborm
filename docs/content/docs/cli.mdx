@@ -37,6 +37,13 @@ supply `--accept-data-loss` only for a plan you intend to apply. A non-interacti
 invocation requiring confirmation fails with actionable guidance. `--force-reset`
 requests a destructive rebuild and is not a remedy for an unexplained failure.
 
+`migrate generate` asks the same way before it publishes a destructive change
+(a drop, a type change, a tightened `NOT NULL`): on a terminal it asks once per
+change, and `--accept-data-loss` approves them all for that run. A
+`migrations.resolve` in `viborm.config.ts` answers instead of both. Piped, in
+`--json` mode, or with neither, a destructive change is refused with `V11017`
+and nothing is published; `--dry-run` previews it without asking.
+
 Failures produce a nonzero exit code. JSON mode writes structured errors;
 cleanup finishes before the process reports success or failure. Provider SQL
 messages and values follow the same disclosure rules as application errors.

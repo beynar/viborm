@@ -1453,8 +1453,9 @@ a refusal. Execution order is the run order of `CommandExecution.run`: the
 `before` children, the record's own write, the captures, the `after` children,
 each in body order — where the body order is the relation body's canonical
 verb order (`mutationOrder`, `collectionMutationOrder`: a to-many runs
-`disconnect, delete, update, upsert, connectOrCreate, set, updateMany,
-deleteMany, connect, create, createMany`), relations in declaration order,
+`disconnect, delete, set, updateMany, deleteMany, update, upsert,
+connectOrCreate, connect, create, createMany` — clear-first, whatever the
+payload's key order), relations in declaration order,
 and each payload ENTRY of a verb is its own mutation with its own origin (a
 set's targets share the set's). The write's and the read's execution points
 are the two children of their nearest common ancestor on each path; a

@@ -251,7 +251,7 @@ describe("the pinned view is the same driver on one producer", () => {
     ]);
   });
 
-  test("rolls the pinned transaction back on the reserved session", async () => {
+  test("rolls the pinned transaction back on the reserved session after a non-connection failure", async () => {
     const driver = new PinnableDriver();
 
     await expect(

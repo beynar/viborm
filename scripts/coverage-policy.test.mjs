@@ -57,7 +57,8 @@ const PROVIDER_RESOURCE_SPECIFIERS = new Set([
  *
  * - `in-memory-sqlite`: the contract observes live database state that a
  *   recording driver cannot produce - the authenticated control table, marker
- *   arrival, read-only control presence, and consent staleness. It may
+ *   arrival, read-only control presence, consent staleness, and a refusal
+ *   that leaves a populated database untouched. It may
  *   open an in-process `better-sqlite3` database and nothing else. No other
  *   engine, no file-backed database, no filesystem, network, or subprocess.
  * - `no-database`: the contract names a provider module to read a declared
@@ -73,8 +74,28 @@ const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
   ["tests/unit/migrations/v1-apply.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-operators.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-push.core.test.ts", "in-memory-sqlite"],
+  [
+    "tests/unit/migrations/generate-destructive-approval.core.test.ts",
+    "in-memory-sqlite",
+  ],
+  [
+    "tests/unit/migrations/sqlite-rebuild-refusals.core.test.ts",
+    "in-memory-sqlite",
+  ],
+  [
+    "tests/unit/migrations/sqlite-migration-capability.core.test.ts",
+    "in-memory-sqlite",
+  ],
   ["tests/unit/migrations/decimal-provider-limits.core.test.ts", "no-database"],
   ["tests/unit/migrations/v1-provider-admission.core.test.ts", "no-database"],
+  // Driver construction only: pg, postgres.js and Bun SQL pools connect
+  // lazily, and admission reads their configured hosts before any I/O.
+  [
+    "tests/unit/migrations/postgres-pooler-hosts-drivers.core.test.ts",
+    "no-database",
+  ],
+  // The libSQL driver connects lazily; binding and admission run before it.
+  ["tests/unit/migrations/sqlite-libsql-binding.core.test.ts", "no-database"],
 ]);
 
 /** Engines the in-memory SQLite exception does not extend to. */

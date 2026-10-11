@@ -35,6 +35,10 @@ const scripts = [
   ["preserves packaged error names", "./error-names-smoke.mjs"],
   ["works without the optional OpenTelemetry peer", "./otel-absent-smoke.mjs"],
   [
+    "loads viborm/migrations in workerd without compatibility flags",
+    "./workerd-migrations-smoke.mjs",
+  ],
+  [
     "lets a third party build soft delete from public exports alone",
     "./soft-delete-consumer-smoke.mjs",
   ],
@@ -53,6 +57,10 @@ const scripts = [
     "./optional-peer-declarations-smoke.mjs",
   ],
   [
+    "resolves its peer ranges as npm does (workers-types 5 installs)",
+    "./peer-resolution-smoke.mjs",
+  ],
+  [
     "supports genuine CommonJS runtime and typed consumers",
     "./commonjs-consumer-smoke.mjs",
   ],
@@ -63,6 +71,10 @@ const scripts = [
   [
     "loads installed CLI TypeScript configuration and environment files",
     "./cli-config-consumer-smoke.mjs",
+  ],
+  [
+    "runs the quick start from npm init -y as written",
+    "./quick-start-consumer-smoke.mjs",
   ],
   [
     "preserves dependency security regressions",
