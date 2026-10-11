@@ -36,9 +36,16 @@ describe("bigint schema", () => {
       expect(result.issues).toBeDefined();
     });
 
-    test("rejects strings", () => {
-      const result = parse(schema, "42");
-      expect(result.issues).toBeDefined();
+    test("admits an integer string as a bigint and refuses any other string", () => {
+      expect(parse(schema, "42")).toEqual({ value: 42n });
+      expect(parse(schema, "-9007199254740993")).toEqual({
+        value: -9_007_199_254_740_993n,
+      });
+      for (const text of ["4.2", "42n", "0x2a", " 42", ""]) {
+        expect(parse(schema, text).issues).toEqual([
+          { message: "Expected bigint or an integer string" },
+        ]);
+      }
     });
 
     test("rejects null", () => {

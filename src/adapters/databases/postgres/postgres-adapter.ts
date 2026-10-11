@@ -8,7 +8,7 @@ import {
   nativeTypeFor,
 } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
-import { type Sql, sql } from "@sql";
+import { Sql, sql } from "@sql";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
@@ -63,7 +63,6 @@ import {
   createInsertStatement,
   createLateralJoins,
   createLogicalOperators,
-  createMembershipOperators,
   createMutationCommands,
   createNullOperators,
   createNumericSetOperations,
@@ -104,6 +103,58 @@ function postgresJsonObject(pairs: [string, Sql][]): Sql {
 const POSTGRES_CONSTRAINTS = createNamedConstraintIdentities(
   (tableName) => `${tableName}_pkey`
 );
+
+/** An operand cast to the type its column holds: `uuid`, `NUMERIC(p,s)`. */
+class CastParameter extends Sql {
+  readonly type: string;
+  constructor(value: unknown, type: string) {
+    super(["CAST(", ` AS ${type})`], [value]);
+    this.type = type;
+  }
+}
+
+/** A value list bound as ONE array parameter: `= ANY(…)`, `<> ALL(…)`. */
+class ArrayParameter extends Sql {}
+const PARENTHESIZED_LIST = createStandardLiterals().list;
+
+/**
+ * engine-09: a list whose members are each one parameter — bare, or all cast
+ * to one type — as one array parameter: PostgreSQL's own array text, typed by
+ * the members' cast or, bare, by the compared column, as a list column's
+ * parameter is. Any other list keeps a parameter per member.
+ */
+function arrayParameter(members: readonly Sql[]): ArrayParameter | undefined {
+  const first = members[0];
+  if (first === undefined) return;
+  const type = first instanceof CastParameter ? first.type : undefined;
+  const elements: string[] = [];
+  for (const member of members) {
+    const cast = member instanceof CastParameter ? member : undefined;
+    const [head, tail, extra] = member.strings;
+    if (
+      cast?.type !== type ||
+      (!cast && (head !== "" || tail !== "" || extra !== undefined))
+    )
+      return;
+    const value = member.values[0];
+    if (value instanceof Uint8Array)
+      elements.push(
+        `\\x${Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("")}`
+      );
+    else if (
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "bigint" ||
+      typeof value === "boolean"
+    )
+      elements.push(String(value));
+    else return;
+  }
+  const text = arrayLiteralText(elements);
+  return type === undefined
+    ? new ArrayParameter(["", ""], [text])
+    : new ArrayParameter(["CAST(", ` AS ${type}[])`], [text]);
+}
 
 /**
  * `div`/`mod` rather than `/` and a hand-rolled remainder: both are exact on
@@ -209,7 +260,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     // naming the precision keeps the operand and the column one domain rather
     // than two that happen to agree.
     decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
-      sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "text")} AS ${sql.raw(decimalColumnType("pg", descriptor))})`,
+      new CastParameter(
+        encodePhysicalDecimal(canonical, descriptor, "text"),
+        decimalColumnType("pg", descriptor)
+      ),
 
     // A `uuid` column takes canonical text and is TYPED: PostgreSQL has no
     // `uuid = text` operator, so an untyped operand raises 42883 rather than
@@ -221,8 +275,11 @@ export class PostgresAdapter implements DatabaseAdapter {
       representation: IdRepresentation
     ): Sql =>
       representation === "uuid"
-        ? sql`CAST(${physical} AS UUID)`
+        ? new CastParameter(physical, "UUID")
         : sql`${physical}`,
+
+    list: (values: Sql[]): Sql =>
+      arrayParameter(values) ?? PARENTHESIZED_LIST(values),
   };
 
   // ============================================================
@@ -293,11 +350,21 @@ export class PostgresAdapter implements DatabaseAdapter {
       values: Sql,
       nativeType?: NativeTypeDeclaration
     ): Sql =>
-      sql`${this.expressions.caseSensitiveText(column, nativeType, false)} IN ${values}`,
+      this.operators.in(
+        this.expressions.caseSensitiveText(column, nativeType, false),
+        values
+      ),
 
-    // Set membership — values is a parenthesized list from literals.list(),
-    // so ANY/ALL (which need an array) would produce invalid SQL here
-    ...createMembershipOperators(),
+    // Set membership: a bound list (`literals.list`) is an array, read by
+    // ANY/ALL; a parenthesized list or a subquery is read by IN.
+    in: (column: Sql, values: Sql): Sql =>
+      values instanceof ArrayParameter
+        ? sql`${column} = ANY(${values})`
+        : sql`${column} IN ${values}`,
+    notIn: (column: Sql, values: Sql): Sql =>
+      values instanceof ArrayParameter
+        ? sql`${column} <> ALL(${values})`
+        : sql`${column} NOT IN ${values}`,
 
     // Null checks
     ...createNullOperators(),

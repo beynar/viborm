@@ -2,7 +2,7 @@ import { UnsupportedOperationError, unsupportedVector } from "@errors";
 import { sqliteDateTimePhysicalForm } from "@schema/scalars/datetime/physical";
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
-import { type Sql, sql } from "@sql";
+import { Sql, sql } from "@sql";
 import { encodePhysicalDateTime } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
@@ -253,6 +253,66 @@ const jsonArrayConcat = (left: Sql, right: Sql): Sql =>
 const sqliteJsonListValue = (values: unknown[]): Sql =>
   sql`${stringifyJson(values)}`;
 
+/** A bare operand, and a decimal operand: its coefficient read as INTEGER. */
+const PARAMETER = ["", ""];
+const COEFFICIENT = ["CAST(", " AS INTEGER)"];
+const LONE_SURROGATE = /\p{Cs}/u;
+const PARENTHESIZED_LIST = createStandardLiterals().list;
+
+/**
+ * One member as JSON text that `json_each` reads back as the value its own
+ * parameter binds, or `undefined`. A non-integer number is not one: SQLite
+ * reparses JSON text with an error in the last place for some doubles; nor is
+ * a string with a lone surrogate, which a driver binds as U+FFFD.
+ */
+function jsonMember(value: unknown): string | undefined {
+  if (typeof value === "string")
+    return LONE_SURROGATE.test(value) ? undefined : JSON.stringify(value);
+  if (value instanceof Uint8Array)
+    return `"${Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("")}"`;
+  return typeof value === "bigint" ||
+    typeof value === "boolean" ||
+    Number.isSafeInteger(value)
+    ? String(value)
+    : undefined;
+}
+
+/**
+ * engine-09: a list whose members are each one parameter under one spelling —
+ * bare, or a decimal's coefficient cast — as ONE parameter, a JSON array
+ * `json_each` reads back and spells per element as each member was, so `IN`
+ * and `NOT IN` keep their answers, NULLs included. Blobs travel as hex, read
+ * through `unhex`. Any other list keeps a parameter per member.
+ */
+function sqliteList(members: Sql[]): Sql {
+  const [first] = members;
+  const spelling =
+    first?.strings[0] === COEFFICIENT[0] ? COEFFICIENT : PARAMETER;
+  const elements: string[] = [];
+  let blobs = 0;
+  for (const member of members) {
+    const [head, tail, extra] = member.strings;
+    const value = member.values[0];
+    const element = jsonMember(value);
+    if (
+      element === undefined ||
+      head !== spelling[0] ||
+      tail !== spelling[1] ||
+      extra !== undefined
+    )
+      return PARENTHESIZED_LIST(members);
+    if (value instanceof Uint8Array) blobs++;
+    elements.push(element);
+  }
+  // No member, or blobs beside other values: nothing one spelling reads.
+  if (first === undefined || (blobs !== 0 && blobs !== members.length))
+    return PARENTHESIZED_LIST(members);
+  const read = new Sql(spelling, [
+    sql.raw(blobs === 0 ? "value" : "unhex(value)"),
+  ]);
+  return sql`(SELECT ${read} FROM json_each(${`[${elements.join(",")}]`}))`;
+}
+
 /** Facts a SQLite driver states about its transport. */
 export interface SQLiteAdapterOptions {
   /**
@@ -312,13 +372,17 @@ const SQLITE_LITERALS = {
   // D1 will not bind). SQLite's TEXT-to-INTEGER cast is a decimal integer
   // parse, not a float one.
   decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
-    sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "coefficient")} AS INTEGER)`,
+    new Sql(COEFFICIENT, [
+      encodePhysicalDecimal(canonical, descriptor, "coefficient"),
+    ]),
 
   // Every compact domain is a `BLOB` here and takes the payload's bytes as
   // the ordinary binary parameter a blob scalar already binds; a text-stored
   // domain takes the public string unchanged.
   id: (physical: string | Uint8Array, _representation: IdRepresentation): Sql =>
     sql`${physical}`,
+
+  list: sqliteList,
 };
 
 const SQLITE_OPERATORS = {
@@ -456,6 +520,14 @@ const SQLITE_AGGREGATES = {
   // `CAST(... AS INTEGER)` saturate. SUM results are not capped here; SQLite
   // raises on actual overflow.
   decimalSumOperandPrecision: sqliteIntegerPrecision,
+
+  // `>>` is arithmetic, so an int64 member is exactly `(x >> 32) * 2^32` plus
+  // its second part. That part stays REAL for a non-integer member, which the
+  // reader refuses as it refused the plain `SUM`.
+  integerSum: (column: Sql): [Sql, Sql] => [
+    sql`SUM(${column} >> 32)`,
+    sql`SUM(${column} - ((${column} >> 32) << 32))`,
+  ],
 };
 
 // Compare every node, including empty containers. Array indices remain part

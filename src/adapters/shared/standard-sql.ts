@@ -121,6 +121,10 @@ export const createAggregateFunctions = (): StandardAggregates => ({
     expr ? sql`COUNT(${expr})` : sql.raw("COUNT(*)"),
   countDistinct: (expr: Sql): Sql => sql`COUNT(DISTINCT ${expr})`,
   sum: (expr: Sql): Sql => sql`SUM(${expr})`,
+  numberSum: (expr: Sql): [Sql, Sql] => [
+    sql`SUM(CASE WHEN ABS(${expr}) >= 1e-288 THEN ${expr} / 4294967296.0 / 4294967296.0 END)`,
+    sql`SUM(CASE WHEN ABS(${expr}) < 1e-288 THEN ${expr} END)`,
+  ],
   avg: (expr: Sql): Sql => sql`AVG(${expr})`,
   min: (expr: Sql): Sql => sql`MIN(${expr})`,
   max: (expr: Sql): Sql => sql`MAX(${expr})`,

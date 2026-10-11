@@ -55,9 +55,9 @@ export function coerce<S extends VibSchema<any, any>, TOut>(
     "transform",
     (value): ValidationResult<TOut> => {
       const result = validateSchema(schema, value);
-      if (result.issues) {
-        return fail(result.issues[0]!.message);
-      }
+      // The wrapped schema's issues keep their paths: a refusal inside a
+      // coerced object names the member that refused.
+      if (result.issues) return { issues: result.issues };
       try {
         return ok(fn((result as { value: InferOutput<S> }).value));
       } catch (e) {

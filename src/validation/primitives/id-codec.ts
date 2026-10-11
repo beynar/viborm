@@ -32,14 +32,17 @@ import {
   bytesToKsuid,
   bytesToUlid,
   bytesToUuid,
+  CROCKFORD,
   CUID_TEXT,
   hasIdPrefix,
   KSUID_BYTE_LENGTH,
+  KSUID_MAX_TEXT,
   ksuidToBytes,
   NANOID_ALPHABET,
   NANOID_DEFAULT_LENGTH,
   ULID_BYTE_LENGTH,
   UUID_BYTE_LENGTH,
+  UUID_TEXT,
   ulidToBytes,
   uuidToBytes,
 } from "./id-formats";
@@ -128,6 +131,64 @@ export function describeIdDomain(domain: IdDomain): string {
   return prefix === undefined
     ? `a ${domain.format} value${width}`
     : `a ${domain.format} value${width} prefixed '${prefix}-'`;
+}
+
+/** The characters a pattern reads as syntax, escaped in a literal prefix. */
+const PATTERN_SYNTAX = /[$()*+./?[\\\]^{|}]/g;
+
+/**
+ * The domain as one ECMAScript pattern, for a reader that cannot run
+ * {@link canonicalizeId} — the JSON Schema export. A string matches it exactly
+ * when `canonicalizeId` admits it: the declared prefix whole, then a payload
+ * the format's own text conversion accepts, aliases included.
+ */
+export function idDomainPattern(domain: IdDomain): string {
+  const prefix = idPrefixOf(domain);
+  const marker =
+    prefix === undefined ? "" : `${prefix.replace(PATTERN_SYNTAX, "\\$&")}-`;
+  return `^${marker}${payloadPattern(domain)}$`;
+}
+
+function payloadPattern(domain: IdDomain): string {
+  switch (domain.format) {
+    case "uuid":
+    case "uuidv7":
+      return UUID_TEXT.source.slice(1, -1);
+    case "ulid":
+      // The first digit carries the top 3 of 128 bits, so it is at most 7.
+      return `[0-7][${CROCKFORD}${CROCKFORD.toLowerCase()}]{25}`;
+    case "ksuid":
+      return base62NotAbove(KSUID_MAX_TEXT);
+    case "nanoid":
+      return `[${NANOID_ALPHABET.replace("-", "\\-")}]{${nanoidLengthOf(domain)}}`;
+    default:
+      return CUID_TEXT.source.slice(1, -1);
+  }
+}
+
+/**
+ * A base62 text as wide as `max` and not above it. Base62's ASCII order is its
+ * numeric order, so "not above" is: `max` itself, or a prefix of it followed by
+ * a smaller digit and any digits after.
+ */
+function base62NotAbove(max: string): string {
+  const arms = [max];
+  for (let index = 0; index < max.length; index++) {
+    const below = base62Below(max[index]!);
+    if (below !== "")
+      arms.push(
+        `${max.slice(0, index)}[${below}][0-9A-Za-z]{${max.length - index - 1}}`
+      );
+  }
+  return `(?:${arms.join("|")})`;
+}
+
+/** The base62 digits below `digit`, as character-class ranges. */
+function base62Below(digit: string): string {
+  const previous = String.fromCharCode(digit.charCodeAt(0) - 1);
+  if (digit <= "9") return digit === "0" ? "" : `0-${previous}`;
+  if (digit <= "Z") return digit === "A" ? "0-9" : `0-9A-${previous}`;
+  return digit === "a" ? "0-9A-Z" : `0-9A-Za-${previous}`;
 }
 
 // =============================================================================

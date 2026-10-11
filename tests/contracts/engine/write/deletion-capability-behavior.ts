@@ -45,7 +45,8 @@ const POST_READ =
 const COUNTED_LOCK = /COUNT\(\*\)[\s\S]*\bFOR UPDATE\b/i;
 const LIMITED = /\bLIMIT\b/i;
 const TITLE_FILTER = /["`]?title["`]?(?:\s+COLLATE\s+\w+)?\s*=\s*\?/gi;
-const WINDOW_READ = /\bIN\s*\(\s*SELECT\b/gi;
+/** A window's own read; a bound `in` list read by `json_each` is not one. */
+const WINDOW_READ = /\bIN\s*\(\s*SELECT\b(?!\s+value\s+FROM\s+json_each\()/gi;
 /** An UPDATE whose SET starts with the marker: a tombstone write. */
 const TOMBSTONE_WRITE = /^\s*UPDATE\s+\S+\s+SET\s+["`]?deletedAt\b/i;
 const ACTOR = "actor-1";

@@ -161,6 +161,39 @@ describe("recursive relation admission", () => {
     ).toBeDefined();
   });
 
+  test("carries a spelled output budget on both topologies", () => {
+    expect(
+      parse(schemas.node.relations.children.include, {
+        recurse: { maxOccurrences: 50 },
+      })
+    ).toMatchObject({
+      value: { recurse: { depth: 100, cycles: "reject", maxOccurrences: 50 } },
+    });
+    expect(
+      parse(schemas.graphNode.relations.links.include, {
+        recurse: { depth: false, maxOccurrences: 20_000 },
+      })
+    ).toMatchObject({
+      value: {
+        recurse: { depth: false, cycles: "prevent", maxOccurrences: 20_000 },
+      },
+    });
+  });
+
+  test.each([
+    0,
+    -1,
+    1.5,
+    "10",
+    Number.MAX_SAFE_INTEGER + 1,
+  ])("refuses invalid maxOccurrences %s", (maxOccurrences) => {
+    expect(
+      parse(schemas.node.relations.children.include, {
+        recurse: { maxOccurrences },
+      }).issues
+    ).toBeDefined();
+  });
+
   test("refuses recursive pagination, duplicate asking keys, and typos", () => {
     expect(
       parse(schemas.node.relations.children.include, {

@@ -93,6 +93,8 @@ differs by driver, and these are the facts the engine relies on and verifies:
 | neon-http | atomic batches, one per segment; work that must observe an earlier write takes another committed batch | the failing batch rolls back; earlier acknowledged batches remain committed, reported through `committedSegments`; an uncertain outcome uses `mayHaveCommittedSegment` | 65 535 | actual Neon HTTP 1.2: failed-batch atomicity, Serializable batch options, durable commit notification, and post-commit result failure; credential-gated by `NEON_DATABASE_URL` or `NEON_TEST_DATABASE_URL` |
 | d1 | committed segments; generated references use the ordinary emptied `__viborm_batch_refs` scratch table | the failing batch rolls back; earlier acknowledged batches remain committed | 100 | local Workers D1 tests (`provider-d1`); no hosted Cloudflare D1 qualification |
 
+A scalar `in` / `notIn` list is one bound value on PostgreSQL (pg, postgres, pglite, bun-sql, neon-http), SQLite (sqlite3, libsql, bun-sqlite) and D1, so it does not count against these limits. On mysql2 and planetscale each member is one bound value. On every driver a `mode: "insensitive"` list binds one value per member. On SQLite, libSQL, bun-sqlite and D1 a list of non-integer numbers also binds one value per member.
+
 `createMany` with `skipDuplicates` suppresses a relation-bearing member or
 nested member inside an interactive savepoint. `neon-http`, `d1`, and explicit
 array transactions cannot provide that member rollback region, so unsupported

@@ -36,6 +36,16 @@ const stats = await client.post.aggregate({
 | `_min` | Minimum value | Comparable fields |
 | `_max` | Maximum value | Comparable fields |
 
+A selected `_sum` that leaves its type's range does not fail the call: a
+`number` sum is the provider's double sum computed without intermediate
+overflow, `Infinity` or `-Infinity` past the double range; an `int` sum past
+2^53 is the provider's total as the nearest double, so it loses precision like a
+`number` sum (use `s.bigInt()` for exact sums past 2^53); and a `bigint` or
+`decimal` sum is exact past the int64 range on every provider. The other
+aggregates of the call are returned as usual. A `having` or `orderBy` on such a
+sum still uses the provider's own `SUM`, which can fail (PostgreSQL, SQLite) or
+compare against `0` (MySQL, for a `number` sum).
+
 ## Options
 
 ```ts

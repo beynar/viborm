@@ -316,7 +316,22 @@ describe("dialect physical SQL vocabulary", () => {
   test("literals retain each provider's physical representation", () => {
     expectSql(postgres.literals.null(), "NULL");
     expectSql(postgres.literals.list([]), "()");
-    expectSql(postgres.literals.list([sql`${1}`, sql`${2}`]), "(?, ?)", [1, 2]);
+    // A list of parameters is ONE parameter (engine-09): PostgreSQL's array
+    // text, SQLite's JSON array; anything else keeps a parameter per member.
+    expectSql(postgres.literals.list([sql`${1}`, sql`${2}`]), "?", [
+      '{"1","2"}',
+    ]);
+    expectSql(
+      postgres.literals.list([sql`${1}`, sql.raw("NULL")]),
+      "(?, NULL)",
+      [1]
+    );
+    expectSql(
+      sqlite.literals.list([sql`${1}`, sql`${"a"}`]),
+      "(SELECT value FROM json_each(?))",
+      ['[1,"a"]']
+    );
+    expectSql(mysql.literals.list([sql`${1}`, sql`${2}`]), "(?, ?)", [1, 2]);
     expectSql(postgres.literals.value("x"), "?", ["x"]);
     expect(postgres.literals.json({ a: 1 }).values).toHaveLength(1);
     expectSql(mysql.literals.json({ a: 1 }), "?", ['{"a":1}']);

@@ -3,11 +3,21 @@ import type {
   InferInputShape,
   InferOutputShape,
   ThunkCast,
+  ValidationFailure,
+  ValidationIssue,
   ValidationResult,
   VibSchema,
 } from "../types";
 import { isFunction, isRecord } from "../value-guards";
-import { fail, OK_NULL, OK_UNDEFINED, ok, validateArray } from "./helpers";
+import {
+  collectingAllIssues,
+  fail,
+  issuesUnder,
+  OK_NULL,
+  OK_UNDEFINED,
+  ok,
+  validateArray,
+} from "./helpers";
 
 // =============================================================================
 // Object Schema Types
@@ -599,7 +609,7 @@ function createObjectValidator(
       ? (
           input: Record<string, unknown>,
           inputValueScratch: unknown[] | undefined
-        ): Result | undefined => {
+        ): ValidationFailure | undefined => {
           if (nonEmpty === true) {
             // Check if object has any keys at all (including unknown keys when strict: false)
             let hasAnyKey = false;
@@ -678,13 +688,14 @@ function createObjectValidator(
     const input = value as Record<string, unknown>;
     if (resolve) resolve();
     const inputValueScratch = inputValueScratchTemplate?.slice();
-    // Strict mode: check for extra keys first (fail-fast)
-    if (strict) {
-      const unknown = unknownKey(input, keyIndex);
-      if (unknown !== undefined) return unknownKeyIssue(unknown);
-    }
+    // Strict mode: check for extra keys first (fail-fast, unless collecting)
+    let issues = strict ? unknownKeyIssues(input, keyIndex) : undefined;
+    if (issues && !collectingAllIssues()) return { issues };
     const unmet = checkRequirements?.(input, inputValueScratch);
-    if (unmet) return unmet;
+    if (unmet) {
+      if (!collectingAllIssues()) return unmet;
+      (issues ??= []).push(...unmet.issues);
+    }
     const output: Record<string, unknown> = {};
     for (const key in input) {
       const i = keyIndex.get(key);
@@ -709,7 +720,12 @@ function createObjectValidator(
       }
 
       const result = validates[i]!(inputValue);
-      if (result.issues) return fieldIssue(key, result.issues[0]!);
+      if (result.issues) {
+        const rooted = issuesUnder(key, result.issues);
+        if (!collectingAllIssues()) return { issues: rooted };
+        (issues ??= []).push(...rooted);
+        continue;
+      }
       if (result.value !== undefined) {
         output[key] = result.value;
       }
@@ -730,12 +746,18 @@ function createObjectValidator(
         continue;
       }
       const result = validates[i]!(undefined);
-      if (result.issues) return fieldIssue(key, result.issues[0]!);
+      if (result.issues) {
+        const rooted = issuesUnder(key, result.issues);
+        if (!collectingAllIssues()) return { issues: rooted };
+        (issues ??= []).push(...rooted);
+        continue;
+      }
       if (result.value !== undefined) {
         output[key] = result.value;
       }
     }
 
+    if (issues) return { issues };
     const refusal = refuse?.(output);
     return refusal ? { issues: [{ message: refusal }] } : { value: output };
   };
@@ -751,13 +773,14 @@ function createObjectValidator(
     const input = value as Record<string, unknown>;
     if (resolve) resolve();
     const inputValueScratch = inputValueScratchTemplate?.slice();
-    // Strict mode: check for extra keys first (fail-fast)
-    if (strict) {
-      const unknown = unknownKey(input, keyIndex);
-      if (unknown !== undefined) return unknownKeyIssue(unknown);
-    }
+    // Strict mode: check for extra keys first (fail-fast, unless collecting)
+    let issues = strict ? unknownKeyIssues(input, keyIndex) : undefined;
+    if (issues && !collectingAllIssues()) return { issues };
     const unmet = checkRequirements?.(input, inputValueScratch);
-    if (unmet) return unmet;
+    if (unmet) {
+      if (!collectingAllIssues()) return unmet;
+      (issues ??= []).push(...unmet.issues);
+    }
     const output: Record<string, unknown> = {};
     // Validate each field - direct array access, no object property lookup
     for (let i = 0; i < keys.length; i++) {
@@ -788,17 +811,24 @@ function createObjectValidator(
           !acceptsUndefined[i] &&
           !isProvided(provides, key)
         ) {
-          return {
-            issues: [
-              { message: `Missing required field: ${key}`, path: [key] },
-            ],
+          const missing = {
+            message: `Missing required field: ${key}`,
+            path: [key],
           };
+          if (!collectingAllIssues()) return { issues: [missing] };
+          (issues ??= []).push(missing);
+          continue;
         }
 
         // If schema accepts undefined, run validator to apply defaults
         if (acceptsUndefined[i]) {
           const result = validates[i]!(undefined);
-          if (result.issues) return fieldIssue(key, result.issues[0]!);
+          if (result.issues) {
+            const rooted = issuesUnder(key, result.issues);
+            if (!collectingAllIssues()) return { issues: rooted };
+            (issues ??= []).push(...rooted);
+            continue;
+          }
           output[key] = result.value;
         } else {
           // Scalar is optional (partial: true, not in atLeast) but schema doesn't have defaults
@@ -812,11 +842,17 @@ function createObjectValidator(
       const result = validates[i]!(inputValue);
 
       // Handle validation error (most common unhappy path)
-      if (result.issues) return fieldIssue(key, result.issues[0]!);
+      if (result.issues) {
+        const rooted = issuesUnder(key, result.issues);
+        if (!collectingAllIssues()) return { issues: rooted };
+        (issues ??= []).push(...rooted);
+        continue;
+      }
 
       output[key] = result.value;
     }
 
+    if (issues) return { issues };
     const refusal = refuse?.(output);
     return refusal ? { issues: [{ message: refusal }] } : { value: output };
   };
@@ -824,33 +860,18 @@ function createObjectValidator(
   return partial && !atLeast ? parsePartial : parseDense;
 }
 
-function unknownKey(
+/** The unknown keys of a strict object: the first, or every one when collecting. */
+function unknownKeyIssues(
   input: Record<string, unknown>,
   keyIndex: ReadonlyMap<string, number>
-): string | undefined {
-  for (const key in input) if (!keyIndex.has(key)) return key;
-  return undefined;
-}
-
-function unknownKeyIssue(
-  key: string
-): ValidationResult<Record<string, unknown>> {
-  return { issues: [{ message: `Unknown key: ${key}`, path: [key] }] };
-}
-
-/** A member's first issue, re-rooted at the member's key. */
-function fieldIssue(
-  key: string,
-  issue: { message: string; path?: readonly PropertyKey[] }
-): ValidationResult<Record<string, unknown>> {
-  return {
-    issues: [
-      {
-        message: issue.message,
-        path: issue.path ? ([key] as PropertyKey[]).concat(issue.path) : [key],
-      },
-    ],
-  } as ValidationResult<Record<string, unknown>>;
+): ValidationIssue[] | undefined {
+  let issues: ValidationIssue[] | undefined;
+  for (const key in input) {
+    if (keyIndex.has(key)) continue;
+    (issues ??= []).push({ message: `Unknown key: ${key}`, path: [key] });
+    if (!collectingAllIssues()) break;
+  }
+  return issues;
 }
 
 /**

@@ -31,6 +31,12 @@ const settingsSchema = object({
 s.json().schema(settingsSchema); // Typed as { theme: "light" | "dark"; ... }
 ```
 
+The schema validates writes. Results are typed from `.schema()` but are not
+re-validated on read, so rows written before a schema change, or by raw SQL or
+another service, come back in the shape they were stored in. See
+[Scalars](/docs/schema/scalars#support-matrix) for how custom schemas apply
+to writes and filters.
+
 ## Examples
 
 ### Untyped JSON
@@ -125,7 +131,7 @@ const orderData = s.json().schema(orderSchema);
 
 ## Querying JSON
 
-JSON scalars support path-based filtering — see [JSON Filters](/docs/client/filtering/json) for the full operator list and per-database caveats. A path filter names its operator explicitly. Updates accept the replacement document directly or an explicit `{ set: value }` envelope:
+JSON scalars support path-based filtering — see [JSON Filters](/docs/client/filtering/json) for the full operator list and per-database caveats. A path filter names its operator explicitly.
 
 ```ts
 // Filter by nested value (must use { equals: value })
@@ -137,7 +143,15 @@ await client.user.findMany({
     },
   },
 });
+```
 
+## Writing JSON
+
+Every write accepts the document directly or an explicit `{ set: value }`
+envelope, and both forms store the same document. This holds on `create`,
+`createMany`, both arms of `upsert`, nested creates and updates alike:
+
+```ts
 // Replace the document directly
 await client.user.update({
   where: { id: "user_123" },
@@ -146,20 +160,26 @@ await client.user.update({
   },
 });
 
-// The explicit envelope writes the same document
-await client.user.update({
-  where: { id: "user_123" },
+// The explicit envelope writes the same document, on create as on update
+await client.user.create({
   data: {
+    id: "user_456",
     preferences: { set: { theme: "dark", fontSize: 16 } },
   },
 });
 ```
 
-Both forms validate the replacement document against `.schema(...)` when present.
-A one-key `{ set: value }` object is an update envelope. To store a literal
-one-key document with a `set` property, wrap it as `{ set: { set: value } }`;
-the inner document must satisfy the declared schema. An invalid envelope value
-fails validation rather than being stored as a literal document.
+Both forms validate the document against `.schema(...)` when present.
+A one-key `{ set: value }` object is the write envelope on every write path. To
+store a literal one-key document with a `set` property, wrap it as
+`{ set: { set: value } }`; the inner document must satisfy the declared schema.
+An invalid envelope value fails validation rather than being stored as a
+literal document.
+
+Because the envelope is unwrapped exactly once, wrapping a document you read
+back always writes it unchanged. Code that copies JSON between rows should write
+`{ set: row.preferences }` rather than the bare value, which would be read as an
+envelope when the document itself is a one-key `{ set }` object.
 
 ## Writing null
 

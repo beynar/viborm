@@ -27,7 +27,9 @@ const TAGS_PER_POST = 3;
 const PAGE = 100;
 const BATCH = 1000;
 const RUNS = 60;
-const TARGET_ALIAS = /FROM "tag" AS "(q\d+)"/;
+// The target table wherever the statement names it: after FROM, or after JOIN
+// when the page reads from the junction.
+const TARGET_ALIAS = /"tag" AS "(q\d+)"/;
 
 const post = s.model({
   id: s.int().id().increment(),

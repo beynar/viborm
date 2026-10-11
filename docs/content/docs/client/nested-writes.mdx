@@ -77,6 +77,15 @@ const user = await client.user.create({
 });
 ```
 
+Consecutive entries of a one-to-many `create` list that carry no nested write of
+their own and spell the same fields are written like nested `createMany`: one
+multi-row INSERT per child table, in the order you wrote them, split at the
+driver's bind-parameter budget. Each of these is still one statement per entry:
+an entry with its own nested writes; a many-to-many `create` list (the junction
+row needs each new key); `connectOrCreate` and `upsert` entries; and every entry
+inside an array `$transaction([...])` or on drivers without interactive
+transactions (such as D1).
+
 ### createMany (nested)
 
 Use nested `createMany` on a to-many relation. Scalar-only rows keep the grouped

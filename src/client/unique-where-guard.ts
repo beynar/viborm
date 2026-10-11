@@ -14,6 +14,7 @@ const UNIQUE_SELECTOR_OPERATIONS: ReadonlyMap<Operations, ValidationOperation> =
   ]);
 
 export function assertNonEmptyUniqueWhere(
+  model: string,
   operation: Operations,
   args: unknown
 ): void {
@@ -28,10 +29,14 @@ export function assertNonEmptyUniqueWhere(
   );
   if (hasDiscriminator) return;
 
-  throw new ValidationError(validationOperation, [
-    {
-      path: "where",
-      message: "whereUnique requires at least one unique discriminator.",
-    },
-  ]);
+  throw new ValidationError(
+    validationOperation,
+    [
+      {
+        path: "where",
+        message: "whereUnique requires at least one unique discriminator.",
+      },
+    ],
+    { meta: { model } }
+  );
 }

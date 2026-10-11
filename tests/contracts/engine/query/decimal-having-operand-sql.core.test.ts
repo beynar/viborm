@@ -70,7 +70,9 @@ const dialects = [
     dialect: "postgresql" as Dialect,
     adapter: () => new PostgresAdapter(),
     bound: ["5"],
-    boundList: ["5", "6"],
+    // One array parameter, cast once to the operand's domain.
+    boundList: ['{"5","6"}'],
+    listCasts: 1,
     listProjection: 'CAST("t0"."amounts" AS TEXT[]) AS "amounts"',
     groupedList: '"t0"."amounts"',
   },
@@ -80,6 +82,7 @@ const dialects = [
     adapter: () => new MySQLAdapter(),
     bound: ["5"],
     boundList: ["5", "6"],
+    listCasts: 2,
     listProjection: "CAST(`t0`.`amounts` AS CHAR) AS `amounts`",
     groupedList: "`t0`.`amounts`",
   },
@@ -88,7 +91,9 @@ const dialects = [
     dialect: "sqlite" as Dialect,
     adapter: () => new SQLiteAdapter(),
     bound: ["500"],
-    boundList: ["500", "600"],
+    // One JSON parameter, each coefficient cast as it is read back.
+    boundList: ['["500","600"]'],
+    listCasts: 1,
     listProjection: 'CAST("t0"."amounts" AS TEXT) AS "amounts"',
     groupedList: '"t0"."amounts"',
   },
@@ -241,12 +246,12 @@ describe.each(dialects)("$name decimal having operands", (dialectCase) => {
       _count: true,
     });
     const { rendered } = whereOperand();
-    // The list renders one lowered operand per element; comparing the count of
-    // lowered operands to the element count catches a per-element regression
-    // that a "contains CAST" assertion would miss.
+    // Every element is lowered: the bound values hold each element's own
+    // physical operand, whether the dialect binds the list as one parameter
+    // (one cast, applied to every element) or one per element (one each).
     const casts = having.statement.match(/CAST\(/g) ?? [];
 
-    expect(casts).toHaveLength(2);
+    expect(casts).toHaveLength(dialectCase.listCasts);
     expect(rendered).toContain("CAST(");
     expect(having.values).toEqual(dialectCase.boundList);
   });

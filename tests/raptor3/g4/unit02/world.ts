@@ -8,11 +8,7 @@
  */
 
 import { createClient } from "@client/client";
-import type {
-  BatchQuery,
-  QueryExecutionContext,
-  QueryResult,
-} from "@drivers";
+import type { BatchQuery, QueryExecutionContext, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
@@ -20,6 +16,7 @@ import Database from "better-sqlite3";
 
 export interface Statement {
   readonly sql: string;
+  readonly parameters: readonly unknown[];
   readonly context?: QueryExecutionContext;
 }
 
@@ -51,7 +48,7 @@ export class RecordingSQLiteDriver extends SQLite3Driver {
     parameters: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    this.statements.push({ sql: statement, context });
+    this.statements.push({ sql: statement, parameters, context });
     return super.execute<T>(client, statement, parameters);
   }
 
@@ -63,7 +60,11 @@ export class RecordingSQLiteDriver extends SQLite3Driver {
     this.batchCalls++;
     this.batchedStatements += queries.length;
     for (const query of queries)
-      this.statements.push({ sql: query.sql, context: query.context });
+      this.statements.push({
+        sql: query.sql,
+        parameters: query.params ?? [],
+        context: query.context,
+      });
     return super.executeBatch<T>(client, queries, context);
   }
 
@@ -102,7 +103,10 @@ export const post = s
     title: s.string(),
     rank: s.int(),
     authorId: s.int().nullable(),
-    author: s.toOne(() => author).fields("authorId").references("id"),
+    author: s
+      .toOne(() => author)
+      .fields("authorId")
+      .references("id"),
   })
   .map("g4u2_posts");
 

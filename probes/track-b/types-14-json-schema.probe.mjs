@@ -8,8 +8,12 @@
 // pattern, enum, const, anyOf/oneOf/allOf, min/max, properties, required,
 // additionalProperties, items, $ref). Like Ajv without ajv-formats, it ignores
 // `format`: the plan asks for patterns.
+//
+// Pinned in 1.2.0 (owner decision 2026-10-10): the bigint VALIDATOR admits
+// integer strings, so bigint parity is a gate; the all-issues mode is
+// `parse(schema, value, { allIssues: true })`, also a gate.
 import { getSchemas, s } from "viborm";
-import { toJsonSchema } from "viborm/validation";
+import { parse, toJsonSchema } from "viborm/validation";
 
 export const meta = {
   id: "types-14",
@@ -188,12 +192,18 @@ export default async function probe() {
       `bigint exported as ${JSON.stringify(bigint)}: integer strings ${bigintAcceptsInts ? "accepted" : "refused"}, non-integer strings ${bigintRejectsOthers ? "refused" : "accepted"}`
     );
   }
-  // Informational until decided: does the validator take what the export allows?
+  // The validator takes exactly what the export allows.
   const bigintParity = BIGINT_SAMPLES.map((value) => {
     const payload = { ...base, ledgerTotal: value };
-    return `${JSON.stringify(value)}:${validator(payload) ? "v+" : "v-"}${schemaAccepts(payload) ? "s+" : "s-"}`;
+    const v = validator(payload);
+    const j = schemaAccepts(payload);
+    if (v !== j)
+      problems.push(
+        `bigint ${JSON.stringify(value)} ${v ? "v+" : "v-"}${j ? "s+" : "s-"}`
+      );
+    return `${JSON.stringify(value)}:${v ? "v+" : "v-"}${j ? "s+" : "s-"}`;
   });
-  facts.push(`bigint validator/schema (no gate): ${bigintParity.join(" ")}`);
+  facts.push(`bigint validator/schema: ${bigintParity.join(" ")}`);
 
   // Decimal scale and id formats: iff-parity with the validator.
   const disagreements = [];
@@ -212,17 +222,14 @@ export default async function probe() {
     );
   }
 
-  // All-issues mode: the API is not named in the plan; record the default.
-  const issues =
-    create["~standard"].validate({
-      ...base,
-      id: "nope",
-      balance: 3,
-      tier: "root",
-      nmae: 1,
-    }).issues ?? [];
+  // All-issues mode: one call reports every issue of a payload with four.
+  const broken = { ...base, id: "nope", balance: 3, tier: "root", nmae: 1 };
+  const first = create["~standard"].validate(broken).issues ?? [];
+  const all = parse(create, broken, { allIssues: true }).issues ?? [];
+  if (all.length !== 4)
+    problems.push(`all-issues mode reports ${all.length} of 4 issues`);
   facts.push(
-    `default validate reports ${issues.length} issue(s) for a payload with 4 problems (all-issues mode: API undecided, no gate)`
+    `default validate reports ${first.length} issue(s); parse(..., { allIssues: true }) reports ${all.length}: ${all.map((issue) => issue.path?.join(".")).join(", ")}`
   );
 
   return {

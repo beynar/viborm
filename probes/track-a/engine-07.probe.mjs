@@ -1,7 +1,7 @@
 // engine-07: the recursion budget counts path-expanded output rows (10,000 by
 // default). Exceeding it is reported with the operation actually called and a
-// result-size error, not ValidationError('findMany') for every operation.
-// (Its configurability is checked once the option name is fixed; see report.)
+// result-size error, not ValidationError('findMany') for every operation, and
+// `recurse.maxOccurrences` raises it for one projection.
 import { s } from "viborm";
 import { createMigrationClient } from "viborm/migrations";
 import { createClient } from "viborm/sqlite3";
@@ -86,11 +86,33 @@ export default async function probe() {
       message.includes("findUnique") && !message.includes("findMany");
     const notValidation =
       thrown.name !== "ValidationError" && thrown.code !== "V4001";
+
+    // Configurability: the same tree under a raised budget comes back whole.
+    let raised;
+    try {
+      const root = await db.category.findUnique({
+        where: { id: 1 },
+        select: {
+          id: true,
+          children: {
+            recurse: { depth: false, maxOccurrences: rows.length },
+            select: { id: true },
+          },
+        },
+      });
+      const count = (nodes) =>
+        (nodes ?? []).reduce(
+          (total, node) => total + 1 + count(node.children),
+          0
+        );
+      raised = count(root?.children);
+    } catch (error) {
+      raised = `${error?.name} ${error?.code}: ${String(error?.message).slice(0, 120)}`;
+    }
+    const configurable = raised === rows.length - 1;
     return {
-      status: realOperation && notValidation ? "pass" : "fail",
-      // Pass covers the error classification only; engine-07 stays open
-      // until a configurability case is added (option name undecided).
-      evidence: `findUnique recurse over ${rows.length} rows threw ${thrown.name} ${thrown.code}: ${message.slice(0, 220)} (configurability unchecked)`,
+      status: realOperation && notValidation && configurable ? "pass" : "fail",
+      evidence: `findUnique recurse over ${rows.length} rows threw ${thrown.name} ${thrown.code}: ${message.slice(0, 220)}; with recurse.maxOccurrences ${rows.length}: ${raised} occurrences`,
     };
   } finally {
     await db.$disconnect();

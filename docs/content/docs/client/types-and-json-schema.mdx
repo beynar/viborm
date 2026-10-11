@@ -110,9 +110,32 @@ These helpers return VibORM validation schemas implementing Standard Schema.
 They do not generate Zod or Valibot objects, a database row validator, or those
 libraries' `pick` and `extend` APIs. A scalar's `.schema()` can consume a
 Standard Schema validator; that is distinct from generating one from a model.
-BigInt inputs remain JavaScript `bigint` values. Convert a validated decimal
-string at a JSON boundary instead of passing a JSON number, which may already
-have lost integer precision.
+A BigInt field takes a JavaScript `bigint` or an integer string (`"-42"`,
+validated to `-42n`), which is how a bigint crosses a JSON boundary. A JSON
+number is refused: past 2^53 it may already have lost integer precision. The
+typed client still asks for a `bigint`; the string form is for payloads that
+arrive as JSON, through `UntypedClient` or `validateOperationPayload`.
+
+### Every issue at once
+
+A validation schema stops at the first issue. To report every issue of a
+payload in one call — each field, each list item, every unknown or missing
+key — pass `allIssues` to `parse`:
+
+```ts
+import { parse } from "viborm/validation";
+
+const result = parse(createPost, payload, { allIssues: true });
+// result.issues: one entry per problem, each with its own path
+```
+
+`parse` is the only entry point to this mode: client operations and
+`validateOperationPayload` still report the first issue.
+
+A refusal inside a union (a filter's shorthand or operator object, a single
+item or a list) names the member the value was written for and that member's
+path, such as `where.age.gt`. When no member reads further into the value than
+the others, the message lists what each member expected.
 
 To validate a full payload selected by model and operation:
 
@@ -127,6 +150,8 @@ const payload = validateOperationPayload(schema, "post", "findMany", {
 
 `validateOperationPayload` returns the normalized payload or throws. This checks
 the schema language, not authorization or whether a driver can execute the work.
+The thrown `ValidationError`, like one a client operation raises, names its model
+in `meta.model` and in its message (`Validation failed for post.findMany: …`).
 
 ## Export JSON Schema
 
@@ -139,8 +164,22 @@ const createPostJson = toJsonSchema(createPost, "draft-2020-12");
 ```
 
 Supported targets are `draft-07` (the default), `draft-2020-12`, and
-`openapi-3.0`. Recursive schemas use `$ref` references. Conversion can throw for
-an unsupported target or a schema that cannot be represented faithfully.
+`openapi-3.0`. Recursive schemas use `$ref` references. Conversion throws only
+for an unsupported target or a schema node with no JSON form at all, such as a
+custom schema type outside VibORM's own.
+
+The document accepts what the validator accepts for every value JSON can
+carry:
+
+- a BigInt is a string with an integer `pattern`;
+- a decimal is a string whose `pattern` carries the field's declared precision
+  and scale (`"1.555"` is refused for scale 2, `"1.500"` is not);
+- an identifier format (`uuid`, `uuidv7`, `ulid`, `ksuid`, `nanoid`, `cuid`,
+  with its prefix) is a string `pattern`, not a `format`.
+
+What lives in code rather than in shape is not in the document: a `.schema()`
+refinement, a whole-object rule such as "name at least one of these keys", or
+polygon geometry. Validate with VibORM where those matter.
 
 The Standard JSON Schema interface lets you choose a direction explicitly:
 
@@ -184,8 +223,8 @@ defaults are not included.
 | Import path | Helpers |
 | --- | --- |
 | `viborm` | `getSchemas`, `getOperationPayloadSchema`, `validateOperationPayload`, `renderSchemaType`, `renderOperationResultType` |
-| `viborm/client` | `InferDatabase` (upcoming), `OperationPayload`, `OperationResult`, `OperationPayloadSchema`, `ValidatedOperationPayload` |
-| `viborm/validation` | `InferInput`, `InferOutput`, `ModelCoreInput`, `ModelOperationInput`, `toJsonSchema`, `createJsonSchemaConverter`, `JsonSchema` |
+| `viborm/client` | `InferDatabase`, `OperationPayload`, `OperationResult`, `OperationPayloadSchema`, `ValidatedOperationPayload` |
+| `viborm/validation` | `InferInput`, `InferOutput`, `ModelCoreInput`, `ModelOperationInput`, `parse`, `toJsonSchema`, `createJsonSchemaConverter`, `JsonSchema` |
 
 See [Standard Schema V1](/docs/internals/validation/standard-schema) for the
 validation interface and model-schema reference.

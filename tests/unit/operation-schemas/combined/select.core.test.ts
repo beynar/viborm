@@ -53,9 +53,12 @@ describe("Select Schema - Types (Author Model)", () => {
 describe("Select Schema - Simple Model Runtime", () => {
   const schema = simpleSchemas.select;
 
-  test("runtime: accepts empty object", () => {
-    const result = parse(schema, {});
-    expect(result.issues).toBeUndefined();
+  test("runtime: refuses a selection that names nothing", () => {
+    for (const selection of [{}, { id: false }, { id: undefined }]) {
+      expect(parse(schema, selection).issues?.[0]?.message).toBe(
+        "select needs at least one truthy value; leave it out to return the default row."
+      );
+    }
   });
 
   test("runtime: accepts boolean selection", () => {

@@ -71,7 +71,8 @@ describe("Raw BigInt Scalar", () => {
     });
 
     test("runtime: rejects non-bigint", () => {
-      expect(parse(schemas.base, "42").issues).toBeDefined();
+      expect(parse(schemas.base, "4.2").issues).toBeDefined();
+      expect(parse(schemas.base, 42).issues).toBeDefined();
       expect(parse(schemas.base, null).issues).toBeDefined();
       expect(parse(schemas.base, true).issues).toBeDefined();
     });

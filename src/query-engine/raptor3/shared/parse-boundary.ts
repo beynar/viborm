@@ -1,4 +1,5 @@
 import { ValidationError } from "@errors";
+import type { AnyModel } from "@schema/model";
 import { type InferOutput, parse, type VibSchema } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 // The two leaves below are imported from their own modules rather than through the `v`
@@ -32,12 +33,15 @@ import type { Operation } from "../../types";
  * @param operation the operation name carried on the {@link ValidationError}
  * @param path      the dotted prefix for issue paths ("" for a whole-args validate;
  *                  a field name like "where"/"select"/"createMany" for a sub-payload)
+ * @param model     the model the operation addresses, named in the error's
+ *                  `meta.model`, its source and its message subject (`user.create`)
  */
 export function parseValidated<S extends VibSchema>(
   schema: S,
   value: unknown,
   operation: Operation,
-  path: string
+  path: string,
+  model: AnyModel
 ): InferOutput<S> {
   const result = parse(schema, value);
   if (result.issues) {
@@ -49,7 +53,10 @@ export function parseValidated<S extends VibSchema>(
           [...prefix, ...(issue.path?.map(String) ?? [])].join(".") || "root",
         message: issue.message,
       })),
-      { cause: readValidationFailureCause(result) }
+      {
+        cause: readValidationFailureCause(result),
+        meta: { model: model["~"].names.ts! },
+      }
     );
   }
   return result.value as InferOutput<S>;

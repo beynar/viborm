@@ -7,12 +7,10 @@ import {
   QueryEngineError,
   TransactionError,
   UnsupportedOperationError,
-  ValidationError,
   VibORMError,
 } from "@errors";
 import {
   DISTANCE_SELECTED_TWICE,
-  emptySelectRefusal,
   selectedArm,
 } from "@query-engine/result/result-shape";
 import {
@@ -59,6 +57,7 @@ import {
 } from "@validation/primitives/iso";
 import {
   carriesRepeatedKey,
+  DEFAULT_MAX_OCCURRENCES,
   type NormalizedRecurrence,
 } from "@validation/relations/recurrence";
 import type { Operation } from "../../types";
@@ -128,7 +127,12 @@ export type Leaf = {
   /** A list column: the container decodes once, then each member as `type`. */
   list?: boolean;
   decimal?: DecimalDescriptor;
-  /** A decimal `_sum`, which keeps the field scale and drops its precision. */
+  /**
+   * A `_sum` answering outside the field's domain: a decimal keeps the field
+   * scale and drops its precision, a bigint may leave the int64 range, a
+   * number may be `±Infinity`, and an int past 2^53 is the nearest double, as
+   * a number sum is; `#splitSum` states which travel as two parts.
+   */
   widened?: boolean;
   /** The declared physical timestamp spelling of this column. */
   dateTime?: DateTimePhysicalForm;
@@ -464,6 +468,57 @@ type PreparedPredicate =
 function states(predicate: PreparedPredicate): boolean {
   return predicate.kind !== "and" || predicate.predicates.some(states);
 }
+/**
+ * An `OR` whose every arm is one value equality on the same plain column, as
+ * that column's `in` (platform-15): the same three-valued answer, so a long
+ * chain binds as the one list `in` binds instead of one arm per expression
+ * level. A JSON, list, point or vector column compares by its own rules, a
+ * folded or referenced operand is not a member, and `null` is `IS NULL`.
+ */
+function sameColumnIn(
+  arms: readonly PreparedPredicate[]
+): PreparedPredicate | undefined {
+  const operands: PreparedOperand[] = [];
+  let target: Extract<PreparedTarget, { kind: "column" }> | undefined;
+  for (let arm of arms) {
+    while (arm.kind === "and" && arm.predicates.length === 1)
+      arm = arm.predicates[0]!;
+    const operand = arm.kind === "operation" ? arm.operand : undefined;
+    if (
+      arm.kind !== "operation" ||
+      arm.operator !== "equals" ||
+      arm.insensitive ||
+      arm.target.kind !== "column" ||
+      arm.target.path ||
+      operand?.kind !== "value" ||
+      operand.value === null ||
+      operand.value instanceof Sql ||
+      (target &&
+        (arm.target.scalar.model !== target.scalar.model ||
+          arm.target.scalar.field !== target.scalar.field ||
+          arm.target.key !== target.key))
+    )
+      return;
+    target ??= arm.target;
+    operands.push(operand);
+  }
+  const state = target?.scalar.physical.scalar["~"].state;
+  if (
+    !target ||
+    state?.array === true ||
+    state?.type === "json" ||
+    state?.type === "point" ||
+    state?.type === "vector"
+  )
+    return;
+  return freeze({
+    kind: "operation",
+    operator: "in",
+    target,
+    operands: freeze(operands),
+    insensitive: false,
+  });
+}
 /** Does the predicate read another row: a relation subquery anywhere in it? */
 function readsRelation(predicate: PreparedPredicate): boolean {
   switch (predicate.kind) {
@@ -597,6 +652,35 @@ export class InvalidScalarResult extends TypeError {
     super(`Invalid provider ${scalarType === "int" ? "integer" : scalarType}`);
     this.scalarType = scalarType;
     this.reason = reason;
+  }
+}
+
+/**
+ * A recursive projection decoded more occurrences under one outer row than
+ * its budget (`recurse.maxOccurrences`). The decoder knows the slot; as for
+ * {@link InvalidScalarResult}, its operation owns the public error.
+ */
+export class RecursiveOutputOverBudget extends RangeError {
+  readonly relation: string;
+  readonly limit: number;
+  constructor(relation: string, limit: number) {
+    super(`Recursive relation '${relation}' exceeds ${limit} occurrences`);
+    this.relation = relation;
+    this.limit = limit;
+  }
+  /** The result-size refusal of `operation`, which ran the projection. */
+  refusal(operation: Operation, model: string): UnsupportedOperationError {
+    return new UnsupportedOperationError(
+      `'${operation}' would return more than ${this.limit} occurrences of recursive relation '${this.relation}' under one row, its output budget; raise recurse.maxOccurrences, lower recurse.depth or filter the relation.`,
+      {
+        meta: {
+          model,
+          operation,
+          relation: this.relation,
+          feature: "recursive output budget",
+        },
+      }
+    );
   }
 }
 
@@ -2115,7 +2199,8 @@ export class Queries {
     if (key === "OR")
       return stated.length === 0
         ? VACUOUS_FALSE
-        : freeze({ kind: "or", predicates: freeze(stated) });
+        : (sameColumnIn(stated) ??
+            freeze({ kind: "or", predicates: freeze(stated) }));
     const predicates: readonly PreparedPredicate[] =
       key === "AND"
         ? stated
@@ -2739,14 +2824,13 @@ export class Queries {
           )
         );
       case "or":
-        if (predicate.predicates.length === 1)
-          return a.operators.or(
-            this.#lowerPredicate(predicate.predicates[0]!, alias)
-          );
-        return a.operators.or(
-          ...predicate.predicates.map((member) =>
+        // A balanced tree, not a chain: SQLite parses `a OR b OR …` one
+        // expression level deep per arm and refuses depth 1000 (platform-15).
+        return balancedOr(
+          predicate.predicates.map((member) =>
             this.#lowerPredicate(member, alias)
-          )
+          ),
+          (arms) => a.operators.or(...arms)
         );
       case "not":
         return a.operators.not(
@@ -2979,9 +3063,10 @@ export class Queries {
               ? a.operators.neq(folded, bind(member, true))
               : a.operators.eq(folded, bind(member, true))
           );
-          return negated
-            ? a.operators.and(...comparisons)
-            : a.operators.or(...comparisons);
+          // One comparison per member: balanced, as an `OR` is (platform-15).
+          return balancedOr(comparisons, (arms) =>
+            negated ? a.operators.and(...arms) : a.operators.or(...arms)
+          );
         }
         const list = a.literals.list(operands.map((member) => bind(member)));
         if (negated) return a.operators.notIn(exact(column), list);
@@ -3198,10 +3283,6 @@ export class Queries {
       case "equals": {
         const sentinel = jsonNullKindOf(value);
         if (sentinel) {
-          if (path.length)
-            throw new QueryEngineError(
-              `JSON filter for field '${predicate.target.scalar!.field}' cannot combine 'path' with the ${sentinel} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`
-            );
           const isDatabaseNull = a.operators.isNull(column);
           const isJsonNull = a.json.equals(target, a.json.value(null));
           if (sentinel === "DbNull") return isDatabaseNull;
@@ -4306,23 +4387,34 @@ export class Queries {
       builders.push((alias) => [
         name,
         a.json.objectFromColumns(
-          selected.map(([field]) => [
-            field,
-            this.#carriedValue(
-              leaves[field]!,
-              this.#aggregateExpression(
-                name,
-                field === "_all"
-                  ? undefined
-                  : freeze({
-                      model,
-                      field,
-                      physical: physicalField(this.schema, model, field),
-                    }),
-                alias
-              )
-            ),
-          ])
+          selected.map(([field]) => {
+            const leaf = leaves[field]!;
+            const scalar =
+              field === "_all"
+                ? undefined
+                : freeze({
+                    model,
+                    field,
+                    physical: physicalField(this.schema, model, field),
+                  });
+            const split = this.#splitSum(leaf);
+            if (split)
+              return [
+                field,
+                a.json.array(
+                  split
+                    .parts(this.#preparedColumn(scalar!, alias))
+                    .map((part) => this.#carriedValue(leaf, part))
+                ),
+              ];
+            return [
+              field,
+              this.#carriedValue(
+                leaf,
+                this.#aggregateExpression(name, scalar, alias)
+              ),
+            ];
+          })
         ),
       ]);
     }
@@ -4342,8 +4434,34 @@ export class Queries {
     return freeze({
       ...leaf,
       nullable: true,
-      widened: aggregate === "_sum" && decimal ? true : undefined,
+      widened:
+        aggregate === "_sum" &&
+        (decimal ||
+          leaf.type === "number" ||
+          leaf.type === "bigint" ||
+          leaf.type === "int")
+          ? true
+          : undefined,
     });
+  }
+  /**
+   * A widened `_sum` the provider's own `SUM` would overflow travels as two
+   * parts no realistic row count overflows, joined before the field's decoder
+   * reads it (engine-10): a number on every dialect, an int64 — an int, a
+   * bigint or SQLite's decimal coefficient — where the adapter states
+   * `integerSum`.
+   */
+  #splitSum(leaf: Leaf): SplitSum | undefined {
+    if (!leaf.widened) return undefined;
+    const { numberSum, integerSum } = this.adapter.aggregates;
+    if (leaf.type === "number")
+      return { parts: numberSum, join: joinNumberSum };
+    return (
+      integerSum && {
+        parts: integerSum,
+        join: (parts) => joinIntegerSum(parts, leaf.type),
+      }
+    );
   }
   #aggregateExpression(
     aggregate: Aggregate,
@@ -4626,17 +4744,12 @@ export class Queries {
       fields[name] = this.#relationShape(nested);
       prepared.push(freeze({ kind: "relation", name, ...nested }));
     }
-    // The empty-projection arm, in the shipped engine's two cases
-    // (`select-builder.ts:425-437`). An empty projection is only legitimate
-    // when the caller wrote no `select`: then it is the model's own default —
-    // every scalar omitted — and the row still exists, so it carries the
-    // sentinel column. An empty projection BECAUSE a `select` was written is
-    // the caller asking for nothing, which is a refusal, not "everything".
-    if (prepared.length === 0) {
-      if (args.select !== undefined)
-        throw new QueryEngineError(emptySelectRefusal(model));
+    // An empty projection is the model's own default — every scalar omitted —
+    // and the row still exists, so it carries the sentinel column. A written
+    // `select` that projects nothing never arrives: admission refuses it at
+    // its path (`requireSelectedField`, validation/model/core/select.ts).
+    if (prepared.length === 0)
       prepared.push(freeze({ kind: "sentinel", name: EMPTY_ROW_RESULT_KEY }));
-    }
     const projection: PreparedProjection = freeze({
       model,
       fields: freeze(prepared),
@@ -5181,11 +5294,13 @@ export class Queries {
     // A nested node is the ordinary page operator inside the parent's
     // correlation scope; `take: -n` reverses the window exactly as at the root.
     const window = this.#page(edge.target, nested, childAlias, "related");
+    const source = this.#memberSource(edge, alias, childAlias);
     const page = assembleAdapterSelect(a, {
       columns: sql.join(child, ", "),
-      from: this.table(edge.target, childAlias),
+      from: source.from,
+      joins: source.joins,
       where: a.operators.and(
-        this.correlation(edge, alias, childAlias),
+        source.where,
         ...(nested.selector
           ? [this.lowerSelector(nested.selector, childAlias)!]
           : []),
@@ -5281,24 +5396,65 @@ export class Queries {
   /**
    * One hop of a walk, from `current` into `next`, under the {@link related}
    * domain. A reference hop is the ordinary {@link correlation}; a junction
-   * hop joins the junction table, the one join-form reader of a junction
-   * membership: the membership's `IN (SELECT … WHERE link.source =
+   * hop joins the junction table, and its target as a relation page does
+   * ({@link memberSource}): the membership's `IN (SELECT … WHERE link.source =
    * current.key)` correlates to `next`'s sibling, which PostgreSQL cannot turn
    * into a semi-join, so it would run once per target row at every hop.
    */
   #step(edge: Membership, current: string, next: string): Sql {
     const a = this.adapter;
-    const target = this.table(edge.target, next);
     if (edge.kind !== "junction")
-      return a.joins.inner(target, this.correlation(edge, current, next));
+      return a.joins.inner(
+        this.table(edge.target, next),
+        this.correlation(edge, current, next)
+      );
     const link = this.alias();
     return sql`${a.joins.inner(
       a.identifiers.table(edge.table, link),
       a.operators.and(
         ...this.junctionSideConditions(edge.sourceSide, link, current)
       )
-    )} ${a.joins.inner(
-      target,
+    )} ${this.#junctionTarget(edge, link, next)}`;
+  }
+  /**
+   * Where one parent's relation page reads its rows. A junction membership
+   * reads FROM the junction, joined to its target by key, so the junction's
+   * source-side index drives the page whatever the target's statistics say:
+   * behind {@link correlation}'s `IN (SELECT …)` SQLite, once ANALYZE has
+   * run, scans a target smaller than its fixed guess of the list's length,
+   * once per parent (parity-04). PostgreSQL and MySQL already plan that
+   * membership as this join. The junction's primary key spans both sides
+   * and each side references a complete row key, so every member is read
+   * once, as the membership reads it.
+   */
+  #memberSource(
+    edge: Membership,
+    parent: string,
+    child: string
+  ): { from: Sql; joins?: Sql[]; where: Sql } {
+    if (edge.kind !== "junction")
+      return {
+        from: this.table(edge.target, child),
+        where: this.correlation(edge, parent, child),
+      };
+    const link = this.alias();
+    return {
+      from: this.adapter.identifiers.table(edge.table, link),
+      joins: [this.#junctionTarget(edge, link, child)],
+      where: this.adapter.operators.and(
+        ...this.junctionSideConditions(edge.sourceSide, link, parent)
+      ),
+    };
+  }
+  /** A junction's target joined from `link`, under the {@link related} domain. */
+  #junctionTarget(
+    edge: Extract<Membership, { kind: "junction" }>,
+    link: string,
+    next: string
+  ): Sql {
+    const a = this.adapter;
+    return a.joins.inner(
+      this.table(edge.target, next),
       this.#related(
         edge,
         next,
@@ -5306,7 +5462,7 @@ export class Queries {
           ...this.junctionSideConditions(edge.targetSide, link, next)
         )
       )
-    )}`;
+    );
   }
 
   /**
@@ -5640,7 +5796,7 @@ export class Queries {
         ),
         having: args.having
           ? this.#lowerPredicate(
-              this.#prepareHaving(model, record(args.having), grouped),
+              this.#prepareHaving(model, record(args.having)),
               alias
             )
           : undefined,
@@ -5654,11 +5810,7 @@ export class Queries {
     };
   }
   /** `having` is the same predicate vocabulary over aggregate targets. */
-  #prepareHaving(
-    model: AnyModel,
-    having: Input,
-    grouped: ReadonlySet<string>
-  ): PreparedPredicate {
+  #prepareHaving(model: AnyModel, having: Input): PreparedPredicate {
     return freeze({
       kind: "and",
       predicates: freeze(
@@ -5670,7 +5822,7 @@ export class Queries {
               this.combine(
                 key,
                 entries(value).map((clause) =>
-                  this.#prepareHaving(model, record(clause), grouped)
+                  this.#prepareHaving(model, record(clause))
                 )
               ),
             ];
@@ -5683,21 +5835,15 @@ export class Queries {
           const aggregated = AGGREGATES.filter(
             (name) => filter[name] !== undefined
           );
-          if (aggregated.length === 0) {
-            // A field-keyed condition names ONE row's column, and a grouped
-            // read has one row per group: the column exists only where it is
-            // a grouped column. An aggregate condition is always legitimate.
-            if (!grouped.has(key))
-              throw new QueryEngineError(
-                `Scalar '${key}' used in 'having' must be included in 'by'.`
-              );
+          // A field-keyed condition names a grouped column: admission refuses
+          // one outside `by` at its path (`args/aggregate.ts`).
+          if (aggregated.length === 0)
             return [
               this.#prepareOperations(
                 freeze({ kind: "column", scalar }),
                 value
               ),
             ];
-          }
           return aggregated.map((aggregate) =>
             this.#prepareOperations(
               freeze({ kind: "aggregate", aggregate, scalar }),
@@ -5708,7 +5854,10 @@ export class Queries {
       ),
     });
   }
-  /** A grouped read orders by a grouped field or by an aggregate. */
+  /**
+   * A grouped read orders by a grouped field or by an aggregate; admission
+   * refuses any other field at its `orderBy` path (`args/aggregate.ts`).
+   */
   #groupOrderTerms(
     model: AnyModel,
     input: Arguments["orderBy"],
@@ -5718,13 +5867,8 @@ export class Queries {
     const terms = entries(input ?? {}).flatMap((order) =>
       Object.entries(order).flatMap(([name, direction]) => {
         if (direction === undefined) return [];
-        if (!isAggregate(name)) {
-          if (!grouped.has(name))
-            throw new QueryEngineError(
-              `GroupBy orderBy field '${name}' must be included in 'by' or be an aggregate (_count, _avg, _sum, _min, _max).`
-            );
+        if (!isAggregate(name))
           return [this.#orderTerm(model, name, direction, alias)];
-        }
         return Object.entries(record(direction)).map(([field, sort]) =>
           this.#sortKey(
             this.#aggregateExpression(
@@ -6023,6 +6167,7 @@ export class Queries {
      * FK one is the same refusal at the first hop as at the hundredth.
      */
     let occurrences = 0;
+    const budget = shape.recurrence.maxOccurrences ?? DEFAULT_MAX_OCCURRENCES;
     const follow = (from: number, key: string): void => {
       if (active.has(key)) {
         if (shape.recurrence.cycles === "reject")
@@ -6037,14 +6182,8 @@ export class Queries {
           );
         if (shape.recurrence.cycles === "prevent") return;
       }
-      if (++occurrences > 10_000)
-        throw new ValidationError("findMany", [
-          {
-            path: `recurse.${shape.relation}`,
-            message:
-              "Recursive output exceeds the 10000 occurrence budget; reduce recurse.depth or filter the relation.",
-          },
-        ]);
+      if (++occurrences > budget)
+        throw new RecursiveOutputOverBudget(shape.relation, budget);
       active.add(key);
       const decoded = readRow(nodes.get(key));
       if (decoded === null)
@@ -6306,7 +6445,7 @@ export class Queries {
     const readValue = list ?? this.#compileScalarValue(leaf, internal);
     const nullable = leaf.nullable;
     const allowsJsonNull = leaf.type === "json" && leaf.list !== true;
-    return (raw) => {
+    const read: Reader = (raw) => {
       if (raw === null) {
         if (nullable) return null;
         if (!allowsJsonNull)
@@ -6319,6 +6458,8 @@ export class Queries {
         throw new InvalidScalarResult(leaf.type, "the value is absent");
       return readValue(provider === undefined ? raw : provider(raw));
     };
+    const join = this.#splitSum(leaf)?.join;
+    return join ? (parts) => read(join(parts)) : read;
   }
   /** Bind the declared scalar codec once, preserving its provider-value checks. */
   #compileScalarValue(leaf: Leaf, internal: boolean): Reader {
@@ -6342,11 +6483,12 @@ export class Queries {
       case "boolean":
         return decodeBoolean;
       case "int":
-        return decodeInt;
+        return leaf.widened ? (sum) => decodeInt(sum, true) : decodeInt;
       case "bigint":
         return decodeBigint;
       case "number":
-        return decodeNumber;
+        // A number sum is already decoded by `joinNumberSum`.
+        return leaf.widened ? (sum) => sum : decodeNumber;
       case "decimal":
         return (value) => {
           const decoded = decodeDecimalScalar(
@@ -6661,7 +6803,8 @@ function decodeBoolean(value: unknown): unknown {
   );
 }
 
-function decodeInt(value: unknown): unknown {
+/** `sum`: an int `_sum` past 2^53 reads as the nearest double (a lossy sum). */
+function decodeInt(value: unknown, sum = false): unknown {
   const parsed =
     typeof value === "bigint"
       ? Number(value)
@@ -6673,7 +6816,7 @@ function decodeInt(value: unknown): unknown {
       "int",
       "the value is not a canonical integer"
     );
-  if (!Number.isSafeInteger(parsed))
+  if (!(sum ? Number.isInteger(parsed) : Number.isSafeInteger(parsed)))
     throw new InvalidScalarResult(
       "int",
       "the integer is outside the safe range"
@@ -6681,7 +6824,7 @@ function decodeInt(value: unknown): unknown {
   return parsed;
 }
 
-function decodeBigint(value: unknown): unknown {
+function decodeBigint(value: unknown): bigint {
   if (typeof value === "bigint") return value;
   if (typeof value === "number" && Number.isSafeInteger(value))
     return BigInt(value);
@@ -6693,7 +6836,7 @@ function decodeBigint(value: unknown): unknown {
   );
 }
 
-function decodeNumber(value: unknown): unknown {
+function decodeNumber(value: unknown): number {
   const parsed =
     typeof value === "string" && value.trim() !== "" ? Number(value) : value;
   if (typeof parsed !== "number" || !Number.isFinite(parsed))
@@ -6702,6 +6845,48 @@ function decodeNumber(value: unknown): unknown {
       "the value is not a canonical finite number"
     );
   return parsed;
+}
+
+/** A widened `_sum`'s two SQL parts and the join its reader reads. */
+interface SplitSum {
+  readonly parts: (expr: Sql) => [Sql, Sql];
+  readonly join: (parts: unknown) => unknown;
+}
+
+/** The divisor `aggregates.numberSum` scales its high part by. */
+const NUMBER_SUM_SCALE = 2 ** 64;
+
+/**
+ * A number `_sum` from its two `numberSum` parts: `high * 2^64 + low`, which
+ * is the summed double, `±Infinity` past the double range. Each part is null
+ * when none of its members is present, so both are for an empty window.
+ */
+function joinNumberSum(value: unknown): number | null {
+  const [first, second] = sumParts(value, "number");
+  const high = first === null ? null : decodeNumber(first);
+  const low = second === null ? null : decodeNumber(second);
+  if (high === null) return low;
+  return high * NUMBER_SUM_SCALE + (low ?? 0);
+}
+
+/** The factor `aggregates.integerSum` splits its high part at. */
+const INTEGER_SUM_SCALE = 2n ** 32n;
+
+/**
+ * An int64 `_sum` from its two `integerSum` parts, `high * 2^32 + low`, as
+ * the integer text the bigint and decimal-coefficient decoders read. Both
+ * parts sum the same members, so both are null for an empty window.
+ */
+function joinIntegerSum(value: unknown, type: string): string | null {
+  const [high, low] = sumParts(value, type);
+  if (high === null) return null;
+  return String(decodeBigint(high) * INTEGER_SUM_SCALE + decodeBigint(low));
+}
+
+function sumParts(value: unknown, type: string): [unknown, unknown] {
+  if (!Array.isArray(value) || value.length !== 2)
+    throw new InvalidScalarResult(type, "the sum is not its two parts");
+  return [value[0], value[1]];
 }
 
 function decodeTime(value: unknown): string {
