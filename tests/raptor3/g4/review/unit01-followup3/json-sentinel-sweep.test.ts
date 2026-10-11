@@ -88,6 +88,7 @@ const agrees = (
   label: string,
   seen: { shipped: unknown; candidate: unknown }
 ): void => {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: This assertion helper is called only inside Vitest tests.
   assert.deepEqual(
     seen.candidate,
     seen.shipped,

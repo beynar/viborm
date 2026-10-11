@@ -159,13 +159,15 @@ export async function createWorld(
   };
 }
 
+const TRANSACTION_CONTROL = /^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/i;
+
 /** The physical cost of one operation: statements, round trips, envelope. */
 export function cost(driver: RecordingSQLiteDriver) {
   return {
     statements: driver.statements.length,
     transactions: driver.transactionCalls,
     control: driver.control.filter((statement) =>
-      /^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)/i.test(statement)
+      TRANSACTION_CONTROL.test(statement)
     ).length,
   };
 }

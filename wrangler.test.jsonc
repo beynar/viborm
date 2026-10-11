@@ -16,6 +16,8 @@
       { "name": "ESTATE_HISTORY", "class_name": "EstateHistoryObject" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EstateHistoryObject"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["EstateHistoryObject"] }
+  ],
   "r2_buckets": [{ "binding": "HISTORY", "bucket_name": "viborm-history-test" }]
 }

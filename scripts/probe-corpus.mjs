@@ -151,6 +151,12 @@ function acquireTarball(options, into) {
     );
     return join(into, JSON.parse(output)[0].filename);
   }
+  // Packing an unbuilt checkout ships no dist/, and every probe fails to import.
+  if (!existsSync(join(repositoryRoot, "dist", "index.mjs"))) {
+    throw new Error(
+      "This checkout has no dist/: run `pnpm package:build` first, or pass --tarball or --version."
+    );
+  }
   return packedArchive(into);
 }
 
