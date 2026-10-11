@@ -12,6 +12,9 @@ import {
   baselineV1,
   downV1,
   logV1,
+  type PruneOptions,
+  type PruneResult,
+  pruneV1,
   reanchorV1,
   resetV1,
   resolveV1,
@@ -127,6 +130,7 @@ export interface ReadableMigrations extends LiveMigrations {
   down(options?: DownV1Options): Promise<DownResult>;
   baseline(options: BaselineOptions): Promise<BaselineResult>;
   reanchor(options?: ReanchorOptions): Promise<ReanchorResult>;
+  prune(options: PruneOptions): Promise<PruneResult>;
   resolve(options: ResolveV1Options): Promise<ResolveResult>;
 }
 
@@ -236,6 +240,7 @@ export function createMigrationClient(
       baselineV1(executionClient, readableStorage, baselineOptions),
     reanchor: (reanchorOptions) =>
       reanchorV1(executionClient, readableStorage, reanchorOptions),
+    prune: (pruneOptions) => pruneV1(readableStorage, pruneOptions),
     resolve: (resolveOptions) =>
       resolveV1(executionClient, readableStorage, resolveOptions),
   });

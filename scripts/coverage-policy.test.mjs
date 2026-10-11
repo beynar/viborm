@@ -80,6 +80,7 @@ const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
   ["tests/unit/migrations/v1-operators.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-push.core.test.ts", "in-memory-sqlite"],
   ["tests/unit/migrations/v1-reanchor.core.test.ts", "in-memory-sqlite"],
+  ["tests/unit/migrations/v1-checkpoint.core.test.ts", "in-memory-sqlite"],
   [
     "tests/unit/migrations/generate-destructive-approval.core.test.ts",
     "in-memory-sqlite",
@@ -269,6 +270,13 @@ test("migration coverage admits every credential-free local contract", () => {
     migrationCoverageTests.length
   );
   assert.deepEqual([...migrationCoverageTests].sort(), expected.sort());
+  assert.deepEqual(
+    coverageSubsystems
+      .find(({ id }) => id === "migrations")
+      ?.testGroups.flat()
+      .sort(),
+    [...migrationCoverageTests].sort()
+  );
 });
 
 test("migration core contracts open no database outside the named in-memory SQLite exception", () => {

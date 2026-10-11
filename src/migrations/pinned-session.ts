@@ -43,7 +43,7 @@ import {
 import { withSuppressedFailure } from "../drivers/shared/suppressed-failure";
 import type { TransactionOptionSupport } from "../drivers/shared/transaction-options";
 import { runTransactionLifecycle } from "../drivers/shared/transactions";
-import type { QueryExecutionContext } from "../drivers/types";
+import type { BatchQuery, QueryExecutionContext } from "../drivers/types";
 import {
   ConnectionError,
   FeatureNotSupportedError,
@@ -53,6 +53,7 @@ import {
 } from "../errors";
 import type { BoundMigrationDriver } from "./drivers";
 import { planInterruptedMySQLDecimalRecovery } from "./drivers/mysql/decimal-recovery";
+import { providerRefused } from "./execute-dispatch";
 import { snapshotExactRecord } from "./input-boundary";
 import { buildsIndexConcurrently } from "./statement-safety";
 import { type CatalogRead, readsCommandNamespace } from "./target";
@@ -69,6 +70,11 @@ import { createQueryExecutor } from "./utils";
  * server-wide (`drivers/mysql/pinned-session.ts`).
  */
 const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d; // "viborm" in hex, truncated
+/**
+ * True while no command holds the migration lock: taken, and released with
+ * the statement that asks (plan D5).
+ */
+export const MIGRATION_LOCK_FREE = `pg_try_advisory_xact_lock(${MIGRATION_LOCK_ID})`;
 const MYSQL_VERSION = /^(\d+)\.(\d+)\.(\d+)/;
 
 const MYSQL_DECIMAL_RECOVERY = Symbol("mysqlDecimalRecovery");
@@ -102,6 +108,115 @@ function isMySQLDecimalRecoveryScope(
  */
 export function canPinSession(driver: AnyDriver): boolean {
   return driver["pinnedSession"] !== undefined;
+}
+
+/**
+ * Whether `driver` runs migration work with no session, as one atomic request
+ * per transactional group (plan D7): a PostgreSQL driver that cannot pin a
+ * session, whose native batch says when it committed. Neon HTTP is the
+ * shipped case.
+ */
+export function runsMigrationBatches(driver: AnyDriver): boolean {
+  return (
+    driver.dialect === "postgresql" &&
+    !canPinSession(driver) &&
+    driver.supportsBatch &&
+    driver.supportsOrderedCommittedSegments
+  );
+}
+
+/**
+ * One transactional group as ONE request, on a transport with no session
+ * (plan D7). Statements sent to `producer` are recorded, not run. The request
+ * opens as a locked transaction does ({@link lockTransactions}): the command's
+ * `SET LOCAL` limits, then the bounded transaction lock. What the command
+ * would read inside its transaction is asserted there instead: a condition
+ * that does not hold raises, and the server rolls the whole request back.
+ */
+export interface MigrationBatch {
+  readonly producer: AnyDriver;
+  /** `condition`, SQL with its own `$n` parameters, holds here, else `refusal` is the command's failure. */
+  assert(
+    condition: string,
+    params: readonly unknown[],
+    refusal: MigrationError
+  ): void;
+  /**
+   * Sends the request and resolves once it committed, even when its reply
+   * was then unreadable. It throws a `MigrationError` when the server refused
+   * the request, which rolled back: an asserted refusal, or `MIGRATION_FAILED`
+   * for any other statement. Any other failure is a lost reply, after which
+   * the request may have committed.
+   */
+  send(): Promise<void>;
+}
+
+/**
+ * An assertion leaves its refusal's SQLSTATE in a transaction-local setting,
+ * and this DO block — which takes no parameters — raises it. The SQLSTATE is
+ * the refusal's position in base 36 after `P0V`, in PL/pgSQL's class, which
+ * survives diagnostics redaction where the message does not.
+ */
+const RAISE_REFUSAL = `DO $viborm$BEGIN IF current_setting('viborm.refusal') <> '' THEN RAISE EXCEPTION 'VibORM migration assertion %', current_setting('viborm.refusal') USING ERRCODE = current_setting('viborm.refusal'); END IF; END$viborm$`;
+const REFUSAL = /^P0V([0-9A-Z]{2})$/;
+
+export function openMigrationBatch(
+  driver: AnyDriver,
+  migrationDriver: BoundMigrationDriver
+): MigrationBatch {
+  const queries: BatchQuery[] = [
+    { sql: postgresSessionLimits(migrationDriver.limits).transaction },
+  ];
+  const refusals: MigrationError[] = [];
+  const producer: AnyDriver = Object.create(driver);
+  Object.defineProperty(producer, "_executeRaw", {
+    value: (sql: string, params?: unknown[]) => {
+      queries.push({ sql, params });
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    },
+  });
+  const batch: MigrationBatch = {
+    producer,
+    assert(condition, params, refusal) {
+      queries.push(
+        {
+          sql: `SELECT set_config('viborm.refusal', CASE WHEN ${condition} THEN '' ELSE 'P0V${refusals.length.toString(36).toUpperCase().padStart(2, "0")}' END, true)`,
+          params: [...params],
+        },
+        { sql: RAISE_REFUSAL }
+      );
+      refusals.push(refusal);
+    },
+    async send() {
+      let committed = false;
+      try {
+        await driver._executeBatch(queries, undefined, undefined, () => {
+          committed = true;
+          return Promise.resolve();
+        });
+      } catch (failure) {
+        if (committed) return;
+        if (!providerRefused(failure)) throw failure;
+        const position = REFUSAL.exec(String(failure.meta.providerSqlState));
+        const refusal = position && refusals[Number.parseInt(position[1]!, 36)];
+        if (refusal) throw refusal;
+        throw new MigrationError(
+          "The server refused the migration request, which rolled back: nothing of it was applied.",
+          VibORMErrorCode.MIGRATION_FAILED,
+          {
+            cause: failure,
+            meta: { providerSqlState: failure.meta.providerSqlState },
+          }
+        );
+      }
+    },
+  };
+  batch.assert(
+    `(SELECT acquired FROM (${migrationDriver.generateAcquireLock(MIGRATION_LOCK_ID)}) AS lock)`,
+    [],
+    lockNotConfirmed(migrationDriver)
+  );
+  return batch;
 }
 
 /**
@@ -652,6 +767,21 @@ export function withLockedMigrationProducer<T>(
           })
         : undefined,
   };
+  if (runsMigrationBatches(driver)) {
+    // No session to lock (plan D7): the command reads without one, and each
+    // transactional group is one request that takes the lock and asserts
+    // what was read (`openMigrationBatch`).
+    return (async () => {
+      const answer = await unlocked?.(driver, MIGRATION_LOCK_FREE).catch(
+        () => undefined
+      );
+      if (answer !== undefined) return answer;
+      return body(
+        driver,
+        await validateAndSelectMigrationTarget(driver, migrationDriver)
+      );
+    })();
+  }
   if (dialect === "mysql") {
     return withPinnedSession(
       driver,
@@ -685,10 +815,7 @@ export function withLockedMigrationProducer<T>(
     driver,
     async (pinned, control) => {
       try {
-        const answer = await unlocked?.(
-          pinned,
-          `pg_try_advisory_xact_lock(${MIGRATION_LOCK_ID})`
-        );
+        const answer = await unlocked?.(pinned, MIGRATION_LOCK_FREE);
         if (answer !== undefined) return answer;
       } catch (failure) {
         if (control.lost(failure)) throw failure;
@@ -798,9 +925,9 @@ function lockTransactions(
   const sqlite = migrationDriver.target.dialect === "sqlite";
   // The protocol's own statements, on the same session, past `before`.
   const direct: AnyDriver = Object.create(pinned);
-  const run = async (sql: string): Promise<void> => {
+  const run = async <T = Record<string, unknown>>(sql: string) => {
     try {
-      await direct._executeRaw(sql);
+      return await direct._executeRaw<T>(sql);
     } catch (failure) {
       control.lost(failure);
       throw failure;
@@ -824,9 +951,24 @@ function lockTransactions(
     open = false;
     continuous &&= sessionLocked;
   };
+  // SQLite's lock IS its BEGIN IMMEDIATE, and its busy handler is the wait:
+  // `lockWait` for this one statement, as PostgreSQL's bounded lock loop
+  // waits, then the connection's own busy timeout again (plan S5).
+  const beginImmediate = async (): Promise<void> => {
+    const [own] = (await run<{ timeout: unknown }>("PRAGMA busy_timeout")).rows;
+    await run(`PRAGMA busy_timeout = ${migrationDriver.limits.lockWait}`);
+    try {
+      await run("BEGIN IMMEDIATE");
+    } finally {
+      // Interpolated, so only an integer is written back.
+      if (Number.isInteger(own?.timeout)) {
+        await run(`PRAGMA busy_timeout = ${own?.timeout}`);
+      }
+    }
+  };
   const begin = async (): Promise<void> => {
     try {
-      await run(sqlite ? "BEGIN IMMEDIATE" : "BEGIN");
+      await (sqlite ? beginImmediate() : run("BEGIN"));
     } catch (error) {
       // SQLite's lock IS its BEGIN IMMEDIATE: a busy database is a lock wait.
       if (!sqlite || control.lost(error)) throw error;
@@ -1461,12 +1603,18 @@ async function acquireLock(
   }
 
   if (!migrationDriver.provesLockAcquired(rows)) {
-    throw new MigrationError(
-      `Failed to acquire the migration lock for ${describeEstate(migrationDriver)}: the provider did not confirm the lock. ` +
-        "A wait that timed out, an error, or a malformed answer all mean the lock is NOT held; VibORM will not run migration work on that assumption.",
-      VibORMErrorCode.MIGRATION_LOCK_FAILED
-    );
+    throw lockNotConfirmed(migrationDriver);
   }
+}
+
+function lockNotConfirmed(
+  migrationDriver: BoundMigrationDriver
+): MigrationError {
+  return new MigrationError(
+    `Failed to acquire the migration lock for ${describeEstate(migrationDriver)}: the provider did not confirm the lock. ` +
+      "A wait that timed out, an error, or a malformed answer all mean the lock is NOT held; VibORM will not run migration work on that assumption.",
+    VibORMErrorCode.MIGRATION_LOCK_FAILED
+  );
 }
 
 function lockStatementFailed(

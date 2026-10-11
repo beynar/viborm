@@ -6,7 +6,10 @@ import {
   DRIVER_COVERAGE_TEST_GROUPS,
   DRIVER_COVERAGE_TESTS,
 } from "./driver-test-manifest.mjs";
-import { MIGRATION_COVERAGE_TESTS } from "./migration-test-manifest.mjs";
+import {
+  MIGRATION_COVERAGE_TEST_GROUPS,
+  MIGRATION_COVERAGE_TESTS,
+} from "./migration-test-manifest.mjs";
 
 export const COVERAGE_PROJECT_ROOT = resolve(
   fileURLToPath(new URL("..", import.meta.url))
@@ -233,6 +236,7 @@ const definitions = [
     root: "src/migrations/",
     projects: ["coverage-migrations"],
     tests: migrationCoverageTests,
+    testGroups: MIGRATION_COVERAGE_TEST_GROUPS,
   },
 ];
 

@@ -11,6 +11,7 @@ export default defineMeta({
     "comparison",
     "storage",
     "tenant-migrator",
+    "per-tenant-schemas-durable-objects",
     "drivers",
   ],
 });

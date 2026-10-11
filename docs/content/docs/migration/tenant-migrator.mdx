@@ -8,7 +8,9 @@ icon: building
 request or an alarm of that tenant's Durable Object. It is a helper over
 [`createMigrationClient`](/docs/migration/migrate): each change is that
 client's `generate` and `apply`, run one at a time, and what they would throw
-comes back as one of five outcomes.
+comes back as one of five outcomes. For the whole setup (documents, caching,
+transports, restores), see
+[Per-tenant schemas from Durable Objects](/docs/migration/per-tenant-schemas-durable-objects).
 
 ## Quick Start
 
@@ -113,7 +115,7 @@ call `resolve({ outcome: "complete" })` or `"rolled-back"` (see
 
 `change`, `resolve` and `down` share one queue per migrator: a call made while
 another runs waits for it. The database lock does not queue (a second
-PostgreSQL migration gives up after `limits.lockWait`), and two `generate`
+migration gives up after `limits.lockWait`), and two `generate`
 calls racing from one state would fork the history.
 
 The queue lives in the object's memory. After an eviction the next instance
@@ -160,11 +162,11 @@ point, such as a database branch. If it throws, the change is `refused` and
 nothing is published. A tenant's first change has nothing to lose, so it is
 never asked.
 
-## Status, Log, Resolve, Down and Reanchor
+## Status, Log, Resolve, Down, Reanchor and Prune
 
-`status()`, `log()`, `resolve()`, `down()` and `reanchor()` are the migration
-client's own, over the migrator's `client` and `history`, and return plain
-data. `resolve`, `down` and `reanchor` wait in the queue. On SQLite, give the migrator a client over the
+`status()`, `log()`, `resolve()`, `down()`, `reanchor()` and `prune()` are the
+migration client's own, over the migrator's `client` and `history`, and return
+plain data. `resolve`, `down`, `reanchor` and `prune` wait in the queue. On SQLite, give the migrator a client over the
 tenant's current schema: a resumed SQLite transition rewrites temporal columns
 by that schema.
 
@@ -216,3 +218,32 @@ the marker already passed through, and refuses otherwise;
 [History older than the database](/docs/migration/migrate#history-older-than-the-database)
 lists the cases. After it, the next `change` with the same document returns
 `noop`.
+
+## Bounded History
+
+A tenant's history grows with every change, and the object's storage holds it
+all. Bound it with an
+[authored checkpoint](/docs/migration/migrate#bounded-history-with-checkpoints)
+pruned into a second history in the same object, under a key prefix, then
+switch to it and re-anchor. Run it from one request, with no change sent until
+it returns, and keep the current prefix in the object's storage:
+
+```ts
+  async boundHistory(schema: Schema) {
+    const history = createDurableObjectStorageWriter(this.ctx.storage);
+    const { stateId } = await createMigrationClient(
+      { $driver: this.client.$driver, $schema: schema },
+      { storage: history }
+    ).generate({ name: "checkpoint", from: null });
+    const next = createDurableObjectStorageWriter(this.ctx.storage, {
+      prefix: "h2/",
+    });
+    await this.migrator.prune({ checkpoint: { id: stateId! }, into: next });
+    this.migrator = createTenantMigrator({ client: this.client, history: next });
+    await this.migrator.reanchor();
+  }
+```
+
+`schema` is the tenant's current one: the checkpoint restates the history's
+single leaf. The old rows stay in the object until you delete them yourself;
+`prune` never deletes. There is no CLI command for it.

@@ -486,7 +486,9 @@ so a bad payload is refused exactly as it would be for a typed client.
 
 ## One document per tenant
 
-When each tenant's schema is a stored document:
+When each tenant's schema is a stored document (the whole setup, with
+migrations from a Durable Object, is in
+[Per-tenant schemas from Durable Objects](/docs/migration/per-tenant-schemas-durable-objects)):
 
 - **Store the text, with its key order.** Keep the document as text or `json`,
   not PostgreSQL `jsonb`, which reorders object keys. A reordered document
@@ -515,7 +517,7 @@ function tenantSchema(tenant: string, documentHash: string, text: string) {
 }
 
 const db = createClient({
-  client: pool,
+  pool,
   schema: tenantSchema(tenant, documentHash, text),
   skipSchemaValidation: true,
 });

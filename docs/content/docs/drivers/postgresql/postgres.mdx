@@ -69,7 +69,10 @@ const client = createClient({
 });
 ```
 
-This is postgres.js's own precedence; VibORM passes both through.
+This is postgres.js's own precedence; VibORM passes both through, except
+`sslrootcert=system` (in PlanetScale's and Neon's URLs), which postgres.js would
+send to the server as a setting it refuses: VibORM rewrites it to
+`sslmode=verify-full`, the TLS verification it stands for.
 `databaseUrl: undefined` or `""` (usually an unset environment variable) with no
 `client`, `host` or `hostname` fails at construction with
 `ClientInitializationError` (`V1004`) instead of connecting wherever

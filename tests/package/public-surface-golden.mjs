@@ -492,6 +492,8 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "MigrationStorageWriter",
       "MigrationTarget",
       "ObjectStoreConditionalPut",
+      "PruneOptions",
+      "PruneResult",
       "PublishResult",
       "PushApplyResult",
       "PushConsent",

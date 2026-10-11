@@ -173,7 +173,8 @@ Effectful work is admitted only when lock and marker CAS are proven.
 | PGlite, `pg`, postgres.js, Bun SQL | Effectful when lock/CAS is proven. Transactional when every statement permits it. |
 | SQLite3, Bun SQLite | Effectful when lock/CAS is proven. |
 | MySQL2 | Stepwise. DDL implicitly commits; nominal transactions do not roll back. |
-| Neon HTTP, PlanetScale | Read-only / offline for effectful work. Generation, check, status, and push dry-run remain. |
+| Neon HTTP | `apply` only: one request per transactional group, its lock, marker, checks and destination digest asserted in SQL. Other effectful work refused. |
+| PlanetScale | Read-only / offline for effectful work. Generation, check, status, and push dry-run remain. |
 | D1, LibSQL | Effectful refused until proven. |
 
 No provider inherits a guarantee from its dialect name.

@@ -45,6 +45,11 @@ type RawExecutor = <T>(
   params?: unknown[]
 ) => Promise<{ rows: T[] }>;
 
+/** Sends statements as ONE request, in one transaction, answering each. */
+export type BatchExecutor = <T>(
+  statements: readonly string[]
+) => Promise<ReadonlyArray<{ rows: T[] }>>;
+
 function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
 }
@@ -64,40 +69,54 @@ function quoteIdentifier(name: string): string {
  * statement in it fails too, and the rollback is what removes the scratch views
  * — which must go, because a view referencing a table blocks dropping that
  * table later in the same push.
+ *
+ * Each pass creates, reads and drops its views. `executeBatch`, on a transport
+ * with no session (Neon HTTP, plan D7), sends each pass as one request: its
+ * statements in one transaction, so on one backend, where separate requests
+ * may each land on another.
  */
 export async function canonicalizeIndexPredicates(
   table: string,
   predicates: readonly string[],
-  executeRaw: RawExecutor
+  executeRaw: RawExecutor,
+  executeBatch?: BatchExecutor
 ): Promise<ReadonlyArray<string | undefined>> {
   if (predicates.length === 0) return [];
-  const views = predicates.map((_, position) =>
-    quoteIdentifier(`${SCRATCH_VIEW_PREFIX}${position}`)
-  );
-
-  const projection = views
-    .map(
-      (view, position) =>
-        `pg_catalog.pg_get_viewdef('pg_temp.${view}'::regclass) AS "d${position}"`
-    )
-    .join(", ");
+  const run: BatchExecutor =
+    executeBatch ??
+    (async <T>(statements: readonly string[]) => {
+      const results: { rows: T[] }[] = [];
+      for (const sql of statements) results.push(await executeRaw<T>(sql));
+      return results;
+    });
   const deparse = async (queries: readonly (string | undefined)[]) => {
-    for (const [position, query] of queries.entries()) {
-      // OR REPLACE, not a bare CREATE: the projection is always `1 AS c`, so
-      // a scratch view left by an earlier call on this pooled connection, or
-      // by the first pass, is replaceable rather than a collision.
-      if (query === undefined) continue;
-      await executeRaw(
-        `CREATE OR REPLACE TEMP VIEW ${views[position]} AS ${query}`
-      );
-    }
-    const { rows } = await executeRaw<Record<string, string | null>>(
-      `SELECT ${projection}`
+    // A position with no query has no answer, and no view.
+    const live = [...queries.keys()].filter(
+      (position) => queries[position] !== undefined
     );
-    // A position not reparsed has no answer: its view still holds the
-    // previous pass's definition, which is not a fixed point.
+    if (live.length === 0) return queries.map(() => undefined);
+    const views = live.map((position) =>
+      quoteIdentifier(`${SCRATCH_VIEW_PREFIX}${position}`)
+    );
+    const results = await run<Record<string, string | null>>([
+      // OR REPLACE, not a bare CREATE: the projection is always `1 AS c`, so
+      // a scratch view left on this pooled connection is replaceable rather
+      // than a collision.
+      ...live.map(
+        (position, index) =>
+          `CREATE OR REPLACE TEMP VIEW ${views[index]} AS ${queries[position]}`
+      ),
+      `SELECT ${views
+        .map(
+          (view, index) =>
+            `pg_catalog.pg_get_viewdef('pg_temp.${view}'::regclass) AS "d${live[index]}"`
+        )
+        .join(", ")}`,
+      `DROP VIEW ${views.map((view) => `pg_temp.${view}`).join(", ")}`,
+    ]);
+    const row = results[live.length]?.rows[0];
     return queries.map((query, position) =>
-      query === undefined ? undefined : (rows[0]?.[`d${position}`] ?? undefined)
+      query === undefined ? undefined : (row?.[`d${position}`] ?? undefined)
     );
   };
 
@@ -111,12 +130,5 @@ export async function canonicalizeIndexPredicates(
       (predicate) => `SELECT 1 AS c FROM ${table} WHERE ${predicate}`
     )
   );
-  const twice = await deparse(
-    once.map((query) => query?.replace(TRAILING_SEMICOLON, ""))
-  );
-
-  await executeRaw(
-    `DROP VIEW ${views.map((view) => `pg_temp.${view}`).join(", ")}`
-  );
-  return twice;
+  return deparse(once.map((query) => query?.replace(TRAILING_SEMICOLON, "")));
 }

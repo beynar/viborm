@@ -5493,6 +5493,9 @@ export class Queries {
    *   anchor, so the recursive member stays the projection's and needs no
    *   depth guard: a start-only anchor would spend one of MySQL's
    *   `cte_max_recursion_depth` iterations and fail `{ depth: 1000 }`.
+   *   The two are ONE derived-table term, so the CTE keeps exactly two
+   *   top-level terms: PlanetScale's Neki cannot resolve the CTE from the
+   *   recursive member of a third (42P01).
    */
   #walk(
     edge: Membership,
@@ -5539,24 +5542,35 @@ export class Queries {
         ...reached(anchorChild)
       ),
     });
-    const anchor =
-      !edges && start.self
-        ? a.setOperations.union(
-            a.clauses.select(
-              sql.join(
-                [
-                  ...this.#aliased(
-                    childColumns,
-                    this.#rowKey(model, parentAlias)
-                  ),
-                  ...hop(a.expressions.cast(this.value(0), "integer")),
-                ],
-                ", "
-              )
+    const seed = !edges && start.self ? this.alias() : undefined;
+    const anchor = seed
+      ? assembleAdapterSelect(a, {
+          columns: sql.join(
+            [...childColumns, ...(depth === false ? [] : [depthColumn])].map(
+              (column) => a.identifiers.column(seed, column)
             ),
-            firstHop
-          )
-        : firstHop;
+            ", "
+          ),
+          from: a.subqueries.correlate(
+            a.setOperations.union(
+              a.clauses.select(
+                sql.join(
+                  [
+                    ...this.#aliased(
+                      childColumns,
+                      this.#rowKey(model, parentAlias)
+                    ),
+                    ...hop(a.expressions.cast(this.value(0), "integer")),
+                  ],
+                  ", "
+                )
+              ),
+              firstHop
+            ),
+            seed
+          ),
+        })
+      : firstHop;
 
     const walk = this.alias();
     const current = this.alias();

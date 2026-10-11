@@ -511,6 +511,36 @@ function hasEdge(
   return state.parents.some((parent) => parent.fromState === from);
 }
 
+/**
+ * Plan T4: what a history pruned at `checkpoint` keeps. The checkpoint, every
+ * state after it, and every state those name as a parent, so no kept
+ * transition dangles: a merge with older history keeps that history.
+ */
+export function statesFrom(
+  graph: MigrationGraph,
+  checkpoint: Sha256
+): ReadonlySet<Sha256> {
+  const children = childrenIndex(graph);
+  const closure = (
+    start: Iterable<Sha256>,
+    next: (id: Sha256) => readonly (Sha256 | null)[]
+  ) => {
+    const seen = new Set<Sha256>();
+    const pending = [...start];
+    while (pending.length > 0) {
+      const id = pending.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (const step of next(id)) if (step !== null) pending.push(step);
+    }
+    return seen;
+  };
+  return closure(
+    closure([checkpoint], (id) => children.get(id) ?? []),
+    (id) => graph.states.get(id)!.parents.map((parent) => parent.fromState)
+  );
+}
+
 function childrenIndex(graph: MigrationGraph): Map<string, Sha256[]> {
   const index = new Map<string, Sha256[]>();
   index.set("null", []);

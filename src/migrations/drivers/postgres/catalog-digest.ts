@@ -29,7 +29,10 @@
  * - a type spelled with quotes or non-ASCII characters;
  * - a projection holding a character at or above U+E000, where PostgreSQL's
  *   code-point order and JavaScript's UTF-16 order can disagree;
- * - a database whose encoding is not UTF-8.
+ * - a database whose encoding is not UTF-8;
+ * - an index whose deparsed definition mentions NULLS NOT DISTINCT: one
+ *   statement cannot name `indnullsnotdistinct`, absent before PostgreSQL 15,
+ *   but through a whole-row read, which PlanetScale's Neki refuses.
  *
  * JavaScript's regular expressions are spelled for PostgreSQL's ARE in E''
  * strings, which mean the same thing whatever `standard_conforming_strings`
@@ -48,7 +51,7 @@ import {
   CROSS_SCHEMA_FOREIGN_KEYS_SOURCE,
   ENUMS_SOURCE,
   FOREIGN_KEYS_SOURCE,
-  INDEXES_SOURCE,
+  indexesSource,
   POSTGRES_MANAGED_TABLE_NAMES_SOURCE,
   PRIMARY_KEYS_SOURCE,
   UNIQUE_CONSTRAINTS_SOURCE,
@@ -163,7 +166,7 @@ const SQL = `WITH
 tbl AS (${POSTGRES_MANAGED_TABLE_NAMES_SOURCE}),
 col AS (${COLUMNS_SOURCE}),
 pk AS (${PRIMARY_KEYS_SOURCE}),
-idx AS (${INDEXES_SOURCE}),
+idx AS (${indexesSource("strpos(pg_catalog.pg_get_indexdef(ix.indexrelid), ' NULLS NOT DISTINCT') > 0")}),
 fk AS (${FOREIGN_KEYS_SOURCE}),
 xfk AS (${CROSS_SCHEMA_FOREIGN_KEYS_SOURCE}),
 uq AS (${UNIQUE_CONSTRAINTS_SOURCE}),

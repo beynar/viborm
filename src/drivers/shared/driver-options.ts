@@ -165,6 +165,26 @@ export function refuseEmptyDatabaseUrl(
 }
 
 /**
+ * libpq's `sslrootcert=system`, in the URLs PlanetScale and Neon hand out,
+ * means TLS verified against the platform's trust store, as
+ * `sslmode=verify-full`. node-postgres reads `sslrootcert` as a file path and
+ * postgres.js sends it to the server as a setting, so it becomes that
+ * `sslmode`.
+ */
+export function systemRootAsVerifyFull(connectionString: string): string {
+  let url: URL;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    return connectionString;
+  }
+  if (url.searchParams.get("sslrootcert") !== "system") return connectionString;
+  url.searchParams.delete("sslrootcert");
+  url.searchParams.set("sslmode", "verify-full");
+  return url.href;
+}
+
+/**
  * Install one driver fact as an own, non-writable, non-configurable property.
  *
  * `readonly` is erased at run time, and query rendering, migrations, cache

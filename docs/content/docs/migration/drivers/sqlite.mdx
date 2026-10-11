@@ -145,10 +145,11 @@ SQLite has no advisory lock: the write lock of `BEGIN IMMEDIATE` is the
 migration lock. Every effectful command runs in transactions that open with it,
 reads the marker and the unfinished attempts first, and runs the first group of
 its path in the transaction that read them. So two processes applying one
-migration apply it once: the second waits for the write lock (the connection's
-busy timeout, 5 s on the stock drivers; past it the command refuses with
-`V11005` before any effect), then reads the first one's marker and reports
-`noop`, or refuses with `V11015`. Within one process, the driver's connection
+migration apply it once: the second waits for the write lock (the command's
+`limits.lockWait`, 10 s by default, set on the connection's busy timeout for
+that statement only; past it the command refuses with `V11005` before any
+effect), then reads the first one's marker and reports `noop`, or refuses with
+`V11015`. Within one process, the driver's connection
 queue runs one migration command at a time.
 
 A table rebuild commits that transaction to switch `PRAGMA foreign_keys`

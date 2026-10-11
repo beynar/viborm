@@ -431,6 +431,15 @@ A ──    ──> D
 A database at B executes only B-to-D; a database at C executes only C-to-D.
 The system never guesses that every missing branch should run.
 
+An **authored checkpoint** is the one second root a populated estate admits:
+`generate({ from: null })` whose transition creates, from empty, exactly the
+schema of the estate's single leaf (field and model order aside), checked at
+generation. It is authored by name, never inferred from a final snapshot.
+`prune` copies the checkpoint, every state after it, and every parent those
+name into a fresh storage (`graph.ts` `statesFrom`); the source is never
+changed, so storage stays append-only. A marker naming a dropped state moves
+onto the checkpoint through `reanchor`, with baseline's live-equality proof.
+
 The default target is the unique leaf. Multiple leaves require an explicit
 target. State selectors use a full ID, unambiguous prefix, or unambiguous name.
 Multiple routes require an explicit `via`; no timestamp, filename, equal
@@ -660,6 +669,33 @@ providers record durable progress and honest `partial` or
 the system never claims rollback merely because code opened a nominal
 transaction.
 
+**Neon HTTP (plan D7).** A PostgreSQL driver that cannot pin a session, but
+whose native batch acknowledges its commit (`runsMigrationBatches`,
+`pinned-session.ts`; Neon HTTP), is admitted for `apply` only (admission
+requirement `batch`); every other effectful command stays V8002. The command
+reads its decision without a lock: the pre-lock no-op proof, then the marker,
+the unfinished attempts, the namespace and the drift proof, each as an
+ordinary request; the drift proof's predicate canonicalization sends each pass
+(create, read, drop its scratch views) as one request, since separate requests
+may land on separate sessions. A stepwise transition is refused while the path
+is prepared (V11021). A missing control-table pair is created before the first
+request, as plain statements. Each transactional group is then ONE request,
+recorded by `openMigrationBatch` and sent with `_executeBatch`: the `SET LOCAL`
+limits; the bounded `pg_try_advisory_xact_lock` loop (V11005);
+`markerUnmovedCondition`, the SQL form of `assertLockedSinceDecision` (V11015);
+the group's dispatches, with each authored check as `checkCondition` (V11014;
+a check of other than one column fails the request, V11001); the catalog
+digest IS NOT NULL (V11021, an abstention such as a partial index) and equal
+to `fingerprintSnapshot` of the destination (V11014); `markerWrite`; one ledger
+INSERT. An assertion leaves a `P0Vxx` SQLSTATE in a transaction-local setting,
+and a parameterless DO block raises it; `send` maps that SQLSTATE back to the
+refusal, because the message does not survive diagnostics redaction. A reply
+lost before the commit was acknowledged is decided by `commitLanded`, which on
+this transport reads the marker through `readPostgresDecision(…,
+MIGRATION_LOCK_FREE)`: at the target the outcome is `applied`; a held lock or
+an unreadable marker is V11020; otherwise a `failed` event (one INSERT) is
+written and the transport failure returned.
+
 `operators.ts` owns the operator workflows. `status`, `verify`, and `log` are
 read-only. `baseline` requires exact live equality and a provable structural
 root path; it publishes the marker and `baselined` event in one transaction
@@ -667,7 +703,8 @@ when the producer can. `reanchor` reuses that proof and publish when a restore
 left the marker on a state the history lacks: it moves the marker, at revision
 + 1, onto the one history state the live schema matches, with a `reanchored`
 event, and refuses a target on the old marker's own path (the lost suffix only
-moved data). `down` preflights every reverse program, appends
+moved data). `prune` is offline: it copies a checkpoint's kept states into
+fresh storage and touches no database. `down` preflights every reverse program, appends
 `started` before the first rollback dispatch, records step progress, and uses
 the same transaction wrap as apply. An unfinished rollback can only be resumed
 by `down()`. `resolve` accepts only outcomes established by origin/destination
@@ -780,7 +817,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Live transaction wrap predicate | `pinned-session.ts` `mayWrapTransaction` |
 | Authenticated forward execution | `apply-v1.ts` |
 | Offline estate integrity findings | `check.ts` |
-| Status, verification, history display, rollback, baseline, re-anchor, recovery, and history-aware reset | `operators.ts` |
+| Status, verification, history display, rollback, baseline, re-anchor, prune, recovery, and history-aware reset | `operators.ts` |
 | Push consent identity and history interlock | `push-v1.ts` |
 | History-free dialect-aware live planning/execution | `push/index.ts` |
 | Capability-sensitive migration client composition | `client.ts` |
@@ -848,6 +885,7 @@ apply
 down
 baseline
 reanchor
+prune
 resolve
 reset
 push
@@ -869,7 +907,8 @@ constructors are utilities, not alternate execution roots.
 The following concepts are removed and must not return under aliases:
 
 - a **journal**, mutable global manifest, mutable head, or timestamp order;
-- **squash** or inferred history compaction;
+- **squash** or inferred history compaction (an authored checkpoint is
+  neither: see One graph);
 - a public or internal orchestration class named **`MigrationContext`**;
 - path-level storage **`get` / `put` / `delete`**;
 - **`parseStatements`**, breakpoint/comment parsing, or any SQL parser service;
@@ -907,7 +946,7 @@ journal migrator.
 | Change marker, ledger, control tables, or CAS | `control.ts` | `v1-parse.ts`, `pinned-session.ts` |
 | Change forward application | `apply-v1.ts` | `graph.ts`, `control.ts`, `compile.ts` |
 | Change offline integrity reporting | `check.ts` | `graph.ts`, storage inventories |
-| Change rollback, baseline, re-anchor, recovery, or reset workflow | `operators.ts` | `control.ts`, `live-reset.ts`, `apply-v1.ts` |
+| Change rollback, baseline, re-anchor, prune, recovery, or reset workflow | `operators.ts` | `control.ts`, `live-reset.ts`, `apply-v1.ts` |
 | Change push consent or migration-marker coexistence | `push-v1.ts` | `control.ts`, `identity.ts` |
 | Change live push planning | `push/index.ts` | `push/planner.ts`, `differ.ts`; never estate storage |
 | Change target admission, qualification, locking, or clear behavior | `admission.ts`, `target.ts`, `pinned-session.ts`, or `live-reset.ts` respectively | bound migration drivers |
@@ -969,6 +1008,7 @@ holds the complete list, and these are the main ones:
 | `v1-operators.core.test.ts` | `down`, `reset`, `status`, and `baseline` against real applied state |
 | `marker-predicates.core.test.ts` | The `predicates` record `casMarker` writes beside the marker, read back by `readControlState`, and its refusals |
 | `v1-reanchor.core.test.ts` | `reanchor` after a restore left the history older than the marker, and each of its refusals |
+| `v1-checkpoint.core.test.ts` | A 200-state history checkpointed, pruned and re-anchored against real applied state, and the checkpoint's refusals |
 | `v1-push.core.test.ts` | Consent staleness after an external change, cross-driver consent, transactionless apply, and SQLite introspection readback |
 
 The exception is exactly one engine: an in-process `better-sqlite3` database,

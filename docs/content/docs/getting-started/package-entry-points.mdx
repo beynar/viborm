@@ -68,6 +68,7 @@ does not export obsolete build/validate/parse spans or cache keys.
 | `viborm/migrations/storage/fs` | `createFsStorageWriter` only |
 | `viborm/migrations/storage/durable-object` | `createDurableObjectStorageWriter` only |
 | `viborm/migrations/storage/r2` | `createR2StorageWriter` only |
+| `viborm/migrations/tenant` | `createTenantMigrator` and its option and result types |
 
 The filesystem storage class is private. Construct it through the factory so
 the package can preserve its storage contract without exposing implementation

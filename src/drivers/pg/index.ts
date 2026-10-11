@@ -54,6 +54,7 @@ import {
 import {
   refuseEmptyDatabaseUrl,
   refuseUnknownDriverConfigKeys,
+  systemRootAsVerifyFull,
 } from "../shared/driver-options";
 import type { QueryResult } from "../types";
 
@@ -153,8 +154,9 @@ function connectionRecord(
   options: PoolConfig,
   databaseUrl: string | undefined
 ): PoolConfig {
-  const connectionString = options.connectionString ?? databaseUrl;
-  if (!connectionString) return options;
+  const given = options.connectionString ?? databaseUrl;
+  if (!given) return options;
+  const connectionString = systemRootAsVerifyFull(given);
   let url: URL | undefined;
   try {
     url = new URL(connectionString);

@@ -81,7 +81,7 @@ reflect the supplied storage capability:
 | Client construction | Available operations |
 | --- | --- |
 | No storage | `push`, `log` |
-| `MigrationStorageReader` | The above plus `check`, `list`, `show`, `graph`, `status`, `verify`, `apply`, `down`, `baseline`, `resolve` |
+| `MigrationStorageReader` | The above plus `check`, `list`, `show`, `graph`, `status`, `verify`, `apply`, `down`, `baseline`, `reanchor`, `prune`, `resolve` |
 | `MigrationStorageWriter` | Every operation, including `generate` and `reset` |
 
 `log` reads the target database's append-only ledger. `push` is history-free.
@@ -162,7 +162,7 @@ const preview = await migrations.generate({ dryRun: true });
 | Manual artifact | — | `manualMigration` | Caller-owned transitions. No CLI flag. |
 | Low-lock steps | `--low-lock` | `lowLock: boolean` | PostgreSQL: publish index builds and foreign keys on existing tables as recoverable steps. See [Indexes and foreign keys as steps](#indexes-and-foreign-keys-as-steps). |
 
-`--from empty` and `from: null` mean the virtual empty root. A second virtual-root transition is refused. Numeric file indexes do not exist.
+`--from empty` and `from: null` mean the virtual empty root. On an estate that already has states, they author a checkpoint, which must restate the single leaf's schema; see [Bounded History with Checkpoints](#bounded-history-with-checkpoints). Numeric file indexes do not exist.
 
 A state that removes several related tables drops each table before the tables it references, in the same order `push` uses; SQLite tables that no order can drop are refused before the state is published. See [Removing Related Tables](/docs/migration/push#removing-related-tables).
 
@@ -709,6 +709,71 @@ The new marker path starts at the history's root with a baseline boundary, as
 explicit consent to take the live schema as that state, which several matching
 states need. It still requires exact live equality and a structural route.
 
+## Bounded History with Checkpoints
+
+Every command loads the whole history, and the marker records the whole path
+the database took. A history of hundreds of states keeps growing both. An
+authored checkpoint bounds them: a second root whose one transition creates the
+current schema from empty, so the states before it are no longer needed.
+
+1. **Author the checkpoint.** On the estate, generate from the empty root. The
+   checkpoint must restate the schema of the estate's single leaf: generate any
+   schema change first, then the checkpoint.
+2. **Prune into a fresh history.** `prune` copies the checkpoint, every state
+   after it, and the snapshots and SQL they reference into another storage. The
+   source history is never changed: storage is append-only, so pruning is a
+   copy. The copy holds nothing `check()` would report as an orphan.
+3. **Switch to the fresh history and re-anchor each database.** Its marker
+   names a state the fresh history does not hold (`status().markerState` is
+   `"unknown"`, and `apply` refuses with `V11002`). `reanchor()` proves the
+   live schema equals the checkpoint's snapshot and moves the marker onto it,
+   with a baseline boundary, as in
+   [History Older Than the Database](#history-older-than-the-database).
+
+```ts
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
+
+const history = createMigrationClient(client, {
+  storage: createFsStorageWriter("./migrations"),
+});
+await history.generate({ name: "checkpoint-2026-10", from: null });
+await history.prune({
+  checkpoint: { name: "checkpoint-2026-10" },
+  into: createFsStorageWriter("./migrations-next"),
+});
+
+// After replacing ./migrations with ./migrations-next, for each database:
+const migrations = createMigrationClient(client, {
+  storage: createFsStorageWriter("./migrations"),
+});
+if ((await migrations.status()).markerState === "unknown") {
+  await migrations.reanchor();
+}
+await migrations.apply();
+```
+
+`prune` returns `{ states }`, the states the fresh history now holds. Running
+it again into the same storage publishes nothing new. It is an API only: there
+is no `viborm migrate prune`. A Durable Object prunes into its own storage
+under a key prefix: see
+[the tenant migrator](/docs/migration/tenant-migrator#bounded-history).
+
+Before you prune:
+
+- **Apply the leaf everywhere.** A database still behind the checkpoint's
+  schema cannot be re-anchored: `reanchor` refuses with `V11014`. Apply it with
+  the old history first, which `prune` left untouched, then re-anchor.
+- **Resolve unfinished attempts.** `reanchor` refuses while one is open, and
+  `resolve` needs the states the attempt names.
+- **Generate after the checkpoint from it.** Between the checkpoint and the
+  switch, the old history has two leaves, so `apply` needs `{ to }` and
+  `generate()` without `from` merges both leaves. A state that merges older
+  history keeps it: `prune` copies every parent a kept state names.
+
+`down` cannot cross the checkpoint, as it cannot cross a baseline. The ledger
+keeps its events about the dropped states.
+
 ## Reset
 
 `reset` preloads and authenticates the complete clear-and-replay program before the first drop. It keeps the estate, both control tables, every ledger event, and the old marker until final success. On PostgreSQL, the replay commits after each migration that adds enum values, so a later migration can use them. If it is interrupted after such a commit, running `reset` again resumes from the recorded progress.
@@ -733,7 +798,7 @@ Reset drops managed objects, then replays authenticated states. Effectful CLI re
 physical table inventory, returns it as `tables`, and writes nothing.
 :::
 
-There is no squash or compaction command. A future compaction feature would be an explicitly authored, fully checked direct transition — never inferred from a final snapshot.
+There is no squash or inferred compaction command. History is bounded by an explicitly authored, fully checked direct transition instead: see [Bounded History with Checkpoints](#bounded-history-with-checkpoints).
 
 ## Push Does Not Create History
 
@@ -785,7 +850,7 @@ No provider inherits a guarantee from its dialect name. Effectful work requires 
 | PGlite, `pg`, postgres.js, Bun SQL | Yes, when lock/CAS is proven | Transactional when every statement permits it. Each transaction takes the lock and the marker is read under it, so a transaction pooler (PgBouncer in transaction mode) works; stepwise work keeps a session lock and needs a direct session. See [PostgreSQL](/docs/migration/drivers/postgresql#guarantees-and-limits). |
 | SQLite3, Bun SQLite | Yes; stepwise refused | The write lock of `BEGIN IMMEDIATE` is the migration lock: each command reads the marker and the unfinished attempts as the first statements of the transaction that runs its first group, so a second `apply` of the same state, from any process, reports `noop` or refuses with `V11015`. Applying a transition declared `execution: "stepwise"` is refused (`V11021`). See [SQLite](/docs/migration/drivers/sqlite#concurrent-commands). |
 | MySQL2 | Stepwise | DDL implicitly commits. Nominal transactions do not create rollback. Progress is recorded per dispatch. |
-| Neon HTTP | Read-only / offline | No interactive session to hold a lock. Generation, check, status, log, and push dry-run stay available. Effectful apply/down/reset/verify/push refuse. |
+| Neon HTTP | `apply` only | No interactive session: each transactional group is one request, a non-interactive transaction that takes the lock and asserts the marker, the checks and the destination's catalog digest in SQL. Stepwise transitions and a destination the digest cannot prove (a partial index) refuse with `V11021`; a lost reply is decided by the marker, else `V11020`. down/reset/verify/push refuse (`V8002`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations). |
 | PlanetScale | Read-only / offline | VTGate routing does not prove containment. Same offline/read-only split. |
 | D1 | Effectful refused until proven | Table recreation, foreign keys, native-batch atomicity, and marker CAS are not proven together. |
 | LibSQL | Effectful refused until proven | Existing-row constraint validation and safe table reconstruction are not proven. |
@@ -926,7 +991,7 @@ A migration tool does not provide zero-downtime deploys by itself. Use expand/co
 2. **Migrate data** — backfill with a manual transition that carries origin and destination checks.
 3. **Contract** — deploy readers that only use the new shape, then generate a second state that drops the old objects.
 
-Do not squash those states. Each published state stays in the graph so every environment can apply the exact transition it needs.
+Do not squash those states. Each published state stays in the graph so every environment can apply the exact transition it needs. Checkpoint a history only once every environment has applied it.
 
 ## Error Families
 

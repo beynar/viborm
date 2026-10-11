@@ -51,6 +51,7 @@ import {
 import {
   refuseEmptyDatabaseUrl,
   refuseUnknownDriverConfigKeys,
+  systemRootAsVerifyFull,
 } from "../shared/driver-options";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import type { QueryResult } from "../types";
@@ -230,7 +231,7 @@ export class PostgresDriver extends Driver<
     // set in options win, which is the documented precedence.
     const { databaseUrl, options } = this.driverOptions;
     return databaseUrl
-      ? postgres(databaseUrl, withVibormTypes(options))
+      ? postgres(systemRootAsVerifyFull(databaseUrl), withVibormTypes(options))
       : postgres(withVibormTypes(options));
   }
 

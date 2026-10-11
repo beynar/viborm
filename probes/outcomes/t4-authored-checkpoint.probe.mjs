@@ -1,16 +1,13 @@
 // T4 (decision 11): bounded history with authored checkpoints. An explicitly
 // authored null -> checkpoint transition (generate({ from: null })) on a
-// populated estate is published with the leaf's snapshot; once the old
-// states are pruned from the history, the marker is re-anchored onto the
-// checkpoint (T3's reanchor(), the only marker-moving verb the plan names)
-// and the tenant keeps working: verify ok, apply noop, and the next change
-// generates and applies from the checkpoint. Pruning is EMULATED by copying
-// the object store without the old state manifests (the plan names no prune
-// verb), so this probe proves the checkpoint and the re-anchor, not a prune
-// capability; it does check that check() on the pruned history reports only
-// orphan-* findings (the leftover snapshot and SQL blobs a prune would
-// collect). 1.1.0 refuses the checkpoint: V11012 "A second virtual-root
-// transition is refused".
+// populated estate is published with the leaf's snapshot; prune() copies the
+// checkpoint and what follows it into a fresh history (storage stays
+// append-only, so pruning is a copy), which check() finds complete and free
+// of orphans; reanchor() (T3) then moves the marker, which names a dropped
+// state, onto the checkpoint, and the tenant keeps working: verify ok, apply
+// noop, and the next change generates and applies from the checkpoint.
+// 1.1.0 refuses the checkpoint: V11012 "A second virtual-root transition is
+// refused".
 import Database from "better-sqlite3";
 import { s } from "viborm";
 import {
@@ -23,7 +20,7 @@ import { createClient } from "viborm/sqlite3";
 export const meta = {
   id: "T4-authored-checkpoint",
   title:
-    "generate({ from: null }) authors a checkpoint; after an emulated prune, check() sees only orphans and reanchor() keeps the tenant working",
+    "generate({ from: null }) authors a checkpoint; prune() copies it into a fresh history and reanchor() keeps the tenant working",
   plan: "phase-4/T4",
   needs: [],
   source:
@@ -107,29 +104,25 @@ export default async function probe() {
         evidence: `checkpoint ${checkpoint.outcome}, snapshot equals leaf: ${checkpoint.snapshotHash === leafSnapshot}`,
       };
     }
-    const pruned = new MemoryConditionalObjectStore();
-    const oldIds = old.map((state) => state.stateId);
-    for (const key of await store.list("")) {
-      if (oldIds.some((id) => key.includes(id))) continue;
-      await pruned.putIfAbsent(key, await store.get(key));
-    }
-    const prunedStorage = new ObjectStoreEstateStorage(pruned);
-    const m = createMigrationClient(clients[2], { storage: prunedStorage });
-    const { findings } = await m.check();
-    const orphans = findings.map((finding) => finding.code);
-    if (
-      !orphans.includes("orphan-sql") ||
-      orphans.some((found) => !found.startsWith("orphan-"))
-    ) {
+    if (typeof current.prune !== "function") {
       return {
         status: "fail",
-        evidence: `check() after the emulated prune: [${orphans.join(",")}] (expected only orphan-* findings, orphan-sql among them)`,
+        evidence: "checkpoint published; migration client has no prune()",
       };
     }
-    if (typeof m.reanchor !== "function") {
+    const pruned = new MemoryConditionalObjectStore();
+    const prunedStorage = new ObjectStoreEstateStorage(pruned);
+    const { states } = await current.prune({
+      checkpoint: { name: "checkpoint" },
+      into: prunedStorage,
+    });
+    const m = createMigrationClient(clients[2], { storage: prunedStorage });
+    const checked = await m.check();
+    const keys = `${(await store.list("")).length} -> ${(await pruned.list("")).length} keys`;
+    if (!checked.ok || checked.findings.length > 0 || states.length !== 1) {
       return {
         status: "fail",
-        evidence: "checkpoint published; migration client has no reanchor()",
+        evidence: `prune kept ${states.length} states (${keys}); check() ${checked.ok} [${checked.findings.map((finding) => finding.code).join(",")}]`,
       };
     }
     const reanchored = await code(() => m.reanchor());
@@ -157,7 +150,7 @@ export default async function probe() {
       rows === ROWS;
     return {
       status: ok ? "pass" : "fail",
-      evidence: `checkpoint published (leaf snapshot); pruned ${oldIds.length} states, check() [${orphans.join(",")}]; reanchor ${reanchored}, marker at checkpoint ${marker}, verify ${verified}, apply ${again}, next change ${nextState}, rows ${rows}`,
+      evidence: `checkpoint published (leaf snapshot); prune kept 1 of ${old.length + 1} states (${keys}), check() clean; reanchor ${reanchored}, marker at checkpoint ${marker}, verify ${verified}, apply ${again}, next change ${nextState}, rows ${rows}`,
     };
   } finally {
     for (const client of clients) await client.$disconnect();

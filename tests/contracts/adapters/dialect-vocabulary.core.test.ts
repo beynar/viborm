@@ -11,6 +11,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Sql, sql } from "@sql";
+import { recursiveTermCounts } from "@tests/fixtures/sql-shape";
 
 const decimal = { precision: 6, scale: 2 };
 const INSERT_STATEMENT = /^INSERT\s+INTO/;
@@ -256,6 +257,13 @@ describe("shared adapter SQL vocabulary", () => {
         expect(distinct.toStatement()).toContain("UNION\n");
         expect(all.values).toEqual([1, 2]);
         expect(distinct.values).toEqual([1, 2]);
+        // One non-recursive and one recursive term: PlanetScale's Neki cannot
+        // resolve the CTE from the recursive member of a third.
+        expect(
+          [all, distinct].flatMap((cte) =>
+            recursiveTermCounts(`${cte.toStatement()} SELECT 1`)
+          )
+        ).toEqual([2, 2]);
       });
 
       test("a column without a table alias remains one quoted identifier", () => {

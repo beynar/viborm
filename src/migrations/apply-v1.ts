@@ -18,6 +18,8 @@ import {
   DEFAULT_CONTROL_BASE,
   ensureControlTables,
   markerFromPath,
+  markerUnmovedCondition,
+  markerWrite,
   readControlState,
   readPostgresDecision,
   refuseIncompatibleHistory,
@@ -26,9 +28,16 @@ import {
 } from "./control";
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
-import { postgresCatalogDigest } from "./drivers/postgres/catalog-digest";
+import {
+  postgresCatalogDigest,
+  postgresCatalogDigestQuery,
+} from "./drivers/postgres/catalog-digest";
 import { emptyManagedSnapshot } from "./empty-snapshot";
-import { evaluateAllChecks, executeOperations } from "./execute-dispatch";
+import {
+  checkCondition,
+  evaluateAllChecks,
+  executeOperations,
+} from "./execute-dispatch";
 import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
 import {
   loadMigrationGraph,
@@ -41,16 +50,25 @@ import {
 import type { Sha256 } from "./identity";
 import {
   lockedSinceDecision,
+  MIGRATION_LOCK_FREE,
+  type MigrationBatch,
   mayWrapTransaction,
+  openMigrationBatch,
   runSequentialProgram,
+  runsMigrationBatches,
   withLockedMigrationProducer,
 } from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
-import { fingerprintDeparsed, fingerprintLive } from "./push-fingerprint";
+import {
+  fingerprintDeparsed,
+  fingerprintLive,
+  fingerprintSnapshot,
+} from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
+import type { SchemaSnapshot } from "./types";
 import { eventIdFor } from "./v1-parse";
 import type {
   ApplyV1Options,
@@ -86,7 +104,7 @@ export async function applyV1(
   const dryRun = options.dryRun === true;
   admitLiveMigrationCapability(
     driver,
-    dryRun ? "read-only" : "effectful",
+    dryRun ? "read-only" : "batch",
     dryRun ? "apply({ dryRun: true })" : "apply()"
   );
 
@@ -301,6 +319,7 @@ export async function applyPathUnderLock(
   models: MigrationClient["$schema"],
   needsBootstrap = false
 ): Promise<void> {
+  const batched = runsMigrationBatches(pinned);
   const prepared = path.map((to, index) => {
     const from = index === 0 ? origin : path[index - 1]!;
     const transition = parentTransition(graph, from, to);
@@ -313,7 +332,7 @@ export async function applyPathUnderLock(
       );
     }
     assertTransactionalBoundaryHonored(
-      pinned.supportsTransactions,
+      pinned.supportsTransactions || batched,
       transition.requestedForwardBoundary
     );
     // Plan S5: only a transaction holds SQLite's write lock, under which a
@@ -335,19 +354,28 @@ export async function applyPathUnderLock(
         }
       );
     }
-    return {
-      from,
-      to,
-      transition,
-      state,
-      blob,
-      boundary: classifyStoredAtomicity(
-        command,
-        transition.requestedForwardBoundary,
-        transition.operations,
-        blob
-      ),
-    };
+    const boundary = classifyStoredAtomicity(
+      command,
+      transition.requestedForwardBoundary,
+      transition.operations,
+      blob
+    );
+    // Plan D7: a transport with no session runs only transactional groups,
+    // each as one request. Refused while the path is prepared.
+    if (batched && boundary === "stepwise") {
+      throw new MigrationError(
+        `The driver "${pinned.driverName}" sends each transactional group as one request and has no session for a stepwise transition (CONCURRENTLY, or a manual stepwise step). Nothing ran. Apply it over a session driver: viborm/pg, Neon's WebSocket Pool included.`,
+        VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+        {
+          meta: {
+            dialect: "postgresql",
+            toState: to,
+            feature: "stepwise execution",
+          },
+        }
+      );
+    }
+    return { from, to, transition, state, blob, boundary };
   });
 
   let current = marker;
@@ -356,6 +384,23 @@ export async function applyPathUnderLock(
   const statementsOf = ({ transition, blob }: PreparedForwardEdge) =>
     stepStatements(blob, transition.operations);
   for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
+    if (batched) {
+      // Before the request: the bootstrap reads what one request cannot.
+      if (bootstrapPending) {
+        await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
+        bootstrapPending = false;
+      }
+      current = await applyGroupBatch(
+        pinned,
+        command,
+        graph,
+        group.items,
+        current,
+        nextPath,
+        models
+      );
+      continue;
+    }
     const statements = group.items.flatMap(statementsOf);
     const lifted = liftForeignKeyPragmas(pinned, statements);
     const running: { attempt?: ForwardAttempt } = {};
@@ -446,7 +491,8 @@ async function executeAtomicGroup(
   running: { attempt?: ForwardAttempt },
   current: MigrationMarkerV1 | null,
   nextPath: MarkerPathEdgeV1[],
-  models: MigrationClient["$schema"]
+  models: MigrationClient["$schema"],
+  batch?: MigrationBatch
 ): Promise<MigrationMarkerV1> {
   const arrivals: LedgerEventV1[] = [];
   for (const item of items) {
@@ -458,7 +504,8 @@ async function executeAtomicGroup(
       command,
       blob,
       transition.originChecks,
-      "origin"
+      "origin",
+      batch
     );
     await executeOperations(
       producer,
@@ -481,7 +528,8 @@ async function executeAtomicGroup(
       command,
       blob,
       state.destinationChecks,
-      "destination"
+      "destination",
+      batch
     );
     nextPath.push({
       stateId: to,
@@ -503,28 +551,129 @@ async function executeAtomicGroup(
     );
   }
   const { snapshotHash } = items.at(-1)!.state;
-  const predicates = await assertFingerprint(
-    producer,
-    command,
-    graph,
-    snapshotHash
-  );
   const next = markerFromPath(
     graph.estateHash,
     snapshotHash,
     [...nextPath],
     (current?.revision ?? 0) + items.length
   );
-  await casMarker(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    current ? { revision: current.revision, pathHash: current.pathHash } : null,
-    next,
-    predicates
-  );
+  const expected = current
+    ? { revision: current.revision, pathHash: current.pathHash }
+    : null;
+  if (batch) {
+    assertDigest(batch, command, requireStateSnapshot(graph, items.at(-1)!.to));
+    // The request asserted `expected` under its lock first.
+    const write = markerWrite(command, DEFAULT_CONTROL_BASE, expected, next);
+    await producer._executeRaw(write.sql, write.params);
+  } else {
+    const predicates = await assertFingerprint(
+      producer,
+      command,
+      graph,
+      snapshotHash
+    );
+    await casMarker(
+      producer,
+      command,
+      DEFAULT_CONTROL_BASE,
+      expected,
+      next,
+      predicates
+    );
+  }
   await appendLedger(producer, command, DEFAULT_CONTROL_BASE, ...arrivals);
   return next;
+}
+
+/**
+ * Plan D7: one transactional group as ONE request, on a transport with no
+ * session. The request takes the transaction lock, asserts that the marker
+ * is still the one this command decided on and that no attempt is open
+ * ({@link assertLockedSinceDecision} in SQL), then runs the group as
+ * {@link executeAtomicGroup} does, its checks and destination proof asserted
+ * in SQL. A request the server refused rolled back; after a lost reply the
+ * marker says whether it committed ({@link commitLanded}).
+ */
+async function applyGroupBatch(
+  driver: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  items: readonly PreparedForwardEdge[],
+  current: MigrationMarkerV1 | null,
+  nextPath: MarkerPathEdgeV1[],
+  models: MigrationClient["$schema"]
+): Promise<MigrationMarkerV1> {
+  const batch = openMigrationBatch(driver, command);
+  const unmoved = markerUnmovedCondition(
+    command,
+    DEFAULT_CONTROL_BASE,
+    current
+  );
+  batch.assert(
+    unmoved.sql,
+    unmoved.params,
+    new MigrationError(
+      "Another migration command moved the marker, or opened an attempt, after this command read it. Nothing of this request was applied; running the command again re-reads the marker.",
+      VibORMErrorCode.MIGRATION_MARKER_CONFLICT
+    )
+  );
+  const running: { attempt?: ForwardAttempt } = {};
+  const next = await executeAtomicGroup(
+    batch.producer,
+    command,
+    graph,
+    items,
+    running,
+    current,
+    nextPath,
+    models,
+    batch
+  );
+  try {
+    await batch.send();
+  } catch (failure) {
+    if (
+      !(failure instanceof MigrationError) &&
+      (await commitLanded(driver, command, items, next, failure))
+    ) {
+      return next;
+    }
+    await recordFailedAttempt(driver, command, graph, running, failure);
+    throw failure;
+  }
+  return next;
+}
+
+/**
+ * The destination proof inside one request (plan D7): the catalog digest
+ * (`catalog-digest.ts`) is the snapshot's fingerprint. Where the digest
+ * abstains, the request cannot prove the destination, and is refused.
+ */
+function assertDigest(
+  batch: MigrationBatch,
+  command: BoundMigrationDriver,
+  snapshot: SchemaSnapshot
+): void {
+  const digest = postgresCatalogDigestQuery(
+    command,
+    controlTableNames(DEFAULT_CONTROL_BASE)
+  );
+  batch.assert(
+    `(${digest.sql}) IS NOT NULL`,
+    digest.parameters,
+    new MigrationError(
+      "This change cannot be proven inside one request: the catalog digest abstains on the destination schema (a partial index, or a default it cannot reproduce; see drivers/postgres/catalog-digest.ts). Nothing was applied. Apply it over a session driver: viborm/pg, Neon's WebSocket Pool included.",
+      VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
+    )
+  );
+  batch.assert(
+    `(${digest.sql}) = $7`,
+    [...digest.parameters, fingerprintSnapshot(snapshot, command)],
+    new MigrationError(
+      "Live managed schema drifted from the authenticated snapshot",
+      VibORMErrorCode.MIGRATION_DRIFT
+    )
+  );
 }
 
 /** An edge's authored origin or destination checks, which must all hold. */
@@ -533,17 +682,27 @@ async function assertChecks(
   command: BoundMigrationDriver,
   blob: Uint8Array,
   checks: readonly MigrationBooleanCheckV1[],
-  side: "origin" | "destination"
+  side: "origin" | "destination",
+  batch?: MigrationBatch
 ): Promise<void> {
+  const refusal = () =>
+    new MigrationError(
+      side === "origin"
+        ? "Origin checks failed before the first dispatch"
+        : "Destination checks failed before the marker could advance",
+      VibORMErrorCode.MIGRATION_DRIFT
+    );
+  if (batch) {
+    for (const check of checks) {
+      const { sql, params } = checkCondition(blob, check, command.namespace);
+      batch.assert(sql, params, refusal());
+    }
+    return;
+  }
   if (await evaluateAllChecks(producer, blob, checks, command.namespace)) {
     return;
   }
-  throw new MigrationError(
-    side === "origin"
-      ? "Origin checks failed before the first dispatch"
-      : "Destination checks failed before the marker could advance",
-    VibORMErrorCode.MIGRATION_DRIFT
-  );
+  throw refusal();
 }
 
 /**
@@ -591,7 +750,9 @@ interface ForwardAttempt {
  * Whether a transaction whose COMMIT was sent, and then failed, committed.
  * The marker it compare-and-swapped answers: it commits with the transition
  * or not at all. When even the marker cannot be read, the outcome is the
- * ambiguous commit V11020 it is (plan S3).
+ * ambiguous commit V11020 it is (plan S3). Without a session (plan D7) it is
+ * read only while no command holds the lock, so never while the request
+ * whose reply was lost may still run.
  */
 async function commitLanded(
   pinned: Parameters<typeof appendLedger>[0],
@@ -600,19 +761,22 @@ async function commitLanded(
   expected: MigrationMarkerV1 | null,
   failure: unknown
 ): Promise<boolean> {
-  let marker: MigrationMarkerV1 | null;
-  try {
-    // On a lost connection the pinned view refuses this read (plan S2).
-    ({ marker } = await readControlState(
-      pinned,
-      command,
-      DEFAULT_CONTROL_BASE,
-      { ledger: "open" }
-    ));
-  } catch {
+  // On a lost connection the pinned view refuses this read (plan S2).
+  const marker = await (runsMigrationBatches(pinned)
+    ? readPostgresDecision(
+        pinned,
+        command,
+        DEFAULT_CONTROL_BASE,
+        MIGRATION_LOCK_FREE
+      ).then((decision) => decision?.marker)
+    : readControlState(pinned, command, DEFAULT_CONTROL_BASE, {
+        ledger: "open",
+      }).then((control) => control.marker)
+  ).catch(() => undefined);
+  if (marker === undefined) {
     const fromState = items[0]?.from ?? null;
     throw new MigrationError(
-      "The migration's COMMIT was sent but its reply was lost, and the marker cannot be re-read: the transition may have committed. status() and apply() re-read the marker.",
+      "The migration's COMMIT was sent but its reply was lost, and the marker cannot be re-read, or another request still holds the migration lock: the transition may have committed. status() and apply() re-read the marker.",
       VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
       {
         cause: failure instanceof Error ? failure : undefined,
@@ -663,6 +827,11 @@ async function recordFailedAttempt(
     describeFailure(failure)
   );
   try {
+    if (runsMigrationBatches(pinned)) {
+      // Its control tables were made before the request (plan D7).
+      await appendLedger(pinned, command, DEFAULT_CONTROL_BASE, event);
+      return;
+    }
     await pinned.withTransaction(async (transaction) => {
       await ensureControlTables(transaction, command, DEFAULT_CONTROL_BASE);
       await appendLedger(transaction, command, DEFAULT_CONTROL_BASE, event);

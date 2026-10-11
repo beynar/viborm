@@ -133,7 +133,8 @@ MySQL DDL is the documented stepwise exception because each statement commits:
 | **PGlite, pg, postgres.js, Bun SQL** | Transaction when every statement permits it | Same guarantee |
 | **SQLite3, Bun SQLite** | Transaction (`BEGIN IMMEDIATE`, whose write lock is the migration lock) | Same, per group: a concurrent `apply` of the same state reads the first one's marker and reports `noop`, or refuses with `V11015`. Stepwise transitions are refused (`V11021`) |
 | **MySQL2** | Stepwise — a failed run can leave earlier statements applied | Same limitation, with durable progress evidence |
-| **Neon HTTP, PlanetScale, D1, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
+| **Neon HTTP** | Refused: no session; dry-run and read-only paths remain | One request per transactional group, which takes the lock and asserts the marker, the checks and the destination digest in SQL. Stepwise transitions refused (`V11021`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations) |
+| **PlanetScale, D1, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
 
 On the atomic paths, a successful migration applies every statement and a
 failed one applies none. The portable API exposes no transaction isolation

@@ -31,6 +31,7 @@ export type {
 export { createMigrationClient } from "./client";
 export type { IdentifierConversionRequest } from "./identifier-conversion";
 export { identifierConversionChecks } from "./identifier-conversion";
+export type { PruneOptions, PruneResult } from "./operators";
 export type {
   GraphResult,
   ListResult,

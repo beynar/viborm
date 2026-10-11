@@ -93,6 +93,12 @@ export interface TenantMigrator {
   down: ReadableMigrations["down"];
   /** After a restore left this object's history older than the database. */
   reanchor: ReadableMigrations["reanchor"];
+  /**
+   * Copies an authored checkpoint and what follows it into a fresh history,
+   * such as `createDurableObjectStorageWriter(ctx.storage, { prefix })`;
+   * a migrator over it then calls `reanchor()`.
+   */
+  prune: ReadableMigrations["prune"];
 }
 
 const AMBIGUOUS = new Set<string>([
@@ -109,7 +115,7 @@ const ATTEMPTS = 4;
 const BACKOFF_MS = 200;
 
 /**
- * `change`, `resolve`, `down` and `reanchor` run one at a time: a call made while another
+ * `change`, `resolve`, `down`, `reanchor` and `prune` run one at a time: a call made while another
  * runs waits for it, and leaves the queue as `failed` if its signal aborts
  * first. Call them from a request or an alarm, never from the constructor or
  * `blockConcurrencyWhile`.
@@ -208,6 +214,7 @@ export function createTenantMigrator({
     resolve: (options) => exclusive(() => current.resolve(options)),
     down: (options) => exclusive(() => current.down(options)),
     reanchor: (options) => exclusive(() => current.reanchor(options)),
+    prune: (options) => exclusive(() => current.prune(options)),
   });
 }
 

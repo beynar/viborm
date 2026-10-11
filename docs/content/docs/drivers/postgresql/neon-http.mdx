@@ -70,15 +70,16 @@ SELECT "user"."id" FROM "billing"."user" AS "user"
 ```
 
 :::warning
-**Migration capability is a subset here.** Neon HTTP cannot pin a session, so it
-supports schema-aware runtime, admitted read-only, and offline migration paths
-only. Effectful push/migration verbs and locked `verify` require a
-session-capable driver. Dry-run `apply` and `down` are unlocked live reads;
-they do not require a pinned session, but do require database connectivity.
+**Migration capability is a subset here.** Neon HTTP cannot pin a session.
+`apply` runs on it one request per transactional group (see
+[Migrations](#migrations) below); `push`, `down`, `reset`, `baseline`,
+`resolve`, `reanchor` and locked `verify` need a session-capable driver. Dry-run
+`apply` and `down` are unlocked live reads; they do not require a pinned
+session, but do require database connectivity.
 
-Use Neon HTTP for application traffic and point a `pg` or postgres.js driver at
-the **same** `namespace` for deployment migrations. This is not a `migrationUrl`
-option or a hidden second client — it is two drivers you construct.
+For those commands, point a `pg` or postgres.js driver (Neon's WebSocket `Pool`
+included) at the **same** `namespace`. This is not a `migrationUrl` option or a
+hidden second client — it is two drivers you construct.
 :::
 
 Raw SQL is never rewritten and keeps ordinary `search_path` semantics — see
@@ -144,9 +145,40 @@ For Neon HTTP, use batch mode (`$transaction([...])`) for operations that can be
 
 ### Migrations
 
-Migration V1 refuses live `push`, `apply`, `down`, `reset`, and locked `verify`
-before provider work. A native atomic batch cannot hold the session-scoped
-migration lock across inspection, execution, and marker comparison.
+`apply` reads the marker, the open attempts and the live schema with ordinary
+requests, then sends each transactional group of the change as **one** request:
+a non-interactive transaction that
+
+1. sets the command's `SET LOCAL` limits and takes the migration lock
+   (`pg_try_advisory_xact_lock`, polled for up to `limits.lockWait`);
+2. asserts that the marker is still the one `apply` read and that no attempt is
+   open;
+3. runs the change, asserting each manual origin and destination check in SQL;
+4. asserts that the catalog digest is the destination snapshot's;
+5. moves the marker and appends the `applied` event.
+
+A failed assertion raises inside the request and the server rolls all of it
+back: the lock taken by another command is `V11005`, a marker moved meanwhile
+`V11015`, a check or the digest disagreeing `V11014`, and any other refused
+statement `V11001`. A change that adds an enum value commits in two requests,
+as it does on every PostgreSQL driver.
+
+When the reply to that request is lost, `apply` re-reads the marker while no
+command holds the lock. At the target, the outcome is `applied`. At the
+origin, the request did not commit, and the transport error is returned;
+running `apply` again is safe, because the request asserts the marker it read.
+When the lock is still held (the request may still be running), `apply` throws
+`V11020` and `status()` settles it later.
+
+Refused before any request carries DDL, with `V11021`: a stepwise transition
+(`CONCURRENTLY`, or a manual `execution: "stepwise"` step), including the
+`CONCURRENTLY` states of `generate({ lowLock: true })`. Refused inside the
+request, with `V11021` and nothing applied: a destination whose catalog digest
+abstains — a partial index, or a default the one-statement digest cannot
+reproduce. Apply those over a session-capable driver.
+
+`push`, `down`, `reset`, `baseline`, `resolve`, `reanchor` and locked `verify`
+still refuse (`V8002`) before provider work: they need a session.
 
 Offline `generate` and `check`, estate inspection, and admitted read-only
 `status`, `log`, and `push({ dryRun: true })` remain available.
@@ -156,8 +188,8 @@ instead previews the estate's root-to-target path without reading the database,
 after target and read-only capability admission. None of these previews grants
 permission to execute the corresponding effectful command on Neon HTTP.
 
-Use a session-capable `pg` or postgres.js client against the same
-database and `namespace` for deployment migrations. See
+For the commands that need a session, use a `pg` or postgres.js client against
+the same database and `namespace`. See
 [migration atomicity](/docs/migration#atomicity).
 
 ## Capabilities

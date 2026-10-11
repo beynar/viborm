@@ -473,7 +473,10 @@ describe("a lock protocol statement that fails", () => {
     const busy = Object.assign(new Error("database is locked"), {
       code: "SQLITE_BUSY",
     });
-    driver.respond = (sql) => (sql === "BEGIN IMMEDIATE" ? busy : []);
+    driver.respond = (sql) => {
+      if (sql === "BEGIN IMMEDIATE") return busy;
+      return sql === "PRAGMA busy_timeout" ? [{ timeout: 5000 }] : [];
+    };
 
     const failure = await lockedRead(driver).catch((error: unknown) => error);
 
@@ -485,7 +488,14 @@ describe("a lock protocol statement that fails", () => {
       // The driver's normalized report of the provider's own failure.
       cause: expect.objectContaining({ originalCause: expect.any(Error) }),
     });
-    expect(driver.statements.at(-1)).toBe("BEGIN IMMEDIATE");
+    // It waited `lockWait` (10 s by default), then gave the connection its
+    // own busy timeout back.
+    expect(driver.statements.slice(-4)).toEqual([
+      "PRAGMA busy_timeout",
+      "PRAGMA busy_timeout = 10000",
+      "BEGIN IMMEDIATE",
+      "PRAGMA busy_timeout = 5000",
+    ]);
     expect(driver.statements).not.toContain("SELECT 1");
   });
 

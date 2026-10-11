@@ -351,11 +351,16 @@ describe("migration graph command boundaries", () => {
     expect(preview.name).toBeTruthy();
 
     const published = await generateV1(client, storage, { name: "root" });
+    const changed = createClient({
+      schema: { user, other: s.model({ id: s.string().id() }) },
+      driver: new PlanningDriver("sqlite"),
+    });
     await expect(
-      generateV1(client, storage, { from: null, name: "second-root" })
+      generateV1(changed, storage, { from: null, name: "second-root" })
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,
     });
+    await changed.$disconnect();
     await expect(
       generateV1(client, storage, {
         from: "0".repeat(64),

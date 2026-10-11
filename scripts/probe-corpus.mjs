@@ -194,6 +194,12 @@ async function runProbe(consumerRoot, fixtureRoot, path, ctx, options) {
   const completion = await runningProbe.completion;
   runningProbe = undefined;
   closeSync(log);
+  // Ctrl-C reaches the sampler's `ps` as well, and its failure can stop the
+  // probe before this process runs its own SIGINT handler: a run whose probe
+  // was not supervised to the end reports nothing.
+  if (completion.stopReason === "sampling") {
+    throw new Error(`Probe ${path}: its resource sampler failed.`);
+  }
   const written = existsSync(resultFile)
     ? JSON.parse(readFileSync(resultFile, "utf8"))
     : {};

@@ -24,12 +24,17 @@ import { s, TYPES } from "@schema";
 import { sql } from "@sql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { MemoryStorage, pgEstateDriver } from "./_estate";
 
 const ROWS = 10_000;
 const CANONICAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const CANONICAL_TIME = /^\d{2}:\d{2}:\d{2}\.\d{3}$/;
+
+// better-sqlite3 answers synchronously, so these tests never leave the microtask
+// queue: without a macrotask turn between them the file holds the worker's event
+// loop for its whole run, and Vitest's task-update RPC times out after 60 s.
+afterEach(() => new Promise<void>((resolve) => setImmediate(resolve)));
 
 const schema = () => ({
   event: s

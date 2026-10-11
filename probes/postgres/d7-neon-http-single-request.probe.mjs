@@ -82,9 +82,11 @@ function neonEndpoint(db) {
       rowMode: "array",
       parsers: raw,
     });
-    const command = FIRST_WORD.exec(q.query)?.[1]?.toUpperCase() ?? "";
+    // The command tag PostgreSQL reports: a WITH query's is its own verb's,
+    // which every one a migration sends here is SELECT.
+    const word = FIRST_WORD.exec(q.query)?.[1]?.toUpperCase();
     return {
-      command,
+      command: word === undefined || word === "WITH" ? "SELECT" : word,
       rowCount: r.affectedRows ?? r.rows.length,
       fields: r.fields,
       rows: r.rows,

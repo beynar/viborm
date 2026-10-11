@@ -8,6 +8,10 @@
  * migration must land once, and the loser must report a no-op or a marker
  * conflict (V11015), never another error.
  *
+ * A loser waits for the write lock as long as the command's `lockWait`, past
+ * the connection's own busy timeout: under load the winner's transaction
+ * outlasted better-sqlite3's 5 s, and the loser reported V11005 instead.
+ *
  * The children run the repository's sources through jiti, so the race needs no
  * build. Within one process, two `apply()` calls on one client are serialized
  * by the driver's connection queue, and the second is a no-op.
@@ -33,6 +37,8 @@ const CREDIT = 10;
 const ROUNDS = 4;
 const CHILD_TIMEOUT_MS = 60_000;
 const RESULT_LINE = /RESULT (.*)\n/;
+/** Longer than better-sqlite3's 5 s busy timeout, shorter than `lockWait`. */
+const HOLD_MS = 6000;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "../../..");
@@ -41,6 +47,7 @@ const jiti = join(
   dirname(createRequire(import.meta.url).resolve("jiti/package.json")),
   "lib/jiti-cli.mjs"
 );
+const betterSqlite3 = createRequire(import.meta.url).resolve("better-sqlite3");
 const scratch = mkdtempSync(join(tmpdir(), "viborm-s5-"));
 
 afterAll(() => rmSync(scratch, { recursive: true, force: true }));
@@ -267,6 +274,49 @@ describe("two processes applying one SQLite migration (S5)", () => {
       }
     }, 300_000);
   }
+});
+
+describe("a writer holding the database past the busy timeout (S5)", () => {
+  it("the command waits lockWait for BEGIN IMMEDIATE, then applies", async () => {
+    const prepared = await prepare("transactional");
+    const file = join(scratch, "held.sqlite");
+    copyFileSync(prepared.template, file);
+    const before = balanceSum(file);
+    // Another process takes the write lock and keeps it 6 s, beyond the
+    // connection's 5 s busy timeout, then lets it go without a change.
+    const holder = spawn(
+      process.execPath,
+      [
+        "-e",
+        `const db = new (require(${JSON.stringify(betterSqlite3)}))(${JSON.stringify(file)});
+db.exec("BEGIN IMMEDIATE");
+process.stdout.write("HELD\\n");
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${HOLD_MS});
+db.exec("ROLLBACK");
+db.close();`,
+      ],
+      { stdio: ["ignore", "pipe", "inherit"] }
+    );
+    await new Promise<void>((held) => {
+      holder.stdout.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes("HELD")) held();
+      });
+    });
+    const client = createClient({ schema: raceSchema("v1"), dataDir: file });
+    try {
+      const started = Date.now();
+      await expect(
+        createMigrationClient(client, {
+          storage: createFsStorageWriter(prepared.estate),
+        }).apply()
+      ).resolves.toMatchObject({ outcome: "applied" });
+      expect(Date.now() - started).toBeGreaterThan(HOLD_MS - 1000);
+      expect(balanceSum(file) - before).toBe(ROWS * CREDIT);
+    } finally {
+      await client.$disconnect();
+      holder.kill();
+    }
+  }, 120_000);
 });
 
 describe("one process (S5)", () => {

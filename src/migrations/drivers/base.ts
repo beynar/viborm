@@ -243,12 +243,17 @@ export abstract class MigrationDriver {
    * canonicalization may need session-local scratch objects, which a pooled
    * connection per statement would scatter. Positional result; `undefined` at
    * a position means the database did not answer, and the differ then refuses
-   * to call that predicate equal to anything.
+   * to call that predicate equal to anything. `executeBatch` is given where
+   * no connection can be pinned (Neon HTTP): each request may be a new
+   * session, so session-local work goes out as one request.
    */
   canonicalizeIndexPredicates?(
     tableName: string,
     predicates: readonly string[],
-    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
+    executeBatch?: <T>(
+      statements: readonly string[]
+    ) => Promise<ReadonlyArray<{ rows: T[] }>>
   ): Promise<ReadonlyArray<string | undefined>>;
 
   /**

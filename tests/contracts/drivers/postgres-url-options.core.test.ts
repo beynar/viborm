@@ -238,3 +238,32 @@ describe("parity-18: a present but empty databaseUrl names no target", () => {
     ).not.toThrow();
   });
 });
+
+describe("sslrootcert=system, as PlanetScale and Neon URLs carry it", () => {
+  const SYSTEM_ROOT_URL =
+    "postgres://app:secret@db.example.test:5432/app?sslmode=require&sslrootcert=system";
+
+  test("pg: TLS verified against the platform's trust store, not a file named system", async () => {
+    const target = await pgTarget(
+      driverFromWrapper(() =>
+        createPgClient({ schema, databaseUrl: SYSTEM_ROOT_URL })
+      )
+    );
+    // `{}` is Node's verified TLS: no CA override, rejectUnauthorized default.
+    expect(target).toMatchObject({ host: "db.example.test", ssl: {} });
+  });
+
+  test("postgres.js: verify-full, and no sslrootcert setting sent to the server", async () => {
+    const driver = driverFromWrapper(() =>
+      createPostgresClient({ schema, databaseUrl: SYSTEM_ROOT_URL })
+    );
+    if (!(driver instanceof PostgresDriver)) {
+      throw new Error("expected a PostgresDriver");
+    }
+    await driver._connect();
+    const { options } = Reflect.get(driver, "client");
+    await driver._disconnect();
+    expect(options.ssl).toBe("verify-full");
+    expect(options.connection).not.toHaveProperty("sslrootcert");
+  });
+});

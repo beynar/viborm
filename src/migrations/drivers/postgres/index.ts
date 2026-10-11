@@ -63,7 +63,10 @@ import {
 } from "../base";
 import { getPostgresType, PG_TYPE_DEFAULTS } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
-import { canonicalizeIndexPredicates } from "./canonicalize-index-predicate";
+import {
+  type BatchExecutor,
+  canonicalizeIndexPredicates,
+} from "./canonicalize-index-predicate";
 import {
   admittedExtensionTypes,
   introspectPostgresSchema,
@@ -595,12 +598,14 @@ export class PostgresMigrationDriver extends MigrationDriver {
   override canonicalizeIndexPredicates(
     tableName: string,
     predicates: readonly string[],
-    executeRaw: RawExecutor
+    executeRaw: RawExecutor,
+    executeBatch?: BatchExecutor
   ): Promise<ReadonlyArray<string | undefined>> {
     return canonicalizeIndexPredicates(
       this.qualify(tableName),
       predicates,
-      executeRaw
+      executeRaw,
+      executeBatch
     );
   }
 

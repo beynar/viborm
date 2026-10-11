@@ -97,7 +97,10 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // session. None opens a parallel driver path, so §12.13 holds. The list had
   // drifted because it still named src/migrations/apply/index.ts, which became
   // apply-v1.ts, and because operators.ts did not exist when it was written.
-  "src/migrations/apply-v1.ts executeRaw 1",
+  // D7 (1.2.0): on a sessionless batch transport the marker write goes to
+  // the group's recording producer (`openMigrationBatch`), which appends it to
+  // the one request instead of executing it.
+  "src/migrations/apply-v1.ts executeRaw 2",
   // S7 (1.2.0): status() lists INVALID PostgreSQL indexes with one read-only
   // catalog query on the producer its caller hands it.
   "src/migrations/catalog-probes.ts executeRaw 1",

@@ -24,8 +24,6 @@ describe("PostgreSQL partial-index predicate canonicalization", () => {
       },
       {
         d0: " SELECT 1 AS c\n   FROM account\n  WHERE ((age >= 18) AND (age <= 65) AND active);",
-        // Still the first pass's view: no answer, not a fixed point.
-        d1: " SELECT 1 AS c\n   FROM account\n  WHERE (deleted_at IS NULL);",
       },
     ];
     driver.respond = (sql) =>
@@ -43,19 +41,48 @@ describe("PostgreSQL partial-index predicate canonicalization", () => {
       " SELECT 1 AS c\n   FROM account\n  WHERE ((age >= 18) AND (age <= 65) AND active);",
       undefined,
     ]);
-    const viewdefs =
-      'SELECT pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_0"\'::regclass) AS "d0", pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_1"\'::regclass) AS "d1"';
     expect(driver.statements.slice(1)).toEqual([
       'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_0" AS SELECT 1 AS c FROM "tenant"."account" WHERE "age" BETWEEN 18 AND 65 AND active',
       'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_1" AS SELECT 1 AS c FROM "tenant"."account" WHERE deleted_at IS NULL',
-      viewdefs,
-      // The first answer reparsed, without its terminator; a position with
-      // no answer is not reparsed.
-      'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_0" AS  SELECT 1 AS c\n   FROM account\n  WHERE (((age >= 18) AND (age <= 65)) AND active)',
-      viewdefs,
+      'SELECT pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_0"\'::regclass) AS "d0", pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_1"\'::regclass) AS "d1"',
       'DROP VIEW pg_temp."viborm_index_predicate_0", pg_temp."viborm_index_predicate_1"',
+      // The first answer reparsed, without its terminator; a position with
+      // no answer is not reparsed, and has no view in this pass.
+      'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_0" AS  SELECT 1 AS c\n   FROM account\n  WHERE (((age >= 18) AND (age <= 65)) AND active)',
+      'SELECT pg_catalog.pg_get_viewdef(\'pg_temp."viborm_index_predicate_0"\'::regclass) AS "d0"',
+      'DROP VIEW pg_temp."viborm_index_predicate_0"',
     ]);
-    expect(driver.parameters).toEqual([[], [], [], [], [], [], []]);
+    expect(driver.parameters).toEqual([[], [], [], [], [], [], [], []]);
+  });
+
+  test("sends each pass as one request where no session can be pinned", async () => {
+    const requests: (readonly string[])[] = [];
+    const result = await canonicalizeIndexPredicates(
+      '"tenant"."account"',
+      ["deleted_at IS NULL"],
+      () => Promise.reject(new Error("no statement may go out alone")),
+      <T>(statements: readonly string[]) => {
+        requests.push(statements);
+        // A stub of the generic executor: its one read answers this row.
+        const read = {
+          d0: " SELECT 1 AS c\n   FROM account\n  WHERE (deleted_at IS NULL);",
+        } as T;
+        return Promise.resolve(
+          statements.map((sql) => ({
+            rows: sql.startsWith("SELECT") ? [read] : [],
+          }))
+        );
+      }
+    );
+
+    expect(result).toEqual([
+      " SELECT 1 AS c\n   FROM account\n  WHERE (deleted_at IS NULL);",
+    ]);
+    expect(requests.map((statements) => statements.length)).toEqual([3, 3]);
+    for (const [create, , drop] of requests) {
+      expect(create?.startsWith("CREATE OR REPLACE TEMP VIEW")).toBe(true);
+      expect(drop?.startsWith("DROP VIEW")).toBe(true);
+    }
   });
 
   test("leaves cleanup to the caller transaction after a failed deparse", async () => {

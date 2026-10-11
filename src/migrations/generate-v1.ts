@@ -28,7 +28,11 @@ import {
 import { type DiffOptions, diff } from "./differ";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { normalizeGenerateOptions } from "./generate-input";
-import { loadMigrationGraph, type MigrationGraph } from "./graph";
+import {
+  loadMigrationGraph,
+  type MigrationGraph,
+  requireStateSnapshot,
+} from "./graph";
 import type { Sha256 } from "./identity";
 import { renderMigrationReview } from "./public-view";
 import {
@@ -133,7 +137,7 @@ export async function generateV1(
 
   const desired = serializeResolvedModels(client.$schema, driver, relations);
   const desiredEncoded = encodeSnapshot(desired);
-  const parents = resolveParents(loaded, request);
+  const parents = resolveParents(loaded, request, desired);
   refuseUnprovedMerge(loaded, parents, request.manualMigration);
   const parentState =
     parents.length === 1 && parents[0]
@@ -142,9 +146,7 @@ export async function generateV1(
   const parentSnapshot =
     parentState && loaded.snapshots.get(parentState.snapshotHash);
   const unchangedSnapshot =
-    parentSnapshot !== undefined &&
-    encodeSnapshot(orderFree(parentSnapshot)).snapshotHash ===
-      encodeSnapshot(orderFree(desired)).snapshotHash;
+    parentSnapshot !== undefined && sameSchema(parentSnapshot, desired);
 
   const assembly = new SqlAssembly();
   const parentBodies: Omit<MigrationParentTransitionV1, "transitionHash">[] =
@@ -395,6 +397,14 @@ export async function generateV1(
   };
 }
 
+/** Decision 8: two snapshots that differ only in field and model order. */
+function sameSchema(a: SchemaSnapshot, b: SchemaSnapshot): boolean {
+  return (
+    encodeSnapshot(orderFree(a)).snapshotHash ===
+    encodeSnapshot(orderFree(b)).snapshotHash
+  );
+}
+
 /** A snapshot with its tables, columns, keys and enums sorted by name. */
 function orderFree(snapshot: SchemaSnapshot): SchemaSnapshot {
   const byName = (a: { name: string }, b: { name: string }) =>
@@ -550,13 +560,22 @@ function assertManualParents(
 
 function resolveParents(
   graph: MigrationGraph,
-  options: GenerateV1Options
+  options: GenerateV1Options,
+  desired: SchemaSnapshot
 ): Array<Sha256 | null> {
   if (options.from !== undefined) {
     if (options.from === null) {
-      if (graph.states.size > 0) {
+      // Plan T4 (decision 11): on a populated estate `from: null` authors a
+      // checkpoint, a second root restating the single leaf's schema, which
+      // reanchor() can move a marker onto once prune() dropped what precedes it.
+      const [leaf, ...more] = graph.leaves;
+      if (
+        leaf &&
+        (more.length > 0 ||
+          !sameSchema(requireStateSnapshot(graph, leaf), desired))
+      ) {
         throw new MigrationError(
-          "A second virtual-root transition is refused",
+          "A second virtual-root transition is an authored checkpoint: it must restate the schema of the estate's single leaf. Generate the change first, then the checkpoint.",
           VibORMErrorCode.MIGRATION_INVALID_ESTATE
         );
       }

@@ -20,6 +20,7 @@ import {
 import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { readStoredDecimalDescriptor } from "../../decimal";
+import { providerRefused } from "../../execute-dispatch";
 import type {
   EnumDef,
   ForeignKeyDef,
@@ -221,15 +222,21 @@ const PRIMARY_KEYS_QUERY = `${PRIMARY_KEYS_SOURCE}ORDER BY tc.table_name, kcu.or
  * foreign key also points `conindid` at the unique index it targets, so the
  * join must not treat that as ownership or a unique-index FK target vanishes
  * from both lists.
+ *
+ * `nullsNotDistinct` is the SQL that says whether a unique index takes NULLs
+ * as equal, which no snapshot models: `ix.indnullsnotdistinct` where the
+ * column exists ({@link NULLS_NOT_DISTINCT_QUERY}), `false` before PostgreSQL
+ * 15. Never a whole-row read such as `to_jsonb(ix)`: PlanetScale's Neki
+ * refuses a catalog relation's row type (0A000).
  */
-export const INDEXES_SOURCE = `
+export const indexesSource = (nullsNotDistinct: string): string => `
 SELECT
   t.relname AS table_name,
   i.relname AS index_name,
   a.attname AS column_name,
   ix.indisunique AS is_unique,
   ix.indisvalid AND ix.indisready AS is_valid,
-  (ix.indexprs IS NOT NULL OR ix.indnkeyatts <> ix.indnatts OR COALESCE((to_jsonb(ix)->>'indnullsnotdistinct')::boolean,false)
+  (ix.indexprs IS NOT NULL OR ix.indnkeyatts <> ix.indnatts OR ${nullsNotDistinct}
    OR EXISTS (SELECT 1 FROM unnest(ix.indoption) AS flags(value) WHERE flags.value <> 0)
    OR EXISTS (SELECT 1 FROM unnest(ix.indclass) AS classes(oid) JOIN pg_opclass AS opc ON opc.oid=classes.oid WHERE NOT opc.opcdefault)
    OR EXISTS (SELECT 1 FROM generate_series(0,ix.indnkeyatts-1) AS key(position) LEFT JOIN pg_attribute AS attr ON attr.attrelid=t.oid AND attr.attnum=ix.indkey[key.position] WHERE ix.indcollation[key.position] <> COALESCE(attr.attcollation,0))) AS unsupported_structure,
@@ -250,8 +257,11 @@ WHERE n.nspname = $1
   AND c.oid IS NULL
   AND t.relkind = 'r'
 `;
-const INDEXES_QUERY = `${INDEXES_SOURCE}ORDER BY t.relname, i.relname, array_position(ix.indkey, a.attnum);
+const INDEXES_ORDER = `ORDER BY t.relname, i.relname, array_position(ix.indkey, a.attnum);
 `;
+
+/** Whether this server's `pg_index` has `indnullsnotdistinct` (PostgreSQL 15+). */
+export const NULLS_NOT_DISTINCT_QUERY = `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid = 'pg_catalog.pg_index'::pg_catalog.regclass AND attname = 'indnullsnotdistinct' AND NOT attisdropped) AS present`;
 
 /**
  * Foreign keys OWNED by the selected schema.
@@ -731,6 +741,23 @@ function assertNoCrossSchemaForeignKeys(
 // INTROSPECTION
 // =============================================================================
 
+/**
+ * A catalog read the provider refused, thrown named with its SQLSTATE: a
+ * server that speaks PostgreSQL but not all of its catalog SQL (PlanetScale's
+ * Neki) must say which read it refused, not that the estate is wrong. The
+ * server's own text stays in the cause, disclosed as the driver's diagnostics
+ * allow. A transport failure is not a refusal: the caller handles it.
+ */
+export function throwIfCatalogRefusal(query: string, error: unknown): void {
+  if (!providerRefused(error)) return;
+  const { providerCode, providerSqlState } = error.meta;
+  throw new MigrationError(
+    `PostgreSQL catalog query "${query}" failed with SQLSTATE ${String(providerSqlState ?? providerCode)}: ${error.message}`,
+    VibORMErrorCode.MIGRATION_FAILED,
+    { cause: error, meta: { providerCode, providerSqlState } }
+  );
+}
+
 export async function introspectPostgresSchema(
   executeRaw: RawExecutor,
   scope: PostgresIntrospectionScope
@@ -740,31 +767,52 @@ export async function introspectPostgresSchema(
   // One after another: `push` runs these on its ONE pinned session, and a
   // connection runs one statement at a time. Overlapping them only queued
   // them inside the provider, which node-postgres warns it will refuse in
-  // pg@9. Each is a short catalog read.
-  const tablesResult = await executeRaw<PgTable>(
-    POSTGRES_MANAGED_TABLE_NAMES_QUERY,
-    namespace
+  // pg@9. Each is a short catalog read, named when the provider refuses it.
+  const read = async <T>(
+    query: string,
+    sql: string,
+    parameters: unknown[] = namespace
+  ) => {
+    try {
+      return await executeRaw<T>(sql, parameters);
+    } catch (error) {
+      throwIfCatalogRefusal(query, error);
+      throw error;
+    }
+  };
+  const tablesResult = await read<PgTable>(
+    "tables",
+    POSTGRES_MANAGED_TABLE_NAMES_QUERY
   );
-  const columnsResult = await executeRaw<PgColumn>(COLUMNS_QUERY, namespace);
-  const primaryKeysResult = await executeRaw<PgPrimaryKey>(
-    PRIMARY_KEYS_QUERY,
-    namespace
+  const columnsResult = await read<PgColumn>("columns", COLUMNS_QUERY);
+  const primaryKeysResult = await read<PgPrimaryKey>(
+    "primary keys",
+    PRIMARY_KEYS_QUERY
   );
-  const indexesResult = await executeRaw<PgIndexRow>(INDEXES_QUERY, namespace);
-  const foreignKeysResult = await executeRaw<PgForeignKey>(
-    FOREIGN_KEYS_QUERY,
-    namespace
+  const columnProbe = await read<{ present: boolean }>(
+    "nulls not distinct",
+    NULLS_NOT_DISTINCT_QUERY,
+    []
   );
-  const crossSchemaForeignKeysResult =
-    await executeRaw<PgCrossSchemaForeignKey>(
-      CROSS_SCHEMA_FOREIGN_KEYS_QUERY,
-      namespace
-    );
-  const uniqueConstraintsResult = await executeRaw<PgUniqueConstraint>(
-    UNIQUE_CONSTRAINTS_QUERY,
-    namespace
+  const nullsNotDistinct =
+    columnProbe.rows[0]?.present === true ? "ix.indnullsnotdistinct" : "false";
+  const indexesResult = await read<PgIndexRow>(
+    "indexes",
+    `${indexesSource(nullsNotDistinct)}${INDEXES_ORDER}`
   );
-  const enumsResult = await executeRaw<PgEnum>(ENUMS_QUERY, namespace);
+  const foreignKeysResult = await read<PgForeignKey>(
+    "foreign keys",
+    FOREIGN_KEYS_QUERY
+  );
+  const crossSchemaForeignKeysResult = await read<PgCrossSchemaForeignKey>(
+    "cross-schema foreign keys",
+    CROSS_SCHEMA_FOREIGN_KEYS_QUERY
+  );
+  const uniqueConstraintsResult = await read<PgUniqueConstraint>(
+    "unique constraints",
+    UNIQUE_CONSTRAINTS_QUERY
+  );
+  const enumsResult = await read<PgEnum>("enums", ENUMS_QUERY);
 
   assertNoCrossSchemaForeignKeys(crossSchemaForeignKeysResult.rows, scope);
 

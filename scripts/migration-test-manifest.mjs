@@ -37,3 +37,18 @@ export const MIGRATION_COVERAGE_TESTS = Object.freeze(
     .sort()
     .map((file) => `tests/unit/migrations/${file}`)
 );
+
+// Spawns OS processes of its own (two jiti runners per race), so it runs alone,
+// as each provider-owning driver suite does; the rest split in two processes.
+const SUBPROCESS_MIGRATION_TESTS = Object.freeze([
+  "tests/unit/migrations/sqlite-exactly-once.test.ts",
+]);
+const inProcessMigrationTests = MIGRATION_COVERAGE_TESTS.filter(
+  (test) => !SUBPROCESS_MIGRATION_TESTS.includes(test)
+);
+const half = Math.ceil(inProcessMigrationTests.length / 2);
+export const MIGRATION_COVERAGE_TEST_GROUPS = Object.freeze([
+  Object.freeze(inProcessMigrationTests.slice(0, half)),
+  Object.freeze(inProcessMigrationTests.slice(half)),
+  ...SUBPROCESS_MIGRATION_TESTS.map((test) => Object.freeze([test])),
+]);

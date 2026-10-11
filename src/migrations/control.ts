@@ -15,6 +15,7 @@ import {
   postgresCatalogDigestQuery,
   readDigest,
 } from "./drivers/postgres/catalog-digest";
+import { throwIfCatalogRefusal } from "./drivers/postgres/introspect";
 import type { Sha256 } from "./identity";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodePathHash, parseLedgerEvent, parseMarkerRow } from "./v1-parse";
@@ -695,11 +696,51 @@ function ledgerSql(
 ): string {
   const log = qualifyControl(driver, names.log);
   if (all) return `SELECT payload FROM ${log}`;
+  return `SELECT payload FROM ${log} WHERE ${openAttempt(log)}
+  OR event_id = (SELECT event_id FROM ${log} WHERE kind = 'failed' ORDER BY ${jsonField(driver.target.dialect, "startedAt")} DESC, event_id DESC LIMIT 1)`;
+}
+
+/** The ledger rows of an unfinished attempt, as `unfinishedAttempts` reads them. */
+function openAttempt(log: string): string {
   const list = (kinds: ReadonlySet<string>) =>
     [...kinds].map((kind) => `'${kind}'`).join(", ");
-  return `SELECT payload FROM ${log} WHERE (attempt_id IN (SELECT attempt_id FROM ${log} WHERE kind IN (${list(OPENING_KINDS)}))
-    AND attempt_id NOT IN (SELECT attempt_id FROM ${log} WHERE kind IN (${list(CLOSING_KINDS)})))
-  OR event_id = (SELECT event_id FROM ${log} WHERE kind = 'failed' ORDER BY ${jsonField(driver.target.dialect, "startedAt")} DESC, event_id DESC LIMIT 1)`;
+  return `(attempt_id IN (SELECT attempt_id FROM ${log} WHERE kind IN (${list(OPENING_KINDS)}))
+    AND attempt_id NOT IN (SELECT attempt_id FROM ${log} WHERE kind IN (${list(CLOSING_KINDS)})))`;
+}
+
+/**
+ * `assertLockedSinceDecision` as a condition one request asserts under its
+ * own lock (plan D7): the marker is still `expected`, or there is none when
+ * that is null, and no attempt is open.
+ */
+export function markerUnmovedCondition(
+  driver: BoundMigrationDriver,
+  base: string,
+  expected: { revision: number; pathHash: Sha256 } | null
+): { readonly sql: string; readonly params: unknown[] } {
+  const names = controlTableNames(base);
+  const log = qualifyControl(driver, names.log);
+  const dialect = driver.target.dialect;
+  const marker = `EXISTS (SELECT 1 FROM ${qualifyControl(driver, names.state)}${expected === null ? "" : ` WHERE singleton = 1 AND ${markerAt(dialect, 1)}`})`;
+  return {
+    sql: `(${expected === null ? "NOT " : ""}${marker} AND NOT EXISTS (SELECT 1 FROM ${log} WHERE ${openAttempt(log)}))`,
+    params: expected === null ? [] : [expected.revision, expected.pathHash],
+  };
+}
+
+/** The marker row holds `revision` and `pathHash`, bound from `$first` on. */
+function markerAt(
+  dialect: BoundMigrationDriver["target"]["dialect"],
+  first: number
+): string {
+  const revision = placeholder(dialect, first);
+  const revisionMatch =
+    dialect === "postgresql"
+      ? `(payload::json->>'revision')::bigint = ${revision}`
+      : dialect === "mysql"
+        ? `CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.revision')) AS UNSIGNED) = ${revision}`
+        : `CAST(json_extract(payload, '$.revision') AS INTEGER) = ${revision}`;
+  return `${revisionMatch} AND ${jsonField(dialect, "pathHash")} = ${placeholder(dialect, first + 1)}`;
 }
 
 function decodeControlRows(
@@ -787,8 +828,8 @@ export async function readPostgresDecision(
     ledger: unknown;
     digest: unknown;
   }>(
-    `SELECT (SELECT json_agg(row_to_json(marker)) FROM (SELECT payload FROM ${qualifyControl(driver, names.state)} WHERE singleton = 1) marker)::text AS marker,
-  (SELECT json_agg(row_to_json(ledger)) FROM (${ledgerSql(driver, names, false)}) ledger)::text AS ledger,
+    `SELECT (SELECT json_agg(json_build_object('payload', marker.payload)) FROM (SELECT payload FROM ${qualifyControl(driver, names.state)} WHERE singleton = 1) marker)::text AS marker,
+  (SELECT json_agg(json_build_object('payload', ledger.payload)) FROM (${ledgerSql(driver, names, false)}) ledger)::text AS ledger,
   (${digest.sql}) AS digest WHERE ${lockFree}`,
     digest.parameters
   );
@@ -955,6 +996,7 @@ async function readPostgresControlCatalog(
       [boundNamespace(driver), names.state, names.log]
     ));
   } catch (failure) {
+    throwIfCatalogRefusal("control catalog", failure);
     throw new MigrationError(
       "Migration control tables cannot be authenticated",
       VibORMErrorCode.MIGRATION_INVALID_STATE,
@@ -1151,17 +1193,10 @@ export async function casMarker(
   next: MigrationMarkerV1,
   predicates: readonly MarkerIndexPredicateV1[] = []
 ): Promise<void> {
-  const table = qualifyControl(driver, controlTableNames(base).state);
-  const payload = canonicalizeJsonText(
-    predicates.length > 0 ? { ...next, predicates } : next
-  );
-  const dialect = driver.target.dialect;
+  const { sql, params } = markerWrite(driver, base, expected, next, predicates);
   if (expected === null) {
     try {
-      const result = await producer._executeRaw(
-        `INSERT INTO ${table} (singleton, payload) VALUES (1, ${placeholder(dialect, 1)})`,
-        [payload]
-      );
+      const result = await producer._executeRaw(sql, params);
       if (result.rowCount !== 1) {
         throw new MigrationError(
           "Migration marker insert did not create the singleton row",
@@ -1179,23 +1214,41 @@ export async function casMarker(
     return;
   }
 
-  const revisionMatch =
-    dialect === "postgresql"
-      ? `(payload::json->>'revision')::bigint = ${placeholder(dialect, 2)}`
-      : dialect === "mysql"
-        ? `CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.revision')) AS UNSIGNED) = ${placeholder(dialect, 2)}`
-        : `CAST(json_extract(payload, '$.revision') AS INTEGER) = ${placeholder(dialect, 2)}`;
-  const pathMatch = `${jsonField(dialect, "pathHash")} = ${placeholder(dialect, 3)}`;
-  const result = await producer._executeRaw(
-    `UPDATE ${table} SET payload = ${placeholder(dialect, 1)} WHERE singleton = 1 AND ${revisionMatch} AND ${pathMatch}`,
-    [payload, expected.revision, expected.pathHash]
-  );
+  const result = await producer._executeRaw(sql, params);
   if (result.rowCount !== 1) {
     throw new MigrationError(
       "Migration marker compare-and-swap failed",
       VibORMErrorCode.MIGRATION_MARKER_CONFLICT
     );
   }
+}
+
+/**
+ * The statement {@link casMarker} sends: the first marker's INSERT, or the
+ * UPDATE that matches only the `expected` marker. One request (plan D7)
+ * sends it after asserting that marker under its lock.
+ */
+export function markerWrite(
+  driver: BoundMigrationDriver,
+  base: string,
+  expected: { revision: number; pathHash: Sha256 } | null,
+  next: MigrationMarkerV1,
+  predicates: readonly MarkerIndexPredicateV1[] = []
+): { readonly sql: string; readonly params: unknown[] } {
+  const table = qualifyControl(driver, controlTableNames(base).state);
+  const payload = canonicalizeJsonText(
+    predicates.length > 0 ? { ...next, predicates } : next
+  );
+  const dialect = driver.target.dialect;
+  return expected === null
+    ? {
+        sql: `INSERT INTO ${table} (singleton, payload) VALUES (1, ${placeholder(dialect, 1)})`,
+        params: [payload],
+      }
+    : {
+        sql: `UPDATE ${table} SET payload = ${placeholder(dialect, 1)} WHERE singleton = 1 AND ${markerAt(dialect, 2)}`,
+        params: [payload, expected.revision, expected.pathHash],
+      };
 }
 
 /** Appends events in one statement, in their order. */

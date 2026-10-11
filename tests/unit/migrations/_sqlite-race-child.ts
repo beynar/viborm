@@ -22,8 +22,12 @@ const client = createClient({
   ),
   dataDir: file,
 });
+// The loser waits for the winner's write lock this long: a loaded machine
+// stretches the winner's 10,000-row transaction past the 10 s default, and a
+// loser past `lockWait` is V11005 by design.
 const migrations = createMigrationClient(client, {
   storage: createFsStorageWriter(estate),
+  limits: { lockWait: 45_000 },
 });
 while (Date.now() < Number(startAt)) {
   await new Promise((resolve) => setTimeout(resolve, 1));

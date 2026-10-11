@@ -8,7 +8,7 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { BoundMigrationDriver } from "./drivers";
-import { canPinSession } from "./pinned-session";
+import { canPinSession, runsMigrationBatches } from "./pinned-session";
 import { formatMigrationTarget, readNamespaceAttestation } from "./target";
 
 /**
@@ -17,13 +17,17 @@ import { formatMigrationTarget, readNamespaceAttestation } from "./target";
  * - `effectful` — the command can write, or promises a concurrency-stable
  *   decision read from live state (apply/down/reset/verify/push, and the live
  *   dry down/reset decisions the CLI confirms against).
+ * - `batch` — effectful work whose every effect can go out as one atomic
+ *   request per transactional group (apply): admitted as `effectful` is, and
+ *   also on a PostgreSQL transport with no session that runs such a request
+ *   (plan D7), where that work refuses any step needing a session itself.
  * - `read-only` — a point-in-time read that changes nothing (status, log,
  *   push dry-run introspection).
  *
  * Offline and storage-only work — generate, check, apply dry-run — never
  * reaches this owner at all.
  */
-export type MigrationLiveRequirement = "effectful" | "read-only";
+export type MigrationLiveRequirement = "effectful" | "batch" | "read-only";
 
 /**
  * Admits (or refuses) live migration work for one command.
@@ -59,7 +63,7 @@ export function admitLiveMigrationCapability(
     return;
   }
 
-  if (requirement === "effectful") {
+  if (requirement !== "read-only") {
     const attestation = readNamespaceAttestation(
       migrationDriver.executionDriver
     );
@@ -112,7 +116,7 @@ function admitSqliteFamilyCapability(
   command: string
 ): void {
   if (
-    requirement !== "effectful" ||
+    requirement === "read-only" ||
     migrationDriver.sqliteMigrationCapability !== undefined
   ) {
     return;
@@ -142,7 +146,9 @@ function admitSqliteFamilyCapability(
  * The answer is `canPinSession(driver)` — the presence of the driver's own
  * pinned-session hook — so nothing declares a capability it does not
  * implement, and a custom PostgreSQL driver is judged by the same fact as a
- * stock one.
+ * stock one. `batch` work is the exception: such a transport sends each
+ * transactional group as one request holding the transaction lock
+ * (`runsMigrationBatches`, plan D7).
  *
  * A transaction-pooling endpoint is the same failure behind an ordinary
  * session: Cloudflare Hyperdrive and Neon's `-pooler` endpoints hand
@@ -160,10 +166,13 @@ function admitPinnedSessionCapability(
   requirement: MigrationLiveRequirement,
   command: string
 ): void {
-  if (requirement !== "effectful") {
+  const driver = migrationDriver.executionDriver;
+  if (
+    requirement === "read-only" ||
+    (requirement === "batch" && runsMigrationBatches(driver))
+  ) {
     return;
   }
-  const driver = migrationDriver.executionDriver;
   const meta = {
     driver: driver.driverName,
     command,

@@ -28,9 +28,10 @@ export const CLEANUP_BOUND_MS = 5000;
  *
  * Every value but `largeTableRows` is in milliseconds. `lockTimeout`, `statementTimeout` and
  * `idleTimeout` are PostgreSQL server settings, where 0 means "no limit";
- * `lockWait` and `connectionWait` are waits VibORM itself bounds. Only
- * `connectionWait` applies to MySQL as well: the others, `largeTableRows`
- * included, are PostgreSQL-only, and MySQL keeps its fixed named-lock wait.
+ * `lockWait` and `connectionWait` are waits VibORM itself bounds. `lockWait`
+ * also bounds SQLite's `BEGIN IMMEDIATE`, and `connectionWait` applies to
+ * MySQL as well; the others, `largeTableRows` included, are PostgreSQL-only,
+ * and MySQL keeps its fixed named-lock wait.
  */
 export interface MigrationLimits {
   /**

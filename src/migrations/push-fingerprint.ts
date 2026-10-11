@@ -19,7 +19,7 @@ import { canonicalizeJson, canonicalizeJsonText } from "./canonical-json";
 import type { IndexPredicateCanonicalizer } from "./differ";
 import type { BoundMigrationDriver, MigrationDriver } from "./drivers";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
-import { canPinSession } from "./pinned-session";
+import { canPinSession, runsMigrationBatches } from "./pinned-session";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodeSnapshot } from "./v1-parse-snapshot";
 import type { MarkerIndexPredicateV1, PushTargetIdentity } from "./v1-types";
@@ -72,13 +72,21 @@ export function bindIndexPredicateCanonicalizer(
   if (!canonicalize) return;
   return async (tableName, predicates) => {
     const run = (on: AnyDriver) =>
-      canonicalize.call(driver, tableName, predicates, (sql, params) =>
-        on._executeRaw(sql, params)
+      canonicalize.call(
+        driver,
+        tableName,
+        predicates,
+        (sql, params) => on._executeRaw(sql, params),
+        runsMigrationBatches(on)
+          ? <T>(statements: readonly string[]) =>
+              on._executeBatch<T>(statements.map((sql) => ({ sql })))
+          : undefined
       );
     try {
       // Its scratch views are session-local, so on a pool, or behind a
       // transaction pooler, its statements must share one transaction. A
       // locked command's pinned producer is already inside one (plan D1).
+      // With no session at all, each pass is one request (plan D7).
       return await (canPinSession(producer) && producer.supportsTransactions
         ? producer.withTransaction(run)
         : run(producer));

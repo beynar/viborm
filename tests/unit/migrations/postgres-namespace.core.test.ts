@@ -520,6 +520,7 @@ type CatalogQuery =
   | "crossSchemaForeignKeys"
   | "uniques"
   | "enums"
+  | "nullsNotDistinct"
   | "unknown";
 
 /** Which catalog question a statement is, by a fragment unique to it. */
@@ -535,6 +536,8 @@ function classifyCatalogQuery(sql: string): CatalogQuery {
   if (sql.includes("con.contype = 'f'")) return "foreignKeys";
   if (sql.includes("'UNIQUE'")) return "uniques";
   if (sql.includes("information_schema.tables")) return "tables";
+  if (sql.includes("attname = 'indnullsnotdistinct'"))
+    return "nullsNotDistinct";
   return "unknown";
 }
 
@@ -577,15 +580,18 @@ describe("introspection is relative to the estate's schema", () => {
       "enums",
       "foreignKeys",
       "indexes",
+      "nullsNotDistinct",
       "primaryKeys",
       "proof",
       "tables",
       "uniques",
     ]);
     for (const [query, statement] of executor.asked) {
+      // Whether `pg_index` has a column is a question about the server, not
+      // about any schema.
       expect({ query, params: statement.params }).toEqual({
         query,
-        params: ["billing"],
+        params: query === "nullsNotDistinct" ? [] : ["billing"],
       });
       expect(statement.sql).not.toContain("'public'");
       expect(statement.sql).not.toContain("'billing'");

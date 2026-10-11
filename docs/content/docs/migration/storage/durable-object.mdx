@@ -44,12 +44,15 @@ may still need it: `pg` and postgres.js do.
 ## Configuration
 
 ```ts
-const storage = createDurableObjectStorageWriter(ctx.storage);
+const storage = createDurableObjectStorageWriter(ctx.storage, {
+  prefix: "h2/",
+});
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `storage` | `DurableObjectStorage` | `ctx.storage` of a SQLite-backed Durable Object |
+| `options.prefix` | `string` | Optional key prefix: one history per prefix, so an object can hold a [pruned history](/docs/migration/tenant-migrator#bounded-history) beside its current one. Default `""`. |
 
 ## How Publication Stays Atomic
 
@@ -69,9 +72,8 @@ and is refused as corruption if they differ.
 
 ## Limits
 
-- **One estate per object.** The table holds one history. Use one object per
-  tenant, or an [R2 bucket](/docs/migration/storage/r2) with a prefix per
-  estate.
+- **One estate per prefix.** Use one object per tenant, or an
+  [R2 bucket](/docs/migration/storage/r2) with a prefix per estate.
 - **2 MB per artifact.** A snapshot, SQL blob or manifest is one row, so it is
   bounded by the Durable Object row size.
 - **Leave the table alone.** Rows are content-addressed and immutable; writing
@@ -85,6 +87,11 @@ and is refused as corruption if they differ.
 ## Next Steps
 
 <CardGroup>
+  <Card
+    title="Per-Tenant Schemas"
+    href="/docs/migration/per-tenant-schemas-durable-objects">
+    Change each tenant's schema from its Durable Object
+  </Card>
   <Card
     title="R2 Storage"
     href="/docs/migration/storage/r2">

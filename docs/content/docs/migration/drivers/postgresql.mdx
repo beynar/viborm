@@ -222,10 +222,42 @@ const migrationClient = createClient({
 
 `limits` still applies on top, and its reset restores these values.
 
+## PlanetScale Postgres (Neki)
+
+PlanetScale's Postgres (Neki) runs PostgreSQL 18 but refuses two shapes
+standard PostgreSQL accepts, and VibORM emits neither:
+
+- a whole-row reference to a relation, such as `to_jsonb(ix)` over `pg_index`
+  (`0A000`). Catalog reads name their columns. `pg_index.indnullsnotdistinct`
+  exists from PostgreSQL 15 on, so introspection first asks whether the server
+  has it and reads every unique index as `NULLS DISTINCT` where it does not;
+- a recursive CTE of more than two terms (`42P01`). A `recurse` query with
+  `self: true` merges the starting row and its first hop into one
+  non-recursive term.
+
+Its connection URL carries `sslrootcert=system`, which `viborm/pg` and
+`viborm/postgres` read as `sslmode=verify-full`.
+
+Queries, introspection and `push` of a schema without partial indexes run on
+Neki. `apply` and `baseline` do not yet: Neki does not implement temporary
+views (`NK013`), through which VibORM reads partial-index predicates, and a
+statement in a transaction does not see a table or column created earlier in
+that transaction, which a first `apply` (control tables, then the marker) and a
+manual step that adds a column and backfills it both need.
+
+A catalog read the server refuses fails with `V11001` and names itself and its
+SQLSTATE, for example `PostgreSQL catalog query "indexes" failed with SQLSTATE
+0A000`, instead of reporting control tables that cannot be authenticated. The
+SQLSTATE is in `meta.providerSqlState`. The server's own message is not: drivers
+redact provider messages, and migration commands do not run under the
+[instrumentation](/docs/extensions/instrumentation) extension's
+`diagnostics.includeProviderDetails`, which opts query errors into them.
+
 ## Native index and constraint fidelity
 
-Indexes with expressions, descending keys, INCLUDE columns, nondefault opclasses
-or collations, or methods outside the declaration language refuse synchronization
+Indexes with expressions, descending keys, INCLUDE columns, `NULLS NOT DISTINCT`,
+nondefault opclasses or collations, or methods outside the declaration language
+refuse synchronization
 while their table is managed. VibORM preserves the existing artifact and refuses
 before effects; it does not turn a hand-authored HNSW or trigram index into an
 ordinary index. Excluding the table through `migrations.tables` requires the same

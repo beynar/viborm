@@ -8,6 +8,10 @@
  * - The database restored behind the history: an ordinary change applies the
  *   states the database lacks.
  *
+ * And plan T4 in the same object: an authored checkpoint pruned into a second,
+ * prefixed history in the object's storage, onto which `reanchor()` moves the
+ * marker, after which the tenant keeps changing from the checkpoint.
+ *
  * Project `provider-tenant-do`; without PG_TEST_CONNECTION_STRING it skips.
  */
 
@@ -18,7 +22,12 @@ import type {
   DurableObjectStub,
 } from "@cloudflare/workers-types";
 import { VibORMErrorCode } from "@src/errors";
-import type { TenantChangeResult } from "@src/migrations/tenant";
+import { createMigrationClient } from "@src/migrations/client";
+import { createDurableObjectStorageWriter } from "@src/migrations/storage/durable-object";
+import {
+  createTenantMigrator,
+  type TenantChangeResult,
+} from "@src/migrations/tenant";
 import { parseSchema } from "@src/schema/json";
 import {
   MEMBER_ROWS,
@@ -261,6 +270,55 @@ describeIfPg("tenant restores (PostgreSQL)", () => {
     expect(results.status.marker?.stateId).toBe(results.restored.pending[0]);
     await request(stub, async (tenant) => {
       expect(await columns(tenant)).toContain("note");
+      expect(await rows(tenant)).toBe(MEMBER_ROWS);
+    });
+    await dispose(stub);
+  });
+
+  it("a checkpoint pruned into a prefixed history in the object: reanchor, then the next change", async () => {
+    const stub = await seededTenant();
+    const results = await request(stub, async (tenant, state) => {
+      await tenant.migrator.change(schemaOf(noteDocument));
+      const checkpoint = await createMigrationClient(
+        { $driver: tenant.client.$driver, $schema: schemaOf(noteDocument) },
+        { storage: createDurableObjectStorageWriter(state.storage) }
+      ).generate({ name: "checkpoint", from: null });
+      if (!checkpoint.stateId) throw new Error("no checkpoint published");
+      const into = createDurableObjectStorageWriter(state.storage, {
+        prefix: "h2/",
+      });
+      const pruned = await tenant.migrator.prune({
+        checkpoint: { id: checkpoint.stateId },
+        into,
+      });
+      const bounded = createTenantMigrator({
+        client: tenant.client,
+        history: into,
+      });
+      const before = await bounded.status();
+      const reanchored = await bounded.reanchor();
+      const changed = await bounded.change(schemaOf(noteTagDocument));
+      const again = await bounded.change(schemaOf(noteTagDocument));
+      return {
+        checkpoint: checkpoint.stateId,
+        pruned,
+        before,
+        reanchored,
+        changed,
+        again,
+        kept: (await into.listStates()).length,
+      };
+    });
+    expect(results.pruned.states).toEqual([results.checkpoint]);
+    expect(results.before.markerState).toBe("unknown");
+    expect(results.reanchored.stateId).toBe(results.checkpoint);
+    expect(kindOf(results.changed)).toBe("applied");
+    expect(kindOf(results.again)).toBe("noop");
+    expect(results.kept).toBe(2);
+    await request(stub, async (tenant) => {
+      expect(await columns(tenant)).toEqual(
+        expect.arrayContaining(["note", "tag"])
+      );
       expect(await rows(tenant)).toBe(MEMBER_ROWS);
     });
     await dispose(stub);

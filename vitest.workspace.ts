@@ -255,6 +255,7 @@ export default defineWorkspace([
     "tests/unit/migrations/postgres-recoverable-steps-docker.test.ts",
     "tests/unit/migrations/postgres-session-limits-docker.test.ts",
     "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
+    "tests/unit/migrations/neon-http-batch-apply-docker.test.ts",
     "tests/unit/migrations/shared-pool-estates-docker.test.ts",
   ]),
   // Push, generate and apply again, through a transaction-mode PgBouncer. Only

@@ -33,8 +33,9 @@ const R2_CONTENTION = new Error(
  * Durable Object SQL API is, so the conditional insert checks and writes in
  * one step.
  */
-function durableObjectStorage(): DurableObjectStorage {
-  const rows = new Map<string, ArrayBuffer>();
+function durableObjectStorage(
+  rows = new Map<string, ArrayBuffer>()
+): DurableObjectStorage {
   const exec = (query: string, ...bindings: unknown[]) => {
     const statement = query.split(" ", 1)[0];
     if (statement === "INSERT") {
@@ -126,6 +127,34 @@ test("the Durable Object binding passes the conformance suite", async () => {
       createDurableObjectStorageWriter(durableObjectStorage())
     )
   ).toEqual([]);
+});
+
+test("Durable Object histories under different prefixes share one object's storage apart", async () => {
+  expect(
+    await failingCases(() =>
+      createDurableObjectStorageWriter(durableObjectStorage(), {
+        prefix: "h2/",
+      })
+    )
+  ).toEqual([]);
+  const rows = new Map<string, ArrayBuffer>();
+  const current = createDurableObjectStorageWriter(durableObjectStorage(rows));
+  const pruned = createDurableObjectStorageWriter(durableObjectStorage(rows), {
+    prefix: "h2/",
+  });
+  const ids = ["one", "two", "three"].map((label) => {
+    const bytes = utf8Bytes(label);
+    return { bytes, id: encodeSqlBlob(bytes) };
+  });
+  for (const { bytes, id } of ids) await current.publishState(id, bytes);
+  await pruned.publishState(ids[0]!.id, ids[0]!.bytes);
+
+  expect(await current.listStates()).toEqual(ids.map(({ id }) => id).sort());
+  expect(await pruned.listStates()).toEqual([ids[0]!.id]);
+  expect(await pruned.readState(ids[1]!.id)).toBeNull();
+  expect([...rows.keys()].filter((key) => key.startsWith("h2/"))).toEqual([
+    `h2/states/${ids[0]!.id}.json`,
+  ]);
 });
 
 test("the R2 binding passes the conformance suite across listing pages", async () => {

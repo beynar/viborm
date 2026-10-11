@@ -10,6 +10,7 @@ import {
   isVibORMError,
   MigrationError,
   type MigrationErrorMeta,
+  type VibORMError,
   VibORMErrorCode,
 } from "../errors";
 import { decodeParameter } from "./compile";
@@ -30,19 +31,28 @@ export async function executeExactSql(
   await producer._executeRaw(sql, [...parameters]);
 }
 
+/** A dispatch's exact text and its decoded parameters. */
+function dispatchQuery(
+  blob: Uint8Array,
+  dispatch: MigrationDispatchV1,
+  targetNamespace: string | undefined
+): { readonly sql: string; readonly params: unknown[] } {
+  return {
+    sql: sliceDispatch(blob, dispatch),
+    params: dispatch.parameters.map((parameter) =>
+      decodeParameter(parameter, targetNamespace)
+    ),
+  };
+}
+
 export async function executeDispatch(
   producer: AnyDriver,
   blob: Uint8Array,
   dispatch: MigrationDispatchV1,
   targetNamespace?: string
 ): Promise<void> {
-  await executeExactSql(
-    producer,
-    sliceDispatch(blob, dispatch),
-    dispatch.parameters.map((parameter) =>
-      decodeParameter(parameter, targetNamespace)
-    )
-  );
+  const { sql, params } = dispatchQuery(blob, dispatch, targetNamespace);
+  await executeExactSql(producer, sql, params);
 }
 
 export async function evaluateCheck(
@@ -51,10 +61,7 @@ export async function evaluateCheck(
   check: MigrationBooleanCheckV1,
   targetNamespace?: string
 ): Promise<boolean> {
-  const sql = sliceDispatch(blob, check.query);
-  const params = check.query.parameters.map((parameter) =>
-    decodeParameter(parameter, targetNamespace)
-  );
+  const { sql, params } = dispatchQuery(blob, check.query, targetNamespace);
   const result = await producer._executeRaw<Record<string, unknown>>(
     sql,
     params
@@ -73,6 +80,30 @@ export async function evaluateCheck(
     );
   }
   return coerceBoolean(values[0], check.id) === check.equals;
+}
+
+const TRAILING_SEMICOLON = /;\s*$/;
+
+/**
+ * {@link evaluateCheck} as a condition one request asserts (plan D7): the
+ * check's one row holds one value, `check.equals` in a spelling
+ * `coerceBoolean` reads. No row, more rows, or another value do not hold. A
+ * check with another number of columns is refused, as `evaluateCheck`
+ * refuses it: the `UNION ALL` with one column fails the request, which rolls
+ * back. Columns are named, never read as one whole row, which PlanetScale
+ * Neki refuses.
+ */
+export function checkCondition(
+  blob: Uint8Array,
+  check: MigrationBooleanCheckV1,
+  targetNamespace: string | undefined
+): { readonly sql: string; readonly params: unknown[] } {
+  const { sql, params } = dispatchQuery(blob, check.query, targetNamespace);
+  const spellings = check.equals ? "'true', 't', '1'" : "'false', 'f', '0'";
+  return {
+    sql: `(SELECT CASE WHEN count(*) = 1 THEN min(one.value::text) END FROM (SELECT * FROM (\n${sql.replace(TRAILING_SEMICOLON, "")}\n) AS checked UNION ALL SELECT NULL WHERE false) AS one(value)) IN (${spellings})`,
+    params,
+  };
 }
 
 function coerceBoolean(value: unknown, id: string): boolean {
@@ -99,6 +130,19 @@ function coerceBoolean(value: unknown, id: string): boolean {
   throw new MigrationError(
     `Check ${id} did not return a boolean`,
     VibORMErrorCode.MIGRATION_INVALID_STATE
+  );
+}
+
+/**
+ * Whether `error` is the provider refusing a statement — its answer carries a
+ * provider code — rather than a failure of the transport.
+ */
+export function providerRefused(error: unknown): error is VibORMError {
+  return (
+    isVibORMError(error) &&
+    !(error instanceof ConnectionError) &&
+    (error.meta.providerCode !== undefined ||
+      error.meta.providerSqlState !== undefined)
   );
 }
 
@@ -183,12 +227,7 @@ async function runDispatch(
   try {
     await executeDispatch(producer, blob, dispatch, targetNamespace);
   } catch (error) {
-    const refused =
-      isVibORMError(error) &&
-      !(error instanceof ConnectionError) &&
-      (error.meta.providerCode !== undefined ||
-        error.meta.providerSqlState !== undefined);
-    if (!refused) throw error;
+    if (!providerRefused(error)) throw error;
     throw new MigrationError(
       `Migration statement ${site.statementIndex} of operation ${site.operationId} failed`,
       VibORMErrorCode.MIGRATION_FAILED,

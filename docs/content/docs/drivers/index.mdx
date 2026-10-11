@@ -43,7 +43,7 @@ timeouts and recovery are covered in [Production connections](/docs/drivers/prod
 | pg | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | postgres | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | pglite | ✅ Full | ✅ Full | ✅ Full | Any (WASM) |
-| neon-http | ❌ Unsupported | ✅ Full | ❌ Effectful V1 commands refused | Any |
+| neon-http | ❌ Unsupported | ✅ Full | ⚠️ `apply` only, one request per transactional group | Any |
 | bun-sql | ✅ Full | ✅ Full | ✅ Full | Bun |
 | mysql2 | ✅ Full | ✅ Full | ⚠️ DDL-limited | Node.js |
 | planetscale | ✅ Single-shard atomic | ✅ Single-shard atomic | ❌ Effectful V1 commands refused | Any |
@@ -63,10 +63,11 @@ Drivers marked "Unsupported" reject instead of running non-atomically. See
 per driver.
 :::
 
-Runtime transactions do not prove migration support. Neon HTTP, PlanetScale,
-LibSQL, and D1 retain offline generation and admitted read-only paths, but
-effectful `push`, `apply`, `down`, `reset`, and locked `verify` refuse before
-effects. Admitted `push({ dryRun: true })` paths remain available, subject to
+Runtime transactions do not prove migration support. PlanetScale, LibSQL, and
+D1 retain offline generation and admitted read-only paths, but effectful
+`push`, `apply`, `down`, `reset`, and locked `verify` refuse before effects.
+Neon HTTP is the same except for `apply`, which sends each transactional group
+as one request ([Neon HTTP](/docs/drivers/postgresql/neon-http#migrations)). Admitted `push({ dryRun: true })` paths remain available, subject to
 the driver's introspection limitations.
 MySQL2 migrations additionally require a resolved namespace and the explicit
 non-redirecting transport attestation. See the

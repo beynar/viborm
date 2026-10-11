@@ -17,12 +17,16 @@ const TABLE = "viborm_migration_estate";
 /**
  * History writer over `ctx.storage` of a SQLite-backed Durable Object
  * (`new_sqlite_classes`). Each value is one row, so one artifact is at most
- * the platform's 2 MB row size.
+ * the platform's 2 MB row size. `prefix` places one history under a key
+ * prefix (for example `h2/`), so an object can hold a pruned history beside
+ * its current one.
  */
 export function createDurableObjectStorageWriter(
-  storage: DurableObjectStorage
+  storage: DurableObjectStorage,
+  options: { readonly prefix?: string } = {}
 ): MigrationStorageWriter {
   const { sql } = storage;
+  const prefix = options.prefix ?? "";
   sql.exec(
     `CREATE TABLE IF NOT EXISTS ${TABLE} (key TEXT PRIMARY KEY, bytes BLOB NOT NULL)`
   );
@@ -31,7 +35,7 @@ export function createDurableObjectStorageWriter(
       sql
         .exec(
           `INSERT INTO ${TABLE} (key, bytes) VALUES (?, ?) ON CONFLICT (key) DO NOTHING RETURNING key`,
-          key,
+          `${prefix}${key}`,
           bytes.slice().buffer
         )
         .toArray().length === 1
@@ -41,19 +45,19 @@ export function createDurableObjectStorageWriter(
       const [row] = sql
         .exec<{ bytes: ArrayBuffer }>(
           `SELECT bytes FROM ${TABLE} WHERE key = ?`,
-          key
+          `${prefix}${key}`
         )
         .toArray();
       return row ? new Uint8Array(row.bytes) : null;
     },
-    list: async (prefix) =>
+    list: async (keyPrefix) =>
       sql
         .exec<{ key: string }>(
           `SELECT key FROM ${TABLE} WHERE substr(key, 1, ?) = ? ORDER BY key`,
-          prefix.length,
-          prefix
+          prefix.length + keyPrefix.length,
+          `${prefix}${keyPrefix}`
         )
         .toArray()
-        .map((row) => row.key),
+        .map((row) => row.key.slice(prefix.length)),
   });
 }

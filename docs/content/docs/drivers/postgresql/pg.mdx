@@ -74,6 +74,10 @@ const client = createClient({
   `sslkey` and `sslrootcert`; any other option replaces the query parameter of
   the same name.
 - `options.connectionString`, when set, is used instead of `databaseUrl`.
+- `sslrootcert=system`, as PlanetScale's and Neon's URLs carry it, means TLS
+  verified against the platform's trust store (libpq's `sslmode=verify-full`).
+  node-postgres would read it as a file named `system`, so VibORM rewrites it
+  to `sslmode=verify-full`.
 - A password callback (node-postgres's function form) cannot be merged into a
   URL: pass it with `host`, `user` and `database` in `options`, without a URL.
 - To merge, VibORM reads the URL with the WHATWG `URL` parser. A form it cannot

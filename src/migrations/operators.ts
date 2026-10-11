@@ -1,6 +1,6 @@
 /**
- * V1 operator commands: status, verify, log, baseline, reanchor, down,
- * resolve, reset.
+ * V1 operator commands: status, verify, log, baseline, reanchor, prune,
+ * down, resolve, reset.
  * Status/verify/log are read-only and never bootstrap missing control tables.
  */
 
@@ -47,6 +47,7 @@ import {
   requireStateSnapshot,
   resolveStateSelector,
   selectRoute,
+  statesFrom,
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
@@ -62,7 +63,10 @@ import { introspectManaged } from "./push-plan";
 import { approveDestructiveOperations } from "./resolver";
 import { sliceDispatch } from "./sql-blob";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
-import type { MigrationStorageReader } from "./storage/contract";
+import type {
+  MigrationStorageReader,
+  MigrationStorageWriter,
+} from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import type {
   AmbiguousChange,
@@ -81,6 +85,7 @@ import type {
   MigrationMarkerV1,
   ReanchorOptions,
   ResolveV1Options,
+  StateSelector,
 } from "./v1-types";
 
 export { resetV1 } from "./reset-v1";
@@ -462,6 +467,60 @@ async function adoptRoute(
   } else {
     await publish(pinned);
   }
+}
+
+export interface PruneOptions {
+  /** The authored checkpoint (`generate({ from: null })`) to keep history from. */
+  readonly checkpoint: StateSelector;
+  /** A fresh history: the source is never changed. */
+  readonly into: MigrationStorageWriter;
+}
+
+export interface PruneResult {
+  /** The states `into` now holds from this history. */
+  readonly states: readonly Sha256[];
+}
+
+/**
+ * Plan T4: copies the checkpoint and the states `statesFrom` keeps after it
+ * into a fresh history. Storage stays append-only, so pruning is a copy: what
+ * it leaves out is what `check()` would report as orphaned, once the earlier
+ * manifests were gone. A marker on a dropped state is moved by `reanchor()`.
+ */
+export async function pruneV1(
+  storage: MigrationStorageReader,
+  options: PruneOptions
+): Promise<PruneResult> {
+  const graph = await loadMigrationGraph(storage);
+  const kept = statesFrom(
+    graph,
+    resolveStateSelector(graph, options.checkpoint)
+  );
+  const { into } = options;
+  await into.publishEstate(await present(storage.readEstate(), "estate.json"));
+  for (const id of kept) {
+    const { snapshotHash, sqlHash } = graph.states.get(id)!;
+    const snapshot = storage.readSnapshot(snapshotHash);
+    await into.publishSnapshot(snapshotHash, await present(snapshot, id));
+    await into.publishSql(sqlHash, graph.sql.get(sqlHash)!);
+    await into.publishState(id, await present(storage.readState(id), id));
+  }
+  return { states: [...kept] };
+}
+
+/** Bytes the loaded graph authenticated, gone by the time prune copies them. */
+async function present(
+  read: Promise<Uint8Array | null>,
+  artifact: string
+): Promise<Uint8Array> {
+  const bytes = await read;
+  if (!bytes) {
+    throw new MigrationError(
+      `${artifact} vanished from the history while prune copied it`,
+      VibORMErrorCode.MIGRATION_CORRUPTION
+    );
+  }
+  return bytes;
 }
 
 export async function downV1(
