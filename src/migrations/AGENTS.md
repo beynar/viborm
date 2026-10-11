@@ -586,8 +586,9 @@ malformed empty table, a state table with a marker, or a log-only shape remains
 corrupt partial history. `readControlState` is the one reader: it authenticates
 a present pair once before returning marker and ledger truth. Transactional
 apply, baseline, and reset perform a required bootstrap inside their first real
-effect/publication transaction, so a failed first migration cannot leave new
-control tables behind. Stepwise providers retain the recoverable bootstrap
+effect/publication transaction, and a failed one leaves only the control
+tables and its `failed` ledger event, written in a transaction of its own after
+the rollback (plan S3). Stepwise providers retain the recoverable bootstrap
 protocol.
 
 `apply-v1.ts` owns forward application. Before effects it authenticates the
@@ -628,7 +629,12 @@ when the producer can. `down` preflights every reverse program, appends
 the same transaction wrap as apply. An unfinished rollback can only be resumed
 by `down()`. `resolve` accepts only outcomes established by origin/destination
 proof; generated structural opacity may complete from a fingerprint, while
-manual opaque work still needs state checks. `reset` preloads and authenticates
+manual opaque work still needs state checks. `resolve('rolled-back')` refuses
+while a manual opaque step of the attempt committed or may have committed;
+`apply` starts again when no marker exists and every attempt is closed by
+failed, rolled-back or resolved. `down` asks before a generated destructive
+rollback touches a table that holds rows (an absent table holds none); manual
+rollbacks are not asked again. `reset` preloads and authenticates
 the complete clear-and-replay program before the first drop, classifies every
 replay transition before clearing, and executes contiguous transactional replay
 groups in real transactions without letting one stepwise edge flatten the whole

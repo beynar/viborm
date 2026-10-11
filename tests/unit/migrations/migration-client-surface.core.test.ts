@@ -129,7 +129,7 @@ describe("createMigrationClient capability surface", () => {
       expect.objectContaining({
         code: "V4002",
         message:
-          "migration client options must include storage, tables or timeLimits when supplied",
+          "migration client options must include storage, tables or limits when supplied",
       })
     );
   });

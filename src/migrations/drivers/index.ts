@@ -10,8 +10,8 @@ import type {
   SqliteMigrationCapability,
 } from "../../drivers/driver";
 import {
-  DEFAULT_MIGRATION_TIME_LIMITS,
-  type ResolvedMigrationTimeLimits,
+  DEFAULT_MIGRATION_LIMITS,
+  type ResolvedMigrationLimits,
 } from "../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { resolveMigrationEstate, selectManagedSnapshot } from "../target";
@@ -106,8 +106,8 @@ export interface BoundMigrationDriver extends MigrationDriver {
   readonly executionDriver: AnyDriver;
   /** The SQLite capability read once at binding; admission decides from it. */
   readonly sqliteMigrationCapability: SqliteMigrationCapability | undefined;
-  /** The command's time limits: the client's own, or the defaults. */
-  readonly timeLimits: ResolvedMigrationTimeLimits;
+  /** The command's limits: the client's own, or the defaults. */
+  readonly limits: ResolvedMigrationLimits;
 }
 
 /**
@@ -136,7 +136,7 @@ export interface BoundMigrationDriver extends MigrationDriver {
 export function getMigrationDriver(
   driver: AnyDriver,
   tables?: readonly string[],
-  timeLimits: ResolvedMigrationTimeLimits = DEFAULT_MIGRATION_TIME_LIMITS
+  limits: ResolvedMigrationLimits = DEFAULT_MIGRATION_LIMITS
 ): BoundMigrationDriver {
   const { target: baseTarget, namespace } = resolveMigrationEstate(driver);
   const target =
@@ -159,7 +159,7 @@ export function getMigrationDriver(
     executionDriver: { value: driver, enumerable: true },
     namespace: { value: namespace, enumerable: true },
     sqliteMigrationCapability: { value: capability, enumerable: true },
-    timeLimits: { value: timeLimits, enumerable: true },
+    limits: { value: limits, enumerable: true },
     introspect: {
       async value(
         this: MigrationDriver,

@@ -14,6 +14,7 @@
  * before it answers.
  */
 
+import type { DriverConfig } from "@client/client";
 import { ClientInitializationError } from "@errors";
 import { isError } from "../../errors/diagnostic-safety";
 import type { MigrationSessionAttestation } from "../driver";
@@ -140,6 +141,30 @@ export function resolveMigrationSessionAttestationOption(
 }
 
 /**
+ * Refuses a `databaseUrl` key that is present but empty or undefined — almost
+ * always an unset environment variable — when nothing else in the
+ * configuration names a target. The PostgreSQL clients would otherwise fall
+ * back to libpq's defaults (the `PG*` environment, then localhost:5432) and
+ * connect to a server nobody named. An absent key keeps those defaults.
+ */
+export function refuseEmptyDatabaseUrl(
+  driver: string,
+  source: { databaseUrl?: string },
+  namesTarget: boolean
+): void {
+  if (
+    namesTarget ||
+    source.databaseUrl ||
+    !Object.hasOwn(source, "databaseUrl")
+  )
+    return;
+  throw new ClientInitializationError(
+    `Driver "${driver}" was given an empty databaseUrl and no host; set the URL or name the host in options.`,
+    { meta: { driver, operation: "configuration" } }
+  );
+}
+
+/**
  * Install one driver fact as an own, non-writable, non-configurable property.
  *
  * `readonly` is erased at run time, and query rendering, migrations, cache
@@ -159,4 +184,39 @@ export function defineImmutableDriverFact(
     enumerable: true,
     configurable: false,
   });
+}
+
+/** The keys every convenience wrapper reads beside its driver's own. */
+const CLIENT_CONFIG_KEYS: Readonly<Record<keyof DriverConfig, true>> = {
+  schema: true,
+  skipSchemaValidation: true,
+};
+
+/**
+ * Refuse a key a driver's `createClient` does not read.
+ *
+ * The types refuse it already, but a JavaScript caller, or a configuration
+ * written for another driver, reaches run time with it: `databaseUrl` on
+ * viborm/sqlite3 used to open an in-memory database while its caller believed
+ * a file was named. A present own key is refused whatever its value; an
+ * inherited one is not a request (see `readOptionOnce`). Each driver types its
+ * `accepted` record as `Record<keyof ItsOptions, true>`, so the run-time list
+ * cannot drift from the options interface the types check.
+ */
+export function refuseUnknownDriverConfigKeys(
+  config: object,
+  driver: string,
+  accepted: Readonly<Record<string, true>>,
+  hints: Readonly<Record<string, string>> = {}
+): void {
+  for (const key of Object.keys(config)) {
+    if (Object.hasOwn(CLIENT_CONFIG_KEYS, key) || Object.hasOwn(accepted, key))
+      continue;
+    const hint = Object.hasOwn(hints, key) ? hints[key] : undefined;
+    const keys = [...Object.keys(CLIENT_CONFIG_KEYS), ...Object.keys(accepted)];
+    throw new ClientInitializationError(
+      `viborm/${driver} does not accept "${key}"; ${hint ?? `it accepts ${keys.join(", ")}`}.`,
+      { meta: { driver, operation: "configuration" } }
+    );
+  }
 }

@@ -147,11 +147,12 @@ describe("G4-01 repair 3 — the JSON sentinel-with-path refusal (finding I, Q-W
         message(seen.shipped),
         `${label}\n  candidate ${JSON.stringify(seen.candidate)}\n  shipped   ${JSON.stringify(seen.shipped)}`
       );
-      // Absolute: the refusal names the FIELD and the SENTINEL, which is what
-      // makes it actionable when several JSON columns share one filter.
+      // Absolute: the refusal names the FIELD (its issue path, since 1.2.0's
+      // admission refusal) and the SENTINEL, which is what makes it
+      // actionable when several JSON columns share one filter.
       assert.equal(
         message(seen.shipped),
-        `JSON filter for field 'profile' cannot combine 'path' with the ${label} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`
+        `Validation failed for author.findMany: where.profile: JSON filter cannot combine 'path' with the ${label} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`
       );
     });
 

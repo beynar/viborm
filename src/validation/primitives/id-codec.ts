@@ -29,6 +29,7 @@
 import { normalizeBinaryValue } from "./binary-shapes";
 import {
   applyIdPrefix,
+  BASE62,
   bytesToKsuid,
   bytesToUlid,
   bytesToUuid,
@@ -183,12 +184,14 @@ function base62NotAbove(max: string): string {
   return `(?:${arms.join("|")})`;
 }
 
-/** The base62 digits below `digit`, as character-class ranges. */
+const BASE62_RUN = /[0-9]{3,}|[A-Z]{3,}|[a-z]{3,}/g;
+
+/** The base62 digits below `digit`, runs of three or more as ranges. */
 function base62Below(digit: string): string {
-  const previous = String.fromCharCode(digit.charCodeAt(0) - 1);
-  if (digit <= "9") return digit === "0" ? "" : `0-${previous}`;
-  if (digit <= "Z") return digit === "A" ? "0-9" : `0-9A-${previous}`;
-  return digit === "a" ? "0-9A-Z" : `0-9A-Za-${previous}`;
+  return BASE62.slice(0, BASE62.indexOf(digit)).replace(
+    BASE62_RUN,
+    (run) => `${run[0]}-${run.at(-1)}`
+  );
 }
 
 // =============================================================================

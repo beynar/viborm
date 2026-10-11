@@ -1,4 +1,5 @@
 import { physicalConnectionQueue } from "../connection-scope";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { normalizeSQLiteRawRows } from "../shared/sqlite-utils";
 /**
  * Bun SQLite Driver
@@ -130,6 +131,11 @@ export interface BunSQLiteOptions {
   create?: boolean;
   readwrite?: boolean;
   strict?: boolean;
+  /**
+   * Busy timeout in milliseconds, applied as `PRAGMA busy_timeout`. A VibORM
+   * option: `bun:sqlite` has none of its own. Defaults to 5000.
+   */
+  timeout?: number;
 }
 
 export interface BunSQLiteDriverOptions {
@@ -140,6 +146,12 @@ export interface BunSQLiteDriverOptions {
 
 export type BunSQLiteClientConfig<C extends DriverConfig> =
   BunSQLiteDriverOptions & C;
+
+const BUN_SQLITE_CONFIG_KEYS: Record<keyof BunSQLiteDriverOptions, true> = {
+  client: true,
+  dataDir: true,
+  options: true,
+};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -157,10 +169,19 @@ export class BunSQLiteDriver extends Driver<
 
   private readonly driverOptions: BunSQLiteDriverOptions;
   private readonly suppliedClient: BunSQLiteDatabase | undefined;
+  /** Interpolated into a PRAGMA, so it is admitted here as an integer. */
+  private readonly busyTimeout: number;
 
   constructor(options: BunSQLiteDriverOptions = {}) {
     super("sqlite", "bun-sqlite");
     this.driverOptions = options;
+    this.busyTimeout = options.options?.timeout ?? 5000;
+    if (!Number.isSafeInteger(this.busyTimeout) || this.busyTimeout < 0) {
+      throw new ClientInitializationError(
+        'The bun-sqlite "timeout" option must be a non-negative integer number of milliseconds.',
+        { meta: { driver: "bun-sqlite", operation: "configuration" } }
+      );
+    }
 
     this.suppliedClient = options.client;
     if (this.suppliedClient) {
@@ -188,22 +209,24 @@ export class BunSQLiteDriver extends Driver<
     const { Database } = await import("bun:sqlite");
 
     const dataDir = this.driverOptions.dataDir ?? ":memory:";
-    const options = this.driverOptions.options;
+    // `timeout` is VibORM's own key, not one of bun:sqlite's open flags.
+    const { timeout: _timeout, ...openFlags } =
+      this.driverOptions.options ?? {};
 
     // bun:sqlite derives its open flags from this object and rejects one that
     // names no access mode: `new Database(path, {})` throws SQLITE_MISUSE
     // ("flags must include SQLITE_OPEN_READONLY or SQLITE_OPEN_READWRITE").
     // An options bag that says nothing must mean nothing, so the argument is
     // omitted entirely and Bun applies its own default (readwrite + create).
-    const db = (options === undefined || Object.keys(options).length === 0
+    const db = (Object.keys(openFlags).length === 0
       ? new Database(dataDir)
-      : new Database(dataDir, options)) as unknown as BunSQLiteDatabase;
+      : new Database(dataDir, openFlags)) as unknown as BunSQLiteDatabase;
 
     // bun:sqlite leaves SQLite's foreign_keys default (OFF), which would let a
     // dangling FK write report success while sqlite3 and libsql refuse it.
     // Enforcement is a viborm guarantee, not an inherited library default.
     db.exec("PRAGMA foreign_keys = ON");
-    db.exec("PRAGMA busy_timeout = 5000");
+    db.exec(`PRAGMA busy_timeout = ${this.busyTimeout}`);
 
     return db;
   }
@@ -303,6 +326,9 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: BunSQLiteDriver }
   >]: LinkedClientConfig<C & { driver: BunSQLiteDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "bun-sqlite", BUN_SQLITE_CONFIG_KEYS, {
+    databaseUrl: "pass the database file as dataDir",
+  });
   const { client, dataDir, options } = config;
 
   const driver = new BunSQLiteDriver({ client, dataDir, options });

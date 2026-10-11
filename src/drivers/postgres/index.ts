@@ -48,6 +48,10 @@ import {
   type TransactionOptionSupport,
   withSuppressedFailure,
 } from "../shared";
+import {
+  refuseEmptyDatabaseUrl,
+  refuseUnknownDriverConfigKeys,
+} from "../shared/driver-options";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import type { QueryResult } from "../types";
 
@@ -118,6 +122,16 @@ const withVibormTypes = (options: PostgresOptions = {}): PostgresOptions => ({
 export type PostgresClientConfig<C extends DriverConfig> =
   PostgresDriverOptions & C;
 
+const POSTGRES_CONFIG_KEYS: Record<keyof PostgresDriverOptions, true> = {
+  client: true,
+  options: true,
+  pgvector: true,
+  postgis: true,
+  databaseUrl: true,
+  namespace: true,
+  migrationSessionAttestation: true,
+};
+
 type PostgresClient = PostgresSql<Record<string, unknown>>;
 
 const isTransaction = (
@@ -155,6 +169,12 @@ export class PostgresDriver extends Driver<
       options: { ...options.options },
     };
     this.suppliedClient = options.client;
+    const { host, hostname } = this.driverOptions.options ?? {};
+    refuseEmptyDatabaseUrl(
+      "postgres",
+      options,
+      Boolean(this.suppliedClient || host || hostname)
+    );
 
     if (this.suppliedClient) {
       for (const oid of [1082, 1114, 1184]) {
@@ -206,23 +226,12 @@ export class PostgresDriver extends Driver<
     if (this.suppliedClient !== undefined) {
       return this.suppliedClient;
     }
+    // postgres.js reads the URL for the keys it carries and lets every key
+    // set in options win, which is the documented precedence.
     const { databaseUrl, options } = this.driverOptions;
-    if (databaseUrl) {
-      const {
-        host: _host,
-        hostname: _hostname,
-        port: _port,
-        user: _user,
-        username: _username,
-        pass: _pass,
-        password: _password,
-        database: _database,
-        db: _db,
-        ...transportOptions
-      } = options ?? {};
-      return postgres(databaseUrl, withVibormTypes(transportOptions));
-    }
-    return postgres(withVibormTypes(options));
+    return databaseUrl
+      ? postgres(databaseUrl, withVibormTypes(options))
+      : postgres(withVibormTypes(options));
   }
 
   /**
@@ -459,6 +468,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: PostgresDriver }
   >]: LinkedClientConfig<C & { driver: PostgresDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "postgres", POSTGRES_CONFIG_KEYS);
   const { client, options = {}, pgvector, postgis, databaseUrl } = config;
   const namespace = resolveNamespaceOption(config);
   const migrationSessionAttestation =
@@ -467,7 +477,8 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
   const driver = new PostgresDriver({
     client,
     options,
-    databaseUrl,
+    // Present even when undefined: the driver refuses an empty one (parity-18).
+    ...(Object.hasOwn(config, "databaseUrl") ? { databaseUrl } : {}),
     pgvector,
     postgis,
     namespace,

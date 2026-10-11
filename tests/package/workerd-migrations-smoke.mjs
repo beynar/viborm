@@ -7,7 +7,8 @@
  * Miniflare's workerd with `compatibilityFlags: []` — no `nodejs_compat`, so
  * every `node:*` import in the entry's graph is refused at load — and a
  * compatibility date well before any Node-compatibility date, so there is no
- * date floor either. The Worker then
+ * date floor either. The Worker also imports the Durable Object and R2
+ * history storage subpaths, so they load under the same rules. It then
  * runs the exported storage conformance suite, which hashes with the entry's
  * SHA-256, over both in-memory writers.
  *
@@ -29,10 +30,21 @@ const COMPATIBILITY_DATE = "2024-01-01";
 
 const WORKER_CONDITIONS = ["workerd", "worker", "browser", "import", "default"];
 
-const worker = (entry) => `import * as migrations from "${entry}";
+const HISTORY_BINDINGS = {
+  "./migrations/storage/durable-object": "createDurableObjectStorageWriter",
+  "./migrations/storage/r2": "createR2StorageWriter",
+};
+
+// A named import of a missing export fails when workerd links the Worker.
+const worker = (entry, bindings) => `import * as migrations from "${entry}";
+${bindings.map(([path, name]) => `import { ${name} } from "${path}";`).join("\n")}
 
 export default {
   async fetch() {
+    const bindings = [${bindings.map(([, name]) => name).join(", ")}];
+    if (!bindings.every((binding) => typeof binding === "function")) {
+      throw new Error("a history storage binding did not load");
+    }
     const writers = [
       () => new migrations.MemoryEstateStorage(),
       () =>
@@ -73,14 +85,28 @@ try {
   const { exports } = JSON.parse(
     readFileSync(join(installedRoot, "package.json"), "utf8")
   );
-  const target = WORKER_CONDITIONS.map(
-    (condition) => exports["./migrations"][condition]
-  ).find((path) => typeof path === "string");
-  if (target === undefined) {
-    throw new Error("viborm/migrations has no Worker-resolvable export");
-  }
+  const entry = (subpath) => {
+    const target = WORKER_CONDITIONS.map(
+      (condition) => exports[subpath]?.[condition]
+    ).find((path) => typeof path === "string");
+    if (target === undefined) {
+      throw new Error(
+        `viborm${subpath.slice(1)} has no Worker-resolvable export`
+      );
+    }
+    return `./node_modules/viborm/${target.slice(2)}`;
+  };
   const scriptPath = join(consumerRoot, "worker.mjs");
-  writeFileSync(scriptPath, worker(`./node_modules/viborm/${target.slice(2)}`));
+  writeFileSync(
+    scriptPath,
+    worker(
+      entry("./migrations"),
+      Object.entries(HISTORY_BINDINGS).map(([subpath, name]) => [
+        entry(subpath),
+        name,
+      ])
+    )
+  );
 
   miniflare = new Miniflare({
     modules: true,

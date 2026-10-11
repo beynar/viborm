@@ -86,7 +86,8 @@ const confirmDestructive: ResolveCallback = async (change) => {
 };
 
 /**
- * The resolver `migrate generate` publishes under: the config's own, else
+ * The resolver `migrate generate` publishes under, and `migrate down` rolls
+ * back under: the config's own, else
  * `--accept-data-loss`, else a prompt on an interactive terminal. With none,
  * generate refuses a destructive change with `V11017`.
  */
@@ -413,6 +414,15 @@ export function createMigrateCommand(): Command {
     .option("-d, --dir <dir>", "Estate directory")
     .option("--to <selector>", "Roll back to this state")
     .option("--steps <n>", "Number of states to roll back", positiveInteger)
+    .option(
+      "--accept-data-loss",
+      "Approve destructive changes the rollback makes to populated tables"
+    )
+    .option(
+      "--expect-revision <n>",
+      "Refuse unless the marker is at this revision",
+      positiveInteger
+    )
     .option("--dry-run", "Plan without executing")
     .option("--json", "Print machine-readable output")
     .action(
@@ -420,19 +430,29 @@ export function createMigrateCommand(): Command {
         dir?: string;
         to?: string;
         steps?: number;
+        acceptDataLoss?: boolean;
+        expectRevision?: number;
         dryRun?: boolean;
         json?: boolean;
       }) => {
         await withMigrations(
           { ...opts, config: migrate.opts<{ config?: string }>().config },
-          async (migrations) => {
+          async (migrations, config) => {
             if (opts.to !== undefined && opts.steps !== undefined)
               throw new Error("down accepts --to or --steps, not both");
+            const approve = generateResolver(config, opts);
+            const common = {
+              dryRun: opts.dryRun,
+              ...(approve ? { resolve: approve } : {}),
+              ...(opts.expectRevision === undefined
+                ? {}
+                : { expectRevision: opts.expectRevision }),
+            };
             printJson(
               await migrations.down(
                 opts.to
-                  ? { to: selector(opts.to)!, dryRun: opts.dryRun }
-                  : { steps: opts.steps, dryRun: opts.dryRun }
+                  ? { to: selector(opts.to)!, ...common }
+                  : { steps: opts.steps, ...common }
               ),
               Boolean(opts.json)
             );

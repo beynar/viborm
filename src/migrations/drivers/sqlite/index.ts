@@ -76,6 +76,8 @@ import { introspect } from "./introspect";
 
 const COMPUTED_DEFAULT_PREFIX = /^(?:CURRENT_(?:TIME|DATE|TIMESTAMP)|\()/i;
 
+const SQLITE_AUTOINDEX_PREFIX = "sqlite_autoindex_";
+
 /** The name a recreation builds its replacement under before the swap. */
 const RECREATION_PREFIX = "__new_";
 const CREATE_TABLE = /^CREATE\s+TABLE\s+/i;
@@ -830,6 +832,9 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    * coerce numeric text after the copy, so every other unmarked source refuses
    * here before the recreation exists.
    *
+   * A decimal column leaving its domain is descaled the same way, by
+   * `descaledDecimalSource`.
+   *
    * A column with no decimal or DateTime target whose type changes affinity
    * (`sqliteConvertingAffinity`) is converted with a `CAST` that must compare
    * equal to the source under SQLite's own rules. A value that does not —
@@ -883,6 +888,16 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
     const to = targetColumn.decimal;
     const targetKind = sqliteDecimalStorageKind(targetColumn);
+    const from = currentColumn?.decimal;
+    if (to === undefined && currentColumn !== undefined && from !== undefined) {
+      return this.descaledDecimalSource(
+        tableName,
+        sourceName,
+        { ...currentColumn, decimal: from },
+        targetColumn.type,
+        source
+      );
+    }
     if (to === undefined || targetKind === undefined) {
       const affinity =
         currentColumn && sqliteConvertingAffinity(currentColumn, targetColumn);
@@ -891,7 +906,6 @@ export class SQLite3MigrationDriver extends MigrationDriver {
         : `CASE WHEN ${source} IS NULL THEN NULL WHEN CAST(${source} AS ${affinity}) = ${source} THEN CAST(${source} AS ${affinity}) ELSE ${SQLITE_ABORT} END`;
     }
 
-    const from = currentColumn?.decimal;
     if (from === undefined) {
       const adopting =
         targetKind === "scalar" &&
@@ -921,6 +935,47 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     );
     if (conversionKind === undefined) return source;
     return sqliteDecimalCopyExpression(source, from, to, conversionKind);
+  }
+
+  /**
+   * A fixed-decimal source copied into a column that declares no domain.
+   *
+   * SQLite stores the scaled coefficient, so the value is descaled on the way
+   * across: 1.23 at scale 2 is stored as 123 and must not read back as 123.
+   * Only an INTEGER target holds the result exactly, and a value with a
+   * fraction — or a stored value that is no coefficient at all — aborts the
+   * rebuild through `SQLITE_ABORT`. The decimal copy helper guards the same
+   * way, but its sentinel relies on a reserved CHECK this target does not
+   * carry.
+   * Every other target (TEXT, REAL, a list) has no one exact spelling of the
+   * value and is refused here, before the recreation exists.
+   */
+  private descaledDecimalSource(
+    tableName: string,
+    sourceName: string,
+    currentColumn: ColumnDef & { decimal: NonNullable<ColumnDef["decimal"]> },
+    targetType: string,
+    source: string
+  ): string {
+    const kind = sqliteDecimalStorageKind(currentColumn);
+    if (kind === "scalar" && sqliteAffinity(targetType) === "INTEGER") {
+      const factor = 10n ** BigInt(currentColumn.decimal.scale);
+      return `CASE WHEN ${source} IS NULL THEN NULL WHEN typeof(${source}) = 'integer' AND ${source} % ${factor} = 0 THEN ${source} / ${factor} ELSE ${SQLITE_ABORT} END`;
+    }
+    throw new MigrationError(
+      `The declared change to "${tableName}"."${sourceName}" would copy a fixed-decimal ${kind ?? "column"} at ${describeDecimalDomain(currentColumn.decimal)} into ${targetType} storage that declares no decimal domain. ` +
+        "SQLite stores the decimal as its scaled integer coefficient, and only a scalar copied into INTEGER storage can be descaled exactly. " +
+        "The change is refused before any statement runs, so the schema and data stay unchanged. Use an explicit migration that validates and rewrites the source values.",
+      VibORMErrorCode.FEATURE_NOT_SUPPORTED,
+      {
+        meta: {
+          table: tableName,
+          column: sourceName,
+          feature: "decimal storage conversion",
+          dialect: "sqlite",
+        },
+      }
+    );
   }
 
   /** Physical source vocabulary for a target known to be a DateTime. */
@@ -973,10 +1028,12 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    * Every SQLite descriptor change is a table recreation, and a recreation
    * drops and rebuilds the table with foreign-key enforcement disabled. That
    * disable is only real when `PRAGMA foreign_keys=OFF` runs OUTSIDE the
-   * transaction — SQLite documents it as a no-op inside one — and a batch-only
-   * driver has no outside to run it in. On such a driver the pragma travels
-   * inside the batch and does nothing, so `DROP TABLE` either raises the
-   * constraint or silently fires the referential action on every child row.
+   * transaction — SQLite documents it as a no-op inside one — and the lift is
+   * proven only inside a transaction that can roll it back
+   * (`foreignKeyPragmasCannotBeLifted`). A driver without one cannot prove it:
+   * on D1 the pragma travels inside one native batch and does nothing, so
+   * `DROP TABLE` either raises the constraint or silently fires the
+   * referential action on every child row.
    *
    * D1 is the shipped case, and plan §7.4 states the prerequisite exactly: a
    * relation-bearing rebuild is admitted only after the foreign-key-safe
@@ -1026,9 +1083,9 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       return;
     }
     throw new MigrationError(
-      `Rebuilding "${tableName}"."${column.name}", ${description}, recreates the whole table, and the driver "${driver.driverName}" executes migrations as one native batch. ` +
-        "SQLite treats `PRAGMA foreign_keys=OFF` as a no-op inside a transaction, and a batch has no outside to run it in, so the rebuild would drop a table that still has enforced references — raising on one referential action and silently deleting or nulling child rows on another. " +
-        "The change is refused before any statement runs, so the schema and its data are exactly as they were. Recreate the table without its references, or run the change on a driver that executes statements individually.",
+      `Rebuilding "${tableName}"."${column.name}", ${description}, recreates the whole table, and the driver "${driver.driverName}" runs migrations without a transaction (D1 runs them as one native batch). ` +
+        "Without a transaction, `PRAGMA foreign_keys=OFF` cannot be proven before the rebuild drops a table that still has references, nor the drop rolled back — and a pragma that did not take raises on one referential action and silently deletes or nulls child rows on another. " +
+        "The change is refused before any statement runs, so the schema and its data are exactly as they were. Recreate the table without its references, or run the change on a driver with transactions.",
       VibORMErrorCode.FEATURE_NOT_SUPPORTED,
       {
         meta: {
@@ -1074,11 +1131,15 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       }
     }
 
-    // Unique constraints
+    // Unique constraints. One read back from the live table has SQLite's own
+    // `sqlite_autoindex_<table>_<n>` for a name, which a recreation must not
+    // carry into the new table: it is written unnamed, as SQLite reports it.
     for (const uq of table.uniqueConstraints) {
       const uqCols = uq.columns.map((c) => this.escapeIdentifier(c)).join(", ");
       parts.push(
-        `CONSTRAINT ${this.escapeIdentifier(uq.name)} UNIQUE (${uqCols})`
+        uq.name.startsWith(SQLITE_AUTOINDEX_PREFIX)
+          ? `UNIQUE (${uqCols})`
+          : `CONSTRAINT ${this.escapeIdentifier(uq.name)} UNIQUE (${uqCols})`
       );
     }
 

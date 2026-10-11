@@ -105,11 +105,17 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // its two scoped reads became one.
   "src/migrations/control.ts executeRaw 17",
   "src/migrations/execute-dispatch.ts executeRaw 2",
-  "src/migrations/foreign-keys.ts executeRaw 3",
+  // S10 (1.2.0): the verified foreign-key lift reads `PRAGMA foreign_keys`
+  // back after each toggle, and its execution view runs each `DROP TABLE`
+  // between two counts of the referencing tables, all on the pinned session
+  // or the transaction it opened.
+  "src/migrations/foreign-keys.ts executeRaw 8",
   "src/migrations/live-reset.ts executeRaw 4",
   "src/migrations/live-reset.ts queryExecutorFactory 1",
   // S7 (1.2.0): resolve repairs the attempt's own INVALID index on `pinned`.
-  "src/migrations/operators.ts executeRaw 7",
+  // 1.2.0: down's loss approval reads whether a table holds rows
+  // (`LIMIT 1`) on the producer under the lock.
+  "src/migrations/operators.ts executeRaw 8",
   // §3.5's pinned-session owner: target selection, the command-view catalog
   // read, and the sequential program's recording view. Exact-decimal migration
   // recovery adds two sites in THIS SAME owner: its catalog read and execution
@@ -126,7 +132,9 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // qualified identifier before refusing an unsafe required-column addition.
   // S11 (1.2.0): push preflights its compiled program on the handed producer,
   // so SQLite refuses a rebuild that would lose a trigger or view.
-  "src/migrations/push-plan.ts executeRaw 4",
+  // engine-06 (1.2.0): push reads each to-one polymorphic slot once
+  // (`LIMIT 1`) for an undeclared stored value, on the handed producer.
+  "src/migrations/push-plan.ts executeRaw 5",
   "src/migrations/push/planner.ts executeRaw 2",
   // The added catalog probe uses the pinned producer and bound probe parameters.
   "src/migrations/reset-v1.ts executeRaw 3",

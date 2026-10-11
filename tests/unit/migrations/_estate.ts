@@ -212,7 +212,11 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
   private simulateLockAnswer(sql: string): unknown[] | Error | undefined {
     if (sql === "SELECT current_setting('server_version_num') AS version")
       return this.serverVersionAnswer ?? [{ version: "170000" }];
-    if (sql.includes("pg_try_advisory_lock") || sql.includes("GET_LOCK")) {
+    if (
+      sql.includes("pg_try_advisory_lock") ||
+      sql.includes("pg_try_advisory_xact_lock") ||
+      sql.includes("GET_LOCK")
+    ) {
       return (
         this.lockAnswers.acquire ??
         (this.dialect === "mysql" ? [{ acquired: 1 }] : [{ acquired: true }])

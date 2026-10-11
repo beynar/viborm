@@ -1,6 +1,7 @@
 /**
- * The pinned migration session's time limits (plan S1) and its rule for a
- * dead connection (plan S2), on the ONE owner every locked command shares —
+ * The pinned migration session's time limits (plan S1), its rule for a dead
+ * connection (plan S2) and its transaction-scoped lock (plan D1), on the ONE
+ * owner every locked command shares —
  * `apply`, `down`, `reset`, `baseline`, `resolve`, `verify` and `push` all
  * reach the database through `withLockedMigrationProducer`.
  *
@@ -15,14 +16,14 @@ import { BunSQLDriver } from "@drivers/bun-sql";
 import type { PinnedSessionReservation } from "@drivers/shared";
 import {
   CLEANUP_BOUND_MS,
-  DEFAULT_MIGRATION_TIME_LIMITS,
+  DEFAULT_MIGRATION_LIMITS,
   releaseReservedPostgresSession,
 } from "@drivers/shared/pinned-session";
 import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
 import { ConnectionError, VibORMErrorCode } from "@errors";
 import { getMigrationDriver } from "@migrations/drivers";
 import {
-  resolveMigrationTimeLimits,
+  resolveMigrationLimits,
   withLockedMigrationProducer,
   withPinnedSession,
 } from "@migrations/pinned-session";
@@ -31,8 +32,8 @@ import { mysqlEstateDriver, pgEstateDriver, RecordingDriver } from "./_estate";
 
 const LIMITS_ENTER = /^DO \$viborm_limits\$/;
 const LIMITS_RESET = /set_config\(name, reset_val, false\)/;
-const SET_LOCAL = /set_config\('lock_timeout', '(\d+)', true\)/;
 const LOCK = /pg_try_advisory_lock/;
+const XACT_LOCK = /pg_try_advisory_xact_lock/;
 const UNLOCK = /pg_advisory_unlock\(/;
 const POSTGRES_LIMITS = /set_config|DO \$/;
 
@@ -82,51 +83,100 @@ function lockedDdl(driver: RecordingDriver, ddl = "ALTER TABLE t ADD c int") {
   );
 }
 
+const CONCURRENT_BUILD = 'CREATE INDEX CONCURRENTLY "i" ON "public"."t" ("c")';
+
+/**
+ * The same command after stepwise work: the CONCURRENTLY statement takes the
+ * session lock and sets the session's limits (plan D1).
+ */
+function lockedStepwiseDdl(
+  driver: RecordingDriver,
+  ddl = "ALTER TABLE t ADD c int"
+) {
+  return withLockedMigrationProducer(
+    driver,
+    getMigrationDriver(driver),
+    async (pinned) => {
+      await pinned._executeRaw(CONCURRENT_BUILD);
+      return pinned._transaction(async () => {
+        await pinned._executeRaw(ddl);
+        return "applied";
+      });
+    }
+  );
+}
+
+/** The limits every migration transaction opens with, at the defaults. */
+const TRANSACTION_LIMITS = `SELECT set_config('lock_timeout', '${DEFAULT_MIGRATION_LIMITS.lockTimeout}', true), set_config('statement_timeout', '${DEFAULT_MIGRATION_LIMITS.statementTimeout}', true), set_config('idle_in_transaction_session_timeout', CASE WHEN pg_catalog.version() LIKE '%emscripten%' THEN pg_catalog.current_setting('idle_in_transaction_session_timeout') ELSE '${DEFAULT_MIGRATION_LIMITS.idleTimeout}' END, true)`;
+
 afterEach(() => {
   vi.useRealTimers();
 });
 
 describe("the session's time limits", () => {
-  test("set the session limits before the lock, SET LOCAL in each transaction, and reset before release", async () => {
+  test("each transaction opens with its own limits and the transaction lock; the session is left alone", async () => {
     const driver = pgEstateDriver("public");
     driver.respond = answerPublicSchema;
 
     await expect(lockedDdl(driver)).resolves.toBe("applied");
 
-    const statements = driver.statements;
-    const enter = statements.findIndex((sql) => LIMITS_ENTER.test(sql));
-    const lock = statements.findIndex((sql) => LOCK.test(sql));
-    const begin = statements.indexOf("BEGIN");
-    const ddl = statements.indexOf("ALTER TABLE t ADD c int");
-    const unlock = statements.findIndex((sql) => UNLOCK.test(sql));
-    const reset = statements.findIndex((sql) => LIMITS_RESET.test(sql));
-    expect(enter).toBe(0);
-    expect(lock).toBe(enter + 1);
-    // The transaction's own limits are its first statement.
-    expect(statements[begin + 1]).toMatch(SET_LOCAL);
-    expect(ddl).toBe(begin + 2);
-    expect(reset).toBe(statements.length - 1);
-    expect(unlock).toBe(reset - 1);
-
-    // Session-wide, so a stepwise statement run bare on the session is
-    // bounded too.
-    expect(statements[enter]).toContain(
-      `set_config('lock_timeout', '${DEFAULT_MIGRATION_TIME_LIMITS.lockTimeout}', false), set_config('statement_timeout', '${DEFAULT_MIGRATION_TIME_LIMITS.statementTimeout}', false)`
+    const { statements } = driver;
+    expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_LIMITS]);
+    expect(statements[2]).toMatch(XACT_LOCK);
+    expect(statements[2]).toContain("interval '10 seconds'");
+    expect(statements.slice(-2)).toEqual(["ALTER TABLE t ADD c int", "COMMIT"]);
+    // One transaction: the body's continues the one that took the lock.
+    expect(statements.filter((sql) => sql === "BEGIN")).toHaveLength(1);
+    const session = statements.filter(
+      (sql) =>
+        LIMITS_ENTER.test(sql) ||
+        LIMITS_RESET.test(sql) ||
+        LOCK.test(sql) ||
+        UNLOCK.test(sql)
     );
-    expect(statements[reset]).toContain("'lock_timeout', 'statement_timeout'");
-    expect(statements[enter]).toContain("idle_session_timeout");
-    expect(statements[enter]).toContain("idle_in_transaction_session_timeout");
-    expect(statements[begin + 1]).toBe(
-      "SELECT set_config('lock_timeout', '4000', true), set_config('statement_timeout', '600000', true)"
-    );
-    expect(statements[lock]).toContain("interval '10 seconds'");
+    expect(session).toEqual([]);
     expect(driver.sessions).toEqual(["reserve", "release"]);
   });
 
-  test("the command's own limits reach the lock deadline, the session and the transaction", async () => {
+  test("stepwise work sets the session limits under its session lock, and resets them before release", async () => {
     const driver = pgEstateDriver("public");
     driver.respond = answerPublicSchema;
-    const limits = resolveMigrationTimeLimits({
+
+    await expect(lockedStepwiseDdl(driver)).resolves.toBe("applied");
+
+    const { statements } = driver;
+    const lock = statements.findIndex((sql) => LOCK.test(sql));
+    const enter = statements.findIndex((sql) => LIMITS_ENTER.test(sql));
+    const firstCommit = statements.indexOf("COMMIT");
+    const build = statements.indexOf(CONCURRENT_BUILD);
+    const begin = statements.lastIndexOf("BEGIN");
+    const unlock = statements.findIndex((sql) => UNLOCK.test(sql));
+    const reset = statements.findIndex((sql) => LIMITS_RESET.test(sql));
+    // Taken inside the locked transaction, before it commits.
+    expect(statements.slice(0, lock).some((sql) => XACT_LOCK.test(sql))).toBe(
+      true
+    );
+    expect(enter).toBe(lock + 1);
+    expect(firstCommit).toBe(enter + 1);
+    expect(build).toBeGreaterThan(firstCommit);
+    // A later transaction under the session lock still opens with its limits.
+    expect(statements[begin + 1]).toBe(TRANSACTION_LIMITS);
+    expect(statements[begin + 2]).toBe("ALTER TABLE t ADD c int");
+    expect(reset).toBe(statements.length - 1);
+    expect(unlock).toBe(reset - 1);
+    expect(statements[enter]).toContain(
+      `set_config('lock_timeout', '${DEFAULT_MIGRATION_LIMITS.lockTimeout}', false), set_config('statement_timeout', '${DEFAULT_MIGRATION_LIMITS.statementTimeout}', false)`
+    );
+    expect(statements[enter]).toContain("idle_session_timeout");
+    expect(statements[enter]).toContain("idle_in_transaction_session_timeout");
+    expect(statements[reset]).toContain("'lock_timeout', 'statement_timeout'");
+    expect(driver.sessions).toEqual(["reserve", "release"]);
+  });
+
+  test("the command's own limits reach the lock deadline, the transaction and the session", async () => {
+    const driver = pgEstateDriver("public");
+    driver.respond = answerPublicSchema;
+    const limits = resolveMigrationLimits({
       lockTimeout: 1500,
       statementTimeout: 90_000,
       idleTimeout: 2500,
@@ -134,19 +184,24 @@ describe("the session's time limits", () => {
     });
     const bound = getMigrationDriver(driver, undefined, limits);
 
-    await withLockedMigrationProducer(driver, bound, (pinned) =>
-      pinned._transaction(() => pinned._executeRaw("ALTER TABLE t ADD c int"))
-    );
+    await withLockedMigrationProducer(driver, bound, async (pinned) => {
+      await pinned._executeRaw(CONCURRENT_BUILD);
+      await pinned._transaction(() =>
+        pinned._executeRaw("ALTER TABLE t ADD c int")
+      );
+    });
 
-    const [enter, lock] = driver.statements;
+    const [, transaction, lock] = driver.statements;
+    expect(transaction).toContain(
+      "set_config('lock_timeout', '1500', true), set_config('statement_timeout', '90000', true)"
+    );
+    expect(transaction).toContain("ELSE '2500' END");
+    expect(lock).toContain("interval '3 seconds'");
+    const enter = driver.statements.find((sql) => LIMITS_ENTER.test(sql));
     expect(enter).toContain(
       "set_config('lock_timeout', '1500', false), set_config('statement_timeout', '90000', false)"
     );
     expect(enter).toContain("set_config(name, '2500', false)");
-    expect(lock).toContain("interval '3 seconds'");
-    expect(driver.statements).toContain(
-      "SELECT set_config('lock_timeout', '1500', true), set_config('statement_timeout', '90000', true)"
-    );
   });
 
   test("a CONCURRENTLY index statement runs with no limits, which are restored after it", async () => {
@@ -279,11 +334,11 @@ describe("a session whose connection was lost is never written to again", () => 
     const failure = await lockedDdl(driver).catch((error: unknown) => error);
 
     expect(failure).toMatchObject({ code: VibORMErrorCode.CONNECTION_FAILED });
-    expect(driver.statements.at(-1)).toMatch(LOCK);
+    expect(driver.statements.at(-1)).toMatch(XACT_LOCK);
     expect(driver.releases).toEqual([{ discard: true, lost: true }]);
   });
 
-  test("an ordinary failure still rolls back, unlocks and resets on the reserved session", async () => {
+  test("an ordinary failure still rolls the locked transaction back on the reserved session", async () => {
     const driver = observedPg();
     driver.respond = (sql) =>
       sql.startsWith("ALTER TABLE")
@@ -291,6 +346,25 @@ describe("a session whose connection was lost is never written to again", () => 
         : answerPublicSchema(sql);
 
     const failure = await lockedDdl(driver).catch((error: unknown) => error);
+
+    expect(failure).not.toBeInstanceOf(ConnectionError);
+    expect(driver.statements.slice(-2)).toEqual([
+      "ALTER TABLE t ADD c int",
+      "ROLLBACK",
+    ]);
+    expect(driver.releases).toEqual([{ discard: true, lost: false }]);
+  });
+
+  test("an ordinary failure after stepwise work rolls back, unlocks and resets on the reserved session", async () => {
+    const driver = observedPg();
+    driver.respond = (sql) =>
+      sql.startsWith("ALTER TABLE")
+        ? Object.assign(new Error("column exists"), { code: "42701" })
+        : answerPublicSchema(sql);
+
+    const failure = await lockedStepwiseDdl(driver).catch(
+      (error: unknown) => error
+    );
 
     expect(failure).not.toBeInstanceOf(ConnectionError);
     const tail = driver.statements.slice(-3);
@@ -334,7 +408,10 @@ describe("a session whose connection was lost is never written to again", () => 
 });
 
 describe("a session whose limits could not be reset is never handed back", () => {
-  /** An ordinary failure, then a limits reset the server refuses. */
+  /**
+   * An ordinary failure, then a limits reset the server refuses. Only a
+   * session that ran stepwise work carries limits to reset (plan D1).
+   */
   function failingReset(driver: ObservedSessionDriver) {
     driver.respond = (sql) => {
       if (sql.startsWith("ALTER TABLE")) {
@@ -350,7 +427,9 @@ describe("a session whose limits could not be reset is never handed back", () =>
     const driver = observedPg();
     failingReset(driver);
 
-    const failure = await lockedDdl(driver).catch((error: unknown) => error);
+    const failure = await lockedStepwiseDdl(driver).catch(
+      (error: unknown) => error
+    );
 
     // Both arrive as the driver's query failure; the ALTER's stays primary.
     const [resetFailure] = readSuppressedFailures(failure);
@@ -377,7 +456,7 @@ describe("a session whose limits could not be reset is never handed back", () =>
       }
     );
 
-    const settled = lockedDdl(driver).catch((error: unknown) => error);
+    const settled = lockedStepwiseDdl(driver).catch((error: unknown) => error);
     await vi.advanceTimersByTimeAsync(CLEANUP_BOUND_MS);
     const failure = await settled;
 
@@ -395,7 +474,9 @@ describe("a session whose limits could not be reset is never handed back", () =>
         ? new Error("reset refused")
         : answerPublicSchema(sql);
 
-    const failure = await lockedDdl(driver).catch((error: unknown) => error);
+    const failure = await lockedStepwiseDdl(driver).catch(
+      (error: unknown) => error
+    );
 
     expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_FAILED });
     expect(driver.statements.at(-1)).toMatch(LIMITS_RESET);
@@ -487,15 +568,13 @@ describe("Bun SQL hands its lost reserved session to the shared release", () => 
 
 describe("migration time limits are settled once", () => {
   test("defaults fill every key the caller left out", () => {
-    expect(resolveMigrationTimeLimits(undefined)).toBe(
-      DEFAULT_MIGRATION_TIME_LIMITS
-    );
-    expect(resolveMigrationTimeLimits({ lockTimeout: 0 })).toEqual({
-      ...DEFAULT_MIGRATION_TIME_LIMITS,
+    expect(resolveMigrationLimits(undefined)).toBe(DEFAULT_MIGRATION_LIMITS);
+    expect(resolveMigrationLimits({ lockTimeout: 0 })).toEqual({
+      ...DEFAULT_MIGRATION_LIMITS,
       lockTimeout: 0,
     });
     expect(
-      resolveMigrationTimeLimits({ statementTimeout: 0, lockWait: 60_000 })
+      resolveMigrationLimits({ statementTimeout: 0, lockWait: 60_000 })
     ).toMatchObject({ statementTimeout: 0, lockWait: 60_000 });
   });
 
@@ -507,8 +586,9 @@ describe("migration time limits are settled once", () => {
     [{ statementTimeout: 10_000 }, "longer than lockWait"],
     [{ statementTimeout: 3_000_000_000 }, "from 0 to 2147483647"],
     [{ lockTimeOut: 10 }, "unknown key lockTimeOut"],
+    [{ largeTableRows: -1 }, "largeTableRows must be a whole number of rows"],
   ])("refuses %o", (input, message) => {
-    expect(() => resolveMigrationTimeLimits(input)).toThrowError(
+    expect(() => resolveMigrationLimits(input)).toThrowError(
       expect.objectContaining({
         code: VibORMErrorCode.INVALID_INPUT,
         message: expect.stringContaining(message),

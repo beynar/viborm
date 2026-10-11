@@ -70,8 +70,8 @@ Namespace qualification does not depend on session search_path.
 Use [Neon HTTP](/docs/drivers/postgresql/neon-http) for stateless HTTP requests.
 Its ordered batch/isolation support does not provide interactive callbacks.
 A Neon WebSocket `Pool` from `@neondatabase/serverless` runs as the pg driver's
-supplied `pool`; whether TypeScript accepts it there depends on your `@types/pg`
-version. pg/postgres.js on Workers, Hyperdrive, Deno and other TCP/runtime
+supplied `pool` and type-checks with any `@types/pg` (see
+[Neon WebSocket Pool](/docs/drivers/postgresql/pg#neon-websocket-pool)). pg/postgres.js on Workers, Hyperdrive, Deno and other TCP/runtime
 combinations need qualification for their native client/runtime pairing; the
 Node.js driver qualification does not establish those combinations. Unsupported
 runtime or provider combinations are not implied by an HTTP or WASM label.

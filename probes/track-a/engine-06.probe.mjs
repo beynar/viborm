@@ -114,9 +114,12 @@ export default async function probe() {
     refusal = error;
     pushed = `push refused ${error?.code ?? error?.name}: ${String(error?.message).slice(0, 200)}`;
   }
+  // Refused, the rows keep their meaning under the schema they were written
+  // with; pushed (1.1.0), the new schema can no longer read them.
+  const reader = refusal ? same : after;
   let read;
   try {
-    const row = await after.reaction.findUnique({
+    const row = await reader.reaction.findUnique({
       where: { id: "r0" },
       include: { target: true },
     });

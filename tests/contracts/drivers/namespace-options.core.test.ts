@@ -177,13 +177,13 @@ describe("MySQL2 resolves one target in order", () => {
     expect(driver.adapter.namespace).toBe("explicit_db");
   });
 
-  test("a URL path wins over options.database", () => {
+  test("options.database wins over a URL path", () => {
     const driver = new MySQL2Driver({
       databaseUrl: "mysql://user:pw@host:3306/url_db",
       options: { database: "options_db" },
     });
 
-    expect(driver.adapter.namespace).toBe("url_db");
+    expect(driver.adapter.namespace).toBe("options_db");
   });
 
   test("options.database binds when no URL path supplies one", () => {
@@ -347,7 +347,7 @@ describe("the driver-created pool defaults to the bound database", () => {
     ).toMatchObject({ database: "explicit_db", host: "host", port: 3306 });
   });
 
-  test("a URL path still mirrors the effective pool options", async () => {
+  test("options.database wins over the URL path in the effective pool options", async () => {
     expect(
       await connect(
         new MySQL2Driver({
@@ -355,7 +355,7 @@ describe("the driver-created pool defaults to the bound database", () => {
           options: { database: "options_db" },
         })
       )
-    ).toMatchObject({ database: "url_db" });
+    ).toMatchObject({ database: "options_db" });
   });
 
   test("a pathless URL leaves options.database in place", async () => {
@@ -438,7 +438,7 @@ describe("construction never mutates the caller's options record", () => {
     expect(options).toEqual({ host: "original" });
   });
 
-  test("the URL still wins in the options the driver receives", () => {
+  test("explicit options win in the options the driver receives", () => {
     const driver = driverFromWrapper(() =>
       createMySQL2Client({
         schema,
@@ -447,7 +447,7 @@ describe("construction never mutates the caller's options record", () => {
       })
     );
 
-    expect(driver.adapter.namespace).toBe("url_db");
+    expect(driver.adapter.namespace).toBe("options_db");
   });
 
   test("mutating the options object after construction changes nothing", () => {

@@ -86,6 +86,10 @@ const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
     "tests/unit/migrations/sqlite-migration-capability.core.test.ts",
     "in-memory-sqlite",
   ],
+  [
+    "tests/unit/migrations/push-polymorphic-stored-values.core.test.ts",
+    "in-memory-sqlite",
+  ],
   ["tests/unit/migrations/decimal-provider-limits.core.test.ts", "no-database"],
   ["tests/unit/migrations/v1-provider-admission.core.test.ts", "no-database"],
   // Driver construction only: pg, postgres.js and Bun SQL pools connect
@@ -354,6 +358,7 @@ test("driver coverage isolates provider resources and admits only audited local 
     "tests/contracts/drivers/driver-export-surface.core.test.ts",
     "tests/contracts/drivers/namespace-options.core.test.ts",
     "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
+    "tests/contracts/drivers/postgres-url-options.core.test.ts",
     "tests/contracts/drivers/provider-result-contracts.core.test.ts",
     "tests/contracts/drivers/sqlite-binary-values.core.test.ts",
     "tests/contracts/drivers/sqlite-positional-effects.core.test.ts",

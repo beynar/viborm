@@ -132,12 +132,27 @@ export function refusePartialControl(presence: ControlPresence): void {
   }
 }
 
+/** The events of attempts that never reached a state. */
+const CLOSED_WITHOUT_STATE: ReadonlySet<LedgerEventV1["kind"]> = new Set([
+  "started",
+  "step-confirmed",
+  "failed",
+  "rolled-back",
+  "resolved",
+]);
+
+/**
+ * Without a marker, history may only hold attempts closed by `failed`,
+ * `rolled-back` or `resolved`, so `apply` can start again (plan S4). An
+ * unfinished attempt is its caller's refusal.
+ */
 export function refuseIncompatibleHistory(
   marker: MigrationMarkerV1 | null,
   ledger: readonly LedgerEventV1[]
 ): void {
-  if (marker !== null || ledger.length === 0) return;
+  if (marker !== null) return;
   if (unfinishedAttempts(ledger).length > 0) return;
+  if (ledger.every((event) => CLOSED_WITHOUT_STATE.has(event.kind))) return;
   throw new MigrationError(
     "Migration ledger history exists without a current marker",
     VibORMErrorCode.MIGRATION_INVALID_STATE
@@ -573,7 +588,7 @@ async function isStateControlEmpty(
   }
 }
 
-async function isTableMissing(
+export async function isTableMissing(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
   tableName: string

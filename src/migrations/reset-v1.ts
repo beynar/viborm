@@ -5,6 +5,7 @@
 
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { admitLiveMigrationCapability } from "./admission";
+import { assertLockedSinceDecision } from "./apply-v1";
 import { canonicalizeJson } from "./canonical-json";
 import { tableExistsProbe } from "./catalog-probes";
 import {
@@ -372,6 +373,7 @@ export async function resetV1(
           pinned,
           producer,
           command,
+          marker,
           graph,
           livePlan,
           plan,
@@ -877,6 +879,7 @@ async function executeResetProgram(
   pinned: Parameters<typeof executeOperations>[0],
   producer: Parameters<typeof executeOperations>[0],
   command: BoundMigrationDriver,
+  marker: MigrationMarkerV1 | null,
   graph: MigrationGraph,
   livePlan: Awaited<ReturnType<typeof planLiveNamespaceReset>> | undefined,
   plan: ResetPlanV1,
@@ -913,6 +916,10 @@ async function executeResetProgram(
     boundary: "transactional" | "stepwise",
     body: (target: Parameters<typeof appendLedger>[0]) => Promise<void>
   ) => {
+    const guarded = async (target: Parameters<typeof appendLedger>[0]) => {
+      await assertLockedSinceDecision(pinned, target, command, marker, true);
+      await body(target);
+    };
     if (
       mayWrapTransaction(
         pinned,
@@ -920,9 +927,9 @@ async function executeResetProgram(
         boundary === "transactional"
       )
     ) {
-      await pinned.withTransaction(body);
+      await pinned.withTransaction(guarded);
     } else {
-      await body(producer);
+      await guarded(producer);
     }
   };
   const completeClearEvidence = async (

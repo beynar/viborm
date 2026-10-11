@@ -118,7 +118,8 @@ export const CUID_TEXT = /^[a-z][0-9a-z]{23}$/;
  * the text sort exactly as the bytes sort, which is what makes a KSUID
  * time-sortable as a string.
  */
-const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+export const BASE62 =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 /** The first value 20 bytes cannot hold; some 27-character base62 texts exceed it. */
 const KSUID_EXCLUSIVE_MAX = 2n ** 160n;

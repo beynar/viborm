@@ -77,6 +77,15 @@ migration to add it as nullable, fill the values explicitly, and then make it
 required. Generated migration preconditions require an empty table when a
 required added column has no physical default.
 
+Push keeps no history, so the rows are its record of polymorphic stored values.
+Before executing migration effects it reads each to-one polymorphic slot once
+(`LIMIT 1`) for a stored discriminator the desired schema no longer declares,
+whether the value changed or its variant was removed. If one exists, push
+refuses with `V11010`, naming the slot and the value, as generation does for the
+same change. A value that no row stores, and a `NULL` slot, never block. Rewrite
+the stored values in a reviewed manual migration first; see
+[schema evolution](/docs/schema/relations/polymorphic#schema-evolution).
+
 Selected generated columns, unsupported native indexes, SQLite custom CHECK
 constraints and mapped view collisions refuse synchronization when their physical
 semantics cannot be represented. Manage those tables outside the authenticated

@@ -1,0 +1,82 @@
+---
+title: R2 Storage
+description: Keep migration histories in an R2 bucket
+icon: cloud
+---
+
+## Quick Start
+
+```ts
+import { createMigrationClient } from "viborm/migrations";
+import { createR2StorageWriter } from "viborm/migrations/storage/r2";
+
+const migrations = createMigrationClient(client, {
+  storage: createR2StorageWriter(env.HISTORY, { prefix: `tenants/${id}/` }),
+});
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "r2_buckets": [{ "binding": "HISTORY", "bucket_name": "migration-history" }]
+}
+```
+
+Use R2 when histories must be shared or inspected outside one object. Every
+read is a request to R2, so a command costs more than with
+[Durable Object storage](/docs/migration/storage/durable-object). The entry
+loads without `nodejs_compat`.
+
+## Configuration
+
+```ts
+const storage = createR2StorageWriter(bucket, { prefix });
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `bucket` | `R2Bucket` | The bucket binding |
+| `prefix` | `string` | Optional key prefix for this estate, such as `tenants/42/`. Defaults to `""`. |
+
+Each estate needs its own prefix. Under one prefix, two estates are one
+history: a different target is refused, and a second tenant with the same
+target shares the first tenant's states.
+
+## How Publication Stays Atomic
+
+A publish is a put conditioned on `etagDoesNotMatch: "*"`
+(`If-None-Match: *`). R2 checks the condition and stores the object in one
+step; when the key already exists it stores nothing and returns `null`.
+VibORM then reads the stored bytes: identical bytes are an idempotent publish,
+different bytes are refused as corruption.
+
+R2 writes and listings are strongly consistent, so a state is listed as soon
+as its publish returns. Listing follows R2's cursor until the listing is
+complete, past the 1,000 keys of one page.
+
+## Layout
+
+```
+<prefix>estate.json
+<prefix>snapshots/<snapshot-hash>.json
+<prefix>sql/<sql-hash>.sql
+<prefix>states/<state-id>.json
+```
+
+Do not write, overwrite or delete these keys yourself, and do not apply
+lifecycle rules that expire them.
+
+## Next Steps
+
+<CardGroup>
+  <Card
+    title="Durable Object Storage"
+    href="/docs/migration/storage/durable-object">
+    Keep the history in the tenant's object
+  </Card>
+  <Card
+    title="Storage"
+    href="/docs/migration/storage">
+    Semantic estate readers and writers
+  </Card>
+</CardGroup>

@@ -43,6 +43,9 @@ change, and `--accept-data-loss` approves them all for that run. A
 `migrations.resolve` in `viborm.config.ts` answers instead of both. Piped, in
 `--json` mode, or with neither, a destructive change is refused with `V11017`
 and nothing is published; `--dry-run` previews it without asking.
+`migrate down` asks the same way before a generated rollback changes a table
+that holds rows, and takes `--expect-revision <n>` to refuse with `V11015`
+when the marker moved since you read it.
 
 Failures produce a nonzero exit code. JSON mode writes structured errors;
 cleanup finishes before the process reports success or failure. Provider SQL

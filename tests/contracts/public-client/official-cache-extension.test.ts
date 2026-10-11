@@ -1,17 +1,15 @@
 import { createClient } from "@drivers/pglite";
+import { ClientInitializationError } from "@errors";
 import { s } from "@src/index";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const item = s.model({ id: s.string().id(), name: s.string() });
 const schema = { item };
-const clients: Array<{ $disconnect(): Promise<void> }> = [];
-
-afterEach(async () => {
-  for (const client of clients.splice(0)) await client.$disconnect();
-});
 
 describe("official cache PGlite wrapper", () => {
-  it("does not read removed cache config accessors", () => {
+  // The removed keys are unknown to the wrapper, which refuses the first one
+  // by name without reading any of them.
+  it("refuses removed cache config keys without reading their accessors", () => {
     const reads = { cache: 0, cacheVersion: 0, waitUntil: 0 };
     const config = Object.defineProperties(
       { schema, dataDir: "memory://" },
@@ -31,9 +29,12 @@ describe("official cache PGlite wrapper", () => {
       })
     );
 
-    const client = Reflect.apply(createClient, undefined, [config]);
-    clients.push(client);
-
+    expect(() => Reflect.apply(createClient, undefined, [config])).toThrow(
+      ClientInitializationError
+    );
+    expect(() => Reflect.apply(createClient, undefined, [config])).toThrow(
+      'viborm/pglite does not accept "cache"'
+    );
     expect(reads).toEqual({ cache: 0, cacheVersion: 0, waitUntil: 0 });
   });
 });

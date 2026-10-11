@@ -32,6 +32,9 @@ const client = createClient({
 | `namespace` | `string` | Vitess keyspace qualifier submitted before VTGate routing |
 | `options` | `Config` | PlanetScale configuration options |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
 ### Using Options
 
 ```typescript

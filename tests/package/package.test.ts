@@ -69,6 +69,10 @@ const scripts = [
     "./driver-setup-consumer-smoke.mjs",
   ],
   [
+    "type-checks a Neon WebSocket Pool on viborm/pg with the newest @types/pg",
+    "./neon-pool-types-smoke.mjs",
+  ],
+  [
     "loads installed CLI TypeScript configuration and environment files",
     "./cli-config-consumer-smoke.mjs",
   ],

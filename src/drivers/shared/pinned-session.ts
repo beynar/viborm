@@ -23,15 +23,16 @@ const ADVISORY_RESET_FAILED = `could not prove the advisory-lock state of a disc
 export const CLEANUP_BOUND_MS = 5000;
 
 /**
- * The time limits of one migration command's pinned session (plan S1).
+ * The limits of one migration command's pinned session (plan S1), and the
+ * table size it may rewrite in-request (plan T5a).
  *
- * Every value is in milliseconds. `lockTimeout`, `statementTimeout` and
+ * Every value but `largeTableRows` is in milliseconds. `lockTimeout`, `statementTimeout` and
  * `idleTimeout` are PostgreSQL server settings, where 0 means "no limit";
  * `lockWait` and `connectionWait` are waits VibORM itself bounds. Only
- * `connectionWait` applies to MySQL as well: the others are PostgreSQL
- * settings, and MySQL keeps its fixed named-lock wait.
+ * `connectionWait` applies to MySQL as well: the others, `largeTableRows`
+ * included, are PostgreSQL-only, and MySQL keeps its fixed named-lock wait.
  */
-export interface MigrationTimeLimits {
+export interface MigrationLimits {
   /**
    * `lock_timeout`, for the session and, with `SET LOCAL`, every migration
    * transaction: how long one DDL statement may queue for a table lock.
@@ -52,20 +53,27 @@ export interface MigrationTimeLimits {
   readonly lockWait?: number;
   /** How long the command waits for its pinned connection. */
   readonly connectionWait?: number;
+  /**
+   * A row count, not milliseconds: the planner's estimate above which a
+   * statement that rewrites or scans a table under a lock that blocks it (a
+   * column type change, `SET NOT NULL`, a volatile `ADD COLUMN` default, a
+   * FOREIGN KEY or CHECK added without `NOT VALID`) is refused before any
+   * effect, because it would hold that lock longer than a request should.
+   * 0 admits every size.
+   */
+  readonly largeTableRows?: number;
 }
 
-export type ResolvedMigrationTimeLimits = Readonly<
-  Required<MigrationTimeLimits>
->;
+export type ResolvedMigrationLimits = Readonly<Required<MigrationLimits>>;
 
-export const DEFAULT_MIGRATION_TIME_LIMITS: ResolvedMigrationTimeLimits =
-  Object.freeze({
-    lockTimeout: 4000,
-    statementTimeout: 600_000,
-    idleTimeout: 1000,
-    lockWait: 10_000,
-    connectionWait: 10_000,
-  });
+export const DEFAULT_MIGRATION_LIMITS: ResolvedMigrationLimits = Object.freeze({
+  lockTimeout: 4000,
+  statementTimeout: 600_000,
+  idleTimeout: 1000,
+  lockWait: 10_000,
+  connectionWait: 10_000,
+  largeTableRows: 1_000_000,
+});
 
 /**
  * `running`, or a rejection built by `expired` once `ms` passed without an

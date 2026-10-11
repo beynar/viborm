@@ -104,6 +104,16 @@ enum MetaValue {
   /** The key has its own rule in {@link filterAllowedDiagnosticValue}. */
   OwnRule = 3,
 }
+// The migration-outcome keys (`stateId`, `fromState`, `toState`, `estateHash`,
+// `planHash`, `operationId`, `dispatchId`, `lastConfirmedStep`, `effectState`,
+// `partial`) are content addresses and authored operation ids of the estate,
+// never row data: a V11020 must still say which state and dispatch it lost.
+const EFFECT_STATES: ReadonlySet<string> = new Set([
+  "none",
+  "committed",
+  "partial",
+  "may-have-committed",
+]);
 // Seven of these keys name a MIGRATION ESTATE: `namespace` (the configured
 // schema/database), `target`, `journalTarget` and `clientTarget` (formatted
 // estate descriptions a refusal compares), `command` (the migration verb that
@@ -135,17 +145,22 @@ const META_KEY_VALUES: Readonly<Record<string, MetaValue>> = {
   correlationId: MetaValue.String,
   deprecation: MetaValue.String,
   dialect: MetaValue.String,
+  dispatchId: MetaValue.String,
   driver: MetaValue.String,
+  effectState: MetaValue.OwnRule,
+  estateHash: MetaValue.String,
   expectedChecksum: MetaValue.String,
   expectedResultCount: MetaValue.Count,
   expectedRowCount: MetaValue.Count,
   expectedStatementCount: MetaValue.Count,
   feature: MetaValue.String,
   field: MetaValue.String,
+  fromState: MetaValue.String,
   hint: MetaValue.String,
   indexName: MetaValue.String,
   indexType: MetaValue.String,
   journalTarget: MetaValue.String,
+  lastConfirmedStep: MetaValue.String,
   method: MetaValue.String,
   migrationIndex: MetaValue.Count,
   migrationName: MetaValue.String,
@@ -154,8 +169,11 @@ const META_KEY_VALUES: Readonly<Record<string, MetaValue>> = {
   namespace: MetaValue.String,
   notice: MetaValue.String,
   operation: MetaValue.String,
+  operationId: MetaValue.String,
   parameterIndex: MetaValue.Count,
   params: MetaValue.OwnRule,
+  partial: MetaValue.OwnRule,
+  planHash: MetaValue.String,
   providerCode: MetaValue.OwnRule,
   providerErrno: MetaValue.OwnRule,
   providerSqlState: MetaValue.OwnRule,
@@ -169,12 +187,14 @@ const META_KEY_VALUES: Readonly<Record<string, MetaValue>> = {
   resultIndex: MetaValue.Count,
   scalarType: MetaValue.String,
   reason: MetaValue.String,
+  stateId: MetaValue.String,
   statementIndex: MetaValue.Count,
   step: MetaValue.String,
   strategy: MetaValue.String,
   table: MetaValue.String,
   target: MetaValue.String,
   timeout: MetaValue.Count,
+  toState: MetaValue.String,
   type: MetaValue.String,
 };
 // `deprecation` and `notice` are logger metadata (instrumentation/logger.ts);
@@ -821,8 +841,13 @@ function filterAllowedDiagnosticValue(
       ? value
       : undefined;
   }
-  if (key === "autoIncrement") {
+  if (key === "autoIncrement" || key === "partial") {
     return typeof value === "boolean" ? value : undefined;
+  }
+  if (key === "effectState") {
+    return typeof value === "string" && EFFECT_STATES.has(value)
+      ? value
+      : undefined;
   }
   if (key === "query") return typeof value === "string" ? value : undefined;
   if (key === "params") return isArrayValue(value) ? value : undefined;

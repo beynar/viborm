@@ -401,7 +401,7 @@ export async function approveDestructiveOperations(
       VibORMErrorCode.MIGRATION_CONSENT_REQUIRED,
       {
         meta: {
-          hint: "Review the changes, then pass generate() a resolve callback that approves them with change.proceed(); for the CLI, set migrations.resolve in viborm.config.ts.",
+          hint: "Review the changes, then pass a resolve callback (generate() or down()) that approves them with change.proceed(); for the CLI, set migrations.resolve in viborm.config.ts.",
         },
       }
     );

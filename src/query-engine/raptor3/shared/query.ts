@@ -3259,7 +3259,8 @@ export class Queries {
    *
    * The target always names a scalar here: `lowerOperation` reaches this only
    * when that scalar's own state is a JSON document — never for a `_count`,
-   * which has no column domain — so the refusal below can name the field.
+   * which has no column domain. A path with a null sentinel is refused at
+   * admission (`pathSentinelRefusal`, validation/scalars/json.ts).
    */
   #lowerJsonOperation(
     predicate: Extract<PreparedPredicate, { kind: "operation" }>,

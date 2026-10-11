@@ -229,7 +229,7 @@ const requireSelectedField = (
 ): string | undefined =>
   Object.entries(select).some(([key, value]) =>
     key === "_count"
-      ? isRecord(value) && Object.values(value.select ?? {}).some(selects)
+      ? isRecord(value) && Object.values(new Object(value.select)).some(selects)
       : selects(value)
   )
     ? undefined

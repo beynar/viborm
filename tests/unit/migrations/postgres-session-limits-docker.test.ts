@@ -160,8 +160,11 @@ describeIfPg("the migration session's limits on a real server", () => {
       expect(queued).toBe(true);
       expect(read.failure).toBeUndefined();
       expect(read.at - queuedAt).toBeLessThan(LOCK_TIMEOUT_MS + 1000);
+      // A migration statement the server refused is V11001, its provider
+      // error the cause (plan S3): what gave up is the lock wait.
       expect(applied.failure).toMatchObject({
-        code: VibORMErrorCode.TRANSACTION_CONTENTION,
+        code: VibORMErrorCode.MIGRATION_FAILED,
+        cause: { code: VibORMErrorCode.TRANSACTION_CONTENTION },
       });
       expect(applied.at - queuedAt).toBeLessThan(LOCK_TIMEOUT_MS + 2000);
       // Nothing of the attempt survived, and nothing holds the lock.

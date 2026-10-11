@@ -11,7 +11,14 @@ import {
   type SentStatement,
 } from "@tests/contracts/drivers/behaviors/create-many-return-fold-behavior";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+} from "vitest";
 
 /**
  * parity-17: a nested `create` LIST writes its child-free children as ONE
@@ -61,6 +68,9 @@ const note = s
   })
   .map("ncb_notes");
 
+/** Parents first: the suite's own tables, dropped children first. */
+const TABLES = ["ncb_writers", "ncb_articles", "ncb_notes"];
+
 const schema = { writer, article, note };
 
 type BatchClient = VibORMClient<VibORMConfig<typeof schema>>;
@@ -96,7 +106,7 @@ export function runNestedCreateBatchBehavior(options: {
       bindLimit = driver.maxBindParametersPerStatement;
       recorder = recordStatements(driver);
       client = createClient({ schema, driver });
-      await syncLiveSchema(client);
+      await syncLiveSchema(client, { tables: TABLES });
       await client.note.deleteMany({});
       await client.article.deleteMany({});
       await client.writer.deleteMany({});
@@ -120,6 +130,18 @@ export function runNestedCreateBatchBehavior(options: {
         client = undefined;
       }
       recorder = undefined;
+    });
+
+    // A server database outlives the suite, and a neighbour's unscoped push
+    // would read these tables as an unresolved rename of its own.
+    afterAll(async () => {
+      const driver = options.createDriver();
+      try {
+        for (const table of [...TABLES].reverse())
+          await driver._executeRaw(`DROP TABLE IF EXISTS ${table}`);
+      } finally {
+        await driver.disconnect();
+      }
     });
 
     test("250 nested children are one INSERT, read back in input order with their defaults", async () => {

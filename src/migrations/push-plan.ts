@@ -8,6 +8,7 @@ import { formatOperation } from "./push/format";
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
+import { sql } from "../sql/sql";
 import { isRecord } from "../validation/value-guards";
 import { canonicalizeJson, canonicalizeJsonText } from "./canonical-json";
 import { classifyGeneratedAtomicity } from "./compile";
@@ -159,13 +160,7 @@ export async function buildPushPlan(
         operation.column.autoIncrement
       )
         continue;
-      const rename = operations.find(
-        (candidate) =>
-          candidate.type === "renameTable" &&
-          candidate.to === operation.tableName
-      );
-      const tableName =
-        rename?.type === "renameTable" ? rename.from : operation.tableName;
+      const tableName = liveTableName(operations, operation.tableName);
       if (!current.tables.some((table) => table.name === tableName)) continue;
       const reference = producer.adapter.identifiers.table(tableName);
       const populated = await producer._executeRaw(
@@ -185,6 +180,8 @@ export async function buildPushPlan(
           }
         );
     }
+  if (!options.forceReset)
+    await refuseOrphanedDiscriminators(producer, desired, current, operations);
   const resolutions = controller.finish();
   const target = await pushTargetIdentity(producer, command);
   const sourceFingerprint = await fingerprintLive(current, command, producer);
@@ -405,6 +402,70 @@ function withoutControlTables(snapshot: SchemaSnapshot): SchemaSnapshot {
       (table) => table.name !== names.state && table.name !== names.log
     ),
   };
+}
+
+/** The live name of a desired table: an accepted rename still reads the old one. */
+function liveTableName(
+  operations: readonly DiffOperation[],
+  tableName: string
+): string {
+  const rename = operations.find(
+    (candidate) =>
+      candidate.type === "renameTable" && candidate.to === tableName
+  );
+  return rename?.type === "renameTable" ? rename.from : tableName;
+}
+
+/**
+ * Push keeps no polymorphic history — `diff` refuses a stored-value change only
+ * between authored snapshots — so the stored discriminators are that history:
+ * a row whose discriminator the desired schema no longer declares would be
+ * orphaned. Only a to-one slot stores its discriminator in rows; a collection
+ * member's junction table is the member itself.
+ */
+async function refuseOrphanedDiscriminators(
+  producer: AnyDriver,
+  desired: SchemaSnapshot,
+  current: SchemaSnapshot,
+  operations: readonly DiffOperation[]
+): Promise<void> {
+  const { identifiers, literals, operators } = producer.adapter;
+  for (const slot of desired.polymorphicStorage ?? []) {
+    if (slot.kind !== "toOne") continue;
+    const tableName = liveTableName(operations, slot.ownerTable);
+    const rename = operations.find(
+      (candidate) =>
+        candidate.type === "renameColumn" &&
+        candidate.tableName === slot.ownerTable &&
+        candidate.to === slot.storageRef
+    );
+    const columnName =
+      rename?.type === "renameColumn" ? rename.from : slot.storageRef;
+    const live = current.tables.find((table) => table.name === tableName);
+    if (!live?.columns.some((column) => column.name === columnName)) continue;
+    const column = identifiers.escape(columnName);
+    const declared = literals.list(
+      slot.members.map((member) => literals.value(member.storedType))
+    );
+    const probe = producer._prepare(
+      sql`SELECT ${identifiers.aliased(column, "stored")} FROM ${identifiers.table(tableName)} WHERE ${operators.notIn(column, declared)} LIMIT 1`
+    );
+    const [orphan] = (
+      await producer._executeRaw<{ stored: unknown }>(probe.sql, probe.params)
+    ).rows;
+    if (orphan)
+      throw new MigrationError(
+        `Polymorphic storage "${slot.ownerTable}.${slot.relation}" stores "${String(orphan.stored)}", which the desired schema no longer declares; those rows would lose their target. Author an explicit manual data transition that rewrites the stored values. No migration effects were executed.`,
+        VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
+        {
+          meta: {
+            table: slot.ownerTable,
+            relation: slot.relation,
+            command: "push",
+          },
+        }
+      );
+  }
 }
 
 function resolutionController(source: ResolutionSource): ResolutionController {

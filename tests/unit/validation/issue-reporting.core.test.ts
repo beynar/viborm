@@ -32,6 +32,22 @@ describe("a union names the member the value was written for", () => {
     ]);
   });
 
+  test("members that share a tag, or omit it, are not dispatched by it", () => {
+    const shared = v.union([
+      v.object({ kind: v.literal("a"), x: v.integer() }, { partial: false }),
+      v.object({ kind: v.literal("a"), y: v.string() }, { partial: false }),
+    ]);
+    expect(issuesOf(parse(shared, { kind: "a", y: "s" }))).toBeUndefined();
+    const omitted = v.union([
+      v.object({ kind: v.literal("a"), x: v.integer() }, { partial: false }),
+      v.object(
+        { kind: v.literal("b"), z: v.integer() },
+        { partial: false, omit: ["kind"] }
+      ),
+    ]);
+    expect(issuesOf(parse(omitted, { z: 1 }))).toBeUndefined();
+  });
+
   test("nested unions keep the inner member's path", () => {
     const direction = v.union([
       v.enum(["asc", "desc"]),
@@ -203,6 +219,29 @@ describe("parse(schema, value, { allIssues: true })", () => {
     );
     expect(issues).toHaveLength(60);
     expect(issuesOf(parse(wide, { id: 1, ...payload }))).toHaveLength(1);
+  });
+
+  test("a refused default and an unmet requirement are each one more issue", () => {
+    // A default is an ordinary field value: one that fails its own rules is
+    // refused at its key, after the requirement the payload already missed.
+    for (const partial of [true, false]) {
+      const schema = v.object(
+        {
+          n: v.integer({ default: () => 1.5 }),
+          m: v.integer({ optional: true }),
+        },
+        { partial, nonEmpty: true }
+      );
+      const refusedDefault = { message: "Expected integer", path: ["n"] };
+      expect(issuesOf(parse(schema, {}, { allIssues: true }))).toEqual([
+        { message: "Object cannot be empty" },
+        refusedDefault,
+      ]);
+      expect(issuesOf(parse(schema, {}))).toEqual([
+        { message: "Object cannot be empty" },
+      ]);
+      expect(issuesOf(parse(schema, { m: 1 }))).toEqual([refusedDefault]);
+    }
   });
 
   test("the mode is scoped to its call: a later default parse reports one issue", () => {

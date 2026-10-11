@@ -49,6 +49,7 @@ const providerHeavyCoreContracts = new Set([
   "tests/contracts/drivers/driver-export-surface.core.test.ts",
   "tests/contracts/drivers/namespace-options.core.test.ts",
   "tests/contracts/drivers/pglite-controlled-transport-coverage.core.test.ts",
+  "tests/contracts/drivers/postgres-url-options.core.test.ts",
   "tests/contracts/drivers/provider-result-contracts.core.test.ts",
   "tests/contracts/drivers/sqlite-binary-values.core.test.ts",
   "tests/contracts/drivers/sqlite-positional-effects.core.test.ts",

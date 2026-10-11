@@ -14,6 +14,7 @@ import {
 } from "./_estate";
 
 const BEGIN_IMMEDIATE = /BEGIN IMMEDIATE/i;
+const SESSION_LOCK = /pg_try_advisory_lock|pg_advisory_unlock/;
 
 const user = s.model({
   id: s.string().id(),
@@ -107,25 +108,28 @@ describe("pinned migration session", () => {
     ).resolves.toBe("ran");
   });
 
-  test("PostgreSQL acquires and releases the advisory lock on one producer", async () => {
+  test("PostgreSQL takes a transaction lock on one producer, and its commit releases it", async () => {
     const driver = pgEstateDriver("public");
     driver.respond = answerPublicSchema;
     const bound = getMigrationDriver(driver);
     const result = await withLockedMigrationProducer(
       driver,
       bound,
-      async () => "ok"
+      async (pinned) => {
+        await pinned._executeRaw("SELECT 1");
+        return "ok";
+      }
     );
     expect(result).toBe("ok");
-    expect(
-      driver.statements.some((sql) => sql.includes("pg_try_advisory_lock"))
-    ).toBe(true);
-    expect(
-      driver.statements.some((sql) => sql.includes("pg_advisory_unlock"))
-    ).toBe(true);
+    const { statements } = driver;
+    expect(statements[0]).toBe("BEGIN");
+    expect(statements[2]).toContain("pg_try_advisory_xact_lock");
+    expect(statements.slice(-2)).toEqual(["SELECT 1", "COMMIT"]);
+    expect(statements.join("\n")).not.toMatch(SESSION_LOCK);
+    expect(new Set(driver.producers).size).toBe(1);
   });
 
-  test("the lock is released when the protected body throws", async () => {
+  test("the lock goes with the rolled-back transaction when the protected body throws", async () => {
     const driver = pgEstateDriver("public");
     driver.respond = answerPublicSchema;
     const bound = getMigrationDriver(driver);
@@ -134,9 +138,10 @@ describe("pinned migration session", () => {
         throw new Error("body failed");
       })
     ).rejects.toThrow("body failed");
+    expect(driver.statements.at(-1)).toBe("ROLLBACK");
     expect(
       driver.statements.some((sql) => sql.includes("pg_advisory_unlock"))
-    ).toBe(true);
+    ).toBe(false);
   });
 
   test("an unproven lock acquisition refuses before the body runs", async () => {
@@ -177,7 +182,7 @@ describe("pinned migration session", () => {
       name: "init",
     });
     expect(
-      driver.statements.some((sql) => sql.includes("pg_try_advisory_lock"))
+      driver.statements.some((sql) => sql.includes("pg_try_advisory"))
     ).toBe(false);
     await client.$disconnect();
   });

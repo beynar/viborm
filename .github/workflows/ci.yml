@@ -399,8 +399,7 @@ jobs:
       # Transaction mode in front of the service above, reached by its label.
       # Round robin hands consecutive transactions to different backends, as a
       # loaded pooler does; LIFO reuse would hide a session-scoped lock. No
-      # health check: a pooler that fails to start must fail only the reported
-      # PgBouncer step, never this required job.
+      # health check: a pooler that fails to start fails the PgBouncer step.
       pgbouncer:
         image: edoburu/pgbouncer@sha256:7d7a27d9e90985cab5cf42256f5c13a3120baa4b055b69df37beb272b89b2340 # v1.25.2-p0
         env:
@@ -448,13 +447,9 @@ jobs:
           --project=provider-mysql2
           --project=provider-transaction-options
 
-      # Reported, not required, until D1 (the transaction-scoped migration
-      # lock, completion plan phase 2) lands and deletes continue-on-error.
-      # Through a transaction pooler the 1.1.0 session advisory lock may be
-      # taken and released on different backends; which cases fail depends on
-      # the backend PgBouncer hands out, so no fixed set can be marked failing.
-      - name: Run push and apply through PgBouncer (not required before D1)
-        continue-on-error: true
+      # Required since D1: every migration transaction takes its own transaction
+      # lock, so push and apply run through a transaction pooler.
+      - name: Run push and apply through PgBouncer
         env:
           PGBOUNCER_TEST_CONNECTION_STRING: postgres://postgres:password@127.0.0.1:6432/viborm
         run: >-

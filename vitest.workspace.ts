@@ -207,6 +207,7 @@ export default defineWorkspace([
     "tests/unit/migrations/sqlite-driver-boundaries.core.test.ts",
     "tests/unit/migrations/sqlite-definition-parser-remaining.core.test.ts",
     "tests/unit/migrations/sqlite-datetime-recreation.test.ts",
+    "tests/unit/migrations/sqlite-manual-storage-canonicalization.test.ts",
     "tests/unit/migrations/decimal-sqlite-integrity.test.ts",
     "tests/unit/migrations/decimal-descriptor-carriers.core.test.ts",
     "tests/unit/migrations/decimal-descriptor-ddl.core.test.ts",
@@ -251,6 +252,7 @@ export default defineWorkspace([
     "tests/unit/migrations/pinned-session-docker.test.ts",
     "tests/unit/migrations/postgres-namespace-docker.test.ts",
     "tests/unit/migrations/postgres-session-limits-docker.test.ts",
+    "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
     "tests/unit/migrations/shared-pool-estates-docker.test.ts",
   ]),
   // Push, generate and apply again, through a transaction-mode PgBouncer. Only

@@ -17,8 +17,8 @@ import type { MigrationTarget, SchemaSnapshot } from "./types";
 import { normalizeDialect } from "./utils";
 
 export const MANAGED_TABLES = Symbol("migration managed tables");
-/** The client's resolved time limits (plan S1), bound with its driver. */
-export const MIGRATION_TIME_LIMITS = Symbol("migration time limits");
+/** The client's resolved limits (plans S1, T5a), bound with its driver. */
+export const MIGRATION_LIMITS = Symbol("migration limits");
 
 /** Exact physical membership, authenticated as part of the estate target. */
 export function normalizeManagedTables(

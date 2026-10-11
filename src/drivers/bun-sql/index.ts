@@ -33,6 +33,7 @@ import {
   runProviderManagedTransaction,
   type TransactionOptionSupport,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
 import type { QueryResult } from "../types";
 
@@ -157,6 +158,16 @@ export interface BunSQLDriverOptions {
 
 export type BunSQLClientConfig<C extends DriverConfig> = BunSQLDriverOptions &
   C;
+
+const BUN_SQL_CONFIG_KEYS: Record<keyof BunSQLDriverOptions, true> = {
+  client: true,
+  databaseUrl: true,
+  options: true,
+  pgvector: true,
+  postgis: true,
+  namespace: true,
+  migrationSessionAttestation: true,
+};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -377,6 +388,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: BunSQLDriver }
   >]: LinkedClientConfig<C & { driver: BunSQLDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "bun-sql", BUN_SQL_CONFIG_KEYS);
   const { client, databaseUrl, options, pgvector, postgis } = config;
   const namespace = resolveNamespaceOption(config);
   const migrationSessionAttestation =

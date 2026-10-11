@@ -18,9 +18,10 @@ import type { Scalar, ScalarState } from "@schema/scalars";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import { hasIdPrefix } from "@validation/primitives/id-formats";
 import { errorCause } from "../../../drivers/shared/driver-options";
-import { DEFAULT_MIGRATION_TIME_LIMITS } from "../../../drivers/shared/pinned-session";
+import { DEFAULT_MIGRATION_LIMITS } from "../../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
+import { tableRewrites } from "../../compile";
 import {
   decimalConversionConstraintName,
   decimalConversionRequired,
@@ -85,6 +86,8 @@ type RawExecutor = <T>(
  */
 const VECTOR_TYPE_TOKEN = /^(vector|halfvec|sparsevec)(?:\(\d+\))?(?:\[\])?$/i;
 const TEMPORAL_PRECISION_TOKEN = /\((\d+)\)/;
+/** The planner's row estimate in the first line of an EXPLAIN. */
+const PLAN_ROWS = /\brows=(\d+)/;
 
 const NAMESPACE_EXISTS_QUERY =
   "SELECT 1 AS present FROM pg_catalog.pg_namespace WHERE nspname = $1";
@@ -431,9 +434,50 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   override async preflightSchemaRequirements(
     snapshots: readonly SchemaSnapshot[],
-    executeRaw: RawExecutor
+    executeRaw: RawExecutor,
+    program: readonly string[] = []
   ): Promise<void> {
     try {
+      // T5a: a statement that rewrites or scans a table holds a lock that
+      // blocks it for as long as that takes, so above `largeTableRows` (the
+      // planner's estimate, as EXPLAIN reports it) it is refused here, before
+      // any effect. A table the program creates is not there yet: it is empty.
+      const { largeTableRows } = this.limits ?? DEFAULT_MIGRATION_LIMITS;
+      const rewrites = largeTableRows > 0 ? tableRewrites(program) : [];
+      const tables = [...new Set(rewrites.map(({ table }) => table))];
+      const relations =
+        tables.length === 0
+          ? []
+          : (
+              await executeRaw<{ relation: string | null }>(
+                "SELECT pg_catalog.to_regclass(name)::text AS relation FROM unnest($1::text[]) WITH ORDINALITY AS input(name, position) ORDER BY position",
+                [arrayLiteralText(tables)]
+              )
+            ).rows;
+      for (const [index, { relation }] of relations.entries()) {
+        if (relation === null) continue;
+        const plan = await executeRaw<Record<string, string>>(
+          `EXPLAIN SELECT 1 FROM ${relation}`
+        );
+        const line = Object.values(plan.rows[0] ?? {})[0] ?? "";
+        const estimatedRows = Number(PLAN_ROWS.exec(line)?.[1]);
+        if (estimatedRows <= largeTableRows) continue;
+        const table = tables[index]!;
+        const operation = [
+          ...new Set(
+            rewrites.flatMap((item) =>
+              item.table === table ? [item.operation] : []
+            )
+          ),
+        ].join(" and ");
+        throw new MigrationError(
+          `This migration runs a ${operation} on ${table}, which the planner estimates at ${estimatedRows} rows, above limits.largeTableRows (${largeTableRows}). It rewrites or scans the whole table while holding a lock that blocks it, longer than a request should wait. Nothing ran: the schema and data are unchanged. Run it outside the request with a client whose largeTableRows is higher, or 0 for no limit.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          {
+            meta: { table, operation, feature: "large table rewrite" },
+          }
+        );
+      }
       const vectors = new Set(
         snapshots.flatMap((snapshot) =>
           snapshot.tables.flatMap((table) =>
@@ -1306,16 +1350,21 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   /**
-   * The lock retries on the server until the command's `lockWait` (default
-   * 10 s) passes; the session's `statement_timeout` is longer by construction
-   * (`resolveMigrationTimeLimits`), so the loop is never cut short.
+   * The TRANSACTION lock every migration transaction takes after its limits
+   * (plan D1): it ends with the transaction, so a transaction pooler can hand
+   * the next one to any server session and nothing outlives it. It retries on
+   * the server until the command's `lockWait` (default 10 s) passes; the
+   * transaction's `statement_timeout` is longer by construction
+   * (`resolveMigrationLimits`), so the loop is never cut short. Stepwise
+   * work adds the session lock it needs on top (`pinned-session.ts`), and
+   * releases that one with {@link generateReleaseLock}.
    */
   generateAcquireLock(lockId: number): string | null {
-    const { lockWait } = this.timeLimits ?? DEFAULT_MIGRATION_TIME_LIMITS;
+    const { lockWait } = this.limits ?? DEFAULT_MIGRATION_LIMITS;
     return `WITH RECURSIVE lock_attempt AS (
-      SELECT pg_try_advisory_lock(${lockId}) AS acquired, clock_timestamp() + interval '${lockWait / 1000} seconds' AS deadline
+      SELECT pg_try_advisory_xact_lock(${lockId}) AS acquired, clock_timestamp() + interval '${lockWait / 1000} seconds' AS deadline
       UNION ALL
-      SELECT pg_try_advisory_lock(${lockId}), previous.deadline
+      SELECT pg_try_advisory_xact_lock(${lockId}), previous.deadline
       FROM lock_attempt previous
       CROSS JOIN LATERAL (SELECT pg_sleep(CASE WHEN previous.acquired THEN 0 ELSE 0.05 END)) waiting
       WHERE NOT previous.acquired AND clock_timestamp() < previous.deadline

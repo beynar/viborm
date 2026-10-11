@@ -108,11 +108,63 @@ change to INTEGER, run
 (use `REAL` or `TEXT` for those targets). Migrations generated before 1.2.0 keep
 the copy they were generated with.
 
+A fixed-decimal column stores its scaled integer coefficient (`1.23` at scale 2
+is `123`), so a change that drops the decimal domain divides it back out. Only
+an INTEGER target can hold the result: a value with a fraction, or a stored
+value that is not a coefficient, aborts the reconstruction and leaves the table
+unchanged, and a TEXT, REAL or list target
+is refused before any statement runs (`V8001`).
+
+Dropping a table that other tables reference fires their `ON DELETE` actions
+unless foreign keys are really off, so every reconstruction is verified.
+`PRAGMA foreign_keys` is turned off between two transactions and must then read
+`0`, or the change is refused before any statement runs (`V11021`). Inside the
+transaction, each `DROP TABLE` runs between two counts of every table that
+references the dropped one: each must keep its row count and the number of
+non-null values in each referencing column, or the change rolls back
+(`V11001`). Writes the migration makes to those tables before or after the drop
+are not affected. A `DROP TABLE` in such a migration whose table name VibORM
+cannot read (anything but `"name"` or a plain identifier) is rolled back the
+same way. A driver without transactions (`supportsTransactions: false`) cannot
+prove any of this, and a reconstruction is refused on it before any statement
+runs (`V11021`). A driver that must flush pending writes before the pragma can
+take effect implements the optional `beforeForeignKeysOff()` hook, which runs
+just before it, outside any transaction: a Durable Object driver calls
+`await ctx.storage.sync()` there. If `PRAGMA foreign_keys` does not read `1`
+after it is turned back on, the change has committed but the command reports it
+(`V11021`): do not reuse that connection.
+
 ## Scope and providers
 
 An explicit `migrations.tables` list selects exact physical tables and refuses
 cross-boundary foreign keys. Reset previews list the tables actually selected.
-SQLite's transaction owns its write lock; there is no advisory-lock statement.
+
+## Concurrent commands
+
+SQLite has no advisory lock: the write lock of `BEGIN IMMEDIATE` is the
+migration lock. Every effectful command runs in transactions that open with it,
+reads the marker and the unfinished attempts first, and runs the first group of
+its path in the transaction that read them. So two processes applying one
+migration apply it once: the second waits for the write lock (the connection's
+busy timeout, 5 s on the stock drivers; past it the command refuses with
+`V11005` before any effect), then reads the first one's marker and reports
+`noop`, or refuses with `V11015`. Within one process, the driver's connection
+queue runs one migration command at a time.
+
+A table rebuild commits that transaction to switch `PRAGMA foreign_keys`
+between two; its group then locks again and re-reads the marker before it acts.
+
+Applying a transition declared `execution: "stepwise"` is refused (`V11021`)
+before any of the path runs: every SQLite statement can run in a transaction,
+and only a transaction holds the lock. Declare manual transitions
+`execution: "transactional"`. A stepwise transition published with 1.1.0 that
+some database still needs is applied with 1.1.0 before upgrading. One that no
+database has applied can instead be removed from migration storage (its
+`states/<id>.json` file) and generated again, from the same parent with the
+same SQL, as `"transactional"`. Generating it again without removing it would
+leave two children of one state, and the next `generate` refuses to merge them.
+Legacy stepwise work that `down`, `reset` or `resolve` reaches still runs, inside
+the locked transaction.
 
 ## Driver admission
 
@@ -200,8 +252,9 @@ transition aborts it too. Find DateTime and Time values first with
 the abort names such a column; rewrite the row's list through the typed client
 (`update({ where, data: { prices } })`), which stores canonical members.
 
-A `stepwise` transition has no enclosing transaction: its statements stay
-applied and the attempt stays unfinished. Repair the value, then
+A `stepwise` transition left unfinished by VibORM 1.1.0 (1.2.0 refuses to
+apply one on SQLite) had no enclosing transaction: its statements stay applied
+and the attempt stays unfinished. Repair the value, then
 `resolve({ outcome: "complete" })` canonicalizes and moves the marker (it needs
 destination checks, as for any manual transition). `resolve` never retries
 manual SQL.

@@ -15,7 +15,7 @@ import {
 } from "@validation/primitives/decimal-codec";
 import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
-import type { ResolvedMigrationTimeLimits } from "../../drivers/shared/pinned-session";
+import type { ResolvedMigrationLimits } from "../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { refuseBinaryReencoding } from "../binary-conversion";
 import {
@@ -193,10 +193,10 @@ export abstract class MigrationDriver {
   declare readonly namespace?: string;
 
   /**
-   * The time limits of the command this instance is bound for (plan S1).
+   * The limits of the command this instance is bound for (plans S1, T5a).
    * Absent on the unbound singleton, which renders under the defaults.
    */
-  declare readonly timeLimits?: ResolvedMigrationTimeLimits;
+  declare readonly limits?: ResolvedMigrationLimits;
 
   // ===========================================================================
   // INTROSPECTION

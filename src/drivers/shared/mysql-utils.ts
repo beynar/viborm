@@ -4,14 +4,18 @@
  * Shared connection utilities for MySQL-based drivers.
  */
 
+import { ClientInitializationError } from "@errors";
+
 /**
- * Parse a MySQL database URL into connection options.
+ * The connection options a MySQL database URL carries: only the keys it
+ * spells, so merged under a caller's options it fills what they left out
+ * instead of replacing it with `undefined` or a default port.
  */
 export interface MySQLConnectionOptions {
   [option: string]: unknown;
   ssl?: object | string;
   host: string;
-  port: number;
+  port?: number;
   /** Absent when the URL carries no database path. */
   database?: string;
   user?: string;
@@ -19,6 +23,16 @@ export interface MySQLConnectionOptions {
 }
 
 const TLS_URL_OPTION_PATTERN = /^(?:ssl|tls)/i;
+
+/**
+ * A TLS request VibORM cannot honour. Its own text, which carries no part of
+ * the URL, so the driver surfaces it rather than redacting it.
+ */
+function tlsRefusal(message: string): ClientInitializationError {
+  return new ClientInitializationError(message, {
+    meta: { driver: "mysql2", operation: "configuration" },
+  });
+}
 
 export function parseMySQLUrl(url: string): MySQLConnectionOptions {
   const parsed = new URL(url);
@@ -30,7 +44,7 @@ export function parseMySQLUrl(url: string): MySQLConnectionOptions {
       key !== "ssl" &&
       key !== "sslmode"
     ) {
-      throw new TypeError(
+      throw tlsRefusal(
         "Unsupported MySQL TLS URL option; configure options.ssl explicitly."
       );
     }
@@ -45,7 +59,7 @@ export function parseMySQLUrl(url: string): MySQLConnectionOptions {
   const sslmode = parsed.searchParams.get("sslmode");
   if (sslmode && sslmode !== "disable") {
     if (!["require", "verify-ca", "verify-full"].includes(sslmode)) {
-      throw new TypeError(
+      throw tlsRefusal(
         "Unsupported MySQL sslmode; configure options.ssl explicitly."
       );
     }
@@ -55,18 +69,18 @@ export function parseMySQLUrl(url: string): MySQLConnectionOptions {
         (typeof queryOptions.ssl !== "object" &&
           typeof queryOptions.ssl !== "string"))
     )
-      throw new TypeError("MySQL sslmode requires a TLS configuration");
+      throw tlsRefusal("MySQL sslmode requires a TLS configuration");
     queryOptions.ssl ??= {};
   }
   Reflect.deleteProperty(queryOptions, "sslmode");
+  const user = decodeURIComponent(parsed.username);
+  const password = decodeURIComponent(parsed.password);
   return {
     host: parsed.hostname,
-    port: parsed.port ? Number.parseInt(parsed.port, 10) : 3306,
-    // A pathless URL selects no database. The key stays absent so merging this
-    // over connection options cannot replace a configured database with "".
+    ...(parsed.port ? { port: Number.parseInt(parsed.port, 10) } : {}),
     ...(database === "" ? {} : { database }),
-    user: decodeURIComponent(parsed.username) || undefined,
-    password: decodeURIComponent(parsed.password) || undefined,
+    ...(user === "" ? {} : { user }),
+    ...(password === "" ? {} : { password }),
     ...queryOptions,
   };
 }

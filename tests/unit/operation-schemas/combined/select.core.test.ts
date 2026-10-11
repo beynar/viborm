@@ -211,6 +211,14 @@ describe("Select Schema - _count: true shorthand", () => {
     }
   });
 
+  test("runtime: a _count that counts no relation selects nothing", () => {
+    expect(
+      parse(postSchemas.select, { _count: true }).issues?.[0]?.message
+    ).toBe(
+      "select needs at least one truthy value; leave it out to return the default row."
+    );
+  });
+
   test("runtime: a model whose only relation is to-one expands to nothing", () => {
     const result = parse(postSchemas.select, { id: true, _count: true });
     expect(result.issues).toBeUndefined();

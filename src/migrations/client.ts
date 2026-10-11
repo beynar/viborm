@@ -1,7 +1,7 @@
 /** One capability-sensitive migration client composition root. */
 
 import { errorCause } from "../drivers/shared/driver-options";
-import type { MigrationTimeLimits } from "../drivers/shared/pinned-session";
+import type { MigrationLimits } from "../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { type ApplyV1Result, applyV1 } from "./apply-v1";
 import { type CheckResult, checkEstate } from "./check";
@@ -19,7 +19,7 @@ import {
   type VerifyV1Result,
   verifyV1,
 } from "./operators";
-import { resolveMigrationTimeLimits } from "./pinned-session";
+import { resolveMigrationLimits } from "./pinned-session";
 import {
   type GraphResult,
   type ListResult,
@@ -40,7 +40,7 @@ import {
 } from "./storage/contract";
 import {
   MANAGED_TABLES,
-  MIGRATION_TIME_LIMITS,
+  MIGRATION_LIMITS,
   normalizeManagedTables,
 } from "./target";
 import type {
@@ -61,23 +61,27 @@ export interface MigrationClientOptions<
 > {
   readonly storage: S;
   readonly tables?: readonly string[];
-  /** PostgreSQL session limits and VibORM's own waits, in milliseconds. */
-  readonly timeLimits?: MigrationTimeLimits;
+  /**
+   * PostgreSQL session limits and VibORM's own waits, in milliseconds, and
+   * `largeTableRows`, the estimated table size above which a rewrite or scan
+   * is refused in-request.
+   */
+  readonly limits?: MigrationLimits;
 }
 
-/** A storage-less client's options: managed tables, time limits, or both. */
+/** A storage-less client's options: managed tables, limits, or both. */
 type LiveMigrationClientOptions =
   | {
       readonly tables: readonly string[];
-      readonly timeLimits?: MigrationTimeLimits;
+      readonly limits?: MigrationLimits;
     }
   | {
       readonly tables?: readonly string[];
-      readonly timeLimits: MigrationTimeLimits;
+      readonly limits: MigrationLimits;
     };
 
 type NoExtraMigrationClientOptionKeys<Given> = Record<
-  Exclude<keyof Given, "storage" | "tables" | "timeLimits">,
+  Exclude<keyof Given, "storage" | "tables" | "limits">,
   never
 >;
 
@@ -158,23 +162,23 @@ export function createMigrationClient(
       ? undefined
       : snapshotExactRecord(
           options,
-          ["storage", "tables", "timeLimits"],
+          ["storage", "tables", "limits"],
           "migration client options",
           refuseClientOptions
         );
   const tables = normalizeManagedTables(record?.tables);
-  const timeLimits =
-    record?.timeLimits === undefined
+  const limits =
+    record?.limits === undefined
       ? undefined
-      : resolveMigrationTimeLimits(record.timeLimits);
+      : resolveMigrationLimits(record.limits);
   const executionClient: MigrationClient =
-    tables === undefined && timeLimits === undefined
+    tables === undefined && limits === undefined
       ? client
       : {
           $driver: client.$driver,
           $schema: client.$schema,
           [MANAGED_TABLES]: tables,
-          [MIGRATION_TIME_LIMITS]: timeLimits,
+          [MIGRATION_LIMITS]: limits,
         };
   const live: LiveMigrations = Object.freeze({
     log: () => logV1(executionClient),
@@ -187,9 +191,9 @@ export function createMigrationClient(
   if (record === undefined) return live;
   const storage = record.storage;
   if (storage === undefined) {
-    if (tables !== undefined || timeLimits !== undefined) return live;
+    if (tables !== undefined || limits !== undefined) return live;
     return refuseClientOptions(
-      "migration client options must include storage, tables or timeLimits when supplied"
+      "migration client options must include storage, tables or limits when supplied"
     );
   }
   let readableStorage: MigrationStorageReader;

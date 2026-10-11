@@ -38,6 +38,7 @@ import {
   type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import type {
   BatchQuery,
   CommittedBatchNotification,
@@ -62,6 +63,14 @@ export interface NeonHTTPDriverOptions {
 
 export type NeonHTTPClientConfig<C extends DriverConfig> =
   NeonHTTPDriverOptions & C;
+
+const NEON_HTTP_CONFIG_KEYS: Record<keyof NeonHTTPDriverOptions, true> = {
+  databaseUrl: true,
+  options: true,
+  pgvector: true,
+  postgis: true,
+  namespace: true,
+};
 
 // ============================================================
 // TYPE DECLARATIONS
@@ -347,6 +356,7 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: NeonHTTPDriver }
   >]: LinkedClientConfig<C & { driver: NeonHTTPDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "neon-http", NEON_HTTP_CONFIG_KEYS);
   const { databaseUrl, options, pgvector, postgis } = config;
   const namespace = resolveNamespaceOption(config);
 

@@ -479,6 +479,7 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "MigrationClientOptions",
       "MigrationEdgeMetadata",
       "MigrationEstateDescriptorV1",
+      "MigrationLimits",
       "MigrationRollbackMetadata",
       "MigrationStateDetails",
       "MigrationStateListItem",
@@ -487,7 +488,6 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
       "MigrationStorageReader",
       "MigrationStorageWriter",
       "MigrationTarget",
-      "MigrationTimeLimits",
       "ObjectStoreConditionalPut",
       "PublishResult",
       "PushApplyResult",
@@ -517,6 +517,12 @@ export const PACKAGE_SURFACE_GOLDEN = Object.freeze({
     ]
   ),
   "./migrations/storage/fs": surface(["createFsStorageWriter"], [], []),
+  "./migrations/storage/durable-object": surface(
+    ["createDurableObjectStorageWriter"],
+    [],
+    []
+  ),
+  "./migrations/storage/r2": surface(["createR2StorageWriter"], [], []),
   "./config": surface(
     ["defineConfig"],
     ["MigrationConfig", "VibORMConfig"],

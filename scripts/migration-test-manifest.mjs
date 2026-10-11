@@ -10,14 +10,18 @@ const localExtendedMigrationTests = Object.freeze([
   "decimal-descriptor-ddl.test.ts",
   "decimal-sqlite-integrity.test.ts",
   "geopoint-sqlite-convergence.test.ts",
+  "migration-outcomes.test.ts",
   "polymorphic-push.test.ts",
   "sqlite-batch-refs-introspection.test.ts",
   "sqlite-datetime-diff-boundary.test.ts",
   "sqlite-datetime-recreation.test.ts",
+  "sqlite-decimal-retype-rebuild.test.ts",
+  "sqlite-exactly-once.test.ts",
   "sqlite-manual-storage-canonicalization.test.ts",
   "sqlite-recreation-foreign-key-parent.test.ts",
   "sqlite-recreation-indexes.test.ts",
   "sqlite-unique-constraint.test.ts",
+  "sqlite-verified-foreign-key-lift.test.ts",
   "table-drop-order.test.ts",
 ]);
 

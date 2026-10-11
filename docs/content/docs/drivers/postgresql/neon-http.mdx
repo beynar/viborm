@@ -31,6 +31,9 @@ const client = createClient({
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
 ### With pgvector
 
 ```typescript
@@ -166,4 +169,4 @@ Dynamic transactions reject; batch mode is fully supported via Neon's `transacti
 - Batch operations cannot read each other's results — use a single nested write for dependent mutations
 - HTTP-based: slightly higher latency than traditional connections
 - Best suited for serverless environments with simple queries
-- For callback transactions on Neon, use `viborm/pg` or `viborm/postgres` with the Neon PostgreSQL TCP URL. A Neon WebSocket `Pool` from `@neondatabase/serverless` can also be passed to `viborm/pg` as `pool`: it runs, because Neon's `Pool` is node-postgres's `Pool` over a WebSocket. Whether TypeScript accepts it depends on your `@types/pg`: 8.16.0, the version VibORM is tested with, accepts it; 8.23.1 reports `TS2322`. It is not yet a hosted-qualified VibORM transport.
+- For callback transactions on Neon, use `viborm/pg` or `viborm/postgres` with the Neon PostgreSQL TCP URL. A Neon WebSocket `Pool` from `@neondatabase/serverless` can also be passed to `viborm/pg` as `pool`, and type-checks with any `@types/pg`: see [Neon WebSocket Pool](/docs/drivers/postgresql/pg#neon-websocket-pool).

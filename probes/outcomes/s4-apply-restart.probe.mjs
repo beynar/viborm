@@ -9,10 +9,14 @@
 // runs again. The client is scoped to `account`, so the unmanaged seed table
 // does not trip the separate empty-target V11009. 1.1.0 refuses the second
 // apply with V11009 "Migration ledger history exists without a current marker".
-import Database from "better-sqlite3";
+// Run on PGlite: 1.2.0 refuses stepwise work on SQLite outright (plan S5), so a
+// first attempt left open by a stepwise failure exists only on PostgreSQL and
+// MySQL. (A failed transactional first attempt closes itself with S3's
+// `failed` event; the same restart covers it.)
+import { PGlite } from "@electric-sql/pglite";
 import { s, sql } from "viborm";
 import { createMigrationClient, MemoryEstateStorage } from "viborm/migrations";
-import { createClient } from "viborm/sqlite3";
+import { createClient } from "viborm/pglite";
 
 export const meta = {
   id: "S4-apply-restart",
@@ -26,9 +30,7 @@ export const meta = {
 
 const exists = (table) => ({
   kind: "trusted-read",
-  query: sql.raw(
-    `SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = '${table}') AS ok`
-  ),
+  query: sql.raw(`SELECT to_regclass('"${table}"') IS NOT NULL AS ok`),
   equals: true,
 });
 
@@ -36,9 +38,9 @@ const failure = (error) =>
   `${error.code} ${String(error.message).split("\n")[0].slice(0, 90)}`;
 
 export default async function probe() {
-  const db = new Database(":memory:");
+  const pg = new PGlite();
   const client = createClient({
-    client: db,
+    client: pg,
     schema: { account: s.model({ id: s.string().id(), balance: s.int() }) },
   });
   try {
@@ -56,7 +58,7 @@ export default async function probe() {
             originChecks: [exists("seed_source")],
             up: [
               sql.raw(
-                `CREATE TABLE "account" ("id" TEXT NOT NULL, "balance" INTEGER NOT NULL, PRIMARY KEY ("id"))`
+                `CREATE TABLE "account" ("id" TEXT NOT NULL, "balance" INTEGER NOT NULL, CONSTRAINT "account_pkey" PRIMARY KEY ("id"))`
               ),
               sql.raw(
                 `INSERT INTO "account" ("id", "balance") SELECT "id", 0 FROM "seed_source"`
@@ -82,8 +84,8 @@ export default async function probe() {
       .map((event) => `${event.kind}:${event.effectState}`)
       .sort()
       .join(",");
-    db.exec(`CREATE TABLE "seed_source" ("id" TEXT)`);
-    db.exec(`INSERT INTO "seed_source" ("id") VALUES ('a'), ('b')`);
+    await pg.exec(`CREATE TABLE "seed_source" ("id" TEXT)`);
+    await pg.exec(`INSERT INTO "seed_source" ("id") VALUES ('a'), ('b')`);
     let close = "already closed";
     if ((await migrations.status()).unfinished) {
       try {
@@ -99,10 +101,10 @@ export default async function probe() {
     } catch (error) {
       again = failure(error);
     }
-    const rows = db
-      .prepare(`SELECT name FROM sqlite_master WHERE name = 'account'`)
-      .get()
-      ? db.prepare(`SELECT count(*) AS n FROM "account"`).get().n
+    const rows = (
+      await pg.query(`SELECT to_regclass('"account"') IS NOT NULL AS present`)
+    ).rows[0].present
+      ? (await pg.query(`SELECT count(*)::int AS n FROM "account"`)).rows[0].n
       : "absent";
     return {
       status: again === "applied" && rows === 2 ? "pass" : "fail",
@@ -110,6 +112,6 @@ export default async function probe() {
     };
   } finally {
     await client.$disconnect();
-    db.close();
+    await pg.close();
   }
 }

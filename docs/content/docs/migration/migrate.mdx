@@ -365,6 +365,7 @@ const status = await migrations.status();
 // status.unfinished — an attempt is still open on the ledger
 // status.markerState — "ahead" | "unknown", only when the marker names a state this estate does not hold
 // status.invalidIndexes — [{ table, index }], only when a managed table has an INVALID PostgreSQL index
+// status.lastFailure — the latest `failed` ledger event, once an attempt failed and rolled back
 
 const verify = await migrations.verify();
 const events = await migrations.log();
@@ -374,13 +375,25 @@ const events = await migrations.log();
 
 | Command | Lock | What it answers |
 |---------|------|-----------------|
-| `status` | no | Marker, pending path to the unique leaf, unfinished attempts, a marker this estate does not hold (`markerState`), and INVALID PostgreSQL indexes (`invalidIndexes`). |
+| `status` | no | Marker, pending path to the unique leaf, unfinished attempts, a marker this estate does not hold (`markerState`), INVALID PostgreSQL indexes (`invalidIndexes`), and the latest failed attempt (`lastFailure`). |
 | `verify` | yes | Live managed schema matches the marker's authenticated snapshot. A marker this estate does not hold returns `{ ok: false, markerState }`. |
 | `log` | no | Authenticated database-ledger events, sorted by start time and event id. It does not inspect estate artifacts. |
 
 CLI `log --limit <n>` keeps the last `n` events after that stable ordering. The
 programmatic `log()` call returns the complete ledger so callers can slice or
 filter it themselves.
+
+A transactional attempt that fails rolls back with everything it wrote, its own
+ledger events included. `apply` then records it in a transaction of its own as a
+`failed` ledger event (creating the control tables first when the failed attempt
+was the first apply): its `fromState`/`toState`, the `dispatchId` and
+`operationId` of the statement the provider refused, and a `failure` line with
+the error code and message. `status().lastFailure` returns the latest one,
+also after a later `apply` succeeded: it is history, not current state. A
+`failed` event closes its attempt: once the cause is fixed, `apply` runs again,
+even when no marker exists yet. A stepwise failure is different: its effects
+stay, its attempt stays unfinished, and it is recovered with `resolve` (see
+below).
 
 There is no `pending()` method. Pending work is a field on `status()`.
 `log()` requires an existing, authentic control-table pair. When it is absent,
@@ -439,6 +452,8 @@ There is no `--force`, no numeric `--to 5`, and no tracking-table name flag. Con
 
 If the marker is absent, ordinary apply requires the managed target to be empty apart from control objects. Adopting an existing schema is `baseline`, not an implicit first apply.
 
+A statement the migration dispatches that the database refuses fails the command with `MigrationError` V11001 (`MIGRATION_FAILED`). Its `meta` names `fromState`, `toState`, `operationId`, `dispatchId`, `statementIndex` and the provider's `providerCode`/`providerSqlState`, and its `cause` is the provider error. A transactional attempt rolls back and is recorded as `failed` (see `status().lastFailure`). When a COMMIT's reply is lost, apply re-reads the marker: `applied` when it shows the commit, V11020 when it cannot be read. A COMMIT the database refuses (for example a deferred constraint) keeps its provider error. When ending the session fails after the commit, apply returns `applied` with `warnings`.
+
 ## Roll Back
 
 `down` follows the marker's actual arrival path. It cannot invent a parent this database never used, and it cannot cross a baseline boundary.
@@ -457,17 +472,48 @@ Rollback does **not** restore discarded data. Generated destructive changes rest
 npx viborm migrate down
 npx viborm migrate down --steps 1
 npx viborm migrate down --to add-users
+npx viborm migrate down --steps 1 --expect-revision 4 --accept-data-loss
 npx viborm migrate down --dry-run --json
 ```
   </Tab>
   <Tab title="Migration Client">
 ```ts
-await migrations.down({ steps: 1 });
 await migrations.down({ to: { name: "add-users" } });
+
+const { marker } = await migrations.status();
+await migrations.down({ steps: 1, expectRevision: marker?.revision });
+
+await migrations.down({
+  to: { name: "add-users" },
+  resolve: (change) =>
+    change.type === "destructive" ? change.proceed() : undefined,
+});
 await migrations.down({ steps: 1, dryRun: true });
 ```
   </Tab>
 </Tabs>
+
+**Automation uses `down({ to })`.** An absolute target is idempotent: a retry
+after a lost reply finds the marker already there and returns `{ path: [] }`. A
+relative `down({ steps })` retried the same way would roll back one more state,
+so pass `expectRevision`, the `marker.revision` you read: when another command
+moved the marker since, `down` refuses with `V11015`
+(`MIGRATION_MARKER_CONFLICT`) before any effect.
+
+**Rolling back over data asks first.** When a generated rollback is
+destructive (it drops a table or column, narrows a type, …), `down` compares
+the two states' snapshots; for each destructive change on a table that holds
+rows, it puts the change to `resolve`, as `generate` and `push` do:
+`change.proceed()` approves it, `change.reject()` or no answer refuses with
+`V11010`, and a `down` without `resolve` refuses with `V11017`
+(`MIGRATION_CONSENT_REQUIRED`), listing the changes. The reads run under the
+lock, before the first rollback statement. A rollback over empty tables needs
+no answer, and neither does a table that is absent: a later state dropped it
+(an earlier step of the rollback recreates it empty), or an interrupted
+rollback already did. A manual rollback is not asked again: its author wrote
+and published that SQL, often to move the rows back before a drop. The CLI
+asks on a terminal; `--accept-data-loss` or `migrations.resolve` in
+`viborm.config.ts` answers instead.
 
 `down` is the only rollback verb. There is no tracking-only `rollback()`, `drop`, or `pending()` untrack. Removing a marker row while the schema stays live is not a supported operation.
 
@@ -506,7 +552,7 @@ An unfinished ledger attempt means the live schema may be between states. Ordina
 | Outcome | CLI | Required proof |
 |---------|-----|----------------|
 | Complete | `--complete` | Remaining postchecks, destination checks, and the target fingerprint hold. |
-| Rolled back | `--rolled-back` | Origin checks and the origin fingerprint hold. |
+| Rolled back | `--rolled-back` | Origin checks and the origin fingerprint hold, and no manual opaque step of the attempt committed or may have committed. |
 | Retry | `--retry` | Resume from the first step whose postcheck is false and precheck is true. |
 
 ```bash
@@ -516,6 +562,20 @@ npx viborm migrate resolve --retry --json
 ```
 
 Equal physical fingerprints are not proof for a data-only or opaque transition. If that transition omitted the checks that distinguish its two states, `resolve` refuses.
+
+`--rolled-back` also reads the attempt's ledger. When one of its manual
+(opaque) steps committed (`V11019`, `MIGRATION_PARTIAL_EFFECT`) or was announced and never
+confirmed, so it may have committed (`V11020`), `resolve` refuses: no rollback
+undid that step, no fingerprint shows a data change, and marking the attempt
+rolled back would let `apply` run the step a second time — a balance credited
+twice. The refusal names the `dispatchId`; finish the transition by hand and
+`resolve --complete`. A `CONCURRENTLY` index statement is the exception (see
+below): `resolve` repairs the index it names first, and the origin fingerprint
+then proves it undone.
+
+An attempt closed as rolled back, resolved or failed no longer blocks anything:
+`apply` starts again, even when the failed attempt was the first one and no
+marker exists yet.
 
 ### Interrupted `CREATE INDEX CONCURRENTLY`
 
@@ -601,12 +661,12 @@ There are no numbered `0001_*.sql` files, no `meta/_journal.json`, no latest sna
 
 ## Provider Limits
 
-No provider inherits a guarantee from its dialect name. Effectful work requires a proven marker compare-and-swap and execution boundary, and on every dialect but SQLite a proven migration lock.
+No provider inherits a guarantee from its dialect name. Effectful work requires a proven marker compare-and-swap, execution boundary and migration lock: a transaction-scoped advisory lock on PostgreSQL, a session lock on MySQL, and on SQLite the write lock of `BEGIN IMMEDIATE`.
 
 | Provider | Effectful migrate / push | Notes |
 |----------|--------------------------|--------|
-| PGlite, `pg`, postgres.js, Bun SQL | Yes, when lock/CAS is proven | Transactional when every statement permits it. |
-| SQLite3, Bun SQLite | Yes, without a migration lock | VibORM takes no migration lock on SQLite. Each transactional group runs in one transaction (`BEGIN IMMEDIATE` on the stock drivers) and compare-and-swaps the marker inside it, so a second `apply` racing toward the same state fails and rolls back, usually on its first conflicting statement or on SQLite's busy timeout, and at the latest on the marker compare-and-swap (`V11015`). Stepwise manual work has no such guard: run one `apply` at a time. |
+| PGlite, `pg`, postgres.js, Bun SQL | Yes, when lock/CAS is proven | Transactional when every statement permits it. Each transaction takes the lock and the marker is read under it, so a transaction pooler (PgBouncer in transaction mode) works; stepwise work keeps a session lock and needs a direct session. See [PostgreSQL](/docs/migration/drivers/postgresql#guarantees-and-limits). |
+| SQLite3, Bun SQLite | Yes; stepwise refused | The write lock of `BEGIN IMMEDIATE` is the migration lock: each command reads the marker and the unfinished attempts as the first statements of the transaction that runs its first group, so a second `apply` of the same state, from any process, reports `noop` or refuses with `V11015`. Applying a transition declared `execution: "stepwise"` is refused (`V11021`). See [SQLite](/docs/migration/drivers/sqlite#concurrent-commands). |
 | MySQL2 | Stepwise | DDL implicitly commits. Nominal transactions do not create rollback. Progress is recorded per dispatch. |
 | Neon HTTP | Read-only / offline | No interactive session to hold a lock. Generation, check, status, log, and push dry-run stay available. Effectful apply/down/reset/verify/push refuse. |
 | PlanetScale | Read-only / offline | VTGate routing does not prove containment. Same offline/read-only split. |
@@ -615,13 +675,52 @@ No provider inherits a guarantee from its dialect name. Effectful work requires 
 
 VibORM never generates `CREATE INDEX CONCURRENTLY`. A manual transition that
 uses it must declare `execution: "stepwise"`, which sends each `up` dispatch on
-its own, outside a transaction. Declared `"transactional"`, the statement is sent
-inside the transaction: PostgreSQL rejects it (SQLSTATE 25001), `apply` fails
-with `V2001`, and the transaction rolls back, leaving the marker where that commit
-group started. `ALTER TYPE … ADD VALUE` runs inside the transaction; an edge that adds
+its own, outside a transaction. `generate` refuses (`V11012`) a dispatch declared
+`"transactional"` that PostgreSQL cannot run inside a transaction, naming it:
+`CREATE [UNIQUE] INDEX`, `DROP INDEX` or `REINDEX INDEX|TABLE|SCHEMA|DATABASE`
+with `CONCURRENTLY`, `REINDEX (…, CONCURRENTLY)`, and `DETACH PARTITION …
+CONCURRENTLY`. A manual rollback is held to its own `execution`.
+A state an earlier version published that way still fails at `apply`: PostgreSQL
+rejects the statement (SQLSTATE 25001) with `V2001` and the transaction rolls back.
+`ALTER TYPE … ADD VALUE` runs inside the transaction; an edge that adds
 an enum value ends its commit group, so a later edge can use the new value.
 
 Interrupted stepwise work is explainable from the ledger. The tool never reports rollback that the provider could not perform.
+
+## Large Tables
+
+Some PostgreSQL changes rewrite or scan the whole table while holding a lock
+that blocks it, so their duration grows with the table:
+
+- a column type change, including an enum replacement and a decimal descriptor change;
+- `SET NOT NULL`;
+- a new column whose default is volatile, such as `gen_random_uuid()` or a serial;
+- a `FOREIGN KEY` or `CHECK` constraint added without `NOT VALID`.
+
+Above `limits.largeTableRows` (default 1,000,000), `apply`, `down` and
+`push`, including push's dry run, refuse such a change before any statement
+runs, with `V11009` naming the operation, the table and the planner's estimate.
+The estimate is what `EXPLAIN` reports: `pg_class.reltuples` from the last
+`ANALYZE` or autovacuum, scaled to the table's current size. Manual SQL is
+classified by the same patterns: the forms VibORM generates and their common
+manual spellings. A table the same migration creates first, as a force reset
+does, is empty and never refused. `apply({ dryRun: true })` previews without
+reading the estimate, and `reset` and `resolve` do not run this check.
+
+Run a refused change outside the request, from a job whose client raises the
+limit, or sets it to 0 for no limit:
+
+```ts
+const migrations = createMigrationClient(client, {
+  storage,
+  limits: { largeTableRows: 0, statementTimeout: 0 },
+});
+await migrations.apply();
+```
+
+The limit is PostgreSQL's. MySQL and SQLite apply such changes without this
+check: SQLite has no row estimate unless `ANALYZE` has run, and counting rows
+would scan the table it protects.
 
 ## Expand / Contract Deployments
 
@@ -648,7 +747,8 @@ Automation should switch on stable families, not message text. CLI `--json` is a
 | Consent required / mismatch | Push plan changed or destructive work lacks that preview's consent; generate found destructive changes that no resolver approved. |
 | Unsupported provider | Effectful work is not admitted on this driver. |
 | Partial effect | Stepwise progress is confirmed; later steps did not run. |
-| Ambiguous commit | An opaque dispatch may have committed. |
+| Dispatch failed | `V11001`: the database refused a statement the migration dispatched; `meta` names the states, `operationId`, `dispatchId`, `statementIndex` and the provider's code, and `cause` is the provider error. |
+| Ambiguous commit | An opaque dispatch, or a COMMIT whose reply was lost, may have committed. |
 
 ```ts
 import { isMigrationError } from "viborm/migrations";

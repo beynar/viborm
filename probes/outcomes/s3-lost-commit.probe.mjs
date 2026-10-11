@@ -9,6 +9,10 @@
 //   rejects.
 // On SQLite the implementer must therefore re-read the marker after any
 // transaction failure, not only after a may-have-committed one.
+// The COMMIT may reach better-sqlite3 through exec or through a prepared
+// statement, so both lose the reply. The facts (column, marker) are read
+// through the raw handle: after a failed COMMIT's cleanup the client itself
+// may refuse every statement, which is exactly when V11020 is the answer.
 import { PGlite } from "@electric-sql/pglite";
 import Database from "better-sqlite3";
 import { s } from "viborm";
@@ -57,6 +61,21 @@ const lose = (state) => {
   throw new Error("probe: connection lost after COMMIT");
 };
 
+/** A prepared COMMIT whose `run` commits, then loses the reply. */
+function losingStatement(statement, state) {
+  return new Proxy(statement, {
+    get(target, member) {
+      const method = Reflect.get(target, member, target);
+      if (typeof method !== "function") return method;
+      if (member !== "run") return method.bind(target);
+      return (...args) => {
+        method.apply(target, args);
+        return lose(state);
+      };
+    },
+  });
+}
+
 /**
  * A connection whose next COMMIT after an armed statement commits, then
  * "loses" the reply. better-sqlite3 sends statements through exec/prepare,
@@ -74,9 +93,8 @@ function lossy(handle) {
       return (text, ...rest) => {
         if (ARM_ON.test(text)) state.armed = true;
         const result = value.call(target, text, ...rest);
-        if (property === "prepare" || !state.armed || !COMMIT.test(text)) {
-          return result;
-        }
+        if (!(state.armed && COMMIT.test(text))) return result;
+        if (property === "prepare") return losingStatement(result, state);
         return result instanceof Promise
           ? result.then(() => lose(state))
           : lose(state);
@@ -99,6 +117,12 @@ const DIALECTS = {
               `SELECT count(*) AS n FROM pragma_table_info('invoice') WHERE name = 'reference'`
             )
             .get().n === 1,
+        markerState: async () =>
+          db
+            .prepare(
+              `SELECT json_extract(payload, '$.stateId') AS id FROM "_viborm_migration_state"`
+            )
+            .get()?.id ?? null,
         close: async () => db.close(),
       };
     },
@@ -115,6 +139,12 @@ const DIALECTS = {
               `SELECT 1 FROM information_schema.columns WHERE table_name = 'invoice' AND column_name = 'reference'`
             )
           ).rows.length === 1,
+        markerState: async () =>
+          (
+            await pg.query(
+              `SELECT (payload::json)->>'stateId' AS id FROM "_viborm_migration_state"`
+            )
+          ).rows[0]?.id ?? null,
         close: () => pg.close(),
       };
     },
@@ -122,7 +152,7 @@ const DIALECTS = {
 };
 
 async function run(dialect) {
-  const { proxy, state, createClient, hasColumn, close } =
+  const { proxy, state, createClient, hasColumn, markerState, close } =
     DIALECTS[dialect].open();
   const storage = new MemoryEstateStorage();
   const v1 = createClient({
@@ -160,7 +190,7 @@ async function run(dialect) {
       error = caught;
     }
     const committed = await hasColumn();
-    const marker = (await m2.status()).marker?.stateId ?? null;
+    const marker = await markerState();
     const facts = `lost=${state.lost} columnCommitted=${committed} markerAtTarget=${marker === target.stateId}`;
     if (state.lost !== 1 || !committed) {
       return {
@@ -184,8 +214,9 @@ async function run(dialect) {
       line: `${dialect}: ${ambiguous ? "" : "lost COMMIT reported as "}${observed}; ${facts}`,
     };
   } finally {
-    await v1.$disconnect();
-    await v2.$disconnect();
+    // A client the failed COMMIT condemned may refuse even this.
+    await v1.$disconnect().catch(() => undefined);
+    await v2.$disconnect().catch(() => undefined);
     await close();
   }
 }

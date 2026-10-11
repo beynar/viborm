@@ -8,5 +8,6 @@ import { createMySQL2Driver, TEST_CONNECTION_STRING } from "./mysql2-fixtures";
     driverName: "MySQL2",
     createDriver: createMySQL2Driver,
     table: "sum_overflow_reading",
+    intSum: "mysql",
   });
 });

@@ -19,6 +19,7 @@ import { canonicalizeJson, canonicalizeJsonText } from "./canonical-json";
 import type { IndexPredicateCanonicalizer } from "./differ";
 import type { BoundMigrationDriver, MigrationDriver } from "./drivers";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
+import { canPinSession } from "./pinned-session";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodeSnapshot } from "./v1-parse-snapshot";
 import type { PushTargetIdentity } from "./v1-types";
@@ -70,13 +71,17 @@ export function bindIndexPredicateCanonicalizer(
   const canonicalize = driver.canonicalizeIndexPredicates;
   if (!canonicalize) return;
   return async (tableName, predicates) => {
-    try {
-      return await canonicalize.call(
-        driver,
-        tableName,
-        predicates,
-        (sql, params) => producer._executeRaw(sql, params)
+    const run = (on: AnyDriver) =>
+      canonicalize.call(driver, tableName, predicates, (sql, params) =>
+        on._executeRaw(sql, params)
       );
+    try {
+      // Its scratch views are session-local, so on a pool, or behind a
+      // transaction pooler, its statements must share one transaction. A
+      // locked command's pinned producer is already inside one (plan D1).
+      return await (canPinSession(producer) && producer.supportsTransactions
+        ? producer.withTransaction(run)
+        : run(producer));
     } catch {
       return predicates.map(() => undefined);
     }
@@ -254,6 +259,7 @@ const UTC_CURRENT_TIME_DEFAULT =
   /^timezone\(\s*'utc'\s*,\s*current_time(?:\(3\))?\s*\)$/;
 const NUMERIC_PHYSICAL_TYPE =
   /^(integer|bigint|smallint|real|double precision|float|int|tinyint)/;
+const INTEGER_PHYSICAL_TYPE = /^(integer|bigint|smallint|int|tinyint)/;
 const INTEGER_LITERAL = /^[-+]?\d+$/;
 const TEMPORAL_PHYSICAL_TYPE = /^(timestamp|time|date)/;
 const ISO_UTC_SUFFIX = /Z$/;
@@ -353,7 +359,10 @@ export function normalizeDefault(
     }
   }
   if (NUMERIC_PHYSICAL_TYPE.test(physical) && NUMBER_LITERAL.test(unquoted)) {
-    return INTEGER_LITERAL.test(unquoted)
+    // BigInt keeps integer columns exact; a float catalog spells 1e21 as
+    // '1000000000000000000000', which only Number() reads back as 1e+21.
+    return INTEGER_PHYSICAL_TYPE.test(physical) &&
+      INTEGER_LITERAL.test(unquoted)
       ? BigInt(unquoted).toString()
       : String(Number(unquoted));
   }

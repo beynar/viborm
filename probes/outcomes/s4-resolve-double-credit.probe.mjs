@@ -2,10 +2,12 @@
 // attempt's ledger holds a committed opaque step that no executed rollback
 // undid. 1.1.0 accepts it, and the retry credits every account twice
 // (100 -> 110 -> 120).
-import Database from "better-sqlite3";
+// Run on PGlite: 1.2.0 refuses stepwise work on SQLite outright (plan S5), so
+// a committed opaque step exists only on PostgreSQL and MySQL.
+import { PGlite } from "@electric-sql/pglite";
 import { s, sql } from "viborm";
 import { createMigrationClient, MemoryEstateStorage } from "viborm/migrations";
-import { createClient } from "viborm/sqlite3";
+import { createClient } from "viborm/pglite";
 
 export const meta = {
   id: "S4-resolve-double-credit",
@@ -36,16 +38,19 @@ const account = s.model({
   updatedAt: s.dateTime().updatedAt(),
 });
 
-const total = (db) =>
-  db.prepare(`SELECT sum("balance") AS total FROM "account"`).get().total;
+const total = async (pg) =>
+  Number(
+    (await pg.query(`SELECT sum("balance") AS total FROM "account"`)).rows[0]
+      .total
+  );
 
 // A migration-state refusal (invalid state, partial or ambiguous effect),
 // not any error.
 const STATE_REFUSAL = /^refused V110(09|19|20)$/;
 
 export default async function probe() {
-  const db = new Database(":memory:");
-  const client = createClient({ client: db, schema: { account } });
+  const pg = new PGlite();
+  const client = createClient({ client: pg, schema: { account } });
   try {
     const migrations = createMigrationClient(client, {
       storage: new MemoryEstateStorage(),
@@ -94,14 +99,14 @@ export default async function probe() {
     } catch {
       // statement 1 committed (+10), statement 2 failed: the FI-03 setup.
     }
-    const afterFirst = total(db);
+    const afterFirst = await total(pg);
     let resolve = "accepted";
     try {
       await migrations.resolve({ outcome: "rolled-back" });
     } catch (error) {
       resolve = `refused ${error.code}`;
     }
-    db.exec(`CREATE TABLE "interest_run" ("id" TEXT PRIMARY KEY)`);
+    await pg.exec(`CREATE TABLE "interest_run" ("id" TEXT PRIMARY KEY)`);
     let retry = "not run";
     if (resolve === "accepted") {
       try {
@@ -110,7 +115,7 @@ export default async function probe() {
         retry = `${error.code}`;
       }
     }
-    const final = total(db);
+    const final = await total(pg);
     const perAccount = (value) => value / ACCOUNTS;
     const held = STATE_REFUSAL.test(resolve) && final === afterFirst;
     return {
@@ -119,6 +124,6 @@ export default async function probe() {
     };
   } finally {
     await client.$disconnect();
-    db.close();
+    await pg.close();
   }
 }

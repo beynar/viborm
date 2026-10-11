@@ -24,12 +24,15 @@ const client = createClient({
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `pool` | `Pool` | Existing pg Pool instance |
+| `pool` | `Pool` | Existing pg Pool, or a pool with its shape such as a [Neon WebSocket `Pool`](#neon-websocket-pool) |
 | `options` | `PoolConfig` | pg pool configuration |
 | `databaseUrl` | `string` | PostgreSQL connection URL |
 | `namespace` | `string` | PostgreSQL schema for VibORM-owned objects (default `public`) |
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
+
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
 
 ### Using Pool Options
 
@@ -48,6 +51,39 @@ const client = createClient({
   schema,
 });
 ```
+
+### URL and Options Together
+
+`databaseUrl` and `options` combine key by key: the URL supplies only the
+connection keys it carries, and every key set in `options` wins over the URL's.
+A URL per tenant with the password from a secret works as written:
+
+```typescript
+import { createClient } from "viborm/pg";
+
+const client = createClient({
+  databaseUrl: "postgres://tenant_7@db.internal:5432/tenant_7",
+  options: { password: env.TENANT_DB_PASSWORD },
+  schema,
+});
+```
+
+- `user`, `password`, `host`, `port` and `database` in `options` replace the
+  URL's. An `ssl` option replaces the URL's `ssl`, `sslmode`, `sslcert`,
+  `sslkey` and `sslrootcert`; any other option replaces the query parameter of
+  the same name.
+- `options.connectionString`, when set, is used instead of `databaseUrl`.
+- A password callback (node-postgres's function form) cannot be merged into a
+  URL: pass it with `host`, `user` and `database` in `options`, without a URL.
+- To merge, VibORM reads the URL with the WHATWG `URL` parser. A form it cannot
+  read, such as libpq's `/var/run/postgresql mydb`, combined with connection
+  options fails at construction with `ClientInitializationError`.
+
+`databaseUrl: undefined` or `""` (usually an unset environment variable) with no
+`pool`, `host` or `connectionString` fails at construction with
+`ClientInitializationError` (`V1004`) instead of connecting wherever
+node-postgres's defaults point. Leave the key out to use those defaults (the
+`PG*` environment variables, then `localhost:5432`).
 
 ### Using Existing Pool
 
@@ -72,6 +108,29 @@ A supplied pool remains owned by your application. Install its idle-connection
 error listener before passing it to VibORM and close it once with `pool.end()`.
 VibORM applies temporal parsers per command and leaves supplied pool listeners
 and lifecycle under your control.
+
+### Neon WebSocket Pool
+
+A `Pool` from `@neondatabase/serverless` is node-postgres's pool over a
+WebSocket, and runs as the supplied `pool` unchanged:
+
+```typescript
+import { Pool } from "@neondatabase/serverless";
+import { createClient } from "viborm/pg";
+
+const pool = new Pool({ connectionString: env.DATABASE_URL });
+const client = createClient({ pool, schema });
+```
+
+`pool` accepts any pool with the part of node-postgres's shape VibORM uses, so
+Neon's `Pool` type-checks whatever `@types/pg` your project installs (tested
+with 8.16.0 and 8.23.1). It is a supplied pool: you own its error listener and
+its `end()`, as above. It holds a session for interactive transactions and
+migrations; run migrations through the direct endpoint, since a `-pooler` host
+is refused for effectful migration commands (see
+[Migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler)).
+It is not yet qualified against a hosted Neon endpoint. For one-shot HTTP
+queries, use [Neon HTTP](/docs/drivers/postgresql/neon-http).
 
 ### With pgvector
 

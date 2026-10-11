@@ -10,12 +10,16 @@
  */
 
 import { createClient } from "@client/client";
-import { isMigrationError } from "@errors";
+import { isMigrationError, VibORMErrorCode } from "@errors";
 import {
   auditStorage,
   createMigrationClient,
   type ManualMigrationInput,
 } from "@migrations";
+import { appendLedger, DEFAULT_CONTROL_BASE } from "@migrations/control";
+import { loadMigrationGraph, parentTransition } from "@migrations/graph";
+import { getPushMigrationDriver } from "@migrations/push/planner";
+import { eventIdFor } from "@migrations/v1-parse";
 import { s, TYPES } from "@schema";
 import { sql } from "@sql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -68,9 +72,8 @@ async function withManualTransition(
 ) {
   const driver = createInMemorySQLite3Driver();
   const client = createClient({ schema: schema(), driver });
-  const migrations = createMigrationClient(client, {
-    storage: new MemoryStorage(),
-  });
+  const storage = new MemoryStorage();
+  const migrations = createMigrationClient(client, { storage });
   const v1 = await migrations.generate({ name: "v1" });
   await migrations.apply();
   for (let start = 0; start < ROWS; start += 1000) {
@@ -113,7 +116,72 @@ async function withManualTransition(
       destinationChecks: [populated()],
     },
   });
-  return { driver, client, migrations, v1: v1.stateId, v2: v2.stateId };
+  return {
+    driver,
+    client,
+    storage,
+    migrations,
+    v1: v1.stateId!,
+    v2: v2.stateId!,
+  };
+}
+
+/**
+ * What VibORM 1.1.0 left on SQLite when a stepwise transition stopped after its
+ * SQL ran: the SQL's effect, and an attempt that started and confirmed its one
+ * dispatch but never finished. 1.2.0 refuses to apply such a transition.
+ */
+async function seedUnfinishedStepwiseAttempt(
+  client: Parameters<typeof getPushMigrationDriver>[0],
+  storage: MemoryStorage,
+  from: string,
+  to: string,
+  up: string,
+  confirmed: "committed" | "none" = "committed"
+) {
+  await client.$driver._executeRaw(up);
+  const graph = await loadMigrationGraph(storage);
+  const command = getPushMigrationDriver(client);
+  const state = graph.states.get(to)!;
+  const transition = parentTransition(graph, from, to);
+  const operation = transition.operations[0]!;
+  const event = (
+    attemptId: string,
+    kind: "started" | "step-confirmed",
+    effectState: "none" | "committed"
+  ) => ({
+    format: "1" as const,
+    attemptId,
+    kind,
+    estateHash: graph.estateHash,
+    snapshotHash: state.snapshotHash,
+    sqlHash: state.sqlHash,
+    fromState: from,
+    toState: to,
+    transitionHash: transition.transitionHash,
+    direction: "forward" as const,
+    operationId: kind === "started" ? null : operation.id,
+    dispatchId:
+      kind === "started" ? null : operation.steps[0]!.execute.dispatchId,
+    effectState,
+    startedAt: new Date().toISOString(),
+    finishedAt: kind === "started" ? null : new Date().toISOString(),
+    toolVersion: "v1",
+    failure: null,
+  });
+  const attemptId = eventIdFor(event("0".repeat(64), "started", "none"));
+  for (const seeded of [
+    event(attemptId, "started", "none"),
+    event(attemptId, "step-confirmed", "none"),
+    ...(confirmed === "committed"
+      ? [event(attemptId, "step-confirmed", "committed")]
+      : []),
+  ]) {
+    await appendLedger(client.$driver, command, DEFAULT_CONTROL_BASE, {
+      ...seeded,
+      eventId: eventIdFor(seeded),
+    });
+  }
 }
 
 async function noncanonical(
@@ -276,37 +344,61 @@ describe("SQLite storage canonicalization after a manual transition", () => {
   );
 
   it(
-    "canonicalizes when resolve completes a stepwise manual transition",
+    "canonicalizes when resolve completes a stepwise manual transition 1.1.0 left unfinished",
     { timeout: 120_000 },
     async () => {
-      const { driver, migrations, v1, v2 } = await withManualTransition(
-        [
-          `UPDATE "s12_events" SET "occurredAt" = datetime('now') WHERE "id" <> 'evt-7'`,
-        ],
-        { execution: "stepwise" }
-      );
-      // A malformed value stored before the transition stops it after its SQL
-      // ran; one statement rewrites the column, so none of it is rewritten.
-      await driver._executeRaw(
-        `UPDATE "s12_events" SET "occurredAt" = 'next tuesday' WHERE "id" = 'evt-7'`
-      );
-      await expect(migrations.apply()).rejects.toMatchObject({
-        code: "V11014",
-        message: expect.stringContaining(`"s12_events"."occurredAt"`),
-      });
+      const up = `UPDATE "s12_events" SET "occurredAt" = datetime('now') WHERE "id" <> 'evt-7'`;
+      const { driver, client, storage, migrations, v1, v2 } =
+        await withManualTransition([up], { execution: "stepwise" });
+      // 1.2.0 refuses to apply it (plan S5); 1.1.0 ran its SQL and stopped.
+      await seedUnfinishedStepwiseAttempt(client, storage, v1, v2, up);
+      expect(await noncanonical(driver)).not.toEqual([]);
       await expect(migrations.status()).resolves.toMatchObject({
         marker: { stateId: v1 },
+        unfinished: true,
       });
 
-      await driver._executeRaw(
-        `UPDATE "s12_events" SET "occurredAt" = '2025-01-01T00:00:00.000Z' WHERE "id" = 'evt-7'`
-      );
       await expect(
         migrations.resolve({ outcome: "complete" })
       ).resolves.toMatchObject({ outcome: "complete" });
       expect(await noncanonical(driver)).toEqual([]);
       await expect(migrations.status()).resolves.toMatchObject({
         marker: { stateId: v2 },
+      });
+    }
+  );
+
+  // S4: the step's SQL committed, or may have, and nothing undid it, so the
+  // attempt cannot be closed as rolled back (a retried apply would run it
+  // again).
+  it.each([
+    ["committed", VibORMErrorCode.MIGRATION_PARTIAL_EFFECT, "committed"],
+    ["none", VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT, "may-have-committed"],
+  ] as const)(
+    "refuses to mark a 1.1.0 stepwise attempt rolled back when its step confirmed %s",
+    { timeout: 120_000 },
+    async (confirmed, code, effectState) => {
+      const up = `UPDATE "s12_events" SET "title" = 'renamed' WHERE "id" <> 'evt-7'`;
+      const { client, storage, migrations, v1, v2 } =
+        await withManualTransition([up], { execution: "stepwise" });
+      await seedUnfinishedStepwiseAttempt(
+        client,
+        storage,
+        v1,
+        v2,
+        up,
+        confirmed
+      );
+
+      await expect(
+        migrations.resolve({ outcome: "rolled-back" })
+      ).rejects.toMatchObject({
+        code,
+        meta: { fromState: v1, toState: v2, effectState, partial: true },
+      });
+      await expect(migrations.status()).resolves.toMatchObject({
+        marker: { stateId: v1 },
+        unfinished: true,
       });
     }
   );

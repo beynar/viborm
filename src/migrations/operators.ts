@@ -6,7 +6,11 @@
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { renderQualifiedIdentifier } from "../sql/identifiers";
 import { admitLiveMigrationCapability } from "./admission";
-import { assertNoDrift, markerStanding } from "./apply-v1";
+import {
+  assertLockedSinceDecision,
+  assertNoDrift,
+  markerStanding,
+} from "./apply-v1";
 import {
   boundNamespace,
   type InvalidIndex,
@@ -23,20 +27,18 @@ import {
   casMarker,
   DEFAULT_CONTROL_BASE,
   ensureControlTables,
+  isTableMissing,
   markerFromPath,
   readControlState,
+  refuseIncompatibleHistory,
   refusePartialControl,
   unfinishedAttempts,
 } from "./control";
-import { diff } from "./differ";
+import { diff, isDestructiveOperation } from "./differ";
 import { type NormalizedDownOptions, normalizeDownOptions } from "./down-input";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { evaluateAllChecks, executeOperations } from "./execute-dispatch";
-import {
-  assertForeignKeysIntact,
-  liftForeignKeyPragmas,
-  withForeignKeysLifted,
-} from "./foreign-keys";
+import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
 import {
   loadMigrationGraph,
   type MigrationGraph,
@@ -55,10 +57,17 @@ import {
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
+import { approveDestructiveOperations } from "./resolver";
+import { sliceDispatch } from "./sql-blob";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
-import type { SchemaSnapshot } from "./types";
+import type {
+  AmbiguousChange,
+  DiffOperation,
+  ResolveCallback,
+  SchemaSnapshot,
+} from "./types";
 import { eventIdFor } from "./v1-parse";
 import type {
   BaselineOptions,
@@ -85,6 +94,11 @@ export interface StatusV1Result {
   readonly markerState?: "ahead" | "unknown";
   /** Present only when a managed table carries an INVALID index (PostgreSQL). */
   readonly invalidIndexes?: readonly InvalidIndex[];
+  /**
+   * The latest `failed` ledger event, present once a rolled-back attempt left
+   * one: its `toState`, `dispatchId` and `failure` say what failed and why.
+   */
+  readonly lastFailure?: LedgerEventV1;
 }
 
 export async function statusV1(
@@ -115,6 +129,10 @@ export async function statusV1(
   }
   const { marker, ledger } = control;
   const unfinished = unfinishedAttempts(ledger).length > 0;
+  let lastFailure: LedgerEventV1 | undefined;
+  for (const event of ledger) {
+    if (event.kind === "failed") lastFailure = event;
+  }
   const standing = markerStanding(graph, marker);
   let pending: Sha256[] = [];
   if (standing === "known" && graph.leaves.length === 1) {
@@ -130,6 +148,7 @@ export async function statusV1(
     unfinished,
     ...(standing === "known" ? {} : { markerState: standing }),
     ...listed,
+    ...(lastFailure ? { lastFailure } : {}),
   };
 }
 
@@ -229,12 +248,13 @@ export async function baselineV1(
       }
       const { marker, ledger } = control;
       const needsBootstrap = control.presence.kind !== "present";
-      if (marker || ledger.length > 0) {
+      if (marker || unfinishedAttempts(ledger).length > 0) {
         throw new MigrationError(
-          "baseline requires an unmarked database with an empty ledger",
+          "baseline requires an unmarked database without an unfinished attempt",
           VibORMErrorCode.MIGRATION_INVALID_STATE
         );
       }
+      refuseIncompatibleHistory(marker, ledger);
       for (const [index, stateId] of path.entries()) {
         const from = index === 0 ? null : path[index - 1]!;
         const transition = parentTransition(graph, from, stateId);
@@ -347,6 +367,7 @@ export async function downV1(
     );
     refusePartialControl(control.presence);
     const { marker } = control;
+    assertExpectedRevision(marker, request);
     if (!marker) {
       throw new MigrationError(
         "Nothing to roll back",
@@ -367,6 +388,7 @@ export async function downV1(
       );
       refusePartialControl(control.presence);
       const { ledger, marker } = control;
+      assertExpectedRevision(marker, request);
       const open = unfinishedAttempts(ledger);
       if (open.length > 1) {
         throw new MigrationError(
@@ -488,6 +510,13 @@ export async function downV1(
           );
         }
       }
+      await approveRollbackLosses(
+        pinned,
+        command,
+        graph,
+        prepared,
+        request.resolve
+      );
       const run = async (producer: Parameters<typeof appendLedger>[0]) => {
         let current = marker;
         const statementsOf = (item: (typeof prepared)[number]) =>
@@ -498,6 +527,13 @@ export async function downV1(
           const executeGroup = async (
             groupProducer: Parameters<typeof appendLedger>[0]
           ) => {
+            await assertLockedSinceDecision(
+              pinned,
+              groupProducer,
+              command,
+              current,
+              true
+            );
             for (const item of group.items) {
               current = await executeRollbackEdge(
                 groupProducer,
@@ -518,11 +554,10 @@ export async function downV1(
               group.boundary === "transactional"
             )
           ) {
-            await withForeignKeysLifted(pinned, lifted.bracket, () =>
-              pinned.withTransaction(async (transaction) => {
-                await executeGroup(transaction);
-                await assertForeignKeysIntact(transaction, lifted.bracket);
-              })
+            await withForeignKeysLifted(pinned, lifted.bracket, (inside) =>
+              pinned.withTransaction((transaction) =>
+                inside(transaction, executeGroup)
+              )
             );
           } else {
             await executeGroup(producer);
@@ -672,6 +707,7 @@ export async function resolveV1(
         return { outcome: "complete" };
       }
       if (options.outcome === "rolled-back") {
+        refuseOpaqueEffect(transition, blob, attempt, ledger);
         if (
           !originHolds ||
           (manualOpaque && transition.originChecks.length === 0)
@@ -728,7 +764,8 @@ export async function resolveV1(
           transition.operations,
           boundary,
           undefined,
-          command.namespace
+          command.namespace,
+          { fromState: from, toState: to }
         );
         if (
           !(await evaluateAllChecks(
@@ -767,13 +804,17 @@ export async function resolveV1(
       ) {
         const statements = stepStatements(blob, transition.operations);
         const lifted = liftForeignKeyPragmas(pinned, statements);
-        await withForeignKeysLifted(pinned, lifted.bracket, () =>
-          pinned.withTransaction(async (transaction) => {
-            await executeRetry(transaction);
-            await assertForeignKeysIntact(transaction, lifted.bracket);
-          })
+        await withForeignKeysLifted(pinned, lifted.bracket, (inside) =>
+          pinned.withTransaction((transaction) =>
+            inside(transaction, executeRetry)
+          )
         );
       } else {
+        // A recreation is refused here: without a transaction its lift is unproven.
+        liftForeignKeyPragmas(
+          pinned,
+          stepStatements(blob, transition.operations)
+        );
         await executeRetry(pinned);
       }
       return { outcome: "retry" };
@@ -808,13 +849,7 @@ async function repairInvalidIndexes(
   statements: readonly string[],
   expected: SchemaSnapshot
 ): Promise<void> {
-  const named = statements.flatMap((text) =>
-    [...text.matchAll(CONCURRENT_INDEX_NAME)].map(([, name = ""]) =>
-      name.startsWith('"')
-        ? name.slice(1, -1).replaceAll('""', '"')
-        : name.toLowerCase()
-    )
-  );
+  const named = statements.flatMap(concurrentIndexNames);
   if (named.length === 0) return;
   for (const { table, index } of await readInvalidIndexes(pinned, command)) {
     if (
@@ -840,6 +875,15 @@ async function repairInvalidIndexes(
       `${rebuild ? "REINDEX INDEX" : "DROP INDEX"} CONCURRENTLY ${name}`
     );
   }
+}
+
+/** The indexes a statement's `INDEX CONCURRENTLY` clauses name. */
+function concurrentIndexNames(text: string): string[] {
+  return [...text.matchAll(CONCURRENT_INDEX_NAME)].map(([, name = ""]) =>
+    name.startsWith('"')
+      ? name.slice(1, -1).replaceAll('""', '"')
+      : name.toLowerCase()
+  );
 }
 
 async function finishResolve(
@@ -1110,7 +1154,8 @@ async function executeRollbackEdge(
         eventId: eventIdFor(confirmed),
       });
     },
-    command.namespace
+    command.namespace,
+    { fromState: edge.stateId, toState: nextState }
   );
   const snapshotHash = nextState
     ? graph.states.get(nextState)!.snapshotHash
@@ -1393,6 +1438,147 @@ function assertReversibleEdge(
       VibORMErrorCode.MIGRATION_CORRUPTION
     );
   }
+}
+
+/** `down({ expectRevision })`: the marker must still be the one the caller read. */
+function assertExpectedRevision(
+  marker: MigrationMarkerV1 | null,
+  request: NormalizedDownOptions
+): void {
+  if (
+    request.expectRevision === undefined ||
+    marker?.revision === request.expectRevision
+  ) {
+    return;
+  }
+  throw new MigrationError(
+    `down expected marker revision ${request.expectRevision}, but the marker is at revision ${marker?.revision ?? "none"}: another command moved it`,
+    VibORMErrorCode.MIGRATION_MARKER_CONFLICT
+  );
+}
+
+/**
+ * Puts each destructive change the rollback makes to a table holding rows to
+ * `resolve`, as generate and push ask (plan S4): a retried or mistaken `down`
+ * cannot drop data unasked. Only edges whose stored rollback is destructive
+ * are diffed: a manual rollback is SQL its author wrote and published, often
+ * to move the rows back before a drop, so it is not asked again. An ambiguous
+ * change counts as the drop it may be. A table an earlier edge of the path
+ * recreates is absent live, and holds no rows.
+ */
+async function approveRollbackLosses(
+  producer: Parameters<typeof appendLedger>[0],
+  command: Parameters<typeof appendLedger>[1],
+  graph: MigrationGraph,
+  prepared: readonly ReturnType<typeof prepareRollbackEdge>[],
+  resolve: ResolveCallback | undefined
+): Promise<void> {
+  const losses: DiffOperation[] = [];
+  for (const item of prepared) {
+    if (!item.rollback.operations.some((op) => op.risk === "destructive")) {
+      continue;
+    }
+    const { operations, ambiguousChanges } = await diff(
+      requireStateSnapshot(graph, item.edge.stateId),
+      requireStateSnapshot(graph, item.nextState)
+    );
+    for (const change of [...operations, ...ambiguousChanges.map(asDrop)]) {
+      if (
+        "tableName" in change &&
+        isDestructiveOperation(change) &&
+        (await holdsRows(producer, command, change.tableName))
+      ) {
+        losses.push(change);
+      }
+    }
+  }
+  await approveDestructiveOperations(losses, resolve, false);
+}
+
+function asDrop(change: AmbiguousChange): DiffOperation {
+  return change.type === "ambiguousTable"
+    ? { type: "dropTable", tableName: change.droppedTable }
+    : {
+        type: "dropColumn",
+        tableName: change.tableName,
+        columnName: change.droppedColumn.name,
+      };
+}
+
+/**
+ * The absent-and-empty-table probe: an absent table (a later state dropped it,
+ * or a resumed rollback already did) holds no rows.
+ */
+async function holdsRows(
+  producer: Parameters<typeof appendLedger>[0],
+  command: Parameters<typeof appendLedger>[1],
+  table: string
+): Promise<boolean> {
+  if (await isTableMissing(producer, command, table)) return false;
+  const name = renderQualifiedIdentifier(
+    (part) => command.escapeIdentifier(part),
+    boundNamespace(command),
+    table
+  );
+  const result = await producer._executeRaw(
+    `SELECT 1 AS populated FROM ${name} LIMIT 1`
+  );
+  return result.rows.length > 0;
+}
+
+/**
+ * A rolled-back attempt must have left nothing behind. A manual opaque step of
+ * it that committed, or was announced and never confirmed (it may have
+ * committed), is an effect no fingerprint shows and that no rollback undid: a
+ * forward attempt runs none. Marking it rolled back would let `apply` run the
+ * step again — the double credit (plan S4). Generated steps are structural,
+ * and so is a CONCURRENTLY index statement, whose index resolve repairs before
+ * the origin proof (plan S7): the fingerprint proves those undone.
+ */
+function refuseOpaqueEffect(
+  transition: ReturnType<typeof parentTransition>,
+  blob: Uint8Array,
+  attempt: LedgerEventV1,
+  ledger: readonly LedgerEventV1[]
+): void {
+  const opaque = new Set(
+    transition.operations.flatMap((operation) =>
+      operation.steps.flatMap((step) =>
+        operation.origin === "manual" &&
+        step.retry === "opaque" &&
+        concurrentIndexNames(sliceDispatch(blob, step.execute)).length === 0
+          ? [step.execute.dispatchId]
+          : []
+      )
+    )
+  );
+  const effects = ledger.filter(
+    (event) =>
+      event.attemptId === attempt.attemptId &&
+      event.kind === "step-confirmed" &&
+      opaque.has(event.dispatchId ?? "")
+  );
+  const effect =
+    effects.find((event) => event.effectState === "committed") ?? effects[0];
+  if (effect === undefined) return;
+  const committed = effect.effectState === "committed";
+  throw new MigrationError(
+    `resolve cannot mark this attempt rolled back: its opaque dispatch ${effect.dispatchId} ${committed ? "committed" : "may have committed"} and nothing undid it. Finish the transition by hand and resolve({ outcome: "complete" }).`,
+    committed
+      ? VibORMErrorCode.MIGRATION_PARTIAL_EFFECT
+      : VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
+    {
+      meta: {
+        ...(attempt.fromState ? { fromState: attempt.fromState } : {}),
+        ...(attempt.toState ? { toState: attempt.toState } : {}),
+        operationId: effect.operationId ?? undefined,
+        dispatchId: effect.dispatchId ?? undefined,
+        lastConfirmedStep: effect.dispatchId ?? undefined,
+        effectState: committed ? "committed" : "may-have-committed",
+        partial: true,
+      },
+    }
+  );
 }
 
 function rollbackSlice(

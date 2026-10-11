@@ -22,6 +22,13 @@ export interface MigrationErrorMeta extends VibORMErrorMeta {
   stateId?: string;
   /** Push plan digest involved in the refusal */
   planHash?: string;
+  /** Origin state of the edge (absent for the empty root) */
+  fromState?: string;
+  /** Destination state of the edge */
+  toState?: string;
+  /** Operation and dispatch the failure names */
+  operationId?: string;
+  dispatchId?: string;
   /** Honest effect classification after a non-transactional failure */
   effectState?: "none" | "committed" | "partial" | "may-have-committed";
   /** True when some provider work may already have committed */

@@ -294,7 +294,10 @@ describe("SQLite recreation type conversion", () => {
     const before = await storageClasses(column);
 
     await expect(migrations.apply()).rejects.toMatchObject({
-      code: VibORMErrorCode.QUERY_OUT_OF_RANGE,
+      code: VibORMErrorCode.MIGRATION_FAILED,
+      cause: expect.objectContaining({
+        code: VibORMErrorCode.QUERY_OUT_OF_RANGE,
+      }),
     });
 
     expect(await storageClasses(column)).toEqual(before);

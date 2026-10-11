@@ -68,20 +68,32 @@ const AMOUNT_ROWS = 1000;
  * An `s.int()` column whose `_sum` passes 2^53, as rows the database generates
  * in a view rather than stores: SQLite's members are the widest safe integers
  * and their sum also leaves int64, where SQLite's own integer `SUM` raises;
- * PostgreSQL's `integer` holds at most 2^31 - 1, so 4,194,305 of them.
+ * PostgreSQL's and MySQL's `integer` holds at most 2^31 - 1, so 4,194,305 of
+ * them. MySQL's default `cte_max_recursion_depth` (1000) rules out a recursive
+ * CTE there: its rows are a cross join of digit tables.
  */
+const DIGITS = `(SELECT 0 AS d UNION ALL ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => `SELECT ${d}`).join(" UNION ALL ")})`;
 const INT_SUM_VIEWS = {
   sqlite: {
     rows: 1100,
     member: Number.MAX_SAFE_INTEGER,
+    quote: (name: string) => `"${name}"`,
     create: (view: string, rows: number, member: number) =>
-      `CREATE VIEW "${view}" AS WITH RECURSIVE g(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM g WHERE i < ${rows}) SELECT i AS id, ${member} AS n FROM g`,
+      `CREATE VIEW ${view} AS WITH RECURSIVE g(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM g WHERE i < ${rows}) SELECT i AS id, ${member} AS n FROM g`,
   },
   postgresql: {
     rows: 4_194_305,
     member: 2_147_483_647,
+    quote: (name: string) => `"${name}"`,
     create: (view: string, rows: number, member: number) =>
-      `CREATE OR REPLACE VIEW "${view}" AS SELECT g AS id, ${member} AS n FROM generate_series(1, ${rows}) AS g`,
+      `CREATE OR REPLACE VIEW ${view} AS SELECT g AS id, ${member} AS n FROM generate_series(1, ${rows}) AS g`,
+  },
+  mysql: {
+    rows: 4_194_305,
+    member: 2_147_483_647,
+    quote: (name: string) => `\`${name}\``,
+    create: (view: string, rows: number, member: number) =>
+      `CREATE OR REPLACE VIEW ${view} AS SELECT g.i + 1 AS id, ${member} AS n FROM (SELECT ${[0, 1, 2, 3, 4, 5, 6].map((place) => `t${place}.d * ${10 ** place}`).join(" + ")} AS i FROM ${[0, 1, 2, 3, 4, 5, 6].map((place) => `${DIGITS} AS t${place}`).join(" CROSS JOIN ")}) AS g WHERE g.i < ${rows}`,
   },
 } as const;
 
@@ -89,7 +101,7 @@ export function runAggregateSumOverflowCases(options: {
   readonly driverName: string;
   readonly createDriver: () => AnyDriver;
   readonly table: string;
-  /** Registers the `s.int()` case past 2^53 (no MySQL view is written). */
+  /** Registers the `s.int()` case past 2^53. */
   readonly intSum?: keyof typeof INT_SUM_VIEWS;
 }): void {
   const reading = s
@@ -296,8 +308,9 @@ export function runAggregateSumOverflowCases(options: {
 
   const intSum = options.intSum && INT_SUM_VIEWS[options.intSum];
   if (!intSum) return;
-  const view = `${options.table}_int`;
-  const tally = s.model({ id: s.int().id(), n: s.int() }).map(view);
+  const name = `${options.table}_int`;
+  const view = intSum.quote(name);
+  const tally = s.model({ id: s.int().id(), n: s.int() }).map(name);
   const exact = Number(BigInt(intSum.rows) * BigInt(intSum.member));
 
   describe(`${options.driverName}: an int _sum past 2^53`, () => {
@@ -306,7 +319,14 @@ export function runAggregateSumOverflowCases(options: {
         schema: { tally },
         driver: options.createDriver(),
       });
-      onTestFinished(() => db.$disconnect());
+      // A server database outlives the test: the view goes whatever the outcome.
+      onTestFinished(async () => {
+        try {
+          await db.$executeRawUnsafe(`DROP VIEW IF EXISTS ${view}`);
+        } finally {
+          await db.$disconnect();
+        }
+      });
       await db.$executeRawUnsafe(
         intSum.create(view, intSum.rows, intSum.member)
       );
@@ -331,7 +351,7 @@ export function runAggregateSumOverflowCases(options: {
       expect(Number.isSafeInteger(first._sum.n)).toBe(false);
       await Promise.all(pending.splice(0));
       // The replay reads no table: the view is gone.
-      await db.$executeRawUnsafe(`DROP VIEW "${view}"`);
+      await db.$executeRawUnsafe(`DROP VIEW ${view}`);
       expect(await read()).toEqual(first);
     }, 60_000);
   });

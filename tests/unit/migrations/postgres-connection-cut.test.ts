@@ -15,7 +15,14 @@
  * PGF-03): postgres.js wrote VibORM's ROLLBACK or unlock to the dead reserved
  * connection, threw out of a timer and never settled; node-postgres reported
  * the cut and the ROLLBACK sent after it as one AggregateError. Every cut now
- * ends in the retryable connection failure V1001, on both drivers.
+ * ends in the retryable connection failure V1001, on both drivers — except an
+ * apply cut after its COMMIT ran, which cannot re-read the marker it may have
+ * committed and says so with the ambiguous commit V11020 (plan S3).
+ *
+ * The phases are D1's: the lock is a transaction lock taken right after
+ * `BEGIN`, and the marker is read under it; the transaction's end releases the
+ * lock. Only stepwise work keeps a session lock and sends an unlock statement,
+ * cut once more after that work committed.
  */
 
 import { createClient as createPgClient } from "@drivers/pg";
@@ -23,6 +30,7 @@ import { createClient as createPostgresClient } from "@drivers/postgres";
 import { createMigrationClient } from "@migrations";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
+import { sql } from "@sql";
 import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import {
   type CutPoint,
@@ -50,6 +58,10 @@ const fields = {
   updatedAt: s.dateTime().updatedAt(),
 };
 const v1 = { account: s.model(fields).map("accounts") };
+/** The stepwise migration under the cut: an index built concurrently. */
+const indexed = {
+  account: s.model(fields).index(["plan"]).map("accounts"),
+};
 /** The migration under the cut: two columns on the existing table. */
 const v2 = {
   account: s
@@ -61,15 +73,47 @@ const v2 = {
     .map("accounts"),
 };
 
+type Versions = typeof v1 | typeof v2 | typeof indexed;
+
+/** A manual stepwise transition from `from` building the plan index. */
+function concurrentIndex(namespace: string, from: string | null) {
+  const holds = (present: boolean) => ({
+    kind: "trusted-read" as const,
+    query: sql.raw(
+      `SELECT ${present ? "" : "NOT "}EXISTS (SELECT 1 FROM pg_catalog.pg_class WHERE relname = 'accounts_plan_idx' AND relnamespace = '${namespace}'::regnamespace) AS ok`
+    ),
+    equals: true,
+  });
+  return {
+    name: "plan index",
+    manualMigration: {
+      transitions: [
+        {
+          from,
+          execution: "stepwise" as const,
+          originChecks: [holds(false)],
+          up: [
+            sql.raw(
+              `CREATE INDEX CONCURRENTLY "accounts_plan_idx" ON "${namespace}"."accounts" ("plan")`
+            ),
+          ],
+          rollback: { kind: "irreversible" as const, reason: "test index" },
+        },
+      ],
+      destinationChecks: [holds(true)],
+    },
+  };
+}
+
 const DRIVERS = {
-  pg: (url: string, namespace: string, schema: typeof v1 | typeof v2) =>
+  pg: (url: string, namespace: string, schema: Versions) =>
     createPgClient({
       schema,
       databaseUrl: url,
       namespace,
       options: { max: 1, connectionTimeoutMillis: 2000 },
     }),
-  postgres: (url: string, namespace: string, schema: typeof v1 | typeof v2) =>
+  postgres: (url: string, namespace: string, schema: Versions) =>
     createPostgresClient({
       schema,
       databaseUrl: url,
@@ -78,7 +122,9 @@ const DRIVERS = {
     }),
 };
 type DriverName = keyof typeof DRIVERS;
-type Command = "apply" | "push";
+/** `stepwise` applies a manual stepwise transition: the one kind of work that
+ * keeps a session lock, and so the one that sends an unlock statement. */
+type Command = "apply" | "push" | "stepwise";
 
 /** What the caller observed, and whether the migration landed. */
 interface Observed {
@@ -97,19 +143,14 @@ interface Cut {
   readonly text: (namespace: string) => string;
   readonly at: CutPoint;
   readonly commands: readonly Command[];
-  /** Whether v2 is in the database afterwards: only a cut after COMMIT ran. */
+  /** Whether v2 is in the database afterwards: only a cut after it committed. */
   readonly lands: boolean;
+  /** What `apply` settles with, when it does not reject with V1001. */
+  readonly apply?: string;
 }
 
 /** One cut per phase of a locked command, on the statement that opens it. */
 const CUTS: readonly Cut[] = [
-  {
-    phase: "during lock acquisition",
-    text: () => "pg_try_advisory_lock",
-    at: "after",
-    commands: ["apply", "push"],
-    lands: false,
-  },
   {
     phase: "before BEGIN",
     text: () => "BEGIN",
@@ -122,6 +163,21 @@ const CUTS: readonly Cut[] = [
     text: () => "BEGIN",
     at: "after",
     commands: ["apply", "push"],
+    lands: false,
+  },
+  {
+    phase: "during lock acquisition",
+    text: () => "pg_try_advisory_xact_lock",
+    at: "after",
+    commands: ["apply", "push"],
+    lands: false,
+  },
+  {
+    phase: "during the marker read, under the lock",
+    text: (namespace) =>
+      `SELECT payload FROM "${namespace}"."_viborm_migration_state"`,
+    at: "after",
+    commands: ["apply"],
     lands: false,
   },
   {
@@ -144,13 +200,17 @@ const CUTS: readonly Cut[] = [
     at: "after",
     commands: ["apply", "push"],
     lands: true,
+    apply: "rejected V11020",
   },
   {
-    phase: "during lock release",
+    phase: "during the session-lock release, after the stepwise work",
     text: () => "pg_advisory_unlock(",
     at: "after",
-    commands: ["apply", "push"],
+    commands: ["stepwise"],
     lands: true,
+    // The path committed before the release: apply keeps that outcome, and
+    // the server frees the session lock with the session (plan S3).
+    apply: "resolved applied",
   },
 ];
 
@@ -237,13 +297,24 @@ async function cutDuring(
   const url = `postgres://postgres:postgres@127.0.0.1:${await server.start()}/postgres`;
   const storage = new MemoryEstateStorage();
   const current = DRIVERS[driver](url, namespace, v1);
-  const next = DRIVERS[driver](url, namespace, v2);
+  const next = DRIVERS[driver](
+    url,
+    namespace,
+    command === "stepwise" ? indexed : v2
+  );
   try {
     if (command === "apply") {
       const migrations = createMigrationClient(current, { storage });
       await migrations.generate({ name: "v1" });
       await migrations.apply();
       await createMigrationClient(next, { storage }).generate({ name: "v2" });
+    } else if (command === "stepwise") {
+      const migrations = createMigrationClient(current, { storage });
+      const root = await migrations.generate({ name: "v1" });
+      await migrations.apply();
+      await createMigrationClient(next, { storage }).generate(
+        concurrentIndex(namespace, root.stateId)
+      );
     } else {
       await createMigrationClient(current).push();
     }
@@ -251,9 +322,9 @@ async function cutDuring(
     const observed = await recordingCrashes(async (crashes) => {
       const fired = server.killSessionOn(cut.text(namespace), cut.at);
       const run =
-        command === "apply"
-          ? createMigrationClient(next, { storage }).apply()
-          : createMigrationClient(next).push();
+        command === "push"
+          ? createMigrationClient(next).push()
+          : createMigrationClient(next, { storage }).apply();
       return {
         command: await settle(run.then(({ outcome }) => outcome)),
         cut: (await within(fired)) !== PENDING,
@@ -263,9 +334,13 @@ async function cutDuring(
     });
     await server.stop();
     const { rows } = await database.query<{ landed: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM information_schema.columns
-         WHERE table_schema = $1 AND table_name = 'accounts'
-           AND column_name = 'region') AS landed`,
+      command === "stepwise"
+        ? `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class
+             WHERE relname = 'accounts_plan_idx'
+               AND relnamespace = $1::regnamespace) AS landed`
+        : `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = $1 AND table_name = 'accounts'
+               AND column_name = 'region') AS landed`,
       [namespace]
     );
     return { ...observed, landed: rows[0]?.landed === true };
@@ -284,6 +359,7 @@ for (const driver of Object.keys(DRIVERS) as DriverName[]) {
             cut: true,
             landed: cut.lands,
             ...TARGET,
+            ...(command !== "push" && cut.apply ? { command: cut.apply } : {}),
           });
         });
       }

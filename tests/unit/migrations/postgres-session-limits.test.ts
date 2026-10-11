@@ -21,7 +21,7 @@ import { VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations";
 import { getMigrationDriver } from "@migrations/drivers";
 import {
-  resolveMigrationTimeLimits,
+  resolveMigrationLimits,
   withLockedMigrationProducer,
 } from "@migrations/pinned-session";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
@@ -31,7 +31,7 @@ import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const ROWS = 10_000;
-const LOCK = /pg_try_advisory_lock/i;
+const LOCK = /pg_try_advisory_xact_lock/i;
 const DDL = /^(ALTER TABLE|CREATE (UNIQUE )?INDEX|CREATE TABLE|DROP )/i;
 const CONCURRENTLY = /^CREATE INDEX CONCURRENTLY/i;
 const SETTINGS = ["lock_timeout", "statement_timeout"] as const;
@@ -266,7 +266,7 @@ describe("every locked command runs under the session's time limits", () => {
     expect(adopted.after).toEqual(baseline);
   });
 
-  it("the client's timeLimits option is the limits its commands run under", async () => {
+  it("the client's limits option is the limits its commands run under", async () => {
     await database.query('CREATE SCHEMA "limits_estate"');
     const limited = createMigrationClient(
       createClient({
@@ -274,7 +274,7 @@ describe("every locked command runs under the session's time limits", () => {
         schema: v1,
         namespace: "limits_estate",
       }),
-      { timeLimits: { lockTimeout: 1500, statementTimeout: 90_000 } }
+      { limits: { lockTimeout: 1500, statementTimeout: 90_000 } }
     );
     const own: Settings = { lock_timeout: "1500ms", statement_timeout: "90s" };
     expect(await observe(database, () => limited.push())).toEqual({
@@ -314,7 +314,7 @@ describe("the wait for the migration connection is bounded", () => {
     const command = getMigrationDriver(
       driver,
       undefined,
-      resolveMigrationTimeLimits({ connectionWait: 300 })
+      resolveMigrationLimits({ connectionWait: 300 })
     );
     const started = Date.now();
 

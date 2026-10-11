@@ -36,12 +36,16 @@ class FaultySqliteDriver extends SQLite3Driver {
   constructor(options, fault) {
     super(options);
     this.fault = fault;
+    // Shared, not per-object: the migration commands run statements through
+    // views over this driver (Object.create), whose own writes would not land
+    // on the instance the probe inspects.
+    this.observed = { off: false };
   }
 
   intercept(text) {
     if (this.fault === "none") return { text };
     if (PRAGMA_OFF.test(text)) {
-      this.offSeen = true;
+      this.observed.off = true;
       return { result: { rows: [], rowCount: 0 } };
     }
     if (this.fault === "pragma-lies" && PRAGMA_READ.test(text)) {
@@ -198,7 +202,9 @@ async function scenario(tmpDir, name, makeDriver) {
     intact,
     rebuilt: after.labelNullable,
     faultMissed:
-      driver.fault !== undefined && driver.fault !== "none" && !driver.offSeen,
+      driver.fault !== undefined &&
+      driver.fault !== "none" &&
+      !driver.observed.off,
     applied: outcome === "applied" && after.labelNullable,
     line: `${name}: ${outcome}; tags ${ITEMS}->${after.tags}, linked notes ${ITEMS}->${after.linkedNotes}`,
   };

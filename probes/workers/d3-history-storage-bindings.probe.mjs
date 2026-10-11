@@ -4,8 +4,10 @@
 // `viborm/migrations/storage/fs`, and both pass the exported conformance suite
 // once it is extended with a create race, an absent read, list-after-publish
 // and manifest-last. The probe checks the suite's size and adds its own create
-// race, absent read and list-after-publish; manifest-last is left to the suite
-// (no storage-level violation of it is defined yet).
+// race, absent read and list-after-publish across writers that share one
+// backing store; manifest-last is the suite's own case (a listed state's
+// snapshot and SQL are already readable while the publisher writes them in
+// order).
 //
 // The bindings are found through the installed export map (any
 // `./migrations/storage/*` subpath naming a Durable Object or R2) and fed

@@ -141,7 +141,11 @@ describe("migration v1 authenticated push", () => {
       expect(
         await changed.entry.findUniqueOrThrow({ where: { id: 1 } })
       ).toEqual({ id: 1, a: "keep", b: 23 });
-      await migrations.down();
+      // The rollback tightens two populated columns to NOT NULL: approved.
+      await migrations.down({
+        resolve: (change) =>
+          change.type === "destructive" ? change.proceed() : undefined,
+      });
       expect(await original.verify()).toEqual({ ok: true });
       expect(
         await client.entry.findUniqueOrThrow({ where: { id: 1 } })

@@ -29,6 +29,9 @@ const client = createClient({
 | `pgvector` | `boolean` | Enable pgvector support |
 | `postgis` | `boolean` | Enable PostGIS support |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
 ### Options Object
 
 | Option | Type | Description |

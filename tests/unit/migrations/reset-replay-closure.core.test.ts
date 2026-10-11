@@ -819,9 +819,15 @@ describe("reset live clear", () => {
     const replayIndex = driver.statements.indexOf("SELECT 'root-forward-0'");
     expect(dropIndex).toBeGreaterThanOrEqual(0);
     expect(replayIndex).toBeGreaterThan(dropIndex);
-    expect(driver.statements.filter((sql) => sql === "<begin>")).toHaveLength(
-      1
+    // The clear commits in the transaction that read the decision; the
+    // stepwise replay then runs in a locked transaction of its own (plan S5).
+    const begins = driver.statements.flatMap((sql, index) =>
+      sql === "BEGIN IMMEDIATE" ? [index] : []
     );
+    expect(begins).toHaveLength(2);
+    const clearCommit = driver.statements.indexOf("COMMIT", dropIndex);
+    expect(clearCommit).toBeLessThan(begins[1]!);
+    expect(replayIndex).toBeGreaterThan(begins[1]!);
   });
 });
 

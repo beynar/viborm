@@ -42,6 +42,7 @@ import {
   sqliteResultParser,
   type TransactionOptionSupport,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import {
   normalizeSQLiteRawRows,
   parseSQLiteField,
@@ -115,6 +116,12 @@ export interface SQLite3DriverOptions {
 
 export type SQLite3ClientConfig<C extends DriverConfig> = SQLite3DriverOptions &
   C;
+
+const SQLITE3_CONFIG_KEYS: Record<keyof SQLite3DriverOptions, true> = {
+  client: true,
+  dataDir: true,
+  options: true,
+};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
@@ -195,7 +202,9 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     // better-sqlite3 happens to enable this already; stated explicitly so FK
     // enforcement is a viborm guarantee, not an inherited library default.
     db.pragma("foreign_keys = ON");
-    db.pragma("busy_timeout = 5000");
+    // The caller's `timeout` is better-sqlite3's busy timeout and stands, as
+    // libsql's does; VibORM's 5000 ms applies only when none is given.
+    if (options.timeout === undefined) db.pragma("busy_timeout = 5000");
     return db;
   }
 
@@ -435,6 +444,9 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: SQLite3Driver }
   >]: LinkedClientConfig<C & { driver: SQLite3Driver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "sqlite3", SQLITE3_CONFIG_KEYS, {
+    databaseUrl: "pass the database file as dataDir",
+  });
   const { client, dataDir, options } = config;
 
   const driver = new SQLite3Driver({ client, dataDir, options });

@@ -119,6 +119,16 @@
       "import": "./dist/migrations/storage/fs.mjs",
       "default": "./dist/migrations/storage/fs.mjs"
     },
+    "./migrations/storage/durable-object": {
+      "types": "./dist/migrations/storage/durable-object.d.mts",
+      "import": "./dist/migrations/storage/durable-object.mjs",
+      "default": "./dist/migrations/storage/durable-object.mjs"
+    },
+    "./migrations/storage/r2": {
+      "types": "./dist/migrations/storage/r2.d.mts",
+      "import": "./dist/migrations/storage/r2.mjs",
+      "default": "./dist/migrations/storage/r2.mjs"
+    },
     "./config": {
       "types": "./dist/config.d.mts",
       "import": "./dist/config.mjs",

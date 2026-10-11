@@ -254,6 +254,16 @@ export abstract class Driver<
     | SqliteMigrationCapability
     | undefined;
 
+  /**
+   * Runs on the migration's connection immediately before a SQLite table
+   * recreation's `PRAGMA foreign_keys = OFF`, outside any transaction, or is
+   * absent. SQLite ignores that pragma while a write is pending, so a driver
+   * whose platform can hold one open settles it here: a Durable Object driver
+   * calls `await ctx.storage.sync()`. The pragma is read back afterwards
+   * either way, and the recreation is refused when it still reads 1.
+   */
+  protected beforeForeignKeysOff?(): Promise<void>;
+
   async disconnect(): Promise<void> {
     return this._disconnect();
   }

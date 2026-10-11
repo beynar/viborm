@@ -8,7 +8,7 @@ export {
   sqliteCanonicalDateTimeExpression,
   sqliteCanonicalTimeExpression,
 } from "../adapters/databases/sqlite/storage/datetime";
-export type { MigrationTimeLimits } from "../drivers/shared/pinned-session";
+export type { MigrationLimits } from "../drivers/shared/pinned-session";
 export { isMigrationError, MigrationError } from "../errors";
 export type { InvalidIndex } from "./catalog-probes";
 export type { CheckFinding, CheckResult } from "./check";

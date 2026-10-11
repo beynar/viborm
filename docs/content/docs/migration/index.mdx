@@ -123,14 +123,15 @@ Both push and migrate follow the same core process:
 
 Migration atomicity is a DDL-specific guarantee and is not implied by support
 for client transactions. VibORM admits effectful work only when the concrete
-provider proves its marker compare-and-swap and execution boundary, and, on
-every dialect but SQLite, its migration lock. SQLite takes no migration lock.
+provider proves its marker compare-and-swap, execution boundary and migration
+lock. PostgreSQL takes it in each migration transaction and SQLite through
+`BEGIN IMMEDIATE`, and both read the marker under it before the first effect.
 MySQL DDL is the documented stepwise exception because each statement commits:
 
 | Driver | `push` | `migrate apply` |
 |--------|--------|-----------------|
 | **PGlite, pg, postgres.js, Bun SQL** | Transaction when every statement permits it | Same guarantee |
-| **SQLite3, Bun SQLite** | Transaction (`BEGIN IMMEDIATE` on the stock drivers); no migration lock | Same, per group: a concurrent `apply` of the same state fails and rolls back, usually on its first conflicting statement or on SQLite's busy timeout, and at the latest on the marker compare-and-swap (`V11015`). Stepwise manual work is unguarded, so run one `apply` at a time |
+| **SQLite3, Bun SQLite** | Transaction (`BEGIN IMMEDIATE`, whose write lock is the migration lock) | Same, per group: a concurrent `apply` of the same state reads the first one's marker and reports `noop`, or refuses with `V11015`. Stepwise transitions are refused (`V11021`) |
 | **MySQL2** | Stepwise — a failed run can leave earlier statements applied | Same limitation, with durable progress evidence |
 | **Neon HTTP, PlanetScale, D1, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
 

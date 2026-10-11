@@ -2,14 +2,16 @@
 // migration code attaches. A failed opaque stepwise dispatch raises V11020
 // with lastConfirmedStep / effectState / partial; 1.1.0's error-metadata
 // allow-list strips them and the error arrives with `meta: {}`.
-import Database from "better-sqlite3";
+// Run on PGlite: 1.2.0 refuses stepwise work on SQLite outright (plan S5), so
+// a stepwise outcome exists only on PostgreSQL and MySQL.
+import { PGlite } from "@electric-sql/pglite";
 import { s, sql } from "viborm";
 import {
   createMigrationClient,
   isMigrationError,
   MemoryEstateStorage,
 } from "viborm/migrations";
-import { createClient } from "viborm/sqlite3";
+import { createClient } from "viborm/pglite";
 
 export const meta = {
   id: "S3-error-meta",
@@ -40,8 +42,8 @@ const invoice = s.model({
 });
 
 export default async function probe() {
-  const db = new Database(":memory:");
-  const client = createClient({ client: db, schema: { invoice } });
+  const pg = new PGlite();
+  const client = createClient({ client: pg, schema: { invoice } });
   try {
     const migrations = createMigrationClient(client, {
       storage: new MemoryEstateStorage(),
@@ -113,6 +115,6 @@ export default async function probe() {
     };
   } finally {
     await client.$disconnect();
-    db.close();
+    await pg.close();
   }
 }

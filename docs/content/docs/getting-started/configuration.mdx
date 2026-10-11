@@ -166,6 +166,11 @@ DATABASE_URL=postgresql://user:password@localhost:5432/mydb
 
 If a URL isn't enough, every driver also accepts an `options` object with library-specific settings (host, port, ssl, pool size, ...) — see [Drivers](/docs/drivers).
 
+Each driver's `createClient` refuses a key it does not read with a
+`ClientInitializationError` that names the key. For example `viborm/sqlite3`
+takes its database file as `dataDir`, so `databaseUrl` there is refused instead
+of silently opening an in-memory database.
+
 ## Running the CLI
 
 The CLI automatically loads your config file:

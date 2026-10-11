@@ -174,17 +174,32 @@ export interface BaselineOptions {
   readonly via?: readonly Sha256[];
 }
 
-export type DownV1Options =
+/**
+ * `down({ to })` is the form for automation: a retry finds the marker already
+ * there and does nothing. The relative `steps` form takes `expectRevision`, the
+ * `marker.revision` the caller read, so a retried call refuses (V11015)
+ * instead of rolling back one more state.
+ */
+export type DownV1Options = (
   | {
       readonly steps?: number;
       readonly to?: never;
-      readonly dryRun?: boolean;
     }
   | {
       readonly to: StateSelector;
       readonly steps?: never;
-      readonly dryRun?: boolean;
-    };
+    }
+) & {
+  readonly dryRun?: boolean;
+  /** Refuse with V11015 unless the marker is still at this revision. */
+  readonly expectRevision?: number;
+  /**
+   * Answers each destructive change the rollback would make to a table that
+   * holds rows, as `generate` and `push` ask: `change.proceed()` approves it.
+   * Without it, such a rollback refuses with V11017.
+   */
+  readonly resolve?: ResolveCallback;
+};
 
 export interface ResolveV1Options {
   readonly outcome: "complete" | "rolled-back" | "retry";

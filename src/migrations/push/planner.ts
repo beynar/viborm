@@ -1,5 +1,5 @@
 import type { AnyDriver } from "../../drivers/driver";
-import type { ResolvedMigrationTimeLimits } from "../../drivers/shared/pinned-session";
+import type { ResolvedMigrationLimits } from "../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { AnyModel } from "../../schema/model";
 import type { ResolvedRelationIndex } from "../../schema/validation/relation-resolution";
@@ -22,7 +22,7 @@ import {
   validateResolveResult,
 } from "../resolver";
 import { serializeResolvedModels } from "../serializer";
-import { MANAGED_TABLES, MIGRATION_TIME_LIMITS } from "../target";
+import { MANAGED_TABLES, MIGRATION_LIMITS } from "../target";
 import {
   type AmbiguousChange,
   type AmbiguousResolveChange,
@@ -55,7 +55,7 @@ export interface MigrationClient {
   $driver: AnyDriver;
   $schema: Record<string, AnyModel>;
   readonly [MANAGED_TABLES]?: readonly string[] | undefined;
-  readonly [MIGRATION_TIME_LIMITS]?: ResolvedMigrationTimeLimits | undefined;
+  readonly [MIGRATION_LIMITS]?: ResolvedMigrationLimits | undefined;
 }
 
 export interface PushOptions {
@@ -122,7 +122,7 @@ export function getPushMigrationDriver(
   return getMigrationDriver(
     client.$driver,
     client[MANAGED_TABLES],
-    client[MIGRATION_TIME_LIMITS]
+    client[MIGRATION_LIMITS]
   );
 }
 
