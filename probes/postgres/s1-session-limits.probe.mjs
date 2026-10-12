@@ -117,14 +117,24 @@ async function show(send, db) {
 async function observe(db, command) {
   const send = db.execProtocolStream;
   const seen = { lock: null, ddl: null, concurrently: null };
+  let lockPending = false;
   db.execProtocolStream = async (message, options) => {
     if (message[0] === 0x50 || message[0] === 0x51) {
       const start = message[0] === 0x50 ? message.indexOf(0, 5) + 1 : 5;
       const text = decoder
         .decode(message.subarray(start, message.indexOf(0, start)))
         .trim();
-      if (!(seen.lock || STATE_TABLE.test(text)) && LOCK.test(text))
+      // The lock statement sets the transaction's limits and tries the lock in
+      // one non-blocking statement, so the limits are read at the next one.
+      if (lockPending) {
         seen.lock = await show(send, db);
+        lockPending = false;
+      }
+      if (
+        !(seen.lock || lockPending || STATE_TABLE.test(text)) &&
+        LOCK.test(text)
+      )
+        lockPending = true;
       if (!seen.ddl && DDL.test(text)) seen.ddl = await show(send, db);
       if (!seen.concurrently && CONCURRENTLY.test(text))
         seen.concurrently = await show(send, db);
