@@ -78,7 +78,12 @@ export default async function probe() {
               sql.raw(
                 `UPDATE "invoice" SET "balanceCents" = "balanceCents" + 500`
               ),
-              sql.raw(`INSERT INTO "fee_audit" ("id") VALUES ('late-fee')`),
+              // A DO block may commit part of its work before it fails, so
+              // its failure stays ambiguous (V11020). A plain statement the
+              // server refuses whole is V11001 since 1.2.0.
+              sql.raw(
+                `DO $$ BEGIN INSERT INTO "fee_audit" ("id") VALUES ('late-fee'); END $$`
+              ),
             ],
             rollback: { kind: "irreversible", reason: "probe" },
           },
