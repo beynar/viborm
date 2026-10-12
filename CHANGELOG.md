@@ -3,7 +3,7 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
-## 1.2.0
+## 1.2.0 — 2026-10-12
 
 Makes migrations safe to run unattended, from a deploy step or from a tenant's
 Durable Object: bounded sessions, honest outcomes, recovery commands, consent at
