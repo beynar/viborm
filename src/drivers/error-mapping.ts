@@ -24,6 +24,7 @@ import {
   buildMeta,
   type DriverErrorContext,
   type DriverErrorShape,
+  readProperty,
   transferSuppressedFailureEvidence,
 } from "./driver-error-context";
 import type { Dialect } from "./types";
@@ -31,7 +32,7 @@ import type { Dialect } from "./types";
 // Stop at ":" so D1's "users.email: SQLITE_CONSTRAINT" suffix isn't captured
 const BUN_SQL_STATE_PATTERN = /^[0-9A-Z]{5}$/;
 const PROVIDER_CONNECTION_CODE_PATTERN =
-  /^(?:CONNECTION_CLOSED$|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ERR_POSTGRES_CONNECTION_|08[0-9A-Z]{3}$|57P0[123]$)/;
+  /^(?:CONNECTION_(?:CLOSED|DESTROYED|ENDED)$|ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|EPIPE$|ERR_POSTGRES_CONNECTION_|08[0-9A-Z]{3}$|57P0[123]$)/;
 const SQLITE_CONSTRAINT_COLUMNS_PATTERN = /constraint failed: ([^:]+)/;
 // Symbolic BUSY/LOCKED codes are the exact base name or an underscore-delimited
 // extended family member. The delimiter is load-bearing: startsWith accepted
@@ -54,7 +55,9 @@ export const ASSERTION_MARKER = "__viborm_assert__";
 const POSTGRES_DIVISION_BY_ZERO = "22012";
 const MYSQL_INVALID_JSON_TEXT = 3141;
 
-const JSON_ACCESS_SIGNATURE = /json|->/i;
+// `json_each(?))` closes a bound member list (SQLite's `literals.list`): JSON
+// text the adapter stringified, which cannot raise "malformed JSON".
+const JSON_ACCESS_SIGNATURE = /json(?!_each\(\?\)\))|->/i;
 
 const FOREIGN_ASSERTION_SIGNATURE: Record<Dialect, RegExp> = {
   postgresql: /[/%]/,
@@ -665,14 +668,6 @@ function readStringOrNumber(
   return typeof member === "string" || typeof member === "number"
     ? member
     : undefined;
-}
-
-function readProperty(value: object, key: string): unknown {
-  try {
-    return Reflect.get(value, key);
-  } catch {
-    return undefined;
-  }
 }
 
 function parseMessageErrno(message: string): number | undefined {

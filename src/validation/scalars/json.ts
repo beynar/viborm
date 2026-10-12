@@ -126,6 +126,19 @@ type JsonUpdateSchema<
   ]
 >;
 
+/**
+ * The create schema reads the same envelope (see {@link isSetEnvelope}), so it
+ * takes what an update takes and yields the value it stores.
+ */
+type JsonCreateSchema<
+  F extends ScalarState<"json">,
+  S extends V.Schema,
+> = VibSchema<
+  | V.Input<JsonWriteOperand<F, S>>
+  | { set: Exclude<V.Input<JsonWriteOperand<F, S>>, undefined> },
+  V.Output<JsonWriteOperand<F, S>>
+>;
+
 // =============================================================================
 // JSON PATH GRAMMAR (admission owns both spellings)
 // =============================================================================
@@ -284,6 +297,26 @@ const inertModeRefusal = (
     : INERT_MODE_REFUSAL;
 };
 
+/**
+ * A sentinel names the database NULL or the JSON null of the WHOLE column, so
+ * under a `path` (the filter's own, which also scopes its `not`) it means
+ * nothing; `equals: null` is the JSON null at that path.
+ */
+const pathSentinelRefusal = (
+  value: Record<string, unknown>
+): string | undefined => {
+  if (value.path === undefined) return undefined;
+  const { equals, not } = value;
+  const sentinel =
+    jsonNullKindOf(equals) ??
+    jsonNullKindOf(not) ??
+    (isRecord(not) ? jsonNullKindOf(not.equals) : undefined);
+  return (
+    sentinel &&
+    `JSON filter cannot combine 'path' with the ${sentinel} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`
+  );
+};
+
 // =============================================================================
 // SCHEMA BUILDERS
 // =============================================================================
@@ -313,9 +346,11 @@ const buildJsonFilterSchema = <S extends V.Schema>(
   // `{ path: ['status'] }` fail closed instead of comparing the whole
   // document, and what makes a declared `mode` justify itself.
   const refuse = (value: Record<string, unknown>): string | undefined =>
-    requireFilterOperation(value) ?? inertModeRefusal(value);
+    requireFilterOperation(value) ??
+    inertModeRefusal(value) ??
+    pathSentinelRefusal(value);
   const filter = v.object(entries, { refuse });
-  return v.object(
+  const jsonFilter = v.object(
     {
       ...entries,
       // `not: DbNull` / `not: JsonNull` / `not: AnyNull` are the sentinel
@@ -324,7 +359,21 @@ const buildJsonFilterSchema = <S extends V.Schema>(
       not: v.jsonNullOr(FILTER_SENTINELS, filter, JSON_FILTER_SITE),
     },
     { refuse }
-  ) as unknown as JsonFilterSchema<S>;
+  );
+  // A sentinel is an operand: in the field's own position it compares
+  // nothing, so it is refused by name there instead of read as an object.
+  const validate = jsonFilter["~standard"].validate;
+  Object.defineProperty(jsonFilter["~standard"], "validate", {
+    value: (value: unknown) => {
+      const sentinel = jsonNullKindOf(value);
+      return sentinel
+        ? fail(
+            `${sentinel} is an operand, not a JSON filter; compare with { equals: ${sentinel} }.`
+          )
+        : validate(value);
+    },
+  });
+  return jsonFilter as unknown as JsonFilterSchema<S>;
 };
 
 /**
@@ -355,6 +404,18 @@ const buildJsonWriteOperand = <
     nullWriteRefusal(state.nullable)
   ) as JsonWriteOperand<F, S>;
 
+/**
+ * A one-key `{ set }` object is the write ENVELOPE on every JSON write path —
+ * create, createMany, both arms of upsert and nested creates as on update
+ * (decision 5) — so `{ set: v }` stores `v`. It is unwrapped once: a literal
+ * one-key `set` document is written `{ set: { set: v } }`, and an invalid
+ * envelope value is refused, never retried as a document.
+ */
+const isSetEnvelope = (value: unknown): value is { set: unknown } =>
+  isRecord(value) &&
+  Object.hasOwn(value, "set") &&
+  Object.keys(value).length === 1;
+
 const buildJsonUpdateSchema = <
   F extends ScalarState<"json">,
   S extends V.Schema,
@@ -366,13 +427,9 @@ const buildJsonUpdateSchema = <
   const explicit = v.object({ set: operand }, { partial: false });
   const direct = v.shorthandUpdate(operand);
   const update = v.union([explicit, direct]);
-  // A one-key `set` envelope is an operation, even when its value is invalid.
-  // Never retry it as a document and silently persist a failed operation bag.
   Object.defineProperty(update["~standard"], "validate", {
     value: (value: unknown) =>
-      isRecord(value) &&
-      Object.hasOwn(value, "set") &&
-      Object.keys(value).length === 1
+      isSetEnvelope(value)
         ? validateSchema(explicit, value)
         : validateSchema(direct, value),
   });
@@ -385,7 +442,7 @@ const buildJsonUpdateSchema = <
 
 export interface JsonSchemas<F extends ScalarState<"json">> {
   base: F["base"];
-  create: JsonWriteOperand<F, V.Json<F>>;
+  create: JsonCreateSchema<F, V.Json<F>>;
   update: JsonUpdateSchema<F, F["base"]>;
   filter: JsonFilterSchema<V.Json>;
 }
@@ -398,28 +455,41 @@ export const buildJsonSchema = <F extends ScalarState<"json">>(
     create: () => {
       const operand = buildJsonWriteOperand(state, v.json(state));
       const validate = operand["~standard"].validate;
+      const admit = (value: unknown) => {
+        if (value !== undefined || !state.hasDefault) return validate(value);
+        let defaultValue: unknown;
+        try {
+          defaultValue =
+            typeof state.default === "function"
+              ? state.default()
+              : state.default;
+        } catch {
+          return fail("JSON default failed");
+        }
+        if (defaultValue === undefined)
+          return fail("JSON default must resolve to a value");
+        // Omission preserves SQL NULL for nullable fields; an explicit JSON
+        // null default uses the same sentinel admitted by ordinary writes.
+        if (defaultValue === null)
+          return state.nullable ? ok(null) : validate(JsonNull);
+        return validate(defaultValue);
+      };
       Object.defineProperty(operand["~standard"], "validate", {
         value: (value: unknown) => {
-          if (value !== undefined || !state.hasDefault) return validate(value);
-          let defaultValue: unknown;
-          try {
-            defaultValue =
-              typeof state.default === "function"
-                ? state.default()
-                : state.default;
-          } catch {
-            return fail("JSON default failed");
-          }
-          if (defaultValue === undefined)
-            return fail("JSON default must resolve to a value");
-          // Omission preserves SQL NULL for nullable fields; an explicit JSON
-          // null default uses the same sentinel admitted by ordinary writes.
-          if (defaultValue === null)
-            return state.nullable ? ok(null) : validate(JsonNull);
-          return validate(defaultValue);
+          if (!isSetEnvelope(value)) return admit(value);
+          const result = admit(value.set);
+          // Rooted under `set`, as the update's envelope reports them.
+          return result.issues
+            ? {
+                issues: result.issues.map(({ message, path }) => ({
+                  message,
+                  path: ["set", ...(path ?? [])],
+                })),
+              }
+            : result;
         },
       });
-      return operand;
+      return operand as JsonCreateSchema<F, V.Json<F>>;
     },
     update: () => buildJsonUpdateSchema<F, F["base"]>(state, state.base),
     filter: () => buildJsonFilterSchema(v.json()),

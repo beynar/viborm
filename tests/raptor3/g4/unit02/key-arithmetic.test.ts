@@ -317,7 +317,7 @@ describe("G4-02 — R-D2, decided by Arnaud on 2026-09-15", () => {
     assert.deepEqual(candidate, shipped);
     assert.equal(
       candidate.answer,
-      "ValidationError: Validation failed for update: data.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for intKey.update: data.id.divide: Division by zero is not allowed"
     );
     // Division by zero is refused by the scalar operand schema before key
     // portability inspects the admitted assignment, including a mixed set.

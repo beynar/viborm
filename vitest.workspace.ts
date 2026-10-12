@@ -31,12 +31,17 @@ const layerProject = (
   },
 });
 
-const providerProject = (name: string, include: string[]) => ({
+const providerProject = (
+  name: string,
+  include: string[],
+  env?: Record<string, string>
+) => ({
   extends: "./vitest.config.ts",
   test: {
     name: `provider-${name}`,
     include,
     fileParallelism: false,
+    ...(env === undefined ? {} : { env }),
   },
 });
 
@@ -202,6 +207,7 @@ export default defineWorkspace([
     "tests/unit/migrations/sqlite-driver-boundaries.core.test.ts",
     "tests/unit/migrations/sqlite-definition-parser-remaining.core.test.ts",
     "tests/unit/migrations/sqlite-datetime-recreation.test.ts",
+    "tests/unit/migrations/sqlite-manual-storage-canonicalization.test.ts",
     "tests/unit/migrations/decimal-sqlite-integrity.test.ts",
     "tests/unit/migrations/decimal-descriptor-carriers.core.test.ts",
     "tests/unit/migrations/decimal-descriptor-ddl.core.test.ts",
@@ -239,7 +245,36 @@ export default defineWorkspace([
   providerProject("sqlite3", ["tests/providers/local/sqlite3*.test.ts"]),
   providerProject("libsql", ["tests/providers/local/libsql*.test.ts"]),
   // `pg*` cannot catch postgres*: that name starts "po".
-  providerProject("pg", ["tests/providers/docker/pg*.test.ts"]),
+  // Two of the migration suites also hold a MySQL half; it runs here when
+  // MYSQL_TEST_CONNECTION_STRING is set, as it is in the Docker job.
+  providerProject("pg", [
+    "tests/providers/docker/pg*.test.ts",
+    "tests/unit/migrations/pinned-session-docker.test.ts",
+    "tests/unit/migrations/postgres-catalog-digest-docker.test.ts",
+    "tests/unit/migrations/postgres-namespace-docker.test.ts",
+    "tests/unit/migrations/postgres-recoverable-steps-docker.test.ts",
+    "tests/unit/migrations/postgres-session-limits-docker.test.ts",
+    "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
+    "tests/unit/migrations/neon-http-batch-apply-docker.test.ts",
+    "tests/unit/migrations/shared-pool-estates-docker.test.ts",
+  ]),
+  // Push, generate and apply again, through a transaction-mode PgBouncer. Only
+  // PGBOUNCER_TEST_CONNECTION_STRING is read: unset, the project skips rather
+  // than reach the server directly. pinned-session-docker is left out: it pins
+  // one backend across a commit, which a transaction pooler never promises.
+  providerProject(
+    "pgbouncer",
+    [
+      "tests/providers/docker/pg-enum-evolution.test.ts",
+      "tests/unit/migrations/postgres-namespace-docker.test.ts",
+      "tests/unit/migrations/shared-pool-estates-docker.test.ts",
+    ],
+    {
+      PG_TEST_CONNECTION_STRING:
+        process.env.PGBOUNCER_TEST_CONNECTION_STRING ?? "",
+      MYSQL_TEST_CONNECTION_STRING: "",
+    }
+  ),
   providerProject("postgres", ["tests/providers/docker/postgres*.test.ts"]),
   providerProject("mysql2", [
     "tests/providers/docker/mysql2*.test.ts",
@@ -247,6 +282,7 @@ export default defineWorkspace([
     "tests/unit/migrations/mysql-strict-mode-docker.test.ts",
     "tests/unit/migrations/decimal-list-defaults-mysql-docker.test.ts",
     "tests/unit/migrations/mysql-defaults-docker.test.ts",
+    "tests/unit/migrations/table-rename-derived-names-mysql-docker.test.ts",
   ]),
   providerProject("transaction-options", [
     "tests/providers/docker/transaction-options-live.test.ts",
@@ -267,4 +303,5 @@ export default defineWorkspace([
     },
   },
   "./vitest.d1.config.ts",
+  "./vitest.tenant-do.config.ts",
 ]);

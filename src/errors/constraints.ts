@@ -1,5 +1,4 @@
-import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
-import type { DiagnosticDisclosure } from "./diagnostics";
+import { VibORMError, VibORMErrorCode, type VibORMErrorOptions } from "./base";
 
 /**
  * Unique constraint violation
@@ -10,18 +9,7 @@ export class UniqueConstraintError extends VibORMError {
   /** Literal discriminant: this class always carries `UNIQUE_CONSTRAINT`. */
   declare readonly code: typeof VibORMErrorCode.UNIQUE_CONSTRAINT;
 
-  constructor(
-    message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta & {
-        constraint?: string;
-        table?: string;
-        columns?: string[];
-      };
-    }
-  ) {
+  constructor(message: string, options?: VibORMErrorOptions) {
     super(message, VibORMErrorCode.UNIQUE_CONSTRAINT, options);
   }
 }
@@ -35,14 +23,7 @@ export class ForeignKeyError extends VibORMError {
   /** Literal discriminant: this class always carries `FOREIGN_KEY_CONSTRAINT`. */
   declare readonly code: typeof VibORMErrorCode.FOREIGN_KEY_CONSTRAINT;
 
-  constructor(
-    message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta & { constraint?: string };
-    }
-  ) {
+  constructor(message: string, options?: VibORMErrorOptions) {
     super(message, VibORMErrorCode.FOREIGN_KEY_CONSTRAINT, options);
   }
 }
@@ -56,17 +37,7 @@ export class NotNullConstraintError extends VibORMError {
   /** Literal discriminant: this class always carries `NOT_NULL_CONSTRAINT`. */
   declare readonly code: typeof VibORMErrorCode.NOT_NULL_CONSTRAINT;
 
-  constructor(
-    message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta & {
-        table?: string;
-        columns?: string[];
-      };
-    }
-  ) {
+  constructor(message: string, options?: VibORMErrorOptions) {
     super(message, VibORMErrorCode.NOT_NULL_CONSTRAINT, options);
   }
 }
@@ -80,14 +51,7 @@ export class CheckConstraintError extends VibORMError {
   /** Literal discriminant: this class always carries `CHECK_CONSTRAINT`. */
   declare readonly code: typeof VibORMErrorCode.CHECK_CONSTRAINT;
 
-  constructor(
-    message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta & { constraint?: string };
-    }
-  ) {
+  constructor(message: string, options?: VibORMErrorOptions) {
     super(message, VibORMErrorCode.CHECK_CONSTRAINT, options);
   }
 }
@@ -112,17 +76,7 @@ export class ValueTooLongError extends VibORMError {
   /** Literal discriminant: this class always carries `VALUE_TOO_LONG`. */
   declare readonly code: typeof VibORMErrorCode.VALUE_TOO_LONG;
 
-  constructor(
-    message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta & {
-        table?: string;
-        columns?: string[];
-      };
-    }
-  ) {
+  constructor(message: string, options?: VibORMErrorOptions) {
     super(message, VibORMErrorCode.VALUE_TOO_LONG, options);
   }
 }

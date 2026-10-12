@@ -13,7 +13,6 @@ import {
   type PreparedSelector,
   returningSafeProjection,
   type SelectorFacts,
-  wholeValue,
 } from "../shared/query";
 import type { ModelStamps, RowPurpose } from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
@@ -844,10 +843,8 @@ export class Commands {
           ? owner.command.located?.facts.equals.get(field)
           : undefined;
       };
-      const literal = (field: string) => {
-        const stated = this.#literalOf(command, field, write.occurrence);
-        return stated;
-      };
+      const literal = (field: string) =>
+        this.#literalOf(command, field, write.occurrence);
       let touchesMember = false;
       let disjoint = false;
       if (edge.kind === "reference" && edge.owner === "target") {
@@ -1841,7 +1838,8 @@ export class Commands {
    * conjuncts (`write-engine/UpsertOperation.ts` `buildOnConflictFold`): a
    * targeted-upsert adapter, no conditional filter, a `where` naming one
    * constraint and nothing else, the create spelling every column of that
-   * constraint with the primitive value the `where` names, a set-only update;
+   * constraint with the primitive value the `where` names, an update of values
+   * and counters (engine-08);
    * (2) otherwise the probe-first path — the locate read runs at preparation
    * ({@link OperationContext.read}) and the selected scalar arm rides the
    * owner's batch as ONE statement with RETURNING, the existing owners of a
@@ -1897,13 +1895,13 @@ export class Commands {
     lookup.insertsWhenAbsent = true;
     const key = lookup.selector.uniqueKey;
     // The targeted fold evaluates no selector: under a domain its conflict
-    // could be a hidden row, which it would update.
+    // could be a hidden row, which it would update. A counter folds too
+    // (engine-08): `upsertOne` names each value over the conflicting row.
     const spelled =
       capabilities.supportsTargetedUpsert &&
       lookup.selector.scoped === undefined &&
       key !== undefined &&
       lookup.selector.uniqueValues !== undefined &&
-      fields.every((field) => wholeValue(updates[field])) &&
       key.fields.every((field) => {
         const value = values[field];
         return (
@@ -1911,7 +1909,10 @@ export class Commands {
             (typeof value !== "object" && typeof value !== "function")) &&
           Object.is(value, lookup.selector.uniqueValues!.get(field))
         );
-      });
+      }) &&
+      fields.every((field) =>
+        ctx.queries.namesUpdate(model, field, updates[field])
+      );
     if (spelled)
       return {
         single: true,

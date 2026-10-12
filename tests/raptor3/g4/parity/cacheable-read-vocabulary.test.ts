@@ -8,8 +8,8 @@
  * nine names, both `…OrThrow` variants among them) while the engine's own
  * `READ_OPERATIONS` (`raptor3/shared/schema.ts`) has seven. No type ties the
  * two lists together and no single upstream owner states the fact; the whole
- * reconciliation is `admittedOperation`'s `…OrThrow` normalization
- * (`commands/index.ts`). That missing owner is why the refusal is KEPT rather
+ * reconciliation is `baseOperation`'s `…OrThrow` normalization
+ * (`query-engine/routed-operations.ts`). That missing owner is why the refusal is KEPT rather
  * than asserted away (N4, plan §4) — and it is also why the boundary needs a
  * measurement rather than a source reading.
  *

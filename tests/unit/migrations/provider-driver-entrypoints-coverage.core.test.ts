@@ -24,6 +24,10 @@ import {
   RecordingDriver,
 } from "./_estate";
 
+const SCRATCH_VIEW_NAME = /'(viborm_index_predicate_\w+)'/;
+const SCRATCH_VIEW_CREATE =
+  /^CREATE VIEW "billing"\."viborm_index_predicate_[0-9a-f]{32}_0" AS SELECT 1 AS c FROM "billing"\."account" WHERE active = true$/;
+
 const EMPTY_TABLE: TableDef = {
   name: "account",
   columns: [{ name: "id", type: "integer", nullable: false }],
@@ -63,16 +67,54 @@ describe("provider migration-driver public entrypoints", () => {
       to: { name: "id", type: "BIGINT", nullable: false },
     };
 
-    expect(driver.generateCreateTable(create, ddlContext("live"))).toContain(
+    expect(driver.generateDDL(create, ddlContext("live"))).toContain(
       "CONSTRAINT `account_id_key` UNIQUE (`id`)"
     );
-    expect(driver.generateCreateTable(create, ddlContext("live"))).toContain(
+    expect(driver.generateDDL(create, ddlContext("live"))).toContain(
       "ON UPDATE SET NULL"
     );
-    expect(driver.generateAlterColumn(alter, ddlContext("live"))).toBe(
+    expect(driver.generateDDL(alter, ddlContext("live"))).toBe(
       "ALTER TABLE `billing`.`account` MODIFY COLUMN `id` BIGINT NOT NULL"
     );
     expect(driver.generateSelectTarget()).toBe("USE `billing`");
+  });
+
+  test("MySQL creates a non-key AUTO_INCREMENT column with its leading index inline", () => {
+    // MySQL refuses AUTO_INCREMENT on a column no key leads with, so the
+    // index cannot follow as its own statement: it is part of CREATE TABLE.
+    const create = (unique: boolean) =>
+      mysqlMigrationDriver.compileStatements(
+        {
+          type: "createTable",
+          table: {
+            ...EMPTY_TABLE,
+            name: "events",
+            columns: [
+              { name: "id", type: "VARCHAR(191)", nullable: false },
+              {
+                name: "seq",
+                type: "INT",
+                nullable: false,
+                autoIncrement: true,
+              },
+            ],
+            primaryKey: { columns: ["id"] },
+            indexes: [{ name: "events_seq_idx", columns: ["seq"], unique }],
+          },
+        },
+        ddlContext("artifact")
+      );
+
+    for (const [unique, key] of [
+      [false, "KEY `events_seq_idx` (`seq`)"],
+      [true, "UNIQUE KEY `events_seq_idx` (`seq`)"],
+    ] as const) {
+      const statements = create(unique);
+      expect(statements).toHaveLength(1);
+      expect(statements[0]).toContain(
+        `\`seq\` INT AUTO_INCREMENT NOT NULL,\n  ${key},\n  PRIMARY KEY (\`id\`)`
+      );
+    }
   });
 
   test("MySQL identifies a decimal-list narrowing as an irreversible inverse", () => {
@@ -120,19 +162,16 @@ describe("provider migration-driver public entrypoints", () => {
     });
 
     expect(
-      driver.generateAlterEnum(
-        { type: "alterEnum", enumName: "state" },
-        context
-      )
+      driver.generateDDL({ type: "alterEnum", enumName: "state" }, context)
     ).toContain("no new values provided");
     expect(
-      driver.generateAlterEnum(
+      driver.generateDDL(
         { type: "alterEnum", enumName: "state", newValues: ["active"] },
         context
       )
     ).toContain("no dependent columns found");
 
-    const rendered = driver.generateAlterEnum(
+    const rendered = driver.generateDDL(
       {
         type: "alterEnum",
         enumName: "state",
@@ -182,14 +221,14 @@ describe("provider migration-driver public entrypoints", () => {
       ],
     };
 
-    expect(driver.generateCreateTable(create, ddlContext("artifact"))).toBe(
+    expect(driver.generateDDL(create, ddlContext("artifact"))).toBe(
       'CREATE TABLE "billing"."account" (\n  "id" integer NOT NULL,\n  CONSTRAINT "account_pkey" PRIMARY KEY ("id")\n)'
     );
-    expect(driver.generateAlterColumn(alter, ddlContext("artifact"))).toContain(
+    expect(driver.generateDDL(alter, ddlContext("artifact"))).toContain(
       'ALTER TABLE "billing"."account" ALTER COLUMN "id" TYPE bigint'
     );
     expect(
-      driver.compileRenameTable(
+      driver.compileStatements(
         { type: "renameTable", from: "account", to: "customer" },
         ddlContext("live", { currentSchema })
       )
@@ -198,7 +237,7 @@ describe("provider migration-driver public entrypoints", () => {
       'ALTER TABLE "billing"."customer" RENAME CONSTRAINT "account_pkey" TO "customer_pkey"',
     ]);
     expect(
-      driver.generateAlterEnum(
+      driver.generateDDL(
         { type: "alterEnum", enumName: "state", addValues: ["pending"] },
         ddlContext("artifact")
       )
@@ -208,7 +247,14 @@ describe("provider migration-driver public entrypoints", () => {
   test("PostgreSQL delegates predicate canonicalization through the bound table", async () => {
     const execution = pgEstateDriver("billing");
     execution.respond = (sql) =>
-      sql.includes("pg_get_viewdef") ? [{ d0: "(active = true)" }] : [];
+      sql.includes("pg_get_viewdef")
+        ? [
+            {
+              name: SCRATCH_VIEW_NAME.exec(sql)?.[1],
+              definition: "(active = true)",
+            },
+          ]
+        : [];
     const driver = getMigrationDriver(execution);
 
     await expect(
@@ -218,8 +264,8 @@ describe("provider migration-driver public entrypoints", () => {
         (sql, params) => execution._executeRaw(sql, params)
       )
     ).resolves.toEqual(["(active = true)"]);
-    expect(execution.statements).toContain(
-      'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_0" AS SELECT 1 AS c FROM "billing"."account" WHERE active = true'
+    expect(execution.statements).toContainEqual(
+      expect.stringMatching(SCRATCH_VIEW_CREATE)
     );
   });
 
@@ -251,7 +297,7 @@ describe("provider migration-driver public entrypoints", () => {
       .preflightSchemaRequirements([pointSnapshot], () => {
         providerCalls += 1;
         return Promise.reject(providerFailure);
-      })
+      }, [])
       .then(
         () => undefined,
         (error: unknown) => error
@@ -345,7 +391,7 @@ describe("coverage low value", () => {
 
   test("refuses structurally impossible auto-increment declarations", () => {
     expect(() =>
-      mysqlMigrationDriver.generateCreateTable(
+      mysqlMigrationDriver.generateDDL(
         {
           type: "createTable",
           table: {
@@ -366,7 +412,7 @@ describe("coverage low value", () => {
       expect.objectContaining({ code: VibORMErrorCode.INVALID_INPUT })
     );
     expect(() =>
-      postgresMigrationDriver.generateCreateTable(
+      postgresMigrationDriver.generateDDL(
         {
           type: "createTable",
           table: {

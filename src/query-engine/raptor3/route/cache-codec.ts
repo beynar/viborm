@@ -120,11 +120,11 @@ function shapeCodec(
  * One leaf's value codec.
  *
  * A leaf that a column declares carries that `Scalar`, and the official owner
- * compiles it: `compileWidenedSumCodec` for a decimal `_sum` (which keeps the
- * field's scale and drops its precision), `compileScalarCodec` otherwise, with
- * the DECLARED nullability switched off because the projection's own
- * `nullable` is the fact — an aggregate over a non-null column still publishes
- * `null` for an empty window.
+ * compiles it: `compileWidenedSumCodec` for a decimal, bigint, number or int
+ * `_sum` (which answers outside the field's domain), `compileScalarCodec`
+ * otherwise, with the DECLARED nullability switched off because the
+ * projection's own `nullable` is the fact — an aggregate over a non-null
+ * column still publishes `null` for an empty window.
  *
  * The leaves with no declaring scalar are the read owner's OWN values, not a
  * column's meaning: `_count` (including a relation count), `exist`, and the

@@ -1,4 +1,4 @@
-import { isError } from "../errors/diagnostic-safety";
+import { errorCause, isError } from "../errors/diagnostic-safety";
 import { sanitizeErrorCause } from "../errors/diagnostics";
 import type { ValidationFailure } from "./types";
 
@@ -11,9 +11,7 @@ export function discardAsyncValidationResult(result: unknown): void {
 
 /** Contain a thrown validator value while retaining sanitized cause evidence. */
 export function validationFailureFromThrown(cause: unknown): ValidationFailure {
-  const error = isError(cause)
-    ? cause
-    : new Error("A non-Error value was thrown.", { cause });
+  const error = errorCause(cause);
   const failure: ValidationFailure = {
     issues: [{ message: "Schema validation failed unexpectedly" }],
   };

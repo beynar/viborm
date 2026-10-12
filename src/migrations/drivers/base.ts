@@ -17,6 +17,8 @@ import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { refuseBinaryReencoding } from "../binary-conversion";
+import type { Sha256 } from "../identity";
+import type { ResolvedMigrationLimits } from "../limits";
 import {
   applyNativeRename,
   type NativeRenameOperation,
@@ -29,8 +31,26 @@ import type {
   SchemaSnapshot,
   TableDef,
 } from "../types";
-import { defaultGeneratedPrimaryKeyName } from "../utils";
+import { defaultGeneratedPrimaryKeyName, derivedMigrationName } from "../utils";
+import type { BoundMigrationDriver } from ".";
 import type { Dialect, MigrationCapabilities } from "./types";
+
+const ARRAY_TYPE = /\[\]$/;
+
+/** How the serializer ends an index, unique or foreign key name it derives. */
+const DERIVED_TAIL = /_(?:idx|f?key)$/;
+
+/** A name a native rename carries along, and the statement kind that does. */
+export interface DerivedRename {
+  readonly kind: "constraint" | "index" | "type";
+  readonly to: string;
+}
+
+/** The two control tables the fingerprint leaves out. */
+export interface ControlTableNames {
+  readonly state: string;
+  readonly log: string;
+}
 
 /**
  * Context passed to DDL generation methods.
@@ -129,6 +149,13 @@ export type DropEnumOperation = Extract<DiffOperation, { type: "dropEnum" }>;
 export type AlterEnumOperation = Extract<DiffOperation, { type: "alterEnum" }>;
 
 /**
+ * What a dialect states one operation compiles to: one statement, or the
+ * ordered statements it needs. {@link MigrationDriver.compileStatements}
+ * filters blanks once for every operation.
+ */
+type GeneratedStatements = string | readonly string[];
+
+/**
  * Abstract base class for migration drivers.
  *
  * Each database (PostgreSQL, SQLite, LibSQL, etc.) extends this class
@@ -191,6 +218,12 @@ export abstract class MigrationDriver {
    */
   declare readonly namespace?: string;
 
+  /**
+   * The limits of the command this instance is bound for (plans S1, T5a).
+   * Absent on the unbound singleton, which renders under the defaults.
+   */
+  declare readonly limits?: ResolvedMigrationLimits;
+
   // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
@@ -208,10 +241,16 @@ export abstract class MigrationDriver {
   /**
    * Proves external physical requirements encoded by authenticated snapshots.
    * Dialects with no such requirement keep the no-op owner here.
+   *
+   * `program` is the statement list the command is about to run (empty when
+   * it runs none), so a dialect can refuse what that program would destroy
+   * (SQLite: a recreation's dependent triggers and views). Required: a caller
+   * cannot skip these refusals by leaving it out.
    */
   async preflightSchemaRequirements(
     _snapshots: readonly SchemaSnapshot[],
-    _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+    _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
+    _program: readonly string[]
   ): Promise<void> {
     // Most dialects have no external schema requirement to prove.
   }
@@ -231,13 +270,36 @@ export abstract class MigrationDriver {
    * canonicalization may need session-local scratch objects, which a pooled
    * connection per statement would scatter. Positional result; `undefined` at
    * a position means the database did not answer, and the differ then refuses
-   * to call that predicate equal to anything.
+   * to call that predicate equal to anything. `executeBatch` is given where
+   * no connection can be pinned (Neon HTTP): each request may be a new
+   * session, so session-local work goes out as one request.
    */
   canonicalizeIndexPredicates?(
     tableName: string,
     predicates: readonly string[],
-    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+    executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
+    executeBatch?: <T>(
+      statements: readonly string[]
+    ) => Promise<ReadonlyArray<{ rows: T[] }>>
   ): Promise<ReadonlyArray<string | undefined>>;
+
+  /**
+   * The live managed schema's fingerprint in one statement, where this
+   * dialect can compute it (PostgreSQL, `postgres/catalog-digest.ts`): the
+   * statement for a caller that embeds it, and the digest read, `undefined`
+   * where it abstains. Absent elsewhere, and the caller introspects. The bound
+   * driver owns it, so another dialect's bundle never carries it.
+   */
+  catalogDigestQuery?(
+    this: BoundMigrationDriver,
+    control: ControlTableNames,
+    deparsedPredicates?: boolean
+  ): { readonly sql: string; readonly parameters: unknown[] };
+  catalogDigest?(
+    this: BoundMigrationDriver,
+    producer: AnyDriver,
+    control: ControlTableNames
+  ): Promise<Sha256 | undefined>;
 
   /**
    * Explains why one inverted operation cannot be rendered as an automatic
@@ -292,7 +354,204 @@ export abstract class MigrationDriver {
     snapshot: SchemaSnapshot,
     operation: NativeRenameOperation
   ): SchemaSnapshot {
-    return applyNativeRename(snapshot, operation);
+    const projected = applyNativeRename(snapshot, operation);
+    const renames = this.derivedRenames(operation, snapshot);
+    if (renames.size === 0) return projected;
+    const name = (from: string) => renames.get(from)?.to ?? from;
+    const renamed = <T extends { readonly name: string }>(
+      items: readonly T[]
+    ) => items.map((item) => ({ ...item, name: name(item.name) }));
+    const owner =
+      operation.type === "renameTable" ? operation.to : operation.tableName;
+    return {
+      ...projected,
+      ...(projected.enums ? { enums: renamed(projected.enums) } : {}),
+      tables: projected.tables.map((table) => {
+        if (table.name !== owner) return table;
+        const { primaryKey } = table;
+        return {
+          ...table,
+          columns: table.columns.map((column) => {
+            const element = column.type.replace(ARRAY_TYPE, "");
+            const type = name(element) + column.type.slice(element.length);
+            return { ...column, type };
+          }),
+          ...(primaryKey?.name
+            ? { primaryKey: { ...primaryKey, name: name(primaryKey.name) } }
+            : {}),
+          indexes: renamed(table.indexes),
+          uniqueConstraints: renamed(table.uniqueConstraints),
+          foreignKeys: renamed(table.foreignKeys),
+        };
+      }),
+    };
+  }
+
+  /**
+   * The statements that move `renames`, the names a native rename of `owner`
+   * carries along, on a dialect whose renames carry them (PostgreSQL,
+   * MySQL). `table` is the owner as the rename leaves it, still holding the
+   * old names. Absent where a rename leaves every name as it is (SQLite).
+   */
+  protected renameDerivedNames?(
+    owner: string,
+    renames: ReadonlyMap<string, DerivedRename>,
+    table: TableDef,
+    context: DDLContext
+  ): string[];
+
+  /**
+   * The names a native rename carries along, each derived from what it
+   * renames: the default primary key's (`<table>_pkey`), a per-column enum
+   * type (`<table>_<column>_enum`), and an index, unique or foreign key named
+   * after its own columns (`<table>_<columns>_idx`, `_key`, `_fkey`). A table
+   * rename also moves an index, unique or foreign key named `<table>_<rest>`
+   * that ends as the serializer ends them (`_idx`, `_key`, `_fkey`), whatever
+   * the rest is: field names, a compound key's name. Both spellings must fit
+   * unbounded (63 bytes) so the inverse rename reads the rest back. Any other
+   * name is custom, and stays; a self-set index name of that derived shape
+   * cannot be told apart, and moves.
+   */
+  private derivedRenames(
+    operation: NativeRenameOperation,
+    snapshot: SchemaSnapshot | undefined
+  ): Map<string, DerivedRename> {
+    const [from, to] =
+      operation.type === "renameTable"
+        ? [operation.from, operation.to]
+        : [operation.tableName, operation.tableName];
+    const renamed = (column: string) =>
+      operation.type === "renameColumn" && column === operation.from
+        ? operation.to
+        : column;
+    const renames = new Map<string, DerivedRename>();
+    const follow = (
+      kind: DerivedRename["kind"],
+      name: string | undefined,
+      derive: (table: string, column: (name: string) => string) => string,
+      tailed = false
+    ) => {
+      if (name === undefined) return;
+      const tail = name.slice(from.length);
+      const next =
+        name === derive(from, (column) => column)
+          ? derive(to, renamed)
+          : tailed &&
+              name.startsWith(`${from}_`) &&
+              DERIVED_TAIL.test(tail) &&
+              derivedMigrationName(to + tail) === to + tail
+            ? to + tail
+            : name;
+      if (next !== name) renames.set(name, { kind, to: next });
+    };
+    const named =
+      (columns: readonly string[], suffix: string) =>
+      (owner: string, column: (name: string) => string) =>
+        derivedMigrationName(
+          `${owner}_${columns.map(column).join("_")}_${suffix}`
+        );
+    const table = snapshot?.tables.find((item) => item.name === from);
+    if (!(table && this.renameDerivedNames)) return renames;
+    follow("constraint", table.primaryKey?.name, (owner) =>
+      this.generatedPrimaryKeyName(owner)
+    );
+    for (const column of table.columns) {
+      follow("type", column.type.replace(ARRAY_TYPE, ""), (owner, renamedTo) =>
+        this.getEnumColumnType(owner, renamedTo(column.name), [])
+      );
+    }
+    for (const index of table.indexes) {
+      follow("index", index.name, named(index.columns, "idx"), true);
+    }
+    // A unique constraint's index carries its name: renaming it renames both.
+    for (const unique of table.uniqueConstraints) {
+      follow("index", unique.name, named(unique.columns, "key"), true);
+    }
+    for (const key of table.foreignKeys) {
+      follow("constraint", key.name, named(key.columns, "fkey"), true);
+    }
+    return renames;
+  }
+
+  private compileDerivedRenames(
+    operation: NativeRenameOperation,
+    context: DDLContext
+  ): string[] {
+    const snapshot = this.schemaAtOperation(context);
+    const renames = this.derivedRenames(operation, snapshot);
+    if (renames.size === 0) return [];
+    const owner =
+      operation.type === "renameTable" ? operation.to : operation.tableName;
+    const table = applyNativeRename(snapshot!, operation).tables.find(
+      (item) => item.name === owner
+    )!;
+    return this.renameDerivedNames!(owner, renames, table, context);
+  }
+
+  /** Native identity and PK effects needed by rename and enum DDL at this prefix. */
+  protected schemaAtOperation(context: DDLContext): SchemaSnapshot | undefined {
+    let snapshot = context.currentSchema;
+    if (!snapshot) return undefined;
+    for (const operation of context.precedingOperations ?? []) {
+      if (
+        operation.type === "renameTable" ||
+        operation.type === "renameColumn"
+      ) {
+        snapshot = this.projectNativeRename(snapshot, operation);
+      } else if (operation.type === "createTable") {
+        const table = operation.table;
+        snapshot = {
+          ...snapshot,
+          tables: [
+            ...snapshot.tables,
+            table.primaryKey
+              ? {
+                  ...table,
+                  primaryKey: {
+                    ...table.primaryKey,
+                    name: this.generatedPrimaryKeyName(
+                      table.name,
+                      table.primaryKey.name
+                    ),
+                  },
+                }
+              : table,
+          ],
+        };
+      } else if (operation.type === "dropTable") {
+        snapshot = {
+          ...snapshot,
+          tables: snapshot.tables.filter(
+            (table) => table.name !== operation.tableName
+          ),
+        };
+      } else if (
+        operation.type === "addPrimaryKey" ||
+        operation.type === "dropPrimaryKey"
+      ) {
+        snapshot = {
+          ...snapshot,
+          tables: snapshot.tables.map((table) =>
+            table.name === operation.tableName
+              ? {
+                  ...table,
+                  primaryKey:
+                    operation.type === "addPrimaryKey"
+                      ? {
+                          ...operation.primaryKey,
+                          name: this.generatedPrimaryKeyName(
+                            operation.tableName,
+                            operation.primaryKey.name
+                          ),
+                        }
+                      : undefined,
+                }
+              : table
+          ),
+        };
+      }
+    }
+    return snapshot;
   }
 
   // Note: getDefaultExpression is implemented below as a common method
@@ -319,15 +578,15 @@ export abstract class MigrationDriver {
   abstract generateCreateTable(
     op: CreateTableOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropTable(
     op: DropTableOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateRenameTable(
     op: RenameTableOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Column Operations
@@ -336,19 +595,19 @@ export abstract class MigrationDriver {
   abstract generateAddColumn(
     op: AddColumnOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropColumn(
     op: DropColumnOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateRenameColumn(
     op: RenameColumnOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateAlterColumn(
     op: AlterColumnOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Index Operations
@@ -357,11 +616,11 @@ export abstract class MigrationDriver {
   abstract generateCreateIndex(
     op: CreateIndexOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropIndex(
     op: DropIndexOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Foreign Key Operations
@@ -370,11 +629,11 @@ export abstract class MigrationDriver {
   abstract generateAddForeignKey(
     op: AddForeignKeyOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropForeignKey(
     op: DropForeignKeyOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Unique Constraint Operations
@@ -383,11 +642,11 @@ export abstract class MigrationDriver {
   abstract generateAddUniqueConstraint(
     op: AddUniqueConstraintOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropUniqueConstraint(
     op: DropUniqueConstraintOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Primary Key Operations
@@ -396,11 +655,11 @@ export abstract class MigrationDriver {
   abstract generateAddPrimaryKey(
     op: AddPrimaryKeyOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropPrimaryKey(
     op: DropPrimaryKeyOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Enum Operations
@@ -409,12 +668,15 @@ export abstract class MigrationDriver {
   abstract generateCreateEnum(
     op: CreateEnumOperation,
     context: DDLContext
-  ): string;
-  abstract generateDropEnum(op: DropEnumOperation, context: DDLContext): string;
+  ): GeneratedStatements;
+  abstract generateDropEnum(
+    op: DropEnumOperation,
+    context: DDLContext
+  ): GeneratedStatements;
   abstract generateAlterEnum(
     op: AlterEnumOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL COMPILATION
@@ -429,136 +691,6 @@ export abstract class MigrationDriver {
         statement !== undefined &&
         statement.trim().length > 0
     );
-  }
-
-  compileCreateTable(
-    op: CreateTableOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateCreateTable(op, context)]);
-  }
-
-  compileDropTable(
-    op: DropTableOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropTable(op, context)]);
-  }
-
-  compileRenameTable(
-    op: RenameTableOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateRenameTable(op, context)]);
-  }
-
-  compileAddColumn(
-    op: AddColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAddColumn(op, context)]);
-  }
-
-  compileDropColumn(
-    op: DropColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropColumn(op, context)]);
-  }
-
-  compileRenameColumn(
-    op: RenameColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateRenameColumn(op, context)]);
-  }
-
-  compileAlterColumn(
-    op: AlterColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAlterColumn(op, context)]);
-  }
-
-  compileCreateIndex(
-    op: CreateIndexOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateCreateIndex(op, context)]);
-  }
-
-  compileDropIndex(
-    op: DropIndexOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropIndex(op, context)]);
-  }
-
-  compileAddForeignKey(
-    op: AddForeignKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAddForeignKey(op, context)]);
-  }
-
-  compileDropForeignKey(
-    op: DropForeignKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropForeignKey(op, context)]);
-  }
-
-  compileAddUniqueConstraint(
-    op: AddUniqueConstraintOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([
-      this.generateAddUniqueConstraint(op, context),
-    ]);
-  }
-
-  compileDropUniqueConstraint(
-    op: DropUniqueConstraintOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([
-      this.generateDropUniqueConstraint(op, context),
-    ]);
-  }
-
-  compileAddPrimaryKey(
-    op: AddPrimaryKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAddPrimaryKey(op, context)]);
-  }
-
-  compileDropPrimaryKey(
-    op: DropPrimaryKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropPrimaryKey(op, context)]);
-  }
-
-  compileCreateEnum(
-    op: CreateEnumOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateCreateEnum(op, context)]);
-  }
-
-  compileDropEnum(
-    op: DropEnumOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropEnum(op, context)]);
-  }
-
-  compileAlterEnum(
-    op: AlterEnumOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAlterEnum(op, context)]);
   }
 
   /**
@@ -587,35 +719,60 @@ export abstract class MigrationDriver {
   /**
    * Builds the UPDATE statements that migrate rows off removed enum values,
    * honoring per-column mappings. Dialects run these before the type change
-   * (Postgres: while columns are text; MySQL: before MODIFY COLUMN; SQLite:
-   * before table recreation).
+   * (Postgres: while columns are text; MySQL: before MODIFY COLUMN).
    */
-  protected buildEnumReplacementUpdates(op: AlterEnumOperation): string[] {
-    const { removeValues, dependentColumns } = op;
-    if (!(removeValues?.length && dependentColumns?.length)) {
-      return [];
-    }
+  protected buildEnumReplacementUpdates(
+    op: AlterEnumOperation,
+    context: DDLContext
+  ): string[] {
+    return (op.dependentColumns ?? []).flatMap(({ tableName, columnName }) =>
+      this.enumColumnReplacementUpdates(op, tableName, columnName, context)
+    );
+  }
 
-    const statements: string[] = [];
-    for (const { tableName, columnName } of dependentColumns) {
-      for (const removedValue of removeValues) {
-        const replacement = this.getEnumValueReplacement(
-          op,
-          tableName,
-          columnName,
-          removedValue
-        );
-        if (replacement === undefined) {
-          continue;
-        }
-        const newValue =
-          replacement === null ? "NULL" : this.escapeValue(replacement);
-        statements.push(
-          `UPDATE ${this.escapeIdentifier(tableName)} SET ${this.escapeIdentifier(columnName)} = ${newValue} WHERE ${this.escapeIdentifier(columnName)} = ${this.escapeValue(removedValue)}`
-        );
-      }
-    }
-    return statements;
+  /** One dependent column's UPDATEs, one per removed value it replaces. */
+  protected enumColumnReplacementUpdates(
+    op: AlterEnumOperation,
+    tableName: string,
+    columnName: string,
+    context: DDLContext
+  ): string[] {
+    const table = this.tableRef(tableName, context.destination);
+    const column = this.escapeIdentifier(columnName);
+    return (op.removeValues ?? []).flatMap((removedValue) => {
+      const replacement = this.getEnumValueReplacement(
+        op,
+        tableName,
+        columnName,
+        removedValue
+      );
+      return replacement === undefined
+        ? []
+        : [
+            `UPDATE ${table} SET ${column} = ${this.escapeValue(replacement)} WHERE ${column} = ${this.escapeValue(removedValue)}`,
+          ];
+    });
+  }
+
+  /** The `WHEN removed THEN replacement` arms of a column's value mapping. */
+  protected enumReplacementCases(
+    op: AlterEnumOperation,
+    tableName: string,
+    columnName: string
+  ): string[] {
+    return (op.removeValues ?? []).flatMap((value) => {
+      const replacement = this.getEnumValueReplacement(
+        op,
+        tableName,
+        columnName,
+        value
+      );
+      return replacement === undefined
+        ? []
+        : [
+            `WHEN ${this.escapeValue(value)} THEN ${this.escapeValue(replacement)}`,
+          ];
+    });
   }
 
   // ===========================================================================
@@ -634,6 +791,17 @@ export abstract class MigrationDriver {
       );
     }
     return `"${String(name).replace(/"/g, '""')}"`;
+  }
+
+  /**
+   * A table position. Default: one identifier. PostgreSQL qualifies it with
+   * the estate schema; MySQL names the database in a live statement.
+   */
+  protected tableRef(
+    tableName: string,
+    _destination: DDLContext["destination"]
+  ): string {
+    return this.escapeIdentifier(tableName);
   }
 
   /**
@@ -934,17 +1102,6 @@ export abstract class MigrationDriver {
     return Promise.resolve();
   }
 
-  /**
-   * Clears every row in a preserved control table during live reset.
-   *
-   * @param tableName - The control table name
-   * @returns SQL DELETE statement
-   */
-  generateClearMigrations(tableName: string): string {
-    const table = this.escapeIdentifier(tableName);
-    return `DELETE FROM ${table}`;
-  }
-
   // ===========================================================================
   // MIGRATION LOCKING
   // ===========================================================================
@@ -1007,6 +1164,38 @@ export abstract class MigrationDriver {
     return null;
   }
 
+  /**
+   * The session lock PostgreSQL stepwise work keeps (plan D1), taken while
+   * the session holds the transaction lock on the same key; null elsewhere.
+   */
+  generateSessionLock(_lockId: number): string | null {
+    return null;
+  }
+
+  /**
+   * A condition true while no command holds the migration lock (plan D5).
+   * The default never proves it: only PostgreSQL can ask.
+   */
+  generateLockFree(_lockId: number): string {
+    return "false";
+  }
+
+  /**
+   * Proves a locked session may run this command's work, once, after its
+   * target is selected, and returns the driver the command renders from.
+   * Default: nothing to prove.
+   */
+  proveSession(
+    _read: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<this> {
+    return Promise.resolve(this);
+  }
+
+  /** The statements a sequential program runs first, on its producer. */
+  programPreamble(_producer: AnyDriver): Promise<readonly string[]> {
+    return Promise.resolve([]);
+  }
+
   // ===========================================================================
   // SCHEMA INTROSPECTION HELPERS
   // ===========================================================================
@@ -1047,7 +1236,7 @@ export abstract class MigrationDriver {
    * @returns SQL DROP TABLE statement
    */
   generateDropTableSQL(tableName: string): string {
-    return `DROP TABLE IF EXISTS ${this.escapeIdentifier(tableName)}`;
+    return `DROP TABLE IF EXISTS ${this.tableRef(tableName, "live")}`;
   }
 
   /**
@@ -1072,21 +1261,34 @@ export abstract class MigrationDriver {
     operation: DiffOperation,
     context: DDLContext
   ): readonly string[] {
+    const generated = this.generateOperation(operation, context);
+    const statements = typeof generated === "string" ? [generated] : generated;
+    return this.filterStatements(
+      operation.type === "renameTable" || operation.type === "renameColumn"
+        ? [...statements, ...this.compileDerivedRenames(operation, context)]
+        : statements
+    );
+  }
+
+  private generateOperation(
+    operation: DiffOperation,
+    context: DDLContext
+  ): GeneratedStatements {
     switch (operation.type) {
       case "createTable":
-        return this.compileCreateTable(operation, context);
+        return this.generateCreateTable(operation, context);
       case "dropTable":
-        return this.compileDropTable(operation, context);
+        return this.generateDropTable(operation, context);
       case "renameTable":
-        return this.compileRenameTable(operation, context);
+        return this.generateRenameTable(operation, context);
       case "addColumn":
-        return this.compileAddColumn(operation, context);
+        return this.generateAddColumn(operation, context);
       case "dropColumn":
-        return this.compileDropColumn(operation, context);
+        return this.generateDropColumn(operation, context);
       case "renameColumn":
-        return this.compileRenameColumn(operation, context);
+        return this.generateRenameColumn(operation, context);
       case "alterColumn":
-        // Asked HERE rather than in each driver's `compileAlterColumn`: the
+        // Asked HERE rather than in each driver's `generateAlterColumn`: the
         // question is one — "can this dialect re-read the stored bytes as the
         // new type?" — and three copies of it would drift the way the three
         // conversion routes already did (PostgreSQL cast, SQLite rebuild,
@@ -1098,29 +1300,29 @@ export abstract class MigrationDriver {
           operation.to.type,
           this.dialect
         );
-        return this.compileAlterColumn(operation, context);
+        return this.generateAlterColumn(operation, context);
       case "createIndex":
-        return this.compileCreateIndex(operation, context);
+        return this.generateCreateIndex(operation, context);
       case "dropIndex":
-        return this.compileDropIndex(operation, context);
+        return this.generateDropIndex(operation, context);
       case "addForeignKey":
-        return this.compileAddForeignKey(operation, context);
+        return this.generateAddForeignKey(operation, context);
       case "dropForeignKey":
-        return this.compileDropForeignKey(operation, context);
+        return this.generateDropForeignKey(operation, context);
       case "addUniqueConstraint":
-        return this.compileAddUniqueConstraint(operation, context);
+        return this.generateAddUniqueConstraint(operation, context);
       case "dropUniqueConstraint":
-        return this.compileDropUniqueConstraint(operation, context);
+        return this.generateDropUniqueConstraint(operation, context);
       case "addPrimaryKey":
-        return this.compileAddPrimaryKey(operation, context);
+        return this.generateAddPrimaryKey(operation, context);
       case "dropPrimaryKey":
-        return this.compileDropPrimaryKey(operation, context);
+        return this.generateDropPrimaryKey(operation, context);
       case "createEnum":
-        return this.compileCreateEnum(operation, context);
+        return this.generateCreateEnum(operation, context);
       case "dropEnum":
-        return this.compileDropEnum(operation, context);
+        return this.generateDropEnum(operation, context);
       case "alterEnum":
-        return this.compileAlterEnum(operation, context);
+        return this.generateAlterEnum(operation, context);
       default:
         throw new MigrationError(
           `Unknown operation type: ${(operation as any).type}`,

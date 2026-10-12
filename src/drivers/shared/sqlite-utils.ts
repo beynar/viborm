@@ -6,6 +6,10 @@
 
 import { parseIntegerBoolean } from "@adapters/shared/result-parsing";
 import type { DriverResultParser } from "../driver";
+import { getExecutionTransactionPhases } from "../execution-context";
+import type { QueryExecutionContext } from "../types";
+import type { TransactionOptionSupport } from "./transaction-options";
+import { runTransactionLifecycle } from "./transactions";
 
 export type SQLiteBinaryValue = ArrayBuffer | ArrayBufferView;
 
@@ -93,5 +97,46 @@ export function normalizeSQLiteRawRows<T>(rows: T[]): T[] {
         Reflect.set(normalized, key, Number(value));
     }
     return normalized;
+  });
+}
+
+/**
+ * SQLite has no isolation-level statement: one writer at a time on one
+ * connection makes every transaction serializable already. `Serializable` is
+ * therefore honored by construction, with no SQL to emit; the three weaker
+ * levels are refused because pretending to relax isolation we cannot relax
+ * would misreport what the transaction actually guarantees.
+ */
+export const LOCAL_SQLITE_TRANSACTION_SUPPORT: TransactionOptionSupport =
+  Object.freeze({
+    isolationLevel: "serializable-only",
+    isolationLevelReason:
+      "SQLite serializes transactions on a single connection and has no statement to weaken isolation, so only Serializable can be honored truthfully",
+    timeout: true,
+    maxWait: "queue",
+  });
+
+/** One transaction on a local, synchronous, single-connection SQLite handle. */
+export function runLocalSQLiteTransaction<
+  Client extends {
+    exec(sql: string): unknown;
+    readonly inTransaction: boolean;
+  },
+  T,
+>(
+  client: Client,
+  fn: (tx: Client) => Promise<T>,
+  context: QueryExecutionContext | undefined
+): Promise<T> {
+  return runTransactionLifecycle({
+    begin: () => client.exec("BEGIN IMMEDIATE"),
+    callback: () => fn(client),
+    commit: () => client.exec("COMMIT"),
+    // A failed BEGIN never grants rollback ownership. After a failed COMMIT,
+    // successful rollback restores this same database, including :memory:.
+    rollback: () => {
+      if (client.inTransaction) client.exec("ROLLBACK");
+    },
+    phases: getExecutionTransactionPhases(context),
   });
 }

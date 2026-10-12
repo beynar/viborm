@@ -128,8 +128,7 @@ describe("schema registry validate", () => {
     expect(error.issues).toEqual([
       {
         path: "where.name",
-        message:
-          "Value did not match any union member: Expected string, Expected object",
+        message: "Expected string, or Expected object",
       },
     ]);
   });

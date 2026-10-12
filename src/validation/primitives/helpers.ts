@@ -30,6 +30,40 @@ export function fail(
 }
 
 /**
+ * Whether the parse in progress reports EVERY issue instead of the first. Set
+ * by {@link reportingAllIssues} for one synchronous parse and restored in its
+ * `finally`, like `parseProviding`'s context. Read only on a failure path, so
+ * a parse that succeeds never pays for the mode.
+ */
+let allIssues = false;
+
+/** Does the parse in progress collect every issue? */
+export const collectingAllIssues = (): boolean => allIssues;
+
+/** Run `parse` with the all-issues mode set to `collect`, then restore it. */
+export function reportingAllIssues<T>(collect: boolean, parse: () => T): T {
+  const outer = allIssues;
+  allIssues = collect;
+  try {
+    return parse();
+  } finally {
+    allIssues = outer;
+  }
+}
+
+/** A member's issues, re-rooted under `key`: only the first unless collecting. */
+export function issuesUnder(
+  key: PropertyKey,
+  issues: readonly ValidationIssue[]
+): ValidationIssue[] {
+  const reported = allIssues ? issues : issues.slice(0, 1);
+  return reported.map((issue) => ({
+    message: issue.message,
+    path: issue.path ? [key, ...issue.path] : [key],
+  }));
+}
+
+/**
  * Create a success result.
  */
 export function ok<T>(value: T): ValidationResult<T> {
@@ -94,6 +128,7 @@ export function validateArray<T>(
   if (len === 0) return ok([]);
 
   const results = new Array<T>(len);
+  let issues: ValidationIssue[] | undefined;
   for (let i = 0; i < len; i++) {
     let member: unknown;
     try {
@@ -103,17 +138,14 @@ export function validateArray<T>(
     }
     const r = validate(member);
     if (r.issues) {
-      const issue = r.issues[0]!;
-      return fail(
-        issue.message as string,
-        issue.path
-          ? ([i] as PropertyKey[]).concat(issue.path as PropertyKey[])
-          : [i]
-      );
+      const rooted = issuesUnder(i, r.issues as readonly ValidationIssue[]);
+      if (!allIssues) return { issues: rooted };
+      (issues ??= []).push(...rooted);
+      continue;
     }
     results[i] = (r as { value: T }).value;
   }
-  return ok(results);
+  return issues ? { issues } : ok(results);
 }
 
 type ValidatorFn<T> = (value: unknown) => ValidationResult<T>;

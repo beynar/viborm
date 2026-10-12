@@ -8,7 +8,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
-import { Driver } from "@drivers/driver";
+import { Driver, SQLITE_MIGRATION_CAPABILITY } from "@drivers/driver";
 import type { PinnedSessionReservation } from "@drivers/shared";
 import type { Dialect, QueryResult } from "@drivers/types";
 import type { DDLContext } from "@migrations/drivers";
@@ -191,7 +191,14 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
     ) {
       answer = [{ attached: 0 }];
     }
-    if (!(answer instanceof Error) && answer.length === 0) {
+    // Only the control-table probes themselves: an introspection read that
+    // mentions EXISTS and a catalog table is not one, and answering it with a
+    // probe row would invent a malformed live table.
+    if (
+      !(answer instanceof Error) &&
+      answer.length === 0 &&
+      sql.startsWith("SELECT EXISTS")
+    ) {
       const catalog = controlCatalogAnswer(sql, params, {
         state: false,
         log: false,
@@ -212,7 +219,14 @@ export class RecordingDriver extends Driver<{ tag: "client" }, { tag: "tx" }> {
   private simulateLockAnswer(sql: string): unknown[] | Error | undefined {
     if (sql === "SELECT current_setting('server_version_num') AS version")
       return this.serverVersionAnswer ?? [{ version: "170000" }];
-    if (sql.includes("pg_try_advisory_lock") || sql.includes("GET_LOCK")) {
+    // Plan D5's decision read names the transaction lock as its predicate,
+    // not as a lock to prove: what it returns is the suite's answer.
+    if (sql.includes(") AS digest WHERE ")) return undefined;
+    if (
+      sql.includes("pg_try_advisory_lock") ||
+      sql.includes("pg_try_advisory_xact_lock") ||
+      sql.includes("GET_LOCK")
+    ) {
       return (
         this.lockAnswers.acquire ??
         (this.dialect === "mysql" ? [{ acquired: 1 }] : [{ acquired: true }])
@@ -376,9 +390,81 @@ export function sqliteControlDefinitionAnswer(
   return undefined;
 }
 
+/**
+ * PostgreSQL authenticates both control tables in one catalog read (plan D5);
+ * this answers it from the description the other dialects' fakes give: the
+ * state table's second column, its singleton CHECK as the catalog prints it
+ * (absent when `undefined`), the log's primary key, and any attachment.
+ */
+export function postgresControlCatalogAnswer(
+  sql: string,
+  shape: {
+    readonly state: boolean;
+    readonly log: boolean;
+    readonly malformed?: boolean;
+    readonly malformedLog?: boolean;
+    readonly check?: string | null;
+    readonly attached?: boolean;
+  }
+): unknown[] | undefined {
+  if (!sql.includes("AS control(position, name)")) return;
+  const column = (name: string, type: string) => [
+    name,
+    type,
+    true,
+    false,
+    "",
+    "",
+  ];
+  const table = (
+    present: boolean,
+    columns: readonly unknown[],
+    constraints: readonly (readonly unknown[])[]
+  ) =>
+    present
+      ? {
+          kind: "r",
+          partition: false,
+          columns: JSON.stringify(columns),
+          constraints: JSON.stringify(constraints),
+          indexes: String(constraints.filter((c) => c[0] === "p").length),
+          executable: shape.attached ?? false,
+        }
+      : { kind: null };
+  return [
+    table(
+      shape.state,
+      [
+        column("singleton", "integer"),
+        column(shape.malformed ? "intruder" : "payload", "text"),
+      ],
+      [
+        ...(shape.check === undefined
+          ? []
+          : [["c", "_viborm_migration_state_singleton_check", shape.check]]),
+        ["p", "_viborm_migration_state_pkey", "PRIMARY KEY (singleton)"],
+      ]
+    ),
+    table(
+      shape.log,
+      ["event_id", "attempt_id", "kind", "payload"].map((name) =>
+        column(name, "text")
+      ),
+      shape.malformedLog
+        ? []
+        : [["p", "_viborm_migration_log_pkey", "PRIMARY KEY (event_id)"]]
+    ),
+  ];
+}
+
+/** The stock sqlite3 shape: it declares the SQLite migration capability. */
+class DeclaredSqliteDriver extends RecordingDriver {
+  override readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
+}
+
 /** A SQLite recording driver. SQLite estates have no namespace at all. */
 export function sqliteEstateDriver(): RecordingDriver {
-  return new RecordingDriver(
+  return new DeclaredSqliteDriver(
     "sqlite",
     "sqlite3",
     adapterBoundTo(new SQLiteAdapter(), undefined)

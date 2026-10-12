@@ -14,7 +14,6 @@ const PLAN_HASH = "a".repeat(64);
 const TARGET = {
   dialect: "sqlite",
   location: null,
-  bindingId: "test-binding",
 } as const;
 const CONSENT = {
   format: "viborm-migration-v1",
@@ -62,16 +61,31 @@ const boundary = vi.hoisted(() => {
   };
 });
 
-vi.mock("@src/cli/utils", () => ({
+vi.mock("@src/cli/utils", async (importOriginal) => ({
+  printJson: (await importOriginal<typeof import("@src/cli/utils")>())
+    .printJson,
   failCli: boundary.failCli,
-  finishCli: async (
-    client: { $disconnect(): Promise<void> } | undefined,
-    failure: { value: unknown } | undefined
+  // The real frame with the config loader and failure boundary swapped.
+  runCli: async (
+    load: { config?: string },
+    _json: boolean | undefined,
+    body: (config: {
+      client: { $disconnect(): Promise<void> };
+    }) => Promise<void>
   ) => {
-    await client?.$disconnect();
-    if (failure) boundary.failCli(failure.value);
+    let client: { $disconnect(): Promise<void> } | undefined;
+    let failure: { value: unknown } | undefined;
+    try {
+      const config = await boundary.loadConfig(load);
+      client = config.client;
+      await body(config);
+    } catch (error) {
+      failure = { value: error };
+    } finally {
+      await client?.$disconnect();
+      if (failure) boundary.failCli(failure.value);
+    }
   },
-  loadConfig: boundary.loadConfig,
 }));
 
 vi.mock("@src/migrations/client", () => ({

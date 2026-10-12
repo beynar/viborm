@@ -60,6 +60,7 @@ export const MANIFEST_MODULES = [
 const CREDENTIAL_ENVIRONMENT = {
   "provider-mysql2": "MYSQL_TEST_CONNECTION_STRING",
   "provider-pg": "PG_TEST_CONNECTION_STRING",
+  "provider-pgbouncer": "PGBOUNCER_TEST_CONNECTION_STRING",
   "provider-postgres": "PG_TEST_CONNECTION_STRING",
   "provider-transaction-options": "PG_TEST_CONNECTION_STRING",
   "provider-neon-http": "NEON_TEST_CONNECTION_STRING",

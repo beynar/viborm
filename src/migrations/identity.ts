@@ -7,8 +7,8 @@
  * header and no second hasher.
  */
 
-import { createHash } from "node:crypto";
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { sha256 } from "../validation/primitives/sha256";
 
 export type Sha256 = string;
 
@@ -47,7 +47,9 @@ export function parseSha256(value: unknown, label: string): Sha256 {
 }
 
 export function sha256Hex(bytes: Uint8Array): Sha256 {
-  return createHash("sha256").update(bytes).digest("hex");
+  let hex = "";
+  for (const byte of sha256(bytes)) hex += byte.toString(16).padStart(2, "0");
+  return hex;
 }
 
 export function domainHash(domain: HashDomain, bytes: Uint8Array): Sha256 {

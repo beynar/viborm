@@ -3,6 +3,7 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { Driver, type QueryExecutionContext, type QueryResult } from "@drivers";
+import { SQLITE_MIGRATION_CAPABILITY } from "@drivers/driver";
 
 export type PlanningDialect = "mysql" | "postgresql" | "sqlite";
 
@@ -20,6 +21,8 @@ export class PlanningDriver extends Driver<null, null> {
   override readonly supportsTransactions: boolean;
   override readonly supportsBatch: boolean;
   override readonly maxBindParametersPerStatement: number | undefined;
+  /** Binds a SQLite planning driver to migrations like the stock sqlite3 one. */
+  override readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
 
   constructor(
     dialect: PlanningDialect,

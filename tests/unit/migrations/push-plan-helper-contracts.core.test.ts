@@ -1,9 +1,9 @@
 import { VibORMErrorCode } from "@src/errors";
+import { classifyGeneratedAtomicity } from "@src/migrations/compile";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import {
   buildPushPlan,
-  classifyPlanAtomicity,
   compilePlanStatements,
   hashPushPlan,
   introspectManaged,
@@ -34,11 +34,14 @@ describe("push plan helper contracts", () => {
     ] satisfies DiffOperation[];
     const compiled = compilePlanStatements(
       {
-        tables: ["legacy"],
-        clearTracking: null,
         dropForeignKeys: ["ALTER TABLE child DROP CONSTRAINT child_fk"],
         dropTables: [{ name: "legacy", sql: "DROP TABLE legacy" }],
         dropEnums: ["DROP TYPE status"],
+        clear: [
+          "ALTER TABLE child DROP CONSTRAINT child_fk",
+          "DROP TABLE legacy",
+          "DROP TYPE status",
+        ],
       },
       operations,
       driver,
@@ -76,7 +79,6 @@ describe("push plan helper contracts", () => {
       target: {
         dialect: "sqlite" as const,
         location: null,
-        bindingId: "binding",
       },
       sourceFingerprint: HASH_A,
       desiredFingerprint: HASH_A,
@@ -91,7 +93,7 @@ describe("push plan helper contracts", () => {
     expect(hashPushPlan({ ...input, desiredFingerprint: HASH_B })).not.toBe(
       hashPushPlan(input)
     );
-    expect(classifyPlanAtomicity(driver, [])).toBe("transactional");
+    expect(classifyGeneratedAtomicity(driver, [])).toBe("transactional");
   });
 
   test("managed introspection removes only private control tables", async () => {

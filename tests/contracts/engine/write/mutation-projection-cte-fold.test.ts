@@ -952,14 +952,16 @@ describe("Phase 8.1 — what the fold must not change", () => {
  * statement's output" rather than as a shape whitelist.
  *
  * D-15 retired that machinery with the rest of the CTE (`"__viborm_write_n"`
- * sibling arms included), so the four statements are back and the cells below
- * pin the route the shipped engine sends: one statement per arm, in the order
- * the payload declared them, then the terminal read. The elision ladder itself
- * is untouched — it is why none of these trees asks anything first — and every
- * declining case in this describe still declines, for the reason it always did.
+ * sibling arms included). Since 1.2.0 (parity-17) the child-free arms of a
+ * `create` list share nested createMany's grouped INSERT, so the cells below pin
+ * the route the shipped engine sends: the root's INSERT, one INSERT per child
+ * table holding the arms in the order the payload declared them, then the
+ * terminal read. The elision ladder itself is untouched — it is why none of
+ * these trees asks anything first — and every declining case in this describe
+ * still declines, for the reason it always did.
  */
 describe("Phase 8.2 — the nested-create tree", () => {
-  test("a root and its two children are one INSERT per arm, in declaration order", async () => {
+  test("a root and its two children are one INSERT per table, in declaration order", async () => {
     const { driver, client } = await boot();
 
     driver.recording = true;
@@ -979,15 +981,15 @@ describe("Phase 8.2 — the nested-create tree", () => {
     const statements = drain(driver);
     driver.recording = false;
 
-    // THE measurement, re-expressed (D-15): the four statements the tree fold
-    // chained into one are the four the shipped engine sends — the root's INSERT,
-    // one INSERT per arm in the payload's order, and the terminal read.
+    // THE measurement, re-expressed (D-15, parity-17): the root's INSERT, both
+    // arms in one grouped INSERT in the payload's order — the route the
+    // sibling createMany cell sends — and the terminal read.
     expect(noCteFold(statements)).toBe(true);
-    expect(statements).toHaveLength(4);
+    expect(statements).toHaveLength(3);
     expect(statements[0]).toContain('"p81_accounts"');
     expect(statements[1]).toContain('"p81_notes"');
-    expect(statements[2]).toContain('"p81_notes"');
-    expect(statements[3]?.startsWith("SELECT")).toBe(true);
+    expect(statements[1]).toMatch(TWO_INSERT_ROWS);
+    expect(statements[2]?.startsWith("SELECT")).toBe(true);
 
     expect(created).toEqual({
       id: 300,

@@ -257,31 +257,27 @@ for (const [route, make] of [
       );
     });
 
+    // engine-04: the adding-first spelling runs clear-first — `deleteMany`
+    // finds no member coded "nine", then the choice supplies tag 9 — on
+    // either arm; in spelling order the removal would consume tag 9.
     for (const found of [false, true])
-      it(`refuses adding-before-clearing on the choice's ${found ? "FOUND" : "MISSING"} arm without effects`, async () => {
+      it(`runs adding-before-clearing clear-first on the choice's ${found ? "FOUND" : "MISSING"} arm`, async () => {
         const client = await world();
         if (found) await client.tag.create({ data: { id: 9, code: "nine" } });
-        driver.reset();
-        await assert.rejects(
-          client.post.updateMany({
-            where: { id: "p1" },
-            data: {
-              tags: {
-                connectOrCreate: {
-                  where: { id: 9 },
-                  create: { id: 9, code: "nine" },
-                },
-                deleteMany: { code: "nine" },
+        const result = await client.post.updateMany({
+          where: { id: "p1" },
+          data: {
+            tags: {
+              connectOrCreate: {
+                where: { id: 9 },
+                create: { id: 9, code: "nine" },
               },
+              deleteMany: { code: "nine" },
             },
-          }),
-          {
-            code: "V4001",
-            message:
-              "Validation failed for updateMany: data.tags: Collection mutation must spell clearing verb 'deleteMany' before adding verb 'connectOrCreate'.",
-          }
-        );
-        assert.deepEqual(await tags(client), found ? [7, 9] : [7]);
+          },
+        });
+        assert.deepEqual(result, { count: 1 });
+        assert.deepEqual(await tags(client), [7, 9]);
         assert.deepEqual(
           (
             await client.post.findMany({
@@ -289,7 +285,7 @@ for (const [route, make] of [
               include: { tags: { orderBy: { id: "asc" } } },
             })
           ).map((row) => row.tags.map((member) => member.id)),
-          [[7]]
+          [[7, 9]]
         );
       });
 

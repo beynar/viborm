@@ -950,7 +950,9 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
       },
     },
     {
-      name: "disjoint m2m add-before-clear is still refused without effects",
+      // engine-04: the adding-first spelling of the scenario above runs in the
+      // same canonical clear-first order and persists the same answer.
+      name: "disjoint m2m add-before-clear spelling runs clear-first",
       seed: async (client) => {
         await client.node.create({ data: { id: 1, label: "one" } });
         await client.node.create({ data: { id: 2, label: "two" } });
@@ -960,9 +962,6 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
           data: { friends: { connect: { id: 3 } } },
         });
       },
-      expectReject: true,
-      expectedError:
-        "Collection mutation must spell clearing verb 'deleteMany' before adding verb 'connect'",
       act: (client) =>
         client.node.update({
           where: { id: 1 },
@@ -972,9 +971,8 @@ const transitiveMembershipDependencyScenarios: Scenario<TransitiveMembershipDepe
         nodes: [
           { id: 1, label: "one", parentId: null },
           { id: 2, label: "two", parentId: null },
-          { id: 3, label: "three", parentId: null },
         ],
-        friends: [{ sourceId: 1, targetId: 3 }],
+        friends: [{ sourceId: 1, targetId: 2 }],
         allies: [],
       },
     },

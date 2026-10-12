@@ -47,6 +47,14 @@ import { createSchema, fail, ok, validateSchema } from "./helpers";
  *
  * `sql` is the ordinary tagged template; interpolations inside a fragment ride
  * along as bound parameters (see {@link file://../../sql/sql.ts}).
+ *
+ * PURITY IS THE CONTRACT for the callback handed this context. Validation may
+ * run a payload's callbacks more than once — `upsert` re-parses its taken arm
+ * (the C2 residue), so a callback under `upsert.update` can be invoked twice
+ * for one call. A callback that counts its calls, mutates outer state, or
+ * returns a different fragment each time gets exactly what it asks for; a pure
+ * one is indistinguishable from a literal token, which is the whole point of
+ * the sugar.
  */
 export interface OperandCtx<TModel> {
   readonly fields: ModelFieldRefs<string, TModel>;
@@ -55,21 +63,6 @@ export interface OperandCtx<TModel> {
 
 /** An operand context for an unknown model — the type-level default. */
 export type AnyOperandCtx = OperandCtx<any>;
-
-/**
- * A comparison-operand callback: invoked once during validation, and required
- * to return a field reference or an SQL fragment.
- *
- * PURITY IS THE CONTRACT. Validation may run a payload's callbacks more than
- * once — `upsert` re-parses its taken arm (the C2 residue), so a callback under
- * `upsert.update` can be invoked twice for one call. A callback that counts its
- * calls, mutates outer state, or returns a different fragment each time gets
- * exactly what it asks for; a pure one is indistinguishable from a literal
- * token, which is the whole point of the sugar.
- */
-export type OperandCallback<TType extends ScalarType, TModel> = (
-  ctx: OperandCtx<TModel>
-) => FieldRef<string, TType> | Sql;
 
 // =============================================================================
 // THE PER-MODEL SCOPE

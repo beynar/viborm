@@ -2,7 +2,7 @@ import { UnsupportedOperationError, unsupportedVector } from "@errors";
 import { sqliteDateTimePhysicalForm } from "@schema/scalars/datetime/physical";
 import type { NativeTypeDeclaration } from "@schema/scalars/native-types";
 import { idStorageOf } from "@schema/scalars/string/id-domain";
-import { type Sql, sql } from "@sql";
+import { Sql, sql } from "@sql";
 import { encodePhysicalDateTime } from "@validation/primitives/datetime-physical-codec";
 import {
   type DecimalDescriptor,
@@ -110,10 +110,10 @@ function sqliteIntegerPrecision(coefficient: string): number | undefined {
  *
  * 10^18 is not arbitrary, and it is not independent. `precision + scale <= 18`
  * is SQLite's declared field limit (plan 3.1), ENFORCED once when the schema is
- * bound (`client/decimal-provider-limits.ts`), so every mathematically in-range
- * result has `|x * y| <= 10^(p+s) <= 10^18`: the guard never rejects an answer
- * that fits the field, and int64 keeps a factor of nine in reserve for the
- * `+/- 1` step and the `d - |r|` tie test.
+ * bound (`schema/scalars/decimal/provider-limits.ts`), so every mathematically
+ * in-range result has `|x * y| <= 10^(p+s) <= 10^18`: the guard never rejects
+ * an answer that fits the field, and int64 keeps a factor of nine in reserve
+ * for the `+/- 1` step and the `d - |r|` tie test.
  *
  * THE COUPLING IS LOAD-BEARING, in both directions. This constant is flat where
  * the per-descriptor bound would be `B = scale === 0 ? M : M*F + F/2 - 1`, and
@@ -140,10 +140,10 @@ const SQLITE_INTERMEDIATE_LIMIT = sql.raw("1000000000000000000");
  * it INSIDE the range of a `precision >= 19` column, which is a silently
  * written wrong value rather than a failure. No such column exists: plan 3.1's
  * `precision <= 18 && precision + scale <= 18` is proven once at schema bind
- * (`client/decimal-provider-limits.ts`), before any I/O, so `min(p, 18)` is
- * `p` for every descriptor that ever reaches here. The clamp is what an
- * unreachable arm does when it is reached anyway, not a policy — and it is why
- * the bind limit is load-bearing rather than ergonomic.
+ * (`schema/scalars/decimal/provider-limits.ts`), before any I/O, so
+ * `min(p, 18)` is `p` for every descriptor that ever reaches here. The clamp is
+ * what an unreachable arm does when it is reached anyway, not a policy — and it
+ * is why the bind limit is load-bearing rather than ergonomic.
  */
 const overflowCoefficient = (descriptor: DecimalDescriptor): Sql =>
   sql.raw(`1${"0".repeat(Math.min(descriptor.precision, 18))}`);
@@ -162,19 +162,6 @@ const guardedCoefficientAssignment = (
   descriptor: DecimalDescriptor
 ): Sql =>
   sql`${column} = CASE WHEN ${column} IS NULL OR ${safe} THEN ${value} ELSE ${overflowCoefficient(descriptor)} END`;
-
-/**
- * The physical form a SQLite datetime column holds, from what the field
- * declared — the ONE reading of that declaration, shared by the value lowering
- * below and the result promise this adapter publishes.
- *
- * SQLite has no temporal type, so `s.dateTime(SQLITE.DATETIME.…)` is a real
- * storage choice the DDL already honors: INTEGER holds epoch milliseconds and
- * REAL holds a Julian day, which are the two spellings SQLite's own date
- * functions read. Anything else — a declaration for another dialect, an
- * explicit TEXT, no declaration at all — is the timestamp text this adapter has
- * always stored.
- */
 
 const JSON_ARRAY_INDEX_SEGMENT = /^\d+$/;
 const JSON_UNADDRESSABLE_LABEL = /["\\]/;
@@ -200,23 +187,18 @@ const jsonPathLeg = (segment: string): string => {
 const jsonExtract = (column: Sql, path: string[]): Sql => {
   let expr = sql`${column} -> '$'`;
   for (const segment of path) {
-    const leg = jsonPathLeg(segment);
-    expr = sql`${expr} -> ${leg}`;
+    expr = sql`${expr} -> ${jsonPathLeg(segment)}`;
   }
   return expr;
 };
 
 /** Same chain, but the final leg uses `->>` so strings come back unquoted. */
 const jsonExtractText = (column: Sql, path: string[]): Sql => {
-  const legs: string[] = [];
-  for (const segment of path) {
-    const leg = jsonPathLeg(segment);
-    legs.push(leg);
-  }
-  const last = legs.pop();
-  if (last === undefined) {
+  if (path.length === 0) {
     return sql`${column} ->> '$'`;
   }
+  const legs = path.map(jsonPathLeg);
+  const last = legs.pop()!;
   let expr: Sql = column;
   for (const leg of legs) {
     expr = sql`${expr} -> ${leg}`;
@@ -233,25 +215,78 @@ const jsonExtractText = (column: Sql, path: string[]): Sql => {
 const jsonArrayConcat = (left: Sql, right: Sql): Sql =>
   sql`(CASE WHEN ${left} = '[]' THEN ${right} WHEN ${right} = '[]' THEN ${left} ELSE substr(${left}, 1, length(${left}) - 1) || ',' || substr(${right}, 2) END)`;
 
-/**
- * SQLite Database Adapter
- *
- * Implements the DatabaseAdapter interface for SQLite-specific SQL generation.
- *
- * Key SQLite features:
- * - Double-quote identifier escaping: "table"."column"
- * - No native ARRAY type - uses JSON for arrays
- * - Portable text predicates do not depend on SQLite's LIKE behavior
- * - json_object(), json_group_array() for JSON operations (SQLite 3.38+)
- * - RETURNING clause supported (SQLite 3.35+)
- * - No NULLS FIRST/LAST ordering
- * - ON CONFLICT DO UPDATE/NOTHING (same as PostgreSQL)
- * - || for string concatenation
- * - Boolean stored as 0/1 integers
- */
 /** The one JSON list container every SQLite list value crosses as. */
 const sqliteJsonListValue = (values: unknown[]): Sql =>
   sql`${stringifyJson(values)}`;
+
+/** A bare operand, and a decimal operand: its coefficient read as INTEGER. */
+const PARAMETER = ["", ""];
+const COEFFICIENT = ["CAST(", " AS INTEGER)"];
+const LONE_SURROGATE = /\p{Cs}/u;
+const PARENTHESIZED_LIST = createStandardLiterals().list;
+/**
+ * The longest list kept parenthesized. Without `sqlite_stat1` SQLite sizes an
+ * `IN (SELECT …)` at 25 rows and a list at its length, so up to 25 members the
+ * list is planned no worse: a key list beside another indexed equality still
+ * seeks the key. It is also a quarter of D1's 100-value bind budget.
+ */
+const PLANNED_LIST = 25;
+
+/**
+ * One member as JSON text that `json_each` reads back as the value its own
+ * parameter binds, or `undefined`. A non-integer number is not one: SQLite
+ * reparses JSON text with an error in the last place for some doubles; nor is
+ * a string with a lone surrogate, which a driver binds as U+FFFD.
+ */
+function jsonMember(value: unknown): string | undefined {
+  if (typeof value === "string")
+    return LONE_SURROGATE.test(value) ? undefined : JSON.stringify(value);
+  if (value instanceof Uint8Array)
+    return `"${Array.from(value, (byte) => byte.toString(16).padStart(2, "0")).join("")}"`;
+  return typeof value === "bigint" ||
+    typeof value === "boolean" ||
+    Number.isSafeInteger(value)
+    ? String(value)
+    : undefined;
+}
+
+/**
+ * engine-09: a list longer than {@link PLANNED_LIST} whose members are each one
+ * parameter under one spelling — bare, or a decimal's coefficient cast — as
+ * ONE parameter, a JSON array `json_each` reads back and spells per element as
+ * each member was, so `IN` and `NOT IN` keep their answers, NULLs included.
+ * Blobs travel as hex, read through `unhex` (SQLite 3.41). Any other list
+ * keeps a parameter per member.
+ */
+function sqliteList(members: Sql[]): Sql {
+  if (members.length <= PLANNED_LIST) return PARENTHESIZED_LIST(members);
+  const [first] = members;
+  const spelling =
+    first?.strings[0] === COEFFICIENT[0] ? COEFFICIENT : PARAMETER;
+  const elements: string[] = [];
+  let blobs = 0;
+  for (const member of members) {
+    const [head, tail, extra] = member.strings;
+    const value = member.values[0];
+    const element = jsonMember(value);
+    if (
+      element === undefined ||
+      head !== spelling[0] ||
+      tail !== spelling[1] ||
+      extra !== undefined
+    )
+      return PARENTHESIZED_LIST(members);
+    if (value instanceof Uint8Array) blobs++;
+    elements.push(element);
+  }
+  // Blobs beside other values: nothing one spelling reads.
+  if (blobs !== 0 && blobs !== members.length)
+    return PARENTHESIZED_LIST(members);
+  const read = new Sql(spelling, [
+    sql.raw(blobs === 0 ? "value" : "unhex(value)"),
+  ]);
+  return sql`(SELECT ${read} FROM json_each(${`[${elements.join(",")}]`}))`;
+}
 
 /** Facts a SQLite driver states about its transport. */
 export interface SQLiteAdapterOptions {
@@ -312,20 +347,22 @@ const SQLITE_LITERALS = {
   // D1 will not bind). SQLite's TEXT-to-INTEGER cast is a decimal integer
   // parse, not a float one.
   decimal: (canonical: string, descriptor: DecimalDescriptor): Sql =>
-    sql`CAST(${encodePhysicalDecimal(canonical, descriptor, "coefficient")} AS INTEGER)`,
+    new Sql(COEFFICIENT, [
+      encodePhysicalDecimal(canonical, descriptor, "coefficient"),
+    ]),
 
   // Every compact domain is a `BLOB` here and takes the payload's bytes as
   // the ordinary binary parameter a blob scalar already binds; a text-stored
   // domain takes the public string unchanged.
   id: (physical: string | Uint8Array, _representation: IdRepresentation): Sql =>
     sql`${physical}`,
+
+  list: sqliteList,
 };
 
 const SQLITE_OPERATORS = {
-  // Comparison
   ...createComparisonOperators(),
 
-  // Pattern matching
   // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder
   like: (column: Sql, pattern: Sql): Sql =>
     sql`${column} LIKE ${pattern} ESCAPE '\\'`,
@@ -370,19 +407,15 @@ const SQLITE_OPERATORS = {
   exactTextIn: (column: Sql, values: Sql): Sql =>
     sql`${column} COLLATE BINARY IN ${values}`,
 
-  // Set membership
   ...createMembershipOperators(),
 
-  // Null checks
   ...createNullOperators(),
 
-  // Range
   ...createRangeOperators(),
 
   // Logical (vacuous cases use SQLite's 1/0 booleans)
   ...createLogicalOperators(SQLITE_LITERALS.true, SQLITE_LITERALS.false),
 
-  // Subquery existence
   ...createExistenceOperators(),
 };
 
@@ -393,7 +426,6 @@ const SQLITE_EXPRESSIONS = {
   asciiCaseFold: (expr: Sql): Sql => sql`lower(${expr})`,
   caseSensitiveText: (expr: Sql): Sql => sql`${expr} COLLATE BINARY`,
 
-  // String concatenation via ||
   concat: (...parts: Sql[]): Sql => {
     if (parts.length === 0) return sql.raw("''");
     if (parts.length === 1) return parts[0]!;
@@ -435,7 +467,7 @@ const SQLITE_EXPRESSIONS = {
 };
 
 const SQLITE_AGGREGATES = {
-  ...createAggregateFunctions(),
+  ...createAggregateFunctions("9e999"),
 
   // The average of a coefficient column IS the half-even integer quotient of
   // its exact sum by its non-null count: dividing both the sum and the count
@@ -453,9 +485,32 @@ const SQLITE_AGGREGATES = {
   // A SQLite decimal aggregate is an int64 `SUM` over coefficients. Exact
   // operand admission follows the signed range rather than digit count: some
   // 19-digit values fit, while the next value past either endpoint would make
-  // `CAST(... AS INTEGER)` saturate. SUM results are not capped here; SQLite
-  // raises on actual overflow.
+  // `CAST(... AS INTEGER)` saturate. The sum itself is `integerSum`'s, exact
+  // past that range.
   decimalSumOperandPrecision: sqliteIntegerPrecision,
+
+  // `>>` is arithmetic, so an int64 member is exactly `(x >> 32) * 2^32` plus
+  // its second part. That part stays REAL for a non-integer member, which the
+  // reader refuses as it refused the plain `SUM`.
+  // `low` sums non-negative 32-bit remainders: carrying its high bits into
+  // `high` leaves a pair that sorts exactly as the total. `value` is that
+  // total inside int64 and its nearest double outside, below -2^63 at most
+  // `-2^63 - 2048`: SQLite compares an integer with a double exactly, so it
+  // is exact against every int64 operand (a decimal coefficient's whole
+  // domain), and a number operand past int64 is told apart from every total
+  // but those that round to it.
+  integerSum: (column: Sql) => {
+    const high = sql`SUM(${column} >> 32)`;
+    const low = sql`SUM(${column} - ((${column} >> 32) << 32))`;
+    const carried = sql`(${high} + (${low} >> 32))`;
+    const rest = sql`(${low} & 4294967295)`;
+    const double = sql`${carried} * 4294967296.0 + ${rest}`;
+    return {
+      parts: [high, low] as const,
+      value: sql`CASE WHEN ${carried} > 2147483647 THEN ${double} WHEN ${carried} >= -2147483648 THEN ${carried} * 4294967296 + ${rest} ELSE MIN(${double}, -9223372036854777856.0) END`,
+      order: [carried, rest],
+    };
+  },
 };
 
 // Compare every node, including empty containers. Array indices remain part
@@ -466,6 +521,12 @@ function sqliteJsonEquals(left: Sql, right: Sql): Sql {
     sql`SELECT fullkey, CASE WHEN type IN ('integer', 'real') THEN 'number' ELSE type END, atom FROM json_tree(${value})`;
   return sql`(CASE WHEN ${left} IS NULL OR ${right} IS NULL THEN NULL ELSE NOT EXISTS (${nodes(left)} EXCEPT ${nodes(right)}) AND NOT EXISTS (${nodes(right)} EXCEPT ${nodes(left)}) END)`;
 }
+
+const sqliteJsonObject = (pairs: [string, Sql][]): Sql => {
+  if (pairs.length === 0) return sql.raw("json_object()");
+  const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
+  return sql`json_object(${sql.join(args, ", ")})`;
+};
 
 const SQLITE_JSON = {
   equals: sqliteJsonEquals,
@@ -478,11 +539,7 @@ const SQLITE_JSON = {
   // quoted JSON string inside the outer document.
   document: (expression: Sql): Sql => sql`json(${expression})`,
 
-  object: (pairs: [string, Sql][]): Sql => {
-    if (pairs.length === 0) return sql.raw("json_object()");
-    const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
-    return sql`json_object(${sql.join(args, ", ")})`;
-  },
+  object: sqliteJsonObject,
 
   array: (items: Sql[]): Sql => {
     if (items.length === 0) return sql.raw("json_array()");
@@ -496,11 +553,7 @@ const SQLITE_JSON = {
   agg: (expr: Sql): Sql =>
     sql`COALESCE(json_group_array(json(${expr})), json_array())`,
 
-  objectFromColumns: (columns: [string, Sql][]): Sql => {
-    if (columns.length === 0) return sql.raw("json_object()");
-    const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
-    return sql`json_object(${sql.join(args, ", ")})`;
-  },
+  objectFromColumns: sqliteJsonObject,
 
   // `->` returns the value as canonical JSON text ('"str"', '2', 'null'),
   // the same format json.value binds, so extracted values compare with
@@ -792,57 +845,22 @@ export class SQLiteAdapter implements DatabaseAdapter {
     });
   }
 
-  // ============================================================
-  // RAW
-  // ============================================================
-
   raw = SQLITE_RAW;
-
-  // ============================================================
-  // IDENTIFIERS
-  // ============================================================
 
   identifiers = { ...SQLITE_IDENTIFIERS };
 
-  // ============================================================
-  // LITERALS
-  // ============================================================
-
   literals = { ...SQLITE_LITERALS };
-
-  // ============================================================
-  // OPERATORS
-  // ============================================================
 
   operators = { ...SQLITE_OPERATORS };
 
-  // ============================================================
-  // EXPRESSIONS
-  // ============================================================
-
   expressions = { ...SQLITE_EXPRESSIONS };
-
-  // ============================================================
-  // AGGREGATES
-  // ============================================================
 
   aggregates = { ...SQLITE_AGGREGATES };
 
-  // ============================================================
-  // JSON (SQLite 3.38+ JSON functions)
-  // ============================================================
-
+  // SQLite 3.38+ JSON functions
   json = { ...SQLITE_JSON };
 
-  // ============================================================
-  // ARRAYS (JSON-based for SQLite)
-  // ============================================================
-
   arrays = { ...SQLITE_ARRAYS };
-
-  // ============================================================
-  // ORDER BY
-  // ============================================================
 
   // SQLite parses NULLS FIRST/LAST natively since 3.30 (2019-10-04), which is
   // below this adapter's documented 3.35+ floor. The `(col IS NULL)` emulation
@@ -854,33 +872,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // any version.
   orderBy = { ...SQLITE_ORDER_BY };
 
-  // ============================================================
-  // CLAUSES
-  // ============================================================
-
   clauses = { ...SQLITE_CLAUSES };
-
-  // ============================================================
-  // SET (UPDATE operations)
-  // ============================================================
 
   set = { ...SQLITE_SET };
 
-  // ============================================================
-  // FILTERS (Relation subquery wrappers)
-  // ============================================================
-
   filters = { ...SQLITE_FILTERS };
 
-  // ============================================================
-  // SUBQUERIES
-  // ============================================================
-
   subqueries = { ...SQLITE_SUBQUERIES };
-
-  // ============================================================
-  // ASSEMBLE (Build complete SQL statements)
-  // ============================================================
 
   // SQLite has no bare OFFSET; LIMIT -1 means "no limit"
   noLimitValue = sql.raw("-1");
@@ -907,35 +905,15 @@ export class SQLiteAdapter implements DatabaseAdapter {
     },
   };
 
-  // ============================================================
-  // CTE (Common Table Expressions)
-  // ============================================================
-
   cte = { ...SQLITE_CTE };
-
-  // ============================================================
-  // MUTATIONS
-  // ============================================================
 
   mutations = { ...SQLITE_MUTATIONS };
 
   assertions = { ...SQLITE_ASSERTIONS };
 
-  // ============================================================
-  // JOINS
-  // ============================================================
-
   joins = { ...SQLITE_JOINS };
 
-  // ============================================================
-  // SET OPERATIONS
-  // ============================================================
-
   setOperations = { ...SQLITE_SET_OPERATIONS };
-
-  // ============================================================
-  // CAPABILITIES
-  // ============================================================
 
   capabilities = { ...SQLITE_CAPABILITIES };
 
@@ -966,15 +944,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     });
   }
 
-  // ============================================================
-  // VECTOR (not natively supported in SQLite)
-  // ============================================================
-
   vector = unsupportedVector;
-
-  // ============================================================
-  // GEOPOINT (canonical JSON text transport)
-  // ============================================================
 
   readonly geoPoint: GeoPointSql = (() => {
     const longitude = (point: Sql): Sql =>
@@ -993,11 +963,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
       ),
     };
   })();
-
-  // RESULT PARSING
-  // SQLite-specific parsing is handled by the driver (SQLite3Driver.result)
-  // Adapter just passes through to default parsing
-  // ============================================================
 
   result: AdapterResultParser = { ...SQLITE_RESULT };
 }

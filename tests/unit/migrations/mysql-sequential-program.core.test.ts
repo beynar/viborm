@@ -973,10 +973,9 @@ function verbatimInventory(
 }
 
 function planOutcome(driver: RecordingDriver): Promise<unknown> {
-  return planLiveNamespaceReset(driver, getMigrationDriver(driver), {
-    trackingTable: "drop",
-    trackingTableName: "_viborm_migration_state",
-  }).catch((error: unknown) => error);
+  return planLiveNamespaceReset(driver, getMigrationDriver(driver)).catch(
+    (error: unknown) => error
+  );
 }
 
 describe("an untrusted reset inventory refuses before the first drop", () => {

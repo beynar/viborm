@@ -160,11 +160,18 @@ look like one and are not:
   does not express: a documented capability boundary, or a parity refusal. It is an answer,
   not a malfunction. It extends `QueryEngineError`, so an `instanceof QueryEngineError`
   check will catch it; branch on the code, or on `UnsupportedOperationError` itself, when
-  you mean one and not the other.
+  you mean one and not the other. A recursive projection uses it for two properties of the
+  data: `Recursive relation '…' contains a cycle.` (`meta.feature` is
+  `cyclic recursive traversal`), and an output past its
+  [occurrence budget](/docs/client/selecting#recursive-relations), whose message names the
+  operation you ran (`meta.feature` is `recursive output budget`).
 - **`V9001` `QueryEngineError`** — the engine broke its own invariant. That is a bug; please
-  report it (two exceptions: a recursive projection's
-  `Recursive relation '…' contains a cycle.` refuses cyclic data, and the malformed driver
-  answer below). The same code reports a driver answer the engine refused to decode,
+  report it (one exception: the malformed driver answer below). A mistake in the payload
+  itself — an empty `select` (including `select: { _count: true }` on a model with no
+  to-many relation), a `groupBy` without a `by` field, or with a `having` condition or an
+  `orderBy` on a field outside `by`, a JSON null sentinel under a `path` or in place of a
+  JSON filter — is a `V4001` `ValidationError` whose issue path names the key to fix.
+  The same code reports a driver answer the engine refused to decode,
   `Driver "…" returned a malformed … scalar for operation "…": ….`, with `meta.scalarType`
   naming what was malformed: a value, a row, a relation, or the kind of check a recursive
   projection's answer failed, such as `recursive depth`. That report is not a broken engine
@@ -202,7 +209,7 @@ payload said no, the driver cannot do it, or the record was not there.
 | `CacheInvalidKeyError` | `V10002` | A cache key could not be built from the payload |
 | `CacheOperationNotCacheableError` | `V10003` | A write operation was asked to cache |
 | `CacheConfigurationError` | `V10004` | The cache options or driver are missing or invalid |
-| `MigrationError` | `V11001`, `V11002`, `V11003`, `V11004`, `V11005`, `V11006`, `V11007`, `V11008`, `V11009`, `V11010`, `V11011`, `V11012`, `V11013`, `V11014`, `V11015`, `V11016`, `V11017`, `V11018`, `V11019`, `V11020`, `V11021`, `V11022`, plus `V4002`, `V8001`, `V8002`, `V9001` | A migration failed, is missing, has a checksum or dialect mismatch, could not take the lock, was already applied, arrived out of order, has no file, left an invalid state, was refused as destructive, or needs a storage driver; an estate is invalid, a path is required, live schema drifted, a marker conflicted, an attempt is unfinished, consent is required or stale, a stepwise program left a partial effect, a commit is ambiguous, the provider is unsupported, or artifacts are corrupt; plus the migration layer's own refusals of its input, an index type, and an unregistered driver |
+| `MigrationError` | `V11001`, `V11002`, `V11003`, `V11004`, `V11005`, `V11006`, `V11007`, `V11008`, `V11009`, `V11010`, `V11011`, `V11012`, `V11013`, `V11014`, `V11015`, `V11016`, `V11017`, `V11018`, `V11019`, `V11020`, `V11021`, `V11022`, `V11023`, plus `V4002`, `V8001`, `V8002`, `V9001` | A migration failed, is missing, has a checksum or dialect mismatch, could not take the lock, was already applied, arrived out of order, has no file, left an invalid state, was refused as destructive, or needs a storage driver; an estate is invalid, a path is required, live schema drifted, a marker conflicted, an attempt is unfinished, consent is required or stale, a stepwise program left a partial effect, a commit is ambiguous, the provider is unsupported, or artifacts are corrupt, or a PostgreSQL index is INVALID after an interrupted concurrent build; plus the migration layer's own refusals of its input, an index type, and an unregistered driver |
 | `PendingOperationError` | `V12001`, `V12002`, `V12003`, `V12004` | An operation was awaited twice, executed in two ways, or crossed a client or transaction scope |
 
 Codes `V4003`, `V6002` and `V6003` are reserved in the taxonomy and are not raised today.

@@ -39,10 +39,12 @@
 
 import { createClient } from "@client/client";
 import { VibORMErrorCode } from "@errors";
+import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
 import { s } from "@schema";
 import type { SQLite3Driver } from "@src/drivers/sqlite3";
 import { createInMemoryLibSQLDriver } from "@tests/fixtures/drivers/libsql";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import { ddlContext } from "@tests/unit/migrations/_estate";
 import { describe, expect, it } from "vitest";
 import { syncLiveSchema } from "../../fixtures/sync-schema";
 
@@ -263,6 +265,84 @@ describe("a real change to a compound unique on SQLite", () => {
     expect(await createTableSql(driver, "uq_order")).toContain(
       'CONSTRAINT "uq_order_b_a_key" UNIQUE ("b", "a")'
     );
+  });
+});
+
+const item = (nullable: boolean) =>
+  s
+    .model({
+      id: s.string().id(),
+      sku: s.string().unique(),
+      label: nullable ? s.string().nullable() : s.string(),
+      createdAt: s.dateTime().now(),
+    })
+    .map("uq_items");
+
+// Found in wave B (L-lift), present in 1.1.0: the recreation the `createdAt`
+// default plans wrote `PRAGMA table_info`'s unparenthesized `strftime(...)`
+// default back verbatim, and SQLite refused the `CREATE TABLE` (V2001). The
+// unique, which SQLite reports only as `sqlite_autoindex_uq_items_2`, must not
+// carry that name into the new table either.
+describe("a recreation of a table whose unique SQLite named itself", () => {
+  it("keeps the unique unnamed by SQLite's reserved name, enforced, and quiet", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const client = (nullable: boolean) =>
+      createClient({
+        schema: { item: item(nullable) } as never,
+        driver,
+      }) as never;
+
+    await syncLiveSchema(client(false));
+    await driver._executeRaw(
+      `INSERT INTO "uq_items" ("id", "sku", "label") VALUES ('i1', 'a', 'x')`
+    );
+
+    await syncLiveSchema(client(true));
+
+    expect(await createTableSql(driver, "uq_items")).not.toContain(
+      "sqlite_autoindex"
+    );
+    expect(await ownedUniqueColumns(driver, "uq_items")).toEqual([["sku"]]);
+    expect((await syncLiveSchema(client(true))).operations).toEqual([]);
+    await expect(
+      driver._executeRaw(
+        `INSERT INTO "uq_items" ("id", "sku", "label") VALUES ('i2', 'a', 'y')`
+      )
+    ).rejects.toThrow();
+  });
+});
+
+// A hand-written table's defaults, as a recreation writes them back: an
+// expression needs its parentheses again, and a bare or double-quoted
+// identifier, which SQLite reads as a string, must keep none.
+describe("a recreation writes back every introspected default", () => {
+  it("re-creates expression, identifier and literal defaults SQLite accepts", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const columns = `"id" TEXT PRIMARY KEY, "at" TEXT DEFAULT (strftime('%s', 'now')), "quoted" TEXT DEFAULT "abc", "bare" TEXT DEFAULT abc, "n" INTEGER DEFAULT -1, "s" TEXT DEFAULT 'x'`;
+    await driver._executeRaw(`CREATE TABLE "uq_defaults" (${columns})`);
+    const read = <T>(sql: string, params?: unknown[]) =>
+      driver._executeRaw<T>(sql, params);
+    const [table] = (await sqlite3MigrationDriver.introspect(read)).tables;
+    if (table === undefined) throw new Error("the table was not introspected");
+
+    await driver._executeRaw(
+      sqlite3MigrationDriver.generateDDL(
+        {
+          type: "createTable",
+          table: { ...table, name: "uq_defaults_copy" },
+        },
+        ddlContext("live")
+      )
+    );
+    await driver._executeRaw(
+      `INSERT INTO "uq_defaults_copy" ("id") VALUES ('r')`
+    );
+    const row = (await driver._executeRaw(
+      `SELECT "quoted", "bare", "n", "s", "at" > 0 AS "stamped" FROM "uq_defaults_copy"`
+    )) as unknown as { rows: unknown[] };
+    expect(row.rows).toEqual([
+      { quoted: "abc", bare: "abc", n: -1, s: "x", stamped: 1 },
+    ]);
   });
 });
 

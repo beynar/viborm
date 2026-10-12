@@ -307,6 +307,89 @@ describe("enum removal through accepted native renames", () => {
   });
 });
 
+describe("PostgreSQL enum value removal and column defaults", () => {
+  test("a managed enum column, scalar or list, leaves its type through text", () => {
+    const current: SchemaSnapshot = {
+      enums: [{ name: "plan", values: ["active", "retired"] }],
+      tables: [
+        {
+          name: "accounts",
+          columns: [
+            { name: "tags", type: "plan[]", nullable: true },
+            { name: "state", type: "plan", nullable: true },
+          ],
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+    const retype = (column: string, from: string, to: string) =>
+      postgresMigrationDriver.compileStatements(
+        {
+          type: "alterColumn",
+          tableName: "accounts",
+          columnName: column,
+          from: { name: column, type: from, nullable: true },
+          to: { name: column, type: to, nullable: true },
+        },
+        ddlContext("artifact", { currentSchema: current })
+      );
+
+    expect(retype("tags", "plan[]", "text[]")).toEqual([
+      'ALTER TABLE "accounts" ALTER COLUMN "tags" TYPE text[] USING "tags"::text[]::text[]',
+    ]);
+    expect(retype("state", "plan", "text")).toEqual([
+      'ALTER TABLE "accounts" ALTER COLUMN "state" TYPE text USING "state"::text::text',
+    ]);
+  });
+
+  test("a default that names a removed value is not restored; every other default is", () => {
+    const column = (name: string, type: string, value: string) => ({
+      name,
+      type,
+      nullable: true,
+      default: value,
+    });
+    const current: SchemaSnapshot = {
+      enums: [{ name: "plan", values: ["active", "retired"] }],
+      tables: [
+        {
+          name: "accounts",
+          columns: [
+            column("state", "plan", "'retired'"),
+            column("history", "plan[]", `'{NULL,"retired"}'`),
+            column("tags", "plan[]", `'{NULL,"active"}'`),
+            column("kept", "plan", "'active'"),
+          ],
+          indexes: [],
+          foreignKeys: [],
+          uniqueConstraints: [],
+        },
+      ],
+    };
+    const statements = postgresMigrationDriver.compileStatements(
+      {
+        type: "alterEnum",
+        enumName: "plan",
+        removeValues: ["retired"],
+        newValues: ["active"],
+        valueReplacements: { retired: "active" },
+        dependentColumns: ["state", "history", "tags", "kept"].map(
+          (columnName) => ({ tableName: "accounts", columnName })
+        ),
+      },
+      ddlContext("artifact", { currentSchema: current })
+    );
+
+    const restored = statements.filter((sql) => sql.includes("SET DEFAULT"));
+    expect(restored).toEqual([
+      `ALTER TABLE "accounts" ALTER COLUMN "tags" SET DEFAULT '{NULL,"active"}'`,
+      `ALTER TABLE "accounts" ALTER COLUMN "kept" SET DEFAULT 'active'`,
+    ]);
+  });
+});
+
 function roleRemoval(): DiffOperation {
   return {
     type: "alterEnum",

@@ -13,7 +13,6 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -22,9 +21,13 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { TransactionError, unsupportedVector } from "@errors";
+import { ClientInitializationError, TransactionError } from "@errors";
 import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
-import { Driver, type QueryExecutionContext } from "../driver";
+import {
+  Driver,
+  type MigrationSessionAttestation,
+  type QueryExecutionContext,
+} from "../driver";
 import {
   normalizeDriverConnectionError,
   normalizeDriverError,
@@ -37,11 +40,18 @@ import {
   nestedTransactionDispatchError,
   normalizePostgresRowCount,
   type PinnedSessionReservation,
+  resolveMigrationSessionAttestationOption,
   resolveNamespaceOption,
   runTransactionLifecycle,
   type TransactionOptionSupport,
   withSuppressedFailure,
 } from "../shared";
+import {
+  refuseEmptyDatabaseUrl,
+  refuseUnknownDriverConfigKeys,
+  systemRootAsVerifyFull,
+} from "../shared/driver-options";
+import { installPostgresAdapter } from "../shared/postgres-adapter";
 import type { QueryResult } from "../types";
 
 // DATE (1082) and TIMESTAMP WITHOUT TIME ZONE (1114): pg's default parsers
@@ -103,7 +113,7 @@ interface HeldClientErrors {
   readonly stop: () => void;
 }
 
-function holdClientErrors(client: PoolClient): HeldClientErrors {
+function holdClientErrors(client: PgPoolClient): HeldClientErrors {
   let failure: Error | undefined;
   const retain = (error: Error) => {
     failure ??= error;
@@ -117,29 +127,138 @@ function holdClientErrors(client: PoolClient): HeldClientErrors {
   };
 }
 
+/** The keys node-postgres's URL parser reads from the query before the authority. */
+const URL_QUERY_KEYS = new Set(["user", "password", "host", "port"]);
+/** The query parameters node-postgres derives `ssl` from. */
+const URL_SSL_KEYS = ["sslmode", "sslcert", "sslkey", "sslrootcert"];
+
+/**
+ * The pool's connection record: the caller's options, with `databaseUrl` as
+ * the connection string unless `options.connectionString` names one, and each
+ * connection option they set written into that URL so that it wins.
+ *
+ * node-postgres parses the connection string over the options beside it and
+ * fills the connection keys the URL lacks with empty values, so a per-tenant
+ * URL without a password lost `options.password` from a secret, and the URL's
+ * port replaced `options.port`. Its parser prefers `user`, `password`, `host`
+ * and `port` from the query and reads the database from the path, so an
+ * explicit key is written there; any other option the query also names is
+ * dropped from it, and an explicit `ssl` drops the parameters that derive one.
+ * A password callback cannot be written into a URL, and node-postgres would
+ * replace it with the URL's password, so one beside a URL is refused.
+ */
+function connectionRecord(
+  options: PoolConfig,
+  databaseUrl: string | undefined
+): PoolConfig {
+  const given = options.connectionString ?? databaseUrl;
+  if (!given) return options;
+  if (typeof options.password === "function") {
+    throw new ClientInitializationError(
+      'Driver "pg" cannot keep a password callback beside a connection URL: node-postgres reads the password from the URL. Pass `host`, `user` and `database` in `options` instead.',
+      { meta: { driver: "pg", operation: "configuration" } }
+    );
+  }
+  const connectionString = systemRootAsVerifyFull(given);
+  let url: URL | undefined;
+  try {
+    url = new URL(connectionString);
+  } catch {
+    url = undefined;
+  }
+  const entries: [string, unknown][] = Object.entries(options);
+  const overrides = entries.filter(
+    ([key, value]) =>
+      value !== undefined &&
+      (URL_QUERY_KEYS.has(key) ||
+        key === "database" ||
+        key === "ssl" ||
+        (key !== "connectionString" && url?.searchParams.has(key)))
+  );
+  if (overrides.length === 0) return { ...options, connectionString };
+  if (url === undefined) {
+    throw new ClientInitializationError(
+      'Driver "pg" could not read its connection URL to apply the connection options beside it.',
+      { meta: { driver: "pg", operation: "configuration" } }
+    );
+  }
+  for (const [key, value] of overrides) {
+    url.searchParams.delete(key);
+    if (key === "ssl") {
+      for (const sslKey of URL_SSL_KEYS) url.searchParams.delete(sslKey);
+    } else if (key === "database") {
+      url.pathname = `/${String(value)}`;
+    } else if (
+      URL_QUERY_KEYS.has(key) &&
+      (typeof value === "string" || typeof value === "number")
+    ) {
+      url.searchParams.set(key, String(value));
+    }
+  }
+  return { ...options, connectionString: url.href };
+}
+
 // ============================================================
 // EXPORTED OPTIONS
 // ============================================================
 
 export type { PoolConfig as PgOptions } from "pg";
 
+interface PgErrorEvents {
+  on(event: "error", listener: (error: Error) => void): unknown;
+  off(event: "error", listener: (error: Error) => void): unknown;
+}
+
+/** The part of a node-postgres `PoolClient` this driver uses. */
+interface PgPoolClient
+  extends Pick<PoolClient, "query" | "release">,
+    PgErrorEvents {}
+
+/**
+ * The part of a node-postgres `Pool` this driver uses, so any pool with that
+ * shape is accepted. A Neon WebSocket `Pool` (`@neondatabase/serverless`) is
+ * node-postgres's pool over a WebSocket and runs here unchanged, but its
+ * bundled copy of the pg declarations lags `@types/pg`: in 8.23 a
+ * `PoolClient` is a whole `Client`, and the full `Pool` type refused Neon's.
+ */
+interface PgPool extends Pick<Pool, "query" | "end">, PgErrorEvents {
+  connect(): Promise<PgPoolClient>;
+}
+
 export interface PgDriverOptions {
-  pool?: Pool;
+  pool?: PgPool;
   options?: PoolConfig;
   pgvector?: boolean;
   postgis?: boolean;
   databaseUrl?: string;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
+  /**
+   * Your claim, at your risk, that every connection this pool opens is one
+   * server session for its whole life. It lifts migrations' refusal of
+   * Cloudflare Hyperdrive and Neon `-pooler` hosts; application queries never
+   * need it.
+   */
+  migrationSessionAttestation?: MigrationSessionAttestation;
 }
 
 export type PgClientConfig<C extends DriverConfig> = PgDriverOptions & C;
+
+const PG_CONFIG_KEYS: Record<keyof PgDriverOptions, true> = {
+  pool: true,
+  options: true,
+  pgvector: true,
+  postgis: true,
+  databaseUrl: true,
+  namespace: true,
+  migrationSessionAttestation: true,
+};
 
 // ============================================================
 // DRIVER IMPLEMENTATION
 // ============================================================
 
-export class PgDriver extends Driver<Pool, PoolClient> {
+export class PgDriver extends Driver<PgPool, PgPoolClient> {
   declare readonly adapter: DatabaseAdapter;
   readonly maxBindParametersPerStatement: number | undefined = 65_535;
 
@@ -150,17 +269,16 @@ export class PgDriver extends Driver<Pool, PoolClient> {
    * construction used to make `$disconnect()` end a transport VibORM was handed
    * and may be sharing with the caller's own code.
    */
-  private readonly suppliedPool: Pool | undefined;
+  private readonly suppliedPool: PgPool | undefined;
   /**
    * The caller's connection record, copied once.
    *
    * A copy of THIS record, not of what it points at: a nested `ssl` object or
    * stream is the caller's to own, and the keys that decide where a pool
-   * connects — host, port, user, database, connectionString — all live here.
+   * connects — host, port, user, database, connectionString — all live here,
+   * with the caller's `databaseUrl` merged in (see `connectionRecord`).
    */
   private readonly connectionOptions: PoolConfig;
-  /** The caller's `databaseUrl`, read once, for the same reason. */
-  private readonly connectionString: string | undefined;
   /**
    * The listener and latest idle failure for each pool this driver created.
    *
@@ -175,17 +293,41 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     super("postgresql", "pg");
     const namespace = resolveNamespaceOption(options);
     this.suppliedPool = options.pool;
-    this.connectionOptions = { ...options.options };
-    this.connectionString = options.databaseUrl;
+    const connection = { ...options.options };
+    refuseEmptyDatabaseUrl(
+      "pg",
+      options,
+      Boolean(
+        this.suppliedPool || connection.host || connection.connectionString
+      )
+    );
+    this.connectionOptions = connectionRecord(connection, options.databaseUrl);
 
     if (this.suppliedPool) {
       this.client = this.suppliedPool;
     }
 
-    const adapter = new PostgresAdapter(namespace, options.postgis === true);
-    adapter.capabilities.supportsVector = options.pgvector === true;
-    if (!options.pgvector) adapter.vector = unsupportedVector;
-    defineImmutableDriverFact(this, "adapter", adapter);
+    installPostgresAdapter(this, namespace, options);
+    defineImmutableDriverFact(
+      this,
+      "migrationSessionAttestation",
+      resolveMigrationSessionAttestationOption(options)
+    );
+  }
+
+  /** Every host or URL this driver's pool connects through, for migration admission. */
+  protected override migrationSessionEndpoints(): readonly unknown[] {
+    const supplied: unknown = this.suppliedPool
+      ? Reflect.get(this.suppliedPool, "options")
+      : undefined;
+    const pool =
+      typeof supplied === "object" && supplied !== null ? supplied : {};
+    return [
+      this.connectionOptions.host,
+      this.connectionOptions.connectionString,
+      Reflect.get(pool, "host"),
+      Reflect.get(pool, "connectionString"),
+    ];
   }
 
   /**
@@ -203,18 +345,11 @@ export class PgDriver extends Driver<Pool, PoolClient> {
    * for a caller who never asked it to — and for the other consumers of a pool
    * two estates share. This driver listens only on the pool it made.
    */
-  protected initClient(): Promise<Pool> {
+  protected initClient(): Promise<PgPool> {
     if (this.suppliedPool !== undefined) {
       return Promise.resolve(this.suppliedPool);
     }
-    const options: PoolConfig = {
-      types: utcSafeTypes,
-      ...this.connectionOptions,
-    };
-    if (this.connectionString !== undefined) {
-      options.connectionString ??= this.connectionString;
-    }
-    const pool = new Pool(options);
+    const pool = new Pool({ types: utcSafeTypes, ...this.connectionOptions });
     const errorState = createOwnedPoolErrorState();
     this.ownedPoolErrors.set(pool, errorState);
     pool.on("error", errorState.retain);
@@ -222,14 +357,14 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   }
 
   private readBackgroundPoolFailure(
-    pool: Pool | PoolClient
+    pool: PgPool | PgPoolClient
   ): BackgroundPoolFailure | undefined {
     return this.ownedPoolErrors.get(pool)?.backgroundFailure;
   }
 
   /** Clear exactly the failure observed before an operation started. */
   private clearBackgroundPoolFailure(
-    pool: Pool | PoolClient,
+    pool: PgPool | PgPoolClient,
     observed: BackgroundPoolFailure | undefined
   ): boolean {
     if (observed === undefined || !observed.isAvailable) return false;
@@ -243,7 +378,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 
   /** Claim one retained failure for one failed acquisition, at most once. */
   private consumeBackgroundPoolFailure(
-    pool: Pool | PoolClient,
+    pool: PgPool | PgPoolClient,
     observed: BackgroundPoolFailure | undefined
   ): Error | undefined {
     if (!this.clearBackgroundPoolFailure(pool, observed)) return undefined;
@@ -252,7 +387,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
 
   /** Surface one pool-owned idle failure beside one pool query failure. */
   private throwPoolQueryFailure(
-    pool: Pool | PoolClient,
+    pool: PgPool | PgPoolClient,
     observed: BackgroundPoolFailure | undefined,
     error: unknown,
     sql: string,
@@ -288,10 +423,10 @@ export class PgDriver extends Driver<Pool, PoolClient> {
    * nothing retained is left exactly as it was.
    */
   private async acquirePooledClient(
-    pool: Pool,
+    pool: PgPool,
     context: QueryExecutionContext = {},
     maxWaitMs?: number
-  ): Promise<PoolClient> {
+  ): Promise<PgPoolClient> {
     const observed = this.readBackgroundPoolFailure(pool);
     let acquisitionSettled = false;
     try {
@@ -347,7 +482,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
    * caller's record says now: every pool this driver made is ended, and the one
    * it was handed never is.
    */
-  protected async closeClient(pool: Pool): Promise<void> {
+  protected async closeClient(pool: PgPool): Promise<void> {
     if (pool === this.suppliedPool) {
       return;
     }
@@ -379,12 +514,31 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   }
 
   protected async execute<T>(
-    client: Pool | PoolClient,
+    client: PgPool | PgPoolClient,
     sql: string,
     params: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "execute";
+    return this.executeQuery(client, sql, params, context, "execute");
+  }
+
+  protected async executeRaw<T>(
+    client: PgPool | PgPoolClient,
+    sql: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return this.executeQuery(client, sql, params, context, "executeRaw");
+  }
+
+  private async executeQuery<T>(
+    client: PgPool | PgPoolClient,
+    sql: string,
+    params: unknown[] | undefined,
+    context: QueryExecutionContext | undefined,
+    fallbackOperation: "execute" | "executeRaw"
+  ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? fallbackOperation;
     const observed = this.readBackgroundPoolFailure(client);
     const result = await client
       .query({ text: sql, values: params, types: utcSafeTypes })
@@ -412,38 +566,6 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     };
   }
 
-  protected async executeRaw<T>(
-    client: Pool | PoolClient,
-    sql: string,
-    params: unknown[] | undefined,
-    context?: QueryExecutionContext
-  ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "executeRaw";
-    const observed = this.readBackgroundPoolFailure(client);
-    const result = await client
-      .query({ text: sql, values: params, types: utcSafeTypes })
-      .catch((error: unknown) =>
-        this.throwPoolQueryFailure(
-          client,
-          observed,
-          error,
-          sql,
-          params,
-          context
-        )
-      );
-    this.clearBackgroundPoolFailure(client, observed);
-    return {
-      rows: result.rows,
-      rowCount: normalizePostgresRowCount(
-        result.rowCount,
-        result.command,
-        result.rows,
-        { provider: "pg", operation }
-      ),
-    };
-  }
-
   /**
    * PostgreSQL takes the isolation level as the first statement inside the
    * transaction, and node-postgres hands out a pooled client we can wait for
@@ -458,8 +580,8 @@ export class PgDriver extends Driver<Pool, PoolClient> {
   }
 
   protected async transaction<T>(
-    client: Pool | PoolClient,
-    fn: (tx: PoolClient) => Promise<T>,
+    client: PgPool | PgPoolClient,
+    fn: (tx: PgPoolClient) => Promise<T>,
     context?: QueryExecutionContext,
     options?: DriverTransactionOptions
   ): Promise<T> {
@@ -468,9 +590,8 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     }
 
     // Start a new transaction
-    const pool = client as Pool;
     const poolClient = await this.acquirePooledClient(
-      pool,
+      client,
       context,
       options?.maxWaitMs
     );
@@ -548,7 +669,7 @@ export class PgDriver extends Driver<Pool, PoolClient> {
    * session whose advisory-lock state is unknown never re-enters the pool.
    */
   protected override async pinnedSession(): Promise<
-    PinnedSessionReservation<Pool | PoolClient>
+    PinnedSessionReservation<PgPool | PgPoolClient>
   > {
     const client = await this.getClient({ operation: "pinnedSession" });
     if ("release" in client) {
@@ -560,6 +681,10 @@ export class PgDriver extends Driver<Pool, PoolClient> {
     const clientErrors = holdClientErrors(poolClient);
     return {
       session: poolClient,
+      // The client's own `error` event is how pg reports a socket that died
+      // between or under statements; the pinned session then sends nothing
+      // more on it (plan S2). Release destroys it either way.
+      lost: clientErrors.failure,
       release: (discard) => {
         try {
           poolClient.release(
@@ -587,23 +712,21 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: PgDriver }
   >[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "pg", PG_CONFIG_KEYS);
   const { pool, options = {}, pgvector, postgis, databaseUrl } = config;
-  const namespace = resolveNamespaceOption(config);
-
-  // The caller's `options` record is theirs: the connection string goes on a
-  // copy this wrapper owns.
-  const driverOptions: PgDriverOptions = {
-    options:
-      databaseUrl === undefined
-        ? options
-        : { ...options, connectionString: databaseUrl },
-  };
-  if (pool) driverOptions.pool = pool;
-  if (pgvector !== undefined) driverOptions.pgvector = pgvector;
-  if (postgis !== undefined) driverOptions.postgis = postgis;
-  if (namespace !== undefined) driverOptions.namespace = namespace;
-
-  const driver = new PgDriver(driverOptions);
+  const driver = new PgDriver({
+    // Namespace, then attestation: the order a refusal reports in.
+    namespace: resolveNamespaceOption(config),
+    migrationSessionAttestation:
+      resolveMigrationSessionAttestationOption(config),
+    // Only a supplied pool counts: a falsy one leaves the driver to build its own.
+    pool: pool || undefined,
+    options,
+    // Present even when undefined: the driver refuses an empty one (parity-18).
+    ...(Object.hasOwn(config, "databaseUrl") ? { databaseUrl } : {}),
+    pgvector,
+    postgis,
+  });
 
   return createClientFromDriverConfig<S, C, PgDriver>(config, driver);
 }

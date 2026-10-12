@@ -1,3 +1,4 @@
+import { VibORMErrorCode } from "@errors";
 import {
   type DiffOptions,
   diff,
@@ -5,7 +6,7 @@ import {
 } from "@migrations/differ";
 import { invertOperations } from "@migrations/invert";
 import {
-  alwaysRenameResolver,
+  alwaysAddDropResolver,
   resolveAmbiguousChanges,
 } from "@migrations/resolver";
 import type {
@@ -16,6 +17,9 @@ import type {
 } from "@migrations/types";
 import { sortOperations } from "@migrations/utils";
 import { expect, it } from "vitest";
+
+const renameEveryChange: Resolver = async (changes) =>
+  new Map(changes.map((change) => [change, { type: "rename" as const }]));
 
 const decimal = (precision: number, scale: number) => ({ precision, scale });
 
@@ -148,7 +152,7 @@ it("re-diffs outer and inner renames through native PK/index/UQ/FK effects", asy
   const batches: string[][] = [];
   const resolver: Resolver = async (changes) => {
     batches.push(changes.map((change) => change.type));
-    return alwaysRenameResolver(changes);
+    return renameEveryChange(changes);
   };
   const options: DiffOptions = { matchConstraintsByShape: true };
 
@@ -231,7 +235,7 @@ it("canonicalizes a renamed PostgreSQL table against its live old name", async (
       await diff(current, desired, options),
       current,
       desired,
-      alwaysRenameResolver,
+      renameEveryChange,
       options
     )
   ).toEqual([
@@ -262,19 +266,37 @@ it("normalizes a restored self-FK only while the forward rename is active", () =
     referencedTable: "item",
     referencedColumns: ["uid"],
   };
-  const up = sortOperations([
-    { type: "renameTable", from: "node", to: "item" },
-    { type: "renameColumn", tableName: "item", from: "id", to: "uid" },
-    { type: "dropForeignKey", tableName: "item", fkName: "node_parent_fkey" },
-    { type: "addForeignKey", tableName: "item", fk: replacement },
-  ] satisfies DiffOperation[]);
-
-  expect(up.map((operation) => operation.type)).toEqual([
-    "renameTable",
-    "dropForeignKey",
-    "renameColumn",
-    "addForeignKey",
-  ]);
+  const renameTable = {
+    type: "renameTable",
+    from: "node",
+    to: "item",
+  } as const;
+  const renameColumn = {
+    type: "renameColumn",
+    tableName: "item",
+    from: "id",
+    to: "uid",
+  } as const;
+  const drop = {
+    type: "dropForeignKey",
+    tableName: "item",
+    fkName: "node_parent_fkey",
+  } as const;
+  const add = {
+    type: "addForeignKey",
+    tableName: "item",
+    fk: replacement,
+  } as const;
+  // The sorter runs a key drop after its table's column renames, since a
+  // derived key name follows its column (PostgreSQL)...
+  expect(
+    sortOperations([renameTable, renameColumn, drop, add]).map(
+      (operation) => operation.type
+    )
+  ).toEqual(["renameTable", "renameColumn", "dropForeignKey", "addForeignKey"]);
+  // ...and the inverse still restores a key dropped between two renames at
+  // the identity of that exact prefix.
+  const up: DiffOperation[] = [renameTable, drop, renameColumn, add];
   const down = invertOperations(up, previous).operations;
   const restored = down.find(
     (operation) =>
@@ -343,4 +365,58 @@ it("treats PostgreSQL int4 and integer as one non-destructive type", () => {
       to: { name: "sequence", type: "integer", nullable: false },
     })
   ).toBe(false);
+});
+
+it("an add-and-drop answer re-diffs only its own table: the others stay as they were", async () => {
+  const text = (name: string) => ({ name, type: "text", nullable: false });
+  const current: SchemaSnapshot = {
+    tables: [
+      table("accounts", [text("id"), text("handle")]),
+      table("teams", [text("id"), text("label")]),
+    ],
+  };
+  const desired: SchemaSnapshot = {
+    tables: [
+      table("accounts", [text("id"), text("username")]),
+      table("teams", [text("id"), text("label")]),
+    ],
+  };
+
+  const operations = await resolveAmbiguousChanges(
+    await diff(current, desired),
+    current,
+    desired,
+    alwaysAddDropResolver
+  );
+
+  expect(operations).toEqual([
+    { type: "dropColumn", tableName: "accounts", columnName: "handle" },
+    { type: "addColumn", tableName: "accounts", column: text("username") },
+  ]);
+});
+
+it("a resolver that leaves an ambiguous change unanswered is refused, naming it", async () => {
+  const current: SchemaSnapshot = {
+    tables: [
+      table("accounts", [{ name: "handle", type: "text", nullable: false }]),
+    ],
+  };
+  const desired: SchemaSnapshot = {
+    tables: [
+      table("accounts", [{ name: "username", type: "text", nullable: false }]),
+    ],
+  };
+  const silent: Resolver = () => Promise.resolve(new Map());
+
+  await expect(
+    resolveAmbiguousChanges(
+      await diff(current, desired),
+      current,
+      desired,
+      silent
+    )
+  ).rejects.toMatchObject({
+    code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
+    message: expect.stringContaining("Missing resolution for"),
+  });
 });

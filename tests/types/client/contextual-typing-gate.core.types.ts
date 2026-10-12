@@ -1106,8 +1106,10 @@ describe("the array spelling of orderBy is keyed at its elements", () => {
  *  - naming `cursor` / `having` adds two more TS2589 sites;
  *  - the cache extension now owns its shallow finite cache clause, so that
  *    clause is guarded without resolving a model or relation payload;
- *  - scalar operator and nested projection keys remain pinned; ordinary
- *    relation/logical WHERE model field keys are guarded without a depth cap.
+ *  - ordinary relation/logical WHERE model field keys, nested write data,
+ *    nested `select` / `include` / `where` and root operator bags are keyed
+ *    by walking the caller's literal (types-10, 1.2.0); operator bags below
+ *    the root WHERE remain pinned.
  *
  * These are refused at RUNTIME: validation is the single home for payload
  * normalization, and an unknown key fails the parse. What is missing is only the
@@ -1190,9 +1192,9 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
       having: { pages: { _sum: { gt: 1 } }, pagess: { _sum: { gt: 1 } } },
     });
 
-  const _operatorLevelTypoCompiles = () =>
-    // depth 3: "contians" is NOT a compile error
+  const _operatorLevelTypoRefused = () =>
     client.book.findMany({
+      // @ts-expect-error a root operator bag is sealed beside "contains"
       where: { title: { contains: "x", contians: "x" } },
     });
 
@@ -1200,9 +1202,9 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
     // @ts-expect-error logical filters retain model field keys beside a real title
     client.book.findMany({ where: { AND: [{ title: "x", ttitle: "x" }] } });
 
-  const _nestedRelationTypoCompiles = () =>
+  const _nestedRelationTypoRefused = () =>
     client.author.findMany({
-      // depth 3 through a relation: "ttitle" is NOT a compile error
+      // @ts-expect-error a nested select is keyed against the target's fields
       select: { id: true, books: { select: { title: true, ttitle: true } } },
     });
 
@@ -1211,9 +1213,9 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
     expectTypeOf(_updateClauseTypoCompiles).toBeFunction();
     expectTypeOf(_cursorTypoCompiles).toBeFunction();
     expectTypeOf(_havingTypoCompiles).toBeFunction();
-    expectTypeOf(_operatorLevelTypoCompiles).toBeFunction();
+    expectTypeOf(_operatorLevelTypoRefused).toBeFunction();
     expectTypeOf(_booleanGroupTypoRefused).toBeFunction();
-    expectTypeOf(_nestedRelationTypoCompiles).toBeFunction();
+    expectTypeOf(_nestedRelationTypoRefused).toBeFunction();
   });
 });
 
@@ -1344,15 +1346,12 @@ describe("an index-signature clause is exempt", () => {
  * assertion. When the lanes were written separately this was the open hole both
  * described; the clause guard closed it, and this block no longer pins it.
  *
- * OPERATOR level, one step deeper (`{ gt: 1, ltt: 100 }`): still NOT refused. The
- * operand is a UNION — plain value, field-ref token, SQL fragment, callback — and
- * excess-property checking does not fire through a union: the literal matches the
- * filter member and the extra key rides along. Only a literal whose keys are ALL
- * wrong is reported, because then no member matches at all. That is the pair
- * below, and it is the same depth-3 obstacle the clause guard was measured
- * against and left standing (`where.title.contians` in the deliberately-unfixed
- * list) — walking into the operand resolves types the model consts must not
- * resolve mid-inference.
+ * OPERATOR level, one step deeper (`{ gt: 1, ltt: 100 }`): refused at the ROOT
+ * WHERE since 1.2.0 (types-10). The operand is a UNION — plain value, field-ref
+ * token, SQL fragment, callback — and excess-property checking does not fire
+ * through a union, so `OperatorBagGuard` seals the bag itself against every key
+ * the field's object arms declare. The bag inside a relation filter or a logical
+ * group is not sealed; that stays a runtime refusal.
  *
  * The union is not what the callback cost. These probes were run against 2f7bd59
  * — pre-merge, plain values only, no callback in the union — and against the
@@ -1364,22 +1363,28 @@ describe("an index-signature clause is exempt", () => {
  * callback ("an unknown key is refused the same way beside every operand kind"
  * in tests/query-engine/operand-callback-sql.test.ts). The gap is DX-only.
  *
- * Same convention as the FK pins above: no `@ts-expect-error` on the two
- * compiling probes, because their compiling IS the pin. The day the operand union
- * gets excess-property checking those lines turn red — delete them and correct
- * this comment.
+ * The callback probe is the positive control: sealing the bag must not disturb
+ * the operand's contextual typing.
  */
-describe("an OPERATOR typo beside a correct operator is the pinned negative", () => {
+describe("an OPERATOR typo beside a correct operator is refused at the root", () => {
   const _numericOperatorTypoAlone = () =>
     // @ts-expect-error - "gtt" alone matches no member of the operand union
     client.book.findMany({ where: { pages: { gtt: 1 } } });
 
-  const _numericOperatorTypoBesideCompiles = () =>
+  const _numericOperatorTypoBesideRefused = () =>
+    // @ts-expect-error - "ltt" beside the real "gt"
     client.book.findMany({ where: { pages: { gt: 1, ltt: 100 } } });
 
-  const _stringOperatorTypoBesideCompiles = () =>
+  const _stringOperatorTypoBesideRefused = () =>
     client.book.findMany({
+      // @ts-expect-error - "startsWit" beside the real "contains"
       where: { title: { contains: "x", startsWit: "y" } },
+    });
+
+  const _relationFilterOperatorTypoCompiles = () =>
+    // PIN: inside a relation filter the bag is not sealed (runtime refuses it)
+    client.author.findMany({
+      where: { books: { some: { title: { contains: "x", startsWit: "y" } } } },
     });
 
   const _operandCallbackStillTyped = () =>
@@ -1387,10 +1392,11 @@ describe("an OPERATOR typo beside a correct operator is the pinned negative", ()
       where: { pages: { gt: (ctx) => ctx.fields.pages } },
     });
 
-  test("all-wrong is refused; operator-beside-correct is pinned as compiling", () => {
+  test("a root operator typo is refused; one in a relation filter is pinned", () => {
     expectTypeOf(_numericOperatorTypoAlone).toBeFunction();
-    expectTypeOf(_numericOperatorTypoBesideCompiles).toBeFunction();
-    expectTypeOf(_stringOperatorTypoBesideCompiles).toBeFunction();
+    expectTypeOf(_numericOperatorTypoBesideRefused).toBeFunction();
+    expectTypeOf(_stringOperatorTypoBesideRefused).toBeFunction();
+    expectTypeOf(_relationFilterOperatorTypoCompiles).toBeFunction();
     expectTypeOf(_operandCallbackStillTyped).toBeFunction();
   });
 });

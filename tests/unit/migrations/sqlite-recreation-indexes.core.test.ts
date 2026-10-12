@@ -53,8 +53,8 @@
  * `constraint-identity.test.ts`.
  */
 
+import type { MigrationDriver } from "@src/migrations/drivers";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
-import { generateDDLStatements } from "@src/migrations/push/executor";
 import type {
   DiffOperation,
   IndexDef,
@@ -62,6 +62,22 @@ import type {
 } from "@src/migrations/types";
 import { sortOperations } from "@src/migrations/utils";
 import { describe, expect, it } from "vitest";
+
+/** Every live statement of `operations`, in order, each in its own context. */
+function liveStatements(
+  operations: DiffOperation[],
+  migrationDriver: MigrationDriver,
+  currentSchema: SchemaSnapshot
+): string[] {
+  return operations.flatMap((operation, position) =>
+    migrationDriver.compileStatements(operation, {
+      destination: "live",
+      currentSchema,
+      precedingOperations: operations.slice(0, position),
+      followingOperations: operations.slice(position + 1),
+    })
+  );
+}
 
 /** The shape of a to-many child table, with whatever indexes it already has. */
 function postsSnapshot(indexes: IndexDef[]): SchemaSnapshot {
@@ -132,7 +148,7 @@ function sqliteStatements(
   operations: DiffOperation[],
   snapshot: SchemaSnapshot
 ): string[] {
-  return generateDDLStatements(
+  return liveStatements(
     sortOperations(operations),
     sqlite3MigrationDriver,
     snapshot
@@ -295,8 +311,10 @@ describe("SQLite table recreation — the batch's own columns", () => {
     ]);
     // And the copy reads the column from the table that now has it.
     expect(
-      statements.some((s) =>
-        s.includes('SELECT "id", "author_id", "slug", "subtitle"')
+      statements.some(
+        (s) =>
+          s.startsWith('INSERT INTO "__new_posts"') &&
+          s.includes('"slug", "subtitle" FROM "posts"')
       )
     ).toBe(true);
   });

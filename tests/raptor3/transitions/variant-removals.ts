@@ -254,7 +254,7 @@ export const variantRemovalScenarios: ScenarioDefinition[] = cases.map(
           assert.equal(
             observation.outcome.failure.message,
             disconnect
-              ? "Validation failed for update: data.comments.disconnect: Unknown key: disconnect"
+              ? "Validation failed for post.update: data.comments.disconnect: Unknown key: disconnect"
               : wrongType
                 ? "Cannot delete relation 'comments': target record was not found for this parent."
                 : "Cannot set relation 'comments' because foreign key field(s) subject_type, subject_id are required: rows removed from the set cannot be disconnected. Delete them instead."

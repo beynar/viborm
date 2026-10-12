@@ -1,5 +1,9 @@
-import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
-import type { DiagnosticDisclosure } from "./diagnostics";
+import {
+  VibORMError,
+  VibORMErrorCode,
+  type VibORMErrorMeta,
+  type VibORMErrorOptions,
+} from "./base";
 
 /**
  * Every code {@link ConnectionError} can carry. `CLIENT_INITIALIZATION` is NOT here — it has
@@ -22,12 +26,7 @@ export class ConnectionError extends VibORMError {
 
   constructor(
     message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta | undefined;
-      code?: ConnectionErrorCode | undefined;
-    }
+    options?: VibORMErrorOptions & { code?: ConnectionErrorCode | undefined }
   ) {
     super(message, options?.code ?? VibORMErrorCode.CONNECTION_FAILED, options);
   }
@@ -52,14 +51,7 @@ export class ClientInitializationError extends VibORMError {
   /** Literal discriminant: this class always carries `CLIENT_INITIALIZATION`. */
   declare readonly code: typeof VibORMErrorCode.CLIENT_INITIALIZATION;
 
-  constructor(
-    message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta | undefined;
-    }
-  ) {
+  constructor(message: string, options?: VibORMErrorOptions) {
     super(message, VibORMErrorCode.CLIENT_INITIALIZATION, options);
   }
 }
@@ -102,12 +94,7 @@ export class QueryError extends VibORMError {
 
   constructor(
     message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta | undefined;
-      code?: QueryErrorCode | undefined;
-    }
+    options?: VibORMErrorOptions & { code?: QueryErrorCode | undefined }
   ) {
     super(message, options?.code ?? VibORMErrorCode.QUERY_FAILED, options);
   }
@@ -167,12 +154,7 @@ export class NestedWriteError extends VibORMError {
   constructor(
     message: string,
     relation: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta | undefined;
-      code?: NestedWriteErrorCode | undefined;
-    }
+    options?: VibORMErrorOptions & { code?: NestedWriteErrorCode | undefined }
   ) {
     super(message, options?.code ?? VibORMErrorCode.NESTED_WRITE_FAILED, {
       cause: options?.cause,
@@ -206,14 +188,7 @@ export class NestedWriteAssertionError extends VibORMError {
   /** Literal discriminant: this class always carries `NESTED_WRITE_ASSERTION_FAILED`. */
   declare readonly code: typeof VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED;
 
-  constructor(
-    message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta | undefined;
-    }
-  ) {
+  constructor(message: string, options?: VibORMErrorOptions) {
     super(message, VibORMErrorCode.NESTED_WRITE_ASSERTION_FAILED, options);
   }
 }

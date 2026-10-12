@@ -1,64 +1,103 @@
 /**
- * V1 operator commands: status, verify, log, baseline, down, resolve, reset.
+ * V1 operator commands: status, verify, log, baseline, reanchor, prune,
+ * down, resolve, reset.
  * Status/verify/log are read-only and never bootstrap missing control tables.
  */
 
+import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { admitLiveMigrationCapability } from "./admission";
-import { assertNoDrift } from "./apply-v1";
+import {
+  type InvalidIndex,
+  qualifiedName,
+  readInvalidIndexes,
+} from "./catalog-probes";
 import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
   groupContiguousAtomicity,
+  refuseSqliteStepwise,
   stepStatements,
 } from "./compile";
 import {
+  advanceMarker,
   appendLedger,
-  casMarker,
-  DEFAULT_CONTROL_BASE,
+  attemptEvents,
   ensureControlTables,
-  markerFromPath,
+  isTableMissing,
+  ledgerEvent,
+  type MigrationControlRead,
   readControlState,
+  refuseIncompatibleHistory,
   refusePartialControl,
   unfinishedAttempts,
 } from "./control";
-import { diff } from "./differ";
+import { diff, isDestructiveOperation } from "./differ";
 import { type NormalizedDownOptions, normalizeDownOptions } from "./down-input";
-import { emptyManagedSnapshot } from "./empty-snapshot";
-import { evaluateAllChecks, executeOperations } from "./execute-dispatch";
 import {
-  assertForeignKeysIntact,
-  liftForeignKeyPragmas,
-  withForeignKeysLifted,
-} from "./foreign-keys";
+  assertAllChecks,
+  evaluateAllChecks,
+  executeOperations,
+} from "./execute-dispatch";
 import {
   loadMigrationGraph,
   type MigrationGraph,
   parentTransition,
   requireStateSnapshot,
   resolveStateSelector,
+  routeEdges,
   selectRoute,
+  statesFrom,
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
-  mayWrapTransaction,
+  commitLockedTransaction,
+  letLockGo,
   resolveCommandDriver,
-  runSequentialProgram,
+  runProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
+import {
+  assertLockedSinceDecision,
+  assertNoDrift,
+  markerStanding,
+  proveLive,
+} from "./proof";
+import { renderMigrationReview } from "./public-view";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
-import type { MigrationStorageReader } from "./storage/contract";
-import { assertEstateTargetMatches } from "./target";
-import { eventIdFor } from "./v1-parse";
+import { approveDestructiveOperations } from "./resolver";
+import {
+  confirmedPrefix,
+  openCommand,
+  readCommandControl,
+  refuseAmbiguousNext,
+  sliceOperations,
+} from "./resume";
+import { sliceDispatch } from "./sql-blob";
+import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
+import type {
+  MigrationStorageReader,
+  MigrationStorageWriter,
+} from "./storage/contract";
+import type {
+  AmbiguousChange,
+  DiffOperation,
+  ResolveCallback,
+  SchemaSnapshot,
+} from "./types";
 import type {
   BaselineOptions,
+  DownPreviewEdgeV1,
   DownV1Options,
+  DownV1Result,
   LedgerEventV1,
   MarkerPathEdgeV1,
   MigrationMarkerV1,
+  ReanchorOptions,
   ResolveV1Options,
+  StateSelector,
 } from "./v1-types";
 
 export { resetV1 } from "./reset-v1";
@@ -68,6 +107,20 @@ export interface StatusV1Result {
   readonly marker: MigrationMarkerV1 | null;
   readonly pending: readonly Sha256[];
   readonly unfinished: boolean;
+  /**
+   * Present only when the marker names a state this estate does not hold:
+   * `"ahead"` when its arrival path leaves this history after a state it holds
+   * (newer code migrated the database), `"unknown"` when nothing on that path
+   * belongs here. `pending` is then empty.
+   */
+  readonly markerState?: "ahead" | "unknown";
+  /** Present only when a managed table carries an INVALID index (PostgreSQL). */
+  readonly invalidIndexes?: readonly InvalidIndex[];
+  /**
+   * The latest `failed` ledger event, present once a rolled-back attempt left
+   * one: its `toState`, `dispatchId` and `failure` say what failed and why.
+   */
+  readonly lastFailure?: LedgerEventV1;
 }
 
 export async function statusV1(
@@ -75,55 +128,63 @@ export async function statusV1(
   storage: MigrationStorageReader
 ): Promise<StatusV1Result> {
   const graph = await loadMigrationGraph(storage);
-  const driver = getPushMigrationDriver(client);
-  assertEstateTargetMatches(graph.descriptor.target, driver.target);
-  admitLiveMigrationCapability(driver, "read-only", "status()");
+  const driver = openCommand(client, graph, "read-only", "status()");
   const command = await resolveCommandDriver(client.$driver, driver);
-  const control = await readControlState(
-    client.$driver,
-    command,
-    DEFAULT_CONTROL_BASE
-  );
+  const control = await readCommandControl(client.$driver, command);
+  const invalidIndexes = await readInvalidIndexes(client.$driver, command);
+  const listed = invalidIndexes.length === 0 ? {} : { invalidIndexes };
   if (control.presence.kind !== "present") {
-    refusePartialControl(control.presence);
     return {
       control: "absent",
       marker: null,
       pending: [...graph.roots],
       unfinished: false,
+      ...listed,
     };
   }
   const { marker, ledger } = control;
   const unfinished = unfinishedAttempts(ledger).length > 0;
+  let lastFailure: LedgerEventV1 | undefined;
+  for (const event of ledger) {
+    if (event.kind === "failed") lastFailure = event;
+  }
+  const standing = markerStanding(graph, marker);
   let pending: Sha256[] = [];
-  if (graph.leaves.length === 1) {
+  if (standing === "known" && graph.leaves.length === 1) {
     const leaf = graph.leaves[0]!;
     if ((marker?.stateId ?? null) !== leaf) {
       pending = [...selectRoute(graph, marker?.stateId ?? null, leaf)];
     }
   }
-  return { control: "present", marker, pending, unfinished };
+  return {
+    control: "present",
+    marker,
+    pending,
+    unfinished,
+    ...(standing === "known" ? {} : { markerState: standing }),
+    ...listed,
+    ...(lastFailure ? { lastFailure } : {}),
+  };
+}
+
+export interface VerifyV1Result {
+  readonly ok: boolean;
+  /** Present, with `ok: false`, when the marker names a state this estate does not hold. */
+  readonly markerState?: "ahead" | "unknown";
 }
 
 export async function verifyV1(
   client: MigrationClient,
   storage: MigrationStorageReader
-): Promise<{ readonly ok: boolean }> {
+): Promise<VerifyV1Result> {
   const graph = await loadMigrationGraph(storage);
-  const driver = getPushMigrationDriver(client);
-  assertEstateTargetMatches(graph.descriptor.target, driver.target);
-  admitLiveMigrationCapability(driver, "effectful", "verify()");
+  const driver = openCommand(client, graph, "effectful", "verify()");
   return withLockedMigrationProducer(
     client.$driver,
     driver,
     async (pinned, command) => {
-      const control = await readControlState(
-        pinned,
-        command,
-        DEFAULT_CONTROL_BASE
-      );
+      const control = await readCommandControl(pinned, command);
       if (control.presence.kind !== "present") {
-        refusePartialControl(control.presence);
         throw new MigrationError(
           "verify requires present control tables",
           VibORMErrorCode.MIGRATION_NOT_FOUND
@@ -136,10 +197,13 @@ export async function verifyV1(
           VibORMErrorCode.MIGRATION_NOT_FOUND
         );
       }
+      const standing = markerStanding(graph, marker);
+      if (standing !== "known") return { ok: false, markerState: standing };
       const markedSnapshot = requireStateSnapshot(graph, marker.stateId);
       await command.preflightSchemaRequirements(
         [markedSnapshot],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        []
       );
       await assertNoDrift(pinned, command, graph, marker);
       return { ok: true };
@@ -153,11 +217,7 @@ export async function logV1(
   const driver = getPushMigrationDriver(client);
   admitLiveMigrationCapability(driver, "read-only", "log()");
   const command = await resolveCommandDriver(client.$driver, driver);
-  const control = await readControlState(
-    client.$driver,
-    command,
-    DEFAULT_CONTROL_BASE
-  );
+  const control = await readControlState(client.$driver, command);
   if (control.presence.kind !== "present") {
     refusePartialControl(control.presence);
     throw new MigrationError(
@@ -174,329 +234,475 @@ export async function baselineV1(
   options: BaselineOptions
 ): Promise<{ readonly stateId: Sha256 }> {
   const graph = await loadMigrationGraph(storage);
-  const driver = getPushMigrationDriver(client);
-  assertEstateTargetMatches(graph.descriptor.target, driver.target);
-  admitLiveMigrationCapability(driver, "effectful", "baseline()");
+  const driver = openCommand(client, graph, "effectful", "baseline()");
   const target = resolveStateSelector(graph, options.to);
   const path = selectRoute(graph, null, target, options.via);
   return withLockedMigrationProducer(
     client.$driver,
     driver,
     async (pinned, command) => {
-      const control = await readControlState(
-        pinned,
-        command,
-        DEFAULT_CONTROL_BASE
-      );
-      if (control.presence.kind === "missing-table") {
-        refusePartialControl(control.presence);
-      }
+      const control = await readCommandControl(pinned, command, true);
       const { marker, ledger } = control;
-      const needsBootstrap = control.presence.kind !== "present";
-      if (marker || ledger.length > 0) {
+      if (marker || unfinishedAttempts(ledger).length > 0) {
         throw new MigrationError(
-          "baseline requires an unmarked database with an empty ledger",
+          "baseline requires an unmarked database without an unfinished attempt",
           VibORMErrorCode.MIGRATION_INVALID_STATE
         );
       }
-      for (const [index, stateId] of path.entries()) {
-        const from = index === 0 ? null : path[index - 1]!;
-        const transition = parentTransition(graph, from, stateId);
-        const parentSnapshot =
-          from === null
-            ? graph.emptySnapshotHash
-            : graph.states.get(from)?.snapshotHash;
-        const childSnapshot = graph.states.get(stateId)?.snapshotHash;
-        if (
-          transition.operations.some(
-            (operation) =>
-              operation.origin === "manual" || operation.risk === "opaque"
-          ) ||
-          parentSnapshot === childSnapshot
-        ) {
-          throw new MigrationError(
-            "baseline refuses a path containing manual, opaque, or data-only transitions",
-            VibORMErrorCode.MIGRATION_INVALID_STATE
-          );
-        }
-      }
-      const expected = requireStateSnapshot(graph, target);
-      await command.preflightSchemaRequirements([expected], (sql, params) =>
-        pinned._executeRaw(sql, params)
+      refuseIncompatibleHistory(marker, ledger);
+      assertStructuralRoute(graph, path, "baseline");
+      await command.preflightSchemaRequirements(
+        [requireStateSnapshot(graph, target)],
+        (sql, params) => pinned._executeRaw(sql, params),
+        []
       );
-      const live = await introspectManaged(pinned, command);
-      if (
-        (await fingerprintLive(live, command, pinned)) !==
-        (await fingerprintLive(expected, command, pinned))
-      ) {
-        throw new MigrationError(
-          `baseline requires exact live equality with the target snapshot. Differences: ${JSON.stringify(await diff(live, expected))}`,
-          VibORMErrorCode.MIGRATION_DRIFT
-        );
+      // Committed before the proof, which then runs under the lock taken
+      // again, as does the marker it publishes.
+      if (control.presence.kind !== "present") {
+        await ensureControlTables(pinned, command);
+        await commitLockedTransaction(pinned, command);
+        await assertLockedSinceDecision(pinned, pinned, command, null);
       }
-      const edges = path.map((stateId, index) => ({
-        stateId,
-        transitionHash: parentTransition(
-          graph,
-          index === 0 ? null : path[index - 1]!,
-          stateId
-        ).transitionHash,
-        baselineBoundary: index === 0,
-      }));
-      const next = markerFromPath(
-        graph.estateHash,
+      await proveLive(
+        pinned,
+        command,
+        graph,
         graph.states.get(target)!.snapshotHash,
-        edges,
-        1
+        async (differences) =>
+          `baseline requires exact live equality with the target snapshot. Differences: ${await differences()}`
       );
-      const event = {
-        format: "1" as const,
-        attemptId: next.pathHash,
-        kind: "baselined" as const,
-        estateHash: graph.estateHash,
-        snapshotHash: next.snapshotHash,
-        sqlHash: null,
-        fromState: null,
-        toState: target,
-        transitionHash: null,
-        direction: "baseline" as const,
-        operationId: null,
-        dispatchId: null,
-        effectState: "none" as const,
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-        toolVersion: "v1",
-        failure: null,
-      };
-      const publish = async (producer: Parameters<typeof casMarker>[0]) => {
-        if (needsBootstrap) {
-          await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
-        }
-        await casMarker(producer, command, DEFAULT_CONTROL_BASE, null, next);
-        await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
-          ...event,
-          eventId: eventIdFor(event),
-        });
-      };
-      if (pinned.supportsTransactions) {
-        await pinned.withTransaction((transaction) => publish(transaction));
-      } else {
-        await publish(pinned);
-      }
+      await adoptRoute(pinned, command, graph, path, null);
       return { stateId: target };
     }
   );
+}
+
+/**
+ * Plan T3: after a restore left this history older than the database, moves
+ * a marker naming a state the history lacks onto the one known state the live
+ * schema matches, with baseline's proof and a baseline boundary. `to` adopts
+ * the state it names instead: the consent several matching states need.
+ */
+export async function reanchorV1(
+  client: MigrationClient,
+  storage: MigrationStorageReader,
+  options: ReanchorOptions = {}
+): Promise<{ readonly stateId: Sha256 }> {
+  const graph = await loadMigrationGraph(storage);
+  const driver = openCommand(client, graph, "effectful", "reanchor()");
+  const named = options.to && resolveStateSelector(graph, options.to);
+  return withLockedMigrationProducer(
+    client.$driver,
+    driver,
+    async (pinned, command) => {
+      const { marker, ledger } = await readCommandControl(pinned, command);
+      if (!marker || markerStanding(graph, marker) === "known") {
+        throw new MigrationError(
+          "reanchor moves only a marker naming a state this history does not hold; apply, verify and baseline handle the others",
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      if (unfinishedAttempts(ledger).length > 0) {
+        throw new MigrationError(
+          "reanchor refuses while an attempt is unfinished: resolve it first",
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      const live = await introspectManaged(pinned, command);
+      const liveHash = await fingerprintLive(live, command, pinned);
+      const matches: Sha256[] = [];
+      for (const stateId of named ? [named] : graph.states.keys()) {
+        const snapshot = requireStateSnapshot(graph, stateId);
+        if ((await fingerprintLive(snapshot, command, pinned)) === liveHash) {
+          matches.push(stateId);
+        }
+      }
+      const reference =
+        named ?? (graph.leaves.length === 1 ? graph.leaves[0] : undefined);
+      if (matches.length === 0) {
+        const differences = reference
+          ? ` Differences from ${reference}: ${JSON.stringify(await diff(live, requireStateSnapshot(graph, reference)))}`
+          : "";
+        throw new MigrationError(
+          `reanchor found no state of this history that the live schema matches.${differences}`,
+          VibORMErrorCode.MIGRATION_DRIFT
+        );
+      }
+      if (matches.length > 1) {
+        throw new MigrationError(
+          `Several states of this history match the live schema (${matches.join(", ")}), and equal schemas never say which data the database holds: name one with reanchor({ to }).`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      const target = matches[0]!;
+      if (marker.path.some((edge) => edge.stateId === target)) {
+        throw new MigrationError(
+          `reanchor refuses ${target}: the marker passed through it, so the transitions lost after it changed no schema and may have moved data. Regenerate the lost states from the same documents instead: their ids come back identical.`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE
+        );
+      }
+      const path = selectRoute(graph, null, target, options.via);
+      assertStructuralRoute(graph, path, "reanchor");
+      await command.preflightSchemaRequirements(
+        [requireStateSnapshot(graph, target)],
+        (sql, params) => pinned._executeRaw(sql, params),
+        []
+      );
+      await adoptRoute(pinned, command, graph, path, marker);
+      return { stateId: target };
+    }
+  );
+}
+
+/** Baseline's proof of a root route: no manual, opaque or data-only edge. */
+function assertStructuralRoute(
+  graph: MigrationGraph,
+  path: readonly Sha256[],
+  command: "baseline" | "reanchor"
+): void {
+  for (const { from, transition, state } of routeEdges(graph, null, path)) {
+    const parentSnapshot =
+      from === null
+        ? graph.emptySnapshotHash
+        : graph.states.get(from)?.snapshotHash;
+    if (
+      transition.operations.some(
+        (operation) =>
+          operation.origin === "manual" || operation.risk === "opaque"
+      ) ||
+      parentSnapshot === state.snapshotHash
+    ) {
+      throw new MigrationError(
+        `${command} refuses a path containing manual, opaque, or data-only transitions`,
+        VibORMErrorCode.MIGRATION_INVALID_STATE
+      );
+    }
+  }
+}
+
+/**
+ * Publishes the marker re-rooted on `path`, its first edge a baseline
+ * boundary, in place of `current` (compare-and-swap), with the event that
+ * says so: `baselined` without a marker before, `reanchored` with one. In one
+ * transaction when the producer can.
+ */
+async function adoptRoute(
+  pinned: AnyDriver,
+  command: Parameters<typeof appendLedger>[1],
+  graph: MigrationGraph,
+  path: readonly Sha256[],
+  current: MigrationMarkerV1 | null
+): Promise<void> {
+  const edges = routeEdges(graph, null, path).map(
+    ({ to, transition }, index) => ({
+      stateId: to,
+      transitionHash: transition.transitionHash,
+      baselineBoundary: index === 0,
+    })
+  );
+  const target = path.at(-1)!;
+  const publish = async (producer: AnyDriver) => {
+    const next = await advanceMarker(
+      producer,
+      command,
+      graph.estateHash,
+      current,
+      edges,
+      graph.states.get(target)!.snapshotHash
+    );
+    await appendLedger(
+      producer,
+      command,
+      ledgerEvent({
+        attemptId: next.pathHash,
+        kind: current ? "reanchored" : "baselined",
+        estateHash: graph.estateHash,
+        snapshotHash: next.snapshotHash,
+        sqlHash: null,
+        fromState: current?.stateId ?? null,
+        toState: target,
+        transitionHash: null,
+        direction: "baseline",
+        operationId: null,
+        dispatchId: null,
+        effectState: "none",
+      })
+    );
+  };
+  if (pinned.supportsTransactions) {
+    await pinned.withTransaction((transaction) => publish(transaction));
+  } else {
+    await publish(pinned);
+  }
+}
+
+export interface PruneOptions {
+  /** The authored checkpoint (`generate({ from: null })`) to keep history from. */
+  readonly checkpoint: StateSelector;
+  /** A fresh history: the source is never changed. */
+  readonly into: MigrationStorageWriter;
+}
+
+export interface PruneResult {
+  /** The states `into` now holds from this history. */
+  readonly states: readonly Sha256[];
+}
+
+/**
+ * Plan T4: copies the checkpoint and the states `statesFrom` keeps after it
+ * into a fresh history. Storage stays append-only, so pruning is a copy: what
+ * it leaves out is what `check()` would report as orphaned, once the earlier
+ * manifests were gone. A marker on a dropped state is moved by `reanchor()`.
+ */
+export async function pruneV1(
+  storage: MigrationStorageReader,
+  options: PruneOptions
+): Promise<PruneResult> {
+  const graph = await loadMigrationGraph(storage);
+  const kept = statesFrom(
+    graph,
+    resolveStateSelector(graph, options.checkpoint)
+  );
+  const { into } = options;
+  await into.publishEstate(await present(storage.readEstate(), "estate.json"));
+  for (const id of kept) {
+    const { snapshotHash, sqlHash } = graph.states.get(id)!;
+    const snapshot = storage.readSnapshot(snapshotHash);
+    await into.publishSnapshot(snapshotHash, await present(snapshot, id));
+    await into.publishSql(sqlHash, graph.sql.get(sqlHash)!);
+    await into.publishState(id, await present(storage.readState(id), id));
+  }
+  return { states: [...kept] };
+}
+
+/** Bytes the loaded graph authenticated, gone by the time prune copies them. */
+async function present(
+  read: Promise<Uint8Array | null>,
+  artifact: string
+): Promise<Uint8Array> {
+  const bytes = await read;
+  if (!bytes) {
+    throw new MigrationError(
+      `${artifact} vanished from the history while prune copied it`,
+      VibORMErrorCode.MIGRATION_CORRUPTION
+    );
+  }
+  return bytes;
 }
 
 export async function downV1(
   client: MigrationClient,
   storage: MigrationStorageReader,
   options: DownV1Options = {}
-): Promise<{ readonly path: readonly Sha256[]; readonly preview: boolean }> {
+): Promise<DownV1Result> {
   const request = normalizeDownOptions(options);
   const graph = await loadMigrationGraph(storage);
-  const driver = getPushMigrationDriver(client);
-  assertEstateTargetMatches(graph.descriptor.target, driver.target);
-  const dryRun = request.dryRun;
-  admitLiveMigrationCapability(
-    driver,
-    dryRun ? "read-only" : "effectful",
+  const driver = openCommand(
+    client,
+    graph,
+    request.dryRun ? "read-only" : "effectful",
     "down()"
   );
-  if (dryRun) {
-    const control = await readControlState(
-      client.$driver,
-      driver,
-      DEFAULT_CONTROL_BASE
+  if (request.dryRun) {
+    const producer = client.$driver;
+    const command = await resolveCommandDriver(producer, driver);
+    const { close, removed, refusal } = await planRollback(
+      producer,
+      command,
+      graph,
+      await readCommandControl(producer, command),
+      request,
+      true
     );
-    refusePartialControl(control.presence);
-    const { marker } = control;
-    if (!marker) {
-      throw new MigrationError(
-        "Nothing to roll back",
-        VibORMErrorCode.MIGRATION_NOT_FOUND
-      );
-    }
-    const removed = rollbackSlice(graph, marker, request);
-    return { path: removed.map((edge) => edge.stateId), preview: true };
+    return {
+      path: close
+        ? [close.item.edge.stateId]
+        : removed.map((edge) => edge.stateId),
+      preview: true,
+      edges: [...removed]
+        .reverse()
+        .map((edge) => previewRollbackEdge(graph, edge)),
+      refusal,
+    };
   }
   return withLockedMigrationProducer(
     client.$driver,
     driver,
     async (pinned, command) => {
-      const control = await readControlState(
+      const control = await readCommandControl(pinned, command);
+      const { close, removed, run } = await planRollback(
         pinned,
         command,
-        DEFAULT_CONTROL_BASE
+        graph,
+        control,
+        request,
+        false
       );
-      refusePartialControl(control.presence);
-      const { ledger, marker } = control;
-      const open = unfinishedAttempts(ledger);
-      if (open.length > 1) {
-        throw new MigrationError(
-          "Multiple unfinished migration attempts require manual repair",
-          VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
-        );
-      }
-      const rollbackAttempt = open[0];
-      if (
-        rollbackAttempt &&
-        (rollbackAttempt.kind !== "started" ||
-          rollbackAttempt.direction !== "rollback")
-      ) {
-        throw new MigrationError(
-          "An unfinished migration attempt is blocking ordinary work",
-          VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
-        );
-      }
-      if (!marker) {
-        if (rollbackAttempt?.toState === null) {
-          const item = prepareRollbackAttempt(
-            graph,
-            command,
-            pinned.supportsTransactions,
-            rollbackAttempt
-          );
-          await command.preflightSchemaRequirements(
-            [requireStateSnapshot(graph, item.nextState)],
-            (sql, params) => pinned._executeRaw(sql, params)
-          );
-          const close = (producer: Parameters<typeof appendLedger>[0]) =>
-            closeCompletedRollback(
-              producer,
-              command,
-              graph,
-              item,
-              rollbackAttempt,
-              ledger,
-              null
-            );
-          if (command.target.dialect === "mysql") {
-            await runSequentialProgram(pinned, command, close);
-          } else {
-            await close(pinned);
-          }
-          return { path: [item.edge.stateId], preview: false };
-        }
-        throw new MigrationError(
-          "Nothing to roll back",
-          VibORMErrorCode.MIGRATION_NOT_FOUND
-        );
-      }
-      if (rollbackAttempt?.toState === marker.stateId) {
-        const item = prepareRollbackAttempt(
-          graph,
-          command,
-          pinned.supportsTransactions,
-          rollbackAttempt
-        );
+      if (close) {
         await command.preflightSchemaRequirements(
-          [requireStateSnapshot(graph, item.nextState)],
-          (sql, params) => pinned._executeRaw(sql, params)
+          [requireStateSnapshot(graph, close.item.nextState)],
+          (sql, params) => pinned._executeRaw(sql, params),
+          []
         );
-        const close = (producer: Parameters<typeof appendLedger>[0]) =>
+        await runProgram(pinned, command, undefined, (producer) =>
           closeCompletedRollback(
             producer,
             command,
             graph,
-            item,
-            rollbackAttempt,
-            ledger,
-            marker
-          );
-        if (command.target.dialect === "mysql") {
-          await runSequentialProgram(pinned, command, close);
-        } else {
-          await close(pinned);
-        }
-        return { path: [item.edge.stateId], preview: false };
-      }
-      const removed = rollbackSlice(graph, marker, request);
-      if (removed.length === 0) return { path: [], preview: false };
-      const reverse = [...removed].reverse();
-      for (const edge of reverse) {
-        assertReversibleEdge(graph, edge);
-      }
-      const prepared = reverse.map((edge) =>
-        prepareRollbackEdge(graph, command, pinned.supportsTransactions, edge)
-      );
-      const rollbackSnapshots = prepared.map((item) =>
-        requireStateSnapshot(graph, item.nextState)
-      );
-      await command.preflightSchemaRequirements(
-        [requireStateSnapshot(graph, marker.stateId), ...rollbackSnapshots],
-        (sql, params) => pinned._executeRaw(sql, params)
-      );
-      if (!rollbackAttempt) {
-        await assertNoDrift(pinned, command, graph, marker);
-      }
-      if (rollbackAttempt) {
-        const resumed = prepareRollbackAttempt(
-          graph,
-          command,
-          pinned.supportsTransactions,
-          rollbackAttempt
+            close.item,
+            close.attempt,
+            control.ledger,
+            control.marker
+          )
         );
-        const first = prepared[0]!;
-        if (
-          resumed.edge.stateId !== first.edge.stateId ||
-          resumed.nextState !== first.nextState ||
-          resumed.edge.transitionHash !== first.edge.transitionHash
-        ) {
-          throw new MigrationError(
-            "An unfinished rollback does not match the selected reverse path",
-            VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
-          );
-        }
+        return { path: [close.item.edge.stateId], preview: false };
       }
-      const run = async (producer: Parameters<typeof appendLedger>[0]) => {
-        let current = marker;
-        const statementsOf = (item: (typeof prepared)[number]) =>
-          stepStatements(item.blob, item.rollback.operations);
-        for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
-          const statements = group.items.flatMap(statementsOf);
-          const lifted = liftForeignKeyPragmas(pinned, statements);
-          const executeGroup = async (
-            groupProducer: Parameters<typeof appendLedger>[0]
-          ) => {
+      if (!run) return { path: [], preview: false };
+      const { prepared, attempt } = run;
+      const statementsOf = (item: PreparedRollback) =>
+        stepStatements(item.blob, item.rollback.operations);
+      let current = run.marker;
+      for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
+        await runProgram(
+          pinned,
+          command,
+          {
+            transactional: group.boundary === "transactional",
+            statements: group.items.flatMap(statementsOf),
+          },
+          async (producer) => {
+            // Only the attempt `down` resumes is its own: any other one open
+            // now was opened while the lock was let go.
+            await assertLockedSinceDecision(
+              pinned,
+              producer,
+              command,
+              current,
+              group.items[0] === prepared[0] && attempt !== undefined
+            );
             for (const item of group.items) {
               current = await executeRollbackEdge(
-                groupProducer,
+                producer,
                 command,
                 graph,
                 item,
                 current,
-                item === prepared[0] ? rollbackAttempt : undefined,
-                ledger
+                item === prepared[0] ? attempt : undefined,
+                control.ledger,
+                client.$schema
               );
             }
-          };
-          if (
-            mayWrapTransaction(
-              pinned,
-              command.target.dialect,
-              group.boundary === "transactional"
-            )
-          ) {
-            await withForeignKeysLifted(pinned, lifted.bracket, () =>
-              pinned.withTransaction(async (transaction) => {
-                await executeGroup(transaction);
-                await assertForeignKeysIntact(transaction, lifted.bracket);
-              })
-            );
-          } else {
-            await executeGroup(producer);
           }
-        }
-      };
-      if (command.target.dialect === "mysql") {
-        await runSequentialProgram(pinned, command, run);
-      } else {
-        await run(pinned);
+        );
       }
       return { path: removed.map((edge) => edge.stateId), preview: false };
     }
   );
+}
+
+type PreparedRollback = ReturnType<typeof prepareRollbackEdge>;
+
+interface RollbackPlan {
+  /** The first refusal of a preview; `down` throws it instead. */
+  readonly refusal: { code: string; message: string } | null;
+  /** A rollback that finished before it was recorded: `down` closes it. */
+  readonly close?: {
+    readonly item: PreparedRollback;
+    readonly attempt: LedgerEventV1;
+  };
+  /** The marker edges `down` removes. */
+  readonly removed: MigrationMarkerV1["path"];
+  /** Present when `down` reverses `removed`, newest edge first. */
+  readonly run?: {
+    readonly marker: MigrationMarkerV1;
+    readonly prepared: readonly PreparedRollback[];
+    readonly attempt: LedgerEventV1 | undefined;
+  };
+}
+
+/**
+ * What `down` decides before its first effect, read-only and in its order, so
+ * the preview refuses where `down` refuses. `previewing` returns a refusal of
+ * the attempt or of the checks as data (`down` throws it); without one, a
+ * preview still names the edges.
+ */
+async function planRollback(
+  producer: AnyDriver,
+  command: Parameters<typeof appendLedger>[1],
+  graph: MigrationGraph,
+  { marker, ledger }: MigrationControlRead,
+  request: NormalizedDownOptions,
+  previewing: boolean
+): Promise<RollbackPlan> {
+  assertExpectedRevision(marker, request);
+  let refusal: RollbackPlan["refusal"] = null;
+  let attempt: LedgerEventV1 | undefined;
+  try {
+    attempt = admitRollbackAttempt(ledger);
+  } catch (error) {
+    if (!previewing) throw error;
+    refusal = refusalOf(error);
+  }
+  const { supportsTransactions } = producer;
+  if (attempt && attempt.toState === (marker?.stateId ?? null)) {
+    const item = prepareRollbackAttempt(
+      graph,
+      command,
+      supportsTransactions,
+      attempt
+    );
+    return { refusal, close: { item, attempt }, removed: [] };
+  }
+  if (!marker) {
+    // `down` refuses the attempt before it finds nothing to roll back.
+    if (refusal) return { refusal, removed: [] };
+    throw new MigrationError(
+      "Nothing to roll back",
+      VibORMErrorCode.MIGRATION_NOT_FOUND
+    );
+  }
+  const removed = rollbackSlice(graph, marker, request);
+  // `down` checks nothing more when it has nothing to roll back.
+  if (refusal || removed.length === 0) return { refusal, removed };
+  try {
+    const reverse = [...removed].reverse();
+    for (const edge of reverse) assertReversibleEdge(graph, edge);
+    const prepared = reverse.map((edge) =>
+      prepareRollbackEdge(graph, command, supportsTransactions, edge)
+    );
+    await command.preflightSchemaRequirements(
+      [
+        requireStateSnapshot(graph, marker.stateId),
+        ...prepared.map((item) => requireStateSnapshot(graph, item.nextState)),
+      ],
+      (sql, params) => producer._executeRaw(sql, params),
+      prepared.flatMap((item) =>
+        stepStatements(item.blob, item.rollback.operations)
+      )
+    );
+    if (attempt) {
+      assertResumesSelectedPath(
+        graph,
+        command,
+        supportsTransactions,
+        attempt,
+        prepared[0]!
+      );
+    } else {
+      await assertNoDrift(producer, command, graph, marker);
+    }
+    await approveRollbackLosses(
+      producer,
+      command,
+      graph,
+      prepared,
+      request.resolve
+    );
+    return { refusal, removed, run: { marker, prepared, attempt } };
+  } catch (error) {
+    if (!previewing) throw error;
+    return { refusal: refusalOf(error), removed };
+  }
 }
 
 export async function resolveV1(
@@ -505,20 +711,12 @@ export async function resolveV1(
   options: ResolveV1Options
 ): Promise<{ readonly outcome: ResolveV1Options["outcome"] }> {
   const graph = await loadMigrationGraph(storage);
-  const driver = getPushMigrationDriver(client);
-  assertEstateTargetMatches(graph.descriptor.target, driver.target);
-  admitLiveMigrationCapability(driver, "effectful", "resolve()");
+  const driver = openCommand(client, graph, "effectful", "resolve()");
   return withLockedMigrationProducer(
     client.$driver,
     driver,
     async (pinned, command) => {
-      const control = await readControlState(
-        pinned,
-        command,
-        DEFAULT_CONTROL_BASE
-      );
-      refusePartialControl(control.presence);
-      const { ledger } = control;
+      const { ledger } = await readCommandControl(pinned, command);
       const open = unfinishedAttempts(ledger);
       if (open.length !== 1) {
         throw new MigrationError(
@@ -556,24 +754,32 @@ export async function resolveV1(
           VibORMErrorCode.MIGRATION_CORRUPTION
         );
       }
-      const blob = graph.sql.get(state.sqlHash);
-      if (!blob) {
-        throw new MigrationError(
-          "SQL blob is missing",
-          VibORMErrorCode.MIGRATION_CORRUPTION
-        );
-      }
+      const blob = graph.sql.get(state.sqlHash)!;
       const transition = parentTransition(graph, from, to);
       const destSnapshot = requireStateSnapshot(graph, to);
       const originSnapshot = requireStateSnapshot(graph, from);
+      const statements = stepStatements(blob, transition.operations);
+      // Only a retry runs the transition: its program is refused as apply's.
       await command.preflightSchemaRequirements(
         [originSnapshot, destSnapshot],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        options.outcome === "retry" ? statements : []
       );
-      const live = await introspectManaged(pinned, command);
+      if (options.outcome !== "retry") {
+        await repairInvalidIndexes(
+          pinned,
+          command,
+          statements,
+          options.outcome === "complete" ? destSnapshot : originSnapshot
+        );
+      }
+      const liveHash = await fingerprintLive(
+        await introspectManaged(pinned, command),
+        command,
+        pinned
+      );
       const destHolds =
-        (await fingerprintLive(live, command, pinned)) ===
-          (await fingerprintLive(destSnapshot, command, pinned)) &&
+        liveHash === (await fingerprintLive(destSnapshot, command, pinned)) &&
         (await evaluateAllChecks(
           pinned,
           blob,
@@ -581,8 +787,7 @@ export async function resolveV1(
           command.namespace
         ));
       const originHolds =
-        (await fingerprintLive(live, command, pinned)) ===
-          (await fingerprintLive(originSnapshot, command, pinned)) &&
+        liveHash === (await fingerprintLive(originSnapshot, command, pinned)) &&
         (await evaluateAllChecks(
           pinned,
           blob,
@@ -594,6 +799,8 @@ export async function resolveV1(
           operation.origin === "manual" &&
           operation.steps.some((step) => step.retry === "opaque")
       );
+      // Marking an outcome is one transaction where the producer has one.
+      const record = { transactional: true, statements: [] };
       if (options.outcome === "complete") {
         if (
           !destHolds ||
@@ -604,18 +811,20 @@ export async function resolveV1(
             VibORMErrorCode.MIGRATION_INVALID_STATE
           );
         }
-        const finish = (producer: Parameters<typeof appendLedger>[0]) =>
-          finishResolve(producer, command, graph, attempt, "applied", to);
-        if (command.target.dialect === "mysql") {
-          await runSequentialProgram(pinned, command, finish);
-        } else if (pinned.supportsTransactions) {
-          await pinned.withTransaction(finish);
-        } else {
-          await finish(pinned);
-        }
+        await runProgram(pinned, command, record, async (producer) => {
+          // Completing manual SQL canonicalizes what it stored, as apply does.
+          await canonicalizeSqliteStorage(
+            producer,
+            transition.operations,
+            client.$schema,
+            destSnapshot
+          );
+          await finishResolve(producer, command, graph, attempt, "applied", to);
+        });
         return { outcome: "complete" };
       }
       if (options.outcome === "rolled-back") {
+        refuseOpaqueEffect(transition, blob, attempt, ledger);
         if (
           !originHolds ||
           (manualOpaque && transition.originChecks.length === 0)
@@ -625,15 +834,9 @@ export async function resolveV1(
             VibORMErrorCode.MIGRATION_INVALID_STATE
           );
         }
-        const finish = (producer: Parameters<typeof appendLedger>[0]) =>
-          finishResolve(producer, command, graph, attempt, "rolled-back", from);
-        if (command.target.dialect === "mysql") {
-          await runSequentialProgram(pinned, command, finish);
-        } else if (pinned.supportsTransactions) {
-          await pinned.withTransaction(finish);
-        } else {
-          await finish(pinned);
-        }
+        await runProgram(pinned, command, record, (producer) =>
+          finishResolve(producer, command, graph, attempt, "rolled-back", from)
+        );
         return { outcome: "rolled-back" };
       }
       if (manualOpaque) {
@@ -663,151 +866,165 @@ export async function resolveV1(
         transition.operations,
         blob
       );
-      const executeRetry = async (
-        producer: Parameters<typeof appendLedger>[0]
-      ) => {
-        await executeOperations(
-          producer,
-          blob,
-          transition.operations,
-          boundary,
-          undefined,
-          command.namespace
-        );
-        if (
-          !(await evaluateAllChecks(
+      // A recreation is refused without a transaction: its lift is unproven.
+      await runProgram(
+        pinned,
+        command,
+        { transactional: boundary === "transactional", statements },
+        async (producer) => {
+          await executeOperations(
+            producer,
+            blob,
+            transition.operations,
+            boundary,
+            undefined,
+            command.namespace,
+            { fromState: from, toState: to }
+          );
+          await assertAllChecks(
             producer,
             blob,
             state.destinationChecks,
-            command.namespace
-          ))
-        ) {
-          throw new MigrationError(
-            "Retry did not reach the destination",
-            VibORMErrorCode.MIGRATION_DRIFT
+            command.namespace,
+            "Retry did not reach the destination"
           );
-        }
-        const liveAfter = await introspectManaged(producer, command);
-        if (
-          !destSnapshot ||
-          (await fingerprintLive(liveAfter, command, producer)) !==
-            (await fingerprintLive(destSnapshot, command, producer))
-        ) {
-          throw new MigrationError(
-            "Retry did not reach the destination",
-            VibORMErrorCode.MIGRATION_DRIFT
+          await proveLive(
+            producer,
+            command,
+            graph,
+            state.snapshotHash,
+            () => "Retry did not reach the destination"
           );
+          await finishResolve(producer, command, graph, attempt, "applied", to);
         }
-        await finishResolve(producer, command, graph, attempt, "applied", to);
-      };
-      if (command.target.dialect === "mysql") {
-        await runSequentialProgram(pinned, command, executeRetry);
-      } else if (
-        mayWrapTransaction(
-          pinned,
-          command.target.dialect,
-          boundary === "transactional"
-        )
-      ) {
-        const statements = stepStatements(blob, transition.operations);
-        const lifted = liftForeignKeyPragmas(pinned, statements);
-        await withForeignKeysLifted(pinned, lifted.bracket, () =>
-          pinned.withTransaction(async (transaction) => {
-            await executeRetry(transaction);
-            await assertForeignKeysIntact(transaction, lifted.bracket);
-          })
-        );
-      } else {
-        await executeRetry(pinned);
-      }
+      );
       return { outcome: "retry" };
     }
   );
 }
 
-async function finishResolve(
+/**
+ * The index a `CREATE`/`DROP`/`REINDEX INDEX CONCURRENTLY` statement names,
+ * schema prefix dropped. An unnamed `CREATE INDEX CONCURRENTLY ON t` is never
+ * matched; its PG-chosen name is left to the V11023 refusal. (DROP INDEX
+ * CONCURRENTLY takes one name only.)
+ */
+const CONCURRENT_INDEX_NAME =
+  /\bINDEX\s+CONCURRENTLY\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?!ON\b)(?:(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)\s*\.\s*)?("(?:[^"]|"")+"|[A-Za-z_][\w$]*)/gi;
+/** The suffix of the `_ccnew`/`_ccold` copy an interrupted `REINDEX CONCURRENTLY` leaves INVALID. */
+const REINDEX_REMNANT = /^_cc(?:new|old)\d*$/;
+
+/**
+ * Repairs the INVALID indexes the unfinished attempt's own CONCURRENTLY
+ * statements left behind — the index each names, and the `<name>_ccnew` /
+ * `<name>_ccold` remnant of an interrupted `REINDEX CONCURRENTLY` — towards the snapshot the
+ * requested outcome asserts: an index that snapshot declares is rebuilt, any
+ * other is dropped, both CONCURRENTLY so writes keep flowing. An invalid index
+ * the attempt never named (another session's build, still running perhaps) is
+ * left alone, and the proof that follows refuses on it with V11023. An invalid
+ * index belongs to neither state, so the repair cannot turn a false proof true.
+ */
+async function repairInvalidIndexes(
   pinned: Parameters<typeof appendLedger>[0],
+  command: Parameters<typeof appendLedger>[1],
+  statements: readonly string[],
+  expected: SchemaSnapshot
+): Promise<void> {
+  const named = statements.flatMap(concurrentIndexNames);
+  if (named.length === 0) return;
+  for (const { table, index } of await readInvalidIndexes(pinned, command)) {
+    if (
+      !named.some(
+        (name) =>
+          index === name ||
+          (index.startsWith(name) &&
+            REINDEX_REMNANT.test(index.slice(name.length)))
+      )
+    )
+      continue;
+    const rebuild = expected.tables.some(
+      (declared) =>
+        declared.name === table &&
+        declared.indexes.some((item) => item.name === index)
+    );
+    await pinned._executeRaw(
+      `${rebuild ? "REINDEX INDEX" : "DROP INDEX"} CONCURRENTLY ${qualifiedName(command, index)}`
+    );
+  }
+}
+
+/** The indexes a statement's `INDEX CONCURRENTLY` clauses name. */
+function concurrentIndexNames(text: string): string[] {
+  return [...text.matchAll(CONCURRENT_INDEX_NAME)].map(([, name = ""]) =>
+    name.startsWith('"')
+      ? name.slice(1, -1).replaceAll('""', '"')
+      : name.toLowerCase()
+  );
+}
+
+async function finishResolve(
+  pinned: AnyDriver,
   command: Parameters<typeof appendLedger>[1],
   graph: MigrationGraph,
   attempt: LedgerEventV1,
   kind: "applied" | "rolled-back",
   to: Sha256 | null
 ): Promise<void> {
-  const control = await readControlState(pinned, command, DEFAULT_CONTROL_BASE);
-  refusePartialControl(control.presence);
-  const { marker } = control;
+  const { marker } = await readCommandControl(pinned, command);
   if (kind === "applied" && to && marker?.stateId !== to) {
     const transition = parentTransition(graph, attempt.fromState, to);
-    const nextPath = [
-      ...(marker?.path ?? []),
-      {
-        stateId: to,
-        transitionHash: attempt.transitionHash ?? transition.transitionHash,
-        baselineBoundary: false,
-      },
-    ];
-    const next = markerFromPath(
-      graph.estateHash,
-      graph.states.get(to)!.snapshotHash,
-      nextPath,
-      (marker?.revision ?? 0) + 1
-    );
-    await casMarker(
+    await advanceMarker(
       pinned,
       command,
-      DEFAULT_CONTROL_BASE,
-      marker ? { revision: marker.revision, pathHash: marker.pathHash } : null,
-      next
+      graph.estateHash,
+      marker,
+      [
+        ...(marker?.path ?? []),
+        {
+          stateId: to,
+          transitionHash: attempt.transitionHash ?? transition.transitionHash,
+          baselineBoundary: false,
+        },
+      ],
+      graph.states.get(to)!.snapshotHash
     );
   }
   if (kind === "rolled-back" && marker && marker.stateId === attempt.toState) {
     const nextPath = marker.path.slice(0, -1);
-    const nextState = nextPath.at(-1)?.stateId ?? null;
-    const snapshotHash = nextState
-      ? graph.states.get(nextState)!.snapshotHash
-      : graph.emptySnapshotHash;
-    const next = markerFromPath(
-      graph.estateHash,
-      snapshotHash,
-      nextPath,
-      marker.revision + 1
-    );
-    await casMarker(
+    await advanceMarker(
       pinned,
       command,
-      DEFAULT_CONTROL_BASE,
-      {
-        revision: marker.revision,
-        pathHash: marker.pathHash,
-      },
-      next
+      graph.estateHash,
+      marker,
+      nextPath,
+      snapshotHashOf(graph, nextPath.at(-1)?.stateId ?? null)
     );
   }
-  const event = {
-    format: "1" as const,
-    attemptId: attempt.attemptId,
-    kind: "resolved" as const,
-    estateHash: graph.estateHash,
-    snapshotHash: to
-      ? graph.states.get(to)!.snapshotHash
-      : graph.emptySnapshotHash,
-    sqlHash: attempt.sqlHash,
-    fromState: attempt.fromState,
-    toState: to,
-    transitionHash: attempt.transitionHash,
-    direction: "resolve" as const,
-    operationId: null,
-    dispatchId: null,
-    effectState: "none" as const,
-    startedAt: new Date().toISOString(),
-    finishedAt: new Date().toISOString(),
-    toolVersion: "v1",
-    failure: null,
-  };
-  await appendLedger(pinned, command, DEFAULT_CONTROL_BASE, {
-    ...event,
-    eventId: eventIdFor(event),
-  });
+  await appendLedger(
+    pinned,
+    command,
+    ledgerEvent({
+      attemptId: attempt.attemptId,
+      kind: "resolved",
+      estateHash: graph.estateHash,
+      snapshotHash: snapshotHashOf(graph, to),
+      sqlHash: attempt.sqlHash,
+      fromState: attempt.fromState,
+      toState: to,
+      transitionHash: attempt.transitionHash,
+      direction: "resolve",
+      operationId: null,
+      dispatchId: null,
+      effectState: "none",
+    })
+  );
+}
+
+/** The snapshot a state, or the empty origin, authenticates. */
+function snapshotHashOf(graph: MigrationGraph, stateId: Sha256 | null): Sha256 {
+  return stateId
+    ? graph.states.get(stateId)!.snapshotHash
+    : graph.emptySnapshotHash;
 }
 
 function prepareRollbackEdge(
@@ -831,6 +1048,7 @@ function prepareRollbackEdge(
   const requested =
     rollback.kind === "manual" ? rollback.requestedBoundary : null;
   assertTransactionalBoundaryHonored(supportsTransactions, requested);
+  refuseSqliteStepwise(command, requested, edge.stateId);
   return {
     edge,
     state,
@@ -847,12 +1065,102 @@ function prepareRollbackEdge(
   };
 }
 
+/**
+ * One edge of a down preview: its rollback rendered as `show --sql` renders
+ * it, without the forward half or its forward approvals.
+ */
+function previewRollbackEdge(
+  graph: MigrationGraph,
+  edge: MarkerPathEdgeV1
+): DownPreviewEdgeV1 {
+  const state = graph.states.get(edge.stateId);
+  const parent = state?.parents.find(
+    (item) => item.transitionHash === edge.transitionHash
+  );
+  const blob = state && graph.sql.get(state.sqlHash);
+  if (!(parent && blob)) {
+    throw new MigrationError(
+      "Rollback cannot find the arrival transition or its SQL",
+      VibORMErrorCode.MIGRATION_CORRUPTION
+    );
+  }
+  const { approvals: _forward, ...transition } = parent;
+  return {
+    stateId: edge.stateId,
+    toState: parent.fromState,
+    sql: renderMigrationReview(
+      [{ ...transition, originChecks: [], operations: [] }],
+      [],
+      blob
+    ),
+  };
+}
+
+/** A migration refusal as plain data; any other error is rethrown. */
+function refusalOf(error: unknown): { code: string; message: string } {
+  if (!(error instanceof MigrationError)) throw error;
+  return { code: error.code, message: error.message };
+}
+
+/**
+ * The one unfinished attempt `down` may resume: none, or a started rollback.
+ * Anything else needs repair first.
+ */
+function admitRollbackAttempt(
+  ledger: readonly LedgerEventV1[]
+): LedgerEventV1 | undefined {
+  const open = unfinishedAttempts(ledger);
+  if (open.length > 1) {
+    throw new MigrationError(
+      "Multiple unfinished migration attempts require manual repair",
+      VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
+    );
+  }
+  const attempt = open[0];
+  if (
+    attempt &&
+    (attempt.kind !== "started" || attempt.direction !== "rollback")
+  ) {
+    throw new MigrationError(
+      "An unfinished migration attempt is blocking ordinary work",
+      VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
+    );
+  }
+  return attempt;
+}
+
+/** An unfinished rollback resumes only as the first edge `down` selected. */
+function assertResumesSelectedPath(
+  graph: MigrationGraph,
+  command: Parameters<typeof appendLedger>[1],
+  supportsTransactions: boolean,
+  attempt: LedgerEventV1,
+  first: PreparedRollback
+): void {
+  const resumed = prepareRollbackAttempt(
+    graph,
+    command,
+    supportsTransactions,
+    attempt
+  );
+  if (
+    resumed.edge.stateId !== first.edge.stateId ||
+    resumed.nextState !== first.nextState ||
+    resumed.edge.transitionHash !== first.edge.transitionHash
+  ) {
+    throw new MigrationError(
+      "An unfinished rollback does not match the selected reverse path",
+      VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
+    );
+  }
+}
+
 function prepareRollbackAttempt(
   graph: MigrationGraph,
   command: Parameters<typeof appendLedger>[1],
   supportsTransactions: boolean,
   attempt: LedgerEventV1
-): ReturnType<typeof prepareRollbackEdge> {
+): PreparedRollback {
   if (!(attempt.fromState && attempt.transitionHash)) {
     throw new MigrationError(
       "Unfinished rollback is missing its authenticated edge identity",
@@ -879,15 +1187,16 @@ function prepareRollbackAttempt(
 }
 
 async function executeRollbackEdge(
-  producer: Parameters<typeof appendLedger>[0],
+  producer: AnyDriver,
   command: Parameters<typeof appendLedger>[1],
   graph: MigrationGraph,
-  item: ReturnType<typeof prepareRollbackEdge>,
+  item: PreparedRollback,
   current: MigrationMarkerV1,
   resume: LedgerEventV1 | undefined,
-  ledger: readonly LedgerEventV1[]
+  ledger: readonly LedgerEventV1[],
+  models: MigrationClient["$schema"]
 ): Promise<MigrationMarkerV1> {
-  const { edge, state, parent, blob, rollback, boundary, nextState } = item;
+  const { edge, state, blob, rollback, boundary, nextState } = item;
   if (
     current.stateId !== edge.stateId ||
     current.path.at(-1)?.stateId !== edge.stateId ||
@@ -898,168 +1207,63 @@ async function executeRollbackEdge(
       VibORMErrorCode.MIGRATION_MARKER_CONFLICT
     );
   }
-  if (
-    !resume &&
-    state.destinationChecks.length > 0 &&
-    !(await evaluateAllChecks(
+  if (!resume) {
+    await assertAllChecks(
       producer,
       blob,
       state.destinationChecks,
-      command.namespace
-    ))
-  ) {
-    throw new MigrationError(
-      "Destination checks failed before rollback",
-      VibORMErrorCode.MIGRATION_DRIFT
+      command.namespace,
+      "Destination checks failed before rollback"
     );
   }
-  const attemptId =
-    resume?.attemptId ??
-    eventIdFor({
-      format: "1",
-      attemptId: "0".repeat(64),
-      kind: "started",
-      estateHash: graph.estateHash,
-      snapshotHash: state.snapshotHash,
-      sqlHash: state.sqlHash,
-      fromState: edge.stateId,
-      toState: nextState,
-      transitionHash: edge.transitionHash,
-      direction: "rollback",
-      operationId: null,
-      dispatchId: null,
-      effectState: "none",
-      startedAt: new Date().toISOString(),
-      finishedAt: null,
-      toolVersion: "v1",
-      failure: null,
-    });
+  const events = attemptEvents(
+    rollbackEventSeed(graph, item),
+    resume?.attemptId
+  );
   if (!resume) {
-    const started = {
-      format: "1" as const,
-      attemptId,
-      kind: "started" as const,
-      estateHash: graph.estateHash,
-      snapshotHash: state.snapshotHash,
-      sqlHash: state.sqlHash,
-      fromState: edge.stateId,
-      toState: nextState,
-      transitionHash: edge.transitionHash,
-      direction: "rollback" as const,
-      operationId: null,
-      dispatchId: null,
-      effectState: "none" as const,
-      startedAt: new Date().toISOString(),
-      finishedAt: null,
-      toolVersion: "v1",
-      failure: null,
-    };
-    await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
-      ...started,
-      eventId: eventIdFor(started),
-    });
+    await appendLedger(producer, command, events.event("started", "none"));
   }
-  const operations = resume
-    ? remainingRollbackOperations(graph, item, resume, ledger)
-    : rollback.operations;
   await executeOperations(
     producer,
     blob,
-    operations,
+    resume
+      ? remainingRollbackOperations(graph, item, resume, ledger)
+      : rollback.operations,
     boundary,
-    async (progress, effect) => {
-      const confirmed = {
-        format: "1" as const,
-        attemptId,
-        kind: "step-confirmed" as const,
-        estateHash: graph.estateHash,
-        snapshotHash: state.snapshotHash,
-        sqlHash: state.sqlHash,
-        fromState: edge.stateId,
-        toState: nextState,
-        transitionHash: edge.transitionHash,
-        direction: "rollback" as const,
-        operationId: progress.operationId,
-        dispatchId: progress.dispatchId,
-        effectState: effect,
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-        toolVersion: "v1",
-        failure: null,
-      };
-      await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
-        ...confirmed,
-        eventId: eventIdFor(confirmed),
-      });
-    },
-    command.namespace
+    (progress, effect, failure) =>
+      appendLedger(
+        producer,
+        command,
+        events.event("step-confirmed", effect, progress, failure)
+      ),
+    command.namespace,
+    { fromState: edge.stateId, toState: nextState }
   );
-  if (
-    parent.originChecks.length > 0 &&
-    !(await evaluateAllChecks(
-      producer,
-      blob,
-      parent.originChecks,
-      command.namespace
-    ))
-  ) {
-    throw new MigrationError(
-      "Origin checks failed after rollback",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
-  const snapshotHash = nextState
-    ? graph.states.get(nextState)!.snapshotHash
-    : graph.emptySnapshotHash;
-  const expected =
-    graph.snapshots.get(snapshotHash) ??
-    (snapshotHash === graph.emptySnapshotHash
-      ? emptyManagedSnapshot()
-      : undefined);
-  const live = await introspectManaged(producer, command);
-  if (
-    !expected ||
-    (await fingerprintLive(live, command, producer)) !==
-      (await fingerprintLive(expected, command, producer))
-  ) {
-    throw new MigrationError(
-      "Rollback did not reach the parent snapshot",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
-  const nextPath = current.path.slice(0, -1);
-  const next = markerFromPath(
+  // Manual rollback SQL may store text typed queries cannot compare.
+  await canonicalizeSqliteStorage(
+    producer,
+    rollback.operations,
+    models,
+    requireStateSnapshot(graph, nextState)
+  );
+  const snapshotHash = await proveRolledBack(producer, command, graph, item);
+  const next = await advanceMarker(
+    producer,
+    command,
     graph.estateHash,
-    snapshotHash,
-    nextPath,
-    current.revision + 1
-  );
-  await casMarker(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    {
-      revision: current.revision,
-      pathHash: current.pathHash,
-    },
-    next
-  );
-  await appendRolledBackEvent(
-    producer,
-    command,
-    graph,
-    item,
-    attemptId,
+    current,
+    current.path.slice(0, -1),
     snapshotHash
   );
+  await appendRolledBackEvent(producer, command, graph, item, events.attemptId);
   return next;
 }
 
 async function closeCompletedRollback(
-  producer: Parameters<typeof appendLedger>[0],
+  producer: AnyDriver,
   command: Parameters<typeof appendLedger>[1],
   graph: MigrationGraph,
-  item: ReturnType<typeof prepareRollbackEdge>,
+  item: PreparedRollback,
   attempt: LedgerEventV1,
   ledger: readonly LedgerEventV1[],
   marker: MigrationMarkerV1 | null
@@ -1071,90 +1275,84 @@ async function closeCompletedRollback(
       VibORMErrorCode.MIGRATION_MARKER_CONFLICT
     );
   }
-  const { parent, blob, nextState } = item;
-  if (
-    parent.originChecks.length > 0 &&
-    !(await evaluateAllChecks(
-      producer,
-      blob,
-      parent.originChecks,
-      command.namespace
-    ))
-  ) {
-    throw new MigrationError(
-      "Origin checks failed after rollback",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
-  const snapshotHash = nextState
-    ? graph.states.get(nextState)!.snapshotHash
-    : graph.emptySnapshotHash;
-  const expected =
-    graph.snapshots.get(snapshotHash) ??
-    (snapshotHash === graph.emptySnapshotHash
-      ? emptyManagedSnapshot()
-      : undefined);
-  const live = await introspectManaged(producer, command);
-  if (
-    !expected ||
-    (await fingerprintLive(live, command, producer)) !==
-      (await fingerprintLive(expected, command, producer))
-  ) {
-    throw new MigrationError(
-      "Rollback did not reach the parent snapshot",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
+  await proveRolledBack(producer, command, graph, item);
   await appendRolledBackEvent(
     producer,
     command,
     graph,
     item,
-    attempt.attemptId,
-    snapshotHash
+    attempt.attemptId
   );
 }
 
-async function appendRolledBackEvent(
-  producer: Parameters<typeof appendLedger>[0],
+/**
+ * Proves a reversed edge reached its parent: the origin checks hold and the
+ * live schema is the parent's snapshot, whose hash it returns.
+ */
+async function proveRolledBack(
+  producer: AnyDriver,
   command: Parameters<typeof appendLedger>[1],
   graph: MigrationGraph,
-  item: ReturnType<typeof prepareRollbackEdge>,
-  attemptId: Sha256,
-  snapshotHash: Sha256
-): Promise<void> {
-  const { edge, state, nextState } = item;
-  const rolled = {
-    format: "1" as const,
-    attemptId,
-    kind: "rolled-back" as const,
-    estateHash: graph.estateHash,
+  { parent, blob, nextState }: PreparedRollback
+): Promise<Sha256> {
+  await assertAllChecks(
+    producer,
+    blob,
+    parent.originChecks,
+    command.namespace,
+    "Origin checks failed after rollback"
+  );
+  const snapshotHash = snapshotHashOf(graph, nextState);
+  await proveLive(
+    producer,
+    command,
+    graph,
     snapshotHash,
+    () => "Rollback did not reach the parent snapshot"
+  );
+  return snapshotHash;
+}
+
+/** The fields every event of one reversed edge carries. */
+function rollbackEventSeed(
+  graph: MigrationGraph,
+  { edge, state, nextState }: PreparedRollback
+) {
+  return {
+    estateHash: graph.estateHash,
+    snapshotHash: state.snapshotHash,
     sqlHash: state.sqlHash,
     fromState: edge.stateId,
     toState: nextState,
     transitionHash: edge.transitionHash,
-    direction: "rollback" as const,
-    operationId: null,
-    dispatchId: null,
-    effectState: "committed" as const,
-    startedAt: new Date().toISOString(),
-    finishedAt: new Date().toISOString(),
-    toolVersion: "v1",
-    failure: null,
+    direction: "rollback",
+  } as const;
+}
+
+async function appendRolledBackEvent(
+  producer: AnyDriver,
+  command: Parameters<typeof appendLedger>[1],
+  graph: MigrationGraph,
+  item: PreparedRollback,
+  attemptId: Sha256
+): Promise<void> {
+  const arrived = {
+    ...rollbackEventSeed(graph, item),
+    snapshotHash: snapshotHashOf(graph, item.nextState),
   };
-  await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
-    ...rolled,
-    eventId: eventIdFor(rolled),
-  });
+  await appendLedger(
+    producer,
+    command,
+    attemptEvents(arrived, attemptId).event("rolled-back", "committed")
+  );
 }
 
 function remainingRollbackOperations(
   graph: MigrationGraph,
-  item: ReturnType<typeof prepareRollbackEdge>,
+  item: PreparedRollback,
   attempt: LedgerEventV1,
   ledger: readonly LedgerEventV1[]
-): ReturnType<typeof prepareRollbackEdge>["rollback"]["operations"] {
+): PreparedRollback["rollback"]["operations"] {
   const steps = item.rollback.operations.flatMap((operation) =>
     operation.steps.map((step) => ({ operation, step }))
   );
@@ -1196,42 +1394,17 @@ function remainingRollbackOperations(
     if (event.effectState === "committed") committed.add(index);
     if (event.effectState === "none") announced.add(index);
   }
-  let completed = 0;
-  while (committed.has(completed)) completed += 1;
-  if ([...committed].some((index) => index >= completed)) {
-    throw new MigrationError(
-      "Rollback progress is not a contiguous dispatch prefix",
-      VibORMErrorCode.MIGRATION_CORRUPTION
-    );
-  }
-  const next = steps[completed];
-  if (
-    next?.step.retry === "opaque" &&
-    item.boundary === "stepwise" &&
-    announced.has(completed)
-  ) {
-    throw new MigrationError(
-      "The next rollback dispatch has an ambiguous commit outcome",
-      VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
-      {
-        meta: {
-          lastConfirmedStep: next.step.execute.dispatchId,
-          effectState: "may-have-committed",
-          partial: true,
-        },
-      }
-    );
-  }
-  let skipped = completed;
-  return item.rollback.operations.flatMap((operation) => {
-    if (skipped >= operation.steps.length) {
-      skipped -= operation.steps.length;
-      return [];
-    }
-    const steps = operation.steps.slice(skipped);
-    skipped = 0;
-    return [{ ...operation, steps }];
-  });
+  const completed = confirmedPrefix(
+    committed,
+    "Rollback progress is not a contiguous dispatch prefix"
+  );
+  refuseAmbiguousNext(
+    steps[completed]?.step,
+    item.boundary,
+    announced.has(completed),
+    "The next rollback dispatch has an ambiguous commit outcome"
+  );
+  return sliceOperations(item.rollback.operations, completed);
 }
 
 function assertReversibleEdge(
@@ -1260,12 +1433,151 @@ function assertReversibleEdge(
       VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
     );
   }
-  if (!graph.sql.get(state.sqlHash)) {
-    throw new MigrationError(
-      "Rollback SQL blob is missing",
-      VibORMErrorCode.MIGRATION_CORRUPTION
-    );
+}
+
+/** `down({ expectRevision })`: the marker must still be the one the caller read. */
+function assertExpectedRevision(
+  marker: MigrationMarkerV1 | null,
+  request: NormalizedDownOptions
+): void {
+  if (
+    request.expectRevision === undefined ||
+    marker?.revision === request.expectRevision
+  ) {
+    return;
   }
+  throw new MigrationError(
+    `down expected marker revision ${request.expectRevision}, but the marker is at revision ${marker?.revision ?? "none"}: another command moved it`,
+    VibORMErrorCode.MIGRATION_MARKER_CONFLICT
+  );
+}
+
+/**
+ * Puts each destructive change the rollback makes to a table holding rows to
+ * `resolve`, as generate and push ask (plan S4): a retried or mistaken `down`
+ * cannot drop data unasked. Only edges whose stored rollback is destructive
+ * are diffed: a manual rollback is SQL its author wrote and published, often
+ * to move the rows back before a drop, so it is not asked again. An ambiguous
+ * change counts as the drop it may be. A table an earlier edge of the path
+ * recreates is absent live, and holds no rows.
+ */
+async function approveRollbackLosses(
+  producer: Parameters<typeof appendLedger>[0],
+  command: Parameters<typeof appendLedger>[1],
+  graph: MigrationGraph,
+  prepared: readonly PreparedRollback[],
+  resolve: ResolveCallback | undefined
+): Promise<void> {
+  const losses: DiffOperation[] = [];
+  for (const item of prepared) {
+    if (!item.rollback.operations.some((op) => op.risk === "destructive")) {
+      continue;
+    }
+    const { operations, ambiguousChanges } = await diff(
+      requireStateSnapshot(graph, item.edge.stateId),
+      requireStateSnapshot(graph, item.nextState)
+    );
+    for (const change of [...operations, ...ambiguousChanges.map(asDrop)]) {
+      if (
+        "tableName" in change &&
+        isDestructiveOperation(change) &&
+        (await holdsRows(producer, command, change.tableName))
+      ) {
+        losses.push(change);
+      }
+    }
+  }
+  // The callback is the caller's work: no locked transaction waits on it.
+  // Each group of `down` re-reads the marker under the lock it takes again.
+  if (losses.length > 0 && resolve) await letLockGo(producer);
+  await approveDestructiveOperations(losses, resolve, false);
+}
+
+function asDrop(change: AmbiguousChange): DiffOperation {
+  return change.type === "ambiguousTable"
+    ? { type: "dropTable", tableName: change.droppedTable }
+    : {
+        type: "dropColumn",
+        tableName: change.tableName,
+        columnName: change.droppedColumn.name,
+      };
+}
+
+/**
+ * The absent-and-empty-table probe: an absent table (a later state dropped it,
+ * or a resumed rollback already did) holds no rows.
+ */
+async function holdsRows(
+  producer: Parameters<typeof appendLedger>[0],
+  command: Parameters<typeof appendLedger>[1],
+  table: string
+): Promise<boolean> {
+  if (await isTableMissing(producer, command, table)) return false;
+  const result = await producer._executeRaw(
+    `SELECT 1 AS populated FROM ${qualifiedName(command, table)} LIMIT 1`
+  );
+  return result.rows.length > 0;
+}
+
+/**
+ * A rolled-back attempt must have left nothing behind. A manual opaque step of
+ * it that committed, or was announced and never answered (it may have
+ * committed), is an effect no fingerprint shows and that no rollback undid: a
+ * forward attempt runs none. Marking it rolled back would let `apply` run the
+ * step again — the double credit (plan S4). A step the server refused whole is
+ * answered with its `failure`: nothing of it committed. Generated steps are
+ * structural, and so is a CONCURRENTLY index statement, whose index resolve
+ * repairs before the origin proof (plan S7): the fingerprint proves those
+ * undone.
+ */
+function refuseOpaqueEffect(
+  transition: ReturnType<typeof parentTransition>,
+  blob: Uint8Array,
+  attempt: LedgerEventV1,
+  ledger: readonly LedgerEventV1[]
+): void {
+  const opaque = new Set(
+    transition.operations.flatMap((operation) =>
+      operation.steps.flatMap((step) =>
+        operation.origin === "manual" &&
+        step.retry === "opaque" &&
+        concurrentIndexNames(sliceDispatch(blob, step.execute)).length === 0
+          ? [step.execute.dispatchId]
+          : []
+      )
+    )
+  );
+  const effects = ledger.filter(
+    (event) =>
+      event.attemptId === attempt.attemptId &&
+      event.kind === "step-confirmed" &&
+      opaque.has(event.dispatchId ?? "")
+  );
+  const refused = new Set(
+    effects.flatMap((event) => (event.failure ? [event.dispatchId] : []))
+  );
+  const effect =
+    effects.find((event) => event.effectState === "committed") ??
+    effects.find((event) => !refused.has(event.dispatchId));
+  if (effect === undefined) return;
+  const committed = effect.effectState === "committed";
+  throw new MigrationError(
+    `resolve cannot mark this attempt rolled back: its opaque dispatch ${effect.dispatchId} ${committed ? "committed" : "may have committed"} and nothing undid it. Finish the transition by hand and resolve({ outcome: "complete" }).`,
+    committed
+      ? VibORMErrorCode.MIGRATION_PARTIAL_EFFECT
+      : VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
+    {
+      meta: {
+        ...(attempt.fromState ? { fromState: attempt.fromState } : {}),
+        ...(attempt.toState ? { toState: attempt.toState } : {}),
+        operationId: effect.operationId ?? undefined,
+        dispatchId: effect.dispatchId ?? undefined,
+        lastConfirmedStep: effect.dispatchId ?? undefined,
+        effectState: committed ? "committed" : "may-have-committed",
+        partial: true,
+      },
+    }
+  );
 }
 
 function rollbackSlice(

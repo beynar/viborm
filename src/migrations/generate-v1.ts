@@ -4,18 +4,17 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { hydrateSchemaNames } from "../schema/hydration";
-import { allRules } from "../schema/validation/rules";
-import {
-  resolveSchemaOrThrow,
-  validateResolvedSchemaOrThrow,
-} from "../schema/validation/validator";
 import {
   assertManualStepwiseProof,
+  type CompiledTransition,
   compileGeneratedTransition,
   compileManualTransition,
   compileTrustedCheck,
+  compileValidationTransition,
   hashParent,
+  type LowLockState,
+  lowLockStates,
+  lowLockSteps,
   rebindChecks,
   rebindDispatches,
   rebindRollback,
@@ -24,7 +23,11 @@ import {
 import { type DiffOptions, diff } from "./differ";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import { normalizeGenerateOptions } from "./generate-input";
-import { loadMigrationGraph, type MigrationGraph } from "./graph";
+import {
+  loadMigrationGraph,
+  type MigrationGraph,
+  requireStateSnapshot,
+} from "./graph";
 import type { Sha256 } from "./identity";
 import { renderMigrationReview } from "./public-view";
 import {
@@ -32,24 +35,23 @@ import {
   detectEnumValueRemovals,
   resolveEnumValueRemovalMappings,
 } from "./push/enum-removals";
-import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
+import type { getPushMigrationDriver, MigrationClient } from "./push/planner";
+import { prepareSchema } from "./push-v1";
 import {
+  approveDestructiveOperations,
   callbackAsResolver,
+  refuseUnusedDecisions,
   rejectAllResolver,
   resolveAmbiguousChanges,
   strictResolver,
 } from "./resolver";
-import {
-  assertMigrationDecimalDomainsFitProvider,
-  serializeResolvedModels,
-} from "./serializer";
+import { serializeResolvedModels } from "./serializer";
 import { SqlAssembly } from "./sql-assembly";
 import { sliceDispatch } from "./sql-blob";
 import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageWriter } from "./storage/contract";
-import { isMigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
-import type { DiffOperation } from "./types";
+import type { DiffOperation, ResolveCallback, SchemaSnapshot } from "./types";
 import { generateMigrationName, prepareSchemaProgram } from "./utils";
 import {
   encodeEstateDescriptor,
@@ -61,9 +63,9 @@ import type {
   GenerateV1Options,
   ManualMigrationInput,
   ManualTransitionInput,
+  MigrationApprovalV1,
   MigrationBooleanCheckV1,
   MigrationParentTransitionV1,
-  MigrationStateManifestV1,
 } from "./v1-types";
 
 export interface GenerateV1Result {
@@ -87,31 +89,26 @@ const AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS: DiffOptions = {
   compareDateTimeDeclarations: true,
 };
 
+/**
+ * A dry run without a resolver previews the state as an approval would publish
+ * it, as push's preview does; publishing still needs the resolver's answer.
+ */
+const previewApproval: ResolveCallback = (change) =>
+  change.type === "destructive" ? change.proceed() : undefined;
+
 export async function generateV1(
   client: MigrationClient,
   storage: MigrationStorageWriter,
   options: GenerateV1Options = {}
 ): Promise<GenerateV1Result> {
   const request = normalizeGenerateOptions(options);
-  if (!isMigrationStorageWriter(storage)) {
-    throw new MigrationError(
-      "generate requires a storage writer",
-      VibORMErrorCode.MIGRATION_STORAGE_REQUIRED
-    );
-  }
-  hydrateSchemaNames(client.$schema);
-  const relations = request.skipValidation
-    ? resolveSchemaOrThrow(client.$schema)
-    : validateResolvedSchemaOrThrow(client.$schema, allRules);
-  const driver = getPushMigrationDriver(client);
-  assertMigrationDecimalDomainsFitProvider(client.$schema, driver.dialect);
-  let estateBytes = await storage.readEstate();
-  if (!estateBytes) {
-    const encoded = encodeEstateDescriptor(driver.target);
-    estateBytes = encoded.bytes;
-  }
+  const { relations, driver } = prepareSchema(
+    client,
+    request.skipValidation ?? false
+  );
   const publishedEstate = await storage.readEstate();
-  if (publishedEstate) estateBytes = publishedEstate;
+  const estateBytes =
+    publishedEstate ?? encodeEstateDescriptor(driver.target).bytes;
   const { estateHash, descriptor } = parseEstateDescriptor(estateBytes);
   assertEstateTargetMatches(descriptor.target, driver.target);
   const loaded = publishedEstate
@@ -120,8 +117,16 @@ export async function generateV1(
 
   const desired = serializeResolvedModels(client.$schema, driver, relations);
   const desiredEncoded = encodeSnapshot(desired);
-  const parents = resolveParents(loaded, request);
+  const parents = resolveParents(loaded, request, desired);
   refuseUnprovedMerge(loaded, parents, request.manualMigration);
+  const parentState =
+    parents.length === 1 && parents[0]
+      ? loaded.states.get(parents[0])
+      : undefined;
+  const parentSnapshot =
+    parentState && loaded.snapshots.get(parentState.snapshotHash);
+  const unchangedSnapshot =
+    parentSnapshot !== undefined && sameSchema(parentSnapshot, desired);
 
   const assembly = new SqlAssembly();
   const parentBodies: Omit<MigrationParentTransitionV1, "transitionHash">[] =
@@ -133,6 +138,8 @@ export async function generateV1(
     operations: DiffOperation[];
   }[] = [];
   const destinationPlaceholders: MigrationBooleanCheckV1[] = [];
+  // Each state a low-lock split publishes before this one, parent first.
+  const stepStates: SealedLowLockState[] = [];
 
   if (request.manualMigration) {
     assertManualParents(loaded, request.manualMigration.transitions);
@@ -172,12 +179,8 @@ export async function generateV1(
       );
     }
   } else {
-    for (const from of parents) {
-      const current =
-        from === null
-          ? emptyManagedSnapshot()
-          : (loaded.snapshots.get(loaded.states.get(from)!.snapshotHash) ??
-            emptyManagedSnapshot());
+    for (const [index, from] of parents.entries()) {
+      const current = requireStateSnapshot(loaded, from);
       const diffOptions = {
         ...AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS,
         projectRename: driver.projectNativeRename.bind(driver),
@@ -185,12 +188,21 @@ export async function generateV1(
           driver.capabilities.introspectionReadsConstraintNames,
       };
       const diffed = await diff(current, desired, diffOptions);
+      const admittedDrops = new Set<string>();
       const resolved = await resolveAmbiguousChanges(
         diffed,
         current,
         desired,
-        request.resolve ? callbackAsResolver(request.resolve) : strictResolver,
+        request.resolve
+          ? callbackAsResolver(request.resolve, admittedDrops)
+          : strictResolver,
         diffOptions
+      );
+      const approvals = await approveDestructiveOperations(
+        resolved,
+        request.resolve ?? (request.dryRun ? previewApproval : undefined),
+        false,
+        admittedDrops
       );
       const enumMappings = await resolveEnumValueRemovalMappings(
         detectEnumValueRemovals(resolved, current),
@@ -205,44 +217,81 @@ export async function generateV1(
       const staged = prepareSchemaProgram(withEnumMappings, current, driver);
       reported.push(...staged);
       operationsByParent.push({ fromState: from, operations: staged });
-      const compiled = compileGeneratedTransition(
-        staged,
-        driver,
-        "artifact",
-        current,
-        desired,
-        assembly
-      );
-      warnings.push(...(compiled.warnings ?? []));
-      if (compiled.rollback.kind === "irreversible")
-        warnings.push(compiled.rollback.reason);
-      parentBodies.push(sealParent(from, compiled));
+      // T2: the plan has asked every decision once its last parent is
+      // planned, before a low-lock split publishes. A document already
+      // published (a re-drive) asks none and stays a noop.
+      if (index === parents.length - 1 && !unchangedSnapshot) {
+        refuseUnusedDecisions(request.resolve);
+      }
+      // T5b, asked for with `lowLock`: one parent's PostgreSQL program gives
+      // each low-lock step a commit of its own, as states published before
+      // this one. Opt-in, because a step outside a transaction needs the
+      // direct session a transaction pooler cannot give.
+      const lowLock =
+        request.lowLock === true && driver.dialect === "postgresql";
+      const split =
+        lowLock && parents.length === 1
+          ? lowLockStates(staged, current, desired)
+          : undefined;
+      if (lowLock && !split && lowLockSteps(staged).size > 0) {
+        warnings.push(
+          "lowLock: this change keeps its blocking index builds and validating foreign keys, because it merges several parents or changes something other than an index or a foreign key after its first index build. Generate those indexes and keys in a migration of their own to get their step form."
+        );
+      }
+      let origin = { from, current, approvals };
+      const before = split?.states.slice(0, -1) ?? [];
+      for (const [index, state] of before.entries()) {
+        const step = sealLowLockState(
+          estateHash,
+          driver,
+          `${request.name?.trim() || generateMigrationName(staged)} (step ${index + 1} of ${before.length + 1})`,
+          origin,
+          state,
+          split?.steps
+        );
+        warnings.push(...step.warnings);
+        stepStates.push(step);
+        origin = {
+          from: step.encoded.stateId,
+          current: state.snapshot,
+          approvals: [],
+        };
+      }
+      const last = split?.states.at(-1);
+      const compiled = last?.validates
+        ? compileValidationTransition(
+            last.operations,
+            driver,
+            origin.current,
+            assembly
+          )
+        : compileGeneratedTransition(
+            last?.operations ?? staged,
+            driver,
+            "artifact",
+            origin.current,
+            desired,
+            assembly,
+            split?.steps
+          );
+      warnings.push(...transitionWarnings(compiled));
+      parentBodies.push(sealParent(origin.from, compiled, origin.approvals));
     }
   }
 
-  const sealed = assembly.seal();
   const named = request.name?.trim() || generateMigrationName(reported);
-  assertArtifactExecutionSafe(
-    sealed.dispatches.map((dispatch) => sliceDispatch(sealed.bytes, dispatch)),
+  const { sealed, hashedParents, destinationChecks, encoded } = sealState(
+    assembly,
+    parentBodies,
+    destinationPlaceholders,
     driver.target.dialect,
-    named
+    estateHash,
+    named,
+    desiredEncoded.snapshotHash
   );
 
-  const hashedParents = parentBodies
-    .map((parent) => ({
-      ...parent,
-      originChecks: rebindChecks(parent.originChecks, sealed.dispatches),
-      operations: rebindDispatches(parent.operations, sealed.dispatches),
-      rollback: rebindRollback(parent.rollback, sealed.dispatches),
-    }))
-    .map((parent) => hashParent(parent));
-
-  const singleParent = parents.length === 1;
-  const unchangedSnapshot =
-    singleParent &&
-    parents[0] !== null &&
-    loaded.states.get(parents[0]!)?.snapshotHash ===
-      desiredEncoded.snapshotHash;
+  // Decision 8: field and model order is cosmetic, so a document that only
+  // reorders them is a noop and publishes nothing.
   const emptyProgram = hashedParents.every((parent) =>
     parent.operations.every((operation) => operation.steps.length === 0)
   );
@@ -262,49 +311,21 @@ export async function generateV1(
     };
   }
 
-  const withoutId: Omit<MigrationStateManifestV1, "stateId"> = {
-    format: "1",
-    estateHash,
-    name: named,
-    snapshotHash: desiredEncoded.snapshotHash,
-    sqlHash: sealed.sqlHash,
-    destinationChecks: rebindChecks(destinationPlaceholders, sealed.dispatches),
-    parents: hashedParents,
-  };
-  const encoded = encodeStateManifest(withoutId);
-  const sqlText = new TextDecoder().decode(sealed.bytes);
-  const reviewSql = renderMigrationReview(
-    hashedParents,
-    rebindChecks(destinationPlaceholders, sealed.dispatches),
-    sealed.bytes
-  );
-  if (request.dryRun) {
-    return {
-      outcome: "preview",
-      stateId: encoded.stateId,
-      name: named,
-      estateHash,
-      snapshotHash: desiredEncoded.snapshotHash,
-      sqlHash: sealed.sqlHash,
-      operations: reported,
-      warnings,
-      operationsByParent,
-      sql: sqlText,
-      reviewSql,
-    };
-  }
-
-  if (!publishedEstate) {
-    await storage.publishEstate(estateBytes);
-  }
-  await storage.publishSnapshot(
-    desiredEncoded.snapshotHash,
-    desiredEncoded.bytes
-  );
-  await storage.publishSql(sealed.sqlHash, sealed.bytes);
-  await storage.publishState(encoded.stateId, encoded.bytes);
-  return {
-    outcome: "published",
+  const final = { snapshot: desiredEncoded, sealed, encoded };
+  const states = [...stepStates, final];
+  const sqlText = states
+    .map((state) => new TextDecoder().decode(state.sealed.bytes))
+    .join("\n\n");
+  const reviewSql = [
+    ...stepStates.map(({ review }) => review),
+    renderMigrationReview(
+      hashedParents,
+      destinationChecks,
+      sealed.bytes,
+      request.resolve ? undefined : "Needs approval at generate"
+    ),
+  ].join("\n\n");
+  const candidate = {
     stateId: encoded.stateId,
     name: named,
     estateHash,
@@ -316,6 +337,150 @@ export async function generateV1(
     sql: sqlText,
     reviewSql,
   };
+  if (request.dryRun) return { outcome: "preview", ...candidate };
+
+  if (!publishedEstate) {
+    await storage.publishEstate(estateBytes);
+  }
+  // Every state is complete before the first publishes. A low-lock split's
+  // states publish parent first, each manifest after its snapshot and SQL.
+  for (const { snapshot, sealed: sql, encoded: manifest } of states) {
+    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    await storage.publishSql(sql.sqlHash, sql.bytes);
+    await storage.publishState(manifest.stateId, manifest.bytes);
+  }
+  return { outcome: "published", ...candidate };
+}
+
+/** Decision 8: two snapshots that differ only in field and model order. */
+function sameSchema(a: SchemaSnapshot, b: SchemaSnapshot): boolean {
+  return (
+    encodeSnapshot(orderFree(a)).snapshotHash ===
+    encodeSnapshot(orderFree(b)).snapshotHash
+  );
+}
+
+/** A snapshot with its tables, columns, keys and enums sorted by name. */
+function orderFree(snapshot: SchemaSnapshot): SchemaSnapshot {
+  const byName = (a: { name: string }, b: { name: string }) =>
+    a.name < b.name ? -1 : Number(a.name > b.name);
+  return {
+    ...snapshot,
+    tables: snapshot.tables
+      .map((table) => ({
+        ...table,
+        columns: [...table.columns].sort(byName),
+        indexes: [...table.indexes].sort(byName),
+        foreignKeys: [...table.foreignKeys].sort(byName),
+        uniqueConstraints: [...table.uniqueConstraints].sort(byName),
+      }))
+      .sort(byName),
+    enums: snapshot.enums && [...snapshot.enums].sort(byName),
+  };
+}
+
+/**
+ * Seals one state's manifest from its compiled parents: refuses unsafe SQL,
+ * binds every check and dispatch to the sealed bytes and hashes each parent.
+ */
+function sealState(
+  assembly: SqlAssembly,
+  parentBodies: readonly Omit<MigrationParentTransitionV1, "transitionHash">[],
+  destinationPlaceholders: readonly MigrationBooleanCheckV1[],
+  dialect: Parameters<typeof assertArtifactExecutionSafe>[1],
+  estateHash: Sha256,
+  name: string,
+  snapshotHash: Sha256
+) {
+  const sealed = assembly.seal();
+  assertArtifactExecutionSafe(
+    sealed.dispatches.map((dispatch) => sliceDispatch(sealed.bytes, dispatch)),
+    dialect,
+    name
+  );
+  const hashedParents = parentBodies.map((parent) =>
+    hashParent({
+      ...parent,
+      originChecks: rebindChecks(parent.originChecks, sealed.dispatches),
+      operations: rebindDispatches(parent.operations, sealed.dispatches),
+      rollback: rebindRollback(parent.rollback, sealed.dispatches),
+    })
+  );
+  const destinationChecks = rebindChecks(
+    destinationPlaceholders,
+    sealed.dispatches
+  );
+  const encoded = encodeStateManifest({
+    format: "1",
+    estateHash,
+    name,
+    snapshotHash,
+    sqlHash: sealed.sqlHash,
+    destinationChecks,
+    parents: hashedParents,
+  });
+  return { sealed, hashedParents, destinationChecks, encoded };
+}
+
+type SealedLowLockState = ReturnType<typeof sealLowLockState>;
+
+/**
+ * Seals one state a low-lock split puts before the generated one (T5b); it
+ * becomes the next state's parent. Nothing publishes until every state of the
+ * candidate is sealed.
+ */
+function sealLowLockState(
+  estateHash: Sha256,
+  driver: ReturnType<typeof getPushMigrationDriver>,
+  name: string,
+  origin: {
+    readonly from: Sha256 | null;
+    readonly current: SchemaSnapshot;
+    readonly approvals: readonly MigrationApprovalV1[];
+  },
+  state: LowLockState,
+  steps: ReadonlySet<DiffOperation> | undefined
+) {
+  const assembly = new SqlAssembly();
+  const compiled = compileGeneratedTransition(
+    state.operations,
+    driver,
+    "artifact",
+    origin.current,
+    state.snapshot,
+    assembly,
+    steps
+  );
+  const snapshot = encodeSnapshot(state.snapshot);
+  const sealed = sealState(
+    assembly,
+    [sealParent(origin.from, compiled, origin.approvals)],
+    [],
+    driver.target.dialect,
+    estateHash,
+    name,
+    snapshot.snapshotHash
+  );
+  return {
+    ...sealed,
+    snapshot,
+    review: renderMigrationReview(
+      sealed.hashedParents,
+      [],
+      sealed.sealed.bytes
+    ),
+    warnings: transitionWarnings(compiled),
+  };
+}
+
+/** What a compiled transition warns of: its own warnings, then irreversibility. */
+function transitionWarnings(compiled: CompiledTransition): string[] {
+  return [
+    ...(compiled.warnings ?? []),
+    ...(compiled.rollback.kind === "irreversible"
+      ? [compiled.rollback.reason]
+      : []),
+  ];
 }
 
 function assertManualParents(
@@ -350,13 +515,22 @@ function assertManualParents(
 
 function resolveParents(
   graph: MigrationGraph,
-  options: GenerateV1Options
+  options: GenerateV1Options,
+  desired: SchemaSnapshot
 ): Array<Sha256 | null> {
   if (options.from !== undefined) {
     if (options.from === null) {
-      if (graph.states.size > 0) {
+      // Plan T4 (decision 11): on a populated estate `from: null` authors a
+      // checkpoint, a second root restating the single leaf's schema, which
+      // reanchor() can move a marker onto once prune() dropped what precedes it.
+      const [leaf, ...more] = graph.leaves;
+      if (
+        leaf &&
+        (more.length > 0 ||
+          !sameSchema(requireStateSnapshot(graph, leaf), desired))
+      ) {
         throw new MigrationError(
-          "A second virtual-root transition is refused",
+          "A second virtual-root transition is an authored checkpoint: it must restate the schema of the estate's single leaf. Generate the change first, then the checkpoint.",
           VibORMErrorCode.MIGRATION_INVALID_ESTATE
         );
       }
@@ -371,8 +545,7 @@ function resolveParents(
     return [options.from];
   }
   if (graph.states.size === 0) return [null];
-  if (graph.leaves.length === 1) return [graph.leaves[0]!];
-  if (graph.leaves.length === 0) return [null];
+  // `loadMigrationGraph` refuses a cycle, so a graph with states has a leaf.
   return [...graph.leaves];
 }
 
@@ -380,15 +553,16 @@ function emptyGraph(
   estateHash: Sha256,
   descriptor: ReturnType<typeof parseEstateDescriptor>["descriptor"]
 ): MigrationGraph {
+  const emptySnapshotHash = encodeSnapshot(emptyManagedSnapshot()).snapshotHash;
   return {
     estateHash,
     descriptor,
     states: new Map(),
-    snapshots: new Map(),
+    snapshots: new Map([[emptySnapshotHash, emptyManagedSnapshot()]]),
     sql: new Map(),
     roots: [],
     leaves: [],
-    emptySnapshotHash: encodeSnapshot(emptyManagedSnapshot()).snapshotHash,
+    emptySnapshotHash,
   };
 }
 
@@ -399,8 +573,8 @@ function ancestryHasCustom(
 ): boolean {
   if (stateId === null || seen.has(stateId)) return false;
   seen.add(stateId);
-  const state = graph.states.get(stateId);
-  if (!state) return false;
+  // Every id here is a validated state or a validated parent edge's source.
+  const state = graph.states.get(stateId)!;
   for (const transition of state.parents) {
     if (
       transition.operations.some(

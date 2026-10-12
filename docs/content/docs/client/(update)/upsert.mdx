@@ -163,6 +163,12 @@ async function recordPageView(pageId: string) {
 }
 ```
 
+On PostgreSQL and SQLite, when `where` names one unique key that `create` spells
+with the same values, a counter upsert (`increment`, `decrement`, `multiply`,
+`divide`) runs as one `INSERT … ON CONFLICT DO UPDATE` statement; an exact
+decimal's `multiply`/`divide` and list operators keep the locate-then-write
+route. MySQL always uses that route.
+
 ## vs Create + Update
 
 Prefer `upsert` over a find-then-create/update sequence: it's an atomic operation with no exposed race window. Use separate queries only when the two branches have genuinely different logic or you need to know which one ran.

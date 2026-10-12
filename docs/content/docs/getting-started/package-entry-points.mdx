@@ -64,12 +64,28 @@ does not export obsolete build/validate/parse spans or cache keys.
 
 | Entry point | Purpose |
 | --- | --- |
-| `viborm/migrations` | Migration client, storage contracts, estate values, results, errors, resolvers |
+| `viborm/migrations` | Migration client, storage contracts, estate values, results, errors, resolvers; every dialect's migration driver |
+| `viborm/migrations/postgres` | The same API with only the PostgreSQL migration driver |
+| `viborm/migrations/sqlite` | The same API with only the SQLite migration drivers (SQLite, Bun SQLite, D1, libSQL) |
+| `viborm/migrations/mysql` | The same API with only the MySQL migration driver |
 | `viborm/migrations/storage/fs` | `createFsStorageWriter` only |
+| `viborm/migrations/storage/durable-object` | `createDurableObjectStorageWriter` only |
+| `viborm/migrations/storage/r2` | `createR2StorageWriter` only |
+| `viborm/migrations/tenant` | `createTenantMigrator` and its option and result types |
+
+A bundle carries the migration code of the dialects its entry registers. A
+Worker that migrates one database imports that dialect's entry, such as
+`viborm/migrations/postgres`, rather than `viborm/migrations`, which carries
+all of them. `viborm/migrations/tenant` registers none: import the dialect
+entry beside it.
 
 The filesystem storage class is private. Construct it through the factory so
 the package can preserve its storage contract without exposing implementation
 state.
+
+`viborm/migrations` loads no Node builtin, so it runs on Cloudflare Workers
+without `nodejs_compat` or a compatibility-date floor. The `pg` and
+`postgres.js` transports still need `nodejs_compat`.
 
 The package test builds and packs a fresh tarball, imports every runtime path,
 and inspects every declaration entry with the TypeScript compiler API. One

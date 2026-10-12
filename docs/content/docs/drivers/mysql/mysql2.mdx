@@ -30,10 +30,33 @@ const client = createClient({
 | `namespace` | `string` | MySQL database for VibORM-owned objects |
 | `migrationNamespaceAttestation` | `"non-redirecting"` | Caller assertion required for effectful migrations |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
+### URL and options together
+
+`databaseUrl` fills only the keys it carries, and a key you set in `options`
+wins over the same key in the URL. An option set to `undefined` counts as
+absent, so an unset environment variable never erases a URL key. A URL without
+a port leaves mysql2's default (3306) unless `options.port` sets one. This lets
+each tenant have its own URL while the password comes from a secret:
+
+```typescript
+const client = createClient({
+  databaseUrl: `mysql://app@db.internal/${tenant}`,
+  options: { password: process.env.DB_PASSWORD },
+  schema,
+});
+```
+
 URL credentials and the database path are percent-decoded, and URL query
 options are preserved. `sslmode=require`, `verify-ca`, and `verify-full` enable
-verified TLS; weaker or unrecognized TLS URL settings are refused. Use
-`options.ssl` for certificate settings. Typed commands use MySQL text protocol
+verified TLS. Weaker or unrecognized TLS URL settings (`sslmode=prefer`,
+`ssl-mode`, `sslaccept`, ...) are refused with a `ClientInitializationError`
+that says which setting VibORM cannot honour. Use `options.ssl` for
+certificate settings. A URL the parser cannot read is refused as
+`Driver "mysql2" could not parse its databaseUrl.`, with its details redacted
+because they can contain the password. Typed commands use MySQL text protocol
 with per-command date and exact-integer decoding, including supplied pools;
 VibORM does not fill mysql2's server prepared-statement cache.
 
@@ -95,17 +118,17 @@ SELECT `user`.`id` FROM `billing`.`user` AS `user`
 The target is resolved once, in this order:
 
 1. an explicit `namespace`;
-2. for a **driver-created** pool, a non-empty database path in `databaseUrl`;
-3. for a **driver-created** pool, `options.database`;
+2. for a **driver-created** pool, `options.database`;
+3. for a **driver-created** pool, a non-empty database path in `databaseUrl`;
 4. otherwise **unbound** — SQL stays unqualified and is byte-for-byte what it
    was before this option existed.
 
-A URL overrides copied pool options, and an empty URL path contributes neither a
-namespace nor a pool-database override. Whichever source resolves the target,
-the driver-created pool's default `database` is set to that same value on a
-**copy** of your options — the object you passed in is never mutated, and the
-`databaseUrl` is parsed once at construction and never re-read, so the pool
-cannot be pointed somewhere the resolved target never saw.
+`options.database` wins over the URL path like every other option, and an empty
+URL path contributes neither a namespace nor a pool-database override. Whichever
+source resolves the target, the driver-created pool's default `database` is set
+to that same value on a **copy** of your options — the object you passed in is
+never mutated, and the `databaseUrl` is parsed once at construction and never
+re-read, so the pool cannot be pointed somewhere the resolved target never saw.
 
 :::info
 A pool you supply is opaque. Only an explicit `namespace` binds it; VibORM does

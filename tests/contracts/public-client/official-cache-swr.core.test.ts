@@ -1,8 +1,8 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { CacheDriver, type CacheEntry } from "@cache/driver";
+import type { QueryExecutionContext, QueryResult } from "@drivers";
+import { Driver } from "@drivers";
 import { cache as cacheExtension } from "@src/cache/exports";
-import type { QueryExecutionContext, QueryResult } from "@src/drivers";
-import { Driver } from "@src/drivers";
 import { createClient, s } from "@src/index";
 import type { Operation } from "@src/query-engine/types";
 import type { JsonValue } from "@src/validation";

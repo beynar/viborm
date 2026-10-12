@@ -133,7 +133,7 @@ describe("sequential program scoping", () => {
 describe("coverage low value", () => {
   test("a non-Error rejection of the lock statement still fails the command", async () => {
     const driver = rejectingPostgres((sql) =>
-      sql.includes("pg_try_advisory_lock")
+      sql.includes("pg_try_advisory_xact_lock")
     );
 
     await expect(
@@ -156,9 +156,18 @@ describe("coverage low value", () => {
       sql.includes("pg_advisory_unlock")
     );
 
+    // Only stepwise work holds a session lock to release (plan D1): a
+    // CONCURRENTLY statement takes it.
     await expect(
-      withLockedMigrationProducer(driver, getMigrationDriver(driver), () =>
-        Promise.resolve("ran")
+      withLockedMigrationProducer(
+        driver,
+        getMigrationDriver(driver),
+        async (pinned) => {
+          await pinned._executeRaw(
+            'CREATE INDEX CONCURRENTLY "i" ON "public"."t" ("c")'
+          );
+          return "ran";
+        }
       )
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_LOCK_FAILED,

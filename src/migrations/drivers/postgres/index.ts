@@ -1,3 +1,4 @@
+import { isGeneratorDefault } from "@schema/scalars/common";
 import { nativeTypeFor } from "@schema/scalars/native-types";
 import { idDomainOfState, idStorageOf } from "@schema/scalars/string/id-domain";
 import type { IdDomain } from "@validation/primitives/id-codec";
@@ -5,7 +6,6 @@ import {
   arrayLiteralText,
   readArrayLiteralText,
 } from "../../../adapters/databases/postgres/array-literal";
-import { stringifyJson } from "../../../adapters/shared/standard-sql";
 /**
  * PostgreSQL Migration Driver
  *
@@ -16,9 +16,11 @@ import { stringifyJson } from "../../../adapters/shared/standard-sql";
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import { hasIdPrefix } from "@validation/primitives/id-formats";
-import { errorCause } from "../../../drivers/shared/driver-options";
+import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { errorCause } from "../../../errors/diagnostic-safety";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
+import { type LowLockContext, tableRewrites } from "../../compile";
 import {
   decimalConversionConstraintName,
   decimalConversionRequired,
@@ -28,7 +30,9 @@ import {
   isPostgresTextToUuid,
   postgresTextToUuidGuard,
 } from "../../identifier-conversion";
-import type { NativeRenameOperation } from "../../native-rename";
+import type { Sha256 } from "../../identity";
+import { DEFAULT_MIGRATION_LIMITS } from "../../limits";
+import { rowsAfterSchemaChange } from "../../statement-safety";
 import type {
   ColumnDef,
   DiffOperation,
@@ -37,6 +41,7 @@ import type {
   TableDef,
 } from "../../types";
 import { derivedMigrationName } from "../../utils";
+import type { BoundMigrationDriver } from "..";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -44,10 +49,12 @@ import {
   type AddUniqueConstraintOperation,
   type AlterColumnOperation,
   type AlterEnumOperation,
+  type ControlTableNames,
   type CreateEnumOperation,
   type CreateIndexOperation,
   type CreateTableOperation,
   type DDLContext,
+  type DerivedRename,
   type DropColumnOperation,
   type DropEnumOperation,
   type DropForeignKeyOperation,
@@ -61,8 +68,16 @@ import {
 } from "../base";
 import { getPostgresType, PG_TYPE_DEFAULTS } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
-import { canonicalizeIndexPredicates } from "./canonicalize-index-predicate";
 import {
+  type BatchExecutor,
+  canonicalizeIndexPredicates,
+} from "./canonicalize-index-predicate";
+import {
+  postgresCatalogDigest,
+  postgresCatalogDigestQuery,
+} from "./catalog-digest";
+import {
+  admittedExtensionTypes,
   introspectPostgresSchema,
   POSTGRES_MANAGED_TABLE_NAMES_QUERY,
 } from "./introspect";
@@ -83,25 +98,11 @@ type RawExecutor = <T>(
  */
 const VECTOR_TYPE_TOKEN = /^(vector|halfvec|sparsevec)(?:\(\d+\))?(?:\[\])?$/i;
 const TEMPORAL_PRECISION_TOKEN = /\((\d+)\)/;
+/** The planner's row estimate in the first line of an EXPLAIN. */
+const PLAN_ROWS = /\brows=(\d+)/;
 
 const NAMESPACE_EXISTS_QUERY =
   "SELECT 1 AS present FROM pg_catalog.pg_namespace WHERE nspname = $1";
-
-/**
- * Extension-owned base types whose SERVER-FORMATTED spelling introspection
- * reads, keyed by the adapter capability that declares them.
- *
- * These are the types whose modifiers a snapshot cannot be written without
- * (`vector(3)`, `geometry(Point,4326)`), so introspection reads
- * `format_type` for them instead of `udt_name`. The set admits a SPELLING,
- * never a type: an extension type outside it — `citext`, and anything else a
- * database has installed — reads back through `udt_name` like every built-in,
- * which is the spelling this driver's own renderer emits for it.
- */
-const EXTENSION_TYPES_BY_CAPABILITY = {
-  supportsVector: ["vector", "halfvec", "sparsevec"],
-  geoPoint: ["geometry", "geography"],
-} as const;
 
 const POSTGIS_PREFLIGHT_QUERY = `
 WITH postgis AS (
@@ -336,6 +337,11 @@ export class PostgresMigrationDriver extends MigrationDriver {
     );
   }
 
+  /** A table position is qualified like any object, whatever the destination. */
+  protected override tableRef(tableName: string): string {
+    return this.qualify(tableName);
+  }
+
   /**
    * The enum types this DDL batch may name as a column type.
    *
@@ -386,26 +392,6 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return isArray ? `${qualified}[]` : qualified;
   }
 
-  /**
-   * The extension-owned base types this driver's adapter declares, and whose
-   * `format_type` spelling introspection therefore reads.
-   */
-  private admittedExtensionTypes(): ReadonlySet<string> {
-    const capabilities = this.executionDriver?.adapter.capabilities;
-    const admitted = new Set<string>();
-    if (capabilities?.supportsVector) {
-      for (const type of EXTENSION_TYPES_BY_CAPABILITY.supportsVector) {
-        admitted.add(type);
-      }
-    }
-    if (this.executionDriver?.adapter.geoPoint) {
-      for (const type of EXTENSION_TYPES_BY_CAPABILITY.geoPoint) {
-        admitted.add(type);
-      }
-    }
-    return admitted;
-  }
-
   // ===========================================================================
   // INTROSPECTION
   // ===========================================================================
@@ -423,15 +409,107 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return await introspectPostgresSchema(executeRaw, {
       namespace: this.requireEstateNamespace(),
       tables: this.target?.tables,
-      admittedExtensionTypes: this.admittedExtensionTypes(),
+      admittedExtensionTypes: admittedExtensionTypes(this.executionDriver),
     });
+  }
+
+  override catalogDigestQuery(
+    this: BoundMigrationDriver,
+    control: ControlTableNames,
+    deparsedPredicates = false
+  ) {
+    return postgresCatalogDigestQuery(this, control, deparsedPredicates);
+  }
+
+  override catalogDigest(
+    this: BoundMigrationDriver,
+    producer: AnyDriver,
+    control: ControlTableNames
+  ): Promise<Sha256 | undefined> {
+    return postgresCatalogDigest(producer, this, control);
   }
 
   override async preflightSchemaRequirements(
     snapshots: readonly SchemaSnapshot[],
-    executeRaw: RawExecutor
+    executeRaw: RawExecutor,
+    program: readonly string[]
   ): Promise<void> {
     try {
+      // PlanetScale's Neki plans a row statement against the schema committed
+      // before its transaction, so one that follows a schema change in it
+      // fails (42P01, 42703). Asked of the server only for such a program.
+      const late = rowsAfterSchemaChange(program);
+      if (
+        late &&
+        (
+          await executeRaw<{ neki: boolean }>(
+            "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki"
+          )
+        ).rows[0]?.neki === true
+      ) {
+        const { change, rows } = late;
+        throw new MigrationError(
+          `On PlanetScale's Neki, a statement does not see a schema change made earlier in its own transaction, and this migration runs statement ${rows.position + 1} (${rows.words}) after statement ${change.position + 1} (${change.words}). Nothing ran. Put the data change in a state of its own after the schema change, and apply up to the schema change first (apply({ to })).`,
+          VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+          {
+            meta: {
+              dialect: this.dialect,
+              feature: "data after schema change in one transaction",
+            },
+          }
+        );
+      }
+      // T5a: a statement that rewrites or scans a table holds a lock that
+      // blocks it for as long as that takes, so above `largeTableRows` (the
+      // planner's estimate, as EXPLAIN reports it) it is refused here, before
+      // any effect. A table the program creates is not there yet: it is empty.
+      const { largeTableRows } = this.limits ?? DEFAULT_MIGRATION_LIMITS;
+      const rewrites = largeTableRows > 0 ? tableRewrites(program) : [];
+      const tables = [...new Set(rewrites.map(({ table }) => table))];
+      const relations =
+        tables.length === 0
+          ? []
+          : (
+              await executeRaw<{ relation: string | null }>(
+                "SELECT pg_catalog.to_regclass(name)::text AS relation FROM unnest($1::text[]) WITH ORDINALITY AS input(name, position) ORDER BY position",
+                [arrayLiteralText(tables)]
+              )
+            ).rows;
+      for (const [index, { relation }] of relations.entries()) {
+        if (relation === null) continue;
+        const explain = `EXPLAIN SELECT 1 FROM ${relation}`;
+        const plan = await executeRaw<Record<string, string>>(explain);
+        const line = Object.values(plan.rows[0] ?? {})[0] ?? "";
+        const estimate = PLAN_ROWS.exec(line)?.[1];
+        // A plan without an estimate is not admitted: it was not measured.
+        if (estimate !== undefined && Number(estimate) <= largeTableRows) {
+          continue;
+        }
+        const table = tables[index]!;
+        const operations = [
+          ...new Set(
+            rewrites.flatMap((item) =>
+              item.table === table ? [item.operation] : []
+            )
+          ),
+        ];
+        const operation = operations.join(" and ");
+        // T5b: a validation alone has a step form that blocks no write.
+        const steps = operations.every((name) => name.endsWith(" validation"))
+          ? " Or add the constraint NOT VALID and validate it (VALIDATE CONSTRAINT) in a later migration: neither step blocks writes. generate({ lowLock: true }) does this for foreign keys."
+          : "";
+        const size =
+          estimate === undefined
+            ? `whose row estimate ${explain} did not report (${JSON.stringify(line)}), so limits.largeTableRows (${largeTableRows}) cannot admit it`
+            : `which the planner estimates at ${estimate} rows, above limits.largeTableRows (${largeTableRows})`;
+        throw new MigrationError(
+          `This migration runs a ${operation} on ${table}, ${size}. It rewrites or scans the whole table while holding a lock that blocks it, longer than a request should wait. Nothing ran: the schema and data are unchanged. Run it outside the request with a client whose largeTableRows is higher, or 0 for no limit.${steps}`,
+          VibORMErrorCode.MIGRATION_INVALID_STATE,
+          {
+            meta: { table, operation, feature: "large table rewrite" },
+          }
+        );
+      }
       const vectors = new Set(
         snapshots.flatMap((snapshot) =>
           snapshot.tables.flatMap((table) =>
@@ -574,12 +652,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
   override canonicalizeIndexPredicates(
     tableName: string,
     predicates: readonly string[],
-    executeRaw: RawExecutor
+    executeRaw: RawExecutor,
+    executeBatch?: BatchExecutor
   ): Promise<ReadonlyArray<string | undefined>> {
     return canonicalizeIndexPredicates(
+      this.requireEstateNamespace(),
       this.qualify(tableName),
       predicates,
-      executeRaw
+      executeRaw,
+      executeBatch
     );
   }
 
@@ -679,13 +760,12 @@ export class PostgresMigrationDriver extends MigrationDriver {
     ) {
       if (scalarState.decimal)
         return super.getDefaultExpression(scalar, scalarState);
+      // A JSON field has no list form: members are scalars or temporals.
       const members = literal.map((value) =>
-        scalarState.type === "json"
-          ? stringifyJson(value)
-          : (scalarState.type === "datetime" || scalarState.type === "date") &&
-              typeof value === "string"
-            ? encodePostgresTemporal(value)
-            : value
+        (scalarState.type === "datetime" || scalarState.type === "date") &&
+        typeof value === "string"
+          ? encodePostgresTemporal(value)
+          : value
       );
       return this.escapeValue(arrayLiteralText(members));
     }
@@ -739,6 +819,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
     ) {
       return undefined;
     }
+    // DDL follows the scalar's own generator rule (string/scalar.ts
+    // `withIdentifier`): only a uuid generator the scalar INSTALLED becomes
+    // `gen_random_uuid()`. A non-key `.uuid()` and a `generate: false` key are
+    // caller-supplied, and a later `.default(...)` replaces the generator.
+    if (
+      scalarState.autoGenerate?.kind === "uuid" &&
+      !isGeneratorDefault(scalarState.default)
+    )
+      return undefined;
     return super.getDefaultExpression(scalar, scalarState);
   }
 
@@ -828,11 +917,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Table Operations
   // ===========================================================================
 
-  generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
-    return this.compileCreateTable(op, context).join(";\n");
-  }
-
-  override compileCreateTable(
+  generateCreateTable(
     op: CreateTableOperation,
     context: DDLContext
   ): readonly string[] {
@@ -886,7 +971,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
   /**
@@ -910,123 +995,20 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `ALTER TABLE ${this.qualify(op.from)} RENAME TO ${this.escapeIdentifier(op.to)}`;
   }
 
-  override compileRenameTable(
-    op: RenameTableOperation,
-    context: DDLContext
-  ): readonly string[] {
-    const statements = [this.generateRenameTable(op, context)];
-    const rename = this.defaultPrimaryKeyRename(
-      op,
-      this.schemaAtOperation(context)
+  protected override renameDerivedNames(
+    owner: string,
+    renames: ReadonlyMap<string, DerivedRename>
+  ): string[] {
+    return [...renames].map(([from, { kind, to }]) =>
+      kind === "constraint"
+        ? `ALTER TABLE ${this.qualify(owner)} RENAME CONSTRAINT ${this.escapeIdentifier(from)} TO ${this.escapeIdentifier(to)}`
+        : `ALTER ${kind === "type" ? "TYPE" : "INDEX"} ${this.qualify(from)} RENAME TO ${this.escapeIdentifier(to)}`
     );
-    if (rename) {
-      statements.push(
-        `ALTER TABLE ${this.qualify(op.to)} RENAME CONSTRAINT ${this.escapeIdentifier(rename.from)} TO ${this.escapeIdentifier(rename.to)}`
-      );
-    }
-    return this.filterStatements(statements);
-  }
-
-  override projectNativeRename(
-    snapshot: SchemaSnapshot,
-    operation: NativeRenameOperation
-  ): SchemaSnapshot {
-    const projected = super.projectNativeRename(snapshot, operation);
-    const rename =
-      operation.type === "renameTable"
-        ? this.defaultPrimaryKeyRename(operation, snapshot)
-        : undefined;
-    if (!rename) return projected;
-    return {
-      ...projected,
-      tables: projected.tables.map((table) =>
-        table.name === operation.to && table.primaryKey
-          ? { ...table, primaryKey: { ...table.primaryKey, name: rename.to } }
-          : table
-      ),
-    };
-  }
-
-  private defaultPrimaryKeyRename(
-    operation: RenameTableOperation,
-    snapshot: SchemaSnapshot | undefined
-  ): { from: string; to: string } | undefined {
-    const name = snapshot?.tables.find((table) => table.name === operation.from)
-      ?.primaryKey?.name;
-    return name === this.generatedPrimaryKeyName(operation.from)
-      ? { from: name, to: this.generatedPrimaryKeyName(operation.to) }
-      : undefined;
   }
 
   /** Generated keys have an explicit bounded name; catalog omissions stay unknown. */
   override generatedPrimaryKeyName(tableName: string, name?: string): string {
     return name || derivedMigrationName(`${tableName}_pkey`);
-  }
-
-  /** Native identity and PK effects needed by rename and enum DDL at this prefix. */
-  private schemaAtOperation(context: DDLContext): SchemaSnapshot | undefined {
-    let snapshot = context.currentSchema;
-    if (!snapshot) return undefined;
-    for (const operation of context.precedingOperations ?? []) {
-      if (
-        operation.type === "renameTable" ||
-        operation.type === "renameColumn"
-      ) {
-        snapshot = this.projectNativeRename(snapshot, operation);
-      } else if (operation.type === "createTable") {
-        const table = operation.table;
-        snapshot = {
-          ...snapshot,
-          tables: [
-            ...snapshot.tables,
-            table.primaryKey
-              ? {
-                  ...table,
-                  primaryKey: {
-                    ...table.primaryKey,
-                    name: this.generatedPrimaryKeyName(
-                      table.name,
-                      table.primaryKey.name
-                    ),
-                  },
-                }
-              : table,
-          ],
-        };
-      } else if (operation.type === "dropTable") {
-        snapshot = {
-          ...snapshot,
-          tables: snapshot.tables.filter(
-            (table) => table.name !== operation.tableName
-          ),
-        };
-      } else if (
-        operation.type === "addPrimaryKey" ||
-        operation.type === "dropPrimaryKey"
-      ) {
-        snapshot = {
-          ...snapshot,
-          tables: snapshot.tables.map((table) =>
-            table.name === operation.tableName
-              ? {
-                  ...table,
-                  primaryKey:
-                    operation.type === "addPrimaryKey"
-                      ? {
-                          ...operation.primaryKey,
-                          name: this.generatedPrimaryKeyName(
-                            operation.tableName,
-                            operation.primaryKey.name
-                          ),
-                        }
-                      : undefined,
-                }
-              : table
-          ),
-        };
-      }
-    }
-    return snapshot;
   }
 
   // ===========================================================================
@@ -1049,11 +1031,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `ALTER TABLE ${this.qualify(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
   }
 
-  generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
-    return this.compileAlterColumn(op, context).join(";\n");
-  }
-
-  override compileAlterColumn(
+  generateAlterColumn(
     op: AlterColumnOperation,
     context: DDLContext
   ): readonly string[] {
@@ -1160,14 +1138,20 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
   // ===========================================================================
   // DDL GENERATION - Index Operations
   // ===========================================================================
 
-  generateCreateIndex(op: CreateIndexOperation, _context: DDLContext): string {
+  // A low-lock build (T5b) runs CONCURRENTLY: writes keep flowing while it
+  // reads the table, and an interrupted one leaves the index INVALID for
+  // `resolve` to repair.
+  generateCreateIndex(
+    op: CreateIndexOperation,
+    context: LowLockContext
+  ): string {
     const { tableName, index } = op;
     const physicalType = index.type === "spatial" ? "gist" : index.type;
 
@@ -1181,7 +1165,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
     // PostgreSQL does not allow a schema on the index name in CREATE INDEX —
     // the index is created in the target table's schema, which is why the
     // TABLE carries the qualification and the index name is one identifier.
-    return `CREATE ${unique}INDEX ${this.escapeIdentifier(index.name)} ON ${this.qualify(tableName)} ${indexType}(${cols})${where}`;
+    const concurrently = context.lowLock === "add" ? " CONCURRENTLY" : "";
+    return `CREATE ${unique}INDEX${concurrently} ${this.escapeIdentifier(index.name)} ON ${this.qualify(tableName)} ${indexType}(${cols})${where}`;
   }
 
   // DROP INDEX names the index itself, which lives in a schema and takes one
@@ -1194,11 +1179,16 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Foreign Key Operations
   // ===========================================================================
 
+  // A low-lock key (T5b) is added NOT VALID, which checks new rows only and
+  // scans nothing, and validated by a later commit, whose scan blocks no write.
   generateAddForeignKey(
     op: AddForeignKeyOperation,
-    _context: DDLContext
+    context: LowLockContext
   ): string {
     const { tableName, fk } = op;
+    if (context.lowLock === "validate") {
+      return `ALTER TABLE ${this.qualify(tableName)} VALIDATE CONSTRAINT ${this.escapeIdentifier(fk.name)}`;
+    }
     const cols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
     const refCols = fk.referencedColumns
       .map((c) => this.escapeIdentifier(c))
@@ -1212,7 +1202,8 @@ export class PostgresMigrationDriver extends MigrationDriver {
     // Both TABLE positions are qualified — the owner and the reference target.
     // A bare `REFERENCES` target resolves through `search_path` and would let
     // one estate's constraint point at another schema's table.
-    return `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} FOREIGN KEY (${cols}) REFERENCES ${this.qualify(fk.referencedTable)} (${refCols})${onDelete}${onUpdate}`;
+    const notValid = context.lowLock === "add" ? " NOT VALID" : "";
+    return `ALTER TABLE ${this.qualify(tableName)} ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} FOREIGN KEY (${cols}) REFERENCES ${this.qualify(fk.referencedTable)} (${refCols})${onDelete}${onUpdate}${notValid}`;
   }
 
   generateDropForeignKey(
@@ -1286,19 +1277,28 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `DROP TYPE ${this.qualify(op.enumName)}`;
   }
 
-  override generateClearMigrations(tableName: string): string {
-    return `DELETE FROM ${this.qualify(tableName)}`;
-  }
-
   // ===========================================================================
   // MIGRATION LOCKING
   // ===========================================================================
 
+  /**
+   * The TRANSACTION lock a batch request takes after its limits (plans D1,
+   * D7): it ends with the transaction, so nothing outlives the request. One
+   * request cannot loop across requests, so it retries on the server until
+   * the command's `lockWait` (default 10 s) passes, holding its snapshot that
+   * long; the transaction's `statement_timeout` is longer by construction
+   * (`resolveMigrationLimits`), so the loop is never cut short. A session
+   * waits instead with one {@link generateLockFree} try per transaction,
+   * holding no snapshot between them (`pinned-session.ts`). Stepwise work
+   * adds the session lock on top ({@link generateSessionLock}), and releases
+   * that one with {@link generateReleaseLock}.
+   */
   generateAcquireLock(lockId: number): string | null {
+    const { lockWait } = this.limits ?? DEFAULT_MIGRATION_LIMITS;
     return `WITH RECURSIVE lock_attempt AS (
-      SELECT pg_try_advisory_lock(${lockId}) AS acquired, clock_timestamp() + interval '10 seconds' AS deadline
+      SELECT pg_try_advisory_xact_lock(${lockId}) AS acquired, clock_timestamp() + interval '${lockWait / 1000} seconds' AS deadline
       UNION ALL
-      SELECT pg_try_advisory_lock(${lockId}), previous.deadline
+      SELECT pg_try_advisory_xact_lock(${lockId}), previous.deadline
       FROM lock_attempt previous
       CROSS JOIN LATERAL (SELECT pg_sleep(CASE WHEN previous.acquired THEN 0 ELSE 0.05 END)) waiting
       WHERE NOT previous.acquired AND clock_timestamp() < previous.deadline
@@ -1309,7 +1309,19 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `SELECT pg_advisory_unlock(${lockId}) AS released`;
   }
 
-  /** One bounded provider-side retry loop; only boolean true proves ownership. */
+  override generateSessionLock(lockId: number): string {
+    return `SELECT pg_try_advisory_lock(${lockId}) AS acquired`;
+  }
+
+  /**
+   * Takes the transaction lock: outside a transaction, it releases with the
+   * statement that asks; inside one, it is that transaction's lock try.
+   */
+  override generateLockFree(lockId: number): string {
+    return `pg_try_advisory_xact_lock(${lockId})`;
+  }
+
+  /** A lock try, or the batch's loop: only boolean true proves ownership. */
   override provesLockAcquired(rows: readonly unknown[]): boolean {
     const row = rows[0];
     return (
@@ -1361,13 +1373,9 @@ export class PostgresMigrationDriver extends MigrationDriver {
     };
   }
 
-  // No CASCADE on either drop (§6.1). PostgreSQL's default RESTRICT is the
-  // containment boundary: a dependant this estate does not own aborts the
-  // operation instead of being deleted with it.
-  override generateDropTableSQL(tableName: string): string {
-    return `DROP TABLE IF EXISTS ${this.qualify(tableName)}`;
-  }
-
+  // No CASCADE here or on the inherited table drop (§6.1). PostgreSQL's
+  // default RESTRICT is the containment boundary: a dependant this estate does
+  // not own aborts the operation instead of being deleted with it.
   override generateDropEnumSQL(enumName: string): string | null {
     return `DROP TYPE IF EXISTS ${this.qualify(enumName)}`;
   }
@@ -1376,11 +1384,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Enum Operations
   // ===========================================================================
 
-  generateAlterEnum(op: AlterEnumOperation, _context: DDLContext): string {
-    return this.compileAlterEnum(op, _context).join(";\n");
-  }
-
-  override compileAlterEnum(
+  generateAlterEnum(
     op: AlterEnumOperation,
     context: DDLContext
   ): readonly string[] {
@@ -1424,7 +1428,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
         );
         available.add(value);
       }
-      return this.filterStatements(statements);
+      return statements;
     }
     if (!newValues?.length)
       throw new MigrationError(
@@ -1467,73 +1471,36 @@ export class PostgresMigrationDriver extends MigrationDriver {
           `ALTER TABLE ${reference} SET DEFAULT ${column.default}`
         );
     }
-    return this.filterStatements(statements);
+    return statements;
   }
 
   /**
-   * The data migration off removed enum values, with its table qualified.
-   *
-   * The shared base implementation names the table with one identifier, which
-   * is right for a dialect whose statements are namespace-relative. These
-   * UPDATEs run in the middle of an enum recreation on THIS estate's tables, so
-   * PostgreSQL owns the statement rather than inheriting a spelling that
-   * `search_path` resolves.
+   * An array column's members move in one UPDATE that keeps their order; a
+   * scalar column takes the shared per-value UPDATEs.
    */
-  protected override buildEnumReplacementUpdates(
+  protected override enumColumnReplacementUpdates(
     op: AlterEnumOperation,
-    context?: DDLContext
+    tableName: string,
+    columnName: string,
+    context: DDLContext
   ): string[] {
-    const { removeValues, dependentColumns } = op;
-    if (!(removeValues?.length && dependentColumns?.length)) {
-      return [];
+    const columnType = context.currentSchema?.tables
+      .find((table) => table.name === tableName)
+      ?.columns.find((column) => column.name === columnName)?.type;
+    if (!columnType?.endsWith("[]")) {
+      return super.enumColumnReplacementUpdates(
+        op,
+        tableName,
+        columnName,
+        context
+      );
     }
-
-    const statements: string[] = [];
-    for (const { tableName, columnName } of dependentColumns) {
-      const columnType = context?.currentSchema?.tables
-        .find((table) => table.name === tableName)
-        ?.columns.find((column) => column.name === columnName)?.type;
-      if (columnType?.endsWith("[]")) {
-        const cases = removeValues.flatMap((value) => {
-          const replacement = this.getEnumValueReplacement(
-            op,
-            tableName,
-            columnName,
-            value
-          );
-          return replacement === undefined
-            ? []
-            : [
-                `WHEN ${this.escapeValue(value)} THEN ${replacement === null ? "NULL" : this.escapeValue(replacement)}`,
-              ];
-        });
-        if (cases.length > 0) {
-          const column = this.escapeIdentifier(columnName);
-          statements.push(
-            `UPDATE ${this.qualify(tableName)} SET ${column} = ARRAY(SELECT CASE value ${cases.join(" ")} ELSE value END FROM unnest(${column}) WITH ORDINALITY AS member(value, position) ORDER BY position) WHERE ${column} IS NOT NULL`
-          );
-        }
-        continue;
-      }
-      for (const removedValue of removeValues) {
-        const replacement = this.getEnumValueReplacement(
-          op,
-          tableName,
-          columnName,
-          removedValue
-        );
-        if (replacement === undefined) {
-          continue;
-        }
-        const newValue =
-          replacement === null ? "NULL" : this.escapeValue(replacement);
-        const column = this.escapeIdentifier(columnName);
-        statements.push(
-          `UPDATE ${this.qualify(tableName)} SET ${column} = ${newValue} WHERE ${column} = ${this.escapeValue(removedValue)}`
-        );
-      }
-    }
-    return statements;
+    const cases = this.enumReplacementCases(op, tableName, columnName);
+    if (cases.length === 0) return [];
+    const column = this.escapeIdentifier(columnName);
+    return [
+      `UPDATE ${this.qualify(tableName)} SET ${column} = ARRAY(SELECT CASE value ${cases.join(" ")} ELSE value END FROM unnest(${column}) WITH ORDINALITY AS member(value, position) ORDER BY position) WHERE ${column} IS NOT NULL`,
+    ];
   }
 }
 

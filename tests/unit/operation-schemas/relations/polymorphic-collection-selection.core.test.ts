@@ -40,7 +40,9 @@ hydrateSchemaNames(schema);
 const registry = createSchemaRegistry(schema);
 const core = () => registry.proxy.gallery.core;
 
-const parseSelect = (value: unknown) => parse(core().select, { items: value });
+// `id` keeps the selection non-empty, so `items: false` is read on its own.
+const parseSelect = (value: unknown) =>
+  parse(core().select, { id: true, items: value });
 
 /** The validated `items` value, or the failure's message if it did not parse. */
 const selected = (value: unknown): unknown => {
@@ -82,14 +84,11 @@ describe("collection selection envelope", () => {
   });
 
   // The envelope sits inside `v.union([v.boolean(), …])`, and a union reports
-  // the members' messages joined and drops their paths — the same flattening an
-  // ordinary to-many relation node already has. So these pins measure that the
-  // REASON is named and reaches the caller, which is what `only`'s exactness is
-  // worth; the outer key is still located by the strict object above it.
+  // through the member that read deepest — the envelope, at `only`.
   test("duplicate only values are refused, naming the duplicate", () => {
     const issues = parseSelect({ only: ["post", "post"] }).issues;
     expect(issues?.[0]?.message).toContain("Duplicate value in 'only': 'post'");
-    expect(issues?.[0]?.path).toEqual(["items"]);
+    expect(issues?.[0]?.path).toEqual(["items", "only"]);
   });
 
   test("an unknown only value is refused", () => {

@@ -9,7 +9,6 @@ import {
   formatAmbiguousChangeDescription,
   formatDestructiveOperation,
   formatOperation,
-  formatOperations,
 } from "@src/migrations/push/format";
 import type {
   AmbiguousChange,
@@ -167,16 +166,6 @@ describe("migration operation formatting", () => {
     expect(formatOperation(operation)).toBe(text);
   });
 
-  test("formats operation collections and the empty plan", () => {
-    expect(formatOperations([])).toBe("No changes detected.");
-    expect(
-      formatOperations([
-        { type: "dropTable", tableName: "user" },
-        { type: "dropEnum", enumName: "role" },
-      ])
-    ).toBe('- Drop table "user"\n- Drop enum "role"');
-  });
-
   test.each<{ operation: DiffOperation; text: string }>([
     {
       operation: { type: "dropTable", tableName: "user" },
@@ -195,6 +184,14 @@ describe("migration operation formatting", () => {
         to: { ...idColumn, nullable: true },
       },
       text: '[destructive] Alter column "id" in "user"',
+    },
+    {
+      operation: {
+        type: "addColumn",
+        tableName: "user",
+        column: { name: "tier", type: "text", nullable: false },
+      },
+      text: '[destructive] Add required column "user.tier" without a backfill default',
     },
     {
       operation: { type: "dropEnum", enumName: "role" },

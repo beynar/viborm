@@ -4,6 +4,7 @@
 
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { confirm, isCancel } from "@clack/prompts";
 import { Command, InvalidArgumentError } from "commander";
 import {
   createMigrationClient,
@@ -15,16 +16,12 @@ import { renderMigrationReview } from "../../migrations/public-view";
 import { formatOperation } from "../../migrations/push/format";
 import type { MigrationStorageWriter } from "../../migrations/storage/contract";
 import { createFsStorageWriter } from "../../migrations/storage/fs-estate";
+import type { ResolveCallback } from "../../migrations/types";
 import type {
   ManualMigrationInput,
   StateSelector,
 } from "../../migrations/v1-types";
-import {
-  finishCli,
-  type LoadedConfig,
-  loadCliModule,
-  loadConfig,
-} from "../utils";
+import { type LoadedConfig, loadCliModule, printJson, runCli } from "../utils";
 
 const STATE_ID_PREFIX = /^[0-9a-f]{8,63}$/;
 
@@ -43,62 +40,64 @@ function selector(value: string | undefined): StateSelector | undefined {
   return { name: value };
 }
 
-function printJson(value: unknown, json: boolean): void {
-  if (json) {
-    process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
-    return;
-  }
-  const lines: string[] = [];
-  const render = (item: unknown, indent = "") => {
-    if (Array.isArray(item)) {
-      for (const entry of item) {
-        lines.push(`${indent}-`);
-        render(entry, `${indent}  `);
-      }
-      if (item.length === 0) lines.push(`${indent}(none)`);
-    } else if (item !== null && typeof item === "object") {
-      for (const [key, entry] of Object.entries(item)) {
-        if (entry !== null && typeof entry === "object") {
-          lines.push(`${indent}${key}:`);
-          render(entry, `${indent}  `);
-        } else lines.push(`${indent}${key}: ${String(entry)}`);
-      }
-    } else lines.push(`${indent}${String(item)}`);
-  };
-  render(value);
-  process.stdout.write(`${lines.join("\n")}\n`);
+/** `--accept-data-loss`: every destructive change approved, nothing else decided. */
+const approveDestructive: ResolveCallback = (change) =>
+  change.type === "destructive" ? change.proceed() : undefined;
+
+/** One prompt per destructive change, as `viborm push` asks for its plan. */
+const confirmDestructive: ResolveCallback = async (change) => {
+  if (change.type !== "destructive") return;
+  const approved = await confirm({
+    message: `${change.description} — approve?`,
+    initialValue: false,
+  });
+  return !isCancel(approved) && approved ? change.proceed() : change.reject();
+};
+
+/**
+ * The resolver `migrate generate` publishes under, and `migrate down` rolls
+ * back under: the config's own, else
+ * `--accept-data-loss`, else a prompt on an interactive terminal. With none,
+ * generate refuses a destructive change with `V11017`.
+ */
+function generateResolver(
+  config: LoadedConfig,
+  opts: { acceptDataLoss?: boolean; dryRun?: boolean; json?: boolean }
+): ResolveCallback | undefined {
+  if (config.migrations?.resolve) return config.migrations.resolve;
+  if (opts.acceptDataLoss) return approveDestructive;
+  if (opts.dryRun || opts.json || !process.stdin.isTTY) return;
+  return confirmDestructive;
 }
 
+/** Each subcommand reads the parent's `--config` and its own `--dir`. */
 async function withMigrations(
-  options: { dir?: string; config?: string; json?: boolean },
+  migrate: Command,
+  options: { dir?: string; json?: boolean },
   run: (
     migrations: WritableMigrations,
     config: LoadedConfig,
     storage: MigrationStorageWriter
   ) => Promise<void>
 ): Promise<void> {
-  let client: { $disconnect(): Promise<void> } | undefined;
-  let failure: { value: unknown } | undefined;
-  try {
-    const config = await loadConfig({ config: options.config });
-    client = config.client;
-    const directory = resolve(
-      options.dir ?? config.migrations?.dir ?? "./migrations"
-    );
-    const storage =
-      config.migrations?.storage ?? createFsStorageWriter(directory);
-    const migrations = createMigrationClient(config.client, {
-      storage,
-      ...(config.migrations?.tables === undefined
-        ? {}
-        : { tables: config.migrations.tables }),
-    });
-    await run(migrations, config, storage);
-  } catch (error) {
-    failure = { value: error };
-  } finally {
-    await finishCli(client, failure, options.json);
-  }
+  await runCli(
+    { config: migrate.opts<{ config?: string }>().config },
+    options.json,
+    async (config) => {
+      const directory = resolve(
+        options.dir ?? config.migrations?.dir ?? "./migrations"
+      );
+      const storage =
+        config.migrations?.storage ?? createFsStorageWriter(directory);
+      const migrations = createMigrationClient(config.client, {
+        storage,
+        ...(config.migrations?.tables === undefined
+          ? {}
+          : { tables: config.migrations.tables }),
+      });
+      await run(migrations, config, storage);
+    }
+  );
 }
 
 export function createMigrateCommand(): Command {
@@ -121,6 +120,14 @@ export function createMigrateCommand(): Command {
       "Write labelled forward/check/rollback review SQL"
     )
     .option("--dry-run", "Preview without publishing")
+    .option(
+      "--low-lock",
+      "PostgreSQL: publish index builds and foreign keys on existing tables as recoverable steps"
+    )
+    .option(
+      "--accept-data-loss",
+      "Approve destructive changes (drops, type changes) for this generate"
+    )
     .option("--json", "Print machine-readable output")
     .action(
       async (opts: {
@@ -128,79 +135,77 @@ export function createMigrateCommand(): Command {
         dir?: string;
         from?: string;
         dryRun?: boolean;
+        lowLock?: boolean;
+        acceptDataLoss?: boolean;
         custom?: string;
         review?: string;
         json?: boolean;
       }) => {
-        await withMigrations(
-          { ...opts, config: migrate.opts<{ config?: string }>().config },
-          async (migrations, config) => {
-            const from =
-              opts.from === undefined
-                ? undefined
-                : opts.from === "" || opts.from === "empty"
-                  ? null
-                  : isSha256(opts.from)
-                    ? opts.from
-                    : (await migrations.show(selector(opts.from)!)).stateId;
-            let manualMigration: ManualMigrationInput | undefined;
-            if (opts.custom) {
-              type Author =
-                | ManualMigrationInput
-                | ((
-                    parents: readonly (string | null)[]
-                  ) => ManualMigrationInput | Promise<ManualMigrationInput>);
-              const module = await loadCliModule<{
-                default?: Author;
-                migration?: Author;
-              }>(resolve(opts.custom));
-              const author =
-                (Object.hasOwn(module, "default")
-                  ? module.default
-                  : undefined) ?? module.migration;
-              if (!author)
-                throw new Error(
-                  "A custom migration module must export a default migration or author function"
-                );
-              const graph = await migrations.graph();
-              const parents = Object.freeze(
-                from === undefined
-                  ? graph.leaves.length === 0
-                    ? [null]
-                    : [...graph.leaves]
-                  : [from]
+        await withMigrations(migrate, opts, async (migrations, config) => {
+          const from =
+            opts.from === undefined
+              ? undefined
+              : opts.from === "" || opts.from === "empty"
+                ? null
+                : isSha256(opts.from)
+                  ? opts.from
+                  : (await migrations.show(selector(opts.from)!)).stateId;
+          let manualMigration: ManualMigrationInput | undefined;
+          if (opts.custom) {
+            type Author =
+              | ManualMigrationInput
+              | ((
+                  parents: readonly (string | null)[]
+                ) => ManualMigrationInput | Promise<ManualMigrationInput>);
+            const module = await loadCliModule<{
+              default?: Author;
+              migration?: Author;
+            }>(resolve(opts.custom));
+            const author =
+              (Object.hasOwn(module, "default") ? module.default : undefined) ??
+              module.migration;
+            if (!author)
+              throw new Error(
+                "A custom migration module must export a default migration or author function"
               );
-              manualMigration =
-                typeof author === "function" ? await author(parents) : author;
-            }
-            const result = await migrations.generate({
-              name: opts.name,
-              from,
-              dryRun: opts.dryRun,
-              ...(config.migrations?.resolve
-                ? { resolve: config.migrations.resolve }
-                : {}),
-              ...(manualMigration ? { manualMigration } : {}),
-            });
-            if (opts.json) printJson(result, true);
-            else {
-              process.stdout.write(
-                `${result.outcome}: ${result.name ?? "No schema changes"}${result.stateId ? ` (${result.stateId})` : ""}\n`
-              );
-              for (const parent of result.operationsByParent ?? []) {
-                process.stdout.write(
-                  `Parent ${parent.fromState ?? "empty"}:\n${parent.operations.map(formatOperation).join("\n")}\n`
-                );
-              }
-              for (const warning of result.warnings ?? [])
-                process.stderr.write(`warning: ${warning}\n`);
-              if (result.reviewSql || result.sql)
-                process.stdout.write(`${result.reviewSql || result.sql}\n`);
-            }
-            if (opts.review && result.reviewSql)
-              await writeFile(resolve(opts.review), result.reviewSql, "utf8");
+            const graph = await migrations.graph();
+            const parents = Object.freeze(
+              from === undefined
+                ? graph.leaves.length === 0
+                  ? [null]
+                  : [...graph.leaves]
+                : [from]
+            );
+            manualMigration =
+              typeof author === "function" ? await author(parents) : author;
           }
-        );
+          const approve = generateResolver(config, opts);
+          const result = await migrations.generate({
+            name: opts.name,
+            from,
+            dryRun: opts.dryRun,
+            ...(opts.lowLock ? { lowLock: true } : {}),
+            ...(approve ? { resolve: approve } : {}),
+            ...(manualMigration ? { manualMigration } : {}),
+          });
+          if (opts.json) printJson(result, true);
+          else {
+            process.stdout.write(
+              `${result.outcome}: ${result.name ?? "No schema changes"}${result.stateId ? ` (${result.stateId})` : ""}\n`
+            );
+            for (const parent of result.operationsByParent ?? []) {
+              process.stdout.write(
+                `Parent ${parent.fromState ?? "empty"}:\n${parent.operations.map(formatOperation).join("\n")}\n`
+              );
+            }
+            for (const warning of result.warnings ?? [])
+              process.stderr.write(`warning: ${warning}\n`);
+            if (result.reviewSql || result.sql)
+              process.stdout.write(`${result.reviewSql || result.sql}\n`);
+          }
+          if (opts.review && result.reviewSql)
+            await writeFile(resolve(opts.review), result.reviewSql, "utf8");
+        });
       }
     );
 
@@ -210,14 +215,11 @@ export function createMigrateCommand(): Command {
     .option("-d, --dir <dir>", "Estate directory")
     .option("--json", "Print machine-readable output")
     .action(async (opts: { dir?: string; json?: boolean }) => {
-      await withMigrations(
-        { ...opts, config: migrate.opts<{ config?: string }>().config },
-        async (migrations) => {
-          const result = await migrations.check();
-          printJson(result, Boolean(opts.json));
-          if (!result.ok) process.exitCode = 1;
-        }
-      );
+      await withMigrations(migrate, opts, async (migrations) => {
+        const result = await migrations.check();
+        printJson(result, Boolean(opts.json));
+        if (!result.ok) process.exitCode = 1;
+      });
     });
 
   migrate
@@ -226,12 +228,9 @@ export function createMigrateCommand(): Command {
     .option("-d, --dir <dir>", "Estate directory")
     .option("--json", "Print machine-readable output")
     .action(async (opts: { dir?: string; json?: boolean }) => {
-      await withMigrations(
-        { ...opts, config: migrate.opts<{ config?: string }>().config },
-        async (migrations) => {
-          printJson(await migrations.list(), Boolean(opts.json));
-        }
-      );
+      await withMigrations(migrate, opts, async (migrations) => {
+        printJson(await migrations.list(), Boolean(opts.json));
+      });
     });
 
   migrate
@@ -248,7 +247,8 @@ export function createMigrateCommand(): Command {
         opts: { dir?: string; sql?: boolean; review?: string; json?: boolean }
       ) => {
         await withMigrations(
-          { ...opts, config: migrate.opts<{ config?: string }>().config },
+          migrate,
+          opts,
           async (migrations, _config, storage) => {
             const details = await migrations.show(selector(state)!);
             if (!(opts.sql || opts.review)) {
@@ -283,12 +283,9 @@ export function createMigrateCommand(): Command {
     .option("-d, --dir <dir>", "Estate directory")
     .option("--json", "Print machine-readable output")
     .action(async (opts: { dir?: string; json?: boolean }) => {
-      await withMigrations(
-        { ...opts, config: migrate.opts<{ config?: string }>().config },
-        async (migrations) => {
-          printJson(await migrations.graph(), Boolean(opts.json));
-        }
-      );
+      await withMigrations(migrate, opts, async (migrations) => {
+        printJson(await migrations.graph(), Boolean(opts.json));
+      });
     });
 
   migrate
@@ -297,12 +294,9 @@ export function createMigrateCommand(): Command {
     .option("-d, --dir <dir>", "Estate directory")
     .option("--json", "Print machine-readable output")
     .action(async (opts: { dir?: string; json?: boolean }) => {
-      await withMigrations(
-        { ...opts, config: migrate.opts<{ config?: string }>().config },
-        async (migrations) => {
-          printJson(await migrations.status(), Boolean(opts.json));
-        }
-      );
+      await withMigrations(migrate, opts, async (migrations) => {
+        printJson(await migrations.status(), Boolean(opts.json));
+      });
     });
 
   migrate
@@ -311,14 +305,11 @@ export function createMigrateCommand(): Command {
     .option("-d, --dir <dir>", "Estate directory")
     .option("--json", "Print machine-readable output")
     .action(async (opts: { dir?: string; json?: boolean }) => {
-      await withMigrations(
-        { ...opts, config: migrate.opts<{ config?: string }>().config },
-        async (migrations) => {
-          const result = await migrations.verify();
-          printJson(result, Boolean(opts.json));
-          if (!result.ok) process.exitCode = 1;
-        }
-      );
+      await withMigrations(migrate, opts, async (migrations) => {
+        const result = await migrations.verify();
+        printJson(result, Boolean(opts.json));
+        if (!result.ok) process.exitCode = 1;
+      });
     });
 
   migrate
@@ -328,16 +319,13 @@ export function createMigrateCommand(): Command {
     .option("--limit <n>", "Maximum events", positiveInteger)
     .option("--json", "Print machine-readable output")
     .action(async (opts: { dir?: string; limit?: number; json?: boolean }) => {
-      await withMigrations(
-        { ...opts, config: migrate.opts<{ config?: string }>().config },
-        async (migrations) => {
-          const events = await migrations.log();
-          printJson(
-            opts.limit ? events.slice(-opts.limit) : events,
-            Boolean(opts.json)
-          );
-        }
-      );
+      await withMigrations(migrate, opts, async (migrations) => {
+        const events = await migrations.log();
+        printJson(
+          opts.limit ? events.slice(-opts.limit) : events,
+          Boolean(opts.json)
+        );
+      });
     });
 
   migrate
@@ -356,19 +344,16 @@ export function createMigrateCommand(): Command {
         dryRun?: boolean;
         json?: boolean;
       }) => {
-        await withMigrations(
-          { ...opts, config: migrate.opts<{ config?: string }>().config },
-          async (migrations) => {
-            printJson(
-              await migrations.apply({
-                to: selector(opts.to),
-                via: opts.via,
-                dryRun: opts.dryRun,
-              }),
-              Boolean(opts.json)
-            );
-          }
-        );
+        await withMigrations(migrate, opts, async (migrations) => {
+          printJson(
+            await migrations.apply({
+              to: selector(opts.to),
+              via: opts.via,
+              dryRun: opts.dryRun,
+            }),
+            Boolean(opts.json)
+          );
+        });
       }
     );
 
@@ -378,6 +363,15 @@ export function createMigrateCommand(): Command {
     .option("-d, --dir <dir>", "Estate directory")
     .option("--to <selector>", "Roll back to this state")
     .option("--steps <n>", "Number of states to roll back", positiveInteger)
+    .option(
+      "--accept-data-loss",
+      "Approve destructive changes the rollback makes to populated tables"
+    )
+    .option(
+      "--expect-revision <n>",
+      "Refuse unless the marker is at this revision",
+      positiveInteger
+    )
     .option("--dry-run", "Plan without executing")
     .option("--json", "Print machine-readable output")
     .action(
@@ -385,24 +379,40 @@ export function createMigrateCommand(): Command {
         dir?: string;
         to?: string;
         steps?: number;
+        acceptDataLoss?: boolean;
+        expectRevision?: number;
         dryRun?: boolean;
         json?: boolean;
       }) => {
-        await withMigrations(
-          { ...opts, config: migrate.opts<{ config?: string }>().config },
-          async (migrations) => {
-            if (opts.to !== undefined && opts.steps !== undefined)
-              throw new Error("down accepts --to or --steps, not both");
-            printJson(
-              await migrations.down(
-                opts.to
-                  ? { to: selector(opts.to)!, dryRun: opts.dryRun }
-                  : { steps: opts.steps, dryRun: opts.dryRun }
-              ),
-              Boolean(opts.json)
-            );
+        await withMigrations(migrate, opts, async (migrations, config) => {
+          if (opts.to !== undefined && opts.steps !== undefined)
+            throw new Error("down accepts --to or --steps, not both");
+          const approve = generateResolver(config, opts);
+          const common = {
+            dryRun: opts.dryRun,
+            ...(approve ? { resolve: approve } : {}),
+            ...(opts.expectRevision === undefined
+              ? {}
+              : { expectRevision: opts.expectRevision }),
+          };
+          const result = await migrations.down(
+            opts.to
+              ? { to: selector(opts.to)!, ...common }
+              : { steps: opts.steps, ...common }
+          );
+          if (!result.preview || opts.json) {
+            printJson(result, Boolean(opts.json));
+          } else {
+            for (const edge of result.edges) process.stdout.write(edge.sql);
+            if (result.refusal) {
+              process.stderr.write(
+                `down would refuse: ${result.refusal.code}: ${result.refusal.message}\n`
+              );
+            }
           }
-        );
+          // The preview fails where `down` would fail.
+          if (result.preview && result.refusal) process.exitCode = 1;
+        });
       }
     );
 
@@ -420,18 +430,43 @@ export function createMigrateCommand(): Command {
         dir?: string;
         json?: boolean;
       }) => {
-        await withMigrations(
-          { ...opts, config: migrate.opts<{ config?: string }>().config },
-          async (migrations) => {
-            printJson(
-              await migrations.baseline({
-                to: selector(opts.to)!,
-                via: opts.via,
-              }),
-              Boolean(opts.json)
-            );
-          }
-        );
+        await withMigrations(migrate, opts, async (migrations) => {
+          printJson(
+            await migrations.baseline({
+              to: selector(opts.to)!,
+              via: opts.via,
+            }),
+            Boolean(opts.json)
+          );
+        });
+      }
+    );
+
+  migrate
+    .command("reanchor")
+    .description(
+      "After a restore left the history older than the database, move the marker to the state the live schema matches"
+    )
+    .option("--to <selector>", "Adopt this state as the new baseline")
+    .option("--via <stateId...>", "Force the recorded root path")
+    .option("-d, --dir <dir>", "Estate directory")
+    .option("--json", "Print machine-readable output")
+    .action(
+      async (opts: {
+        to?: string;
+        via?: string[];
+        dir?: string;
+        json?: boolean;
+      }) => {
+        await withMigrations(migrate, opts, async (migrations) => {
+          printJson(
+            await migrations.reanchor({
+              to: selector(opts.to),
+              via: opts.via,
+            }),
+            Boolean(opts.json)
+          );
+        });
       }
     );
 
@@ -451,27 +486,21 @@ export function createMigrateCommand(): Command {
         retry?: boolean;
         json?: boolean;
       }) => {
-        await withMigrations(
-          { ...opts, config: migrate.opts<{ config?: string }>().config },
-          async (migrations) => {
-            if (
-              [opts.complete, opts.rolledBack, opts.retry].filter(Boolean)
-                .length !== 1
-            )
-              throw new Error(
-                "resolve requires exactly one of --complete, --rolled-back, or --retry"
-              );
-            const outcome = opts.complete
-              ? "complete"
-              : opts.rolledBack
-                ? "rolled-back"
-                : "retry";
-            printJson(
-              await migrations.resolve({ outcome }),
-              Boolean(opts.json)
+        await withMigrations(migrate, opts, async (migrations) => {
+          if (
+            [opts.complete, opts.rolledBack, opts.retry].filter(Boolean)
+              .length !== 1
+          )
+            throw new Error(
+              "resolve requires exactly one of --complete, --rolled-back, or --retry"
             );
-          }
-        );
+          const outcome = opts.complete
+            ? "complete"
+            : opts.rolledBack
+              ? "rolled-back"
+              : "retry";
+          printJson(await migrations.resolve({ outcome }), Boolean(opts.json));
+        });
       }
     );
 
@@ -495,23 +524,20 @@ export function createMigrateCommand(): Command {
         dryRun?: boolean;
         json?: boolean;
       }) => {
-        await withMigrations(
-          { ...opts, config: migrate.opts<{ config?: string }>().config },
-          async (migrations) => {
-            if (!(opts.dryRun || opts.confirm))
-              throw new Error(
-                "Reset requires --confirm; inspect --dry-run first"
-              );
-            printJson(
-              await migrations.reset({
-                to: selector(opts.to),
-                via: opts.via,
-                dryRun: opts.dryRun,
-              }),
-              Boolean(opts.json)
+        await withMigrations(migrate, opts, async (migrations) => {
+          if (!(opts.dryRun || opts.confirm))
+            throw new Error(
+              "Reset requires --confirm; inspect --dry-run first"
             );
-          }
-        );
+          printJson(
+            await migrations.reset({
+              to: selector(opts.to),
+              via: opts.via,
+              dryRun: opts.dryRun,
+            }),
+            Boolean(opts.json)
+          );
+        });
       }
     );
 

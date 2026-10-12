@@ -115,6 +115,12 @@ describe("SQL blob admission reads the first bytes before anything else", () => 
 describe("the SQLite foreign-key bracket runs each pragma exactly once", () => {
   test("a pragma that already carries its terminator is not terminated twice", async () => {
     const driver = sqliteEstateDriver();
+    let enforced = 1;
+    driver.respond = (sql) => {
+      if (sql === "PRAGMA foreign_keys = OFF;") enforced = 0;
+      if (sql === "PRAGMA foreign_keys = ON;") enforced = 1;
+      return sql === "PRAGMA foreign_keys;" ? [{ foreign_keys: enforced }] : [];
+    };
     const lifted = liftForeignKeyPragmas(driver, [
       "PRAGMA foreign_keys = OFF;",
       'DROP TABLE "account"',
@@ -130,7 +136,9 @@ describe("the SQLite foreign-key bracket runs each pragma exactly once", () => {
     expect(driver.statements).toEqual([
       "<connect>",
       "PRAGMA foreign_keys = OFF;",
+      "PRAGMA foreign_keys;",
       "PRAGMA foreign_keys = ON;",
+      "PRAGMA foreign_keys;",
     ]);
   });
 
@@ -139,12 +147,7 @@ describe("the SQLite foreign-key bracket runs each pragma exactly once", () => {
     driver.respond = (sql) =>
       sql.startsWith("PRAGMA foreign_key_check") ? [{ table: "child" }] : [];
 
-    await expect(
-      assertForeignKeysIntact(driver, {
-        disable: "PRAGMA foreign_keys=OFF",
-        enable: "PRAGMA foreign_keys=ON",
-      })
-    ).rejects.toMatchObject({
+    await expect(assertForeignKeysIntact(driver)).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_FAILED,
       message: expect.stringContaining("child -> ?"),
     });

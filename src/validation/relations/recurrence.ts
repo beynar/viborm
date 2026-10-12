@@ -15,7 +15,17 @@ import { isRecord } from "../value-guards";
 export interface NormalizedRecurrence {
   readonly depth: number | false;
   readonly cycles: "reject" | "prevent" | "allow";
+  /** A projection's own output budget, when its caller set one. */
+  readonly maxOccurrences?: number;
 }
+
+/**
+ * How many occurrences one recursive projection decodes under one outer row
+ * unless its `recurse.maxOccurrences` says otherwise. An occurrence is one
+ * output row: a node reached by several paths is counted once per path, which
+ * is why a graph can outgrow it with few stored rows.
+ */
+export const DEFAULT_MAX_OCCURRENCES = 10_000;
 
 /**
  * Whether an occurrence at `level` carries the repeated key — the outer slot's
@@ -35,17 +45,32 @@ export function carriesRepeatedKey(
  * cycle it reaches. `preventCycles` is therefore refused by the bag's own type,
  * so no downstream guard has to know which topology a nested bag belongs to.
  */
-export type ForeignKeyRecurse =
+type ForeignKeyFilterRecurse =
   | true
   | {
       readonly depth?: number | false;
       readonly preventCycles?: undefined;
     };
 
-export type GraphRecurse =
+type GraphFilterRecurse =
   | true
   | { readonly depth?: number; readonly preventCycles?: boolean }
   | { readonly depth: false; readonly preventCycles?: true };
+
+/**
+ * A projection's bag adds the output budget. A `where` filter reads the
+ * closure as a set and decodes no occurrence, so it has nothing to bound and
+ * refuses the key by its own type.
+ */
+type OutputBudget = { readonly maxOccurrences?: number };
+
+export type ForeignKeyRecurse =
+  | true
+  | (Exclude<ForeignKeyFilterRecurse, true> & OutputBudget);
+
+export type GraphRecurse =
+  | true
+  | (Exclude<GraphFilterRecurse, true> & OutputBudget);
 
 export type ForeignKeyRecurrenceSchema = V.Schema<
   ForeignKeyRecurse,
@@ -60,6 +85,16 @@ export type GraphRecurrenceSchema = V.Schema<
 export type RecurrenceSchema =
   | ForeignKeyRecurrenceSchema
   | GraphRecurrenceSchema;
+
+type ForeignKeyFilterRecurrenceSchema = V.Schema<
+  ForeignKeyFilterRecurse,
+  NormalizedRecurrence
+>;
+
+type GraphFilterRecurrenceSchema = V.Schema<
+  GraphFilterRecurse,
+  NormalizedRecurrence
+>;
 
 /** `true`, `{}` and an omitted or undefined nested `depth` mean this depth. */
 const DEFAULT_DEPTH = 100;
@@ -89,51 +124,121 @@ const foreignKeyOptions = v.object({
   ),
 });
 
-const graphOptions = v.union([
-  v.object({
-    depth: v.optional(depth),
-    preventCycles: v.optional(v.boolean()),
-  }),
-  v.object(
-    {
-      depth: v.literal(false),
-      preventCycles: v.optional(v.literal(true)),
-    },
-    { atLeast: ["depth"] }
+const boundedGraphOptions = v.object({
+  depth: v.optional(depth),
+  preventCycles: v.optional(v.boolean()),
+});
+
+const exhaustiveGraphOptions = v.object(
+  {
+    depth: v.literal(false),
+    preventCycles: v.optional(v.literal(true)),
+  },
+  { atLeast: ["depth"] }
+);
+
+/**
+ * What a projection's bag adds to its filter twin: its own output budget
+ * ({@link DEFAULT_MAX_OCCURRENCES}).
+ */
+const OUTPUT_BUDGET = {
+  maxOccurrences: v.optional(
+    createSchema<number, number>("integer", (value) =>
+      typeof value === "number" && Number.isSafeInteger(value) && value >= 1
+        ? ok(value)
+        : fail("recurse.maxOccurrences must be a positive safe integer")
+    )
   ),
-]);
+};
+
+/** A spelled budget travels with the bag; an unspelled one stays absent. */
+const withBudget = (
+  recurrence: Omit<NormalizedRecurrence, "maxOccurrences">,
+  budget: number | undefined
+): NormalizedRecurrence =>
+  budget === undefined ? recurrence : { ...recurrence, maxOccurrences: budget };
 
 /** The one normalization of a foreign-key bag: it rejects every cycle. */
 const normalizeForeignKey = (options: {
   readonly depth?: number | false;
-}): NormalizedRecurrence => ({
-  depth: options.depth ?? DEFAULT_DEPTH,
-  cycles: "reject",
-});
+  readonly maxOccurrences?: number;
+}): NormalizedRecurrence =>
+  withBudget(
+    { depth: options.depth ?? DEFAULT_DEPTH, cycles: "reject" },
+    options.maxOccurrences
+  );
 
 /** The one normalization of a graph bag: prevention unless declined. */
 const normalizeGraph = (options: {
   readonly depth?: number | false;
   readonly preventCycles?: boolean;
-}): NormalizedRecurrence => ({
-  depth: options.depth ?? DEFAULT_DEPTH,
-  cycles: options.preventCycles === false ? "allow" : "prevent",
-});
+  readonly maxOccurrences?: number;
+}): NormalizedRecurrence =>
+  withBudget(
+    {
+      depth: options.depth ?? DEFAULT_DEPTH,
+      cycles: options.preventCycles === false ? "allow" : "prevent",
+    },
+    options.maxOccurrences
+  );
 
 // `true` is the empty bag of its topology, by construction.
-const foreignKeyRecurrence: ForeignKeyRecurrenceSchema = v.union([
-  v.coerce(v.literal(true), () => normalizeForeignKey({})),
-  v.coerce(foreignKeyOptions, normalizeForeignKey),
-]);
+const TRUE_FOREIGN_KEY = v.coerce(v.literal(true), () =>
+  normalizeForeignKey({})
+);
+const TRUE_GRAPH = v.coerce(v.literal(true), () => normalizeGraph({}));
 
-const graphRecurrence: GraphRecurrenceSchema = v.union([
-  v.coerce(v.literal(true), () => normalizeGraph({})),
-  v.coerce(graphOptions, normalizeGraph),
-]);
+/**
+ * The two placements of one recurrence language. A `select`/`include` node
+ * bounds what it decodes; a `where` filter reads the closure as a set, decodes
+ * no occurrence, and so takes no budget.
+ */
+interface RecurrenceLanguages {
+  readonly projection: {
+    readonly foreignKey: ForeignKeyRecurrenceSchema;
+    readonly junction: GraphRecurrenceSchema;
+  };
+  readonly filter: {
+    readonly foreignKey: ForeignKeyFilterRecurrenceSchema;
+    readonly junction: GraphFilterRecurrenceSchema;
+  };
+}
+
+const LANGUAGES: RecurrenceLanguages = {
+  projection: {
+    foreignKey: v.union([
+      TRUE_FOREIGN_KEY,
+      v.coerce(foreignKeyOptions.extend(OUTPUT_BUDGET), normalizeForeignKey),
+    ]),
+    junction: v.union([
+      TRUE_GRAPH,
+      v.coerce(
+        v.union([
+          boundedGraphOptions.extend(OUTPUT_BUDGET),
+          exhaustiveGraphOptions.extend(OUTPUT_BUDGET),
+        ]),
+        normalizeGraph
+      ),
+    ]),
+  },
+  filter: {
+    foreignKey: v.union([
+      TRUE_FOREIGN_KEY,
+      v.coerce(foreignKeyOptions, normalizeForeignKey),
+    ]),
+    junction: v.union([
+      TRUE_GRAPH,
+      v.coerce(
+        v.union([boundedGraphOptions, exhaustiveGraphOptions]),
+        normalizeGraph
+      ),
+    ]),
+  },
+};
 
 /**
  * The runtime eligibility reader: the recurrence language a resolved slot
- * admits, or `undefined` when the slot cannot recurse.
+ * admits in its placement, or `undefined` when the slot cannot recurse.
  *
  * It reads three facts, each from its owner. The model's complete primary row
  * key comes from the key catalog. The edge kind comes from the resolved slot:
@@ -151,13 +256,21 @@ const graphRecurrence: GraphRecurrenceSchema = v.union([
  */
 export function recurrenceSchema(
   resolved: ResolvedSlot
-): RecurrenceSchema | undefined {
+): RecurrenceSchema | undefined;
+export function recurrenceSchema(
+  resolved: ResolvedSlot,
+  placement: "filter"
+): ForeignKeyFilterRecurrenceSchema | GraphFilterRecurrenceSchema | undefined;
+export function recurrenceSchema(
+  resolved: ResolvedSlot,
+  placement: keyof RecurrenceLanguages = "projection"
+) {
   const { edge, slot } = resolved;
   if (edge.kind !== "foreignKey" && edge.kind !== "junction") return undefined;
   const [first, second] = edge.endpoints;
   if (first.source !== second.source) return undefined;
   if (!getModelKeyCatalog(slot.source).rowKey) return undefined;
-  return edge.kind === "junction" ? graphRecurrence : foreignKeyRecurrence;
+  return LANGUAGES[placement][edge.kind];
 }
 
 /**
@@ -191,10 +304,11 @@ export type RecurrenceFor<
   Source extends AnyModel,
   Key,
   S extends RelationState,
+  Placement extends keyof RecurrenceLanguages = "projection",
 > = StaticRecursiveMembership<Source, Key, S> extends StaticForeignKeyMembership
-  ? ForeignKeyRecurrenceSchema
+  ? RecurrenceLanguages[Placement]["foreignKey"]
   : StaticRecursiveMembership<Source, Key, S> extends StaticJunctionMembership
-    ? GraphRecurrenceSchema
+    ? RecurrenceLanguages[Placement]["junction"]
     : never;
 
 /**

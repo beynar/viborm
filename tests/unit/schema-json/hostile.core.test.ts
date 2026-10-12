@@ -643,6 +643,19 @@ describe("defaults", () => {
         issues(refusal(withUserField({ type: "bigint", default: value })))
       ).toEqual(["[J008] /models/user/fields/probe/default"]);
     }
+    // The field's domain READS integer text at the query boundary; a default
+    // is still the tagged value, in a list too.
+    expect(
+      issues(
+        refusal(
+          withUserField({
+            type: "bigint",
+            array: true,
+            default: [{ $bigint: "1" }, "42"],
+          })
+        )
+      )
+    ).toEqual(["[J008] /models/user/fields/probe/default"]);
   });
 
   it("refuses a decimal default written as a JSON number", () => {

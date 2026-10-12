@@ -3,13 +3,17 @@
 /**
  * Bundle-size and production-LOC baseline.
  *
- * `pnpm size` (size-limit with the @size-limit/file preset) weighs ONE FILE on
- * disk. tsdown emits a per-entry stub plus shared chunks, so `dist/index.mjs`
- * is 1.99 kB while the code it pulls in is two orders of magnitude larger. That
- * number cannot answer "what does importing viborm cost an application", which
- * is the only question a dependency swap is judged on. This script answers it:
- * it bundles fixed fixtures against the BUILT `dist/`, exactly as a consumer's
- * bundler would, and reports raw / gzip / brotli for each.
+ * size-limit's @size-limit/file preset weighs ONE FILE on disk. tsdown emits a
+ * per-entry stub plus shared chunks, so `dist/index.mjs` is about 3 kB while
+ * the code it pulls in is two orders of magnitude larger. That number cannot
+ * answer "what does importing viborm cost an application", which is the only
+ * question a dependency swap is judged on. This script answers it: it bundles
+ * fixed fixtures against the BUILT `dist/`, exactly as a consumer's bundler
+ * would, and reports raw / gzip / brotli for each.
+ *
+ * `--emit <dir>` writes each fixture's bundle to `<dir>/<name>.mjs` and stops:
+ * `pnpm size` runs it first, so the size-limit budgets weigh real consumer
+ * bundles instead of stubs.
  *
  * Requires `pnpm package:build` to have run first.
  *
@@ -17,7 +21,7 @@
  * paths. Two runs at the same commit with the same `dist/` must be byte-equal.
  *
  * Usage:
- *   node scripts/measure-bundle.mjs [--out <path>] [--print]
+ *   node scripts/measure-bundle.mjs [--out <path>] [--print] [--emit <dir>]
  */
 
 import { execFileSync } from "node:child_process";
@@ -104,7 +108,7 @@ const compareVersions = (a, b) => {
 };
 
 // ---------------------------------------------------------------------------
-// Bundle options — one object, used for every fixture, so the rows compare
+// Bundle options — one object for every Node fixture, so the rows compare
 // ---------------------------------------------------------------------------
 
 /**
@@ -181,14 +185,29 @@ const inputPackage = (name) => {
 
 const TOP_INPUT_COUNT = 12;
 
-const bundleFile = async (esbuild, entryPath, extra = {}) => {
-  const result = await esbuild.build({
+/**
+ * A Worker fixture is bundled the way Wrangler does by default (platform
+ * `neutral`, conditions workerd/worker/browser), with the Workers runtime
+ * modules left external, so its row is what a Worker deploy uploads.
+ */
+const WORKER_OPTIONS = {
+  platform: "neutral",
+  conditions: ["workerd", "worker", "browser"],
+  mainFields: ["browser", "module", "main"],
+  external: [...EXTERNAL, "node:*", "cloudflare:*"],
+};
+
+const bundle = (esbuild, entryPath, extra = {}) =>
+  esbuild.build({
     ...BUNDLE_OPTIONS,
     absWorkingDir: repoRoot,
     entryPoints: [entryPath],
     metafile: true,
     ...extra,
   });
+
+const bundleFile = async (esbuild, entryPath, extra = {}) => {
+  const result = await bundle(esbuild, entryPath, extra);
   const output = result.outputFiles[0];
   const measurement = measureBytes(output.contents);
   const outputKey = Object.keys(result.metafile.outputs)[0];
@@ -231,6 +250,8 @@ const PACKAGE_FIXTURES = [
   ["full", "full.mjs"],
   ["pg-soft-delete", "pg-soft-delete.mjs"],
   ["soft-delete-entry", "soft-delete-entry.mjs"],
+  ["d1-worker", "d1-worker.mjs", WORKER_OPTIONS],
+  ["pg-migrations-worker", "pg-migrations-worker.mjs", WORKER_OPTIONS],
 ];
 
 const LIBRARY_FIXTURES = [
@@ -419,10 +440,14 @@ const parseArguments = (argv) => {
   const options = {
     out: join(repoRoot, "docs/architecture/native-ids-evidence/baseline.json"),
     print: false,
+    emit: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === "--out") {
       options.out = resolve(repoRoot, argv[i + 1] ?? "");
+      i += 1;
+    } else if (argv[i] === "--emit") {
+      options.emit = resolve(repoRoot, argv[i + 1] ?? "");
       i += 1;
     } else if (argv[i] === "--print") {
       options.print = true;
@@ -437,9 +462,21 @@ const main = async () => {
   const options = parseArguments(process.argv.slice(2));
   const { module: esbuild, source: esbuildSource } = await loadEsbuild();
 
+  if (options.emit !== null) {
+    mkdirSync(options.emit, { recursive: true });
+    for (const [name, file, extra] of PACKAGE_FIXTURES) {
+      const result = await bundle(esbuild, join(fixtureDir, file), extra);
+      writeFileSync(
+        join(options.emit, `${name}.mjs`),
+        result.outputFiles[0].contents
+      );
+    }
+    return;
+  }
+
   const fixtures = {};
-  for (const [name, file] of PACKAGE_FIXTURES) {
-    fixtures[name] = await bundleFile(esbuild, join(fixtureDir, file));
+  for (const [name, file, extra] of PACKAGE_FIXTURES) {
+    fixtures[name] = await bundleFile(esbuild, join(fixtureDir, file), extra);
   }
 
   const libraries = {};
@@ -496,6 +533,12 @@ const main = async () => {
         minify: BUNDLE_OPTIONS.minify,
         treeShaking: BUNDLE_OPTIONS.treeShaking,
         external: EXTERNAL,
+      },
+      workerBundleOptions: {
+        ...WORKER_OPTIONS,
+        fixtures: PACKAGE_FIXTURES.filter(
+          (fixture) => fixture[2] === WORKER_OPTIONS
+        ).map(([name]) => name),
       },
       gzipLevel: 9,
       brotliQuality: zlibConstants.BROTLI_MAX_QUALITY,

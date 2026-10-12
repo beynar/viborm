@@ -383,29 +383,17 @@ const inlineIntegerLiteral = (fragment: Sql): Sql => {
     : fragment;
 };
 
-/**
- * MySQL Database Adapter
- *
- * Implements the DatabaseAdapter interface for MySQL-specific SQL generation.
- *
- * Key MySQL features:
- * - Backtick identifier escaping: `table`.`column`
- * - No native ARRAY type - uses JSON for arrays
- * - Portable string filters override the database collation explicitly
- * - JSON_OBJECT(), JSON_ARRAYAGG() for JSON operations
- * - No RETURNING clause (use LAST_INSERT_ID())
- * - No NULLS FIRST/LAST ordering
- * - ON DUPLICATE KEY UPDATE for upserts
- */
+const mysqlJsonObject = (pairs: [string, Sql][]): Sql => {
+  if (pairs.length === 0) return sql.raw`JSON_OBJECT()`;
+  const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
+  return sql`JSON_OBJECT(${sql.join(args, ", ")})`;
+};
+
 /** The one JSON list container every MySQL list value crosses as. */
 const mysqlJsonListValue = (values: unknown[]): Sql =>
   sql`CAST(${stringifyJson(values)} AS JSON)`;
 
 export class MySQLAdapter implements DatabaseAdapter {
-  // ============================================================
-  // NAMESPACE
-  // ============================================================
-
   /**
    * The bound database, or `undefined` for the unqualified mode a
    * provider-configured MySQL2 client and every PlanetScale client keep. Under
@@ -427,21 +415,9 @@ export class MySQLAdapter implements DatabaseAdapter {
     });
   }
 
-  // ============================================================
-  // RAW
-  // ============================================================
-
   raw = createRawSql();
 
-  // ============================================================
-  // IDENTIFIERS
-  // ============================================================
-
   identifiers: DatabaseAdapter["identifiers"];
-
-  // ============================================================
-  // LITERALS
-  // ============================================================
 
   literals = {
     ...createStandardLiterals(),
@@ -480,15 +456,9 @@ export class MySQLAdapter implements DatabaseAdapter {
     ): Sql => sql`${physical}`,
   };
 
-  // ============================================================
-  // OPERATORS
-  // ============================================================
-
   operators = {
-    // Comparison
     ...createComparisonOperators(),
 
-    // Pattern matching
     // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder.
     // The literal is doubled ('\\') because MySQL's default mode treats
     // backslash as a string-literal escape; under NO_BACKSLASH_ESCAPES it
@@ -555,25 +525,16 @@ export class MySQLAdapter implements DatabaseAdapter {
     exactTextIn: (column: Sql, values: Sql): Sql =>
       sql`(${column} IN ${values} AND BINARY ${column} IN ${values})`,
 
-    // Set membership
     ...createMembershipOperators(),
 
-    // Null checks
     ...createNullOperators(),
 
-    // Range
     ...createRangeOperators(),
 
-    // Logical
     ...createLogicalOperators(this.literals.true, this.literals.false),
 
-    // Subquery existence
     ...createExistenceOperators(),
   };
-
-  // ============================================================
-  // EXPRESSIONS
-  // ============================================================
 
   expressions = {
     ...createCommonExpressions(),
@@ -606,7 +567,6 @@ export class MySQLAdapter implements DatabaseAdapter {
         ? sql`UNHEX(${expr})`
         : sql`CAST(${expr} AS CHAR)`,
 
-    // MySQL type mappings - MySQL doesn't support TEXT in CAST
     cast: createCastExpression({
       text: "CHAR",
       integer: "SIGNED",
@@ -617,10 +577,6 @@ export class MySQLAdapter implements DatabaseAdapter {
 
     blobToHex: (expr: Sql): Sql => sql`LOWER(HEX(${expr}))`,
   };
-
-  // ============================================================
-  // AGGREGATES
-  // ============================================================
 
   aggregates = {
     ...createAggregateFunctions(),
@@ -634,10 +590,6 @@ export class MySQLAdapter implements DatabaseAdapter {
       createDecimalSumOperandPrecision(MYSQL_EXACT_DIGITS),
   };
 
-  // ============================================================
-  // JSON
-  // ============================================================
-
   json = {
     equals: (left: Sql, right: Sql): Sql => sql`${left} = ${right}`,
     number: (expression: Sql): Sql => expression,
@@ -645,11 +597,7 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`JSON_EXTRACT(CASE WHEN ${condition} THEN 'true' ELSE 'false' END, '$')`,
     document: (expression: Sql): Sql => expression,
 
-    object: (pairs: [string, Sql][]): Sql => {
-      if (pairs.length === 0) return sql.raw`JSON_OBJECT()`;
-      const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
-      return sql`JSON_OBJECT(${sql.join(args, ", ")})`;
-    },
+    object: mysqlJsonObject,
 
     array: (items: Sql[]): Sql => {
       if (items.length === 0) return sql.raw`JSON_ARRAY()`;
@@ -661,11 +609,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     agg: (expr: Sql): Sql =>
       sql`COALESCE(JSON_ARRAYAGG(${expr}), JSON_ARRAY())`,
 
-    objectFromColumns: (columns: [string, Sql][]): Sql => {
-      if (columns.length === 0) return sql.raw`JSON_OBJECT()`;
-      const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
-      return sql`JSON_OBJECT(${sql.join(args, ", ")})`;
-    },
+    objectFromColumns: mysqlJsonObject,
 
     // buildJsonPath quotes/escapes key segments and maps integer segments
     // to array indices; '$' alone extracts the document root
@@ -699,10 +643,6 @@ export class MySQLAdapter implements DatabaseAdapter {
     // string scalar (always-false for documents); CAST parses it as JSON
     value: (v: unknown): Sql => sql`CAST(${stringifyJson(v)} AS JSON)`,
   };
-
-  // ============================================================
-  // ARRAYS (JSON-based for MySQL)
-  // ============================================================
 
   arrays = {
     // MySQL uses JSON arrays
@@ -752,19 +692,11 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`JSON_SET(${column}, CONCAT('$[', ${index}, ']'), ${value})`,
   };
 
-  // ============================================================
-  // ORDER BY
-  // ============================================================
-
   orderBy = {
     ...createDirectionOrderBy(),
     // MySQL doesn't support NULLS FIRST/LAST natively - emulated
     ...createEmulatedNullsOrderBy(),
   };
-
-  // ============================================================
-  // CLAUSES
-  // ============================================================
 
   // mysql2's binary protocol binds JS numbers as DOUBLE, which MySQL rejects
   // in integer-only positions ("Incorrect arguments to mysqld_stmt_execute").
@@ -774,10 +706,6 @@ export class MySQLAdapter implements DatabaseAdapter {
     limit: (count: Sql): Sql => sql`LIMIT ${inlineIntegerLiteral(count)}`,
     offset: (count: Sql): Sql => sql`OFFSET ${inlineIntegerLiteral(count)}`,
   };
-
-  // ============================================================
-  // SET (UPDATE operations)
-  // ============================================================
 
   // JSON_MERGE_PRESERVE concatenates arrays element-wise; JSON_ARRAY_APPEND
   // would append the whole param as a single (stringified) element.
@@ -822,21 +750,9 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`${column} = JSON_MERGE_PRESERVE(${values}, COALESCE(${column}, JSON_ARRAY()))`,
   };
 
-  // ============================================================
-  // FILTERS (Relation subquery wrappers)
-  // ============================================================
-
   filters = createRelationFilters();
 
-  // ============================================================
-  // SUBQUERIES
-  // ============================================================
-
   subqueries = createSubqueries(quoteIdent);
-
-  // ============================================================
-  // ASSEMBLE (Build complete SQL statements)
-  // ============================================================
 
   // MySQL has no bare OFFSET; per the manual, use an all-ones LIMIT sentinel
   noLimitValue = sql.raw`18446744073709551615`;
@@ -868,15 +784,8 @@ export class MySQLAdapter implements DatabaseAdapter {
     },
   };
 
-  // ============================================================
-  // CTE (Common Table Expressions - MySQL 8.0+)
-  // ============================================================
-
+  // MySQL 8.0+ common table expressions
   cte = createCteBuilders(quoteIdent);
-
-  // ============================================================
-  // MUTATIONS
-  // ============================================================
 
   mutations = {
     skipDuplicatesStrategy: "recoverableUniqueError" as const,
@@ -926,10 +835,6 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE JSON_EXTRACT('x', '$') END AS \`__viborm_assert__\``,
   };
 
-  // ============================================================
-  // JOINS
-  // ============================================================
-
   joins = {
     ...createCoreJoins(),
 
@@ -946,15 +851,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     ...createLateralJoins(quoteIdent),
   };
 
-  // ============================================================
-  // SET OPERATIONS
-  // ============================================================
-
   setOperations = createSetOperations();
-
-  // ============================================================
-  // CAPABILITIES
-  // ============================================================
 
   capabilities = {
     supportsReturning: false,
@@ -992,15 +889,7 @@ export class MySQLAdapter implements DatabaseAdapter {
     lastInsertId: () => this.lastInsertId(),
   });
 
-  // ============================================================
-  // VECTOR (not natively supported in MySQL)
-  // ============================================================
-
   vector = unsupportedVector;
-
-  // ============================================================
-  // GEOPOINT (MySQL geographic POINT SRID 4326)
-  // ============================================================
 
   readonly geoPoint: GeoPointSql = (() => {
     const longitude = (point: Sql): Sql => sql`ST_Longitude(${point})`;
@@ -1038,7 +927,6 @@ export class MySQLAdapter implements DatabaseAdapter {
     };
   })();
 
-  // ============================================================
   // RESULT PARSING
   // MySQL: booleans and naive UTC datetimes - both ROW VALUES.
   // This adapter says nothing about a RESULT: the engine's decoder asks for
@@ -1046,8 +934,6 @@ export class MySQLAdapter implements DatabaseAdapter {
   // (Arnaud's D-40, measured live).
   // Relation carriers decode at the query-engine boundary that knows their
   // value is JSON, so the adapter never sniffs ordinary strings.
-  // ============================================================
-
   result: AdapterResultParser = {
     // A MySQL SCALAR decimal is `DECIMAL(p,s)` and answers with exact text, so
     // `decimalRepresentation` stays at its default. A decimal LIST is JSON,

@@ -6,7 +6,7 @@ import {
   isRecord,
   isString,
 } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
+import { errorCause } from "../errors/diagnostic-safety";
 import {
   OFFICIAL_CACHE_NAME,
   type OfficialCacheDefinitionCapability,
@@ -44,15 +44,9 @@ type ExactCacheExtensionConfig<Config> = Record<
   never
 >;
 
-function configurationCause(cause: unknown): Error {
-  return isError(cause)
-    ? cause
-    : new Error("A non-Error value was thrown.", { cause });
-}
-
 function configurationError(message: string, cause?: unknown): never {
   throw new CacheConfigurationError(message, {
-    cause: cause === undefined ? undefined : configurationCause(cause),
+    cause: cause === undefined ? undefined : errorCause(cause),
   });
 }
 

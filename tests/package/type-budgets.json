@@ -1,0 +1,42 @@
+{
+  "typescript": "5.9.3",
+  "headroom": 0.03,
+  "fixtures": {
+    "50": {
+      "base": {
+        "instantiations": 79780,
+        "types": 18125
+      },
+      "deep": {
+        "instantiations": 188360,
+        "types": 28383
+      },
+      "filter": {
+        "instantiations": 188736,
+        "types": 30219
+      },
+      "create": {
+        "instantiations": 218576,
+        "types": 31379
+      }
+    },
+    "100": {
+      "base": {
+        "instantiations": 146369,
+        "types": 31101
+      },
+      "deep": {
+        "instantiations": 311299,
+        "types": 44259
+      },
+      "filter": {
+        "instantiations": 310975,
+        "types": 46095
+      },
+      "create": {
+        "instantiations": 346815,
+        "types": 47255
+      }
+    }
+  }
+}

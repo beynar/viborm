@@ -17,22 +17,14 @@ import {
 } from "../schema/validation/validator";
 import { admitLiveMigrationCapability } from "./admission";
 import { canonicalizeJson } from "./canonical-json";
-import {
-  DEFAULT_CONTROL_BASE,
-  readControlState,
-  refuseIncompatibleHistory,
-  refusePartialControl,
-  unfinishedAttempts,
-} from "./control";
+import { refuseIncompatibleHistory, unfinishedAttempts } from "./control";
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
 import { executeDispatch } from "./execute-dispatch";
-import { assertForeignKeysIntact, liftForeignKeyPragmas } from "./foreign-keys";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
-  mayWrapTransaction,
   resolveCommandDriver,
-  runSequentialProgram,
+  runProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
@@ -50,8 +42,8 @@ import {
   buildPushPlan,
   type InternalPushPlan,
   introspectManaged,
-  type PlannedStatement,
 } from "./push-plan";
+import { readCommandControl } from "./resume";
 import { assertMigrationDecimalDomainsFitProvider } from "./serializer";
 import { sliceDispatch } from "./sql-blob";
 import type {
@@ -259,21 +251,20 @@ async function executeLockedPlan(
     return appliedResult(plan, plan.sourceFingerprint, "noop");
   }
 
-  const execute = (producer: AnyDriver): Promise<Sha256> =>
-    executeAndAttest(producer, command, plan, plan.statements);
-
-  if (
-    mayWrapTransaction(
-      pinned,
-      command.target.dialect,
-      plan.atomicity === "transactional"
-    )
-  ) {
-    const fingerprint = await executeTransactional(pinned, command, plan);
-    return appliedResult(plan, fingerprint, "applied");
-  }
-  if (command.target.dialect === "mysql") {
-    await runSequentialProgram(pinned, command, async (producer) => {
+  // In a transaction the destination is proven before its COMMIT, and the
+  // lifted foreign-key bracket runs around it (its pragmas, sent again
+  // inside, are no-ops there); otherwise once the statements ran — on MySQL
+  // after its sequential program.
+  const fingerprint = await runProgram(
+    pinned,
+    command,
+    {
+      transactional: plan.atomicity === "transactional",
+      statements: plan.statements.map((statement) =>
+        sliceDispatch(plan.sqlBlob, statement.dispatch)
+      ),
+    },
+    async (producer, atomic) => {
       for (const statement of plan.statements) {
         await executeDispatch(
           producer,
@@ -282,82 +273,17 @@ async function executeLockedPlan(
           command.namespace
         );
       }
-    });
-    if (plan.statements.length === 0) {
-      return appliedResult(plan, plan.sourceFingerprint, "noop");
+      return atomic ? attestFinalFingerprint(producer, command, plan) : null;
     }
-    const fingerprint = await attestFinalFingerprint(pinned, command, plan);
-    return appliedResult(plan, fingerprint, "applied");
-  }
-  const fingerprint = await execute(pinned);
-  return appliedResult(plan, fingerprint, "applied");
-}
-
-async function executeAndAttest(
-  producer: AnyDriver,
-  command: BoundMigrationDriver,
-  plan: InternalPushPlan,
-  statements: readonly PlannedStatement[]
-): Promise<Sha256> {
-  for (const statement of statements) {
-    await executeDispatch(
-      producer,
-      plan.sqlBlob,
-      statement.dispatch,
-      command.namespace
-    );
-  }
-  return attestFinalFingerprint(producer, command, plan);
-}
-
-async function executeTransactional(
-  pinned: AnyDriver,
-  command: BoundMigrationDriver,
-  plan: InternalPushPlan
-): Promise<Sha256> {
-  const sql = plan.statements.map((statement) =>
-    sliceDispatch(plan.sqlBlob, statement.dispatch)
   );
-  const lifted = liftForeignKeyPragmas(pinned, sql);
-  if (!lifted.bracket) {
-    return pinned.withTransaction((transaction) =>
-      executeAndAttest(transaction, command, plan, plan.statements)
-    );
+  if (plan.statements.length === 0) {
+    return appliedResult(plan, plan.sourceFingerprint, "noop");
   }
-
-  const disable = findStatement(plan, lifted.bracket.disable);
-  const enable = findStatement(plan, lifted.bracket.enable);
-  const remaining = takeStatements(plan, [
-    disable.dispatch.dispatchId,
-    enable.dispatch.dispatchId,
-  ]);
-  await executeDispatch(
-    pinned,
-    plan.sqlBlob,
-    disable.dispatch,
-    command.namespace
+  return appliedResult(
+    plan,
+    fingerprint ?? (await attestFinalFingerprint(pinned, command, plan)),
+    "applied"
   );
-  try {
-    return await pinned.withTransaction(async (transaction) => {
-      for (const statement of remaining) {
-        await executeDispatch(
-          transaction,
-          plan.sqlBlob,
-          statement.dispatch,
-          command.namespace
-        );
-      }
-      await assertForeignKeysIntact(transaction, lifted.bracket);
-      return attestFinalFingerprint(transaction, command, plan);
-    });
-  } finally {
-    await executeDispatch(
-      pinned,
-      plan.sqlBlob,
-      enable.dispatch,
-      command.namespace
-    );
-  }
 }
 
 async function attestFinalFingerprint(
@@ -382,30 +308,6 @@ async function attestFinalFingerprint(
     );
   }
   return fingerprint;
-}
-
-function findStatement(plan: InternalPushPlan, sql: string): PlannedStatement {
-  const found = plan.statements.find(
-    (statement) =>
-      sliceDispatch(plan.sqlBlob, statement.dispatch).trim() === sql.trim()
-  );
-  if (!found) {
-    throw new MigrationError(
-      "The compiled SQLite foreign-key bracket is missing from the authenticated push plan",
-      VibORMErrorCode.INTERNAL_ERROR
-    );
-  }
-  return found;
-}
-
-function takeStatements(
-  plan: InternalPushPlan,
-  excludedDispatchIds: readonly string[]
-): readonly PlannedStatement[] {
-  const excluded = new Set(excludedDispatchIds);
-  return plan.statements.filter(
-    (statement) => !excluded.has(statement.dispatch.dispatchId)
-  );
 }
 
 function appliedResult(
@@ -443,15 +345,8 @@ async function assertPushControlInterlock(
   command: BoundMigrationDriver,
   plan: InternalPushPlan
 ): Promise<void> {
-  const control = await readControlState(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE
-  );
-  if (control.presence.kind !== "present") {
-    refusePartialControl(control.presence);
-    return;
-  }
+  const control = await readCommandControl(producer, command);
+  if (control.presence.kind !== "present") return;
   const { marker, ledger } = control;
   if (unfinishedAttempts(ledger).length > 0) {
     throw new MigrationError(
@@ -510,7 +405,7 @@ function publicPreview(plan: InternalPushPlan): PushPreview {
   });
 }
 
-function prepareSchema(
+export function prepareSchema(
   client: MigrationClient,
   skipValidation: boolean
 ): {

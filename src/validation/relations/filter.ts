@@ -100,12 +100,12 @@ type Quantifiers<S extends RelationState> = {
 
 /**
  * The recursive filter: a quantifier over the slot's transitive closure from
- * the filtered row, `self` adding that row itself. `recurse` is the very
- * language `select`/`include` admit on the slot, so eligibility, bounds and
- * normalization have one owner. Where the slot cannot recurse the required
- * `recurse` is `never` and the form is uninhabitable; eligibility stays inside
- * the required key, as on the select side, so no ordinary filter compares the
- * cyclic model graph eagerly.
+ * the filtered row, `self` adding that row itself. `recurse` is the language
+ * `select`/`include` admit on the slot without its output budget, so
+ * eligibility, bounds and normalization have one owner. Where the slot cannot
+ * recurse the required `recurse` is `never` and the form is uninhabitable;
+ * eligibility stays inside the required key, as on the select side, so no
+ * ordinary filter compares the cyclic model graph eagerly.
  */
 type RecursiveFilterSchema<
   Source extends AnyModel,
@@ -113,7 +113,7 @@ type RecursiveFilterSchema<
   S extends RelationState,
 > = V.Object<
   {
-    recurse: RecurrenceFor<Source, Key, S>;
+    recurse: RecurrenceFor<Source, Key, S, "filter">;
     self: V.Boolean;
     is: UnavailableRecursiveClauseSchema;
     isNot: UnavailableRecursiveClauseSchema;
@@ -207,13 +207,13 @@ const quantifierEntries = <S extends RelationState>(
 
 /**
  * The recursive filter of a slot that can recurse, or `undefined`. Its
- * `recurse` is the identical schema instance `select`/`include` use.
+ * `recurse` is the `select`/`include` language without `maxOccurrences`.
  */
 const recursiveFilter = <S extends RelationState, T extends SchemaGetter<S>>(
   resolved: ResolvedSlot,
   targetSchemas: T
 ) => {
-  const recurrence = recurrenceSchema(resolved);
+  const recurrence = recurrenceSchema(resolved, "filter");
   return (
     recurrence &&
     v.object(

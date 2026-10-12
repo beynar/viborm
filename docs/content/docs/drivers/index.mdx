@@ -43,7 +43,7 @@ timeouts and recovery are covered in [Production connections](/docs/drivers/prod
 | pg | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | postgres | ✅ Full | ✅ Full | ✅ Full | Node.js |
 | pglite | ✅ Full | ✅ Full | ✅ Full | Any (WASM) |
-| neon-http | ❌ Unsupported | ✅ Full | ❌ Effectful V1 commands refused | Any |
+| neon-http | ❌ Unsupported | ✅ Full | ⚠️ `apply` only, one request per transactional group | Any |
 | bun-sql | ✅ Full | ✅ Full | ✅ Full | Bun |
 | mysql2 | ✅ Full | ✅ Full | ⚠️ DDL-limited | Node.js |
 | planetscale | ✅ Single-shard atomic | ✅ Single-shard atomic | ❌ Effectful V1 commands refused | Any |
@@ -63,10 +63,11 @@ Drivers marked "Unsupported" reject instead of running non-atomically. See
 per driver.
 :::
 
-Runtime transactions do not prove migration support. Neon HTTP, PlanetScale,
-LibSQL, and D1 retain offline generation and admitted read-only paths, but
-effectful `push`, `apply`, `down`, `reset`, and locked `verify` refuse before
-effects. Admitted `push({ dryRun: true })` paths remain available, subject to
+Runtime transactions do not prove migration support. PlanetScale, LibSQL, and
+D1 retain offline generation and admitted read-only paths, but effectful
+`push`, `apply`, `down`, `reset`, and locked `verify` refuse before effects.
+Neon HTTP is the same except for `apply`, which sends each transactional group
+as one request ([Neon HTTP](/docs/drivers/postgresql/neon-http#migrations)). Admitted `push({ dryRun: true })` paths remain available, subject to
 the driver's introspection limitations.
 MySQL2 migrations additionally require a resolved namespace and the explicit
 non-redirecting transport attestation. See the
@@ -92,6 +93,8 @@ differs by driver, and these are the facts the engine relies on and verifies:
 | sqlite3, libsql, bun-sqlite | one interactive transaction | rolled back | 32 766 | actual better-sqlite3 and local libSQL regressions; Bun uses its own provider tests |
 | neon-http | atomic batches, one per segment; work that must observe an earlier write takes another committed batch | the failing batch rolls back; earlier acknowledged batches remain committed, reported through `committedSegments`; an uncertain outcome uses `mayHaveCommittedSegment` | 65 535 | actual Neon HTTP 1.2: failed-batch atomicity, Serializable batch options, durable commit notification, and post-commit result failure; credential-gated by `NEON_DATABASE_URL` or `NEON_TEST_DATABASE_URL` |
 | d1 | committed segments; generated references use the ordinary emptied `__viborm_batch_refs` scratch table | the failing batch rolls back; earlier acknowledged batches remain committed | 100 | local Workers D1 tests (`provider-d1`); no hosted Cloudflare D1 qualification |
+
+A scalar `in` / `notIn` list is one bound value on PostgreSQL (pg, postgres, pglite, bun-sql, neon-http), SQLite (sqlite3, libsql, bun-sqlite) and D1, so it does not count against these limits. On mysql2 and planetscale each member is one bound value. On every driver a `mode: "insensitive"` list binds one value per member. On SQLite, libSQL, bun-sqlite and D1 a list of non-integer numbers also binds one value per member.
 
 `createMany` with `skipDuplicates` suppresses a relation-bearing member or
 nested member inside an interactive savepoint. `neon-http`, `d1`, and explicit

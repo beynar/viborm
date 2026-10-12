@@ -193,7 +193,7 @@ const changedDependency: ScenarioDefinition = {
         args,
         control: { initialDefault: 1, selectedMemberDefaults: [1, 2] },
       },
-      requiredCuts: [],
+      requiredCuts: ["s2-selected-members-captured"],
       seed(database) {
         database.exec(`
           CREATE TABLE s2_shelves (id INTEGER PRIMARY KEY, label TEXT NOT NULL);
@@ -253,15 +253,35 @@ const changedDependency: ScenarioDefinition = {
         assert.deepEqual(observation.initial, initial);
         assert.equal(observation.outcome.kind, "failure");
         if (observation.outcome.kind !== "failure") return;
-        // V1 refuses the caller's adding-before-clearing spelling before
-        // capturing or committing any relation-series member.
-        assert.equal(observation.outcome.failure.name, "ValidationError");
-        assert.equal(observation.outcome.failure.code, "V4001");
-        assert.equal(
-          observation.outcome.failure.message,
-          "Validation failed for update: data.bins.updateMany: Value did not match any union member: Collection mutation must spell clearing verb 'set' before adding verb 'connectOrCreate'., Expected array"
+        // engine-04: the adding-first spelling runs in the canonical order,
+        // `set` before `connectOrCreate`, for each selected bin. Bin 10 links
+        // target 2, then creates and links target 1; bin 11 draws 2, which the
+        // seed already holds, so its create violates the targets' key. The
+        // interactive profile rolls everything back; the atomic batch keeps the
+        // root's and bin 10's committed segments.
+        assert.equal(observation.outcome.failure.name, "UniqueConstraintError");
+        assert.equal(observation.outcome.failure.code, "V3001");
+        assert(isRecord(observation.outcome.failure.meta));
+        assert.equal(observation.outcome.failure.meta.table, "s2_targets");
+        assert.deepEqual(observation.outcome.failure.meta.columns, ["id"]);
+        assert.deepEqual(
+          observation.final,
+          controls.profile === "sqlite-interactive"
+            ? initial
+            : {
+                shelves: [
+                  { id: 1, label: "before-series" },
+                  { id: 2, label: "untouched" },
+                ],
+                bins: initial.bins,
+                targets: [{ id: 1 }, { id: 2 }, { id: 8 }],
+                memberships: [
+                  { binId: 10, targetId: 1 },
+                  { binId: 10, targetId: 2 },
+                  { binId: 12, targetId: 8 },
+                ],
+              }
         );
-        assert.deepEqual(observation.final, initial);
       },
     };
   },

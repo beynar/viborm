@@ -40,7 +40,10 @@ export default defineConfig({
     // then load and block on stdin. See the public-client CLI fixture for the full
     // rationale. It only mocks a module the non-CLI suites never import, so it
     // is inert everywhere else.
-    setupFiles: ["tests/contracts/public-client/cli/_clack.ts"],
+    setupFiles: [
+      "tests/contracts/public-client/cli/_clack.ts",
+      "tests/fixtures/register-migration-drivers.ts",
+    ],
     // Database behavior suites provision one schema family and reset its rows.
     // The remaining fresh-database tests inject races or destructive state and
     // can legitimately spend several seconds in one case. A genuine hang still
@@ -53,23 +56,30 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      "@src": resolve(__dirname, "src"),
-      "@tests": resolve(__dirname, "tests"),
-      "@root": resolve(__dirname),
-      "@schema": resolve(__dirname, "src/schema"),
-      "@types": resolve(__dirname, "src/types"),
-      "@adapters": resolve(__dirname, "src/adapters"),
-      "@sql": resolve(__dirname, "src/sql/sql.ts"),
-      "@drivers": resolve(__dirname, "src/drivers"),
-      "@client": resolve(__dirname, "src/client"),
-      "@extensions": resolve(__dirname, "src/extensions"),
-      "@validation": resolve(__dirname, "src/validation"),
-      "@query-engine": resolve(__dirname, "src/query-engine"),
-      "@migrations": resolve(__dirname, "src/migrations"),
-      "@errors": resolve(__dirname, "src/errors"),
-      "@instrumentation": resolve(__dirname, "src/instrumentation"),
-      "@cache": resolve(__dirname, "src/cache"),
-    },
+    alias: [
+      // Bare `@drivers` is the custom-driver entry; `@drivers/*` stays a prefix.
+      {
+        find: /^@drivers$/,
+        replacement: resolve(__dirname, "src/drivers/exports.ts"),
+      },
+      ...Object.entries({
+        "@src": resolve(__dirname, "src"),
+        "@tests": resolve(__dirname, "tests"),
+        "@root": resolve(__dirname),
+        "@schema": resolve(__dirname, "src/schema"),
+        "@types": resolve(__dirname, "src/types"),
+        "@adapters": resolve(__dirname, "src/adapters"),
+        "@sql": resolve(__dirname, "src/sql/sql.ts"),
+        "@drivers": resolve(__dirname, "src/drivers"),
+        "@client": resolve(__dirname, "src/client"),
+        "@extensions": resolve(__dirname, "src/extensions"),
+        "@validation": resolve(__dirname, "src/validation"),
+        "@query-engine": resolve(__dirname, "src/query-engine"),
+        "@migrations": resolve(__dirname, "src/migrations"),
+        "@errors": resolve(__dirname, "src/errors"),
+        "@instrumentation": resolve(__dirname, "src/instrumentation"),
+        "@cache": resolve(__dirname, "src/cache"),
+      }).map(([find, replacement]) => ({ find, replacement })),
+    ],
   },
 });

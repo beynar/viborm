@@ -1,3 +1,5 @@
+import type { Operations } from "@client/types";
+
 /**
  * The client operation vocabulary, retained at the C-01 cutover.
  *
@@ -45,4 +47,16 @@ export const ROUTED_OPERATIONS: ReadonlySet<string> = new Set([
 /** Whether a public operation routes through the engine's write owner. */
 export function isWriteOperation(operation: string): boolean {
   return ROUTED_OPERATIONS.has(operation) && !isReadOperation(operation);
+}
+
+/**
+ * The verb an `…OrThrow` operation shares its whole envelope with: its schema,
+ * its admission and its result. Every other verb is its own base.
+ */
+export function baseOperation(
+  operation: Operations
+): Exclude<Operations, "findUniqueOrThrow" | "findFirstOrThrow"> {
+  if (operation === "findUniqueOrThrow") return "findUnique";
+  if (operation === "findFirstOrThrow") return "findFirst";
+  return operation;
 }

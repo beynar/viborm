@@ -6,8 +6,11 @@ description: Serverless MySQL driver for PlanetScale
 ## Installation
 
 ```bash
-pnpm add @planetscale/database
+pnpm add @planetscale/database@^1.19.0
 ```
+
+`@planetscale/database` 2 is not supported: it refuses parameterized
+`execute(query, args)`, which every VibORM statement uses.
 
 ## Configuration
 
@@ -28,6 +31,9 @@ const client = createClient({
 | `databaseUrl` | `string` | PlanetScale connection URL |
 | `namespace` | `string` | Vitess keyspace qualifier submitted before VTGate routing |
 | `options` | `Config` | PlanetScale configuration options |
+
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
 
 ### Using Options
 

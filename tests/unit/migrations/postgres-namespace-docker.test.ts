@@ -100,7 +100,7 @@ describeIfDocker("PostgreSQL estate containment (docker)", () => {
       // A pool hands out a different connection per statement, so a control
       // table reached through an ambient `search_path` is a coin flip. Every
       // statement below names the schema.
-      const sql = createControlTableSQL(migrationDriver, "_viborm_migration");
+      const sql = createControlTableSQL(migrationDriver);
       await client.$driver._executeRaw(sql.state);
       await client.$driver._executeRaw(sql.log);
 
@@ -151,10 +151,11 @@ describeIfDocker("PostgreSQL estate containment (docker)", () => {
       // The decoy's own column, which introspection would report if the
       // catalog filter had drifted to `public`.
       expect(columns).not.toContain("decoy");
-      // The estate's tables are its own — the tracking table above included —
+      // The estate's tables are its own — both control tables included —
       // and `public` contributes nothing to the snapshot.
       expect(snapshot.tables.map((table) => table.name).sort()).toEqual([
-        "_viborm_migrations",
+        "_viborm_migration_log",
+        "_viborm_migration_state",
         "nsd_accounts",
       ]);
     } finally {

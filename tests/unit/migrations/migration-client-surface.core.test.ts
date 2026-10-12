@@ -48,7 +48,9 @@ describe("createMigrationClient capability surface", () => {
       "graph",
       "list",
       "log",
+      "prune",
       "push",
+      "reanchor",
       "resolve",
       "show",
       "status",
@@ -63,7 +65,9 @@ describe("createMigrationClient capability surface", () => {
       "graph",
       "list",
       "log",
+      "prune",
       "push",
+      "reanchor",
       "reset",
       "resolve",
       "show",
@@ -128,7 +132,8 @@ describe("createMigrationClient capability surface", () => {
     ).toThrowError(
       expect.objectContaining({
         code: "V4002",
-        message: "migration client options must include storage when supplied",
+        message:
+          "migration client options must include storage, tables or limits when supplied",
       })
     );
   });

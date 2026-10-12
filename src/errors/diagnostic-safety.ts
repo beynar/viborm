@@ -399,6 +399,27 @@ export function isError(value: unknown): value is Error {
   }
 }
 
+/**
+ * The ONE normalizer for a thrown value that has to become an error's cause.
+ *
+ * A thrown `Error` stays the cause. Anything else becomes one deterministic
+ * `Error` that keeps the thrown value as its own cause and never renders it —
+ * rendering runs `toString` on a value chosen by whoever wrote the accessor.
+ *
+ * TOTAL, which a bare `thrown instanceof Error` is not: `instanceof` walks the
+ * prototype chain through `[[GetPrototypeOf]]`, so a Proxy trap that throws
+ * makes the TEST fail rather than the value. Every caller runs this inside the
+ * `catch` that is building a typed error, so a throw here does not lose the
+ * cause — it replaces the typed boundary with the trap's own error, and a
+ * caller catching that boundary catches nothing. Driver options, the pinned
+ * session, migrations, extensions, the cache and validation all normalize
+ * through it rather than each writing the test again.
+ */
+export function errorCause(thrown: unknown): Error {
+  if (isError(thrown)) return thrown;
+  return new Error("A non-Error value was thrown.", { cause: thrown });
+}
+
 /** Normalize one caught value into an Error without trusting its prototype. */
 export function toError(thrown: unknown): Error {
   if (isError(thrown)) return thrown;

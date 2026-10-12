@@ -21,7 +21,7 @@ const HASH_B = "b".repeat(64);
 function sqliteConsent(): PushConsent {
   return {
     format: "1",
-    target: { dialect: "sqlite", location: null, bindingId: "local" },
+    target: { dialect: "sqlite", location: null },
     planHash: HASH_A,
     mode: "diff",
     validation: "full",
@@ -33,7 +33,6 @@ function consentedPlan() {
   const target: PushTargetIdentity = {
     dialect: "sqlite",
     location: null,
-    bindingId: "local",
   };
   return Object.freeze({
     mode: "diff",
@@ -362,10 +361,9 @@ describe("migration hostile-input boundaries", () => {
         dialect: "postgresql",
         database: "app",
         namespace: "tenant",
-        bindingId: "pg",
       },
-      { dialect: "mysql", database: "app", bindingId: "mysql" },
-      { dialect: "sqlite", location: null, bindingId: "sqlite" },
+      { dialect: "mysql", database: "app" },
+      { dialect: "sqlite", location: null },
     ];
 
     for (const target of targets) {
@@ -463,7 +461,6 @@ describe("coverage low value", () => {
         target: {
           dialect: "mysql",
           database: "app",
-          bindingId: "mysql",
           location: null,
         },
       })
@@ -485,11 +482,16 @@ describe("coverage low value", () => {
       { ...sqliteConsent(), target: { dialect: "oracle" } },
       {
         ...sqliteConsent(),
-        target: { dialect: "sqlite", location: 1, bindingId: "sqlite" },
+        target: { dialect: "sqlite", location: 1 },
       },
       {
         ...sqliteConsent(),
-        target: { dialect: "mysql", database: "", bindingId: "mysql" },
+        target: { dialect: "mysql", database: "" },
+      },
+      // A 1.1.0 consent named its client instance; it is stale after upgrade.
+      {
+        ...sqliteConsent(),
+        target: { dialect: "sqlite", location: null, bindingId: "1.1.0" },
       },
     ]) {
       expect(() => parseConsent(consent)).toThrowError(

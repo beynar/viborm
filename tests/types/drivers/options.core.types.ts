@@ -2,9 +2,8 @@ import {
   MySQL2Driver,
   type MySQL2DriverOptions,
   type MySQL2Options,
-  PGliteDriver,
-  type PGliteDriverOptions,
-} from "@src/drivers";
+} from "@drivers/mysql2";
+import { PGliteDriver, type PGliteDriverOptions } from "@drivers/pglite";
 
 const options: PGliteDriverOptions = {};
 const driver = new PGliteDriver(options);

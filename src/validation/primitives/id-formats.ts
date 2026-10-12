@@ -39,9 +39,8 @@ import { ValidationError } from "@errors";
 // WIDTHS AND DOMAINS
 // =============================================================================
 
-/** Bytes in a UUID (RFC 9562 §4) and characters in its canonical text. */
+/** Bytes in a UUID (RFC 9562 §4). */
 export const UUID_BYTE_LENGTH = 16;
-export const UUID_TEXT_LENGTH = 36;
 
 /** Bytes in a ULID and characters in its Crockford base32 text. */
 export const ULID_BYTE_LENGTH = 16;
@@ -78,7 +77,7 @@ export const MAX_KSUID_UNIX_SECONDS = KSUID_EPOCH_SECONDS + 4_294_967_295;
  * this format, and silently reading it as `1` would make two different texts
  * the same identifier.
  */
-const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 /**
  * The accepted spellings of one Crockford digit: canonical uppercase first,
@@ -118,12 +117,13 @@ export const CUID_TEXT = /^[a-z][0-9a-z]{23}$/;
  * the text sort exactly as the bytes sort, which is what makes a KSUID
  * time-sortable as a string.
  */
-const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+export const BASE62 =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 /** The first value 20 bytes cannot hold; some 27-character base62 texts exceed it. */
 const KSUID_EXCLUSIVE_MAX = 2n ** 160n;
 
-const UUID_TEXT =
+export const UUID_TEXT =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 const HEX_RADIX = 16;

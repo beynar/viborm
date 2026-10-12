@@ -138,6 +138,19 @@ export function record(value: unknown): Input {
 export function entries(value: unknown): Input[] {
   return Array.isArray(value) ? value : [record(value)];
 }
+/** `key`'s view in `views`, created on its first use and kept as long as `views`. */
+export function memo<K, V>(
+  views: { get(key: K): V | undefined; set(key: K, value: V): unknown },
+  key: K,
+  create: () => V
+): V {
+  let view = views.get(key);
+  if (view === undefined) {
+    view = create();
+    views.set(key, view);
+  }
+  return view;
+}
 
 /**
  * What this engine resolves once per (adapter, model) and never again.
@@ -228,7 +241,7 @@ export class EngineSchema {
             ),
           }
         : raw;
-    return parseValidated(schema, input, operation, "") as Arguments;
+    return parseValidated(schema, input, operation, "", model) as Arguments;
   }
   /**
    * Does this payload name a relation of the model? One spelling, asked by the
@@ -382,7 +395,13 @@ export class EngineSchema {
     return undefined;
   }
   #upsert(model: AnyModel, raw: unknown): Arguments {
-    const envelope = parseValidated(upsertEnvelopeSchema, raw, "upsert", "");
+    const envelope = parseValidated(
+      upsertEnvelopeSchema,
+      raw,
+      "upsert",
+      "",
+      model
+    );
     const schemas = this.registry.getModelSchemas(model);
     const createHasRelations = this.namesRelation(model, envelope.create);
     const updateScalars = Object.fromEntries(
@@ -394,7 +413,8 @@ export class EngineSchema {
       schemas.core.whereUniqueExtended,
       envelope.where,
       "upsert",
-      "where"
+      "where",
+      model
     );
     const scalarCreate = createHasRelations
       ? undefined
@@ -402,13 +422,15 @@ export class EngineSchema {
           schemas.core.scalarCreate,
           envelope.create,
           "upsert",
-          "create"
+          "create",
+          model
         );
     const update = parseValidated(
       schemas.core.scalarUpdate,
       updateScalars,
       "upsert",
-      "update"
+      "update",
+      model
     );
     const projection = parseValidated(
       schemas.core.upsertProjection,
@@ -418,7 +440,8 @@ export class EngineSchema {
         omit: envelope.omit,
       },
       "upsert",
-      ""
+      "",
+      model
     );
     const conditions: Pick<Arguments, "targetWhere" | "setWhere"> = {
       targetWhere: undefined,
@@ -427,12 +450,24 @@ export class EngineSchema {
     for (const field of ["targetWhere", "setWhere"] as const) {
       const input = envelope[field];
       if (input === undefined) continue;
-      const parsed = parseValidated(schemas.core.where, input, "upsert", field);
+      const parsed = parseValidated(
+        schemas.core.where,
+        input,
+        "upsert",
+        field,
+        model
+      );
       if (isRecord(parsed) && Object.keys(parsed).length)
         conditions[field] = record(parsed);
     }
     const create = createHasRelations
-      ? parseValidated(schemas.core.create, envelope.create, "create", "data")
+      ? parseValidated(
+          schemas.core.create,
+          envelope.create,
+          "create",
+          "data",
+          model
+        )
       : scalarCreate;
     const admittedUpdate = this.update(
       model,
@@ -467,7 +502,8 @@ export class EngineSchema {
         scalars[field]!.create,
         value,
         "create",
-        field
+        field,
+        model
       );
     return admitted;
   }
@@ -480,7 +516,7 @@ export class EngineSchema {
     const schemas = this.registry.getModelSchemas(model);
     if (captured)
       return record(
-        parseValidated(schemas.core.update, source, "updateMany", "data")
+        parseValidated(schemas.core.update, source, "updateMany", "data", model)
       );
     const admitted = { ...(envelope ?? source) };
     const names = Object.keys(source).filter((name) =>
@@ -500,7 +536,8 @@ export class EngineSchema {
           ).update,
           source[name],
           "update",
-          `data.${name}`
+          `data.${name}`,
+          model
         );
       }
     }
@@ -514,7 +551,8 @@ export class EngineSchema {
         schema,
         { updateMany: { data: source } },
         "update",
-        `data.${relation}`
+        `data.${relation}`,
+        model
       )
     );
     return record(entries(parsed.updateMany)[0]!.data);
@@ -528,24 +566,11 @@ export class EngineSchema {
     );
   }
   membership(model: AnyModel, name: string, variant?: string): Membership {
-    let modelViews = this.#membershipViews.get(model);
-    if (!modelViews) {
-      modelViews = new Map();
-      this.#membershipViews.set(model, modelViews);
-    }
-    let slotViews = modelViews.get(name);
-    if (!slotViews) {
-      slotViews = new Map();
-      modelViews.set(name, slotViews);
-    }
-    let view = slotViews.get(variant);
-    if (!view) {
-      view = freezeMembershipView(
-        buildMembershipView(this, model, name, variant)
-      );
-      slotViews.set(variant, view);
-    }
-    return view;
+    const modelViews = memo(this.#membershipViews, model, () => new Map());
+    const slotViews = memo(modelViews, name, () => new Map());
+    return memo(slotViews, variant, () =>
+      freezeMembershipView(buildMembershipView(this, model, name, variant))
+    );
   }
   /**
    * The slots through which the database refuses a hard delete of a `model` row
@@ -555,34 +580,29 @@ export class EngineSchema {
    * the migration spells. A polymorphic carrier stores no constraint.
    */
   restrictingSlots(model: AnyModel): readonly string[] {
-    let slots = this.#restrictingSlotViews.get(model);
-    if (slots) return slots;
-    const found: string[] = [];
-    for (const [name, resolved] of this.index.get(model) ?? []) {
-      const edge = resolved.edge;
-      if (edge.kind !== "foreignKey" && edge.kind !== "junction") continue;
-      const view = this.membership(model, name);
-      const action =
-        view.kind === "junction"
-          ? junctionOnDelete(view.sourceSide)
-          : edge.kind === "foreignKey" && view.owner === "target"
-            ? foreignKeyOnDelete(edge)
-            : undefined;
-      if (action === "restrict" || action === "noAction") found.push(name);
-    }
-    slots = Object.freeze(found);
-    this.#restrictingSlotViews.set(model, slots);
-    return slots;
+    return memo(this.#restrictingSlotViews, model, () => {
+      const found: string[] = [];
+      for (const [name, resolved] of this.index.get(model) ?? []) {
+        const edge = resolved.edge;
+        if (edge.kind !== "foreignKey" && edge.kind !== "junction") continue;
+        const view = this.membership(model, name);
+        const action =
+          view.kind === "junction"
+            ? junctionOnDelete(view.sourceSide)
+            : edge.kind === "foreignKey" && view.owner === "target"
+              ? foreignKeyOnDelete(edge)
+              : undefined;
+        if (action === "restrict" || action === "noAction") found.push(name);
+      }
+      return Object.freeze(found);
+    });
   }
   clearability(resolved: ResolvedSlot): ClearableMembership {
-    let view = this.#clearabilityViews.get(resolved);
-    if (!view) {
-      view = clearableMembership(resolved);
+    return memo(this.#clearabilityViews, resolved, () => {
+      const view = clearableMembership(resolved);
       if (view.kind === "columns") Object.freeze(view.fields);
-      Object.freeze(view);
-      this.#clearabilityViews.set(resolved, view);
-    }
-    return view;
+      return Object.freeze(view);
+    });
   }
   physicalField(model: AnyModel, field: string): PhysicalField {
     let fields = this.#physicalFields.get(model);
@@ -617,20 +637,12 @@ export class EngineSchema {
    */
   readonly #queryViewsByAdapter = new WeakMap<DatabaseAdapter, QueryViews>();
   queryViews(adapter: DatabaseAdapter): QueryViews {
-    let views = this.#queryViewsByAdapter.get(adapter);
-    if (views === undefined) {
-      views = createQueryViews();
-      this.#queryViewsByAdapter.set(adapter, views);
-    }
-    return views;
+    return memo(this.#queryViewsByAdapter, adapter, createQueryViews);
   }
   storedFields(model: AnyModel): readonly string[] {
-    let fields = this.#storedFieldLists.get(model);
-    if (!fields) {
-      fields = Object.freeze(buildStoredFieldsView(this, model));
-      this.#storedFieldLists.set(model, fields);
-    }
-    return fields;
+    return memo(this.#storedFieldLists, model, () =>
+      Object.freeze(buildStoredFieldsView(this, model))
+    );
   }
   /**
    * The admitted payload's scalar fields, in the model's own scalar order.

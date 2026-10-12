@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { Operations, Schema } from "@client/types";
 import { QueryEngineError } from "@errors";
 import { s } from "@schema";
+import { nekiRefusals } from "@tests/fixtures/sql-shape";
 
 /** A statement carrying a recursive CTE, and the two mutation statements. */
 const RECURSIVE_CTE = /WITH RECURSIVE/;
@@ -805,7 +806,10 @@ export async function sqlPins(
     const start = observed.statements.length;
     const outcome = await caseOutcome(engine, pin);
     assert.deepEqual(outcome, owedOutcome(pin), pin.name);
-    pins[pin.name] = observed.statements.slice(start);
+    const statements = observed.statements.slice(start);
+    // PlanetScale's Neki refuses a whole-row read and a third CTE term.
+    assert.deepEqual(nekiRefusals(statements), [], pin.name);
+    pins[pin.name] = statements;
   }
   return pins;
 }
@@ -2497,6 +2501,7 @@ export async function runCase(
   );
   const statements = observed.statements.slice(start);
   assert.equal(statements.length, 1, `${providerCase.name}: statement count`);
+  assert.deepEqual(nekiRefusals(statements), [], providerCase.name);
   assert.equal(
     RECURSIVE_CTE.test(statements[0]!),
     providerCase.control === undefined,

@@ -23,11 +23,11 @@ import type {
   ForeignKeyDef,
   IndexDef,
   PrimaryKeyDef,
-  ReferentialAction,
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
+import { mapReferentialAction } from "../utils";
 import type {
   SqliteColumn,
   SqliteForeignKey,
@@ -63,6 +63,22 @@ function int(value: SqliteInt): number {
 
 /** The predicate half of a stored `CREATE INDEX … WHERE …`, if there is one. */
 const TRAILING_WHERE = /^WHERE\s+([\s\S]+)$/i;
+/** The defaults SQLite's column grammar takes without parentheses. */
+// Identifiers include NULL, TRUE, FALSE and CURRENT_*, and SQLite reads a
+// bare or double-quoted one in a default as a string literal.
+const LITERAL_DEFAULT =
+  /^(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?|0x[\da-f]+|'(?:[^']|'')*'|x'[\da-f]*'|"(?:[^"]|"")*"|[a-z_][\w$]*)$/i;
+
+/**
+ * A column's default as DDL. `PRAGMA table_info` reports `DEFAULT (expr)`
+ * without its parentheses, and an expression is a legal default only inside
+ * them: a table recreation that wrote `strftime(...)` back verbatim (an
+ * `s.dateTime().now()` column) was a `CREATE TABLE` SQLite refused.
+ */
+function columnDefault(value: string | null): string | undefined {
+  if (value === null) return;
+  return LITERAL_DEFAULT.test(value) ? value : `(${value})`;
+}
 const AUTOINCREMENT = /\bAUTOINCREMENT\b/i;
 
 function escapeRegExp(value: string): string {
@@ -159,21 +175,6 @@ function partialIndexPredicate(sql: string | null): string | undefined {
   return match?.[1];
 }
 
-function mapReferentialAction(rule: string): ReferentialAction {
-  switch (rule.toUpperCase()) {
-    case "CASCADE":
-      return "cascade";
-    case "SET NULL":
-      return "setNull";
-    case "RESTRICT":
-      return "restrict";
-    case "SET DEFAULT":
-      return "setDefault";
-    default:
-      return "noAction";
-  }
-}
-
 // =============================================================================
 // INTROSPECTION
 // =============================================================================
@@ -227,9 +228,9 @@ export async function introspect(
       );
     if (
       selected &&
-      sqliteDefinitionKeywords(
-        (tableRow.sql ?? "").split("(")[0] ?? ""
-      ).includes("VIRTUAL")
+      sqliteDefinitionKeywords((tableRow.sql ?? "").split("(")[0]!).includes(
+        "VIRTUAL"
+      )
     )
       throw new MigrationError(
         `SQLite virtual table "${tableName}" cannot be faithfully reconstructed. Synchronization refuses before effects.`,
@@ -287,7 +288,7 @@ export async function introspect(
           ? SQLITE_GEO_POINT_TYPE
           : `${type}${sqliteEnumCheckSuffix(tableSql, col.name) ?? ""}`,
         nullable,
-        default: col.dflt_value ?? undefined,
+        default: columnDefault(col.dflt_value),
         autoIncrement: pk === 1 && hasAutoincrement,
         // The declared domain, recovered from the reserved CHECK constraint
         // the driver wrote. Nothing else on this dialect carries it: the type

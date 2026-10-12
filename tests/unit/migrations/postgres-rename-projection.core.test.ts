@@ -94,7 +94,7 @@ test("PostgreSQL projection matches its default-PK DDL while preserving the call
   expect(projected.tables[1]?.primaryKey?.name).toBe("child_pkey");
   expect(current).toEqual(before);
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       rename,
       ddlContext("artifact", { currentSchema: current })
     )
@@ -116,7 +116,7 @@ test.each([
     key
   );
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       rename,
       ddlContext("artifact", { currentSchema: current })
     )
@@ -129,7 +129,7 @@ test("a partial snapshot cannot invent the absent source table or its PK", () =>
   };
   expect(pg.projectNativeRename(current, rename)).toEqual(current);
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       rename,
       ddlContext("artifact", { currentSchema: current })
     )
@@ -150,13 +150,13 @@ test("dropping and recreating the source without a PK cannot resurrect its previ
   ];
   const prior = structuredClone(precedingOperations);
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       rename,
       ddlContext("artifact", { currentSchema: current, precedingOperations })
     )
   ).toEqual(['ALTER TABLE "old" RENAME TO "new"']);
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       { type: "renameTable", from: "other", to: "retained" },
       ddlContext("artifact", { currentSchema: current, precedingOperations })
     )
@@ -190,7 +190,7 @@ test("a preceding PK replacement on another table preserves the renamed table's 
   ];
   const prior = structuredClone(precedingOperations);
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       rename,
       ddlContext("artifact", { currentSchema: current, precedingOperations })
     )
@@ -199,7 +199,7 @@ test("a preceding PK replacement on another table preserves the renamed table's 
     'ALTER TABLE "new" RENAME CONSTRAINT "old_pkey" TO "new_pkey"',
   ]);
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       { type: "renameTable", from: "other", to: "retained" },
       ddlContext("artifact", { currentSchema: current, precedingOperations })
     )
@@ -219,7 +219,7 @@ test("a preceding generated unnamed add-PK supplies the physical default name fo
     'ALTER TABLE "old" ADD CONSTRAINT "old_pkey" PRIMARY KEY ("id")',
   ]);
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       rename,
       ddlContext("artifact", {
         currentSchema: current,
@@ -242,7 +242,7 @@ test("a preceding generated unnamed create-table PK has a concrete emitted name 
     'CONSTRAINT "old_pkey" PRIMARY KEY ("id")'
   );
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       rename,
       ddlContext("artifact", {
         currentSchema: { tables: [] },
@@ -289,7 +289,7 @@ test.each([
   expect(Buffer.byteLength(targetName.slice(1, -1))).toBeLessThanOrEqual(63);
   expect(sourceName).not.toBe(`"${from}_pkey"`);
   expect(
-    pg.compileRenameTable(
+    pg.compileStatements(
       { type: "renameTable", from, to },
       ddlContext("artifact", {
         currentSchema: current,
@@ -302,15 +302,17 @@ test.each([
   ]);
 });
 
+// MySQL's primary key is always PRIMARY, a name no rename moves.
 test.each([
-  sqlite3MigrationDriver,
-  mysqlMigrationDriver,
-])("$dialect table projection retains native definitions and their physical PK name", (driver) => {
+  [sqlite3MigrationDriver, "old_pkey"],
+  [mysqlMigrationDriver, "PRIMARY"],
+] as const)("%o table projection retains native definitions and their physical PK name", (driver, primaryKey) => {
   const current = snapshot();
+  current.tables[0]!.primaryKey!.name = primaryKey;
   const before = structuredClone(current);
   const projected = driver.projectNativeRename(current, rename);
   expect(projected.tables[0]).toEqual({ ...current.tables[0], name: "new" });
-  expect(projected.tables[0]?.primaryKey?.name).toBe("old_pkey");
+  expect(projected.tables[0]?.primaryKey?.name).toBe(primaryKey);
   expect(projected.tables[1]?.foreignKeys[0]?.referencedTable).toBe("new");
   expect(current).toEqual(before);
 });

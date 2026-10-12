@@ -1,14 +1,12 @@
 import { createClient } from "@client/client";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { VibORMErrorCode } from "@src/errors";
 import { applyV1 } from "@src/migrations/apply-v1";
 import { canonicalizeJsonText } from "@src/migrations/canonical-json";
 import { createMigrationClient } from "@src/migrations/client";
-import {
-  createControlTableSQL,
-  DEFAULT_CONTROL_BASE,
-} from "@src/migrations/control";
+import { CONTROL_TABLES, createControlTableSQL } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import { composeSqlBlob } from "@src/migrations/sql-blob";
@@ -28,6 +26,7 @@ import type {
   MigrationParentTransitionV1,
 } from "@src/migrations/v1-types";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import {
   controlCatalogAnswer,
@@ -36,6 +35,10 @@ import {
   sqliteControlDefinitionAnswer,
   sqliteEstateDriver,
 } from "./_estate";
+
+const ROW_WRITE = /^\s*(INSERT|UPDATE)\b/i;
+const BEGIN = /^BEGIN/i;
+const COMMIT = /^COMMIT/i;
 
 const user = s.model({
   id: s.string().id(),
@@ -88,6 +91,92 @@ describe("migration v1 apply", () => {
     const verified = await migrations.verify();
     expect(verified.ok).toBe(true);
     await client.$disconnect();
+  });
+
+  test("a transactional group runs its DDL, then moves the marker once, then records every arrival, before one COMMIT", async () => {
+    const executed: string[] = [];
+    const db = new Database(":memory:", {
+      verbose: (statement) => executed.push(String(statement)),
+    });
+    const storage = new MemoryEstateStorage();
+    const post = s.model({ id: s.string().id(), title: s.string() });
+    const first = createClient({
+      schema: { user },
+      driver: new SQLite3Driver({ client: db }),
+    });
+    await createMigrationClient(first, { storage }).generate({ name: "init" });
+    const second = createClient({
+      schema: { user, post },
+      driver: new SQLite3Driver({ client: db }),
+    });
+    const migrations = createMigrationClient(second, { storage });
+    await migrations.generate({ name: "post" });
+    executed.length = 0;
+
+    const applied = await migrations.apply();
+    expect(applied.path).toHaveLength(2);
+    const { state, log } = CONTROL_TABLES;
+    const writes = (table: string) =>
+      executed.flatMap((statement, index) =>
+        ROW_WRITE.test(statement) && statement.includes(table) ? [index] : []
+      );
+    const begin = executed.findIndex((statement) => BEGIN.test(statement));
+    const ddl = executed.findIndex((statement) =>
+      statement.includes('CREATE TABLE "post"')
+    );
+    const commit = executed.findIndex((statement) => COMMIT.test(statement));
+    // Bootstrap writes nothing to either table; the group writes each once.
+    expect(writes(state)).toHaveLength(1);
+    expect(writes(log)).toHaveLength(1);
+    expect([
+      begin < ddl,
+      ddl < writes(state)[0]!,
+      writes(state)[0]! < writes(log)[0]!,
+      writes(log)[0]! < commit,
+    ]).toEqual([true, true, true, true]);
+    const events = await migrations.log();
+    expect(events.map((event) => [event.kind, event.toState])).toEqual(
+      applied.path.map((stateId) => ["applied", stateId])
+    );
+    db.close();
+  });
+
+  test("an edge applied without a transaction records its start, each step, the marker move, then its arrival", async () => {
+    const executed: string[] = [];
+    const db = new Database(":memory:", {
+      verbose: (statement) => executed.push(String(statement)),
+    });
+    // A declared custom driver with no transactions runs every edge probed.
+    class Untransacted extends SQLite3Driver {
+      override readonly supportsTransactions = false;
+    }
+    const client = createClient({
+      schema: { user },
+      driver: new Untransacted({ client: db }),
+    });
+    const migrations = createMigrationClient(client, {
+      storage: new MemoryEstateStorage(),
+    });
+    await migrations.generate({ name: "init" });
+    executed.length = 0;
+
+    await expect(migrations.apply()).resolves.toMatchObject({
+      outcome: "applied",
+    });
+    const { state, log } = CONTROL_TABLES;
+    const order = executed.flatMap((statement) => {
+      if (statement.includes('CREATE TABLE "user"')) return ["ddl"];
+      if (!ROW_WRITE.test(statement)) return [];
+      if (statement.includes(state)) return ["marker"];
+      return statement.includes(log) ? ["event"] : [];
+    });
+    expect(order).toEqual(["event", "ddl", "event", "marker", "event"]);
+    expect((await migrations.log()).map((event) => event.kind)).toEqual([
+      "started",
+      "step-confirmed",
+      "applied",
+    ]);
+    db.close();
   });
 
   test("apply proves drift before returning a same-target no-op", async () => {
@@ -347,9 +436,7 @@ describe("migration v1 apply control-plane refusals", () => {
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const command = getMigrationDriver(driver);
-    await driver._executeRaw(
-      createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
-    );
+    await driver._executeRaw(createControlTableSQL(command).state);
 
     await expect(migrations.apply()).resolves.toMatchObject({
       outcome: "applied",
@@ -358,12 +445,12 @@ describe("migration v1 apply control-plane refusals", () => {
     await client.$disconnect();
   });
 
-  test("rolls control bootstrap back with the first transactional migration", async () => {
+  test("rolls the first transactional migration back and records it as failed", async () => {
     const storage = new MemoryEstateStorage();
     const driver = createInMemorySQLite3Driver();
     const client = createClient({ schema: { user }, driver });
     const migrations = createMigrationClient(client, { storage });
-    await migrations.generate({
+    const failing = await migrations.generate({
       name: "failing-init",
       manualMigration: {
         transitions: [
@@ -380,21 +467,32 @@ describe("migration v1 apply control-plane refusals", () => {
       },
     });
     const command = getMigrationDriver(driver);
-    await driver._executeRaw(
-      createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
-    );
+    await driver._executeRaw(createControlTableSQL(command).state);
 
-    await expect(migrations.apply()).rejects.toThrow();
+    await expect(migrations.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_FAILED,
+      meta: { toState: failing.stateId, statementIndex: 1 },
+    });
     const tables = await driver._executeRaw<{ name: string }>(
       "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
     );
-    expect(tables.rows.map((row) => row.name)).toContain(
-      "_viborm_migration_state"
-    );
-    expect(tables.rows.map((row) => row.name)).not.toContain(
-      "_viborm_migration_log"
-    );
-    expect(tables.rows.map((row) => row.name)).not.toContain("transient");
+    expect(tables.rows.map((row) => row.name)).toEqual([
+      "_viborm_migration_log",
+      "_viborm_migration_state",
+    ]);
+    // The rollback took the attempt's own events; the bootstrap the failure
+    // record needs completes outside it, holding exactly that record.
+    const log = await migrations.log();
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({
+      kind: "failed",
+      fromState: null,
+      toState: failing.stateId,
+      effectState: "none",
+    });
+    const status = await migrations.status();
+    expect(status).toMatchObject({ marker: null, unfinished: false });
+    expect(status.lastFailure).toEqual(log[0]);
     await client.$disconnect();
   });
 
@@ -408,7 +506,7 @@ describe("migration v1 apply control-plane refusals", () => {
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const command = getMigrationDriver(driver);
-    const control = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const control = createControlTableSQL(command);
     await driver._executeRaw(control.state);
     if (shape === "malformed-log") {
       await driver._executeRaw(

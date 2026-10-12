@@ -1,9 +1,10 @@
 /**
  * What the control-plane authenticator does with a probe that FAILS.
  *
- * `assertControlTablesAuthentic` and its partial-state sibling each run three
- * separate reads — the catalog, the singleton CHECK, and the attachment probe —
- * and each read is wrapped on its own. The wrapping is not decoration: a
+ * `assertControlTablesAuthentic`, for the pair and for the state table a
+ * failed bootstrap left without its log, runs three separate reads — the
+ * catalog, the singleton CHECK, and the attachment probe — and each read is
+ * wrapped on its own. The wrapping is not decoration: a
  * provider failure has to become "cannot be authenticated" so no caller reads
  * an unanswered probe as an answered one, while a refusal this layer already
  * diagnosed has to survive its own catch instead of being flattened into that
@@ -15,7 +16,6 @@ import type { AnyDriver } from "@drivers/driver";
 import { VibORMErrorCode } from "@src/errors";
 import {
   assertControlTablesAuthentic,
-  DEFAULT_CONTROL_BASE,
   inspectControlPresence,
 } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
@@ -81,11 +81,7 @@ describe("an authenticated pair refuses every unanswered probe", () => {
     );
 
     await expect(
-      assertControlTablesAuthentic(
-        driver,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      assertControlTablesAuthentic(driver, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: "Migration control tables cannot be authenticated",
@@ -103,11 +99,7 @@ describe("an authenticated pair refuses every unanswered probe", () => {
     );
 
     await expect(
-      assertControlTablesAuthentic(
-        driver,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      assertControlTablesAuthentic(driver, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: "Migration control tables cannot be authenticated",
@@ -126,11 +118,7 @@ describe("partial control state keeps the diagnosis it already made", () => {
     );
 
     await expect(
-      inspectControlPresence(
-        producer,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      inspectControlPresence(producer, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: "Migration control attachment probe must return exactly one row",

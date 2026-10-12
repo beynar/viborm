@@ -64,7 +64,7 @@ Use these terms exactly:
 | **Transition** | One parent-specific forward program and rollback policy leading into a state. |
 | **State manifest** | The one committed record for a target state, its snapshot, metadata, destination checks, and all incoming transitions. |
 | **Marker** | The database's last confirmed state, authenticated arrival path, snapshot, estate, path hash, and revision. |
-| **Ledger** | Append-only database evidence for attempts, confirmed steps, outcomes, baselines, recovery, and reset progress. |
+| **Ledger** | Append-only database evidence for attempts, confirmed steps, outcomes, baselines, re-anchors, recovery, and reset progress. |
 | **Push plan** | An ephemeral baseline-specific live transition. It is never inserted into the estate. |
 
 Schema identity and state identity are intentionally distinct. A data-only
@@ -141,7 +141,7 @@ names when `introspectionReadsConstraintNames` is false, keeps PostgreSQL
 primary-key names (an omitted name is `{table}_pkey`, the catalog default),
 normalizes types and
 defaults, and excludes logical-only history such as `polymorphicStorage`.
-Apply, baseline, verify, down, resolve, reset, and push compare live schema
+Apply, baseline, reanchor, verify, down, resolve, reset, and push compare live schema
 through that function. Do not compare an introspected snapshot with
 `encodeSnapshot`. A SQL `DEFAULT NULL` and an omitted default are the same
 physical fact. Catalog aliases (`int4[]` / `integer[]`, `NOW()` / `now()`)
@@ -164,9 +164,15 @@ referenced unique index).
 
 `MigrationDriver.projectNativeRename` owns the physical rename projection used
 by resolution, enum retargeting, generation, and inverse snapshots. Its default
-retains the shared native table/column replay. PostgreSQL additionally moves only
-the exact derived default primary-key name, through the same rule its rename DDL
-compiles; custom names remain untouched. `generatedPrimaryKeyName` supplies the
+retains the shared native table/column replay. The base driver owns the
+derived-rename rule, for a dialect that opts in by implementing
+`renameDerivedNames`: names derived from columns (indexes, uniques, foreign keys,
+the default primary key, per-column enums) and, on a table rename, the
+table-prefix tail of an index, unique or foreign key named `<table>_…_idx`,
+`_key` or `_fkey` (both names unhashed). PostgreSQL and MySQL render it through
+their rename DDL (MySQL as `RENAME INDEX` plus a dropped and re-added foreign
+key in one `ALTER TABLE`); SQLite does not opt in. A name without the derived
+shape stays untouched. `generatedPrimaryKeyName` supplies the
 exact CREATE/ADD spelling and automatic inverse name. Rename compilation reads preceding
 table and primary-key operations so its source key is the one present at that
 step. Serializer `finalizeTable` is not a rename projection: its type, index,
@@ -244,8 +250,9 @@ not write, and an expression that is not a string literal at all, keep the
 catalog's own text, read as a difference, and fail the final attestation with
 `MIGRATION_DRIFT` rather than being called equal. The SQL-mode assumption the
 spelling makes is that `NO_BACKSLASH_ESCAPES` is NOT set, and that assumption
-is asserted, not enforced: the session owner (`checkPinnedMySQLSession`,
-`pinned-session.ts`) refuses a session carrying neither `STRICT_TRANS_TABLES`
+is asserted, not enforced: the session owner (`proveMySQLExactValueSession`,
+`drivers/mysql/pinned-session.ts`, run through the MySQL driver's
+`proveSession` hook) refuses a session carrying neither `STRICT_TRANS_TABLES`
 nor `STRICT_ALL_TABLES` and ADMITS a strict session that also carries
 `NO_BACKSLASH_ESCAPES`, and nothing else under `src/migrations/` reads the
 mode. On such a server this repair is a measured REGRESSION rather than a
@@ -431,6 +438,15 @@ A ──    ──> D
 A database at B executes only B-to-D; a database at C executes only C-to-D.
 The system never guesses that every missing branch should run.
 
+An **authored checkpoint** is the one second root a populated estate admits:
+`generate({ from: null })` whose transition creates, from empty, exactly the
+schema of the estate's single leaf (field and model order aside), checked at
+generation. It is authored by name, never inferred from a final snapshot.
+`prune` copies the checkpoint, every state after it, and every parent those
+name into a fresh storage (`graph.ts` `statesFrom`); the source is never
+changed, so storage stays append-only. A marker naming a dropped state moves
+onto the checkpoint through `reanchor`, with baseline's live-equality proof.
+
 The default target is the unique leaf. Multiple leaves require an explicit
 target. State selectors use a full ID, unambiguous prefix, or unambiguous name.
 Multiple routes require an explicit `via`; no timestamp, filename, equal
@@ -516,14 +532,19 @@ composition owner and delegates the six directed DateTime SQL spellings to
 member of the source vocabulary and that the target decodes to the same
 millisecond; null remains null, and malformed, out-of-range, or inexact data
 aborts the recreation instead of being rounded or reinterpreted. TEXT parsing
-mirrors the public timestamp grammar: a real proleptic-Gregorian date, hour
-`00` through `23`, minute and second `00` through `59`, and `Z` or a signed
-offset through `±23:59`. It imports the exact inclusive epoch bounds for
+uses the stored-text grammar (`ISO_TIMESTAMP_SHAPES`): the public timestamp
+grammar — a real proleptic-Gregorian date, hour `00` through `23`, minute and
+second `00` through `59`, and `Z` or a signed offset through `±23:59` — plus
+SQLite's own zone-less `YYYY-MM-DD HH:MM:SS[.f{1,3}]`, read as UTC (decision
+4). The client's input grammar (`validateIsoTimestamp`) does not admit the
+zone-less form. A same-form unmarked TEXT adoption validates against this
+grammar and keeps the spelling; `check --db` counts it. It imports the exact inclusive epoch bounds for
 `0000-01-01T00:00:00.000Z` through `9999-12-31T23:59:59.999Z` from
 `datetime-values.ts`; do not hand-copy those numbers. Offset arithmetic stays
 integer-owned here rather than delegated to SQLite's `julianday`, whose accepted
 offset range is narrower. Fractional seconds consume only their one to three
-digits before the `Z` or signed-offset suffix; offset digits are never part of
+digits before the `Z` or signed-offset suffix, or the end of a zone-less value;
+offset digits are never part of
 the millisecond. A TEXT target must fit the same domain.
 
 LibSQL's native `ALTER COLUMN` does not convert stored values, so every
@@ -546,7 +567,13 @@ relation-free D1 table can still use the guarded recreation.
 6. compile every parent-specific transition completely;
 7. compute all hashes and return the complete candidate for `dryRun`;
 8. otherwise publish snapshot and SQL bytes first, then publish the state
-   manifest as the sole visibility boundary.
+   manifest as the sole visibility boundary. A `lowLock` generate (PostgreSQL,
+   T5b) seals its step states together with the final state before anything
+   publishes, then publishes them in parent order, each manifest after its own
+   snapshot and SQL. Only a storage failure between two manifests can leave a
+   published prefix, each a complete state, and
+   `generate({ lowLock: true, from: <origin> })` completes it with identical
+   state ids.
 
 Manual work enters only through `GenerateOptions.manualMigration`. It supplies
 complete parent transitions and destination checks before generation. The
@@ -579,11 +606,28 @@ state remains distinct from total absence. Only the bootstrap owner may drop
 and recreate it; push and every other command refuse it. A colliding or
 malformed empty table, a state table with a marker, or a log-only shape remains
 corrupt partial history. `readControlState` is the one reader: it authenticates
-a present pair once before returning marker and ledger truth. Transactional
-apply, baseline, and reset perform a required bootstrap inside their first real
-effect/publication transaction, so a failed first migration cannot leave new
-control tables behind. Stepwise providers retain the recoverable bootstrap
-protocol.
+a present pair once before returning marker and ledger truth. It returns every
+event by default (`log()`); a command that needs only the open attempts and the
+latest `failed` event passes `{ ledger: "open" }` (plan D5), and without a
+marker every event is read regardless. Events come back in causal order: by
+time, then within one millisecond attempt by attempt (the earliest opened, then
+along the state chain, then attempt id), and within an attempt its start,
+steps, close. On PostgreSQL the pair is authenticated by one catalog read of
+the two control tables (columns, constraints, index count, triggers, rules,
+policies, row security), never by introspecting the namespace. Apply,
+baseline, and reset perform a required bootstrap under their lock before their
+first effect or publication (baseline: before its live proof). On PostgreSQL it
+commits on its own (`commitLockedTransaction`): PlanetScale's Neki plans a
+statement against the schema committed before its transaction, so the marker
+and ledger writes could not see tables made in theirs. The lock is let go
+between the two transactions, so what follows re-reads the marker
+(`assertLockedSinceDecision`) and proves the destination as always. `down`
+commits the same way before it asks its `resolve` callback: no migration
+transaction waits on the caller's work, which would idle past `idleTimeout`.
+On SQLite the bootstrap shares the first transaction. A failed first apply
+leaves only the control tables and its `failed` ledger event, written in a
+transaction of its own after the rollback (plan S3). Stepwise providers retain the recoverable
+bootstrap protocol.
 
 `apply-v1.ts` owns forward application. Before effects it authenticates the
 complete selected graph, path, state manifests, snapshots, SQL blobs, ranges,
@@ -594,26 +638,98 @@ dispatches, and parameters. Under one pinned target lock it then:
 3. selects from the actual marker;
 4. proves the live schema matches the marker's authenticated snapshot;
 5. executes only authenticated SQL slices with typed parameters;
-6. proves operation postconditions and the final target fingerprint;
+6. proves operation postconditions and the final target fingerprint; inside a
+   real transaction a group proves only its authored checks per edge and its
+   final fingerprint once;
 7. compare-and-swaps the marker and appends ledger evidence;
 8. releases the lock on the same physical producer.
 
+On PostgreSQL a no-op `apply` is proven before the lock (plan D5, decision 7):
+the control catalog read, then one statement that reads the marker, the open
+attempts and the catalog digest in one snapshot, provided
+`pg_try_advisory_xact_lock` on the migration key succeeds (released with the
+statement). A marker at the target with nothing open answers `noop` when its
+digest equals `fingerprintDeparsed` of the marked snapshot. That digest reads
+partial-index predicates as the server deparses them (`pg_get_expr`, `$6`).
+`fingerprintDeparsed` is `fingerprintSnapshot` with each partial-index
+predicate replaced by the text recorded beside the marker. The record is
+written only by a forward `apply` on PostgreSQL: `assertFingerprint` returns
+the predicates its destination-proof introspection read, and `casMarker`
+stores them in the marker row as `predicates`. `readPostgresDecision` is its
+only reader. Every other command writes a marker without it, and a marker
+without the record, or missing one predicate, is decided under the lock.
+Anything else, including another command holding the lock or an abstaining
+digest, is decided again under the lock.
+
+On SQLite, every program that runs manual SQL — a forward transition with a
+manual operation, a `manual` rollback, and `resolve` completing a manual
+transition — calls `canonicalizeSqliteStorage` (`sqlite-storage-audit.ts`)
+inside its transaction after the SQL and before checks, fingerprint and marker
+compare-and-swap. It rewrites text DateTime/Time columns (scalar and JSON list)
+into canonical text and checks decimal-list members. A row it cannot rewrite
+aborts with V11014. Scalar DateTime and decimal lists come from the destination
+snapshot; Time columns and DateTime lists come from the client's models,
+matched by table, column and physical type.
+
 Transactional providers keep effects, final proof, marker, and success evidence
-inside the real transaction when the complete transition permits it. Stepwise
+inside the real transaction when the complete transition permits it. Inside a
+real transaction a group runs its dispatches unprobed and writes no `started`
+or `step-confirmed` rows; its rollback is the proof. Its last state is proven
+once, the marker moves once (one revision per edge), and one statement appends
+every edge's `applied` event. A failure is recorded as one `failed` event
+against the edge that was running. Stepwise and MySQL work keeps per-step
+probes and progress rows. Stepwise
 providers record durable progress and honest `partial` or
 `may-have-committed` outcomes. An ambiguous opaque dispatch blocks later work;
 the system never claims rollback merely because code opened a nominal
 transaction.
 
+**Neon HTTP (plan D7).** A PostgreSQL driver that cannot pin a session, but
+whose native batch acknowledges its commit (`runsMigrationBatches`,
+`pinned-session.ts`; Neon HTTP), is admitted for `apply` only (admission
+requirement `batch`); every other effectful command stays V8002. The command
+reads its decision without a lock: the pre-lock no-op proof, then the marker,
+the unfinished attempts, the namespace and the drift proof, each as an
+ordinary request; the drift proof's predicate canonicalization sends each pass
+(create, read, drop its scratch views) as one request, since separate requests
+may land on separate sessions. A stepwise transition is refused while the path
+is prepared (V11021). A missing control-table pair is created before the first
+request, as plain statements. Each transactional group is then ONE request,
+recorded by `openMigrationBatch` and sent with `_executeBatch`: the `SET LOCAL`
+limits; the bounded `pg_try_advisory_xact_lock` loop (V11005);
+`markerUnmovedCondition`, the SQL form of `assertLockedSinceDecision` (V11015);
+the group's dispatches, with each authored check as `checkCondition` (V11014;
+a check of other than one column fails the request, V11001); the catalog
+digest IS NOT NULL (V11021, an abstention such as a partial index) and equal
+to `fingerprintSnapshot` of the destination (V11014); `markerWrite`; one ledger
+INSERT. An assertion leaves a `P0Vxx` SQLSTATE in a transaction-local setting,
+and a parameterless DO block raises it; `send` maps that SQLSTATE back to the
+refusal, because the message does not survive diagnostics redaction. A reply
+lost before the commit was acknowledged is decided by `commitLanded`, which on
+this transport reads the marker through `readPostgresDecision(…,
+migrationLockFree(command))`: at the target the outcome is `applied`; a held lock or
+an unreadable marker is V11020; otherwise a `failed` event (one INSERT) is
+written and the transport failure returned.
+
 `operators.ts` owns the operator workflows. `status`, `verify`, and `log` are
 read-only. `baseline` requires exact live equality and a provable structural
 root path; it publishes the marker and `baselined` event in one transaction
-when the producer can. `down` preflights every reverse program, appends
+when the producer can. `reanchor` reuses that proof and publish when a restore
+left the marker on a state the history lacks: it moves the marker, at revision
++ 1, onto the one history state the live schema matches, with a `reanchored`
+event, and refuses a target on the old marker's own path (the lost suffix only
+moved data). `prune` is offline: it copies a checkpoint's kept states into
+fresh storage and touches no database. `down` preflights every reverse program, appends
 `started` before the first rollback dispatch, records step progress, and uses
 the same transaction wrap as apply. An unfinished rollback can only be resumed
 by `down()`. `resolve` accepts only outcomes established by origin/destination
 proof; generated structural opacity may complete from a fingerprint, while
-manual opaque work still needs state checks. `reset` preloads and authenticates
+manual opaque work still needs state checks. `resolve('rolled-back')` refuses
+while a manual opaque step of the attempt committed or may have committed;
+`apply` starts again when no marker exists and every attempt is closed by
+failed, rolled-back or resolved. `down` asks before a generated destructive
+rollback touches a table that holds rows (an absent table holds none); manual
+rollbacks are not asked again. `reset` preloads and authenticates
 the complete clear-and-replay program before the first drop, classifies every
 replay transition before clearing, and executes contiguous transactional replay
 groups in real transactions without letting one stepwise edge flatten the whole
@@ -695,7 +811,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Invariant or action | One owner |
 | --- | --- |
 | Domain-separated SHA-256 identity | `identity.ts` |
-| Live physical fingerprint | `push-fingerprint.ts` `fingerprintLive` |
+| Live physical fingerprint | `push-fingerprint.ts` `fingerprintLive`; on PostgreSQL `drivers/postgres/catalog-digest.ts` computes the same hash in one statement from introspection's own catalog sources and abstains where SQL cannot reproduce a fact exactly (some literal defaults, and partial-index predicates unless asked for them as deparsed, `$6`; only the pre-lock no-op asks, and compares with `fingerprintDeparsed`). A change to `fingerprintSnapshot`, `normalizeType`, `normalizeDefault`, `cleanDefault`, `selectManagedSnapshot` or the introspection sources must change the digest with it; `postgres-catalog-digest*.test.ts` prove equality, and a live divergence surfaces as V9001 from `assertFingerprint`. |
 | Operation execution order | `utils.ts` `sortOperations` |
 | Generated schema compile order | `utils.ts` `prepareSchemaProgram` |
 | Table drop order, its delete-action rule and the refusal of drops no order satisfies | `drop-order.ts` `orderTableDrops`; namespace reset shares only its `childrenBeforeParents` rule |
@@ -716,7 +832,7 @@ dependency-safe clear are compiled before anything is dropped.
 | Live transaction wrap predicate | `pinned-session.ts` `mayWrapTransaction` |
 | Authenticated forward execution | `apply-v1.ts` |
 | Offline estate integrity findings | `check.ts` |
-| Status, verification, history display, rollback, baseline, recovery, and history-aware reset | `operators.ts` |
+| Status, verification, history display, rollback, baseline, re-anchor, prune, recovery, and history-aware reset | `operators.ts` |
 | Push consent identity and history interlock | `push-v1.ts` |
 | History-free dialect-aware live planning/execution | `push/index.ts` |
 | Capability-sensitive migration client composition | `client.ts` |
@@ -783,6 +899,8 @@ log
 apply
 down
 baseline
+reanchor
+prune
 resolve
 reset
 push
@@ -804,7 +922,8 @@ constructors are utilities, not alternate execution roots.
 The following concepts are removed and must not return under aliases:
 
 - a **journal**, mutable global manifest, mutable head, or timestamp order;
-- **squash** or inferred history compaction;
+- **squash** or inferred history compaction (an authored checkpoint is
+  neither: see One graph);
 - a public or internal orchestration class named **`MigrationContext`**;
 - path-level storage **`get` / `put` / `delete`**;
 - **`parseStatements`**, breakpoint/comment parsing, or any SQL parser service;
@@ -842,7 +961,7 @@ journal migrator.
 | Change marker, ledger, control tables, or CAS | `control.ts` | `v1-parse.ts`, `pinned-session.ts` |
 | Change forward application | `apply-v1.ts` | `graph.ts`, `control.ts`, `compile.ts` |
 | Change offline integrity reporting | `check.ts` | `graph.ts`, storage inventories |
-| Change rollback, baseline, recovery, or reset workflow | `operators.ts` | `control.ts`, `live-reset.ts`, `apply-v1.ts` |
+| Change rollback, baseline, re-anchor, prune, recovery, or reset workflow | `operators.ts` | `control.ts`, `live-reset.ts`, `apply-v1.ts` |
 | Change push consent or migration-marker coexistence | `push-v1.ts` | `control.ts`, `identity.ts` |
 | Change live push planning | `push/index.ts` | `push/planner.ts`, `differ.ts`; never estate storage |
 | Change target admission, qualification, locking, or clear behavior | `admission.ts`, `target.ts`, `pinned-session.ts`, or `live-reset.ts` respectively | bound migration drivers |
@@ -891,9 +1010,10 @@ imports. Live DDL and external-provider behavior remain in provider projects.
 ## Core Estate Exception
 
 `layer-migrations` runs every `.core.test.ts` under `tests/unit/migrations`,
-and core doctrine keeps that lane free of live provider processes. Five of the
-112 core contracts hold a named exception because what they assert is a
-property of a real database rather than of rendered SQL:
+and core doctrine keeps that lane free of live provider processes. A few core
+contracts hold a named exception because what they assert is a property of a
+real database rather than of rendered SQL; `scripts/coverage-policy.test.mjs`
+holds the complete list, and these are the main ones:
 
 | File | Live evidence it owns |
 |---|---|
@@ -901,6 +1021,9 @@ property of a real database rather than of rendered SQL:
 | `read-only-tracking.core.test.ts` | Control presence read by `status` before and after `apply` |
 | `v1-apply.core.test.ts` | Marker arrival, committed state, and control-bootstrap recovery and rollback after an applied transition |
 | `v1-operators.core.test.ts` | `down`, `reset`, `status`, and `baseline` against real applied state |
+| `marker-predicates.core.test.ts` | The `predicates` record `casMarker` writes beside the marker, read back by `readControlState`, and its refusals |
+| `v1-reanchor.core.test.ts` | `reanchor` after a restore left the history older than the marker, and each of its refusals |
+| `v1-checkpoint.core.test.ts` | A 200-state history checkpointed, pruned and re-anchored against real applied state, and the checkpoint's refusals |
 | `v1-push.core.test.ts` | Consent staleness after an external change, cross-driver consent, transactionless apply, and SQLite introspection readback |
 
 The exception is exactly one engine: an in-process `better-sqlite3` database,

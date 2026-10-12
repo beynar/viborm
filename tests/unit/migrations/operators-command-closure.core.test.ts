@@ -1,4 +1,5 @@
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
+import { SQLITE_MIGRATION_CAPABILITY } from "@drivers/driver";
 import { VibORMErrorCode } from "@src/errors";
 import { canonicalizeJsonText } from "@src/migrations/canonical-json";
 import { markerFromPath } from "@src/migrations/control";
@@ -54,14 +55,15 @@ const OK_ROW = [{ ok: 1 }];
  *
  * `viborm/driver` exports the `Driver` base class, so this is a shape a
  * consumer can ship, and it is the only way to reach the untransacted arms of
- * `resolve()`. The estate fixture's own D1 substrate cannot stand in: SQLite
- * live-capability admission refuses every effectful command on a driver named
- * `d1` or `libsql`, and it judges the EXECUTION driver's name — so an unlisted
- * name is admitted and resolves its migration driver through the registry's
- * dialect default, exactly as any custom driver does.
+ * `resolve()`. The estate fixture's own D1 substrate cannot stand in: it
+ * declares no SQLite migration capability, so effectful commands refuse on it.
+ * This one declares the capability, which is what binds an unlisted name to
+ * the sqlite3 migration implementation and admits it, exactly as any custom
+ * driver does.
  */
 class UntransactedSqliteDriver extends RecordingDriver {
   override readonly supportsTransactions = false;
+  override readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
 }
 
 function untransactedEstateDriver(): RecordingDriver {

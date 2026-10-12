@@ -1,0 +1,239 @@
+---
+title: Per-Tenant Schemas from Durable Objects
+description: Give each tenant its own database and schema, and change that schema at runtime from the tenant's Durable Object
+icon: layers
+---
+
+This guide puts together the pieces for one setup: each tenant has its own
+PostgreSQL database (or schema), its own model graph stored as a
+[schema document](/docs/schema/json), and a Durable Object that owns both. The
+schema changes at runtime, through an API call into that object, which
+generates and applies the migration. There is no CI step and no migration
+directory.
+
+## The Shape
+
+| Piece | Where it lives | Page |
+|-------|----------------|------|
+| The tenant's schema | A [schema document](/docs/schema/json#one-document-per-tenant), stored as text by your app | [Schema documents](/docs/schema/json) |
+| The migration history | The object's own storage, or an R2 prefix per tenant | [Durable Object storage](/docs/migration/storage/durable-object), [R2](/docs/migration/storage/r2) |
+| The marker and ledger | The tenant's database | [Migrate](/docs/migration/migrate) |
+| Schema changes | `createTenantMigrator`, one per object | [Tenant migrator](/docs/migration/tenant-migrator) |
+| Queries | A client per request, over the cached parsed schema | [The untyped client](/docs/schema/json#the-untyped-client) |
+
+VibORM keeps **no tenant registry**. It never creates a database or a
+PostgreSQL schema, never discovers tenants, never switches a client between
+tenants and never caches a client per tenant. Routing a request to its tenant's
+object (`idFromName`), provisioning the database and storing the documents are
+your app's. When tenants share one PostgreSQL database, one schema each, give
+each client its `namespace`: see
+[independent schema estates](/docs/drivers/namespaces#postgresql-independent-schema-estates).
+Migrations of all the schemas in one database then serialize on one lock.
+
+## The Object
+
+```ts
+import { DurableObject } from "cloudflare:workers";
+import { Pool } from "pg";
+import { createMigrationClient, type MigrationDecision } from "viborm/migrations/postgres";
+import { createDurableObjectStorageWriter } from "viborm/migrations/storage/durable-object";
+import { createTenantMigrator } from "viborm/migrations/tenant";
+import { createClient } from "viborm/pg";
+import { parseSchema, type Schema } from "viborm/schema/json";
+
+interface Env {
+  /** The tenant database's direct endpoint, not a pooler. */
+  TENANT_DATABASE_URL: string;
+}
+
+// One parsed schema per (tenant, document hash). An isolate can host several
+// objects, so the map is shared and the key names the tenant.
+const schemas = new Map<string, Schema>();
+
+async function parseCached(tenant: string, text: string): Promise<Schema> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const key = `${tenant}:${hash}`;
+  let schema = schemas.get(key);
+  if (!schema) {
+    schema = parseSchema(text, { validate: true });
+    schemas.set(key, schema);
+  }
+  return schema;
+}
+
+export class Tenant extends DurableObject<Env> {
+  tenant = this.ctx.id.toString();
+  pool = new Pool({ connectionString: this.env.TENANT_DATABASE_URL, max: 2 });
+  history = createDurableObjectStorageWriter(this.ctx.storage);
+  migrator = createTenantMigrator({
+    client: createClient({ pool: this.pool, schema: {} }),
+    history: this.history,
+    limits: { statementTimeout: 15_000 },
+  });
+
+  /**
+   * Migrations run one at a time. The migrator queues its own calls, but the
+   * alarm's client is another one, so both go through this queue.
+   */
+  queue: Promise<unknown> = Promise.resolve();
+  serial<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(run);
+    this.queue = result.catch(() => undefined);
+    return result;
+  }
+
+  /** The API call that changes the tenant's schema. */
+  changeSchema(text: string, decisions: MigrationDecision[]) {
+    return this.serial(async () => {
+      const result = await this.migrator.change(await parseCached(this.tenant, text), {
+        decisions,
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (result.kind === "applied" || result.kind === "noop") {
+        await this.ctx.storage.put("document", text);
+      }
+      return result;
+    });
+  }
+
+  /** A client per request is cheap: it reuses the parsed schema's caches. */
+  async db() {
+    const text = await this.ctx.storage.get<string>("document");
+    if (text === undefined) throw new Error("This tenant has no schema yet");
+    return createClient({
+      pool: this.pool,
+      schema: await parseCached(this.tenant, text),
+      skipSchemaValidation: true,
+    });
+  }
+
+  /** Runs a change refused in-request as too large; see "Large changes". */
+  async alarm() {
+    const migrations = createMigrationClient(createClient({ pool: this.pool, schema: {} }), {
+      storage: this.history,
+      limits: { largeTableRows: 0, statementTimeout: 0 },
+    });
+    await this.serial(() => migrations.apply());
+  }
+}
+```
+
+`pg` needs the Worker's `nodejs_compat` flag, and the object class must be
+SQLite-backed (`new_sqlite_classes`); see
+[Durable Object storage](/docs/migration/storage/durable-object). Call
+`change` from a request or an alarm, never from the constructor or inside
+`blockConcurrencyWhile`.
+
+## Documents, Field Order and Caching
+
+- **Store each document as text, with its key order.** Field order is not part
+  of a state's identity: a document that only reorders fields or models is a
+  `noop` and publishes nothing. But the next table a reordered document
+  creates takes the new column order, so keep the text, or `json`, never
+  PostgreSQL `jsonb`, which reorders keys.
+- **Parse once per document.** Cache one parsed `Schema` per (tenant, document
+  hash), validated once, and build every client over it with
+  `skipSchemaValidation: true`, as above. Key the cache by tenant too: one
+  isolate can run several objects.
+- **Keep every document and its decisions outside the object too**, in order.
+  A history restored from a backup can then be regenerated with identical ids
+  (see [Restores](#restores)).
+
+The history's parsed artifacts are cached per isolate as well, keyed by their
+own content hash, never by tenant: see
+[storage caching](/docs/migration/storage#caching).
+
+## Outcomes
+
+`change` never throws: it returns `applied`, `noop`, `refused`, `failed` or
+`ambiguous`, as plain data that crosses RPC intact. What each one means, the
+codes behind it and what to do next are on the
+[tenant migrator page](/docs/migration/tenant-migrator#outcomes). In short:
+
+- **`applied`, `noop`:** store the document as the tenant's current one.
+- **`refused`:** nothing changed. Answer the question it names (a rename, an
+  enum mapping or a destructive change needs a `decisions` entry) and send the
+  document again. `V8002` names the transport instead: see
+  [transports](#transports).
+- **`failed`:** the change did not reach its schema, but its state may be
+  published and the next `change` applies it first. Remove the cause before
+  anything else: repair the drift, or run a too-large change from the alarm.
+- **`ambiguous`:** read `status()`. When the marker is the state you asked for
+  and nothing is `unfinished`, the change landed; otherwise finish it by hand
+  and call `resolve()`.
+
+Destructive changes need an approval in `decisions`, and `beforeDestructive`
+lets you take a restore point first, such as a database branch: see
+[destructive changes](/docs/migration/tenant-migrator#destructive-changes).
+
+## Large Changes
+
+On PostgreSQL, a change that rewrites or scans a table above
+`limits.largeTableRows` (default 1,000,000 rows, by the planner's estimate) is
+refused before any statement, with `V11009` naming the operation and the table
+(see [large tables](/docs/migration/migrate#large-tables)). The state it refused
+stays published. Run it from the object's alarm, as `alarm()` above does, with
+the limit lifted and no statement timeout: `ctx.storage.setAlarm(Date.now())`
+from the request that got the refusal. The alarm only applies published states
+and generates none. Its client does not share the migrator's queue, so the
+example puts both on the object's own `serial` queue: a `change` sent while the
+alarm runs waits for it, and its 20 s signal starts only when its turn comes.
+Send any `down` or `resolve` through `serial` too. A throwing alarm is retried
+by the platform.
+
+## Transports
+
+Effectful migrations need a session that holds the migration lock and the
+marker's compare-and-swap.
+
+| Transport | Migrations |
+|-----------|------------|
+| `pg` (`viborm/pg`) to the direct endpoint | Supported. |
+| A Neon WebSocket `Pool` passed to `viborm/pg`, direct endpoint | Supported; qualified against hosted Neon from a Worker on 2026-10-11. See [Neon WebSocket Pool](/docs/drivers/postgresql/pg#neon-websocket-pool). |
+| Neon HTTP (`viborm/neon-http`) | `change` (its `apply`) only, one HTTP request per transactional group. A lost response is decided by re-reading the marker, and is `ambiguous` (`V11020`) only when it cannot be: read `status()`. Stepwise and `CONCURRENTLY` steps, and a destination with a partial index, are refused (`V11021`); `resolve`, `down` and `reanchor` (so the switch to a pruned history) need a session transport (`V8002`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations). |
+| Hyperdrive, a Neon `-pooler` host | Refused with `V8002` (`change` is `refused` before it publishes anything), unless you attest `migrationSessionAttestation: "dedicated-session"`. See [migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler). |
+| D1 | Effectful migrations refused. See [provider limits](/docs/migration/migrate#provider-limits). |
+
+Application queries may use any of them, including a pooler.
+
+## Push or Migrations
+
+Use migrations, not `push`, for tenants. `push` keeps no history, and the two
+cannot be mixed on one database: a non-empty `push` against a database that has
+a migration marker is refused (see
+[push does not create history](/docs/migration/migrate#push-does-not-create-history)).
+A tenant database created with `push` is adopted with
+[`baseline`](/docs/migration/migrate#baseline-an-existing-database), once a
+state of its history matches it exactly.
+
+## Restores
+
+The history lives in the object, the marker in the tenant's database: restore
+both to matching points when you can.
+
+- **The database restored behind the history:** the next `change` applies the
+  states it lacks.
+- **The history restored behind the database:** `change` returns `failed` with
+  `V11002`, and `status().markerState` is `"ahead"` (or `"unknown"` for a wiped
+  history). Send each document since the restore point again, in order, with
+  its decisions: the same VibORM version reproduces the lost states' ids. When
+  the documents are gone, an operator calls `reanchor()`, which moves the
+  marker to the one state that matches the live schema, or refuses.
+
+The details and the refusals are under
+[tenant migrator restores](/docs/migration/tenant-migrator#restores) and
+[history older than the database](/docs/migration/migrate#history-older-than-the-database).
+
+## History Growth
+
+Each change adds one state to the tenant's history, and every command lists the
+states and reads the artifacts it needs. Each artifact is one row of the
+object's storage (2 MB at most), and the parse cache holds 8 MiB, about a
+200-state history of twenty 15-column tables. Past that, commands still work
+but parse every artifact. Bound a long history with an authored checkpoint (a
+transition from no state to the current schema), pruned into a second history
+under a key prefix of the object's storage; the marker is then re-anchored onto
+the checkpoint. See
+[the tenant migrator's bounded history](/docs/migration/tenant-migrator#bounded-history)
+and [Bounded History with Checkpoints](/docs/migration/migrate#bounded-history-with-checkpoints).

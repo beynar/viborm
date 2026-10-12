@@ -18,7 +18,9 @@ export interface MigrationCapabilities {
 
   /**
    * Whether ALTER TYPE ... ADD VALUE can run inside a transaction.
-   * - PostgreSQL: false (must run outside transaction)
+   * - PostgreSQL: true (12+; the new value is usable only after commit, so
+   *   compile.ts `groupContiguousAtomicity` ends the commit group there)
+   * - MySQL: false (MODIFY COLUMN commits implicitly)
    * - SQLite: N/A (no native enums)
    */
   supportsAddEnumValueInTransaction: boolean;

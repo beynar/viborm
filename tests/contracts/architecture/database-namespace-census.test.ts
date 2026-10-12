@@ -89,10 +89,6 @@ const NO_MIGRATION_CONTEXT_EXPORTS: string[] = [];
  * ledger I/O belong to `control.ts`.
  */
 const ADMITTED_LIVE_EXECUTION_OWNERS = [
-  // `check --db` (2026-10-09): read-only SQLite storage audit on the configured
-  // client's own driver. SQLite has no namespace to route, and the audit runs
-  // no migration program.
-  "src/cli/commands/check.ts executeRaw 2",
   "src/cli/commands/push.ts executeRaw 1",
   // apply-v1.ts and operators.ts, and the second sites in push-plan.ts and
   // reset-v1.ts, were admitted 2026-08-31 after auditing each one: every call
@@ -101,13 +97,43 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // session. None opens a parallel driver path, so §12.13 holds. The list had
   // drifted because it still named src/migrations/apply/index.ts, which became
   // apply-v1.ts, and because operators.ts did not exist when it was written.
-  "src/migrations/apply-v1.ts executeRaw 1",
-  "src/migrations/control.ts executeRaw 18",
+  // D7 (1.2.0): on a sessionless batch transport the marker write goes to
+  // the group's recording producer (`openMigrationBatch`), which appends it to
+  // the one request instead of executing it.
+  "src/migrations/apply-v1.ts executeRaw 2",
+  // S7 (1.2.0): status() lists INVALID PostgreSQL indexes with one read-only
+  // catalog query on the producer its caller hands it.
+  "src/migrations/catalog-probes.ts executeRaw 1",
+  // S7 (1.2.0): control authentication no longer interprets managed tables;
+  // its two scoped reads became one.
+  "src/migrations/control.ts executeRaw 17",
+  // Consolidation (1.2.0): MySQL's interrupted exact-decimal recovery plan is
+  // the dialect's own `programPreamble`, reading on the producer the
+  // sequential program hands it (the pinned session). It moved here out of
+  // the shared operators; no new path opens.
+  "src/migrations/drivers/mysql/index.ts executeRaw 1",
+  // D5 (1.2.0): the PostgreSQL catalog digest, one read-only statement on the
+  // producer its caller hands it (the pinned session, or the pre-lock no-op
+  // proof's own read).
+  "src/migrations/drivers/postgres/catalog-digest.ts executeRaw 1",
   "src/migrations/execute-dispatch.ts executeRaw 2",
-  "src/migrations/foreign-keys.ts executeRaw 3",
-  "src/migrations/live-reset.ts executeRaw 4",
+  // S10 (1.2.0): the verified foreign-key lift reads `PRAGMA foreign_keys`
+  // back after each toggle, and its execution view runs each `DROP TABLE`
+  // between two counts of the referencing tables, all on the pinned session
+  // or the transaction it opened.
+  "src/migrations/foreign-keys.ts executeRaw 8",
+  // Compression (1.2.0): the unused `executeLiveNamespaceReset` executor and
+  // its four `executeRaw` sites were deleted; the plan's `clear` statements now
+  // run through the reset and push programs' own dispatch.
   "src/migrations/live-reset.ts queryExecutorFactory 1",
-  "src/migrations/operators.ts executeRaw 6",
+  // S7 (1.2.0): resolve repairs the attempt's own INVALID index on `pinned`.
+  // 1.2.0: down's loss approval reads whether a table holds rows
+  // (`LIMIT 1`) on the producer under the lock.
+  // D4b (1.2.0): `down({ dryRun: true })` runs down's read-only schema
+  // preflight on the unlocked producer it previews from.
+  // T3 (1.2.0): reanchor runs the chosen state's schema preflight on
+  // `pinned`, under the lock, as baseline does.
+  "src/migrations/operators.ts executeRaw 8",
   // §3.5's pinned-session owner: target selection, the command-view catalog
   // read, and the sequential program's recording view. Exact-decimal migration
   // recovery adds two sites in THIS SAME owner: its catalog read and execution
@@ -115,15 +141,29 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // remain here too: strict-mode proof, lock acquisition, and lock release.
   // The manifest counts sites so a new parallel path is red even when it is
   // added to an already admitted file.
-  "src/migrations/pinned-session.ts executeRaw 5",
-  "src/migrations/pinned-session.ts queryExecutorFactory 3",
+  // S1 (1.2.0): the session's time limits are set once it is reserved and
+  // reset before it goes back, both on the pinned view itself.
+  // Consolidation (1.2.0): MySQL's strict-mode proof moved into the dialect's
+  // `proveSession`, which reads through the catalog reader this owner hands
+  // it, so one query executor left this file.
+  "src/migrations/pinned-session.ts executeRaw 7",
+  "src/migrations/pinned-session.ts queryExecutorFactory 2",
   "src/migrations/push-fingerprint.ts executeRaw 2",
   // Selected-table population proof uses the handed producer and its adapter's
   // qualified identifier before refusing an unsafe required-column addition.
-  "src/migrations/push-plan.ts executeRaw 3",
+  // S11 (1.2.0): push preflights its compiled program on the handed producer,
+  // so SQLite refuses a rebuild that would lose a trigger or view.
+  // engine-06 (1.2.0): push reads each to-one polymorphic slot once
+  // (`LIMIT 1`) for an undeclared stored value, on the handed producer.
+  "src/migrations/push-plan.ts executeRaw 5",
   "src/migrations/push/planner.ts executeRaw 2",
   // The added catalog probe uses the pinned producer and bound probe parameters.
   "src/migrations/reset-v1.ts executeRaw 3",
+  // S12 (1.2.0): the SQLite storage audit moved here from `check --db` and is
+  // exported as auditStorage: its catalog read and its count are read-only and
+  // run on the caller's driver. The post-transition rewrite runs through
+  // execute-dispatch's executeExactSql on the pinned producer.
+  "src/migrations/sqlite-storage-audit.ts executeRaw 2",
   "src/migrations/utils.ts executeRaw 1",
 ];
 

@@ -606,7 +606,7 @@ it("refuses only desired view collisions using the catalog-proven MySQL namespac
     foreignKeys: [],
   };
   await expect(
-    BILLING.preflightSchemaRequirements([{ tables: [table] }], reader.read)
+    BILLING.preflightSchemaRequirements([{ tables: [table] }], reader.read, [])
   ).rejects.toMatchObject({
     code: "V11009",
     message: expect.stringContaining("view"),
@@ -618,7 +618,8 @@ it("refuses only desired view collisions using the catalog-proven MySQL namespac
   await expect(
     BILLING.preflightSchemaRequirements(
       [{ tables: [{ ...table, name: "selected" }] }],
-      reader.read
+      reader.read,
+      []
     )
   ).resolves.toBeUndefined();
 });

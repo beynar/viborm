@@ -28,6 +28,7 @@ import type { MigrationTarget } from "./types";
 import { parseDispatch } from "./v1-parse-dispatch";
 import { exactObject, parseFormat, refuse } from "./v1-parse-shared";
 import type {
+  MigrationApprovalV1,
   MigrationBooleanCheckV1,
   MigrationEstateDescriptorV1,
   MigrationOperationV1,
@@ -64,6 +65,7 @@ const MANUAL_ROLLBACK_KEYS = [
 ] as const;
 const IRREVERSIBLE_KEYS = ["kind", "reason"] as const;
 const PARENT_KEYS = [
+  "approvals",
   "fromState",
   "operations",
   "originChecks",
@@ -90,13 +92,22 @@ const STATE_HASH_KEYS = [
   "snapshotHash",
   "sqlHash",
 ] as const;
+const PARENT_REQUIRED_KEYS = PARENT_KEYS.filter((key) => key !== "approvals");
 const TRANSITION_HASH_KEYS = [
+  "approvals",
   "fromState",
   "operations",
   "originChecks",
   "requestedForwardBoundary",
   "rollback",
 ] as const;
+const APPROVAL_KEYS = ["column", "operation", "table"] as const;
+const APPROVAL_OPERATIONS: readonly MigrationApprovalV1["operation"][] = [
+  "addColumn",
+  "alterColumn",
+  "dropColumn",
+  "dropTable",
+];
 
 function parseManagedTables(value: unknown, label: string): readonly string[] {
   try {
@@ -315,12 +326,51 @@ function parseRollback(value: unknown, label: string): MigrationRollbackV1 {
   refuse(`${label}.kind is not a V1 rollback`);
 }
 
+/** Absent, never empty: one encoding for "no destructive change". */
+function parseApprovals(
+  value: unknown,
+  label: string
+): readonly MigrationApprovalV1[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    refuse(`${label} must be a non-empty array`);
+  }
+  return value.map((entry, index) => {
+    const at = `${label}[${index}]`;
+    return parseApproval(
+      exactObject(entry, APPROVAL_KEYS, APPROVAL_KEYS, at),
+      at
+    );
+  });
+}
+
+/**
+ * One approval's fields, wherever an approval is spelled: a stored
+ * transition's, or a predefined resolver's `destructive` decision, which
+ * refuses as its own input (`refuseWith`).
+ */
+export function parseApproval(
+  fields: Readonly<Record<string, unknown>>,
+  at: string,
+  refuseWith: (message: string) => never = refuse
+): MigrationApprovalV1 {
+  const { column, operation, table } = fields;
+  const known = APPROVAL_OPERATIONS.find((name) => name === operation);
+  if (!known) refuseWith(`${at}.operation is not a destructive operation`);
+  if (!isString(table) || table.length === 0) {
+    refuseWith(`${at}.table must be a non-empty string`);
+  }
+  if (column !== null && !(isString(column) && column.length > 0)) {
+    refuseWith(`${at}.column must be a non-empty string or null`);
+  }
+  return { operation: known, table, column };
+}
+
 export function encodeTransitionHash(
   transition: Omit<MigrationParentTransitionV1, "transitionHash">
 ): Sha256 {
   const body: Record<string, unknown> = {};
   for (const key of TRANSITION_HASH_KEYS) {
-    body[key] = transition[key];
+    if (transition[key] !== undefined) body[key] = transition[key];
   }
   return domainHash(HASH_DOMAIN.transition, canonicalizeJson(body));
 }
@@ -329,7 +379,7 @@ function parseParent(
   value: unknown,
   label: string
 ): MigrationParentTransitionV1 {
-  const record = exactObject(value, PARENT_KEYS, PARENT_KEYS, label);
+  const record = exactObject(value, PARENT_KEYS, PARENT_REQUIRED_KEYS, label);
   const fromState =
     record.fromState === null
       ? null
@@ -369,6 +419,9 @@ function parseParent(
     requestedForwardBoundary: record.requestedForwardBoundary,
     operations,
     rollback,
+    ...(record.approvals === undefined
+      ? {}
+      : { approvals: parseApprovals(record.approvals, `${label}.approvals`) }),
   };
   const transitionHash = parseSha256(
     record.transitionHash,
@@ -430,6 +483,7 @@ export function parseStateManifest(
   const parents = record.parents.map((parent, index) =>
     parseParent(parent, `state.parents[${index}]`)
   );
+  // Strictly ascending, so no fromState appears twice.
   for (let i = 1; i < parents.length; i++) {
     if (
       compareFromState(parents[i - 1]!.fromState, parents[i]!.fromState) >= 0
@@ -438,12 +492,6 @@ export function parseStateManifest(
         "state manifest parents must be sorted by fromState with null first"
       );
     }
-  }
-  const seen = new Set<string>();
-  for (const parent of parents) {
-    const key = parent.fromState ?? "null";
-    if (seen.has(key)) refuse("state manifest has a duplicate parent");
-    seen.add(key);
   }
   const withoutId: Omit<MigrationStateManifestV1, "stateId"> = {
     format: parseFormat(record.format, "state manifest"),

@@ -5,62 +5,29 @@
  * dialect drivers' `generateResetSQL()`, and `push({ forceReset: true })`. They
  * disagreed — MySQL's dialect answer dropped nothing at all, and PostgreSQL's
  * enumerated `public` regardless of the estate — so this module replaces all
- * three. Migration `reset()` and force-reset push own different truths about
- * the tracking table, and that difference is a PARAMETER, never an inference
- * from whether a storage driver happens to exist.
+ * three. Migration `reset()` and force-reset push both keep the migration
+ * control pair: a clear drops neither table.
  *
  * Containment is the point: the inventory is a bound catalog read scoped to the
  * configured namespace, foreign keys inside it are dropped explicitly rather
  * than cascaded away, and nothing here issues `DROP SCHEMA`, `DROP DATABASE`,
  * or `FOREIGN_KEY_CHECKS = 0`.
  *
- * The owner is TWO calls, and the seam between them is the first effect:
  * {@link planLiveNamespaceReset} decides and renders the whole clear from
- * catalog reads, and {@link executeLiveNamespaceReset} runs it. Every refusal
- * lives in the first, so no caller's commit-model reporter can restate a
- * containment refusal as a failure part-way through a program that never began.
+ * catalog reads, before the first effect. Every refusal lives there, so no
+ * caller's commit-model reporter can restate a containment refusal as a failure
+ * part-way through a program that never began.
  */
 
 import type { AnyDriver } from "../drivers/driver";
-import { errorCause } from "../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { errorCause } from "../errors/diagnostic-safety";
+import { CONTROL_TABLES } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
 import { childrenBeforeParents, type TableReference } from "./drop-order";
 import { introspectSchema } from "./push/planner";
 import type { ForeignKeyDef, SchemaSnapshot } from "./types";
 import { createQueryExecutor } from "./utils";
-
-/**
- * What this reset does with the declared tracking table.
- *
- * - `preserve` — migration `reset()`: the table's STRUCTURE survives and only
- *   its rows are cleared, because the same command is about to replay the
- *   estate and restore them.
- * - `drop` — force-reset push: the table is an ordinary managed object of the
- *   selected namespace and goes with the rest. Push never reads or writes
- *   estate history, so it makes no history claim about the rows it removes.
- */
-export type TrackingTablePolicy = "preserve" | "drop";
-
-export interface LiveNamespaceResetPolicy {
-  readonly trackingTable: TrackingTablePolicy;
-  /**
-   * The already-normalized tracking-table name.
-   *
-   * A primitive, deliberately: the routine must not have to guess which
-   * inventoried table is special, and it must not be handed migration storage
-   * to find out. A custom-named table this command did not declare is an
-   * ordinary table here and receives no tracking-history claim.
-   */
-  readonly trackingTableName: string;
-  /** Additional tables whose structure must survive the clear. */
-  readonly preserveTables?: readonly string[];
-}
-
-export interface LiveNamespaceResetResult {
-  /** Table names dropped, in the order they were dropped. */
-  readonly dropped: string[];
-}
 
 /** One table this reset drops, and the statement that drops it. */
 interface PlannedTableDrop {
@@ -81,21 +48,16 @@ interface PlannedTableDrop {
  */
 export interface LiveNamespaceResetPlan {
   /**
-   * Every table in the configured namespace, as the inventory read them.
-   *
-   * The MEMBERSHIP answer, which is not the same as {@link dropTables}: a
-   * `preserve` policy keeps the tracking table, and the dry-run preview reports
-   * the estate it inspected.
+   * Every foreign key the estate owns, as an explicit drop, or SQLite's one
+   * deferral of them all ({@link clearForeignKeys}).
    */
-  readonly tables: string[];
-  /** The tracking-row clear, or `null` when this estate holds no such table. */
-  readonly clearTracking: string | null;
-  /** Every foreign key the estate owns, as an explicit drop. */
   readonly dropForeignKeys: string[];
-  /** The tables this policy drops, in the order they will be dropped. */
+  /** The tables this reset drops, in the order they will be dropped. */
   readonly dropTables: readonly PlannedTableDrop[];
   /** Managed enum drops, which run after the tables that use them. */
   readonly dropEnums: string[];
+  /** The whole clear, in the order it runs: keys, then tables, then enums. */
+  readonly clear: readonly string[];
 }
 
 export interface LiveNamespaceInventory {
@@ -173,12 +135,10 @@ export async function inventoryLiveNamespace(
  * @param driver - the producer to read the catalog on; the caller has already
  *   pinned and locked it where its dialect has a lock to take
  * @param migrationDriver - the estate-bound migration driver
- * @param policy - the tracking-table truth this caller owns
  */
 export async function planLiveNamespaceReset(
   driver: AnyDriver,
-  migrationDriver: BoundMigrationDriver,
-  policy: LiveNamespaceResetPolicy
+  migrationDriver: BoundMigrationDriver
 ): Promise<LiveNamespaceResetPlan> {
   const { snapshot, tables, enums } = await inventoryLiveNamespace(
     driver,
@@ -192,7 +152,7 @@ export async function planLiveNamespaceReset(
   // schema is going away, and clearing or dropping the referenced table first
   // can simply be blocked.
   if (migrationDriver.target.dialect === "mysql") {
-    assertNoInboundTrackingReference(snapshot, policy.trackingTableName);
+    assertNoInboundTrackingReference(snapshot, CONTROL_TABLES.state);
   }
 
   // Drop every foreign key the estate owns, explicitly, before any table
@@ -200,21 +160,15 @@ export async function planLiveNamespaceReset(
   // cycles and mutually-dropped tables are handled, and a dependency this
   // inventory does NOT represent aborts the operation instead of being
   // deleted with it.
-  const dropForeignKeys: string[] = [];
-  for (const { table, foreignKey } of ownedForeignKeys(snapshot, tables)) {
-    dropForeignKeys.push(
-      migrationDriver.generateDDL(
-        { type: "dropForeignKey", tableName: table, fkName: foreignKey.name },
-        { destination: "live" }
-      )
-    );
-  }
+  const dropForeignKeys = clearForeignKeys(
+    migrationDriver,
+    ownedForeignKeys(snapshot, tables)
+  );
 
-  const preserved = new Set<string>(policy.preserveTables ?? []);
-  if (policy.trackingTable === "preserve") {
-    preserved.add(policy.trackingTableName);
-  }
-  const droppable = tables.filter((name) => !preserved.has(name));
+  // The control pair survives every clear: its structure is the history.
+  const droppable = tables.filter(
+    (name) => name !== CONTROL_TABLES.state && name !== CONTROL_TABLES.log
+  );
 
   const dropTables: PlannedTableDrop[] = [];
   for (const table of dependencySafeOrder(droppable, snapshot)) {
@@ -235,61 +189,43 @@ export async function planLiveNamespaceReset(
   }
 
   return {
-    tables,
-    clearTracking: tables.includes(policy.trackingTableName)
-      ? migrationDriver.generateClearMigrations(policy.trackingTableName)
-      : null,
     dropForeignKeys,
     dropTables,
     dropEnums,
+    clear: [
+      ...dropForeignKeys,
+      ...dropTables.map((table) => table.sql),
+      ...dropEnums,
+    ],
   };
 }
 
 /**
- * Executes a planned clear. Every statement here CHANGES the estate.
+ * The statements that take the owned keys out of the way of the table drops.
  *
- * On PostgreSQL the caller wraps this in one transaction, so a failure rolls
- * every drop back. On MySQL DDL commits implicitly, which is why the tracking
- * rows are cleared FIRST — that clear commits immediately, so a later failure
- * can never leave rows claiming that now-missing objects are applied.
- *
- * The partial-commit REPORT is the caller's, not this owner's, and that is not
- * delegation for its own sake: the clear is only part of the program on both of
- * its MySQL callers — `reset()` replays the history after it and force-reset
- * rebuilds after it — so a boundary recorded here would fall silent at exactly
- * the point the caller keeps going. Both wrap this in `runSequentialProgram`
- * (`pinned-session.ts`), which records the boundary on the producer itself and
- * therefore spans the whole program. What that reporter must NOT span is the
- * planning above, which is why it is a separate call rather than this one's
- * first act.
- *
- * @param driver - the producer to execute on; the caller decides whether it is
- *   inside a transaction, and whether it is inside a sequential program
- * @param plan - the rendered clear, from {@link planLiveNamespaceReset}
+ * A dialect that keeps keys inline in `CREATE TABLE` (SQLite) cannot drop one
+ * short of rebuilding its table, and its `DROP TABLE` checks the keys of every
+ * row it removes, which a cycle or a self-referencing `RESTRICT` fails in any
+ * order. There one statement defers every key to the COMMIT, by which point
+ * each table holding one is gone.
  */
-export async function executeLiveNamespaceReset(
-  driver: AnyDriver,
-  plan: LiveNamespaceResetPlan
-): Promise<LiveNamespaceResetResult> {
-  if (plan.clearTracking !== null) {
-    await driver._executeRaw(plan.clearTracking);
+function clearForeignKeys(
+  migrationDriver: BoundMigrationDriver,
+  owned: Iterable<{ table: string; foreignKey: ForeignKeyDef }>
+): string[] {
+  const statements: string[] = [];
+  for (const { table, foreignKey } of owned) {
+    if (!migrationDriver.capabilities.supportsAddForeignKeyViaAlter) {
+      return ["PRAGMA defer_foreign_keys = ON"];
+    }
+    statements.push(
+      migrationDriver.generateDDL(
+        { type: "dropForeignKey", tableName: table, fkName: foreignKey.name },
+        { destination: "live" }
+      )
+    );
   }
-
-  for (const statement of plan.dropForeignKeys) {
-    await driver._executeRaw(statement);
-  }
-
-  const dropped: string[] = [];
-  for (const { name, sql } of plan.dropTables) {
-    await driver._executeRaw(sql);
-    dropped.push(name);
-  }
-
-  for (const statement of plan.dropEnums) {
-    await driver._executeRaw(statement);
-  }
-
-  return { dropped };
+  return statements;
 }
 
 /** Every foreign key owned by a table this reset is about to drop. */

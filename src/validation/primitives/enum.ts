@@ -12,7 +12,6 @@ import { buildSchema, ok } from "./helpers";
 // =============================================================================
 export type EnumValues<S extends VibSchema> =
   S extends EnumSchema<infer TValues, any, any> ? TValues : never;
-export type AnyEnumSchema = EnumSchema<readonly string[], any, any>;
 export type BaseEnumSchema<
   TValues extends readonly string[],
   Opts extends ScalarOptions<TValues[number], any> | undefined = undefined,

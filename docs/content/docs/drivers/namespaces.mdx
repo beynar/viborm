@@ -199,16 +199,23 @@ VibORM never creates a schema, discovers tenants, switches a client between
 namespaces, or caches a tenant-client registry.
 :::
 
+For tenants whose schemas change at runtime, see
+[Per-tenant schemas from Durable Objects](/docs/migration/per-tenant-schemas-durable-objects).
+
 ## MySQL2: target evidence and routing evidence
 
 MySQL2 resolves one immutable target in this order:
 
 1. an explicit `namespace`;
-2. for a **driver-created** pool, a non-empty database path in `databaseUrl`;
-3. for a **driver-created** pool, `options.database`;
+2. for a **driver-created** pool, `options.database`;
+3. for a **driver-created** pool, a non-empty database path in `databaseUrl`;
 4. otherwise no bound namespace, and the existing unqualified runtime mode.
 
-A URL overrides copied pool options, mirroring the existing provider precedence.
+`options.database` wins over the URL path, like every explicit option (see [MySQL2](/docs/drivers/mysql/mysql2#url-and-options-together)).
+`viborm/mysql2`, `viborm/pg` and `viborm/postgres` share that rule: the URL
+supplies only the keys it carries, and a key set in `options` wins. On
+PostgreSQL the database is not the namespace (a schema is), so there it only
+picks the database the pool connects to.
 An absent or empty URL path contributes no namespace and no pool-database
 override. A supplied `Pool` is opaque: only an explicit `namespace` can bind it,
 and VibORM never inspects mysql2 internals or mutates the caller's `options`
@@ -435,8 +442,8 @@ Migration V1 uses the same namespace target as runtime queries:
   commits.** Stored transitions declare their execution boundary and rollback
   policy; a transaction is never inferred from a successful runtime query.
 - **Neon HTTP** supports schema-aware runtime, read-only, and offline migration
-  paths, but effectful push/migration verbs and locked `verify` require a
-  session-capable driver. Dry-run `apply` and `down` read the live marker without
+  paths, and `apply` one request per transactional group; the other effectful
+  migration verbs and locked `verify` require a session-capable driver. Dry-run `apply` and `down` read the live marker without
   a lock and require connectivity. Dry-run `reset` only previews the estate's
   root-to-target path after target and read-only capability admission.
 - **PlanetScale** supports runtime qualification plus admitted read-only and

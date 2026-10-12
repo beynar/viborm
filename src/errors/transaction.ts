@@ -1,5 +1,9 @@
-import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
-import type { DiagnosticDisclosure } from "./diagnostics";
+import {
+  VibORMError,
+  VibORMErrorCode,
+  type VibORMErrorMeta,
+  type VibORMErrorOptions,
+} from "./base";
 
 /**
  * Every code {@link TransactionError} can carry.
@@ -30,12 +34,7 @@ export class TransactionError extends VibORMError {
 
   constructor(
     message: string,
-    options?: {
-      cause?: Error | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
-      meta?: VibORMErrorMeta | undefined;
-      code?: TransactionErrorCode | undefined;
-    }
+    options?: VibORMErrorOptions & { code?: TransactionErrorCode | undefined }
   ) {
     super(
       message,

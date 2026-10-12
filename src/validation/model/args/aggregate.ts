@@ -12,7 +12,13 @@ import type { ScalarState } from "@schema/scalars/common";
 import type { DecimalDescriptor } from "@validation/primitives/decimal-codec";
 import { scopeOperands } from "@validation/primitives/operand";
 import v, { type V } from "../../primitives/v";
-import type { InferInput, InferOutput, VibSchema } from "../../types";
+import type {
+  InferInput,
+  InferOutput,
+  ValidationIssue,
+  VibSchema,
+} from "../../types";
+import { isRecord } from "../../value-guards";
 import type { CoreSchemas } from "../core";
 import {
   type DecimalListOrderByRefusalSchema,
@@ -900,6 +906,91 @@ const groupByCollisions = (
   return undefined;
 };
 
+/** What a grouped read may order by or compare besides a grouped field. */
+const GROUPED_AGGREGATES: ReadonlySet<string> = new Set([
+  "_count",
+  ...GROUP_AGGREGATE_KEYS,
+]);
+
+const HAVING_COMBINATORS: ReadonlySet<string> = new Set(["AND", "OR", "NOT"]);
+
+/**
+ * The path, under `having`, of the first field-keyed condition on a field
+ * outside `by`: it names ONE row's column, which a grouped row has only for a
+ * grouped field. An aggregate condition is always legitimate; a combinator is
+ * walked unless a declared field owns its name (that field wins the key).
+ */
+const ungroupedHavingPath = (
+  having: unknown,
+  by: readonly string[],
+  scalars: Readonly<Record<string, unknown>>
+): PropertyKey[] | undefined => {
+  for (const [key, value] of Object.entries(having ?? {})) {
+    if (value === undefined || by.includes(key)) continue;
+    if (HAVING_COMBINATORS.has(key) && !Object.hasOwn(scalars, key)) {
+      const arms: unknown[] = Array.isArray(value) ? value : [value];
+      for (const [index, arm] of arms.entries()) {
+        const path = ungroupedHavingPath(arm, by, scalars);
+        if (path)
+          return Array.isArray(value) ? [key, index, ...path] : [key, ...path];
+      }
+      continue;
+    }
+    const aggregated =
+      isRecord(value) &&
+      Object.entries(value).some(
+        ([name, operand]) =>
+          operand !== undefined && GROUPED_AGGREGATES.has(name)
+      );
+    if (!aggregated) return [key];
+  }
+  return undefined;
+};
+
+/**
+ * The refusals that read `by` against the rest of the payload, reported at the
+ * key that is wrong. An empty `by` groups nothing (the database answered with
+ * a syntax error); a `having` condition or an `orderBy` field outside `by`
+ * names a column no grouped row has.
+ */
+const groupedMembershipIssue = (
+  {
+    by,
+    having,
+    orderBy,
+  }: {
+    readonly by: readonly string[];
+    readonly having?: unknown;
+    readonly orderBy?: unknown;
+  },
+  scalars: Readonly<Record<string, unknown>>
+): ValidationIssue | undefined => {
+  if (by.length === 0)
+    return {
+      message: "groupBy needs at least one field in 'by'.",
+      path: ["by"],
+    };
+  const ungrouped = ungroupedHavingPath(having, by, scalars);
+  if (ungrouped)
+    return {
+      message: `Scalar '${String(ungrouped.at(-1))}' used in 'having' must be included in 'by'.`,
+      path: ["having", ...ungrouped],
+    };
+  const terms: unknown[] = Array.isArray(orderBy) ? orderBy : [orderBy];
+  for (const [index, term] of terms.entries())
+    for (const [field, direction] of Object.entries(term ?? {})) {
+      if (direction === undefined || by.includes(field)) continue;
+      if (GROUPED_AGGREGATES.has(field)) continue;
+      return {
+        message: `GroupBy orderBy field '${field}' must be included in 'by' or be an aggregate (_count, _avg, _sum, _min, _max).`,
+        path: Array.isArray(orderBy)
+          ? ["orderBy", index, field]
+          : ["orderBy", field],
+      };
+    }
+  return undefined;
+};
+
 export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
   fieldSchemas: F,
@@ -937,7 +1028,12 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
     },
     {
       atLeast: ["by"],
-      refuse: groupByCollisions,
+      refuse: (value) =>
+        groupByCollisions(value) ??
+        groupedMembershipIssue(
+          value as { readonly by: readonly string[] },
+          state.scalars
+        ),
     }
   ) as GroupByArgs<M, F>;
 };

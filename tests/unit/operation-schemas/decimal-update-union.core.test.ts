@@ -298,8 +298,8 @@ describe("decimal update — exactly one operation", () => {
   });
 
   test("keeps the operand's own message rather than a union summary", () => {
-    // A union of five single-key objects would have rewritten every operand
-    // message into "did not match any union member".
+    // A union of five single-key objects would have hidden the operand's
+    // message behind a summary of every member.
     const result = parse(update, { increment: "1.005" });
     if (!result.issues) throw new Error("Expected a refusal");
     expect(result.issues[0]?.message).toContain("fractional digit");

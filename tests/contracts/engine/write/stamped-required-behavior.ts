@@ -135,21 +135,17 @@ const refusal = async (pending: Promise<unknown>) => {
   };
 };
 
-/** Missing-field refusal includes its actionable admitted input path. */
-const missing = (path: string, message: string) => ({
+/** Missing-field refusal names its model and its actionable admitted input path. */
+const missing = (model: string, path: string, message: string) => ({
   validation: true,
   name: "ValidationError",
-  message: `Validation failed for create: ${path}: ${message}`,
+  message: `Validation failed for ${model}.create: ${path}: ${message}`,
   issues: [{ path, message }],
 });
-const MISSING_TENANT_ID = missing(
-  "data.tenantId",
-  "Missing required field: tenantId"
-);
-const MISSING_TENANT_EDGE = missing(
-  "data",
-  "Missing required fields: one of tenantId or tenant"
-);
+const MISSING_TENANT_ID = (model: string) =>
+  missing(model, "data.tenantId", "Missing required field: tenantId");
+const MISSING_TENANT_EDGE = (model: string) =>
+  missing(model, "data", "Missing required fields: one of tenantId or tenant");
 
 export interface StampedRequiredProvider {
   readonly name: string;
@@ -398,17 +394,17 @@ export function runStampedRequiredBehavior(
       const plain = javascript(base);
       expect(
         await refusal(plain.post.create({ data: { id: 1, title: "a" } }))
-      ).toEqual(MISSING_TENANT_ID);
+      ).toEqual(MISSING_TENANT_ID("post"));
       expect(
         await refusal(plain.comment.create({ data: { id: 1, body: "a" } }))
-      ).toEqual(MISSING_TENANT_EDGE);
+      ).toEqual(MISSING_TENANT_EDGE("comment"));
       expect(
         await refusal(db.ledger.create({ data: { id: 1 }, ...ACME }))
-      ).toEqual(MISSING_TENANT_ID);
+      ).toEqual(MISSING_TENANT_ID("ledger"));
       const optional = javascript(base.$extends(optionalTenant));
       expect(
         await refusal(optional.post.create({ data: { id: 1, title: "a" } }))
-      ).toEqual(MISSING_TENANT_ID);
+      ).toEqual(MISSING_TENANT_ID("post"));
       await optional.post.create({ data: { id: 1, title: "a" }, ...ACME });
       expect((await stored()).post).toEqual(acme(1));
     });
@@ -573,16 +569,15 @@ export function runStampedRequiredBehavior(
       );
       expect(midParse.issues).toEqual([
         {
-          path: "data.comments.create",
-          message:
-            "Value did not match any union member: Expected object, Missing required field: body",
+          path: "data.comments.create.0.body",
+          message: "Missing required field: body",
         },
       ]);
       expect(
         await refusal(
           javascript(base).post.create({ data: { id: 1, title: "a" } })
         )
-      ).toEqual(MISSING_TENANT_ID);
+      ).toEqual(MISSING_TENANT_ID("post"));
     });
   });
 }

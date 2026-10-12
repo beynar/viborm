@@ -19,13 +19,21 @@
  * parentheses makes `a AND (b OR c)` read equal to `(a AND b) OR c`, and a real
  * predicate change would stop being seen.
  *
- * The vehicle is a session-local view: `SELECT 1 AS c FROM <table> WHERE <p>`,
- * read back with `pg_get_viewdef`. A view is the cheapest parse-and-store
+ * The vehicle is a scratch view: `SELECT 1 AS c FROM <table> WHERE <p>`, read
+ * back with `pg_get_viewdef`. A view is the cheapest parse-and-store
  * PostgreSQL offers — no table scan, no data touched, only an ACCESS SHARE lock
- * on the table, and nothing outside this session can see it. A CHECK constraint
- * or a real index would each parse the same expression, but one locks the table
- * against writers and the other builds the index this is trying to avoid
- * building.
+ * on the table. A CHECK constraint or a real index would each parse the same
+ * expression, but one locks the table against writers and the other builds
+ * the index this is trying to avoid building.
+ *
+ * The view is a regular one, in the estate's own schema, created, read and
+ * dropped in one transaction, so no other session ever sees it and nothing
+ * outlives the transaction. PlanetScale's Neki has no temporary relations
+ * (`NK013`), and its router resolves neither a `regclass` literal nor a
+ * relation name for a relation created earlier in the transaction, so the
+ * read finds the view through `pg_class`, by oid. Its name carries a random
+ * part: two sessions canonicalizing one table at once never wait on each
+ * other's uncommitted catalog row.
  *
  * Both sides of the comparison go through this same transform, so the answer
  * does not depend on `pg_get_viewdef` and `pg_get_expr` agreeing on
@@ -38,65 +46,101 @@
  */
 
 const SCRATCH_VIEW_PREFIX = "viborm_index_predicate_";
+const TRAILING_SEMICOLON = /;\s*$/;
+const UUID_DASHES = /-/g;
 
 type RawExecutor = <T>(
   sql: string,
   params?: unknown[]
 ) => Promise<{ rows: T[] }>;
 
+/** Sends statements as ONE request, in one transaction, answering each. */
+export type BatchExecutor = <T>(
+  statements: readonly string[]
+) => Promise<ReadonlyArray<{ rows: T[] }>>;
+
 function quoteIdentifier(name: string): string {
   return `"${name.replace(/"/g, '""')}"`;
+}
+
+function quoteLiteral(text: string): string {
+  return `'${text.replace(/'/g, "''")}'`;
 }
 
 /**
  * Deparses each predicate through PostgreSQL and returns the answers
  * positionally.
  *
- * `table` arrives ALREADY QUALIFIED and quoted by the bound migration driver.
- * The scratch view is parsed on whatever `search_path` the session carries, so
- * a bare name would canonicalize this estate's predicate against a same-named
- * table in another schema — and then hand that answer to the differ as if it
- * described the estate's own index.
+ * `table` arrives ALREADY QUALIFIED and quoted by the bound migration driver,
+ * and `namespace` is that estate's schema, where the scratch views live. A bare
+ * table name would canonicalize this estate's predicate against a same-named
+ * table in another schema on the session's `search_path` — and then hand that
+ * answer to the differ as if it described the estate's own index.
  *
  * Throws rather than reporting a failure per predicate. The caller runs this
  * inside one transaction: a statement that fails aborts it, every later
  * statement in it fails too, and the rollback is what removes the scratch views
  * — which must go, because a view referencing a table blocks dropping that
  * table later in the same push.
+ *
+ * Each pass creates, reads and drops its views. `executeBatch`, on a transport
+ * with no session (Neon HTTP, plan D7), sends each pass as one request: its
+ * statements in one transaction, so on one backend, where separate requests
+ * may each land on another.
  */
 export async function canonicalizeIndexPredicates(
+  namespace: string,
   table: string,
   predicates: readonly string[],
-  executeRaw: RawExecutor
+  executeRaw: RawExecutor,
+  executeBatch?: BatchExecutor
 ): Promise<ReadonlyArray<string | undefined>> {
   if (predicates.length === 0) return [];
-  const views = predicates.map((_, position) =>
-    quoteIdentifier(`${SCRATCH_VIEW_PREFIX}${position}`)
-  );
-
-  for (const [position, predicate] of predicates.entries()) {
-    // OR REPLACE, not a bare CREATE: the projection is always `1 AS c`, so a
-    // scratch view left by an earlier call on this pooled connection is
-    // replaceable rather than a collision.
-    await executeRaw(
-      `CREATE OR REPLACE TEMP VIEW ${views[position]} AS SELECT 1 AS c FROM ${table} WHERE ${predicate}`
+  const run: BatchExecutor =
+    executeBatch ??
+    (async <T>(statements: readonly string[]) => {
+      const results: { rows: T[] }[] = [];
+      for (const sql of statements) results.push(await executeRaw<T>(sql));
+      return results;
+    });
+  const deparse = async (queries: readonly (string | undefined)[]) => {
+    // A position with no query has no answer, and no view.
+    const live = [...queries.keys()].filter(
+      (position) => queries[position] !== undefined
     );
-  }
+    if (live.length === 0) return queries.map(() => undefined);
+    const scratch = `${SCRATCH_VIEW_PREFIX}${crypto.randomUUID().replace(UUID_DASHES, "")}_`;
+    const names = live.map((position) => `${scratch}${position}`);
+    const views = names.map(
+      (name) => `${quoteIdentifier(namespace)}.${quoteIdentifier(name)}`
+    );
+    const results = await run<{ name: string; definition: string | null }>([
+      ...live.map(
+        (position, index) =>
+          `CREATE VIEW ${views[index]} AS ${queries[position]}`
+      ),
+      `SELECT c.relname AS name, pg_catalog.pg_get_viewdef(c.oid) AS definition FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ${quoteLiteral(namespace)} AND c.relname IN (${names.map(quoteLiteral).join(", ")})`,
+      `DROP VIEW ${views.join(", ")}`,
+    ]);
+    const answers = new Map(
+      results[live.length]?.rows.map((row) => [row.name, row.definition])
+    );
+    return queries.map((query, position) =>
+      query === undefined
+        ? undefined
+        : (answers.get(`${scratch}${position}`) ?? undefined)
+    );
+  };
 
-  const projection = views
-    .map(
-      (view, position) =>
-        `pg_catalog.pg_get_viewdef('pg_temp.${view}'::regclass) AS "d${position}"`
+  // Two passes: one parse and deparse is not a fixed point. PostgreSQL
+  // expands BETWEEN after its grammar has flattened AND, so a declared
+  // `a BETWEEN x AND y AND b` parses to a nested AND, which its own deparse
+  // (the catalog's text) reparses flat. Parsing each answer once more gives
+  // the declared and the catalog spelling the same tree.
+  const once = await deparse(
+    predicates.map(
+      (predicate) => `SELECT 1 AS c FROM ${table} WHERE ${predicate}`
     )
-    .join(", ");
-  const { rows } = await executeRaw<Record<string, string | null>>(
-    `SELECT ${projection}`
   );
-
-  await executeRaw(
-    `DROP VIEW ${views.map((view) => `pg_temp.${view}`).join(", ")}`
-  );
-
-  const row = rows[0];
-  return predicates.map((_, position) => row?.[`d${position}`] ?? undefined);
+  return deparse(once.map((query) => query?.replace(TRAILING_SEMICOLON, "")));
 }

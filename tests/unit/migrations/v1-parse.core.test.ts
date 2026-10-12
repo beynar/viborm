@@ -693,6 +693,30 @@ describe("migration v1 hostile parsers", () => {
     ).toThrow(MigrationError);
   });
 
+  test("reads a PostgreSQL target's managed tables, and refuses a list that is not one", () => {
+    const target = (tables: unknown) =>
+      parseMigrationTarget(
+        { dialect: "postgresql", namespace: "public", tables },
+        "target"
+      );
+
+    expect(target(["teams", "accounts"])).toEqual({
+      dialect: "postgresql",
+      namespace: "public",
+      tables: ["accounts", "teams"],
+    });
+    for (const hostile of [["accounts", "accounts"], [""], "accounts"]) {
+      expect(() => target(hostile)).toThrowError(
+        expect.objectContaining({
+          code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,
+          message: expect.stringContaining(
+            "target.tables must be a sorted, unique array of physical table names"
+          ),
+        })
+      );
+    }
+  });
+
   test("refuses hostile keys on estate, target, marker, dispatch, and state", () => {
     expect(() =>
       parseEstateDescriptor(
@@ -865,7 +889,7 @@ describe("migration v1 hostile parsers", () => {
     );
   });
 
-  test("refuses generated and manual combinations that cannot exist", () => {
+  test("refuses generated and manual combinations, and approvals, that cannot exist", () => {
     const estate = encodeEstateDescriptor({ dialect: "sqlite" });
     const snapshot = encodeSnapshot(emptyManagedSnapshot());
     const blob = composeSqlBlob(["SELECT 1"]);
@@ -948,5 +972,19 @@ describe("migration v1 hostile parsers", () => {
         rollback: { kind: "irreversible", reason: "   " },
       })
     ).toThrow(MigrationError);
+    const approving = (column: string | null) =>
+      seal({
+        fromState: null,
+        originChecks: [],
+        requestedForwardBoundary: null,
+        operations: [generated],
+        rollback: { kind: "irreversible", reason: "empty" },
+        approvals: [{ operation: "dropColumn", table: "accounts", column }],
+      });
+    expect(approving("legacyRef")).not.toThrow();
+    expect(approving(null)).not.toThrow();
+    expect(approving("")).toThrow(
+      "state.parents[0].approvals[0].column must be a non-empty string or null"
+    );
   });
 });

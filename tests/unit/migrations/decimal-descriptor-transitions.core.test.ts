@@ -139,7 +139,13 @@ describe("MySQL: same-scale decimal-list transitions", () => {
     const widened = await generate(
       { $schema: ledger(12, 2), $driver: driver },
       storage,
-      { name: "widen" }
+      // A precision change is a type change, which generate puts to the
+      // resolver like every destructive classification.
+      {
+        name: "widen",
+        resolve: (change) =>
+          change.type === "destructive" ? change.proceed() : undefined,
+      }
     );
 
     const { blob, transition } = await readPublishedTransition(

@@ -25,24 +25,3 @@ type CreateSchemaGetter<S extends RelationState> = (
 export type SchemaGetter<S extends RelationState> = ReturnType<
   CreateSchemaGetter<S>
 >;
-
-/** Partial collection admission discarded undefined keys; clearing precedes supply. */
-export function refuseCollectionVerbOrder(
-  value: Record<string, unknown>
-): string | undefined {
-  let adding: string | undefined;
-  for (const verb of Object.keys(value)) {
-    if (
-      ["upsert", "connectOrCreate", "connect", "create", "createMany"].includes(
-        verb
-      )
-    )
-      adding ??= verb;
-    else if (
-      adding &&
-      ["disconnect", "delete", "set", "updateMany", "deleteMany"].includes(verb)
-    )
-      return `Collection mutation must spell clearing verb '${verb}' before adding verb '${adding}'.`;
-  }
-  return undefined;
-}

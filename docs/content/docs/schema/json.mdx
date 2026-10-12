@@ -80,9 +80,12 @@ client](#the-untyped-client).
 Every `json` block on this page is a complete document that the test suite
 parses and round-trips, so an example here cannot drift from the parser.
 
-**Field order matters.** DDL column order follows the order of the keys in
-`fields`, and the format binds it to JSON key order. `JSON.parse` preserves that
-order; a producer that sorts keys destroys it.
+**Field order matters for new tables.** DDL column order follows the order of
+the keys in `fields` when a table is created, or rebuilt on SQLite, and the
+format binds it to JSON key order. `JSON.parse` preserves that order; a producer
+that sorts keys destroys it. On an existing table order is cosmetic: migrations
+match models and columns by name, so a document that only reorders them
+generates `noop` and publishes nothing.
 
 ### Model
 
@@ -480,6 +483,45 @@ assigned; it does not make field clauses `any`. Keep a literal TypeScript schema
 when application queries need static field and result types. Runtime validation
 is unaffected: the validators are built from the real schema state,
 so a bad payload is refused exactly as it would be for a typed client.
+
+## One document per tenant
+
+When each tenant's schema is a stored document (the whole setup, with
+migrations from a Durable Object, is in
+[Per-tenant schemas from Durable Objects](/docs/migration/per-tenant-schemas-durable-objects)):
+
+- **Store the text, with its key order.** Keep the document as text or `json`,
+  not PostgreSQL `jsonb`, which reorders object keys. A reordered document
+  migrates as a `noop`, but the next table it creates, or SQLite rebuilds,
+  takes the reordered column order.
+- **Parse once per document.** `parseSchema` builds a fresh graph on every
+  call, and clients built over the same schema object share its validation,
+  registries and prepared queries. Cache one parsed `Schema` per tenant and
+  document hash, validated once with `{ validate: true }`, and build each
+  client over it with `skipSchemaValidation: true`.
+
+```ts
+import { parseSchema, type Schema } from "viborm/schema/json";
+import { createClient } from "viborm/pg";
+
+const schemas = new Map<string, Schema>(); // key: `${tenant}:${documentHash}`
+
+function tenantSchema(tenant: string, documentHash: string, text: string) {
+  const key = `${tenant}:${documentHash}`;
+  let schema = schemas.get(key);
+  if (!schema) {
+    schema = parseSchema(text, { validate: true });
+    schemas.set(key, schema);
+  }
+  return schema;
+}
+
+const db = createClient({
+  pool,
+  schema: tenantSchema(tenant, documentHash, text),
+  skipSchemaValidation: true,
+});
+```
 
 ## Dialect neutrality
 

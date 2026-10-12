@@ -74,7 +74,7 @@ const ACCEPTED_TEXT_SPELLINGS = [
 ];
 
 const REJECTED_TEXT_SPELLINGS = [
-  "2026-08-30 12:34:56",
+  "2026-08-30T12:34:56",
   "2026-02-30T12:34:56Z",
   "2026-08-30T24:00:00Z",
   "2026-08-30T24:01:00Z",
@@ -387,7 +387,7 @@ describe("SQLite DateTime table recreation", () => {
     await push(textBefore, { force: true });
     await textDriver._executeRaw(
       'INSERT INTO "datetime_text_adoption" ("id", "at") VALUES (?, ?)',
-      ["bad-text", "2026-08-30 12:34:56"]
+      ["bad-text", "2026-08-30T12:34:56"]
     );
 
     const textAfter = createClient({
@@ -446,7 +446,11 @@ describe("SQLite DateTime table recreation", () => {
       driver,
     });
     const afterMigrations = createMigrationClient(after, { storage });
-    const converted = await afterMigrations.generate({ name: "integer" });
+    const converted = await afterMigrations.generate({
+      name: "integer",
+      resolve: (change) =>
+        change.type === "destructive" ? change.proceed() : undefined,
+    });
     expect(converted.sql).toContain("julianday");
     expect(converted.sql).toContain("abs(-9223372036854775808)");
 

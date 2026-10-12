@@ -181,6 +181,13 @@ After a successful child, the handler's returned value is published, so a
 handler can map or mask those rows. A caught child failure cannot become
 success. An ordinary Error thrown by your handler is rethrown unchanged.
 
+A handler sees only its own model operation. A `user.findMany` handler that
+masks a field does not run for `user.findFirst`, nor for users read through
+`include` or `select` from another model, so the field still reaches those
+results. To hide a field by default from every result of a client, use
+[`defaultOmit()`](/docs/extensions/omit), which applies to root results and
+nested relation payloads alike.
+
 For mutation-side effects that must follow the real durability boundary,
 register a listener before calling `proceed()`:
 
@@ -485,9 +492,12 @@ time and `assign` its constant data. The row stays, with every link.
   An entry that writes nothing behaves as an update with empty `data`: a root
   delete fails, a nested one does nothing.
 
-A definition is not checked at runtime. TypeScript flags a misspelt member in
-your editor; an unknown model name, a field of the wrong type or a `removeWhen`
-that names no control is not caught and misbehaves at the first call.
+`$extends()` checks names: an unknown model or field, an `at` that names no
+scalar field and a `removeWhen` that names an undeclared control are refused
+there with a `ClientInitializationError` (`V1004`). It does not check field
+types: an `at` that names a scalar field of another type is accepted, and the
+first delete through it fails. TypeScript flags a misspelt member in your
+editor.
 
 The official [soft delete](/docs/extensions/soft-delete) is these three
 capabilities plus two model methods.

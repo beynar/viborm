@@ -6,6 +6,7 @@ import type { Sha256 } from "./identity";
 import { sliceDispatch } from "./sql-blob";
 import type { MigrationTarget } from "./types";
 import type {
+  MigrationApprovalV1,
   MigrationBooleanCheckV1,
   MigrationDispatchV1,
   MigrationOperationV1,
@@ -47,6 +48,8 @@ export interface MigrationEdgeMetadata {
   readonly stepCount: number;
   readonly origins: readonly ("generated" | "manual")[];
   readonly risks: readonly ("safe" | "destructive" | "opaque")[];
+  /** The destructive changes approved at `generate`; empty when none was asked. */
+  readonly approvals: readonly MigrationApprovalV1[];
   readonly rollback: MigrationRollbackMetadata;
 }
 
@@ -154,6 +157,11 @@ function edgeMetadata(
     stepCount: stepCount(transition.operations),
     origins: uniqueOperationValues(transition.operations, "origin"),
     risks: uniqueOperationValues(transition.operations, "risk"),
+    approvals: Object.freeze(
+      (transition.approvals ?? []).map((approval) =>
+        Object.freeze({ ...approval })
+      )
+    ),
     rollback: rollbackMetadata(transition),
   });
 }
@@ -201,21 +209,26 @@ function migrationTarget(target: MigrationTarget): MigrationTarget {
     : Object.freeze({ dialect: target.dialect });
 }
 
-/** A labelled read-only projection; dispatch offsets remain the execution authority. */
+const LINE_BREAKS = /[\r\n\u2028\u2029]/g;
+const oneLine = (text: string) => text.replace(LINE_BREAKS, " ");
+
+/**
+ * A labelled read-only projection; dispatch offsets remain the execution authority.
+ * `approvalLabel` names the approvals: a preview made without a resolver lists
+ * the ones publishing will need, not ones given.
+ */
 export function renderMigrationReview(
   parents: readonly MigrationParentTransitionV1[],
   destinationChecks: readonly MigrationBooleanCheckV1[],
-  blob: Uint8Array
+  blob: Uint8Array,
+  approvalLabel = "Approved at generate"
 ): string {
   const lines = [
     "-- VibORM review: forward, checks and rollback are separate sections.",
     "-- Execute authenticated states with migrate apply/down; this review is not an apply script.",
   ];
   const emit = (label: string, dispatch: MigrationDispatchV1) => {
-    lines.push(
-      `-- ${label.replace(/[\r\n\u2028\u2029]/g, " ")}`,
-      `${sliceDispatch(blob, dispatch)};`
-    );
+    lines.push(`-- ${oneLine(label)}`, `${sliceDispatch(blob, dispatch)};`);
     if (dispatch.parameters.length > 0)
       lines.push(`-- Parameters: ${JSON.stringify(dispatch.parameters)}`);
   };
@@ -237,13 +250,15 @@ export function renderMigrationReview(
   };
   for (const parent of parents) {
     lines.push(`\n-- Parent ${parent.fromState ?? "empty"}`);
+    for (const { operation, table, column } of parent.approvals ?? [])
+      lines.push(
+        `-- ${approvalLabel}: ${oneLine(`${operation} ${table}${column === null ? "" : `.${column}`}`)}`
+      );
     for (const check of parent.originChecks)
       emit(`Origin check ${check.id}`, check.query);
     operations("FORWARD", parent.operations);
     if (parent.rollback.kind === "irreversible")
-      lines.push(
-        `-- ROLLBACK unavailable: ${parent.rollback.reason.replace(/[\r\n\u2028\u2029]/g, " ")}`
-      );
+      lines.push(`-- ROLLBACK unavailable: ${oneLine(parent.rollback.reason)}`);
     else operations("ROLLBACK", parent.rollback.operations);
   }
   for (const check of destinationChecks)

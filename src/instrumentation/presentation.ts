@@ -10,7 +10,11 @@ import {
   readDriverIdentity,
 } from "@drivers/driver-identity";
 import type { QueryExecutionContext } from "@drivers/exports";
-import { type DiagnosticDisclosure, sanitizeErrorForLogging } from "@errors";
+import {
+  type DiagnosticDisclosure,
+  EMPTY_DISCLOSURE,
+  sanitizeErrorForLogging,
+} from "@errors";
 import type {
   CacheBackendFacts,
   CacheOutcome,
@@ -44,11 +48,6 @@ import type { VibORMSpanOptions } from "./tracer";
 import type { LogEvent, TracingConfig } from "./types";
 
 type PresentedLog = Omit<LogEvent, "level">;
-
-const EMPTY_DISCLOSURE: DiagnosticDisclosure = Object.freeze({
-  includeParams: false,
-  includeSql: false,
-});
 
 // Savepoints present under the transaction span name; there is no other.
 const LIFECYCLE_SPAN_NAMES = {

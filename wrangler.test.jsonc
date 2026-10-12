@@ -10,5 +10,14 @@
       "database_name": "viborm-test",
       "database_id": "00000000-0000-0000-0000-000000000001"
     }
-  ]
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ESTATE_HISTORY", "class_name": "EstateHistoryObject" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["EstateHistoryObject"] }
+  ],
+  "r2_buckets": [{ "binding": "HISTORY", "bucket_name": "viborm-history-test" }]
 }

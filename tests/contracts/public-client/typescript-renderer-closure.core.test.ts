@@ -78,14 +78,14 @@ describe("TypeScript renderer degenerate domains", () => {
   });
 
   test("refuses a written select that keeps nothing, naming the model", () => {
-    // The engine's own sentence (parity-preparation.core.test.ts): both views
-    // name the model by its schema key, never by an absent state field.
+    // Admission's refusal, as the client raises it (engine-14): the subject
+    // names the model by its schema key, never by an absent state field.
     expect(() =>
       renderOperationResultType(recordSchema, "record", "findMany", {
         select: { id: false },
       })
     ).toThrow(
-      "The 'select' statement for model 'record' needs at least one truthy value."
+      "Validation failed for record.findMany: select: select needs at least one truthy value"
     );
   });
 

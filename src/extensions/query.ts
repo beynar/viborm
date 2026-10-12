@@ -20,11 +20,7 @@ export type RawQueryKind =
   | "queryRawUnsafe"
   | "executeRawUnsafe";
 
-export type RawQueryOperation =
-  | "$queryRaw"
-  | "$executeRaw"
-  | "$queryRawUnsafe"
-  | "$executeRawUnsafe";
+export type RawQueryOperation = `$${RawQueryKind}`;
 
 interface PreparedQueryContextBase<Input extends object> {
   readonly mode: QueryInterceptionMode;
@@ -63,12 +59,7 @@ export type WriteOutcomeListener = (
   outcome: WriteOutcome
 ) => unknown | Promise<unknown>;
 
-export type GenericQueryKind =
-  | "model"
-  | "queryRaw"
-  | "executeRaw"
-  | "queryRawUnsafe"
-  | "executeRawUnsafe";
+export type GenericQueryKind = "model" | RawQueryKind;
 
 type GenericQueryContextBase<Result> = {
   readonly mode: QueryInterceptionMode;
@@ -86,28 +77,13 @@ type GenericModelQueryContext<Result> = GenericQueryContextBase<Result> & {
 };
 
 type GenericRawQueryContext<Result> = GenericQueryContextBase<Result> &
-  (
-    | {
-        readonly kind: "queryRaw";
-        readonly model: undefined;
-        readonly operation: "$queryRaw";
-      }
-    | {
-        readonly kind: "executeRaw";
-        readonly model: undefined;
-        readonly operation: "$executeRaw";
-      }
-    | {
-        readonly kind: "queryRawUnsafe";
-        readonly model: undefined;
-        readonly operation: "$queryRawUnsafe";
-      }
-    | {
-        readonly kind: "executeRawUnsafe";
-        readonly model: undefined;
-        readonly operation: "$executeRawUnsafe";
-      }
-  );
+  {
+    [Kind in RawQueryKind]: {
+      readonly kind: Kind;
+      readonly model: undefined;
+      readonly operation: `$${Kind}`;
+    };
+  }[RawQueryKind];
 
 export type GenericQueryContext<Result> =
   | GenericModelQueryContext<Result>
@@ -203,13 +179,6 @@ export type QueryInterceptorContext<
   Input extends object = Record<string, unknown>,
 > = Readonly<
   PreparedQueryContext<Input> & QueryInterceptorCapabilities<Result>
->;
-
-export type QueryInterceptor<
-  Result,
-  Input extends object = Record<string, unknown>,
-> = ResolvedOperationHandler<
-  (context: QueryInterceptorContext<Result, Input>) => Promise<Result>
 >;
 
 const queryCoordinationFailures = new WeakMap<AggregateError, unknown>();
@@ -380,45 +349,7 @@ type ExtensionFailures = readonly [Error] | readonly [Error, Error] | undefined;
  * The undefined/empty branch deliberately returns the child's promise directly:
  * unextended operations allocate no runner promise, context, closure, or list.
  */
-export function runQueryInterceptors<
-  Result,
-  Input extends object = Record<string, unknown>,
->(
-  context: PreparedQueryContext<Input>,
-  interceptors: readonly [
-    QueryInterceptor<Result, Input>,
-    ...QueryInterceptor<Result, Input>[],
-  ],
-  child: () => Promise<NoInfer<Result>>,
-  captureWriteOutcome: WriteOutcomeRegistrationCapture
-): Promise<Result>;
-export function runQueryInterceptors<
-  Result,
-  Input extends object = Record<string, unknown>,
->(
-  context: PreparedQueryContext<Input>,
-  interceptors: readonly QueryInterceptor<Result, Input>[] | undefined,
-  child: () => Promise<Result>,
-  captureWriteOutcome: WriteOutcomeRegistrationCapture
-): Promise<Result>;
-export function runQueryInterceptors<
-  Result,
-  Input extends object = Record<string, unknown>,
->(
-  context: PreparedQueryContext<Input>,
-  interceptors: readonly QueryInterceptor<Result, Input>[] | undefined,
-  child: () => Promise<Result>,
-  captureWriteOutcome: WriteOutcomeRegistrationCapture
-): Promise<Result> {
-  return runCompiledQueryInterceptors(
-    context,
-    interceptors,
-    child,
-    captureWriteOutcome
-  );
-}
-
-function runCompiledQueryInterceptors<Result, Input extends object>(
+export function runCompiledQueryInterceptors<Result, Input extends object>(
   context: PreparedQueryContext<Input>,
   interceptors: readonly ResolvedOperationHandler[] | undefined,
   child: () => Promise<Result>,
@@ -592,30 +523,17 @@ async function runOneInterceptor<Result, Input extends object>(
     }
     throw childOutcome.reason;
   }
-  if (handlerOutcome.status === "rejected") {
-    throwExtensionFailures(
-      selectExtensionFailures(protocolFailure, handlerOutcome, childOutcome)
-    );
-  }
   const extensionFailures = selectExtensionFailures(
     protocolFailure,
     handlerOutcome,
     childOutcome
   );
   if (extensionFailures) throwExtensionFailures(extensionFailures);
-  return handlerOutcome.value;
+  // With the child fulfilled, a rejected handler always selects a failure.
+  return (handlerOutcome as Extract<HandlerOutcome<Result>, { value: Result }>)
+    .value;
 }
 
-function selectExtensionFailures(
-  protocolFailure: QueryError | undefined,
-  handlerOutcome: Extract<HandlerOutcome<unknown>, { status: "rejected" }>,
-  childOutcome: Extract<Settled<unknown>, { status: "fulfilled" }>
-): Exclude<ExtensionFailures, undefined>;
-function selectExtensionFailures(
-  protocolFailure: QueryError | undefined,
-  handlerOutcome: HandlerOutcome<unknown>,
-  childOutcome: Settled<unknown>
-): ExtensionFailures;
 function selectExtensionFailures(
   protocolFailure: QueryError | undefined,
   handlerOutcome: HandlerOutcome<unknown>,
@@ -649,29 +567,20 @@ function exposeHandlerContext<Result, Input extends object>(
   onWriteOutcome: (listener: WriteOutcomeListener) => void,
   ownControls: readonly string[] | undefined
 ): QueryInterceptorContext<Result, Input> {
-  if (context.kind === "model") {
-    return Object.freeze({
-      mode: context.mode,
-      kind: context.kind,
-      model: context.model,
-      operation: context.operation,
-      input: context.input,
-      ...(ownControls === undefined
-        ? {}
-        : { controls: controlsOwnedBy(context.controls, ownControls) }),
-      proceed,
-      onWriteOutcome,
-    });
-  }
+  // `kind`, `model` and `operation` are copied from one prepared context, so
+  // they stay one of its arms; TypeScript cannot correlate the copies.
   return Object.freeze({
     mode: context.mode,
     kind: context.kind,
     model: context.model,
     operation: context.operation,
     input: context.input,
+    ...(context.kind === "model" && ownControls !== undefined
+      ? { controls: controlsOwnedBy(context.controls, ownControls) }
+      : {}),
     proceed,
     onWriteOutcome,
-  });
+  }) as QueryInterceptorContext<Result, Input>;
 }
 
 function startChild<Result>(child: () => Promise<Result>): Promise<Result> {

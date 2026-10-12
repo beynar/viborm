@@ -28,9 +28,6 @@ import { fileURLToPath } from "node:url";
 export const repositoryRoot = realpathSync(
   join(dirname(fileURLToPath(import.meta.url)), "../..")
 );
-const repositoryPackage = JSON.parse(
-  readFileSync(join(repositoryRoot, "package.json"), "utf8")
-);
 // By path, not `.bin/tsc`: two TypeScripts are installed and that link is
 // whichever won pnpm's bin collision.
 const tsc = join(repositoryRoot, "node_modules", "typescript", "bin", "tsc");
@@ -107,47 +104,63 @@ export function assertBuiltPublicDistMatchesArchive(
 }
 
 /**
+ * Lays out the consumer `name` at `consumerRoot`: the archive as
+ * `node_modules/viborm`, then its runtime dependencies and `peers`, each
+ * linked from this repository's install, so nothing else resolves.
+ */
+export function createPackedConsumer(
+  consumerRoot,
+  archive,
+  name,
+  peers = ["better-sqlite3"]
+) {
+  const modules = join(consumerRoot, "node_modules");
+  const packageRoot = join(modules, "viborm");
+  mkdirSync(packageRoot, { recursive: true });
+  execFileSync(
+    "tar",
+    ["-xzf", archive, "-C", packageRoot, "--strip-components=1"],
+    { stdio: "pipe" }
+  );
+  // The archive's own manifest names its dependencies: a published version
+  // may differ from this checkout.
+  const manifest = JSON.parse(
+    readFileSync(join(packageRoot, "package.json"), "utf8")
+  );
+  for (const dependency of [
+    ...Object.keys(manifest.dependencies ?? {}),
+    ...peers,
+  ]) {
+    const target = realpathSync(
+      join(repositoryRoot, "node_modules", dependency)
+    );
+    mkdirSync(dirname(join(modules, dependency)), { recursive: true });
+    symlinkSync(target, join(modules, dependency), "dir");
+  }
+  writeFileSync(
+    join(consumerRoot, "package.json"),
+    JSON.stringify({ name, type: "module" })
+  );
+}
+
+/**
  * Runs `use` against a fresh consumer named `name` whose files are `files`
  * (path to source), and deletes it afterwards. `use` receives `typeCheck`
- * (`tsc --strict` over the named files) and `run` (Node runs one file, which
+ * (`tsc --strict` over the named files, returning its output) and `run` (Node runs one file, which
  * must print `<label>: pass`).
  */
 export function withPackedConsumer(name, files, use) {
   const fixtureRoot = mkdtempSync(join(tmpdir(), `${name}-`));
   try {
-    const archive = packedArchive(fixtureRoot);
     const consumerRoot = join(fixtureRoot, "consumer");
-    const modules = join(consumerRoot, "node_modules");
-    const packageRoot = join(modules, "viborm");
-    mkdirSync(packageRoot, { recursive: true });
-    execFileSync(
-      "tar",
-      ["-xzf", archive, "-C", packageRoot, "--strip-components=1"],
-      { stdio: "pipe" }
-    );
-    // The package's runtime dependencies and the one peer a consumer uses,
-    // each linked from this repository's install: nothing else resolves.
-    for (const dependency of [
-      ...Object.keys(repositoryPackage.dependencies ?? {}),
-      "better-sqlite3",
-    ]) {
-      const target = realpathSync(
-        join(repositoryRoot, "node_modules", dependency)
-      );
-      mkdirSync(dirname(join(modules, dependency)), { recursive: true });
-      symlinkSync(target, join(modules, dependency), "dir");
-    }
-    writeFileSync(
-      join(consumerRoot, "package.json"),
-      JSON.stringify({ name, type: "module" })
-    );
+    createPackedConsumer(consumerRoot, packedArchive(fixtureRoot), name);
     for (const [file, source] of Object.entries(files)) {
       writeFileSync(join(consumerRoot, file), source);
     }
 
     const typeCheck = (entries) => {
       try {
-        execFileSync(
+        return execFileSync(
           tsc,
           [
             "--noEmit",

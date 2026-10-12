@@ -50,15 +50,6 @@ export const DISTANCE_SELECTED_TWICE =
   "Distance select supports only one _distance field per select.";
 
 /**
- * The registered refusal for a written `select` that keeps nothing, stated once
- * for both result views like {@link DISTANCE_SELECTED_TWICE}: this schema-only
- * shape and Raptor 3's prepared projection name the model by its schema key.
- */
-export function emptySelectRefusal(model: Model<any>): string {
-  return `The 'select' statement for model '${model["~"].names.ts ?? "unknown"}' needs at least one truthy value.`;
-}
-
-/**
  * The node one arm of a variant slot is read with, or `undefined` when the
  * selection leaves that arm out of the result. One rule for both result views:
  * this schema-only shape and Raptor 3's prepared projection
@@ -230,12 +221,8 @@ function buildModelShape(
     rawKeys.push(RELATION_COUNTS_RESULT_KEY);
   }
 
-  if (rawKeys.length === 0) {
-    if (select) {
-      throw new QueryEngineError(emptySelectRefusal(model));
-    }
-    rawKeys.push(EMPTY_ROW_RESULT_KEY);
-  }
+  // A written `select` that keeps nothing never arrives: admission refuses it.
+  if (rawKeys.length === 0) rawKeys.push(EMPTY_ROW_RESULT_KEY);
 
   return createShape(
     rawKeys,

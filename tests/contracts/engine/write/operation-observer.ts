@@ -1,6 +1,6 @@
+import type { AnyDriver } from "@drivers";
 import { createClient } from "@src/client/client";
 import type { Schema } from "@src/client/types";
-import type { AnyDriver } from "@src/drivers";
 
 export interface OperationRecord {
   readonly model: string;

@@ -805,13 +805,16 @@ describe("one document rule at every object placement", () => {
         await client.$disconnect();
       }
     };
-    expect(await read('{"rank":3}')).toEqual({ _sum: { rank: 3 } });
+    // An int `_sum` on SQLite travels as its two `integerSum` parts.
+    expect(await read('{"rank":[0,3]}')).toEqual({ _sum: { rank: 3 } });
     for (const malformed of [5, []])
       expect((await rejection(read(malformed))).message).toBe(
         'The "aggregate" result is incompatible with the row scalar domain: a requested document is not a provider row.'
       );
-    expect((await rejection(read(Object.create({ rank: 3 })))).message).toBe(
-      'The "aggregate" result is incompatible with the int scalar domain: the value is absent.'
+    expect(
+      (await rejection(read(Object.create({ rank: [0, 3] })))).message
+    ).toBe(
+      'The "aggregate" result is incompatible with the int scalar domain: the sum is not its two parts.'
     );
 
     const counted = scripted([{ _count: [] }]);

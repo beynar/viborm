@@ -258,6 +258,14 @@ describe("recursive filter — admission", () => {
     ).toStrictEqual(admitted({ depth: false, cycles: "prevent" }));
   });
 
+  test("refuses an output budget, which a filter has nothing to bound", () => {
+    for (const filter of [filters.documentChildren, filters.teamChildren]) {
+      expect(
+        parse(filter, { recurse: { maxOccurrences: 10 }, some: {} }).issues
+      ).toBeDefined();
+    }
+  });
+
   test("admits the closure form inside nested relation filters and logic", () => {
     expect(
       parse(schemas.grant.args.findMany, {
@@ -442,25 +450,27 @@ describe("recursive filter — refusals", () => {
         "preventCycles applies only to a junction graph; a foreign-key recursion rejects every cycle it reaches"
       );
     }
-    for (const [filter, include, recurse, sentence] of [
+    for (const [filter, include, recurse, sentence, path] of [
       [
         filters.teamChildren,
         schemas.team.relations.children.include,
         { depth: false, preventCycles: false },
-        "Value did not match any union member: Expected literal: true, Value did not match any union member: Expected integer, Expected literal: true",
+        "Expected literal: true, or depth: Expected integer, or preventCycles: Expected literal: true",
+        ["recurse"],
       ],
       [
         filters.documentParent,
         schemas.document.relations.parent.include,
         { depht: 2 },
-        "Value did not match any union member: Expected literal: true, Unknown key: depht",
+        "Unknown key: depht",
+        ["recurse", "depht"],
       ],
     ] as const) {
       const refusal = issueOf(parse(filter, { recurse, some: {} }));
       expect(refusal.message).toBe(
         issueOf(parse(include, { recurse })).message
       );
-      expect(refusal).toEqual({ message: sentence, path: ["recurse"] });
+      expect(refusal).toEqual({ message: sentence, path });
     }
   });
 

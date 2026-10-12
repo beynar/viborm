@@ -4,6 +4,7 @@ import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { createClient } from "@client/client";
 import type { BatchQuery, QueryResult } from "@drivers";
 import { SQLite3Driver } from "@drivers/sqlite3";
+import { ValidationError } from "@errors";
 import { OperationContext } from "@query-engine/raptor3/shared/operation-context";
 import { Queries } from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
@@ -22,7 +23,7 @@ const INSERT_STATEMENT = /^INSERT\b/;
 const SELECT_ANYWHERE = /SELECT\b/;
 const LEADING_WORD = /^\w+/;
 const EMPTY_SELECT =
-  "The 'select' statement for model 'parent' needs at least one truthy value.";
+  "select needs at least one truthy value; leave it out to return the default row.";
 
 const selectAssembly = vi.hoisted(() => ({ calls: 0 }));
 
@@ -504,7 +505,15 @@ describe("relation-bearing bulk projection preparation", () => {
     ]);
   });
 
-  it("refuses updateMany's empty selection before any write", async () => {
+  // A written selection that names nothing is the caller's mistake, refused at
+  // its own path before the verb prepares or writes anything (engine-14).
+  const isEmptySelectRefusal = (error: unknown) =>
+    error instanceof ValidationError &&
+    error.code === "V4001" &&
+    error.issues[0]?.path === "select" &&
+    error.issues[0]?.message === EMPTY_SELECT;
+
+  it("refuses updateMany's empty selection at admission, before any write", async () => {
     world = await bulkRelationWorld();
     await assert.rejects(
       world.engine.execute("parent", "updateMany", {
@@ -512,13 +521,13 @@ describe("relation-bearing bulk projection preparation", () => {
         data: { label: "updated", children: { create: { label: "created" } } },
         select: { id: false },
       }),
-      { message: EMPTY_SELECT }
+      isEmptySelectRefusal
     );
     assert.deepEqual(world.writes(), []);
-    assert.deepEqual(world.prepared({ id: false }), [0]);
+    assert.deepEqual(world.prepared({ id: false }), []);
   });
 
-  it("refuses createMany's empty selection only after its writes, which roll back", async () => {
+  it("refuses createMany's empty selection at admission, before its writes", async () => {
     world = await bulkRelationWorld();
     await assert.rejects(
       world.engine.execute("parent", "createMany", {
@@ -527,14 +536,11 @@ describe("relation-bearing bulk projection preparation", () => {
         ],
         select: { id: false },
       }),
-      { message: EMPTY_SELECT }
+      isEmptySelectRefusal
     );
-    // createMany prepares its output from the identities its members
-    // produced, so the refusal follows the member's two INSERTs.
-    assert.deepEqual(world.writes(), ["INSERT", "INSERT"]);
-    const [after, ...again] = world.prepared({ id: false });
-    assert.deepEqual(again, []);
-    assert.ok(after !== undefined && after >= 2);
+    // The members are no longer written and rolled back: nothing ran.
+    assert.deepEqual(world.writes(), []);
+    assert.deepEqual(world.prepared({ id: false }), []);
     assert.deepEqual(world.parents(), [
       { id: 1, label: "one" },
       { id: 2, label: "two" },
@@ -549,11 +555,11 @@ describe("relation-bearing bulk projection preparation", () => {
         { id: 1, label: "again", children: { create: { label: "created" } } },
       ],
       skipDuplicates: true,
-      select: { id: false },
+      select: { label: true },
     });
 
     assert.deepEqual(created, []);
-    assert.deepEqual(world.prepared({ id: false }), []);
+    assert.deepEqual(world.prepared({ label: true }), []);
     assert.deepEqual(world.children(), []);
   });
 });

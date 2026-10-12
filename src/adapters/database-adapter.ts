@@ -135,7 +135,11 @@ export interface DatabaseAdapter {
     true: () => Sql;
     /** FALSE literal (database-specific: FALSE vs 0) */
     false: () => Sql;
-    /** Create a value list: ($1, $2, $3) */
+    /**
+     * Returns the dialect's membership operand, valid only as `operators.in` /
+     * `notIn` input: a parenthesized list, a PostgreSQL array parameter, or,
+     * past 25 members, a SQLite `json_each` subquery.
+     */
     list: (values: Sql[]) => Sql;
     /** JSON value (PG: native, MySQL/SQLite: JSON.stringify) */
     json: (v: unknown) => Sql;
@@ -373,7 +377,8 @@ export interface DatabaseAdapter {
      * would bind the hex text's own bytes, so the binary arm decodes it
      * (`decode(…, 'hex')`, `UNHEX`, `unhex`). SQLite's `unhex()` arrived in
      * 3.41, above this adapter's 3.35 floor: a compact identifier on SQLite
-     * needs 3.41, and nothing else here does.
+     * needs 3.41, and so does a bytes list longer than `literals.list` keeps
+     * parenthesized; nothing else here does.
      */
     idCast: (expr: Sql, representation: IdRepresentation) => Sql;
 
@@ -400,6 +405,33 @@ export interface DatabaseAdapter {
     count: (expr?: Sql) => Sql;
     countDistinct: (expr: Sql) => Sql;
     sum: (expr: Sql) => Sql;
+    /**
+     * A double column's sum as two `SUM`s no row count can overflow: its
+     * members of magnitude at least 1e-288 divided by 2^64, and the smaller
+     * ones as they are. Dividing such a double by 2^64 is exact, so the first
+     * part is the plain sum scaled exactly, and the reader's
+     * `high * 2^64 + low` is that sum — `±Infinity` past the double range,
+     * where PostgreSQL's own `SUM` raises and MySQL's answers 0 (engine-10).
+     *
+     * `having` compares `value` and a grouped `orderBy` sorts by `order`, so
+     * a group is kept and placed by the sum the projection publishes.
+     */
+    numberSum: (expr: Sql) => {
+      readonly parts: readonly [high: Sql, low: Sql];
+      /** The joined sum as one comparable expression. */
+      readonly value: Sql;
+      /** Sort keys, most significant first, ordering by the joined sum. */
+      readonly order: readonly Sql[];
+    };
+    /**
+     * Stated only where an integer `SUM` is int64 and raises past it
+     * (SQLite): an int64 column's sum as two `SUM`s no realistic row count
+     * can overflow — each member's high 32 bits and the rest — read back
+     * exactly as `high * 2^32 + low` (engine-10), compared and sorted as
+     * `numberSum` states. PostgreSQL and MySQL already sum integers as exact
+     * numerics.
+     */
+    integerSum?: DatabaseAdapter["aggregates"]["numberSum"];
     avg: (expr: Sql) => Sql;
     min: (expr: Sql, boolean?: boolean) => Sql;
     max: (expr: Sql, boolean?: boolean) => Sql;

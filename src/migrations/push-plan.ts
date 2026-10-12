@@ -1,3 +1,4 @@
+import { errorCause } from "../errors/diagnostic-safety";
 import { isDestructiveOperation } from "./differ";
 import { formatOperation } from "./push/format";
 /**
@@ -8,10 +9,11 @@ import { formatOperation } from "./push/format";
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import type { ResolvedRelationIndex } from "../schema/validation/relation-resolution";
+import { sql } from "../sql/sql";
 import { isRecord } from "../validation/value-guards";
 import { canonicalizeJson, canonicalizeJsonText } from "./canonical-json";
-import { classifyGeneratedAtomicity } from "./compile";
-import { controlTableNames, DEFAULT_CONTROL_BASE } from "./control";
+import { classifyGeneratedAtomicity, dispatchAt } from "./compile";
+import { CONTROL_TABLES } from "./control";
 import type {
   BoundMigrationDriver,
   DDLContext,
@@ -117,8 +119,10 @@ export async function buildPushPlan(
     planningDriver,
     relations
   );
-  await command.preflightSchemaRequirements([desired], (sql, params) =>
-    producer._executeRaw(sql, params)
+  await command.preflightSchemaRequirements(
+    [desired],
+    (sql, params) => producer._executeRaw(sql, params),
+    []
   );
   const mode: PushConsent["mode"] = options.forceReset ? "force-reset" : "diff";
 
@@ -127,12 +131,7 @@ export async function buildPushPlan(
   let operations: readonly DiffOperation[];
   if (options.forceReset) {
     current = await introspectManaged(producer, command);
-    const control = controlTableNames(DEFAULT_CONTROL_BASE);
-    reset = await planLiveNamespaceReset(producer, command, {
-      trackingTable: "preserve",
-      trackingTableName: control.state,
-      preserveTables: [control.log],
-    });
+    reset = await planLiveNamespaceReset(producer, command);
     const rebuild = await planRebuildFromEmpty(
       { $driver: producer, $schema: client.$schema },
       planningDriver,
@@ -159,13 +158,7 @@ export async function buildPushPlan(
         operation.column.autoIncrement
       )
         continue;
-      const rename = operations.find(
-        (candidate) =>
-          candidate.type === "renameTable" &&
-          candidate.to === operation.tableName
-      );
-      const tableName =
-        rename?.type === "renameTable" ? rename.from : operation.tableName;
+      const tableName = liveTableName(operations, operation.tableName);
       if (!current.tables.some((table) => table.name === tableName)) continue;
       const reference = producer.adapter.identifiers.table(tableName);
       const populated = await producer._executeRaw(
@@ -185,8 +178,10 @@ export async function buildPushPlan(
           }
         );
     }
+  if (!options.forceReset)
+    await refuseOrphanedDiscriminators(producer, desired, current, operations);
   const resolutions = controller.finish();
-  const target = await pushTargetIdentity(client, producer, command);
+  const target = await pushTargetIdentity(producer, command);
   const sourceFingerprint = await fingerprintLive(current, command, producer);
   const desiredFingerprint = await fingerprintLive(desired, command, producer);
   const schemaHash = hashSnapshot(desired);
@@ -195,6 +190,13 @@ export async function buildPushPlan(
     operations,
     planningDriver,
     options.forceReset ? emptyManagedSnapshot() : current
+  );
+  await command.preflightSchemaRequirements(
+    [],
+    (sql, params) => producer._executeRaw(sql, params),
+    compiled.statements.map((statement) =>
+      sliceDispatch(compiled.bytes, statement.dispatch)
+    )
   );
   const reportedOperations: PushOperation[] = operations.map(
     (operation, index) => ({
@@ -208,7 +210,7 @@ export async function buildPushPlan(
           : "safe",
     })
   );
-  const atomicity = classifyPlanAtomicity(command, operations);
+  const atomicity = classifyGeneratedAtomicity(command, operations);
   const destructive =
     mode === "force-reset" ||
     reportedOperations.some((operation) => operation.risk === "destructive");
@@ -267,19 +269,12 @@ export function compilePlanStatements(
     readonly index: number;
   }> = [];
 
-  if (reset) {
-    const clear = [
-      ...reset.dropForeignKeys,
-      ...reset.dropTables.map((table) => table.sql),
-      ...reset.dropEnums,
-    ];
-    for (const [index, sql] of clear.entries()) {
-      pending.push({
-        kind: "clear",
-        operationId: `force-reset:clear:${index}`,
-        index: assembly.add(sql),
-      });
-    }
+  for (const [index, sql] of (reset?.clear ?? []).entries()) {
+    pending.push({
+      kind: "clear",
+      operationId: `force-reset:clear:${index}`,
+      index: assembly.add(sql),
+    });
   }
 
   for (const [operationIndex, operation] of operations.entries()) {
@@ -305,7 +300,7 @@ export function compilePlanStatements(
     statements: pending.map((statement) => ({
       kind: statement.kind,
       operationId: statement.operationId,
-      dispatch: requiredDispatch(sealed.dispatches, statement.index),
+      dispatch: dispatchAt(sealed.dispatches, statement.index),
     })),
   };
 }
@@ -347,13 +342,6 @@ export function hashPushPlan(input: {
   );
 }
 
-export function classifyPlanAtomicity(
-  driver: MigrationDriver,
-  operations: readonly DiffOperation[]
-): AtomicityClass {
-  return classifyGeneratedAtomicity(driver, operations);
-}
-
 export async function introspectManaged(
   producer: AnyDriver,
   driver: MigrationDriver
@@ -361,20 +349,6 @@ export async function introspectManaged(
   return withoutControlTables(
     await driver.introspect((sql, params) => producer._executeRaw(sql, params))
   );
-}
-
-function requiredDispatch(
-  dispatches: readonly MigrationDispatchV1[],
-  index: number
-): MigrationDispatchV1 {
-  const dispatch = dispatches[index];
-  if (!dispatch) {
-    throw new MigrationError(
-      "The structured push compiler omitted a planned dispatch",
-      VibORMErrorCode.INTERNAL_ERROR
-    );
-  }
-  return dispatch;
 }
 
 function managedPlanningDriver(
@@ -391,13 +365,77 @@ function managedPlanningDriver(
 }
 
 function withoutControlTables(snapshot: SchemaSnapshot): SchemaSnapshot {
-  const names = controlTableNames(DEFAULT_CONTROL_BASE);
   return {
     ...snapshot,
     tables: snapshot.tables.filter(
-      (table) => table.name !== names.state && table.name !== names.log
+      (table) =>
+        table.name !== CONTROL_TABLES.state && table.name !== CONTROL_TABLES.log
     ),
   };
+}
+
+/** The live name of a desired table: an accepted rename still reads the old one. */
+function liveTableName(
+  operations: readonly DiffOperation[],
+  tableName: string
+): string {
+  const rename = operations.find(
+    (candidate) =>
+      candidate.type === "renameTable" && candidate.to === tableName
+  );
+  return rename?.type === "renameTable" ? rename.from : tableName;
+}
+
+/**
+ * Push keeps no polymorphic history — `diff` refuses a stored-value change only
+ * between authored snapshots — so the stored discriminators are that history:
+ * a row whose discriminator the desired schema no longer declares would be
+ * orphaned. Only a to-one slot stores its discriminator in rows; a collection
+ * member's junction table is the member itself.
+ */
+async function refuseOrphanedDiscriminators(
+  producer: AnyDriver,
+  desired: SchemaSnapshot,
+  current: SchemaSnapshot,
+  operations: readonly DiffOperation[]
+): Promise<void> {
+  const { identifiers, literals, operators } = producer.adapter;
+  for (const slot of desired.polymorphicStorage ?? []) {
+    if (slot.kind !== "toOne") continue;
+    const tableName = liveTableName(operations, slot.ownerTable);
+    const rename = operations.find(
+      (candidate) =>
+        candidate.type === "renameColumn" &&
+        candidate.tableName === slot.ownerTable &&
+        candidate.to === slot.storageRef
+    );
+    const columnName =
+      rename?.type === "renameColumn" ? rename.from : slot.storageRef;
+    const live = current.tables.find((table) => table.name === tableName);
+    if (!live?.columns.some((column) => column.name === columnName)) continue;
+    const column = identifiers.escape(columnName);
+    const declared = literals.list(
+      slot.members.map((member) => literals.value(member.storedType))
+    );
+    const probe = producer._prepare(
+      sql`SELECT ${identifiers.aliased(column, "stored")} FROM ${identifiers.table(tableName)} WHERE ${operators.notIn(column, declared)} LIMIT 1`
+    );
+    const [orphan] = (
+      await producer._executeRaw<{ stored: unknown }>(probe.sql, probe.params)
+    ).rows;
+    if (orphan)
+      throw new MigrationError(
+        `Polymorphic storage "${slot.ownerTable}.${slot.relation}" stores "${String(orphan.stored)}", which the desired schema no longer declares; those rows would lose their target. Author an explicit manual data transition that rewrites the stored values. No migration effects were executed.`,
+        VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
+        {
+          meta: {
+            table: slot.ownerTable,
+            relation: slot.relation,
+            command: "push",
+          },
+        }
+      );
+  }
 }
 
 function resolutionController(source: ResolutionSource): ResolutionController {
@@ -551,7 +589,7 @@ function parseResolutionMap(text: string): Record<string, string | null> {
     throw new MigrationError(
       "Push consent contains a malformed enum resolution",
       VibORMErrorCode.MIGRATION_CONSENT_MISMATCH,
-      { cause: cause instanceof Error ? cause : undefined }
+      { cause: errorCause(cause) }
     );
   }
   if (!isRecord(parsed) || canonicalizeJsonText(parsed) !== text) {

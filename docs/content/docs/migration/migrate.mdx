@@ -57,7 +57,8 @@ npx viborm migrate status --json
   </Tab>
   <Tab title="Migration Client">
 ```ts
-import { createMigrationClient, createFsStorageWriter } from "viborm/migrations";
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
 import { client } from "./client";
 
 const migrations = createMigrationClient(client, {
@@ -80,7 +81,7 @@ reflect the supplied storage capability:
 | Client construction | Available operations |
 | --- | --- |
 | No storage | `push`, `log` |
-| `MigrationStorageReader` | The above plus `check`, `list`, `show`, `graph`, `status`, `verify`, `apply`, `down`, `baseline`, `resolve` |
+| `MigrationStorageReader` | The above plus `check`, `list`, `show`, `graph`, `status`, `verify`, `apply`, `down`, `baseline`, `reanchor`, `prune`, `resolve` |
 | `MigrationStorageWriter` | Every operation, including `generate` and `reset` |
 
 `log` reads the target database's append-only ledger. `push` is history-free.
@@ -127,6 +128,7 @@ npx viborm migrate generate
 npx viborm migrate generate --name add-users-table
 npx viborm migrate generate --from empty
 npx viborm migrate generate --dry-run --json
+npx viborm migrate generate --name drop-legacy --accept-data-loss
 ```
   </Tab>
   <Tab title="Migration Client">
@@ -156,10 +158,11 @@ const preview = await migrations.generate({ dryRun: true });
 | Parent | `--from <stateId\|empty>` | `from: Sha256 \| null` | Full parent state id, or `null` / `empty` for the virtual root. |
 | Estate directory | `--dir <dir>` | storage factory path | Estate root (default `./migrations`). |
 | Dry run | `--dry-run` | `dryRun: boolean` | Return the complete candidate without publishing. |
-| Resolver | — | `resolve` | Handle ambiguous structural changes. |
+| Resolver | `migrations.resolve` (config) | `resolve` | Answers ambiguous renames, enum value removals, and destructive changes (drops, type changes, NOT NULL tightening, narrower decimals, required columns without a default). |
 | Manual artifact | — | `manualMigration` | Caller-owned transitions. No CLI flag. |
+| Low-lock steps | `--low-lock` | `lowLock: boolean` | PostgreSQL: publish index builds and foreign keys on existing tables as recoverable steps. See [Indexes and foreign keys as steps](#indexes-and-foreign-keys-as-steps). |
 
-`--from empty` and `from: null` mean the virtual empty root. A second virtual-root transition is refused. Numeric file indexes do not exist.
+`--from empty` and `from: null` mean the virtual empty root. On an estate that already has states, they author a checkpoint, which must restate the single leaf's schema; see [Bounded History with Checkpoints](#bounded-history-with-checkpoints). Numeric file indexes do not exist.
 
 A state that removes several related tables drops each table before the tables it references, in the same order `push` uses; SQLite tables that no order can drop are refused before the state is published. See [Removing Related Tables](/docs/migration/push#removing-related-tables).
 
@@ -177,6 +180,69 @@ Ambiguous renames refuse without `migrations.resolve`, including converging
 branches and renamed junctions. A rollback that would recreate a lost required
 column without a default is explicitly irreversible: the tool cannot invent
 the deleted data or a safe backfill.
+
+### Destructive changes need an approval
+
+Generate puts every destructive change to the resolver before it publishes,
+exactly as push does. `change.proceed()` approves it; `change.reject()` or no
+answer refuses with `V11010` and publishes nothing. Without a resolver, generate
+refuses with `V11017` (`MIGRATION_CONSENT_REQUIRED`) and lists every change.
+The approvals are saved in the published state: `show()` returns them as
+`incoming[i].approvals` (type `MigrationApproval`: `{ operation, table, column }`)
+and `reviewSql` prints `-- Approved at generate: …`. `apply` runs an approved
+state without asking again. A `dryRun` without a resolver previews the state as
+an approval would publish it: the preview's `stateId` is the id the approved
+publish gets, and its `reviewSql` lists the approvals publishing will need as
+`-- Needs approval at generate: …`. An `addAndDrop` answer approves its own
+drop. States without a destructive change carry no approval and keep the ids
+earlier versions gave them; for a destructive state the approvals are part of
+its id. A destructive state published by 1.2.0 carries `approvals`; viborm 1.1.0
+refuses to read it, so upgrade every machine and CI job that reads the history
+together. With the CLI, `viborm migrate generate` asks once per destructive
+change on a terminal, `--accept-data-loss` approves them all, and
+`migrations.resolve` in `viborm.config.ts` answers instead of both.
+
+```ts
+await migrations.generate({
+  name: "drop-legacy",
+  resolve: (change) =>
+    change.type === "destructive" ? change.proceed() : undefined,
+});
+```
+
+### Decisions as data
+
+`createPredefinedResolver(decisions)` builds that resolver from plain JSON, so
+an API or an RPC call can carry a tenant's intent (type `MigrationDecision`).
+Each decision names the change it answers by that change's own fields:
+
+| Decision | Answers |
+|----------|---------|
+| `{ type: "column", tableName, from, to, resolution }` | The ambiguous column pair, with `"rename"` or `"addAndDrop"`. |
+| `{ type: "table", from, to, resolution }` | The ambiguous table pair. |
+| `{ type: "enumValueRemoval", tableName, columnName, mapValues }` | That column's removed enum values; `mapValues` maps each to a kept value or `null`. |
+| `{ type: "destructive", operation, table, column }` | Approves that destructive change: the `MigrationApproval` identity, `column: null` for a table. |
+
+A change no decision names is unanswered and refused, as without a resolver
+(`V11010`). An entry that is not one of these shapes is refused when the
+resolver is built (`V4002`), and `generate` refuses (`V4002`, nothing
+published) a decision that answered no change of its plan: a table or column
+the plan does not touch, or a change that is not there. A document already
+published is a `noop` without that check, so resending the same document with
+the same decisions is safe. A predefined resolver serves one request: build
+one per `generate`.
+
+```ts
+import { createPredefinedResolver } from "viborm/migrations";
+
+const decisions = [
+  { type: "column", tableName: "account", from: "name", to: "displayName", resolution: "rename" },
+  { type: "destructive", operation: "dropColumn", table: "account", column: "legacyCode" },
+  { type: "enumValueRemoval", tableName: "account", columnName: "tier", mapValues: { legacy: "free" } },
+] as const;
+
+await migrations.generate({ resolve: createPredefinedResolver(decisions) });
+```
 
 ### Manual Transitions
 
@@ -332,6 +398,9 @@ const status = await migrations.status();
 // status.marker — last confirmed state, or null
 // status.pending — unique-leaf path from the marker, when one leaf exists
 // status.unfinished — an attempt is still open on the ledger
+// status.markerState — "ahead" | "unknown", only when the marker names a state this estate does not hold
+// status.invalidIndexes — [{ table, index }], only when a managed table has an INVALID PostgreSQL index
+// status.lastFailure — the latest `failed` ledger event, once an attempt failed and rolled back
 
 const verify = await migrations.verify();
 const events = await migrations.log();
@@ -341,13 +410,25 @@ const events = await migrations.log();
 
 | Command | Lock | What it answers |
 |---------|------|-----------------|
-| `status` | no | Marker, pending path to the unique leaf, unfinished attempts. |
-| `verify` | yes | Live managed schema matches the marker's authenticated snapshot. |
-| `log` | no | Authenticated database-ledger events, sorted by start time and event id. It does not inspect estate artifacts. |
+| `status` | no | Marker, pending path to the unique leaf, unfinished attempts, a marker this estate does not hold (`markerState`), INVALID PostgreSQL indexes (`invalidIndexes`), and the latest failed attempt (`lastFailure`). |
+| `verify` | yes | Live managed schema matches the marker's authenticated snapshot. A marker this estate does not hold returns `{ ok: false, markerState }`. |
+| `log` | no | Authenticated database-ledger events in causal order: by time, then attempt by attempt along the state chain, and within an attempt its start, steps and end. A transactional apply records one `applied` event per state; stepwise and MySQL applies also record `started` and per-step events. It does not inspect estate artifacts. |
 
 CLI `log --limit <n>` keeps the last `n` events after that stable ordering. The
 programmatic `log()` call returns the complete ledger so callers can slice or
 filter it themselves.
+
+A transactional attempt that fails rolls back with everything it wrote, its own
+ledger events included. `apply` then records it in a transaction of its own as a
+`failed` ledger event (creating the control tables first when the failed attempt
+was the first apply): its `fromState`/`toState`, the `dispatchId` and
+`operationId` of the statement the provider refused, and a `failure` line with
+the error code and message. `status().lastFailure` returns the latest one,
+also after a later `apply` succeeded: it is history, not current state. A
+`failed` event closes its attempt: once the cause is fixed, `apply` runs again,
+even when no marker exists yet. A stepwise failure is different: its effects
+stay, its attempt stays unfinished, and it is recovered with `resolve` (see
+below).
 
 There is no `pending()` method. Pending work is a field on `status()`.
 `log()` requires an existing, authentic control-table pair. When it is absent,
@@ -381,6 +462,18 @@ await migrations.apply({ dryRun: true });
   </Tab>
 </Tabs>
 
+### Code Older Than the Database
+
+When the database marker names a state this estate does not hold, `status()`
+reports `markerState: "ahead"` (its arrival path leaves this history after a
+state it holds: newer code migrated the database, or a Durable Object's estate
+was restored behind Postgres) or `"unknown"` (nothing on that path belongs
+here), with `pending: []`. `apply()` refuses both with `V11002` by default;
+`apply({ ifAhead: "noop" })` returns `{ outcome: "noop" }` for an ahead marker
+without touching the database, so old code can boot against a newer schema. An
+unknown marker is always refused. When the history is the side a restore left
+behind, see [History older than the database](#history-older-than-the-database).
+
 ### Apply Options
 
 | Option | CLI | API | Description |
@@ -389,10 +482,15 @@ await migrations.apply({ dryRun: true });
 | Via | `--via <stateId...>` | `via: Sha256[]` | Force a path through these full state ids. |
 | Estate directory | `--dir <dir>` | storage factory path | Estate root. |
 | Dry run | `--dry-run` | `dryRun: boolean` | Plan without executing. Zero database effects. |
+| Marker ahead | — | `ifAhead: "noop" \| "refuse"` | `"noop"` returns a `noop` outcome when the marker is ahead of this estate. Default `"refuse"`. |
 
 There is no `--force`, no numeric `--to 5`, and no tracking-table name flag. Control tables are `_viborm_migration_state` and `_viborm_migration_log`.
 
 If the marker is absent, ordinary apply requires the managed target to be empty apart from control objects. Adopting an existing schema is `baseline`, not an implicit first apply.
+
+On PostgreSQL an `apply` with nothing to do sends 2 statements: the control tables' definition, then one statement that reads the marker, any unfinished attempt and a digest of the managed schema computed by the server, while no other migration command holds the lock. It still proves there is no drift: a digest that does not match is decided again under the lock, which names the difference. Partial-index predicates are compared as PostgreSQL deparses them (`"deletedAt" IS NULL` reads back as `("deletedAt" IS NULL)`), against the text the apply that reached the state read from the catalog and stored beside the marker. A marker without that text (written by 1.1.0, or by a command other than `apply`), a server that now deparses a predicate differently (after a major upgrade), and a schema the digest cannot reproduce (some literal defaults) get the same answer from the locked proof, in about 30 statements.
+
+A statement the migration dispatches that the database refuses fails the command with `MigrationError` V11001 (`MIGRATION_FAILED`). Its `meta` names `fromState`, `toState`, `operationId`, `dispatchId`, `statementIndex` and the provider's `providerCode`/`providerSqlState`, and its `cause` is the provider error. A transactional attempt rolls back and is recorded as `failed` (see `status().lastFailure`). When a COMMIT's reply is lost, apply re-reads the marker: `applied` when it shows the commit, V11020 when it cannot be read. A COMMIT the database refuses (for example a deferred constraint) keeps its provider error. When ending the session fails after the commit, apply returns `applied` with `warnings`.
 
 ## Roll Back
 
@@ -412,17 +510,65 @@ Rollback does **not** restore discarded data. Generated destructive changes rest
 npx viborm migrate down
 npx viborm migrate down --steps 1
 npx viborm migrate down --to add-users
+npx viborm migrate down --steps 1 --expect-revision 4 --accept-data-loss
 npx viborm migrate down --dry-run --json
 ```
   </Tab>
   <Tab title="Migration Client">
 ```ts
-await migrations.down({ steps: 1 });
 await migrations.down({ to: { name: "add-users" } });
+
+const { marker } = await migrations.status();
+await migrations.down({ steps: 1, expectRevision: marker?.revision });
+
+await migrations.down({
+  to: { name: "add-users" },
+  resolve: (change) =>
+    change.type === "destructive" ? change.proceed() : undefined,
+});
 await migrations.down({ steps: 1, dryRun: true });
 ```
   </Tab>
 </Tabs>
+
+**Automation uses `down({ to })`.** An absolute target is idempotent: a retry
+after a lost reply finds the marker already there and returns `{ path: [] }`. A
+relative `down({ steps })` retried the same way would roll back one more state,
+so pass `expectRevision`, the `marker.revision` you read: when another command
+moved the marker since, `down` refuses with `V11015`
+(`MIGRATION_MARKER_CONFLICT`) before any effect.
+
+**Rolling back over data asks first.** When a generated rollback is
+destructive (it drops a table or column, narrows a type, …), `down` compares
+the two states' snapshots; for each destructive change on a table that holds
+rows, it puts the change to `resolve`, as `generate` and `push` do:
+`change.proceed()` approves it, `change.reject()` or no answer refuses with
+`V11010`, and a `down` without `resolve` refuses with `V11017`
+(`MIGRATION_CONSENT_REQUIRED`), listing the changes. The reads run under the
+lock, before the first rollback statement. A rollback over empty tables needs
+no answer, and neither does a table that is absent: a later state dropped it
+(an earlier step of the rollback recreates it empty), or an interrupted
+rollback already did. A manual rollback is not asked again: its author wrote
+and published that SQL, often to move the rows back before a drop. The CLI
+asks on a terminal; `--accept-data-loss` or `migrations.resolve` in
+`viborm.config.ts` answers instead.
+
+**Preview a rollback.** `down({ dryRun: true })` changes nothing and returns,
+for each edge in the order `down` would roll it back, its rollback SQL
+(`edges[i].sql`, rendered as `show --sql` renders it) and `refusal`: the
+`{ code, message }` that `down` with the same options would raise before its
+first effect, or `null`. It runs the same read-only checks: an irreversible
+step (`V11010` with its reason), a loss of rows not approved by `resolve`
+(`V11017` or `V11010`), drift, and an unfinished attempt `down` cannot resume
+(a forward attempt, or more than one: `V11016`). `viborm migrate down --dry-run`
+prints the SQL, prints the refusal on stderr and exits non-zero where `down`
+would refuse. A rollback that finished but was not recorded is closed by
+`down` without rolling anything back; its preview still shows the selected
+path.
+
+The results of `status()`, `log()`, `show()`, `resolve()` and the `down`
+preview are plain data: they survive `structuredClone` and JSON, so a Durable
+Object or any RPC boundary can return them as they are.
 
 `down` is the only rollback verb. There is no tracking-only `rollback()`, `drop`, or `pending()` untrack. Removing a marker row while the schema stays live is not a supported operation.
 
@@ -461,7 +607,7 @@ An unfinished ledger attempt means the live schema may be between states. Ordina
 | Outcome | CLI | Required proof |
 |---------|-----|----------------|
 | Complete | `--complete` | Remaining postchecks, destination checks, and the target fingerprint hold. |
-| Rolled back | `--rolled-back` | Origin checks and the origin fingerprint hold. |
+| Rolled back | `--rolled-back` | Origin checks and the origin fingerprint hold, and no manual opaque step of the attempt committed or may have committed. |
 | Retry | `--retry` | Resume from the first step whose postcheck is false and precheck is true. |
 
 ```bash
@@ -471,6 +617,169 @@ npx viborm migrate resolve --retry --json
 ```
 
 Equal physical fingerprints are not proof for a data-only or opaque transition. If that transition omitted the checks that distinguish its two states, `resolve` refuses.
+
+`--rolled-back` also reads the attempt's ledger. When one of its manual
+(opaque) steps committed (`V11019`, `MIGRATION_PARTIAL_EFFECT`) or was announced and never
+confirmed, so it may have committed (`V11020`), `resolve` refuses: no rollback
+undid that step, no fingerprint shows a data change, and marking the attempt
+rolled back would let `apply` run the step a second time — a balance credited
+twice. The refusal names the `dispatchId`; finish the transition by hand and
+`resolve --complete`. A `CONCURRENTLY` index statement is the exception (see
+below): `resolve` repairs the index it names first, and the origin fingerprint
+then proves it undone.
+
+A manual step the database refused whole — one statement, such as a unique-key
+violation or a `lock_timeout` — committed nothing. It fails with `V11001`
+(`MIGRATION_FAILED`, `meta.partial: true`), its refusal is recorded in the
+ledger, and `--rolled-back` closes its attempt once the origin checks hold. A
+`CALL`, `DO`, `EXECUTE` or `CONCURRENTLY` step can commit part of its work
+before it fails, so its failure stays `V11020`.
+
+An attempt closed as rolled back, resolved or failed no longer blocks anything:
+`apply` starts again, even when the failed attempt was the first one and no
+marker exists yet.
+
+### Interrupted `CREATE INDEX CONCURRENTLY`
+
+A failed or interrupted `CREATE`/`REINDEX INDEX CONCURRENTLY` leaves the index
+INVALID: PostgreSQL maintains it on writes but never reads through it.
+`status()` and `log()` keep working and `status().invalidIndexes` names it;
+`verify`, `apply` and `push` refuse with `V11023` (`MIGRATION_INVALID_INDEX`),
+naming the index. When the unfinished attempt's own statement named that index,
+`resolve` repairs it before its proof: `--rolled-back` drops it with
+`DROP INDEX CONCURRENTLY`, and `--complete` rebuilds an index the destination
+declares with `REINDEX INDEX CONCURRENTLY` (PostgreSQL 12+), otherwise drops it.
+The `<name>_ccnew` / `<name>_ccold` copies an interrupted `REINDEX CONCURRENTLY`
+leaves behind are dropped the same way. `resolve` never touches an invalid index
+the attempt did not name, or an unnamed build: another session's build may still
+be running. Drop or rebuild that index yourself, then resolve.
+
+### History Older Than the Database
+
+A restore can leave the history and the database at different points.
+
+- **The database is older** (it was restored from an earlier backup): nothing
+  needs repair. The marker names a state the history holds, and `apply` runs
+  the states the database lacks.
+- **The history is older** (the estate directory, or a Durable Object's
+  storage, was restored from an earlier backup): the marker names a state the
+  history lacks. `status().markerState` is `"ahead"` or `"unknown"`, and
+  `apply` refuses with `V11002`.
+
+The cheaper repair comes first. State ids are content-addressed. Generating the
+lost states again, with the same schema documents, names, parents and decisions
+and the same VibORM version, reproduces their ids exactly. The marker is then
+known again, and nothing else is needed. Keep every schema document and its
+decisions somewhere durable so this stays possible.
+
+Otherwise, generate the schema the database runs as a state of the history you
+have. Its id differs from the lost one, because its parent or its name does.
+Then re-anchor the marker on it:
+
+<Tabs>
+  <Tab title="CLI">
+```bash
+npx viborm migrate reanchor --json
+npx viborm migrate reanchor --to add-users --json
+```
+  </Tab>
+  <Tab title="Migration Client">
+```ts
+const { stateId } = await migrations.reanchor();
+await migrations.reanchor({ to: { name: "add-users" } });
+```
+  </Tab>
+</Tabs>
+
+Under the target lock, `reanchor` moves the marker onto the one state of this
+history whose snapshot the live schema matches exactly, by the fingerprint
+`verify` compares. It runs no migration SQL. It refuses in these cases:
+
+- The marker names a state this history holds (`apply` and `verify` handle
+  it), or there is no marker (use `baseline`). `V11009`.
+- An attempt is unfinished: resolve it first. `V11009`.
+- No state matches the live schema. `V11014`, with the differences from the
+  history's latest state.
+- Several states match. Equal schemas never say which data the database
+  holds. `V11009`, naming them.
+- The route from the root to the state has a manual, opaque or data-only
+  transition, as for `baseline`. `V11009`.
+- The marker's own path passed through the state: the transitions lost after
+  it changed no schema, so they may have moved data, and moving back would
+  run them again. Regenerate the lost states instead. `V11009`.
+
+The new marker path starts at the history's root with a baseline boundary, as
+`baseline` records it, so `down` cannot cross it. The ledger records a
+`reanchored` event, whose `fromState` is the state the marker named before.
+
+`reanchor({ to })` adopts the named state as the new baseline. It is the
+explicit consent to take the live schema as that state, which several matching
+states need. It still requires exact live equality and a structural route.
+
+## Bounded History with Checkpoints
+
+Every command loads the whole history, and the marker records the whole path
+the database took. A history of hundreds of states keeps growing both. An
+authored checkpoint bounds them: a second root whose one transition creates the
+current schema from empty, so the states before it are no longer needed.
+
+1. **Author the checkpoint.** On the estate, generate from the empty root. The
+   checkpoint must restate the schema of the estate's single leaf: generate any
+   schema change first, then the checkpoint.
+2. **Prune into a fresh history.** `prune` copies the checkpoint, every state
+   after it, and the snapshots and SQL they reference into another storage. The
+   source history is never changed: storage is append-only, so pruning is a
+   copy. The copy holds nothing `check()` would report as an orphan.
+3. **Switch to the fresh history and re-anchor each database.** Its marker
+   names a state the fresh history does not hold (`status().markerState` is
+   `"unknown"`, and `apply` refuses with `V11002`). `reanchor()` proves the
+   live schema equals the checkpoint's snapshot and moves the marker onto it,
+   with a baseline boundary, as in
+   [History Older Than the Database](#history-older-than-the-database).
+
+```ts
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
+
+const history = createMigrationClient(client, {
+  storage: createFsStorageWriter("./migrations"),
+});
+await history.generate({ name: "checkpoint-2026-10", from: null });
+await history.prune({
+  checkpoint: { name: "checkpoint-2026-10" },
+  into: createFsStorageWriter("./migrations-next"),
+});
+
+// After replacing ./migrations with ./migrations-next, for each database:
+const migrations = createMigrationClient(client, {
+  storage: createFsStorageWriter("./migrations"),
+});
+if ((await migrations.status()).markerState === "unknown") {
+  await migrations.reanchor();
+}
+await migrations.apply();
+```
+
+`prune` returns `{ states }`, the states the fresh history now holds. Running
+it again into the same storage publishes nothing new. It is an API only: there
+is no `viborm migrate prune`. A Durable Object prunes into its own storage
+under a key prefix: see
+[the tenant migrator](/docs/migration/tenant-migrator#bounded-history).
+
+Before you prune:
+
+- **Apply the leaf everywhere.** A database still behind the checkpoint's
+  schema cannot be re-anchored: `reanchor` refuses with `V11014`. Apply it with
+  the old history first, which `prune` left untouched, then re-anchor.
+- **Resolve unfinished attempts.** `reanchor` refuses while one is open, and
+  `resolve` needs the states the attempt names.
+- **Generate after the checkpoint from it.** Between the checkpoint and the
+  switch, the old history has two leaves, so `apply` needs `{ to }` and
+  `generate()` without `from` merges both leaves. A state that merges older
+  history keeps it: `prune` copies every parent a kept state names.
+
+`down` cannot cross the checkpoint, as it cannot cross a baseline. The ledger
+keeps its events about the dropped states.
 
 ## Reset
 
@@ -496,7 +805,7 @@ Reset drops managed objects, then replays authenticated states. Effectful CLI re
 physical table inventory, returns it as `tables`, and writes nothing.
 :::
 
-There is no squash or compaction command. A future compaction feature would be an explicitly authored, fully checked direct transition — never inferred from a final snapshot.
+There is no squash or inferred compaction command. History is bounded by an explicitly authored, fully checked direct transition instead: see [Bounded History with Checkpoints](#bounded-history-with-checkpoints).
 
 ## Push Does Not Create History
 
@@ -541,21 +850,145 @@ There are no numbered `0001_*.sql` files, no `meta/_journal.json`, no latest sna
 
 ## Provider Limits
 
-No provider inherits a guarantee from its dialect name. Effectful work requires a proven lock, marker compare-and-swap, and execution boundary.
+No provider inherits a guarantee from its dialect name. Effectful work requires a proven marker compare-and-swap, execution boundary and migration lock: a transaction-scoped advisory lock on PostgreSQL, a session lock on MySQL, and on SQLite the write lock of `BEGIN IMMEDIATE`.
 
 | Provider | Effectful migrate / push | Notes |
 |----------|--------------------------|--------|
-| PGlite, `pg`, postgres.js, Bun SQL | Yes, when lock/CAS is proven | Transactional when every statement permits it. |
-| SQLite3, Bun SQLite | Yes, when lock/CAS is proven | One writer boundary; `BEGIN IMMEDIATE` where the family allows it. |
+| PGlite, `pg`, postgres.js, Bun SQL | Yes, when lock/CAS is proven | Transactional when every statement permits it. Each transaction takes the lock and the marker is read under it, so a transaction pooler (PgBouncer in transaction mode) works; stepwise work keeps a session lock and needs a direct session. See [PostgreSQL](/docs/migration/drivers/postgresql#guarantees-and-limits). |
+| SQLite3, Bun SQLite | Yes; stepwise refused | The write lock of `BEGIN IMMEDIATE` is the migration lock: each command reads the marker and the unfinished attempts as the first statements of the transaction that runs its first group, so a second `apply` of the same state, from any process, reports `noop` or refuses with `V11015`. `generate` refuses a manual transition or rollback declared `execution: "stepwise"` (`V11021`), and `apply`, `down` and `reset` refuse one 1.1.0 published. See [SQLite](/docs/migration/drivers/sqlite#concurrent-commands). |
 | MySQL2 | Stepwise | DDL implicitly commits. Nominal transactions do not create rollback. Progress is recorded per dispatch. |
-| Neon HTTP | Read-only / offline | No interactive session to hold a lock. Generation, check, status, log, and push dry-run stay available. Effectful apply/down/reset/verify/push refuse. |
+| Neon HTTP | `apply` only | No interactive session: each transactional group is one request, a non-interactive transaction that takes the lock and asserts the marker, the checks and the destination's catalog digest in SQL. Stepwise transitions and a destination the digest cannot prove (a partial index) refuse with `V11021`; a lost reply is decided by the marker, else `V11020`. down/reset/verify/push refuse (`V8002`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations). |
 | PlanetScale | Read-only / offline | VTGate routing does not prove containment. Same offline/read-only split. |
 | D1 | Effectful refused until proven | Table recreation, foreign keys, native-batch atomicity, and marker CAS are not proven together. |
 | LibSQL | Effectful refused until proven | Existing-row constraint validation and safe table reconstruction are not proven. |
 
-`CREATE INDEX CONCURRENTLY` and other forbidden-in-transaction PostgreSQL operations are classified stepwise or refused before effect.
+VibORM never generates `CREATE INDEX CONCURRENTLY`. A manual transition that
+uses it must declare `execution: "stepwise"`, which sends each `up` dispatch on
+its own, outside a transaction. `generate` refuses (`V11012`) a dispatch declared
+`"transactional"` that PostgreSQL cannot run inside a transaction, naming it:
+`CREATE [UNIQUE] INDEX`, `DROP INDEX` or `REINDEX INDEX|TABLE|SCHEMA|DATABASE`
+with `CONCURRENTLY`, `REINDEX (…, CONCURRENTLY)`, and `DETACH PARTITION …
+CONCURRENTLY`. A manual rollback is held to its own `execution`.
+A state an earlier version published that way still fails at `apply`: PostgreSQL
+rejects the statement (SQLSTATE 25001) with `V2001` and the transaction rolls back.
+`ALTER TYPE … ADD VALUE` runs inside the transaction; an edge that adds
+an enum value ends its commit group, so a later edge can use the new value.
 
 Interrupted stepwise work is explainable from the ledger. The tool never reports rollback that the provider could not perform.
+
+## Large Tables
+
+Some PostgreSQL changes rewrite or scan the whole table while holding a lock
+that blocks it, so their duration grows with the table:
+
+- a column type change, including an enum replacement and a decimal descriptor change;
+- `SET NOT NULL`;
+- a new column whose default is volatile, such as `gen_random_uuid()` or a serial;
+- a `FOREIGN KEY` or `CHECK` constraint added without `NOT VALID`.
+
+Above `limits.largeTableRows` (default 1,000,000), `apply`, `down` and
+`push`, including push's dry run, refuse such a change before any statement
+runs, with `V11009` naming the operation, the table and the planner's estimate.
+The estimate is what `EXPLAIN` reports: `pg_class.reltuples` from the last
+`ANALYZE` or autovacuum, scaled to the table's current size. A plan that
+reports no estimate is refused the same way, since nothing measured the table.
+Manual SQL is
+classified by the same patterns: the forms VibORM generates and their common
+manual spellings. A table the same migration creates first, as a force reset
+does, is empty and never refused. `apply({ dryRun: true })` previews without
+reading the estimate, and `reset` and `resolve` do not run this check.
+
+Run a refused change outside the request, from a job whose client raises the
+limit, or sets it to 0 for no limit:
+
+```ts
+const migrations = createMigrationClient(client, {
+  storage,
+  limits: { largeTableRows: 0, statementTimeout: 0 },
+});
+await migrations.apply();
+```
+
+The limit is PostgreSQL's. MySQL and SQLite apply such changes without this
+check: SQLite has no row estimate unless `ANALYZE` has run, and counting rows
+would scan the table it protects.
+
+### Indexes and foreign keys as steps
+
+On PostgreSQL, `generate({ lowLock: true })` (`viborm migrate generate
+--low-lock`) builds each index on, and adds
+each foreign key to, a table the migration does not create without a lock that
+blocks writes while it reads the table. It publishes the change as consecutive
+states, each with a commit of its own:
+
+1. the rest of the change, in one transaction, as before;
+2. each index, built with `CREATE [UNIQUE] INDEX CONCURRENTLY` outside any
+   transaction;
+3. the foreign keys, added `NOT VALID`: PostgreSQL checks new rows and scans
+   nothing;
+4. a last state that validates them with `VALIDATE CONSTRAINT`, whose scan
+   blocks no write.
+
+The last state carries the name you gave; the others are named
+`<name> (step i of n)`. `apply` runs them as one path, `down({ steps: 1 })`
+steps back one of them, and undoing the validation changes nothing. No step is
+refused for the table's size, and the `V11009` refusal of a foreign key's
+validation names this form.
+
+It is opt-in: `generate` cannot see the database, so it cannot tell a large
+table from an empty one, and a step outside a transaction needs the direct
+session that `apply` takes for stepwise work, which a transaction pooler
+cannot give (see [PostgreSQL](/docs/migration/drivers/postgresql#guarantees-and-limits)). Without
+it, `generate` publishes one transactional state, as before.
+
+An interrupted step leaves something `apply` or `resolve` settles:
+
+- A failed or interrupted index build leaves one unfinished attempt and an
+  INVALID index ([see above](#interrupted-create-index-concurrently)).
+  `resolve({ outcome: "rolled-back" })` drops the index and `apply()` builds it
+  again; `resolve({ outcome: "complete" })` rebuilds it in place.
+- A failed validation (rows the key refuses, a time limit) rolls back alone,
+  records a `failed` event, and leaves the marker at the state that added the
+  key `NOT VALID`. Fix the rows and run `apply()` again.
+- `generate` seals every state before it publishes the first, so a refusal
+  publishes nothing. Only storage that fails between two manifests leaves the
+  states before in storage, each a complete state. Run the same `generate`
+  again with `from` set to the state it started from: the published states have
+  the same ids, and the missing ones follow. Without `from` it continues from
+  the last one, except after the keys' state, whose schema is already the
+  target's: that call is a `noop`, and only `from` publishes the validation.
+
+The build runs without the session's time limits; the validation runs under
+`limits.statementTimeout` (10 minutes by default), which a very large table
+may need raised.
+
+Only the forward direction has the step form. Rolling a step back uses the
+blocking forms: `down` drops a concurrently built index with a plain `DROP
+INDEX`, and restores an index a step dropped with a plain `CREATE INDEX`. An
+index redefined under the same name is dropped one state before it is built
+again, so a unique index enforces nothing between those two commits, and a
+duplicate written then makes the build fail and leaves an INVALID index. Give
+the new definition a new name, or generate that change without `lowLock`.
+
+The other changes listed above have no step form and stay refused: a type
+change rewrites the table and a volatile default fills every row. `SET NOT
+NULL` scans the table, which PostgreSQL 12+ skips behind a validated `CHECK
+(column IS NOT NULL)`; VibORM does not generate that form, because its
+snapshot does not record CHECK constraints: nothing would prove the check is
+there between the steps, and undoing the last step would leave a check whose
+validation must scan again. A manual transition can add the check `NOT VALID`
+and validate it in states of its own; the `SET NOT NULL` that follows reads no
+rows, but `largeTableRows` cannot tell, so run that last state from a client
+that raises the limit. A key or check that manual SQL or `push` validates in
+place is refused the same way.
+
+A change is not split, and `generate` returns a warning saying so, when it
+merges several parents, or when something other than an index build, an index
+drop or a foreign key follows its first build (an enum drop, for one). `push`
+has no history to split a change into. A unique constraint (`.unique()` on a
+field) is still added with `ADD CONSTRAINT … UNIQUE`, which blocks writes while
+its index builds; an index declared with `.index([...], { unique: true })` is
+built concurrently.
 
 ## Expand / Contract Deployments
 
@@ -565,7 +998,7 @@ A migration tool does not provide zero-downtime deploys by itself. Use expand/co
 2. **Migrate data** — backfill with a manual transition that carries origin and destination checks.
 3. **Contract** — deploy readers that only use the new shape, then generate a second state that drops the old objects.
 
-Do not squash those states. Each published state stays in the graph so every environment can apply the exact transition it needs.
+Do not squash those states. Each published state stays in the graph so every environment can apply the exact transition it needs. Checkpoint a history only once every environment has applied it.
 
 ## Error Families
 
@@ -579,10 +1012,11 @@ Automation should switch on stable families, not message text. CLI `--json` is a
 | Lock timeout | Another runner holds the target lock. |
 | Marker conflict | Compare-and-swap lost. |
 | Unfinished attempt | Ledger has an open attempt. |
-| Consent required / mismatch | Push plan changed or destructive work lacks that preview's consent. |
+| Consent required / mismatch | Push plan changed or destructive work lacks that preview's consent; generate found destructive changes that no resolver approved. |
 | Unsupported provider | Effectful work is not admitted on this driver. |
 | Partial effect | Stepwise progress is confirmed; later steps did not run. |
-| Ambiguous commit | An opaque dispatch may have committed. |
+| Dispatch failed | `V11001`: the database refused a statement the migration dispatched; `meta` names the states, `operationId`, `dispatchId`, `statementIndex` and the provider's code, and `cause` is the provider error. |
+| Ambiguous commit | An opaque dispatch, or a COMMIT whose reply was lost, may have committed. |
 
 ```ts
 import { isMigrationError } from "viborm/migrations";
@@ -612,7 +1046,8 @@ try {
 ```
 
 ```ts title="scripts/deploy.ts"
-import { createMigrationClient, createFsStorageWriter } from "viborm/migrations";
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
 import { client } from "./db/client";
 
 const migrations = createMigrationClient(client, {
@@ -627,6 +1062,47 @@ if (status.pending.length > 0) {
   await migrations.apply();
 }
 ```
+
+## Upgrading from 1.1.0
+
+Upgrade every machine and CI job that runs migration commands against a
+database, or reads its history, together. VibORM 1.1.0 reads every control row
+and every history file strictly, and refuses three things 1.2.0 can write:
+
+- **A destructive state's approvals** (see
+  [Destructive changes need an approval](#destructive-changes-need-an-approval)).
+  They are part of the state in the history, so keep 1.2.0 for a history that
+  holds one.
+- **The marker's `predicates` record** (PostgreSQL). An `apply` that reaches a
+  state with partial indexes stores their predicates beside the marker (see
+  [Apply](#apply)). 1.1.0 then refuses the marker with `V11012` ("migration
+  marker has unknown key predicates"). Before running 1.1.0 against that
+  database, remove the record:
+
+  ```sql
+  UPDATE "<schema>"."_viborm_migration_state" SET payload = (payload::jsonb - 'predicates')::text WHERE singleton = 1;
+  ```
+
+  1.2.0 still answers a no-op on that database, through the locked proof
+  (about 30 statements), until its next `apply` reaches a state.
+- **A `reanchored` ledger event**, written by `reanchor()` (see
+  [History Older Than the Database](#history-older-than-the-database)). 1.1.0
+  reads the whole ledger and refuses that database with `V11012` ("ledger event
+  .kind is not a V1 kind"). The re-anchored marker itself is one 1.1.0 reads: its
+  path starts at a baseline boundary, as `baseline` writes it. To run 1.1.0
+  against that database, delete the event, which also deletes the database's
+  record of the re-anchor:
+
+  ```sql
+  DELETE FROM "<schema>"."_viborm_migration_log" WHERE kind = 'reanchored';
+  ```
+
+  On MySQL and SQLite, drop the `"<schema>".` qualifier (MySQL keeps it, with
+  backticks, when the client sets a namespace).
+
+`<schema>` is the client's namespace (`public` when it sets none). Rolled back
+this way, 1.1.0 runs `status`, `verify` and `apply` against the database as 1.2.0 left
+it, with the history 1.2.0 used.
 
 ## Next Steps
 

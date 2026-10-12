@@ -25,7 +25,6 @@ import {
   CACHE_PREFIX,
   generateCacheKey,
   generateCachePrefix,
-  generateUnprefixedCacheKey,
 } from "@cache/key";
 import { hasCacheInvalidationWork } from "@cache/schema";
 import { parseTTL } from "@cache/ttl";
@@ -158,8 +157,8 @@ describe("cache duration and key contracts", () => {
     expect(generateCachePrefix("user", 2)).toBe("viborm:v2:user");
     expect(generateCachePrefix(undefined, "blue")).toBe("viborm:vblue");
 
-    expect(generateUnprefixedCacheKey("user", "findMany", { b: 2, a: 1 })).toBe(
-      generateUnprefixedCacheKey("user", "findMany", { a: 1, b: 2 })
+    expect(generateCacheKey("user", "findMany", { b: 2, a: 1 })).toBe(
+      generateCacheKey("user", "findMany", { a: 1, b: 2 })
     );
     expect(generateCacheKey("user", "findMany", null)).not.toBe(
       generateCacheKey("user", "findMany", undefined)

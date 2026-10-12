@@ -1,19 +1,19 @@
 /** Read-only source accounting; optional in-memory bundles, never candidate code. */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { builtinModules, createRequire } from "node:module";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runInNewContext } from "node:vm";
 import { gzipSync } from "node:zlib";
 import ts from "typescript";
-import { calibrationSourceIdentity } from "../benchmarks/operation-pipeline-semantics.mjs";
 import {
-  RAPTOR3_WORKLOADS,
   RAPTOR3_WORKLOAD_VERSION,
+  RAPTOR3_WORKLOADS,
   WORKLOADS,
 } from "../benchmarks/operation-pipeline-catalog.mjs";
+import { calibrationSourceIdentity } from "../benchmarks/operation-pipeline-semantics.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const argv = process.argv.slice(2);
@@ -67,8 +67,6 @@ const chargedClient = new Set([
   "array-transaction-native.ts",
   "array-transaction.ts",
   "client.ts",
-  "decimal-provider-limits.ts",
-  "geo-point-provider-limit.ts",
   "omit.ts",
   "raw.ts",
   "schema-introspection.ts",
@@ -159,8 +157,10 @@ const files = list(resolve(root, "src"), ".ts").map((absolute) => {
     )
       return [];
     if (
-      !statement.moduleSpecifier ||
-      !ts.isStringLiteral(statement.moduleSpecifier)
+      !(
+        statement.moduleSpecifier &&
+        ts.isStringLiteral(statement.moduleSpecifier)
+      )
     )
       return [];
     const typeOnly = ts.isImportDeclaration(statement)
@@ -255,6 +255,9 @@ const manifest = JSON.parse(
 const categories = [...new Set(files.map((file) => file.classification))];
 const require = createRequire(import.meta.url);
 const tsdownRequire = createRequire(require.resolve("tsdown"));
+const RAPTOR3_SCRIPT = /raptor3/;
+const MJS_EXTENSION = /\.mjs$/;
+
 const externalByFixture = {
   engine: [
     ...Object.keys(manifest.dependencies),
@@ -404,9 +407,9 @@ const report = {
       "Public PostgreSQL fixtures bundle runtime dependencies and pg; only platform built-ins and explicitly unselected optional provider packages remain external",
   },
   preAuditForecast: {
-    wholeEngineTokenLines: [20200, 31000],
+    wholeEngineTokenLines: [20_200, 31_000],
     s1ThroughS4TokenLines: [4100, 6650],
-    provisionalNavigationDenominator: 47625,
+    provisionalNavigationDenominator: 47_625,
     qualification:
       "Preimplementation prediction retained unchanged, not a candidate measurement",
   },
@@ -444,7 +447,7 @@ const report = {
       file.includes("operation-pipeline-")
     ),
     ...list(resolve(root, "scripts"), ".mjs").filter((file) =>
-      /raptor3/.test(file)
+      RAPTOR3_SCRIPT.test(file)
     ),
   ].map((absolute) => {
     const source = readFileSync(absolute, "utf8");
@@ -551,7 +554,7 @@ if (bundle) {
             : undefined;
       if (module && ts.isStringLiteral(module) && module.text.startsWith(".")) {
         visitDeclaration(
-          resolve(file, "..", module.text.replace(/\.mjs$/, ".d.mts"))
+          resolve(file, "..", module.text.replace(MJS_EXTENSION, ".d.mts"))
         );
       }
       ts.forEachChild(node, visit);

@@ -9,7 +9,6 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -18,16 +17,16 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import {
-  ClientInitializationError,
-  unsupportedVector,
-  VibORMErrorCode,
-} from "@errors";
+import { ClientInitializationError, VibORMErrorCode } from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
 } from "postgres";
-import { Driver, type QueryExecutionContext } from "../driver";
+import {
+  Driver,
+  type MigrationSessionAttestation,
+  type QueryExecutionContext,
+} from "../driver";
 import { normalizeDriverError } from "../error-mapping";
 import { getExecutionTransactionPhases } from "../execution-context";
 import {
@@ -38,11 +37,19 @@ import {
   normalizePostgresRowCount,
   type PinnedSessionReservation,
   releaseReservedPostgresSession,
+  resolveMigrationSessionAttestationOption,
   resolveNamespaceOption,
   runProviderManagedTransaction,
   type TransactionOptionSupport,
   withSuppressedFailure,
 } from "../shared";
+import {
+  refuseEmptyDatabaseUrl,
+  refuseUnknownDriverConfigKeys,
+  systemRootAsVerifyFull,
+} from "../shared/driver-options";
+import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
+import { installPostgresAdapter } from "../shared/postgres-adapter";
 import type { QueryResult } from "../types";
 
 export type PostgresOptions = PostgresOptionsType<
@@ -59,6 +66,13 @@ export interface PostgresDriverOptions {
   databaseUrl?: string;
   /** The PostgreSQL schema this driver's persistent objects live in. Defaults to `public`. */
   namespace?: string;
+  /**
+   * Your claim, at your risk, that every connection this client opens is one
+   * server session for its whole life. It lifts migrations' refusal of
+   * Cloudflare Hyperdrive and Neon `-pooler` hosts; application queries never
+   * need it.
+   */
+  migrationSessionAttestation?: MigrationSessionAttestation;
 }
 
 export const vibormTypes: Record<string, postgres.PostgresType> = {
@@ -105,6 +119,16 @@ const withVibormTypes = (options: PostgresOptions = {}): PostgresOptions => ({
 export type PostgresClientConfig<C extends DriverConfig> =
   PostgresDriverOptions & C;
 
+const POSTGRES_CONFIG_KEYS: Record<keyof PostgresDriverOptions, true> = {
+  client: true,
+  options: true,
+  pgvector: true,
+  postgis: true,
+  databaseUrl: true,
+  namespace: true,
+  migrationSessionAttestation: true,
+};
+
 type PostgresClient = PostgresSql<Record<string, unknown>>;
 
 const isTransaction = (
@@ -142,6 +166,12 @@ export class PostgresDriver extends Driver<
       options: { ...options.options },
     };
     this.suppliedClient = options.client;
+    const { host, hostname } = this.driverOptions.options ?? {};
+    refuseEmptyDatabaseUrl(
+      "postgres",
+      options,
+      Boolean(this.suppliedClient || host || hostname)
+    );
 
     if (this.suppliedClient) {
       for (const oid of [1082, 1114, 1184]) {
@@ -158,10 +188,23 @@ export class PostgresDriver extends Driver<
       this.client = this.suppliedClient;
     }
 
-    const adapter = new PostgresAdapter(namespace, options.postgis === true);
-    adapter.capabilities.supportsVector = options.pgvector === true;
-    if (!options.pgvector) adapter.vector = unsupportedVector;
-    defineImmutableDriverFact(this, "adapter", adapter);
+    installPostgresAdapter(this, namespace, options);
+    defineImmutableDriverFact(
+      this,
+      "migrationSessionAttestation",
+      resolveMigrationSessionAttestationOption(options)
+    );
+  }
+
+  /** Every host or URL this driver's client connects through, for migration admission. */
+  protected override migrationSessionEndpoints(): readonly unknown[] {
+    const { databaseUrl, options } = this.driverOptions;
+    return [
+      databaseUrl,
+      options?.host,
+      options?.hostname,
+      ...(this.suppliedClient?.options.host ?? []),
+    ];
   }
 
   /**
@@ -177,23 +220,12 @@ export class PostgresDriver extends Driver<
     if (this.suppliedClient !== undefined) {
       return this.suppliedClient;
     }
+    // postgres.js reads the URL for the keys it carries and lets every key
+    // set in options win, which is the documented precedence.
     const { databaseUrl, options } = this.driverOptions;
-    if (databaseUrl) {
-      const {
-        host: _host,
-        hostname: _hostname,
-        port: _port,
-        user: _user,
-        username: _username,
-        pass: _pass,
-        password: _password,
-        database: _database,
-        db: _db,
-        ...transportOptions
-      } = options ?? {};
-      return postgres(databaseUrl, withVibormTypes(transportOptions));
-    }
-    return postgres(withVibormTypes(options));
+    return databaseUrl
+      ? postgres(systemRootAsVerifyFull(databaseUrl), withVibormTypes(options))
+      : postgres(withVibormTypes(options));
   }
 
   /**
@@ -220,26 +252,15 @@ export class PostgresDriver extends Driver<
     params: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "execute";
     // postgres.js unsafe() takes (query, parameters?, queryOptions?)
     // parameters must be cast as postgres expects specific types
-    const result = await client.unsafe<T[]>(
+    return this.executeQuery(
+      client,
       sqlStr,
       encodeListParameters(params),
-      { prepare: this.driverOptions.options?.prepare === true }
+      context,
+      "execute"
     );
-    return {
-      rows: result,
-      rowCount: normalizePostgresRowCount(
-        result.count,
-        result.command,
-        result,
-        {
-          provider: "postgres",
-          operation,
-        }
-      ),
-    };
   }
 
   protected async executeRaw<T>(
@@ -248,7 +269,17 @@ export class PostgresDriver extends Driver<
     params: unknown[] | undefined,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "executeRaw";
+    return this.executeQuery(client, sqlStr, params, context, "executeRaw");
+  }
+
+  private async executeQuery<T>(
+    client: PostgresClient | PostgresTransaction,
+    sqlStr: string,
+    params: unknown[] | undefined,
+    context: QueryExecutionContext | undefined,
+    fallbackOperation: "execute" | "executeRaw"
+  ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? fallbackOperation;
     const result = await client.unsafe<T[]>(sqlStr, params, {
       prepare: this.driverOptions.options?.prepare === true,
     });
@@ -382,10 +413,11 @@ export class PostgresDriver extends Driver<
     const reserved = await client.reserve();
     return {
       session: reserved,
-      release: (discard) =>
+      release: (discard, lost) =>
         releaseReservedPostgresSession({
           driverName: this.driverName,
           discard,
+          lost,
           reset: () => reserved.unsafe("SELECT pg_advisory_unlock_all()"),
           release: () => reserved.release(),
           // Ownership is the identity this driver settled at construction,
@@ -405,7 +437,11 @@ export class PostgresDriver extends Driver<
                   // `getClient()` answers from it when `client` is null.
                   this.client = null;
                   this.initPromise = null;
-                  await client.end();
+                  // Bounded: an abandoned connection whose socket stopped
+                  // answering never finishes on its own, and `end()` without
+                  // a timeout waits for it. Past the bound postgres.js
+                  // terminates every connection of this transport.
+                  await client.end({ timeout: CLEANUP_BOUND_MS / 1000 });
                 },
         }),
     };
@@ -425,16 +461,21 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: PostgresDriver }
   >]: LinkedClientConfig<C & { driver: PostgresDriver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "postgres", POSTGRES_CONFIG_KEYS);
   const { client, options = {}, pgvector, postgis, databaseUrl } = config;
   const namespace = resolveNamespaceOption(config);
+  const migrationSessionAttestation =
+    resolveMigrationSessionAttestationOption(config);
 
   const driver = new PostgresDriver({
     client,
     options,
-    databaseUrl,
+    // Present even when undefined: the driver refuses an empty one (parity-18).
+    ...(Object.hasOwn(config, "databaseUrl") ? { databaseUrl } : {}),
     pgvector,
     postgis,
     namespace,
+    migrationSessionAttestation,
   });
 
   return createClientFromDriverConfig<S, C, PostgresDriver>(config, driver);

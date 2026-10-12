@@ -16,7 +16,7 @@ import type {
   TargetKind,
   VariantEntries,
 } from "@schema/relation/static-membership";
-import type { ScalarState } from "@schema/scalars";
+import type { ScalarState, ScalarType } from "@schema/scalars";
 import type { Prettify } from "@validation";
 import type {
   ModelArgsSchemas,
@@ -399,6 +399,24 @@ type ResolvedOperationResultOmit<Args, DefaultOmit, Merged> =
     ? MergeClientOmit<DefaultOmit, NodeOmit<Args>>
     : NodeOmit<Merged>;
 
+/** The verbs whose result is the selected row, wrapped by cardinality. */
+type RowOperation =
+  | "findFirst"
+  | "findUnique"
+  | "findFirstOrThrow"
+  | "findUniqueOrThrow"
+  | "findMany"
+  | "create"
+  | "update"
+  | "delete"
+  | "upsert";
+
+type RowCardinality<O, Row> = O extends "findFirst" | "findUnique"
+  ? Row | null
+  : O extends "findMany"
+    ? Row[]
+    : Row;
+
 /**
  * Operation result type - infers result shape based on select/include args
  * This provides full type safety for ORM operation results
@@ -421,18 +439,10 @@ type OperationResultWithClientDefaults<
   ResultArgs = ResolvedOperationResultArgs<Args, Merged>,
   UnselectedOmit = ResolvedOperationResultOmit<Args, DefaultOmit, Merged>,
 > = M extends Model<infer S>
-  ? O extends "findFirst" | "findUnique"
-    ? Prettify<
-        InferSelectInclude<
-          S,
-          ResultArgs,
-          NodeSelect<ResultArgs>,
-          UnselectedOmit,
-          ClientDefaults
-        >
-      > | null
-    : O extends "findFirstOrThrow" | "findUniqueOrThrow"
-      ? Prettify<
+  ? O extends RowOperation
+    ? RowCardinality<
+        O,
+        Prettify<
           InferSelectInclude<
             S,
             ResultArgs,
@@ -441,37 +451,18 @@ type OperationResultWithClientDefaults<
             ClientDefaults
           >
         >
-      : O extends "findMany"
-        ? Prettify<
-            InferSelectInclude<
-              S,
-              ResultArgs,
-              NodeSelect<ResultArgs>,
-              UnselectedOmit,
-              ClientDefaults
-            >
-          >[]
-        : O extends "create" | "update" | "delete" | "upsert"
-          ? Prettify<
-              InferSelectInclude<
-                S,
-                ResultArgs,
-                NodeSelect<ResultArgs>,
-                UnselectedOmit,
-                ClientDefaults
-              >
-            >
-          : O extends "createMany" | "updateMany" | "deleteMany"
-            ? BulkWriteResult<S, Args, DefaultOmit>
-            : O extends "count"
-              ? CountResultType<Args>
-              : O extends "exist"
-                ? boolean
-                : O extends "aggregate"
-                  ? AggregateResultType<ExtractFields<M>, Args>
-                  : O extends "groupBy"
-                    ? GroupByResultType<ExtractFields<M>, Args>[]
-                    : never
+      >
+    : O extends "createMany" | "updateMany" | "deleteMany"
+      ? BulkWriteResult<S, Args, DefaultOmit>
+      : O extends "count"
+        ? CountResultType<Args>
+        : O extends "exist"
+          ? boolean
+          : O extends "aggregate"
+            ? AggregateResultType<ExtractFields<M>, Args>
+            : O extends "groupBy"
+              ? GroupByResultType<ExtractFields<M>, Args>[]
+              : never
   : never;
 
 /**
@@ -777,7 +768,11 @@ type SpelledClauseKeys<Given> = Given extends object
 type UnknownArrayClauseKeys<
   Given extends readonly unknown[],
   Allowed,
-> = Exclude<SpelledClauseKeys<Given[number]>, ClauseKeys<NonNullable<Allowed>>>;
+  Always extends PropertyKey,
+> = Exclude<
+  Exclude<SpelledClauseKeys<Given[number]>, Always>,
+  ClauseKeys<NonNullable<Allowed>>
+>;
 
 /**
  * What the ARRAY spelling of a clause is refused WITH. The key cannot be
@@ -815,14 +810,24 @@ type UnknownClauseKey<K> = { readonly __unknownKeyInClause: K };
  *
  * `Given` arrives with `undefined`/`null` already stripped (see `ClauseGuard`).
  */
-type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
-  ? [UnknownArrayClauseKeys<Given, Allowed>] extends [never]
+type NoExtraClauseKeys<
+  Given,
+  Allowed,
+  Always extends PropertyKey = never,
+> = Given extends readonly unknown[]
+  ? [UnknownArrayClauseKeys<Given, Allowed, Always>] extends [never]
     ? unknown
-    : UnknownClauseKey<UnknownArrayClauseKeys<Given, Allowed>>
+    : UnknownClauseKey<UnknownArrayClauseKeys<Given, Allowed, Always>>
   : string extends keyof Given
     ? unknown
     : Given extends object
-      ? Record<Exclude<keyof Given, ClauseKeys<NonNullable<Allowed>>>, never>
+      ? Record<
+          Exclude<
+            Exclude<keyof Given, Always>,
+            ClauseKeys<NonNullable<Allowed>>
+          >,
+          never
+        >
       : unknown;
 
 /**
@@ -866,41 +871,53 @@ type NoExtraClauseKeys<Given, Allowed> = Given extends readonly unknown[]
  *    Estate type-check 34s → 45s when the guard landed; adding the other two
  *    spellings cost nothing measurable (same tree, back-to-back runs: 83.3s vs
  *    78.1s user, the difference inside the noise of a loaded machine).
- *  - `data` / `create` / `update` — NOT generally guarded. A write clause's
- *    payload is the recursive nested-write union, and reaching for its keys
- *    expands it: six estate sites turn `TS2589: Type instantiation is
- *    excessively deep`, and the type-check goes to 172s. The one narrow
- *    exception is a DIRECT decimal update leaf below: its operation keys come
- *    from the scalar's exact-one owner and it never walks a relation input.
+ *  - `data` / `create` / `update` — not keyed against the payload. A write
+ *    clause's payload is the recursive nested-write union, and reaching for its
+ *    keys expands it: six estate sites turn `TS2589: Type instantiation is
+ *    excessively deep`, and the type-check goes to 172s. Direct write names
+ *    are keyed from the model state instead (`DirectWriteKeysGuard`), nested
+ *    write data by walking the caller's literal (`NestedClauseGuard`).
  *  - `cursor` / `having` / `cache` — NOT guarded. Three more TS2589 sites, on
  *    compound-unique and aggregate payloads.
  *
- * Scalar operator bags and nested projections remain out of this guard:
- * `where.title.contians` and `select.books.select` stay pinned. The separate
- * NestedWhereClauseGuard visits only caller-spelled logical/ordinary relation
- * filters and checks their model field names, including held values.
- * Every remaining unguarded level is pinned as a compiling misspelling in
- * `tests/client/contextual-typing-gate.test.ts`, so the boundary is a measured
- * fact rather than an assumption, and a future TypeScript that can carry more
- * turns those pins red.
- * The finite `recurse` option bag is the one exception that reaches every
- * depth: `RecursiveProjectionRootGuard` walks the literal the caller wrote, not
- * the model, so it never resolves a target mid-inference (see there).
+ * Below the root, every check walks the literal the caller wrote, never the
+ * payload: `NestedClauseGuard` (WHERE model field names, nested write data),
+ * `OperatorBagGuard` (root WHERE operator bags) and
+ * `RecursiveProjectionRootGuard` (nested `select` / `include` / `where`,
+ * `recurse` bags). A guard that inspects a value cannot key a type parameter,
+ * so the projection and operator guards keep each leaf's own arm in a union,
+ * which is what keeps a generic leaf assignable. What stays unguarded —
+ * operator bags below the root WHERE, selectors, variant arms — is pinned as a
+ * compiling misspelling in `tests/types/client/contextual-typing-gate.core.types.ts`
+ * and listed on the quick start.
  */
-// SCRATCH ONLY: insert near ClauseGuard in src/client/types.ts; import AnyRelation.
-// This visits the caller's filter, not every field in a model payload. The
-// existing where clause stays authoritative for root allowed keys/operators.
-type SameWhereValue<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2
+/**
+ * The root-reported walks (WHERE model keys, nested write data) follow the
+ * LITERAL the caller wrote, key each spelled object against a key set read
+ * from the model's state, and report what is left as ONE `UnknownClauseKey` on
+ * the root clause. Neither maps over a payload's own keys, which is what
+ * expands the recursive payloads (see above). Cycle detection uses the exact
+ * spelled-value/model pair, never a numeric depth cap, so a held value typed
+ * as a recursive payload stops at its first repeat. `NoInfer` keeps that
+ * comparison from inferring through a relinked model (a mapped type), which
+ * would walk its whole relation graph.
+ */
+type SameValue<A, B> =
+  (<T>() => T extends NoInfer<A> ? 1 : 2) extends <T>() => T extends NoInfer<B>
+    ? 1
+    : 2
     ? true
     : false;
-type SeenWhereValue<Given, M, Seen> = true extends (
+type SeenValue<Given, M, Seen> = true extends (
   Seen extends unknown
-    ? SameWhereValue<readonly [Given, M], Seen>
+    ? SameValue<readonly [Given, M], Seen>
     : never
 )
   ? true
   : false;
+type ElementOf<Value> = Value extends readonly (infer Element)[]
+  ? Element
+  : Value;
 type WhereLogicalKey = "AND" | "OR" | "NOT";
 // Declared fields replace the logical entries in the authoritative WhereSchema.
 type WhereLogicalKeys<M extends Model<any>> = Exclude<
@@ -959,7 +976,7 @@ type WhereUnknownKeys<
       ? never
       :
           | Exclude<keyof Given, Allowed>
-          | (SeenWhereValue<Given, M, Seen> extends true
+          | (SeenValue<Given, M, Seen> extends true
               ? never
               : {
                   [K in Extract<
@@ -984,40 +1001,181 @@ type WhereUnknownKeys<
                 >])
     : never;
 
-type NestedWhereClauseGuard<
+/**
+ * The data objects one relation's write verbs carry: `create`,
+ * `createMany.data`, `connectOrCreate.create`, `upsert.create` / `.update`,
+ * and the `data` of `update` / `updateMany`. A to-one `update` is read as the
+ * parse boundary reads it (`to-one-update-form.ts`): the `{ where?, data }`
+ * envelope when `where` is spelled or the target owns no `data` field, the
+ * bare data otherwise.
+ */
+type NestedWriteData<Verbs, TargetKeys> =
+  | ElementOf<ValueAt<Verbs, "create">>
+  | ElementOf<ValueAt<ValueAt<Verbs, "createMany">, "data">>
+  | ValueAt<ElementOf<ValueAt<Verbs, "connectOrCreate" | "upsert">>, "create">
+  | ValueAt<ElementOf<ValueAt<Verbs, "upsert">>, "update">
+  | ValueAt<ElementOf<ValueAt<Verbs, "updateMany">>, "data">
+  | UpdateFormData<ElementOf<ValueAt<Verbs, "update">>, TargetKeys>;
+
+type UpdateFormData<Update, TargetKeys> = Update extends {
+  data: infer Data;
+}
+  ? "where" extends keyof Update
+    ? Data
+    : "data" extends TargetKeys
+      ? Update
+      : Data
+  : Update;
+
+/**
+ * The keys an object SPELLED: its required ones. A union of literals (a
+ * ternary between two payload forms) carries each arm's missing keys as
+ * optional `?: undefined` members nobody wrote, and a held value typed as the
+ * payload carries every key as optional and has nothing misspelled.
+ */
+type RequiredSpelledKeys<Given> = Given extends object
+  ? {
+      [K in keyof Given]-?: Record<never, never> extends Pick<Given, K>
+        ? never
+        : K;
+    }[keyof Given]
+  : never;
+
+/**
+ * The keys nested write data spells that its model does not declare, at
+ * every depth below the root data (whose own keys `DirectWriteKeysGuard`
+ * reports on the key itself). Only spelled keys are read, so a payload-typed
+ * value's recursive schema is never expanded, which also bounds the walk.
+ * Selectors (`where`, `connect`, …) stay unkeyed, as
+ * `contextual-typing-gate.core.types.ts` pins.
+ */
+type NestedWriteUnknownKeys<
+  Data,
+  M extends Model<any>,
+> = Data extends readonly unknown[]
+  ? NestedWriteUnknownKeys<Data[number], M>
+  : {
+      [K in Extract<
+        RequiredSpelledKeys<Data>,
+        keyof M["~"]["state"]["relations"]
+      >]: TargetKind<M["~"]["state"]["relations"][K]> extends "model"
+        ? TargetWriteUnknownKeys<
+            NonNullable<ValueAt<Data, K>>,
+            GetTargetModel<M["~"]["state"]["relations"][K]>
+          >
+        : never;
+    }[Extract<RequiredSpelledKeys<Data>, keyof M["~"]["state"]["relations"]>];
+
+type TargetWriteUnknownKeys<
+  Verbs,
+  T extends Model<any>,
+  Keys extends PropertyKey = keyof T["~"]["state"]["shape"],
+> = NestedWriteData<Verbs, Keys> extends infer Data
+  ? Data extends object
+    ? Exclude<RequiredSpelledKeys<Data>, Keys> | NestedWriteUnknownKeys<Data, T>
+    : never
+  : never;
+
+/**
+ * Whether the argument SPELLED `Clause`. A literal's keys are required; a
+ * payload type's are optional — an omitted or generically forwarded argument
+ * — and walking one would expand its recursive schema as though every
+ * optional key was spelled.
+ */
+type SpelledClause<Arg, Clause extends PropertyKey> = [Arg] extends [
+  { [Key in Clause]: unknown },
+]
+  ? true
+  : false;
+
+/**
+ * One spelled root clause, refused as a whole with the keys its walk finds:
+ * `where` walks model field names through relation and logical filters,
+ * `data` / `create` / `update` walk nested write data. A clause spelling no
+ * relation or logical group has nothing below its root to walk. A `where`
+ * that IS the payload type is not walked either (the WHERE walk follows
+ * optional keys); the write walk needs no such check, because it descends
+ * only spelled keys.
+ */
+type NestedClauseGuard<
+  Arg,
+  Payload,
+  M extends Model<any>,
+  Clause extends "where" | "data" | "create" | "update",
+> = Clause extends keyof Arg
+  ? SpelledClause<Arg, Clause> extends true
+    ? Clause extends keyof Payload
+      ? [
+          Extract<
+            SpelledClauseKeys<ElementOf<NonNullable<Arg[Clause]>>>,
+            WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
+          >,
+        ] extends [never]
+        ? unknown
+        : (
+              Clause extends "where"
+                ? SameValue<
+                    NonNullable<Arg[Clause]>,
+                    NonNullable<Payload[Clause]>
+                  > extends true
+                  ? never
+                  : WhereUnknownKeys<
+                      NonNullable<Arg[Clause]>,
+                      M,
+                      never,
+                      ClauseKeys<NonNullable<Payload[Clause]>>
+                    >
+                : NestedWriteUnknownKeys<NonNullable<Arg[Clause]>, M>
+            ) extends infer Extra
+          ? [Extra] extends [never]
+            ? unknown
+            : { [Key in Clause]?: UnknownClauseKey<Extra> }
+          : unknown
+      : unknown
+    : unknown
+  : unknown;
+
+/**
+ * A root WHERE operator bag, sealed at the bag: an object spelled for a
+ * scalar is keyed against every key the field's object arms declare, so
+ * `{ contains: "x", mdoe: "insensitive" }` is refused on `mdoe`. The value's
+ * own primitive, list and `Date` arms stay in the union, which is what keeps
+ * a generic leaf (`title: t`, `T extends string`) assignable: TypeScript
+ * cannot key a type parameter, so a guard that inspected one would refuse it.
+ * Bags inside relation filters and logical groups are not sealed.
+ */
+type OperatorBagGuard<
   Arg,
   Payload,
   M extends Model<any>,
 > = "where" extends keyof Arg
-  ? "where" extends keyof Payload
-    ? // Scalar-only clauses have no nested model keys to inspect. Existing
-      // ClauseGuard remains the root-key owner, without deep payload comparison.
-      [
-        Extract<
-          SpelledClauseKeys<NonNullable<Arg["where"]>>,
-          WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
-        >,
-      ] extends [never]
-      ? unknown
-      : // Omitted/generically forwarded arguments fall back to the payload itself.
-        // Do not expand that recursive schema as though every optional key was spelled.
-        SameWhereValue<
-            NonNullable<Arg["where"]>,
-            NonNullable<Payload["where"]>
-          > extends true
-        ? unknown
-        : WhereUnknownKeys<
-              NonNullable<Arg["where"]>,
-              M,
-              never,
-              ClauseKeys<NonNullable<Payload["where"]>>
-            > extends infer Extra
-          ? [Extra] extends [never]
-            ? unknown
-            : { where?: UnknownClauseKey<Extra> }
-          : unknown
+  ? SpelledClause<Arg, "where"> extends true
+    ? "where" extends keyof Payload
+      ? {
+          where?: {
+            [K in Extract<
+              SpelledClauseKeys<NonNullable<Arg["where"]>>,
+              keyof M["~"]["state"]["scalars"]
+            >]?: OperatorBagSeal<
+              ValueAt<NonNullable<Arg["where"]>, K>,
+              ValueAt<NonNullable<Payload["where"]>, K>
+            >;
+          };
+        }
+      : unknown
     : unknown
   : unknown;
+
+type OperatorBagSeal<Given, Input> =
+  | Exclude<Input, object>
+  | Extract<Input, readonly unknown[] | Date>
+  | Record<
+      Exclude<
+        SpelledClauseKeys<NonNullable<Given>>,
+        ClauseKeys<Extract<NonNullable<Input>, object>>
+      >,
+      never
+    >;
 
 type ClauseGuard<Arg, Payload, K extends string> = K extends keyof Arg
   ? K extends keyof Payload
@@ -1176,42 +1334,67 @@ type RelationNodeClauseKey =
   | "variants";
 
 /**
- * The `recurse` option bags of an operation, sealed at every depth the caller
- * spelled. The walk follows the LITERAL — a node's `select`, `include`,
- * collection `variants` and to-one variant arms — never the model, so it costs
- * what the argument contains, never resolves a target getter, and never
- * enters `where`, `orderBy`, `cursor` or write data, whose keys are fields.
+ * The relation nodes of an operation's projection, sealed at every depth the
+ * caller spelled. The walk follows the LITERAL — a node's `select`,
+ * `include`, `where`, collection `variants` and to-one variant arms — and
+ * reads a target model only for a relation key the caller spelled, so it
+ * costs what the argument contains. On a model-target node it keys `select`
+ * against the target's fields, `include` against its relations (both beside
+ * `_count`), walks `where` as the root WHERE is walked, and seals `recurse`
+ * option bags; variant arms and `variants` are sealed by
+ * `DirectPolymorphicProjectionGuard`, not keyed here. An `any` argument (what
+ * an erased signature passes, as `Parameters<…>` reads it) is not walked.
  */
-type RecursiveProjectionRootGuard<Arg> = RecursiveRootClause<Arg, "select"> &
-  RecursiveRootClause<Arg, "include">;
+type RecursiveProjectionRootGuard<Arg, M extends Model<any>> = 0 extends 1 & Arg
+  ? unknown
+  : RecursiveRootClause<Arg, M, "select"> &
+      RecursiveRootClause<Arg, M, "include">;
 
-/** A clause the argument spelled; the guard names no key the caller did not. */
+/**
+ * A clause the argument spelled — a REQUIRED key of the argument. The guard
+ * names no key the caller did not, and an optional clause belongs to a payload
+ * type (an erased signature's, as `Parameters<…>` reads it), never walked.
+ */
 type RecursiveRootClause<
   Arg,
+  M extends Model<any>,
   Clause extends "select" | "include",
 > = Clause extends keyof Arg
-  ? { [Key in Clause]?: RecursiveRootMembers<Arg[Key]> }
+  ? SpelledClause<Arg, Clause> extends true
+    ? { [Key in Clause]?: RecursiveRootMembers<Arg[Key], M> }
+    : unknown
   : unknown;
 
 /**
  * The operation's own projection. Its members meet the node guard directly,
  * so a misspelling one relation deep is reported on the key itself.
  */
-type RecursiveRootMembers<Clause> = {
+type RecursiveRootMembers<Clause, M> = {
   [Key in SpelledClauseKeys<NonNullable<Clause>>]?: RecursiveNodeGuard<
-    ValueAt<NonNullable<Clause>, Key>
+    ValueAt<NonNullable<Clause>, Key>,
+    RelationTarget<M, Key>
   >;
 };
+
+/** The model a relation key targets; `never` (nothing to key) otherwise. */
+type RelationTarget<M, Key> =
+  M extends Model<any>
+    ? Key extends keyof M["~"]["state"]["relations"]
+      ? TargetKind<M["~"]["state"]["relations"][Key]> extends "model"
+        ? GetTargetModel<M["~"]["state"]["relations"][Key]>
+        : never
+      : never
+    : never;
 
 /**
  * Only an object is a node to walk. A leaf, or a payload type wide enough to
  * admit one, states nothing: the guard is for what a caller spelled, and TS
  * falls back to the payload type itself when an argument fails it.
  */
-type RecursiveNodeGuard<Node> = [Exclude<Node, null | undefined>] extends [
+type RecursiveNodeGuard<Node, T> = [Exclude<Node, null | undefined>] extends [
   object,
 ]
-  ? RecursiveNodeObjectGuard<Exclude<Node, null | undefined>>
+  ? RecursiveNodeObjectGuard<Exclude<Node, null | undefined>, T>
   : unknown;
 
 type ExclusiveSelection<Node> = Node extends {
@@ -1221,43 +1404,89 @@ type ExclusiveSelection<Node> = Node extends {
   ? { select?: undefined } | { include?: undefined }
   : unknown;
 
-type RecursiveNodeObjectGuard<Node> = ExclusiveSelection<Node> &
+type RecursiveNodeObjectGuard<Node, T> = ExclusiveSelection<Node> &
   ("recurse" extends keyof Node
     ? { recurse?: RecurrenceBagGuard<Node["recurse"]> }
     : unknown) &
   ("select" extends keyof Node
-    ? { select?: RecursiveProjectionGuard<Node["select"]> }
+    ? {
+        select?: RecursiveProjectionGuard<Node["select"], T> &
+          ProjectionKeySeal<Node["select"], T, "select">;
+      }
     : unknown) &
   ("include" extends keyof Node
-    ? { include?: RecursiveProjectionGuard<Node["include"]> }
+    ? {
+        include?: RecursiveProjectionGuard<Node["include"], T> &
+          ProjectionKeySeal<Node["include"], T, "include">;
+      }
+    : unknown) &
+  // A spelled `where` is a required key; an optional one is a payload type
+  // (a held or erased argument), whose recursive filter is not walked.
+  ([Node] extends [{ where: unknown }]
+    ? { where?: NodeWhereSeal<Node["where"], T> }
     : unknown) &
   ("variants" extends keyof Node
-    ? { variants?: RecursiveProjectionGuard<Node["variants"]> }
+    ? { variants?: RecursiveProjectionGuard<Node["variants"], never> }
     : unknown) &
-  RecursiveProjectionGuard<Node, RelationNodeClauseKey>;
+  RecursiveProjectionGuard<Node, never, RelationNodeClauseKey>;
 
 /**
  * A nested projection map. Its members are boolean leaves or nodes; naming
- * the leaf keeps a generic node assignable when its constraint spells scalar
- * leaves, because TypeScript cannot resolve the walk through a type parameter.
+ * the leaf keeps a generic leaf assignable, because TypeScript cannot resolve
+ * the walk through a type parameter. A generic NODE whose constraint spells
+ * `select`, `include` or `where` is refused: those keys cannot be proven.
  */
-type RecursiveProjectionGuard<Clause, Skipped extends PropertyKey = never> = {
+type RecursiveProjectionGuard<
+  Clause,
+  T,
+  Skipped extends PropertyKey = never,
+> = {
   [Key in Exclude<SpelledClauseKeys<NonNullable<Clause>>, Skipped>]?:
     | boolean
-    | RecursiveNodeGuard<ValueAt<NonNullable<Clause>, Key>>;
+    | RecursiveNodeGuard<
+        ValueAt<NonNullable<Clause>, Key>,
+        RelationTarget<T, Key>
+      >;
 };
 
-type DecimalStateOf<Field> = Field extends {
+/** A model-target node's `select` / `include` keys, beside `_count`. */
+type ProjectionKeySeal<Clause, T, Kind extends "select" | "include"> = [
+  T,
+] extends [never]
+  ? unknown
+  : T extends Model<any>
+    ? Record<
+        Exclude<
+          SpelledClauseKeys<NonNullable<Clause>>,
+          | "_count"
+          | keyof T["~"]["state"][Kind extends "select" ? "shape" : "relations"]
+        >,
+        never
+      >
+    : unknown;
+
+/** A model-target node's `where`, walked as the root WHERE is. */
+type NodeWhereSeal<Where, T> = [T] extends [never]
+  ? unknown
+  : T extends Model<any>
+    ? WhereUnknownKeys<NonNullable<Where>, T> extends infer Extra
+      ? [Extra] extends [never]
+        ? unknown
+        : UnknownClauseKey<Extra>
+      : unknown
+    : unknown;
+
+type ScalarStateOf<Field, Kind extends ScalarType> = Field extends {
   readonly "~": {
-    readonly state: infer State extends ScalarState<"decimal">;
+    readonly state: infer State extends ScalarState<Kind>;
   };
 }
   ? State
   : never;
 
-type DirectDecimalScalarKeys<State extends ModelState> = {
+type ScalarKeysOf<State extends ModelState, Kind extends ScalarType> = {
   [Key in keyof State["scalars"]]: [
-    DecimalStateOf<State["scalars"][Key]>,
+    ScalarStateOf<State["scalars"][Key], Kind>,
   ] extends [never]
     ? never
     : Key;
@@ -1298,7 +1527,7 @@ type NoExtraDecimalUpdateLeafKeys<
 
 type UsedDirectDecimalFields<Given, State extends ModelState> = Extract<
   SpelledClauseKeys<Given>,
-  DirectDecimalScalarKeys<State>
+  ScalarKeysOf<State, "decimal">
 >;
 
 /** One direct-field map after union branches have contributed their keys. */
@@ -1312,7 +1541,7 @@ type DirectDecimalUpdateObjectGuard<
         State
       >]?: NoExtraDecimalUpdateLeafKeys<
         ValueAt<Given, Key>,
-        DecimalStateOf<State["scalars"][Key]>
+        ScalarStateOf<State["scalars"][Key], "decimal">
       >;
     }
   : unknown;
@@ -1339,22 +1568,6 @@ type DirectDecimalUpdateGuard<
   : O extends "upsert"
     ? DirectDecimalUpdateClauseGuard<Arg, M, "update">
     : unknown;
-
-type GeoPointStateOf<Field> = Field extends {
-  readonly "~": {
-    readonly state: infer State extends ScalarState<"point">;
-  };
-}
-  ? State
-  : never;
-
-type DirectGeoPointScalarKeys<State extends ModelState> = {
-  [Key in keyof State["scalars"]]: [
-    GeoPointStateOf<State["scalars"][Key]>,
-  ] extends [never]
-    ? never
-    : Key;
-}[keyof State["scalars"]];
 
 type NoExtraRecognizedKeys<
   Given,
@@ -1490,7 +1703,7 @@ type DirectGeoPointGuard<
   Arg,
   M extends Model<any>,
   PointKeys extends PropertyKey = M extends Model<infer State>
-    ? DirectGeoPointScalarKeys<State>
+    ? ScalarKeysOf<State, "point">
     : never,
 > = [PointKeys] extends [never]
   ? unknown
@@ -1515,6 +1728,36 @@ type DirectWriteKeysGuard<
         ClauseGuard<Arg, { update: Record<Keys, unknown> }, "update">
     : unknown;
 
+/**
+ * groupBy `orderBy` names an aggregate or a field the literal `by` grouped.
+ * Aggregates are admitted before `by` is read, so a `by` list that is a type
+ * parameter still orders by aggregates, while a field beside it is refused:
+ * no grouped key can be proven. An empty `by` stays a runtime refusal (V4001)
+ * because refusing `[]` here would refuse every generic `by` list too.
+ */
+type GroupByOrderGuard<
+  O extends Operations,
+  Arg,
+  Payload,
+  M extends Model<any>,
+> = O extends "groupBy"
+  ? "orderBy" extends keyof Arg
+    ? {
+        orderBy?: NoExtraClauseKeys<
+          NonNullable<Arg["orderBy"]>,
+          Record<
+            Extract<ElementOf<NonNullable<ValueAt<Arg, "by">>>, PropertyKey>,
+            unknown
+          >,
+          Exclude<
+            ClauseKeys<ElementOf<NonNullable<ValueAt<Payload, "orderBy">>>>,
+            keyof M["~"]["state"]["scalars"]
+          >
+        >;
+      }
+    : unknown
+  : unknown;
+
 type NoExtraOperationKeys<
   O extends Operations,
   Arg,
@@ -1525,7 +1768,8 @@ type NoExtraOperationKeys<
   ExclusiveSelection<Arg> &
   Record<Exclude<keyof Arg, keyof Payload | keyof Controls>, never> &
   ClauseGuard<Arg, Payload, "where"> &
-  NestedWhereClauseGuard<Arg, Payload, M> &
+  NestedClauseGuard<Arg, Payload, M, "where"> &
+  OperatorBagGuard<Arg, Payload, M> &
   ClauseGuard<Arg, Payload, "select"> &
   ClauseGuard<Arg, Payload, "include"> &
   ClauseGuard<Arg, Payload, "orderBy"> &
@@ -1533,17 +1777,59 @@ type NoExtraOperationKeys<
   ClauseGuard<Arg, Controls, "cache"> &
   DirectPolymorphicProjectionGuard<Arg, M, "select"> &
   DirectPolymorphicProjectionGuard<Arg, M, "include"> &
-  RecursiveProjectionRootGuard<Arg> &
+  RecursiveProjectionRootGuard<Arg, M> &
   DirectWriteKeysGuard<O, Arg, M> &
+  NestedClauseGuard<Arg, Payload, M, "data"> &
+  NestedClauseGuard<Arg, Payload, M, "create"> &
+  NestedClauseGuard<Arg, Payload, M, "update"> &
+  GroupByOrderGuard<O, Arg, Payload, M> &
   DirectDecimalUpdateGuard<O, Arg, M> &
   DirectGeoPointGuard<O, Arg, M>;
 
 /**
- * Operation type - returns PendingOperation which implements PromiseLike
- * This allows operations to be:
- * - Awaited directly: `await client.user.findMany()`
- * - Batched in transactions: `await client.$transaction([op1, op2])`
+ * One client method signature. `Pending` picks its carrier: a PendingOperation
+ * (PromiseLike, so it can be awaited directly or batched in
+ * `$transaction([op1, op2])`), or a plain Promise for a cached read, which is
+ * not batchable.
  */
+type OperationMethod<
+  O extends Operations,
+  M extends Model<any>,
+  DefaultOmit,
+  ClientDefaults,
+  Controls,
+  Payload,
+  Pending extends boolean,
+> = undefined extends Payload
+  ? <Arg extends Payload>(
+      args?: WithControlArgs<
+        NoExtraOperationKeys<
+          O,
+          Exclude<Arg, undefined>,
+          Exclude<Payload, undefined>,
+          M,
+          Controls
+        >,
+        Controls
+      >
+    ) => OperationCarrier<
+      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>,
+      Pending
+    >
+  : <Arg extends Payload>(
+      args: WithControlArgs<
+        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
+        Controls
+      >
+    ) => OperationCarrier<
+      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>,
+      Pending
+    >;
+
+type OperationCarrier<Result, Pending extends boolean> = Pending extends true
+  ? PendingOperation<Result>
+  : Promise<Result>;
+
 type Operation<
   O extends Operations,
   M extends Model<any>,
@@ -1551,63 +1837,23 @@ type Operation<
   ClientDefaults = never,
   Controls = NoControls,
   Payload = OperationPayload<O, M>,
-> = undefined extends Payload
-  ? <Arg extends Payload>(
-      args?: WithControlArgs<
-        NoExtraOperationKeys<
-          O,
-          Exclude<Arg, undefined>,
-          Exclude<Payload, undefined>,
-          M,
-          Controls
-        >,
-        Controls
-      >
-    ) => PendingOperation<
-      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
-    >
-  : <Arg extends Payload>(
-      args: WithControlArgs<
-        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
-        Controls
-      >
-    ) => PendingOperation<
-      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
-    >;
+> = OperationMethod<O, M, DefaultOmit, ClientDefaults, Controls, Payload, true>;
 
-/**
- * Cached operation type - returns Promise directly (not batchable)
- */
 type CachedOperation<
   O extends Operations,
   M extends Model<any>,
   DefaultOmit = undefined,
   ClientDefaults = never,
   Controls = NoControls,
-  Payload = OperationPayload<O, M>,
-> = undefined extends Payload
-  ? <Arg extends Payload>(
-      args?: WithControlArgs<
-        NoExtraOperationKeys<
-          O,
-          Exclude<Arg, undefined>,
-          Exclude<Payload, undefined>,
-          M,
-          Controls
-        >,
-        Controls
-      >
-    ) => Promise<
-      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
-    >
-  : <Arg extends Payload>(
-      args: WithControlArgs<
-        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
-        Controls
-      >
-    ) => Promise<
-      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
-    >;
+> = OperationMethod<
+  O,
+  M,
+  DefaultOmit,
+  ClientDefaults,
+  Controls,
+  OperationPayload<O, M>,
+  false
+>;
 
 /**
  * Cached client type - provides typed access to only cacheable (read) operations

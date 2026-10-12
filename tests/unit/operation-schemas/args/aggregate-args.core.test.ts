@@ -437,6 +437,48 @@ describe("GroupBy Args - Simple Model Runtime", () => {
     expect(result.issues).toBeUndefined();
   });
 
+  // engine-14: a membership mistake is refused at the key that is wrong.
+  test("runtime: refuses by, having and orderBy outside 'by' at their own path", () => {
+    const issue = (args: Record<string, unknown>) =>
+      parse(schema, args).issues?.[0];
+    expect(issue({ by: [] })).toEqual({
+      message: "groupBy needs at least one field in 'by'.",
+      path: ["by"],
+    });
+    const ungrouped =
+      "Scalar 'name' used in 'having' must be included in 'by'.";
+    expect(issue({ by: "active", having: { name: { equals: "x" } } })).toEqual({
+      message: ungrouped,
+      path: ["having", "name"],
+    });
+    expect(
+      issue({
+        by: "active",
+        having: {
+          AND: [{ age: { _avg: { gt: 1 } } }, { name: { equals: "x" } }],
+        },
+      })
+    ).toEqual({ message: ungrouped, path: ["having", "AND", 1, "name"] });
+    expect(
+      issue({ by: "active", having: { NOT: { name: { equals: "x" } } } })
+    ).toEqual({ message: ungrouped, path: ["having", "NOT", "name"] });
+    expect(
+      issue({ by: "active", having: { OR: [{ active: { equals: true } }] } })
+    ).toBeUndefined();
+    const ordered =
+      "GroupBy orderBy field 'name' must be included in 'by' or be an aggregate (_count, _avg, _sum, _min, _max).";
+    expect(issue({ by: "active", orderBy: { name: "asc" } })).toEqual({
+      message: ordered,
+      path: ["orderBy", "name"],
+    });
+    expect(
+      issue({ by: "active", orderBy: [{ active: "asc" }, { name: "desc" }] })
+    ).toEqual({ message: ordered, path: ["orderBy", 1, "name"] });
+    expect(
+      issue({ by: "active", orderBy: [{ _count: { id: "desc" } }] })
+    ).toBeUndefined();
+  });
+
   test("runtime: rejects missing by", () => {
     const result = parse(schema, {
       where: { active: true },

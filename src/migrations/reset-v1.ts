@@ -4,62 +4,70 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { admitLiveMigrationCapability } from "./admission";
 import { canonicalizeJson } from "./canonical-json";
 import { tableExistsProbe } from "./catalog-probes";
 import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
   groupContiguousAtomicity,
+  refuseSqliteStepwise,
   stepStatements,
 } from "./compile";
 import {
+  advanceMarker,
   appendLedger,
-  casMarker,
-  controlTableNames,
-  DEFAULT_CONTROL_BASE,
+  attemptEvents,
   ensureControlTables,
+  ledgerEvent,
   markerFromPath,
-  readControlState,
   refuseIncompatibleHistory,
-  refusePartialControl,
+  sameMarker,
   unfinishedAttempts,
 } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
 import {
-  evaluateAllChecks,
+  assertAllChecks,
   executeExactSql,
   executeOperations,
 } from "./execute-dispatch";
 import {
   loadMigrationGraph,
   type MigrationGraph,
-  parentTransition,
+  type RouteEdge,
   requireStateSnapshot,
   resolveStateSelector,
+  routeEdges,
   selectRoute,
 } from "./graph";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { planLiveNamespaceReset } from "./live-reset";
 import {
-  mayWrapTransaction,
+  commitLockedTransaction,
   resolveCommandDriver,
-  runSequentialProgram,
+  runProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
-import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
+import { assertLockedSinceDecision, proveLive } from "./proof";
+import type { MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
+import {
+  confirmedPrefix,
+  openCommand,
+  readCommandControl,
+  refuseAmbiguousNext,
+  sliceOperations,
+} from "./resume";
 import { encodeSqlText } from "./sql-blob";
+import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageWriter } from "./storage/contract";
-import { assertEstateTargetMatches } from "./target";
-import { encodeDispatchIdentity, encodeSqlBlob, eventIdFor } from "./v1-parse";
+import { encodeDispatchIdentity, encodeSqlBlob } from "./v1-parse";
 import type {
   LedgerEventV1,
+  MarkerPathEdgeV1,
   MigrationDispatchV1,
   MigrationMarkerV1,
   MigrationOperationV1,
-  MigrationStateManifestV1,
   ResetPlanV1,
   ResetV1Options,
 } from "./v1-types";
@@ -76,26 +84,29 @@ export async function resetV1(
   const graph = await loadMigrationGraph(storage);
   const target = resolveStateSelector(graph, options.to);
   const path = selectRoute(graph, null, target, options.via);
-  const driver = getPushMigrationDriver(client);
-  assertEstateTargetMatches(graph.descriptor.target, driver.target);
   const dryRun = options.dryRun === true;
-  admitLiveMigrationCapability(
-    driver,
+  const driver = openCommand(
+    client,
+    graph,
     dryRun ? "read-only" : "effectful",
     "reset()"
   );
   if (dryRun) {
     const command = await resolveCommandDriver(client.$driver, driver);
+    const plan = await planLiveNamespaceReset(client.$driver, command);
     await command.preflightSchemaRequirements(
       path.map((stateId) => requireStateSnapshot(graph, stateId)),
-      (sql, params) => client.$driver._executeRaw(sql, params)
+      (sql, params) => client.$driver._executeRaw(sql, params),
+      resetProgram(
+        plan,
+        prepareResetReplay(
+          client.$driver.supportsTransactions,
+          command,
+          graph,
+          path
+        )
+      )
     );
-    const names = controlTableNames(DEFAULT_CONTROL_BASE);
-    const plan = await planLiveNamespaceReset(client.$driver, command, {
-      trackingTable: "preserve",
-      trackingTableName: names.state,
-      preserveTables: [names.log],
-    });
     return {
       preview: true,
       path,
@@ -106,15 +117,7 @@ export async function resetV1(
     client.$driver,
     driver,
     async (pinned, command) => {
-      const names = controlTableNames(DEFAULT_CONTROL_BASE);
-      const control = await readControlState(
-        pinned,
-        command,
-        DEFAULT_CONTROL_BASE
-      );
-      if (control.presence.kind === "missing-table") {
-        refusePartialControl(control.presence);
-      }
+      const control = await readCommandControl(pinned, command, true);
       const { marker, ledger } = control;
       const needsBootstrap = control.presence.kind !== "present";
       const open = unfinishedAttempts(ledger);
@@ -136,55 +139,49 @@ export async function resetV1(
         refuseIncompatibleHistory(marker, ledger);
       }
       const targetSnapshot = requireStateSnapshot(graph, target);
-      await command.preflightSchemaRequirements(
-        [
-          requireStateSnapshot(graph, marker?.stateId ?? null),
-          ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
-        ],
-        (sql, params) => pinned._executeRaw(sql, params)
+      const targetSnapshotHash = graph.states.get(target)!.snapshotHash;
+      const edges: MarkerPathEdgeV1[] = routeEdges(graph, null, path).map(
+        ({ to, transition }) => ({
+          stateId: to,
+          transitionHash: transition.transitionHash,
+          baselineBoundary: false,
+        })
       );
-      if (resetAttempt && storedResetPlan && marker) {
-        const targetState = graph.states.get(target);
-        if (
-          targetState &&
-          resetMarkerProvesApplied(
-            marker,
-            graph,
-            target,
-            path,
-            storedResetPlan
-          ) &&
-          (await fingerprintLive(
-            await introspectManaged(pinned, command),
-            command,
-            pinned
-          )) === (await fingerprintLive(targetSnapshot, command, pinned))
-        ) {
-          const applied = {
-            format: "1" as const,
-            attemptId: resetAttempt.attemptId,
-            kind: "reset-applied" as const,
-            estateHash: graph.estateHash,
-            snapshotHash: marker.snapshotHash,
-            sqlHash: null,
-            fromState: resetAttempt.fromState,
-            toState: target,
-            transitionHash: null,
-            direction: "reset" as const,
-            operationId: null,
-            dispatchId: null,
-            effectState: "committed" as const,
-            startedAt: new Date().toISOString(),
-            finishedAt: new Date().toISOString(),
-            toolVersion: "v1",
-            failure: null,
-          };
-          await appendLedger(pinned, command, DEFAULT_CONTROL_BASE, {
-            ...applied,
-            eventId: eventIdFor(applied),
-          });
-          return { preview: false, path };
-        }
+      const resetEvent = {
+        estateHash: graph.estateHash,
+        snapshotHash: targetSnapshotHash,
+        sqlHash: null,
+        fromState: marker?.stateId ?? null,
+        toState: target,
+        transitionHash: null,
+        direction: "reset",
+      } as const;
+      if (
+        resetAttempt &&
+        storedResetPlan &&
+        marker &&
+        resetMarkerProvesApplied(
+          marker,
+          graph,
+          edges,
+          targetSnapshotHash,
+          storedResetPlan
+        ) &&
+        (await fingerprintLive(
+          await introspectManaged(pinned, command),
+          command,
+          pinned
+        )) === (await fingerprintLive(targetSnapshot, command, pinned))
+      ) {
+        await appendLedger(
+          pinned,
+          command,
+          attemptEvents(
+            { ...resetEvent, fromState: resetAttempt.fromState },
+            resetAttempt.attemptId
+          ).event("reset-applied", "committed")
+        );
+        return { preview: false, path };
       }
       if (
         resetAttempt &&
@@ -214,19 +211,10 @@ export async function resetV1(
         : false;
       const livePlan = hasReplayEvidence
         ? undefined
-        : await planLiveNamespaceReset(pinned, command, {
-            trackingTable: "preserve",
-            trackingTableName: names.state,
-            preserveTables: [names.log],
-          });
-      const clearSql = livePlan
-        ? [
-            ...livePlan.dropForeignKeys,
-            ...livePlan.dropTables.map((table) => table.sql),
-            ...livePlan.dropEnums,
-          ]
-        : [];
-      const clearDispatches = clearSql.map((sql) => dispatchForClearSql(sql));
+        : await planLiveNamespaceReset(pinned, command);
+      const clearDispatches = resetProgram(livePlan, []).map((sql) =>
+        dispatchForClearSql(sql)
+      );
       if (
         livePlan &&
         command.target.dialect === "mysql" &&
@@ -263,128 +251,73 @@ export async function resetV1(
       const remaining = resetAttempt
         ? remainingResetReplay(graph, prepared, resetAttempt, plan, ledger)
         : prepared;
-      const started = resetAttempt
+      // The statements this command runs, as apply hands its path over: the
+      // dialect refuses what they would lose (S11, T5a, Neki) before effects.
+      await command.preflightSchemaRequirements(
+        [
+          requireStateSnapshot(graph, marker?.stateId ?? null),
+          ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
+        ],
+        (sql, params) => pinned._executeRaw(sql, params),
+        resetProgram(livePlan, remaining)
+      );
+      const begin = resetAttempt
         ? undefined
-        : {
-            format: "1" as const,
-            attemptId: resetPlanHash,
-            kind: "reset-started" as const,
-            estateHash: graph.estateHash,
-            snapshotHash: graph.states.get(target)!.snapshotHash,
-            sqlHash: null,
-            fromState: marker?.stateId ?? null,
-            toState: target,
-            transitionHash: null,
-            direction: "reset" as const,
-            operationId: null,
-            dispatchId: null,
-            effectState: "none" as const,
-            startedAt: new Date().toISOString(),
-            finishedAt: null,
-            toolVersion: "v1",
-            resetPlan: plan,
-            failure: null,
-          };
-      const begin =
-        started || needsBootstrap
-          ? async (producer: Parameters<typeof appendLedger>[0]) => {
-              if (needsBootstrap) {
-                await ensureControlTables(
-                  producer,
-                  command,
-                  DEFAULT_CONTROL_BASE
-                );
-              }
-              if (started) {
-                await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
-                  ...started,
-                  eventId: eventIdFor(started),
-                });
-              }
-            }
-          : undefined;
+        : (producer: Parameters<typeof appendLedger>[0]) =>
+            appendLedger(
+              producer,
+              command,
+              attemptEvents(
+                { ...resetEvent, resetPlan: plan },
+                resetPlanHash
+              ).event("reset-started", "none")
+            );
       const finish = async (producer: Parameters<typeof appendLedger>[0]) => {
-        const live = await introspectManaged(producer, command);
-        const expected = graph.snapshots.get(
-          graph.states.get(target)!.snapshotHash
-        );
-        if (
-          !expected ||
-          (await fingerprintLive(live, command, producer)) !==
-            (await fingerprintLive(expected, command, producer))
-        ) {
-          throw new MigrationError(
-            "Reset replay did not reach the target snapshot",
-            VibORMErrorCode.MIGRATION_DRIFT
-          );
-        }
-        const edges = path.map((stateId, index) => ({
-          stateId,
-          transitionHash: parentTransition(
-            graph,
-            index === 0 ? null : path[index - 1]!,
-            stateId
-          ).transitionHash,
-          baselineBoundary: false,
-        }));
-        const next = markerFromPath(
-          graph.estateHash,
-          graph.states.get(target)!.snapshotHash,
-          edges,
-          (marker?.revision ?? 0) + 1
-        );
-        await casMarker(
+        await proveLive(
           producer,
           command,
-          DEFAULT_CONTROL_BASE,
-          marker
-            ? { revision: marker.revision, pathHash: marker.pathHash }
-            : null,
-          next
+          graph,
+          targetSnapshotHash,
+          () => "Reset replay did not reach the target snapshot"
         );
-        const applied = {
-          format: "1" as const,
-          attemptId: resetPlanHash,
-          kind: "reset-applied" as const,
-          estateHash: graph.estateHash,
-          snapshotHash: next.snapshotHash,
-          sqlHash: null,
-          fromState: marker?.stateId ?? null,
-          toState: target,
-          transitionHash: null,
-          direction: "reset" as const,
-          operationId: null,
-          dispatchId: null,
-          effectState: "committed" as const,
-          startedAt: new Date().toISOString(),
-          finishedAt: new Date().toISOString(),
-          toolVersion: "v1",
-          failure: null,
-        };
-        await appendLedger(producer, command, DEFAULT_CONTROL_BASE, {
-          ...applied,
-          eventId: eventIdFor(applied),
-        });
+        await advanceMarker(
+          producer,
+          command,
+          graph.estateHash,
+          marker,
+          edges,
+          targetSnapshotHash
+        );
+        await appendLedger(
+          producer,
+          command,
+          attemptEvents(resetEvent, resetPlanHash).event(
+            "reset-applied",
+            "committed"
+          )
+        );
       };
-      const run = async (producer: Parameters<typeof appendLedger>[0]) => {
-        await executeResetProgram(
+      // Committed before the program, whose first group re-reads the marker.
+      if (needsBootstrap) {
+        await ensureControlTables(pinned, command);
+        await commitLockedTransaction(pinned, command);
+      }
+      await runProgram(pinned, command, undefined, (producer) =>
+        executeResetProgram(
           pinned,
           producer,
           command,
+          marker,
           graph,
           livePlan,
           plan,
           remaining,
           resetPlanHash,
           begin,
-          finish
-        );
-      };
-      if (command.target.dialect === "mysql") {
-        await runSequentialProgram(pinned, command, run);
-      } else {
-        await run(pinned);
-      }
+          finish,
+          client.$schema
+        )
+      );
       return { preview: false, path };
     }
   );
@@ -427,24 +360,13 @@ function matchingResetPlan(
 function resetMarkerProvesApplied(
   marker: MigrationMarkerV1,
   graph: MigrationGraph,
-  target: Sha256,
-  path: readonly Sha256[],
+  edges: MigrationMarkerV1["path"],
+  snapshotHash: Sha256,
   plan: ResetPlanV1
 ): boolean {
-  const targetState = graph.states.get(target);
-  if (!targetState) return false;
-  const edges = path.map((stateId, index) => ({
-    stateId,
-    transitionHash: parentTransition(
-      graph,
-      index === 0 ? null : path[index - 1]!,
-      stateId
-    ).transitionHash,
-    baselineBoundary: false,
-  }));
   const expected = markerFromPath(
     graph.estateHash,
-    targetState.snapshotHash,
+    snapshotHash,
     edges,
     plan.sourceRevision + 1
   );
@@ -452,8 +374,7 @@ function resetMarkerProvesApplied(
     marker.estateHash === expected.estateHash &&
     marker.stateId === expected.stateId &&
     marker.snapshotHash === expected.snapshotHash &&
-    marker.pathHash === expected.pathHash &&
-    marker.revision === expected.revision
+    sameMarker(marker, expected)
   );
 }
 
@@ -519,6 +440,19 @@ function assertStoredResetPlan(
 function sameIds(left: readonly Sha256[], right: readonly Sha256[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((id, index) => id === right[index]);
+}
+
+/** The clear, in the order it runs, then the replay's statements. */
+function resetProgram(
+  livePlan: Awaited<ReturnType<typeof planLiveNamespaceReset>> | undefined,
+  replay: readonly Pick<PreparedResetReplayEdge, "blob" | "operations">[]
+): string[] {
+  return [
+    ...(livePlan?.clear ?? []),
+    ...replay.flatMap(({ blob, operations }) =>
+      stepStatements(blob, operations)
+    ),
+  ];
 }
 
 function dispatchForClearSql(sql: string): MigrationDispatchV1 {
@@ -606,37 +540,27 @@ async function confirmResetDispatch(
   attemptId: Sha256,
   dispatch: MigrationDispatchV1
 ): Promise<void> {
-  const event = {
-    format: "1" as const,
-    attemptId,
-    kind: "reset-step-confirmed" as const,
-    estateHash: graph.estateHash,
-    snapshotHash: graph.emptySnapshotHash,
-    sqlHash: dispatch.sqlHash,
-    fromState: null,
-    toState: null,
-    transitionHash: null,
-    direction: "reset" as const,
-    operationId: null,
-    dispatchId: dispatch.dispatchId,
-    effectState: "committed" as const,
-    startedAt: new Date().toISOString(),
-    finishedAt: new Date().toISOString(),
-    toolVersion: "v1",
-    failure: null,
-  };
-  await appendLedger(pinned, command, DEFAULT_CONTROL_BASE, {
-    ...event,
-    eventId: eventIdFor(event),
-  });
+  await appendLedger(
+    pinned,
+    command,
+    ledgerEvent({
+      attemptId,
+      kind: "reset-step-confirmed",
+      estateHash: graph.estateHash,
+      snapshotHash: graph.emptySnapshotHash,
+      sqlHash: dispatch.sqlHash,
+      fromState: null,
+      toState: null,
+      transitionHash: null,
+      direction: "reset",
+      operationId: null,
+      dispatchId: dispatch.dispatchId,
+      effectState: "committed",
+    })
+  );
 }
 
-interface PreparedResetReplayEdge {
-  readonly from: Sha256 | null;
-  readonly to: Sha256;
-  readonly transition: ReturnType<typeof parentTransition>;
-  readonly state: MigrationStateManifestV1;
-  readonly blob: Uint8Array;
+interface PreparedResetReplayEdge extends RouteEdge {
   readonly boundary: "transactional" | "stepwise";
   readonly operations: readonly MigrationOperationV1[];
 }
@@ -647,42 +571,17 @@ function prepareResetReplay(
   graph: MigrationGraph,
   path: readonly Sha256[]
 ): readonly PreparedResetReplayEdge[] {
-  return path.map((to, index) => {
-    const from = index === 0 ? null : path[index - 1]!;
-    const transition = parentTransition(graph, from, to);
-    const state = graph.states.get(to);
-    if (!state) {
-      throw new MigrationError(
-        "Reset replay target is missing",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-    const blob = graph.sql.get(state.sqlHash);
-    if (!blob) {
-      throw new MigrationError(
-        "Reset replay SQL blob is missing",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
+  return routeEdges(graph, null, path).map((edge) => {
+    const requested = edge.transition.requestedForwardBoundary;
     const boundary = classifyStoredAtomicity(
       command,
-      transition.requestedForwardBoundary,
-      transition.operations,
-      blob
+      requested,
+      edge.transition.operations,
+      edge.blob
     );
-    assertTransactionalBoundaryHonored(
-      supportsTransactions,
-      transition.requestedForwardBoundary
-    );
-    return {
-      from,
-      to,
-      transition,
-      state,
-      blob,
-      boundary,
-      operations: transition.operations,
-    };
+    assertTransactionalBoundaryHonored(supportsTransactions, requested);
+    refuseSqliteStepwise(command, requested, edge.to);
+    return { ...edge, boundary, operations: edge.transition.operations };
   });
 }
 
@@ -771,7 +670,7 @@ function remainingResetReplay(
       );
     }
   }
-  assertContiguousPrefix(
+  confirmedPrefix(
     clearCommitted,
     "Reset clear progress is not a contiguous dispatch prefix"
   );
@@ -784,12 +683,10 @@ function remainingResetReplay(
     );
   }
   if (!hasReplayEvidence) return prepared;
-  const completedCount = contiguousPrefixLength(completed);
-  if ([...completed].some((index) => index >= completedCount)) {
-    refuseResetProgress(
-      "Reset replay progress is not a contiguous dispatch prefix"
-    );
-  }
+  const completedCount = confirmedPrefix(
+    completed,
+    "Reset replay progress is not a contiguous dispatch prefix"
+  );
   if (
     [...announced].some(
       (index) => !completed.has(index) && index !== completedCount
@@ -798,23 +695,12 @@ function remainingResetReplay(
     refuseResetProgress("Reset replay progress is not contiguous");
   }
   const next = steps[completedCount];
-  if (
-    next?.step.retry === "opaque" &&
-    next.edge.boundary === "stepwise" &&
-    announced.has(completedCount)
-  ) {
-    throw new MigrationError(
-      "The next reset dispatch has an ambiguous commit outcome",
-      VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
-      {
-        meta: {
-          lastConfirmedStep: next.step.execute.dispatchId,
-          effectState: "may-have-committed",
-          partial: true,
-        },
-      }
-    );
-  }
+  refuseAmbiguousNext(
+    next?.step,
+    next?.edge.boundary,
+    announced.has(completedCount),
+    "The next reset dispatch has an ambiguous commit outcome"
+  );
   const verificationEdge =
     completedCount === 0 ? undefined : steps[completedCount - 1]?.edgeIndex;
   let skipped = completedCount;
@@ -835,38 +721,6 @@ function remainingResetReplay(
   });
 }
 
-function sliceOperations(
-  operations: readonly MigrationOperationV1[],
-  skip: number
-): readonly MigrationOperationV1[] {
-  let remaining = skip;
-  return operations.flatMap((operation) => {
-    if (remaining >= operation.steps.length) {
-      remaining -= operation.steps.length;
-      return [];
-    }
-    const steps = operation.steps.slice(remaining);
-    remaining = 0;
-    return [{ ...operation, steps }];
-  });
-}
-
-function contiguousPrefixLength(indices: ReadonlySet<number>): number {
-  let length = 0;
-  while (indices.has(length)) length += 1;
-  return length;
-}
-
-function assertContiguousPrefix(
-  indices: ReadonlySet<number>,
-  message: string
-): void {
-  const length = contiguousPrefixLength(indices);
-  if ([...indices].some((index) => index >= length)) {
-    refuseResetProgress(message);
-  }
-}
-
 function refuseResetProgress(message: string): never {
   throw new MigrationError(message, VibORMErrorCode.MIGRATION_CORRUPTION);
 }
@@ -875,6 +729,7 @@ async function executeResetProgram(
   pinned: Parameters<typeof executeOperations>[0],
   producer: Parameters<typeof executeOperations>[0],
   command: BoundMigrationDriver,
+  marker: MigrationMarkerV1 | null,
   graph: MigrationGraph,
   livePlan: Awaited<ReturnType<typeof planLiveNamespaceReset>> | undefined,
   plan: ResetPlanV1,
@@ -883,44 +738,47 @@ async function executeResetProgram(
   beforeFirstEffect:
     | ((producer: Parameters<typeof appendLedger>[0]) => Promise<void>)
     | undefined,
-  finish: (producer: Parameters<typeof appendLedger>[0]) => Promise<void>
+  finish: (producer: Parameters<typeof appendLedger>[0]) => Promise<void>,
+  models: MigrationClient["$schema"]
 ): Promise<void> {
-  const groups = groupContiguousAtomicity(replay, ({ blob, operations }) =>
-    stepStatements(blob, operations)
+  const groups = groupContiguousAtomicity(replay, (edge) =>
+    resetProgram(undefined, [edge])
   );
+  const liveClear = resetProgram(livePlan, []);
   const liveClearDispatches = new Set(
-    livePlan
-      ? [
-          ...livePlan.dropForeignKeys,
-          ...livePlan.dropTables.map((table) => table.sql),
-          ...livePlan.dropEnums,
-        ].map((sql) => dispatchForClearSql(sql).dispatchId)
-      : []
+    liveClear.map((sql) => dispatchForClearSql(sql).dispatchId)
   );
-  let clearPending =
-    livePlan &&
-    (livePlan.dropForeignKeys.length > 0 ||
-      livePlan.dropTables.length > 0 ||
-      livePlan.dropEnums.length > 0)
-      ? livePlan
-      : undefined;
+  let clearPending = liveClear.length > 0 ? livePlan : undefined;
   let clearEvidencePending = livePlan !== undefined;
   let admissionPending = beforeFirstEffect;
+  // `statements` are the ones the boundary runs: apply's program, so SQLite's
+  // foreign keys are lifted (and proven) around a replayed recreation.
   const runBoundary = async (
     boundary: "transactional" | "stepwise",
+    statements: string[],
     body: (target: Parameters<typeof appendLedger>[0]) => Promise<void>
   ) => {
-    if (
-      mayWrapTransaction(
+    const guarded = async (target: Parameters<typeof appendLedger>[0]) => {
+      // The reset's own attempt is open once admitted (or resumed): before
+      // that, an open one was opened while the lock was let go.
+      await assertLockedSinceDecision(
         pinned,
-        command.target.dialect,
-        boundary === "transactional"
-      )
-    ) {
-      await pinned.withTransaction(body);
-    } else {
-      await body(producer);
-    }
+        target,
+        command,
+        marker,
+        admissionPending === undefined
+      );
+      await body(target);
+    };
+    // On MySQL the reset already runs as one sequential program (`resetV1`).
+    await (command.target.dialect === "mysql"
+      ? guarded(producer)
+      : runProgram(
+          pinned,
+          command,
+          { transactional: boundary === "transactional", statements },
+          guarded
+        ));
   };
   const completeClearEvidence = async (
     target: Parameters<typeof appendLedger>[0]
@@ -940,18 +798,23 @@ async function executeResetProgram(
   if (clearPending && groups[0]?.boundary === "stepwise") {
     const clear = clearPending;
     clearPending = undefined;
-    await runBoundary("transactional", async (target) => {
-      await admit(target);
-      await executeResetClear(target, command, clear, attemptId, graph);
-      await completeClearEvidence(target);
-      clearEvidencePending = false;
-    });
+    await runBoundary(
+      "transactional",
+      resetProgram(clear, []),
+      async (target) => {
+        await admit(target);
+        await executeResetClear(target, command, clear, attemptId, graph);
+        await completeClearEvidence(target);
+        clearEvidencePending = false;
+      }
+    );
   }
   if (!clearPending && groups[0]?.boundary === "stepwise" && admissionPending) {
-    await runBoundary("transactional", admit);
+    await runBoundary("transactional", [], admit);
   }
   if (groups.length === 0) {
-    await runBoundary("transactional", async (target) => {
+    const statements = resetProgram(clearPending, []);
+    await runBoundary("transactional", statements, async (target) => {
       await admit(target);
       if (clearPending) {
         await executeResetClear(
@@ -971,7 +834,8 @@ async function executeResetProgram(
     return;
   }
   for (const [index, group] of groups.entries()) {
-    await runBoundary(group.boundary, async (target) => {
+    const statements = resetProgram(clearPending, group.items);
+    await runBoundary(group.boundary, statements, async (target) => {
       await admit(target);
       if (clearPending) {
         await executeResetClear(
@@ -988,7 +852,14 @@ async function executeResetProgram(
         clearEvidencePending = false;
       }
       for (const edge of group.items) {
-        await executeResetReplayEdge(target, command, graph, edge, attemptId);
+        await executeResetReplayEdge(
+          target,
+          command,
+          graph,
+          edge,
+          attemptId,
+          models
+        );
       }
       if (index === groups.length - 1) await finish(target);
     });
@@ -1000,53 +871,47 @@ async function executeResetReplayEdge(
   command: BoundMigrationDriver,
   graph: MigrationGraph,
   edge: PreparedResetReplayEdge,
-  attemptId: Sha256
+  attemptId: Sha256,
+  models: MigrationClient["$schema"]
 ): Promise<void> {
   const { from, to, transition, state, blob, boundary, operations } = edge;
+  const events = attemptEvents(
+    {
+      estateHash: graph.estateHash,
+      snapshotHash: state.snapshotHash,
+      sqlHash: state.sqlHash,
+      fromState: from,
+      toState: to,
+      transitionHash: transition.transitionHash,
+      direction: "reset",
+    },
+    attemptId
+  );
   await executeOperations(
     pinned,
     blob,
     operations,
     boundary,
-    async (progress, effect) => {
-      const event = {
-        format: "1" as const,
-        attemptId,
-        kind: "reset-step-confirmed" as const,
-        estateHash: graph.estateHash,
-        snapshotHash: state.snapshotHash,
-        sqlHash: state.sqlHash,
-        fromState: from,
-        toState: to,
-        transitionHash: transition.transitionHash,
-        direction: "reset" as const,
-        operationId: progress.operationId,
-        dispatchId: progress.dispatchId,
-        effectState: effect,
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-        toolVersion: "v1",
-        failure: null,
-      };
-      await appendLedger(pinned, command, DEFAULT_CONTROL_BASE, {
-        ...event,
-        eventId: eventIdFor(event),
-      });
-    },
+    (progress, effect, failure) =>
+      appendLedger(
+        pinned,
+        command,
+        events.event("reset-step-confirmed", effect, progress, failure)
+      ),
     command.namespace
   );
-  if (
-    state.destinationChecks.length > 0 &&
-    !(await evaluateAllChecks(
-      pinned,
-      blob,
-      state.destinationChecks,
-      command.namespace
-    ))
-  ) {
-    throw new MigrationError(
-      "Reset replay failed destination checks",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
+  // Replayed manual SQL is canonicalized exactly as apply canonicalizes it.
+  await canonicalizeSqliteStorage(
+    pinned,
+    operations,
+    models,
+    requireStateSnapshot(graph, to)
+  );
+  await assertAllChecks(
+    pinned,
+    blob,
+    state.destinationChecks,
+    command.namespace,
+    "Reset replay failed destination checks"
+  );
 }

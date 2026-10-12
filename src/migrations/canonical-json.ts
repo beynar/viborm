@@ -1,3 +1,4 @@
+import { errorCause } from "../errors/diagnostic-safety";
 /**
  * RFC 8785 JSON Canonicalization Scheme (JCS).
  *
@@ -102,7 +103,7 @@ export function parseJsonBytes(bytes: Uint8Array, label: string): unknown {
     throw new MigrationError(
       `${label} is not valid UTF-8 JSON`,
       VibORMErrorCode.MIGRATION_INVALID_ESTATE,
-      { cause: cause instanceof Error ? cause : undefined }
+      { cause: errorCause(cause) }
     );
   }
 }

@@ -306,16 +306,13 @@ describe("unbound MySQL output is byte-identical in both destinations", () => {
 });
 
 describe("MySQL control and inventory statements are live-only", () => {
-  it("qualifies the control tables in create and clear", () => {
-    const sql = createControlTableSQL(BILLING, "_viborm_migration");
+  it("qualifies the control tables it creates", () => {
+    const sql = createControlTableSQL(BILLING);
     expect(sql.state).toContain(
       "CREATE TABLE IF NOT EXISTS `billing`.`_viborm_migration_state`"
     );
     expect(sql.log).toContain(
       "CREATE TABLE IF NOT EXISTS `billing`.`_viborm_migration_log`"
-    );
-    expect(BILLING.generateClearMigrations("_viborm_migration_state")).toBe(
-      "DELETE FROM `billing`.`_viborm_migration_state`"
     );
   });
 
@@ -366,9 +363,6 @@ describe("MySQL control and inventory statements are live-only", () => {
   });
 
   it("leaves every one of them bare on an unbound driver", () => {
-    expect(UNBOUND.generateClearMigrations("_viborm_migration_state")).toBe(
-      "DELETE FROM `_viborm_migration_state`"
-    );
     expect(UNBOUND.generateDropTableSQL("users")).toBe(
       "DROP TABLE IF EXISTS `users`"
     );

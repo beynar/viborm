@@ -1,11 +1,11 @@
 /** Static contract for the standalone E3 query-interceptor boundary. */
 
+import type { ResolvedOperationHandler } from "@extensions/chain";
 import {
   type PreparedModelQueryContext,
   type PreparedRawQueryContext,
-  type QueryInterceptor,
   type QueryInterceptorContext,
-  runQueryInterceptors,
+  runCompiledQueryInterceptors,
   type WriteOutcomeRegistration,
 } from "@extensions/query";
 
@@ -22,6 +22,9 @@ type Input = {
   select?: { id?: boolean };
 };
 type Rows = { id: string }[];
+type QueryInterceptor<Result, Input extends object> = ResolvedOperationHandler<
+  (context: QueryInterceptorContext<Result, Input>) => Promise<Result>
+>;
 
 const input: Readonly<Input> = Object.freeze({
   where: Object.freeze({ id: "post-1" }),
@@ -103,7 +106,7 @@ const _wrongResultInterceptor: QueryInterceptor<Rows, Input> = {
 
 const capture = (_registration: WriteOutcomeRegistration): void => undefined;
 const child = async (): Promise<Rows> => [{ id: "post-1" }];
-const intercepted = runQueryInterceptors(
+const intercepted = runCompiledQueryInterceptors(
   context,
   [exactInterceptor],
   child,
@@ -137,7 +140,7 @@ const rawInterceptor: QueryInterceptor<Rows, Record<string, never>> = {
     return handlerContext.proceed();
   },
 };
-const rawResult = runQueryInterceptors(
+const rawResult = runCompiledQueryInterceptors(
   rawContext,
   [rawInterceptor],
   child,

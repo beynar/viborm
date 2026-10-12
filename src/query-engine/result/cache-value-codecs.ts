@@ -485,12 +485,31 @@ function decimalCodec(descriptor: DecimalDescriptor | undefined): ValueCodec {
   );
 }
 
+/** The snapshot spelling of an infinite number sum, as `String` writes it. */
+const INFINITE_SUMS: ReadonlyMap<unknown, number> = new Map([
+  ["Infinity", Number.POSITIVE_INFINITY],
+  ["-Infinity", Number.NEGATIVE_INFINITY],
+]);
+
 /**
  * The SUM leaf's cache boundary: the field's scale, deliberately not the
  * field's precision, so a cached sum materializes exactly like a fresh one. The
  * write is held to the same scale for the same reason the scalar write is.
+ * A number sum is a double that may be `±Infinity` (engine-10), an int sum a
+ * double that may pass 2^53, and a bigint sum any integer.
  */
 export function compileWidenedSumCodec(scalar: Scalar): ValueCodec {
+  const { type } = scalar["~"].state;
+  if (type === "bigint") return bigintCodec();
+  if (type === "number" || type === "int")
+    return primitiveCodec(
+      (value) =>
+        value === Number.POSITIVE_INFINITY || value === Number.NEGATIVE_INFINITY
+          ? String(value)
+          : encodeSnapshotNumber(value),
+      (snapshot) =>
+        INFINITE_SUMS.get(snapshot) ?? decodeSnapshotNumber(snapshot)
+    );
   const descriptor = scalar["~"].state.decimal;
   return primitiveCodec(
     (value) => {

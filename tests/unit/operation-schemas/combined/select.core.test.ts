@@ -53,9 +53,12 @@ describe("Select Schema - Types (Author Model)", () => {
 describe("Select Schema - Simple Model Runtime", () => {
   const schema = simpleSchemas.select;
 
-  test("runtime: accepts empty object", () => {
-    const result = parse(schema, {});
-    expect(result.issues).toBeUndefined();
+  test("runtime: refuses a selection that names nothing", () => {
+    for (const selection of [{}, { id: false }, { id: undefined }]) {
+      expect(parse(schema, selection).issues?.[0]?.message).toBe(
+        "select needs at least one truthy value; leave it out to return the default row."
+      );
+    }
   });
 
   test("runtime: accepts boolean selection", () => {
@@ -206,6 +209,14 @@ describe("Select Schema - _count: true shorthand", () => {
         select: { posts: { where: { published: { equals: true } } } },
       });
     }
+  });
+
+  test("runtime: a _count that counts no relation selects nothing", () => {
+    expect(
+      parse(postSchemas.select, { _count: true }).issues?.[0]?.message
+    ).toBe(
+      "select needs at least one truthy value; leave it out to return the default row."
+    );
   });
 
   test("runtime: a model whose only relation is to-one expands to nothing", () => {

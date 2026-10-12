@@ -122,7 +122,7 @@ describe("adapter SELECT assembly", () => {
     expect(emulated.toStatement()).toContain('ORDER BY "_ord"');
   });
 
-  test("MySQL and SQLite emulate DISTINCT with both explicit and fallback projections", () => {
+  test("MySQL and SQLite emulate DISTINCT with explicit projections", () => {
     const mysql = assembleAdapterSelect(new MySQLAdapter(), {
       columns: sql.raw`id, name`,
       from: sql.raw`users`,
@@ -139,6 +139,7 @@ describe("adapter SELECT assembly", () => {
       columns: sql.raw`id, name`,
       from: sql.raw`users`,
       distinct: sql.raw`name`,
+      distinctColumnAliases: ["id", "name"],
       limit: sql`${5}`,
     });
 
@@ -148,7 +149,7 @@ describe("adapter SELECT assembly", () => {
       "LIMIT 18446744073709551615 OFFSET 2"
     );
     expect(mysql.values).toEqual([true, 0]);
-    expect(sqlite.toStatement()).toContain("SELECT * FROM");
+    expect(sqlite.toStatement()).toContain('SELECT "id", "name" FROM');
     expect(sqlite.toStatement()).toContain('WHERE "_rn" = 1 LIMIT ?');
     expect(sqlite.values).toEqual([5]);
   });

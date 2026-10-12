@@ -5,14 +5,12 @@
 import {
   diff,
   getDestructiveOperationDescriptions,
-  hasDestructiveOperations,
+  isDestructiveOperation,
 } from "@src/migrations/differ";
-import {
-  alwaysRenameResolver,
-  resolveAmbiguousChanges,
-} from "@src/migrations/resolver";
+import { resolveAmbiguousChanges } from "@src/migrations/resolver";
 import type {
   ColumnDef,
+  Resolver,
   SchemaSnapshot,
   TableDef,
 } from "@src/migrations/types";
@@ -21,6 +19,9 @@ import { describe, expect, it } from "vitest";
 // =============================================================================
 // HELPERS
 // =============================================================================
+
+const renameEveryChange: Resolver = async (changes) =>
+  new Map(changes.map((change) => [change, { type: "rename" as const }]));
 
 function makeTable(
   name: string,
@@ -155,7 +156,7 @@ describe("diff", () => {
           result,
           current,
           desired,
-          alwaysRenameResolver
+          renameEveryChange
         )
       ).toEqual([
         { type: "renameTable", from: "ledger", to: "account" },
@@ -228,7 +229,7 @@ describe("diff", () => {
             diffResult,
             current,
             desired,
-            alwaysRenameResolver
+            renameEveryChange
           )
         ).map((operation) => operation.type)
       ).toEqual(["renameColumn", "alterColumn"]);
@@ -1127,17 +1128,17 @@ describe("diff", () => {
   });
 });
 
-describe("hasDestructiveOperations", () => {
+describe("isDestructiveOperation", () => {
   it("should return true for dropTable", async () => {
     const ops = [{ type: "dropTable" as const, tableName: "users" }];
-    expect(hasDestructiveOperations(ops)).toBe(true);
+    expect(ops.some(isDestructiveOperation)).toBe(true);
   });
 
   it("should return true for dropColumn", async () => {
     const ops = [
       { type: "dropColumn" as const, tableName: "users", columnName: "email" },
     ];
-    expect(hasDestructiveOperations(ops)).toBe(true);
+    expect(ops.some(isDestructiveOperation)).toBe(true);
   });
 
   it("should return true for type changes", async () => {
@@ -1150,7 +1151,7 @@ describe("hasDestructiveOperations", () => {
         to: { name: "age", type: "integer", nullable: false },
       },
     ];
-    expect(hasDestructiveOperations(ops)).toBe(true);
+    expect(ops.some(isDestructiveOperation)).toBe(true);
   });
 
   it("should return false for non-destructive operations", async () => {
@@ -1161,7 +1162,7 @@ describe("hasDestructiveOperations", () => {
         column: { name: "email", type: "text", nullable: true },
       },
     ];
-    expect(hasDestructiveOperations(ops)).toBe(false);
+    expect(ops.some(isDestructiveOperation)).toBe(false);
   });
 
   it("classifies a narrowing decimal domain even when the type never moves", () => {
@@ -1188,27 +1189,27 @@ describe("hasDestructiveOperations", () => {
 
     // Fewer integer digits.
     expect(
-      hasDestructiveOperations(
-        narrow({ precision: 12, scale: 2 }, { precision: 10, scale: 2 })
+      narrow({ precision: 12, scale: 2 }, { precision: 10, scale: 2 }).some(
+        isDestructiveOperation
       )
     ).toBe(true);
     // Fewer fractional digits.
     expect(
-      hasDestructiveOperations(
-        narrow({ precision: 10, scale: 4 }, { precision: 10, scale: 2 })
+      narrow({ precision: 10, scale: 4 }, { precision: 10, scale: 2 }).some(
+        isDestructiveOperation
       )
     ).toBe(true);
     // More fractional digits at the same precision costs an integer digit:
     // NUMERIC(10,2) holds 99999999.99 and NUMERIC(10,5) does not.
     expect(
-      hasDestructiveOperations(
-        narrow({ precision: 10, scale: 2 }, { precision: 10, scale: 5 })
+      narrow({ precision: 10, scale: 2 }, { precision: 10, scale: 5 }).some(
+        isDestructiveOperation
       )
     ).toBe(true);
     // Both limits rise: every existing value fits, so nothing is at risk.
     expect(
-      hasDestructiveOperations(
-        narrow({ precision: 10, scale: 2 }, { precision: 12, scale: 4 })
+      narrow({ precision: 10, scale: 2 }, { precision: 12, scale: 4 }).some(
+        isDestructiveOperation
       )
     ).toBe(false);
   });

@@ -25,6 +25,24 @@ getters or client results. Rebuilding a client downstream from separately
 emitted raw models or a raw schema can lose cyclic relation types; that
 declaration boundary remains lossy.
 
+### Declaration emit has a size limit
+
+Emitting declarations (`declaration` or `composite`) for a package that
+exports a client works for small schemas only. The emitted client type grows
+with the schema, and TypeScript refuses to write it past a fixed length with
+`TS7056: The inferred type of this node exceeds the maximum length the compiler
+will serialize`. Measured on schemas of about 15 fields per model, with
+relations to two hub models and a JSON field:
+
+| Package exports | TypeScript 5.9 | TypeScript 7.0 |
+|---|---|---|
+| The client only | 20 models emit; 30 fail | 50 models emit; 70 fail |
+| The models and the client | 8 models fail | 8 models emit; 12 fail |
+
+Past the limit, do not emit declarations for the package that builds the
+client: let its consumers type-check it from source, for example a workspace
+package whose `exports` name its `.ts` files.
+
 ## Operations
 
 The client uses a Prisma-inspired API. See [Compatibility](/docs/client/compatibility)

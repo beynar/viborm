@@ -65,6 +65,7 @@ export interface JsonSchema {
   prefixItems?: JsonSchema[];
   minItems?: number;
   maxItems?: number;
+  uniqueItems?: boolean;
   anyOf?: JsonSchema[];
   oneOf?: JsonSchema[];
   allOf?: JsonSchema[];

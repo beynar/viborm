@@ -65,7 +65,7 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
   override generateAlterColumn(
     op: AlterColumnOperation,
     context: DDLContext
-  ): string {
+  ): string | readonly string[] {
     // A decimal descriptor change CONVERTS stored values — SQLite holds the
     // unscaled coefficient, so the same integer means a different number at a
     // different scale. The native ALTER rewrites the column DECLARATION and
@@ -79,7 +79,7 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
       decimalConversionRequired(op.from, op.to) ||
       sqliteDateTimeTargetRequiresRecreation(op.from.dateTime, op.to.dateTime)
     ) {
-      return this.compileAlterColumnByRecreation(op, context).join(";\n");
+      return this.compileAlterColumnByRecreation(op, context, false);
     }
 
     const { tableName, columnName, to } = op;
@@ -91,19 +91,6 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
 
     // LibSQL syntax: ALTER TABLE t ALTER COLUMN old_name TO new_def
     return `ALTER TABLE ${table} ALTER COLUMN ${col} TO ${colDef}`;
-  }
-
-  override compileAlterColumn(
-    op: AlterColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    if (
-      decimalConversionRequired(op.from, op.to) ||
-      sqliteDateTimeTargetRequiresRecreation(op.from.dateTime, op.to.dateTime)
-    ) {
-      return this.compileAlterColumnByRecreation(op, context);
-    }
-    return super.compileAlterColumn(op, context);
   }
 
   // ===========================================================================
@@ -190,7 +177,7 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
   override generateAddForeignKey(
     op: AddForeignKeyOperation,
     context: DDLContext
-  ): string {
+  ): string | readonly string[] {
     const { tableName, fk } = op;
 
     // For multi-column FKs, fall back to table recreation
@@ -244,12 +231,12 @@ export class LibSQLMigrationDriver extends SQLite3MigrationDriver {
   override generateDropForeignKey(
     op: DropForeignKeyOperation,
     context: DDLContext
-  ): string {
+  ): string | readonly string[] {
     const currentTable = this.getCurrentTable(op.tableName, context);
     if (!currentTable) {
       throw new Error(
         `Cannot drop foreign key: table "${op.tableName}" not found in current schema. ` +
-          "Pass currentSchema in DDLContext."
+          "Supply the current schema when compiling this operation."
       );
     }
 

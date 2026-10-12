@@ -14,7 +14,7 @@
 
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
-import { NestedWriteError, ValidationError } from "@errors";
+import { NestedWriteError } from "@errors";
 import { s } from "@schema";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, it } from "vitest";
@@ -272,41 +272,37 @@ for (const [route, make] of [
       assert.equal(driver.batchCalls, 0);
     });
 
-    it("refuses add-before-clear collection bodies before any effect", async () => {
+    // engine-04: an add-before-clear spelling runs in the canonical
+    // clear-first order: the removal observes no member coded "nine", then the
+    // choice creates tag 9 and links it.
+    it("runs an add-before-clear collection body clear-first", async () => {
       const client = await world();
-      await assert.rejects(
-        async () =>
-          client.post.update({
-            where: { id: "p1" },
-            data: {
-              tags: {
-                connectOrCreate: {
-                  where: { id: 9 },
-                  create: { id: 9, code: "nine" },
-                },
-                deleteMany: { code: "nine" },
-              },
+      await client.post.update({
+        where: { id: "p1" },
+        data: {
+          tags: {
+            connectOrCreate: {
+              where: { id: 9 },
+              create: { id: 9, code: "nine" },
             },
-          }),
-        (error: unknown) =>
-          error instanceof ValidationError &&
-          error.message.includes("clearing verb 'deleteMany'")
-      );
-      assert.equal(driver.statements.length, 0);
+            deleteMany: { code: "nine" },
+          },
+        },
+      });
       assert.deepEqual(
         (await client.tag.findMany({ orderBy: { id: "asc" } })).map(
           (row) => row.id
         ),
-        [7]
+        [7, 9]
       );
       assert.deepEqual(
         (
           await client.post.findMany({
             where: { id: "p1" },
-            include: { tags: true },
+            include: { tags: { orderBy: { id: "asc" } } },
           })
         ).map((row) => row.tags.map((member) => member.id)),
-        [[7]]
+        [[7, 9]]
       );
     });
 

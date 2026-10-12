@@ -40,7 +40,6 @@ export const vectorDistanceOrderSchema = v.object(
   },
   { atLeast: ["_distance"] }
 );
-export type VectorDistanceOrderSchema = typeof vectorDistanceOrderSchema;
 
 export const pointDistanceOrderSchema = v.object(
   {

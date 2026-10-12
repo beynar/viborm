@@ -158,6 +158,29 @@ Ordinary query interceptors remain outside the cache wrapper on hits and
 misses. Bypass preserves their behavior and the existing transaction,
 statement, raw, and result-ownership contracts.
 
+### Writes the cache does not see
+
+A model write through the cached client invalidates its scope unless it passes
+`autoInvalidate: false` (see [Invalidation](#invalidation)). A write through
+the base client you extended, through raw SQL (`$executeRaw` or `$queryRaw`,
+also on the cached client), or outside VibORM invalidates nothing: cached reads
+keep returning the old rows until their `ttl` runs out. After such a write,
+invalidate yourself:
+
+```ts
+await base.post.update({ where: { id }, data: { title } });
+await client.$executeRaw(sql`UPDATE post SET title = ${title} WHERE id = ${id}`);
+
+// What a model write does: clear the whole scope
+await client.$invalidate("*");
+// Or only the reads that can contain posts
+await client.$invalidate("post:*", "user:*");
+```
+
+A key prefix names the model a cached read starts from. A narrower list must
+also name every model whose reads reach the changed rows through `include` or
+`select`, such as `user:*` for users read with their posts.
+
 ## Observability
 
 With the official `instrumentation()` extension, cache get, set, invalidate,

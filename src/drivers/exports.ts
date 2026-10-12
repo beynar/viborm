@@ -22,9 +22,11 @@ export type {
   AnyDriver,
   DriverResultParser,
   QueryExecutionContext,
+  SqliteMigrationCapability,
 } from "./driver";
-// Base driver for custom implementations
-export { Driver } from "./driver";
+// Base driver for custom implementations, and the SQLite migration
+// declaration a custom SQLite driver binds to migrations with.
+export { Driver, SQLITE_MIGRATION_CAPABILITY } from "./driver";
 // SQLite provider decoding for custom drivers.
 export { sqliteResultParser } from "./shared/sqlite-utils";
 export type {

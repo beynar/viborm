@@ -192,7 +192,7 @@ describe("G4-02 — a scalar-only upsert carries no key-portability assertion", 
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for intKey.upsert: update.id.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -275,7 +275,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for intOwner.upsert: update.id.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -293,7 +293,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for intOwner.upsert: update.id.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -311,7 +311,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for note.upsert: update.id.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -329,7 +329,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for intOwner.upsert: update.id.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -401,7 +401,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for intOwner.upsert: update.id.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -425,7 +425,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for intOwner.upsert: update.id.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -443,7 +443,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.id: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for intOwner.upsert: update.id.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -461,7 +461,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.a: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for pairOwner.upsert: update.a.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,
@@ -479,7 +479,7 @@ describe("G4-02 — the THIRD owner the deleted engine had: the key transition a
 
     assert.equal(
       outcome.answer,
-      "ValidationError: Validation failed for upsert: update.a: Value did not match any union member: Expected integer, Division by zero is not allowed"
+      "ValidationError: Validation failed for pairOwner.upsert: update.a.divide: Division by zero is not allowed"
     );
     assert.deepEqual(
       outcome.effectAfter,

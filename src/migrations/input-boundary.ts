@@ -1,6 +1,6 @@
 /** Settles one hostile record into an exact immutable property snapshot. */
 
-import { errorCause } from "../drivers/shared/driver-options";
+import { errorCause } from "../errors/diagnostic-safety";
 
 type RefuseInput = (message: string, cause?: Error) => never;
 

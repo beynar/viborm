@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { createClient } from "@client/client";
 import { SQLite3Driver } from "@drivers/sqlite3";
-import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import { s } from "@schema";
 import { AnyNull, DbNull, JsonNull } from "@schema/json-null";
+import { createTestCommandEngine } from "@tests/raptor3/harness/command-engine";
 import Database from "better-sqlite3";
 import { describe, it } from "vitest";
 
@@ -88,6 +88,7 @@ const agrees = (
   label: string,
   seen: { shipped: unknown; candidate: unknown }
 ): void => {
+  // biome-ignore lint/suspicious/noMisplacedAssertion: This assertion helper is called only inside Vitest tests.
   assert.deepEqual(
     seen.candidate,
     seen.shipped,
@@ -95,8 +96,9 @@ const agrees = (
   );
 };
 
-const sentence = (field: string, kind: string): string =>
-  `JSON filter for field '${field}' cannot combine 'path' with the ${kind} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`;
+// Refused at admission since 1.2.0 (engine-14): the issue path names the field.
+const sentence = (path: string, kind: string): string =>
+  `Validation failed for doc.findMany: ${path}: JSON filter cannot combine 'path' with the ${kind} sentinel: the sentinels distinguish the database NULL from the JSON null value of the WHOLE column. Use 'path' with 'equals: null' to test for a JSON null at that path.`;
 
 describe("G4-01 repair 3 review — the JSON sentinel refusal names its own field", () => {
   for (const [kind, sentinel] of [
@@ -115,7 +117,9 @@ describe("G4-01 repair 3 review — the JSON sentinel refusal names its own fiel
         select: { id: true },
       });
       agrees(`${kind} on settings`, seen);
-      assert.deepEqual(seen.candidate, { error: sentence("settings", kind) });
+      assert.deepEqual(seen.candidate, {
+        error: sentence("where.AND.1.settings", kind),
+      });
     });
 
   it("pins the sentence under `not`", async () => {
@@ -124,26 +128,30 @@ describe("G4-01 repair 3 review — the JSON sentinel refusal names its own fiel
       select: { id: true },
     });
     agrees("negated sentinel under a path", seen);
-    assert.deepEqual(seen.candidate, { error: sentence("profile", "DbNull") });
+    assert.deepEqual(seen.candidate, {
+      error: sentence("where.profile", "DbNull"),
+    });
   });
 
   it("pins the sentence under NOT and OR", async () => {
-    for (const [label, where] of [
-      ["NOT", { NOT: [{ profile: { path: ["a"], equals: JsonNull } }] }],
+    for (const [label, where, path] of [
+      [
+        "NOT",
+        { NOT: [{ profile: { path: ["a"], equals: JsonNull } }] },
+        "where.NOT.0.profile",
+      ],
       [
         "OR",
         {
-          OR: [
-            { id: 1 },
-            { profile: { path: ["a", "b"], equals: JsonNull } },
-          ],
+          OR: [{ id: 1 }, { profile: { path: ["a", "b"], equals: JsonNull } }],
         },
+        "where.OR.1.profile",
       ],
-    ] as [string, Record<string, unknown>][]) {
+    ] as [string, Record<string, unknown>, string][]) {
       const seen = await bothOutcomes("doc", { where, select: { id: true } });
       agrees(`${label} sentinel`, seen);
       assert.deepEqual(seen.candidate, {
-        error: sentence("profile", "JsonNull"),
+        error: sentence(path, "JsonNull"),
       });
     }
   });
@@ -154,7 +162,9 @@ describe("G4-01 repair 3 review — the JSON sentinel refusal names its own fiel
       select: { id: true },
     });
     agrees("relation-scoped sentinel", seen);
-    assert.deepEqual(seen.candidate, { error: sentence("payload", "AnyNull") });
+    assert.deepEqual(seen.candidate, {
+      error: sentence("where.notes.some.payload", "AnyNull"),
+    });
   });
 });
 

@@ -1,6 +1,6 @@
 /**
- * MySQL pinned migration session: lock identity, exact lock proofs, and the one
- * admitted target selection.
+ * MySQL pinned migration session: lock identity, exact lock proofs, the one
+ * admitted target selection, and the session's exact-value proof.
  *
  * This module is §13's single exempted `USE` producer. Every other `USE` in the
  * shipped source is a defect, and the architecture census enforces that by
@@ -10,6 +10,9 @@
  * cleanup are one physical connection that is destroyed afterwards
  * (`MySQL2Driver.pinnedSession`).
  */
+
+import { MigrationError, VibORMErrorCode } from "../../../errors";
+import type { CatalogRead } from "../../target";
 
 /**
  * MySQL's `GET_LOCK` name limit. Longer names are an error on 8.0+ and were
@@ -152,4 +155,82 @@ export function mysqlSelectTargetStatement(
   quoteIdentifier: (name: string) => string
 ): string {
   return `USE ${quoteIdentifier(namespace)}`;
+}
+
+const MYSQL_VERSION = /^(\d+)\.(\d+)\.(\d+)/;
+
+/**
+ * PROVES this pinned session fails on an out-of-range value instead of
+ * truncating it (plan 3.3), once per session, before any statement it
+ * protects: outside a strict mode MySQL stores an overflowing `DECIMAL`
+ * clamped, with a warning (measured on 8.4), and migration work runs DDL and
+ * manual artifacts outside the ORM's guarded assignments. CHECK constraints
+ * must be enforced too (MySQL 8.0.16+).
+ */
+export async function proveMySQLExactValueSession(
+  read: CatalogRead,
+  estate: string
+): Promise<void> {
+  const { rows } = await read<unknown>(
+    "SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS server_version"
+  );
+  const row = rows[0];
+  const mode: unknown =
+    typeof row === "object" && row !== null
+      ? Reflect.get(row, "sql_mode")
+      : undefined;
+  const declared = typeof mode === "string" ? mode : "";
+  const serverVersion: unknown =
+    typeof row === "object" && row !== null
+      ? Reflect.get(row, "server_version")
+      : undefined;
+  const renderedVersion =
+    typeof serverVersion === "string" ? serverVersion : "<unreported>";
+  if (!supportsEnforcedMySQLChecks(renderedVersion)) {
+    throw new MigrationError(
+      `This MySQL migration session reports version "${renderedVersion}". Fixed-decimal conversions require MySQL 8.0.16 or later, where CHECK constraints are enforced; the command is refused before any migration effect.`,
+      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+      {
+        meta: {
+          dialect: "mysql",
+          type: "unenforced-check-constraints",
+          target: estate,
+        },
+      }
+    );
+  }
+  const hasStrictMode = declared.split(",").some((mode) => {
+    const token = mode.trim();
+    return token === "STRICT_TRANS_TABLES" || token === "STRICT_ALL_TABLES";
+  });
+  if (hasStrictMode) {
+    return;
+  }
+  throw new MigrationError(
+    `This MySQL session runs in sql_mode "${declared}", which has neither STRICT_TRANS_TABLES nor STRICT_ALL_TABLES. ` +
+      "Effectful migration work is refused: without a strict mode MySQL answers an out-of-range DECIMAL with a warning and stores the clamped value, so an exact fixed-decimal column would silently stop holding what it was given. Enable a strict mode on the server or on this connection and run the command again.",
+    VibORMErrorCode.DRIVER_NOT_SUPPORTED,
+    {
+      meta: {
+        dialect: "mysql",
+        type: "non-strict-sql-mode",
+        target: estate,
+      },
+    }
+  );
+}
+
+/** MySQL began enforcing CHECK constraints in 8.0.16. */
+function supportsEnforcedMySQLChecks(version: string): boolean {
+  if (version.toLowerCase().includes("mariadb")) {
+    return false;
+  }
+  const match = MYSQL_VERSION.exec(version);
+  if (match === null) {
+    return false;
+  }
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  const patch = Number(match[3]);
+  return major > 8 || (major === 8 && (minor > 0 || patch >= 16));
 }

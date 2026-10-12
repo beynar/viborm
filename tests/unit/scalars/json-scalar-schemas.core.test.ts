@@ -33,15 +33,6 @@ type InferJsonInput<
   Key extends keyof GetScalarSchemas<State>,
 > = InferScalarInput<State, Key>;
 
-// JSON value type
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
 // =============================================================================
 // RAW JSON SCALAR (required, no modifiers)
 // =============================================================================
@@ -246,6 +237,29 @@ describe("Raw JSON Scalar", () => {
       });
       if (result.issues) throw new Error("Expected success");
       expect(result.value).toEqual({ path: ["user", "name"], equals: "Ada" });
+    });
+
+    // engine-14: a sentinel names the whole column, so under a path it means
+    // nothing; `equals: null` is the JSON null at that path.
+    test("runtime: a path beside a whole-column sentinel is refused", () => {
+      for (const filter of [
+        { path: ["a"], equals: JsonNull },
+        { path: ["a"], not: JsonNull },
+        { path: ["a"], not: { equals: JsonNull } },
+      ]) {
+        expect(parse(schemas.filter, filter).issues?.[0]?.message).toContain(
+          "JSON filter cannot combine 'path' with the JsonNull sentinel"
+        );
+      }
+      expect(
+        parse(schemas.filter, { path: ["a"], equals: null }).issues
+      ).toBeUndefined();
+    });
+
+    test("runtime: a sentinel in the filter's own position is refused by name", () => {
+      expect(parse(schemas.filter, JsonNull).issues?.[0]?.message).toBe(
+        "JsonNull is an operand, not a JSON filter; compare with { equals: JsonNull }."
+      );
     });
 
     test("runtime: a string path is parsed into segments", () => {

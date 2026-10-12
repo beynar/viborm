@@ -87,12 +87,6 @@ export interface ClientOperationRoute {
   ): RoutedCandidateOperation;
 }
 
-export type ClientOperationRouteFactory = (
-  schema: Schema,
-  driver: AnyDriver,
-  resolved: ResolvedSchemaViews
-) => ClientOperationRoute;
-
 /** This operation's write-outcome seam, and whether it has already spoken. */
 interface RouteWriteOutcome {
   published: boolean;
@@ -164,7 +158,8 @@ class RoutedOperation implements RoutedCandidateOperation {
     // `CACHEABLE_OPERATIONS` (`query-engine/cache-flow.ts`, nine names,
     // including both `…OrThrow` variants) and the engine's own
     // `READ_OPERATIONS` (`shared/schema.ts`, seven), reconciled today
-    // only by `admittedOperation`'s `…OrThrow` normalization. No type
+    // only by the `…OrThrow` normalization `baseOperation`
+    // (`query-engine/routed-operations.ts`) states. No type
     // ties them and no single upstream owner establishes the fact, so an
     // assertion here would establish a missing fact rather than state an
     // established one (ELEGANCE §5). The class stays public
@@ -199,7 +194,11 @@ class RoutedOperation implements RoutedCandidateOperation {
     return this.#prepared.prepareBatch(context);
   }
 
-  async execute<T>(execution: RoutedOperationExecution): Promise<T> {
+  // Not `async`: the candidate's promise is handed back as it is. An async
+  // function adopts a returned promise a microtask later, so a refusal thrown
+  // before any I/O (V8003) sat rejected with no handler in between, which
+  // workerd under nodejs_compat reports as an unhandled rejection.
+  execute<T>(execution: RoutedOperationExecution): Promise<T> {
     try {
       const outcome = execution.isWrite
         ? routeWriteOutcome(execution)

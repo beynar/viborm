@@ -16,11 +16,15 @@ import type { DDLContext, MigrationDriver } from "./drivers";
 import { invertOperations } from "./invert";
 import type { SqlAssembly } from "./sql-assembly";
 import { sliceDispatch } from "./sql-blob";
-import { needsEnumAdditionCommitBoundary } from "./statement-safety";
+import {
+  needsEnumAdditionCommitBoundary,
+  runsConcurrently,
+} from "./statement-safety";
 import type { DiffOperation, SchemaSnapshot } from "./types";
 import { encodeTransitionHash } from "./v1-parse";
 import type {
   AtomicityClass,
+  MigrationApprovalV1,
   MigrationBooleanCheckV1,
   MigrationCheckInput,
   MigrationDispatchV1,
@@ -50,10 +54,15 @@ export function stepStatements(
   );
 }
 
+const VALIDATE_CONSTRAINT = /\bVALIDATE\s+CONSTRAINT\b/i;
+
 /**
  * Contiguous edges of one boundary share a commit, except that an edge adding
  * a PostgreSQL enum value ends its group: a later edge may use that value,
- * which PostgreSQL refuses until the addition commits (55P04).
+ * which PostgreSQL refuses until the addition commits (55P04). An edge that
+ * validates a constraint commits alone (T5b): sharing a transaction with the
+ * edge that added it `NOT VALID` would hold that addition's lock through the
+ * scan the split exists to free.
  */
 export function groupContiguousAtomicity<
   T extends { readonly boundary: string },
@@ -70,15 +79,162 @@ export function groupContiguousAtomicity<
   }[] = [];
   let mustCommit = false;
   for (const item of items) {
+    const statements = statementsOf(item);
+    const alone = statements.some((text) => VALIDATE_CONSTRAINT.test(text));
     const current = groups.at(-1);
-    if (current?.boundary === item.boundary && !mustCommit) {
+    if (current?.boundary === item.boundary && !(mustCommit || alone)) {
       current.items.push(item);
     } else {
       groups.push({ boundary: item.boundary, items: [item] });
     }
-    mustCommit = needsEnumAdditionCommitBoundary(statementsOf(item));
+    mustCommit = alone || needsEnumAdditionCommitBoundary(statements);
   }
   return groups;
+}
+
+/**
+ * The context a generated statement compiles in. `lowLock` asks PostgreSQL
+ * for the form of a step that blocks no write while it reads the table (T5b):
+ * `"add"` builds an index `CONCURRENTLY` or adds a foreign key `NOT VALID`,
+ * `"validate"` validates that key. Only `generate({ lowLock: true })` sets
+ * it, and only on a table that existed before the migration.
+ */
+export type LowLockContext = DDLContext & {
+  readonly lowLock?: "add" | "validate";
+};
+
+/** One state of a generated program split at its low-lock steps. */
+export interface LowLockState {
+  readonly operations: readonly DiffOperation[];
+  /** The schema the state reaches. */
+  readonly snapshot: SchemaSnapshot;
+  /** Whether it validates the keys an earlier state added `NOT VALID`. */
+  readonly validates: boolean;
+}
+
+/**
+ * Splits a generated PostgreSQL program into the states that give each
+ * low-lock step its own commit (T5b), or returns `undefined` when it has none
+ * to give. A step is an index built on, or a foreign key added to, a table
+ * the program does not create (a table it creates is empty). Each index build
+ * is a state of its own: `CREATE INDEX CONCURRENTLY` runs outside any
+ * transaction, and an interrupted build is then one unfinished single-step
+ * attempt that `resolve` repairs either way. The keys are added `NOT VALID`
+ * with the last state, and a final state validates them in a commit of its
+ * own; a failed validation rolls back alone and `apply` resumes from the
+ * marker.
+ *
+ * The schemas between states are the target's with the later states' effects
+ * undone, so only an index build, an index drop or a key may follow the first
+ * build; otherwise, or when a dropped index cannot be read back from the
+ * origin, the program is not split and keeps its blocking forms.
+ */
+export function lowLockStates(
+  operations: readonly DiffOperation[],
+  current: SchemaSnapshot,
+  desired: SchemaSnapshot
+): { states: LowLockState[]; steps: ReadonlySet<DiffOperation> } | undefined {
+  const steps = lowLockSteps(operations);
+  if (steps.size === 0) return;
+  const first = operations.findIndex(
+    (op) => op.type === "createIndex" && steps.has(op)
+  );
+  const tail = first < 0 ? [] : operations.slice(first);
+  const renames = operations.some(
+    (op) => op.type === "renameTable" || op.type === "renameColumn"
+  );
+  if (
+    !tail.every((op) =>
+      op.type === "createIndex"
+        ? steps.has(op)
+        : op.type === "addForeignKey" || (op.type === "dropIndex" && !renames)
+    )
+  ) {
+    return;
+  }
+  const ends: number[] = [];
+  for (const [index, op] of operations.entries()) {
+    if (op.type === "createIndex" && steps.has(op)) {
+      if (index > (ends.at(-1) ?? 0)) ends.push(index);
+      ends.push(index + 1);
+    }
+  }
+  if (ends.at(-1) !== operations.length) ends.push(operations.length);
+  const states: LowLockState[] = [];
+  for (const [index, end] of ends.entries()) {
+    const snapshot = withoutEffects(desired, current, operations.slice(end));
+    if (!snapshot) return;
+    states.push({
+      operations: operations.slice(ends[index - 1] ?? 0, end),
+      snapshot,
+      validates: false,
+    });
+  }
+  const keys = operations.filter(
+    (op) => op.type === "addForeignKey" && steps.has(op)
+  );
+  if (keys.length > 0) {
+    states.push({ operations: keys, snapshot: desired, validates: true });
+  }
+  return { states, steps };
+}
+
+/** The index builds and keys of `operations` on tables it does not create. */
+export function lowLockSteps(
+  operations: readonly DiffOperation[]
+): ReadonlySet<DiffOperation> {
+  const created = new Set(
+    operations.flatMap((op) => (op.type === "createTable" ? op.table.name : []))
+  );
+  return new Set(
+    operations.filter(
+      (op) =>
+        (op.type === "createIndex" || op.type === "addForeignKey") &&
+        !created.has(op.tableName)
+    )
+  );
+}
+
+/** `desired` before `later`: an index build, an index drop or a key. */
+function withoutEffects(
+  desired: SchemaSnapshot,
+  current: SchemaSnapshot,
+  later: readonly DiffOperation[]
+): SchemaSnapshot | undefined {
+  let readable = later.every(
+    (op) =>
+      "tableName" in op &&
+      desired.tables.some((table) => table.name === op.tableName)
+  );
+  const tables = desired.tables.map((table) => {
+    const own = later.filter(
+      (op) => "tableName" in op && op.tableName === table.name
+    );
+    if (own.length === 0) return table;
+    const built = new Set(
+      own.flatMap((op) => (op.type === "createIndex" ? op.index.name : []))
+    );
+    const keys = new Set(
+      own.flatMap((op) => (op.type === "addForeignKey" ? op.fk.name : []))
+    );
+    const restored = own.flatMap((op) => {
+      if (op.type !== "dropIndex") return [];
+      const index = current.tables
+        .find((origin) => origin.name === table.name)
+        ?.indexes.find((item) => item.name === op.indexName);
+      if (!index) readable = false;
+      return index ?? [];
+    });
+    return {
+      ...table,
+      indexes: [
+        ...table.indexes.filter((index) => !built.has(index.name)),
+        ...restored,
+      ],
+      foreignKeys: table.foreignKeys.filter((key) => !keys.has(key.name)),
+    };
+  });
+  return readable ? { ...desired, tables } : undefined;
 }
 
 export function compileGeneratedTransition(
@@ -87,7 +243,8 @@ export function compileGeneratedTransition(
   destination: DDLContext["destination"],
   currentSchema: SchemaSnapshot,
   desiredSchema: SchemaSnapshot,
-  assembly: SqlAssembly
+  assembly: SqlAssembly,
+  lowLock: ReadonlySet<DiffOperation> = new Set()
 ): CompiledTransition {
   const compiled = operations
     .map((operation, index) =>
@@ -98,7 +255,8 @@ export function compileGeneratedTransition(
         currentSchema,
         operations,
         index,
-        assembly
+        assembly,
+        lowLock.has(operation) ? "add" : undefined
       )
     )
     .filter((operation) => operation.steps.length > 0);
@@ -158,6 +316,36 @@ export function compileGeneratedTransition(
   };
 }
 
+/**
+ * The state that validates the foreign keys an earlier state added `NOT VALID`
+ * (T5b). Undoing it is nothing: the keys stay, as their state declares them.
+ */
+export function compileValidationTransition(
+  keys: readonly DiffOperation[],
+  driver: MigrationDriver,
+  currentSchema: SchemaSnapshot,
+  assembly: SqlAssembly
+): CompiledTransition {
+  return {
+    operations: keys.map((key, index) =>
+      compileGeneratedOperation(
+        key,
+        driver,
+        "artifact",
+        currentSchema,
+        keys,
+        index,
+        assembly,
+        "validate"
+      )
+    ),
+    rollback: { kind: "schema", operations: [] },
+    originChecks: [],
+    requestedForwardBoundary: null,
+    atomicity: "transactional",
+  };
+}
+
 function compileGeneratedOperation(
   operation: DiffOperation,
   driver: MigrationDriver,
@@ -165,13 +353,15 @@ function compileGeneratedOperation(
   currentSchema: SchemaSnapshot,
   batch: readonly DiffOperation[],
   index: number,
-  assembly: SqlAssembly
+  assembly: SqlAssembly,
+  lowLock?: LowLockContext["lowLock"]
 ): MigrationOperationV1 {
-  const context: DDLContext = {
+  const context: LowLockContext = {
     destination,
     currentSchema,
     precedingOperations: batch.slice(0, index),
     followingOperations: batch.slice(index + 1),
+    ...(lowLock === undefined ? {} : { lowLock }),
   };
   const statements = driver.compileStatements(operation, context);
   const steps: MigrationStepV1[] = statements.map((statement) => {
@@ -213,7 +403,13 @@ export function compileManualTransition(
   originChecks: readonly MigrationCheckInput[] | undefined,
   assembly: SqlAssembly
 ): CompiledTransition {
-  const operations = compileManualOperations(up, dialect, assembly, "forward");
+  const operations = compileManualOperations(
+    up,
+    dialect,
+    assembly,
+    "forward",
+    requested
+  );
   if (rollback.kind === "irreversible" && rollback.reason.trim().length === 0) {
     throw new MigrationError(
       "Irreversible rollback requires a non-empty reason",
@@ -230,7 +426,8 @@ export function compileManualTransition(
             rollback.sql,
             dialect,
             assembly,
-            "rollback"
+            "rollback",
+            rollback.execution
           ),
         };
   return {
@@ -265,7 +462,8 @@ function compileManualOperations(
   fragments: readonly Sql[],
   dialect: "postgresql" | "mysql" | "sqlite",
   assembly: SqlAssembly,
-  prefix: string
+  prefix: string,
+  execution: AtomicityClass
 ): MigrationOperationV1[] {
   if (fragments.length === 0) {
     throw new MigrationError(
@@ -273,11 +471,32 @@ function compileManualOperations(
       VibORMErrorCode.MIGRATION_INVALID_ESTATE
     );
   }
+  // Plan S5, refused before the state is published: apply refuses it, so no
+  // SQLite database could ever reach the state.
+  if (execution === "stepwise" && dialect === "sqlite") {
+    throw new MigrationError(
+      `SQLite runs no stepwise manual ${prefix} program: only a transaction holds the write lock under which a migration runs exactly once, and every SQLite statement can run in one. Declare execution: "transactional" for it.`,
+      VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+      { meta: { dialect, feature: "stepwise execution" } }
+    );
+  }
   return fragments.map((fragment, index) => {
     const text = fragment.toStatement(dialect === "postgresql" ? "$n" : "?");
     if (text.trim().length === 0) {
       throw new MigrationError(
         `Manual ${prefix} SQL dispatch ${index} must contain non-whitespace text`,
+        VibORMErrorCode.MIGRATION_INVALID_ESTATE
+      );
+    }
+    // Refused before the state is published: sent after BEGIN, PostgreSQL
+    // rejects it (25001), so the transition could never apply.
+    if (
+      execution === "transactional" &&
+      dialect === "postgresql" &&
+      runsConcurrently(text)
+    ) {
+      throw new MigrationError(
+        `Manual ${prefix} SQL dispatch ${index} runs CONCURRENTLY, which PostgreSQL refuses inside a transaction. Declare execution: "stepwise" for it.`,
         VibORMErrorCode.MIGRATION_INVALID_ESTATE
       );
     }
@@ -315,15 +534,17 @@ export function compileTrustedCheck(
 
 export function sealParent(
   fromState: string | null,
-  compiled: CompiledTransition
+  compiled: CompiledTransition,
+  approvals: readonly MigrationApprovalV1[] = []
 ): Omit<MigrationParentTransitionV1, "transitionHash"> {
-  return {
+  const parent = {
     fromState,
     originChecks: compiled.originChecks,
     requestedForwardBoundary: compiled.requestedForwardBoundary,
     operations: compiled.operations,
     rollback: compiled.rollback,
   };
+  return approvals.length === 0 ? parent : { ...parent, approvals };
 }
 
 export function hashParent(
@@ -373,7 +594,7 @@ function rebindStep(
   step: MigrationStepV1,
   dispatches: readonly MigrationDispatchV1[]
 ): MigrationStepV1 {
-  const execute = takeDispatch(step.execute, dispatches);
+  const execute = dispatchAt(dispatches, step.execute.offset);
   if (step.retry === "opaque") {
     return { retry: "opaque", execute };
   }
@@ -381,21 +602,22 @@ function rebindStep(
     retry: "proven",
     precheck: {
       ...step.precheck,
-      query: takeDispatch(step.precheck.query, dispatches),
+      query: dispatchAt(dispatches, step.precheck.query.offset),
     },
     execute,
     postcheck: {
       ...step.postcheck,
-      query: takeDispatch(step.postcheck.query, dispatches),
+      query: dispatchAt(dispatches, step.postcheck.query.offset),
     },
   };
 }
 
-function takeDispatch(
-  placeholder: MigrationDispatchV1,
-  dispatches: readonly MigrationDispatchV1[]
+/** The sealed dispatch at an index the same assembly handed out. */
+export function dispatchAt(
+  dispatches: readonly MigrationDispatchV1[],
+  index: number
 ): MigrationDispatchV1 {
-  const found = dispatches[placeholder.offset];
+  const found = dispatches[index];
   if (!found) {
     throw new MigrationError(
       "Compiled dispatch is missing from the SQL assembly",
@@ -411,7 +633,7 @@ export function rebindChecks(
 ): MigrationBooleanCheckV1[] {
   return checks.map((check) => ({
     ...check,
-    query: takeDispatch(check.query, dispatches),
+    query: dispatchAt(dispatches, check.query.offset),
   }));
 }
 
@@ -426,11 +648,103 @@ export function rebindRollback(
   };
 }
 
-const CREATE_INDEX_CONCURRENTLY = /CREATE\s+INDEX\s+CONCURRENTLY/i;
+const IDENTIFIER = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)`;
+const QUALIFIED = String.raw`${IDENTIFIER}(?:\.${IDENTIFIER})?`;
+
 const ALTER_TYPE_ADD_VALUE = /ALTER\s+TYPE\s+\S+\s+ADD\s+VALUE/i;
 
+/** `CREATE TABLE <name>` (group 1), or `ALTER TABLE <name>` (2) and its actions (3). */
+const TABLE_STATEMENT = new RegExp(
+  String.raw`\bCREATE\s+(?:(?:GLOBAL|LOCAL|TEMP|TEMPORARY|UNLOGGED)\s+)*TABLE\s+(?!IF\s+NOT\s+EXISTS\b)(${QUALIFIED})|\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${QUALIFIED})([^;]*)`,
+  "gi"
+);
+/** `RENAME TO <name>`, the whole action of an `ALTER TABLE`. */
+const RENAME_TO = new RegExp(
+  String.raw`^\s*RENAME\s+TO\s+(${IDENTIFIER})\s*$`,
+  "i"
+);
+const LAST_IDENTIFIER = new RegExp(`${IDENTIFIER}$`);
+/** Each action that rewrites or scans the table, and how a refusal names it. */
+const TABLE_REWRITES: readonly (readonly [RegExp, (name: string) => string])[] =
+  [
+    [
+      new RegExp(
+        String.raw`\bALTER\s+(?:COLUMN\s+)?(${IDENTIFIER})\s+(?:SET\s+DATA\s+)?TYPE\b`,
+        "i"
+      ),
+      (column) => `column type change of ${column}`,
+    ],
+    [
+      new RegExp(
+        String.raw`\bALTER\s+(?:COLUMN\s+)?(${IDENTIFIER})\s+SET\s+NOT\s+NULL\b`,
+        "i"
+      ),
+      (column) => `SET NOT NULL on ${column}`,
+    ],
+    [
+      new RegExp(
+        String.raw`\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?!(?:CONSTRAINT|PRIMARY|UNIQUE|FOREIGN|CHECK|EXCLUDE)\b)(${IDENTIFIER})[\s\S]*?(?:\b(?:gen_random_uuid|uuidv[47]|uuid_generate_v[14]|random|clock_timestamp|timeofday|nextval)\s*\(|\b(?:SMALL|BIG)?SERIAL\b|\bGENERATED\b)`,
+        "i"
+      ),
+      (column) => `volatile default on new column ${column}`,
+    ],
+    [
+      // `NOT VALID` counts up to the next `, ADD` action, not past it.
+      new RegExp(
+        String.raw`\bADD\s+(?:CONSTRAINT\s+${IDENTIFIER}\s+)?(FOREIGN\s+KEY|CHECK)\b(?!(?:(?!,\s*ADD\b)[\s\S])*\bNOT\s+VALID\b)`,
+        "i"
+      ),
+      (constraint) => `${constraint.toUpperCase()} validation`,
+    ],
+  ];
+
+/**
+ * The PostgreSQL statements of `program` that rewrite or scan an existing
+ * table while holding a lock that blocks it (T5a): a column type change (an
+ * enum replacement and a decimal descriptor change are ones), `SET NOT NULL`,
+ * a new column whose default is volatile, and a FOREIGN KEY or CHECK added
+ * without `NOT VALID`. One entry per `ALTER TABLE`, naming its table as the
+ * statement spells it and its first such action; a table an earlier
+ * `RENAME TO` of the program renamed is named by its spelling before the
+ * program ran, the one the live catalog holds. A table the program has
+ * already created by that spelling is empty, so it is left out (a force
+ * reset, a drop and recreate), as it is once renamed. A plain `CREATE INDEX`
+ * (writes blocked, reads not) is not one.
+ */
+export function tableRewrites(
+  program: readonly string[]
+): { readonly table: string; readonly operation: string }[] {
+  const created = new Set<string>();
+  const before = new Map<string, string>();
+  return program.flatMap((statement) =>
+    [...statement.matchAll(TABLE_STATEMENT)].flatMap(
+      ([, made, table, clause]) => {
+        if (made) created.add(made);
+        if (!table) return [];
+        const renamedTo = RENAME_TO.exec(clause ?? "")?.[1];
+        if (renamedTo) {
+          const next = table.replace(LAST_IDENTIFIER, renamedTo);
+          if (created.has(table)) created.add(next);
+          else before.set(next, before.get(table) ?? table);
+          return [];
+        }
+        if (created.has(table)) return [];
+        for (const [pattern, name] of TABLE_REWRITES) {
+          const action = pattern.exec(clause ?? "")?.[1];
+          if (action) {
+            return [
+              { table: before.get(table) ?? table, operation: name(action) },
+            ];
+          }
+        }
+        return [];
+      }
+    )
+  );
+}
+
 function isNonTransactionalSql(driver: MigrationDriver, sql: string): boolean {
-  if (CREATE_INDEX_CONCURRENTLY.test(sql)) return true;
+  if (runsConcurrently(sql)) return true;
   return (
     ALTER_TYPE_ADD_VALUE.test(sql) &&
     !driver.capabilities.supportsAddEnumValueInTransaction
@@ -465,6 +779,27 @@ export function assertTransactionalBoundaryHonored(
       VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
     );
   }
+}
+
+/**
+ * Plan S5, refused while a stored path is prepared, before any of it runs:
+ * only a transaction holds SQLite's write lock, under which a migration runs
+ * exactly once, and every SQLite statement can run in one. Generate refuses
+ * such a program since 1.2.0; this refuses one 1.1.0 published, whichever
+ * command would run it. Resolve's retry does not ask: it finishes an attempt
+ * 1.1.0 left open.
+ */
+export function refuseSqliteStepwise(
+  driver: MigrationDriver,
+  requested: "transactional" | "stepwise" | null,
+  toState: string
+): void {
+  if (requested !== "stepwise" || driver.dialect !== "sqlite") return;
+  throw new MigrationError(
+    'SQLite runs no stepwise program: only a transaction holds the write lock under which a migration runs exactly once, and every SQLite statement can run in one. Nothing ran. Run it with VibORM 1.1.0, or, if no database applied it, remove its state from migration storage and generate it again with `execution: "transactional"`.',
+    VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+    { meta: { dialect: "sqlite", toState, feature: "stepwise execution" } }
+  );
 }
 
 export function classifyStoredAtomicity(

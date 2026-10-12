@@ -38,6 +38,9 @@ where: {
 }
 ```
 
+A long same-column `OR` of equalities is sent as that column's `in`; other long
+`OR`s are nested so SQLite's expression-depth limit is not reached.
+
 :::info
 An explicit `undefined` value is treated as if the key were absent, matching Prisma. `where: { role: role ?? undefined }` behaves the same as omitting `role` entirely — useful for building filters conditionally without stripping keys yourself.
 :::

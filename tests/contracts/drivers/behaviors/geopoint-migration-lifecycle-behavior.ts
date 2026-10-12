@@ -1,11 +1,8 @@
 import { createClient } from "@client/client";
 import type { AnyDriver } from "@drivers";
+import { qualifiedName } from "@migrations/catalog-probes";
 import { createMigrationClient } from "@migrations/client";
-import {
-  controlTableNames,
-  DEFAULT_CONTROL_BASE,
-  qualifyControl,
-} from "@migrations/control";
+import { CONTROL_TABLES } from "@migrations/control";
 import { getMigrationDriver } from "@migrations/drivers";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
@@ -101,17 +98,23 @@ export function runGeoPointMigrationLifecycleBehavior({
             select: { location: true },
           })
         ).resolves.toEqual({ location: { longitude: 180, latitude: 90 } });
-        await expect(migrations.down({ steps: 1 })).resolves.toMatchObject({
+        // This rollback drops the table that now holds a row: approved.
+        await expect(
+          migrations.down({
+            steps: 1,
+            resolve: (change) =>
+              change.type === "destructive" ? change.proceed() : undefined,
+          })
+        ).resolves.toMatchObject({
           preview: false,
         });
       } finally {
         const command = getMigrationDriver(driver);
-        const control = controlTableNames(DEFAULT_CONTROL_BASE);
         await driver._executeRaw(
-          `DROP TABLE IF EXISTS ${qualifyControl(command, control.log)}`
+          `DROP TABLE IF EXISTS ${qualifiedName(command, CONTROL_TABLES.log)}`
         );
         await driver._executeRaw(
-          `DROP TABLE IF EXISTS ${qualifyControl(command, control.state)}`
+          `DROP TABLE IF EXISTS ${qualifiedName(command, CONTROL_TABLES.state)}`
         );
         await client.$disconnect();
       }

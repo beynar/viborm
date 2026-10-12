@@ -36,10 +36,13 @@ import {
 } from "@src/migrations/v1-parse";
 import { PlanningDriver } from "@tests/fixtures/drivers/planning";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import Database from "better-sqlite3";
 import { describe, expect, expectTypeOf, test } from "vitest";
 import { sqliteEstateDriver } from "./_estate";
 
 const EXPECTED_ERROR_PATTERN = /^[a-f0-9]{64}$/;
+const INTROSPECTION = /sqlite_master|table_info|index_list/i;
+const COMMIT = /^COMMIT/i;
 const DROP_FOREIGN_LEDGER_PATTERN = /DROP.*foreign_ledger/;
 const EXPECTED_ERROR_PATTERN_2 = /^\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
 
@@ -56,6 +59,33 @@ const counter = s.model({
 });
 
 describe("migration v1 authenticated push", () => {
+  test("a transactional push proves its destination before its COMMIT", async () => {
+    const executed: string[] = [];
+    const db = new Database(":memory:", {
+      verbose: (statement) => executed.push(String(statement)),
+    });
+    const client = createClient({
+      schema: { user },
+      driver: new SQLite3Driver({ client: db }),
+    });
+
+    await expect(pushV1(client)).resolves.toMatchObject({
+      outcome: "applied",
+    });
+    const ddl = executed.findIndex((statement) =>
+      statement.includes('CREATE TABLE "user"')
+    );
+    const firstAfterDdl = (pattern: RegExp) =>
+      executed.findIndex(
+        (statement, index) => index > ddl && pattern.test(statement)
+      );
+    // The destination proof introspects the schema it just wrote.
+    const proof = firstAfterDdl(INTROSPECTION);
+    const commit = firstAfterDdl(COMMIT);
+    expect([ddl >= 0, proof > ddl, proof < commit]).toEqual([true, true, true]);
+    db.close();
+  });
+
   test.each([
     "lower(label)",
     "label DESC",
@@ -140,7 +170,11 @@ describe("migration v1 authenticated push", () => {
       expect(
         await changed.entry.findUniqueOrThrow({ where: { id: 1 } })
       ).toEqual({ id: 1, a: "keep", b: 23 });
-      await migrations.down();
+      // The rollback tightens two populated columns to NOT NULL: approved.
+      await migrations.down({
+        resolve: (change) =>
+          change.type === "destructive" ? change.proceed() : undefined,
+      });
       expect(await original.verify()).toEqual({ ok: true });
       expect(
         await client.entry.findUniqueOrThrow({ where: { id: 1 } })
@@ -392,23 +426,71 @@ describe("migration v1 authenticated push", () => {
     await client.$disconnect();
   });
 
-  test("consent from another driver binding is refused", async () => {
-    const first = createClient({
-      schema: { user },
-      driver: createInMemorySQLite3Driver(),
+  test("a consent previewed by one client instance applies through another on the same database", async () => {
+    // The tenant flow previews in one request and confirms in another, after
+    // the first client may have been evicted. 1.1.0 bound the consent to a
+    // random per-driver id and refused here with V11018.
+    const database = new Database(":memory:");
+    const legacy = s.model({
+      id: s.string().id(),
+      email: s.string().unique(),
+      legacyCode: s.string().nullable(),
     });
-    const second = createClient({
-      schema: { user },
-      driver: createInMemorySQLite3Driver(),
+    const seed = createClient({
+      schema: { user: legacy },
+      driver: new SQLite3Driver({ client: database }),
     });
-    const preview = await previewPush(first);
+    await pushV1(seed);
+    const insert = database.prepare(
+      'INSERT INTO "user" ("id", "email", "legacyCode") VALUES (?, ?, ?)'
+    );
+    database.transaction(() => {
+      for (let index = 0; index < 10_000; index++) {
+        insert.run(`u${index}`, `u${index}@example.test`, `L${index}`);
+      }
+    })();
+    const preview = await previewPush(
+      createClient({
+        schema: { user },
+        driver: new SQLite3Driver({ client: database }),
+      })
+    );
+    expect(preview.destructive).toBe(true);
+    const confirming = createClient({
+      schema: { user },
+      driver: new SQLite3Driver({ client: database }),
+    });
     await expect(
-      pushV1(second, { consent: preview.consent })
+      pushV1(confirming, {
+        consent: JSON.parse(JSON.stringify(preview.consent)),
+      })
+    ).resolves.toMatchObject({ outcome: "applied" });
+    expect(database.prepare('SELECT COUNT(*) AS n FROM "user"').get()).toEqual({
+      n: 10_000,
+    });
+    database.close();
+  });
+
+  test("a consent is refused by a database whose live schema differs from the previewed one", async () => {
+    const previewed = createClient({
+      schema: { user },
+      driver: createInMemorySQLite3Driver(),
+    });
+    const other = createClient({
+      schema: { user },
+      driver: createInMemorySQLite3Driver(),
+    });
+    await other.$driver._executeRaw(
+      'CREATE TABLE "user" ("id" TEXT PRIMARY KEY, "email" TEXT, "legacyCode" TEXT)'
+    );
+    const preview = await previewPush(previewed);
+    await expect(
+      pushV1(other, { consent: preview.consent })
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_CONSENT_MISMATCH,
     });
-    await first.$disconnect();
-    await second.$disconnect();
+    await previewed.$disconnect();
+    await other.$disconnect();
   });
 
   test("ordinary dry-run plans a diff and writes nothing", async () => {
@@ -507,6 +589,40 @@ describe("migration v1 authenticated push", () => {
     const second = await previewPush(client);
     expect(second.operations).toEqual([]);
     await client.$disconnect();
+  });
+
+  test("a required column added to a renamed populated table is refused before any effect", async () => {
+    const driver = createInMemorySQLite3Driver();
+    const fields = { id: s.string().id(), name: s.string() };
+    const before = createClient({
+      schema: { account: s.model(fields).map("accounts") },
+      driver,
+    });
+    await pushV1(before);
+    await before.account.create({ data: { id: "a1", name: "Ada" } });
+    const after = createClient({
+      schema: {
+        account: s.model({ ...fields, tier: s.string() }).map("members"),
+      },
+      driver,
+    });
+    const resolve: ResolveCallback = (change) => {
+      if (change.type === "ambiguous") return change.rename();
+      return change.type === "destructive" ? change.proceed() : undefined;
+    };
+
+    // The rename is accepted, so the populated table is still read under its
+    // live name, "accounts".
+    await expect(pushV1(after, { resolve })).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringContaining(
+        'Cannot add required column "members.tier" without a database default to a populated table'
+      ),
+    });
+    await expect(before.account.findMany()).resolves.toEqual([
+      { id: "a1", name: "Ada" },
+    ]);
+    await before.$disconnect();
   });
 
   test("a resolved destructive change still requires consent, then applies the locked replan", async () => {

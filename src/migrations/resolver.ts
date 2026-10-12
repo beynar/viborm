@@ -6,7 +6,14 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { type DiffOptions, diff } from "./differ";
+import { isRecord } from "../validation/value-guards";
+import {
+  type DiffOptions,
+  diff,
+  getDestructiveOperationDescriptions,
+  isDestructiveOperation,
+} from "./differ";
+import { snapshotExactArray, snapshotExactRecord } from "./input-boundary";
 import { applyNativeRename } from "./native-rename";
 import type {
   AmbiguousChange,
@@ -22,8 +29,14 @@ import type {
   Resolver,
   SchemaSnapshot,
 } from "./types";
-import { createAmbiguousChange, readEnumResolutionDecision } from "./types";
+import {
+  createAmbiguousChange,
+  createDestructiveChange,
+  readEnumResolutionDecision,
+} from "./types";
 import { sortOperations } from "./utils";
+import { parseApproval } from "./v1-parse";
+import type { MigrationApprovalV1, MigrationDecisionV1 } from "./v1-types";
 
 export function validateResolveResult(
   expected: "ambiguous",
@@ -84,35 +97,22 @@ export function validateResolveResult(
 // RESOLUTION APPLICATION
 // =============================================================================
 
-/**
- * Converts resolved ambiguous changes into concrete diff operations
- */
-export function applyResolutions(
-  changes: AmbiguousChange[],
-  resolutions: Map<AmbiguousChange, ChangeResolution>
+/** The operations one resolved ambiguous change stands for. */
+export function operationsFor(
+  change: AmbiguousChange,
+  resolution: ChangeResolution
 ): DiffOperation[] {
-  const operations: DiffOperation[] = [];
-
-  for (const change of changes) {
-    const resolution = resolutions.get(change);
-    if (!resolution) {
-      throw new MigrationError(
-        `Missing resolution for ${formatAmbiguousChange(change)}`,
-        VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
-      );
-    }
-
-    if (change.type === "ambiguousColumn") {
-      if (resolution.type === "rename") {
-        operations.push({
-          type: "renameColumn",
-          tableName: change.tableName,
-          from: change.droppedColumn.name,
-          to: change.addedColumn.name,
-        });
-      } else {
-        // addAndDrop
-        operations.push(
+  if (change.type === "ambiguousColumn") {
+    return resolution.type === "rename"
+      ? [
+          {
+            type: "renameColumn",
+            tableName: change.tableName,
+            from: change.droppedColumn.name,
+            to: change.addedColumn.name,
+          },
+        ]
+      : [
           {
             type: "dropColumn",
             tableName: change.tableName,
@@ -122,27 +122,21 @@ export function applyResolutions(
             type: "addColumn",
             tableName: change.tableName,
             column: change.addedColumn,
-          }
-        );
-      }
-    } else if (change.type === "ambiguousTable") {
-      if (resolution.type === "rename") {
-        operations.push({
+          },
+        ];
+  }
+  return resolution.type === "rename"
+    ? [
+        {
           type: "renameTable",
           from: change.droppedTable,
           to: change.addedTable,
-        });
-      } else {
-        // addAndDrop
-        operations.push(
-          { type: "dropTable", tableName: change.droppedTable },
-          { type: "createTable", table: change.addedTableDef }
-        );
-      }
-    }
-  }
-
-  return operations;
+        },
+      ]
+    : [
+        { type: "dropTable", tableName: change.droppedTable },
+        { type: "createTable", table: change.addedTableDef },
+      ];
 }
 
 /**
@@ -188,10 +182,7 @@ export async function resolveAmbiguousChanges(
           `Missing resolution for ${formatAmbiguousChange(change)}`,
           VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
         );
-      const operations = applyResolutions(
-        [change],
-        new Map([[change, resolution]])
-      );
+      const operations = operationsFor(change, resolution);
       resolutionOperations.push(...operations);
 
       for (const operation of operations) {
@@ -288,7 +279,7 @@ function applyResolutionEffect(
 
 export function ambiguousToResolveChange(
   change: AmbiguousChange
-): ResolveChange {
+): AmbiguousResolveChange {
   if (change.type === "ambiguousColumn") {
     return createAmbiguousChange({
       operation: "renameColumn",
@@ -310,7 +301,14 @@ export function ambiguousToResolveChange(
   });
 }
 
-export function callbackAsResolver(callback: ResolveCallback): Resolver {
+/**
+ * `admittedDrops` collects the drop each `addAndDrop` answer already decided,
+ * so the destructive question is not asked a second time for it.
+ */
+export function callbackAsResolver(
+  callback: ResolveCallback,
+  admittedDrops?: Set<string>
+): Resolver {
   return async (changes) => {
     const resolutions = new Map<AmbiguousChange, ChangeResolution>();
     for (const change of changes) {
@@ -322,6 +320,7 @@ export function callbackAsResolver(callback: ResolveCallback): Resolver {
       }
       if (result === "addAndDrop") {
         resolutions.set(change, { type: "addAndDrop" });
+        admittedDrops?.add(ambiguousDropKey(change));
         continue;
       }
       throw new MigrationError(
@@ -335,20 +334,139 @@ export function callbackAsResolver(callback: ResolveCallback): Resolver {
 }
 
 // =============================================================================
-// DEFAULT RESOLVERS
+// DESTRUCTIVE CHANGES
 // =============================================================================
 
-/**
- * Resolver that always chooses "rename" for all ambiguous changes.
- * Useful for preserving data when the intent is clear.
- */
-export const alwaysRenameResolver: Resolver = async (changes) => {
-  const resolutions = new Map<AmbiguousChange, ChangeResolution>();
-  for (const change of changes) {
-    resolutions.set(change, { type: "rename" });
+export function ambiguousDropKey(change: AmbiguousChange): string {
+  return change.type === "ambiguousTable"
+    ? `table\u0000${change.droppedTable}`
+    : `column\u0000${change.tableName}\u0000${change.droppedColumn.name}`;
+}
+
+function destructiveDropKey(operation: DiffOperation): string {
+  if (operation.type === "dropTable") {
+    return `table\u0000${operation.tableName}`;
   }
-  return resolutions;
-};
+  if (operation.type === "dropColumn") {
+    return `column\u0000${operation.tableName}\u0000${operation.columnName}`;
+  }
+  return "";
+}
+
+/**
+ * Puts every destructive operation (enum value removals excepted: they have
+ * their own mapping question) to `resolve` once, for push and generate alike.
+ * A rejected or unanswered change refuses, unless `force` admits an unanswered
+ * one. Without a callback nothing is asked: the refusal names every change.
+ * Returns the approval of every destructive change, in operation order; a drop
+ * an `addAndDrop` answer already decided is approved by that answer.
+ */
+export async function approveDestructiveOperations(
+  operations: readonly DiffOperation[],
+  resolve: ResolveCallback | undefined,
+  force: boolean,
+  admittedDrops: ReadonlySet<string> = new Set()
+): Promise<MigrationApprovalV1[]> {
+  const destructive = operations.filter(
+    (operation) =>
+      operation.type !== "alterEnum" && isDestructiveOperation(operation)
+  );
+  const facts = destructive.map(describeDestructiveOperation);
+  const changes = facts.map(({ column, ...change }) =>
+    createDestructiveChange(column === null ? change : { ...change, column })
+  );
+  if (!resolve && changes.length > 0) {
+    throw new MigrationError(
+      `Destructive changes need an approval:\n${changes.map((change) => `- ${change.description}`).join("\n")}\n\n` +
+        "Pass a resolve callback that returns change.proceed() or change.reject() for each one.",
+      VibORMErrorCode.MIGRATION_CONSENT_REQUIRED,
+      {
+        meta: {
+          hint: "Review the changes, then pass a resolve callback (generate() or down()) that approves them with change.proceed(); for the CLI, set migrations.resolve in viborm.config.ts.",
+        },
+      }
+    );
+  }
+  for (const [index, change] of changes.entries()) {
+    if (!admittedDrops.has(destructiveDropKey(destructive[index]!))) {
+      const result = validateResolveResult(
+        "destructive",
+        change,
+        await resolve?.(change)
+      );
+      if (result === "reject") {
+        throw new MigrationError(
+          `Change rejected: ${change.description}`,
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        );
+      }
+      if (result === undefined && !force) {
+        throw new MigrationError(
+          `Unresolved destructive change: ${change.description}\n` +
+            "Return change.proceed() or change.reject() from the resolver.",
+          VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
+        );
+      }
+    }
+  }
+  return facts.map(({ operation, table, column }) => ({
+    operation,
+    table,
+    column,
+  }));
+}
+
+function describeDestructiveOperation(
+  op: DiffOperation
+): MigrationApprovalV1 & { readonly description: string } {
+  switch (op.type) {
+    case "dropTable":
+      return {
+        operation: "dropTable",
+        table: op.tableName,
+        column: null,
+        description: `Drop table "${op.tableName}" (all data will be lost)`,
+      };
+    case "dropColumn":
+      return {
+        operation: "dropColumn",
+        table: op.tableName,
+        column: op.columnName,
+        description: `Drop column "${op.columnName}" from table "${op.tableName}" (data will be lost)`,
+      };
+    case "addColumn":
+      return {
+        operation: "addColumn",
+        table: op.tableName,
+        column: op.column.name,
+        description: `Add required column "${op.tableName}.${op.column.name}" without a backfill default (fails on populated tables)`,
+      };
+    case "alterColumn":
+      return {
+        operation: "alterColumn",
+        table: op.tableName,
+        column: op.columnName,
+        // The SAME sentences the differ already writes for this operation, and
+        // not a second summary of it. Rendering `from.type → to.type` here was
+        // silent about the one change whose type does not move: a narrowing
+        // decimal domain on SQLite reads `(INTEGER → INTEGER)`, so the user was
+        // asked to accept a data-refusing change with nothing on screen to say
+        // what it was. Every destructive alterColumn produces at least one
+        // description, because the differ's description and classifier share
+        // the same owner and ask the same three questions.
+        description: getDestructiveOperationDescriptions([op]).join("; "),
+      };
+    default:
+      throw new MigrationError(
+        `Unexpected operation type: ${op.type}`,
+        VibORMErrorCode.INTERNAL_ERROR
+      );
+  }
+}
+
+// =============================================================================
+// DEFAULT RESOLVERS
+// =============================================================================
 
 /**
  * Resolver that always chooses "addAndDrop" for all ambiguous changes.
@@ -388,62 +506,183 @@ export const strictResolver: Resolver = async (changes) => {
 // RESOLVER HELPERS
 // =============================================================================
 
-/**
- * Creates a resolver from a simple decision function
- */
-export function createResolver(
-  decide: (
-    change: AmbiguousChange
-  ) => "rename" | "addAndDrop" | Promise<"rename" | "addAndDrop">
-): Resolver {
-  return async (changes) => {
-    const resolutions = new Map<AmbiguousChange, ChangeResolution>();
-    for (const change of changes) {
-      const decision = await decide(change);
-      resolutions.set(change, { type: decision });
-    }
-    return resolutions;
-  };
-}
+const DECISION_KEYS = {
+  column: ["type", "tableName", "from", "to", "resolution"],
+  table: ["type", "from", "to", "resolution"],
+  enumValueRemoval: ["type", "tableName", "columnName", "mapValues"],
+  destructive: ["type", "operation", "table", "column"],
+} as const satisfies Record<MigrationDecisionV1["type"], readonly string[]>;
+const DECISION_TYPES = Object.keys(
+  DECISION_KEYS
+) as readonly (keyof typeof DECISION_KEYS)[];
+const ALL_DECISION_KEYS = [...new Set(Object.values(DECISION_KEYS).flat())];
+const RESOLUTIONS = ["rename", "addAndDrop"] as const;
+
+/** Each predefined resolver's decisions, and those a plan used since the last check. */
+const decisionUse = new WeakMap<
+  ResolveCallback,
+  {
+    readonly decisions: readonly MigrationDecisionV1[];
+    readonly used: Set<MigrationDecisionV1>;
+  }
+>();
 
 /**
- * Creates a resolver that uses predefined resolutions
+ * Intent as data (plan T2): a resolve callback built from plain JSON
+ * decisions, so an API can carry them. It answers each change one decision
+ * names and leaves every other change unanswered, which refuses it. An entry
+ * that is not a decision is refused here (V4002); `generate` refuses (V4002)
+ * a decision that answered no change of its plan, such as one naming a table
+ * or column the plan does not touch. It serves one request: build one per
+ * `generate`.
  */
 export function createPredefinedResolver(
-  predefined: Array<{
-    type: "column" | "table";
-    from: string;
-    to: string;
-    tableName?: string;
-    resolution: "rename" | "addAndDrop";
-  }>
-): Resolver {
-  return async (changes) => {
-    const resolutions = new Map<AmbiguousChange, ChangeResolution>();
-
-    for (const change of changes) {
-      const match = predefined.find((p) => {
-        if (change.type === "ambiguousColumn" && p.type === "column") {
-          return (
-            p.from === change.droppedColumn.name &&
-            p.to === change.addedColumn.name &&
-            (!p.tableName || p.tableName === change.tableName)
-          );
-        }
-        if (change.type === "ambiguousTable" && p.type === "table") {
-          return p.from === change.droppedTable && p.to === change.addedTable;
-        }
-        return false;
-      });
-
-      if (match) {
-        resolutions.set(change, { type: match.resolution });
-      }
-      // If no match found, the change will be handled by the default (add+drop)
+  decisions: readonly MigrationDecisionV1[]
+): ResolveCallback {
+  const admitted = snapshotExactArray(
+    decisions,
+    "decisions",
+    refuseDecision
+  ).map(parseDecision);
+  const used = new Set<MigrationDecisionV1>();
+  const resolve: ResolveCallback = (change) => {
+    for (const decision of admitted) {
+      const answer = answerChange(decision, change);
+      if (answer === undefined) continue;
+      used.add(decision);
+      return answer;
     }
-
-    return resolutions;
+    return undefined;
   };
+  decisionUse.set(resolve, { decisions: admitted, used });
+  return resolve;
+}
+
+/** Refuses the decisions of a predefined resolver that answered no change. */
+export function refuseUnusedDecisions(
+  resolve: ResolveCallback | undefined
+): void {
+  const use = resolve && decisionUse.get(resolve);
+  if (!use) return;
+  const unused = use.decisions.filter((decision) => !use.used.has(decision));
+  use.used.clear();
+  if (unused.length > 0) {
+    refuseDecision(
+      `These decisions match no change of the plan (an unknown table or column, or nothing to decide): ${JSON.stringify(unused)}`
+    );
+  }
+}
+
+function answerChange(
+  decision: MigrationDecisionV1,
+  change: ResolveChange
+): ResolveResult | undefined {
+  switch (decision.type) {
+    case "destructive":
+      return change.type === "destructive" &&
+        change.operation === decision.operation &&
+        change.table === decision.table &&
+        (change.column ?? null) === decision.column
+        ? change.proceed()
+        : undefined;
+    case "enumValueRemoval":
+      return change.type === "enumValueRemoval" &&
+        change.tableName === decision.tableName &&
+        change.columnName === decision.columnName
+        ? change.mapValues(decision.mapValues)
+        : undefined;
+    default: {
+      const named =
+        change.type === "ambiguous" &&
+        change.oldName === decision.from &&
+        change.newName === decision.to &&
+        (decision.type === "table"
+          ? change.operation === "renameTable"
+          : change.operation === "renameColumn" &&
+            change.table === decision.tableName);
+      if (!named) return undefined;
+      return decision.resolution === "rename"
+        ? change.rename()
+        : change.addAndDrop();
+    }
+  }
+}
+
+function parseDecision(entry: unknown, index: number): MigrationDecisionV1 {
+  const label = `decisions[${index}]`;
+  const raw = snapshotExactRecord(
+    entry,
+    ALL_DECISION_KEYS,
+    label,
+    refuseDecision
+  );
+  const type =
+    DECISION_TYPES.find((name) => name === raw.type) ??
+    refuseDecision(`${label}.type must be one of ${DECISION_TYPES.join(", ")}`);
+  // A missing key is refused by its reader below.
+  const record = snapshotExactRecord(
+    raw,
+    DECISION_KEYS[type],
+    label,
+    refuseDecision
+  );
+  const text = (key: string): string => {
+    const value = record[key];
+    return typeof value === "string"
+      ? value
+      : refuseDecision(`${label}.${key} must be a string`);
+  };
+  const resolution = () =>
+    RESOLUTIONS.find((name) => name === record.resolution) ??
+    refuseDecision(`${label}.resolution must be rename or addAndDrop`);
+  switch (type) {
+    case "column":
+      return {
+        type,
+        tableName: text("tableName"),
+        from: text("from"),
+        to: text("to"),
+        resolution: resolution(),
+      };
+    case "table":
+      return {
+        type,
+        from: text("from"),
+        to: text("to"),
+        resolution: resolution(),
+      };
+    case "enumValueRemoval":
+      return {
+        type,
+        tableName: text("tableName"),
+        columnName: text("columnName"),
+        mapValues: parseValueMapping(record.mapValues, `${label}.mapValues`),
+      };
+    default:
+      return {
+        type,
+        ...parseApproval(record, label, refuseDecision),
+      };
+  }
+}
+
+function parseValueMapping(
+  value: unknown,
+  label: string
+): Readonly<Record<string, string | null>> {
+  if (!isRecord(value)) return refuseDecision(`${label} must be an object`);
+  const mapping: Record<string, string | null> = {};
+  for (const [from, to] of Object.entries(value)) {
+    if (!(typeof to === "string" || to === null)) {
+      refuseDecision(`${label}.${from} must be a string or null`);
+    }
+    mapping[from] = to;
+  }
+  return Object.freeze(mapping);
+}
+
+function refuseDecision(message: string, cause?: Error): never {
+  throw new MigrationError(message, VibORMErrorCode.INVALID_INPUT, { cause });
 }
 
 /**
@@ -460,17 +699,6 @@ export function formatAmbiguousChange(change: AmbiguousChange): string {
     "Table rename detected:\n" +
     `  "${change.droppedTable}" → "${change.addedTable}"`
   );
-}
-
-/**
- * Formats all ambiguous changes for display
- */
-export function formatAmbiguousChanges(changes: AmbiguousChange[]): string {
-  if (changes.length === 0) {
-    return "No ambiguous changes detected.";
-  }
-
-  return changes.map(formatAmbiguousChange).join("\n\n");
 }
 
 // =============================================================================
@@ -518,30 +746,3 @@ export const addDropResolver: ResolveCallback = async (change) => {
   // enumValueRemoval: set all removed values to null
   return change.useNull();
 };
-
-/**
- * Creates a unified resolver from a decision function.
- *
- * @example
- * ```ts
- * const resolver = createUnifiedResolver(async (change) => {
- *   if (change.type === "destructive") {
- *     return confirm(`Accept: ${change.description}?`) ? change.proceed() : change.reject();
- *   }
- *   if (change.type === "ambiguous") {
- *     return change.rename();
- *   }
- *   if (change.type === "enumValueRemoval") {
- *     return change.mapValues({ 'OLD': 'NEW' });
- *   }
- *   return change.reject();
- * });
- * ```
- */
-export function createUnifiedResolver(
-  decide: (
-    change: ResolveChange
-  ) => Promise<"proceed" | "reject" | "rename" | "addAndDrop" | "enumMapped">
-): ResolveCallback {
-  return decide;
-}

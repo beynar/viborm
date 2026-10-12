@@ -50,7 +50,6 @@ describe("migration v1 public census", () => {
 
   test("public barrel exports the V1 nouns", () => {
     expect(typeof migrations.createMigrationClient).toBe("function");
-    expect(typeof migrations.createFsStorageWriter).toBe("function");
     expect(typeof migrations.lenientResolver).toBe("function");
     expect(typeof migrations.addDropResolver).toBe("function");
     expect(typeof migrations.rejectAllResolver).toBe("function");

@@ -108,12 +108,7 @@ describe("shared MySQL URL parsing", () => {
     });
   });
 
-  test("does not erase separately configured credentials or database with empty URL members", () => {
-    expect(parseMySQLUrl("mysql://db.test")).toEqual({
-      host: "db.test",
-      port: 3306,
-      user: undefined,
-      password: undefined,
-    });
+  test("returns only the host when the URL carries nothing else", () => {
+    expect(parseMySQLUrl("mysql://db.test")).toEqual({ host: "db.test" });
   });
 });

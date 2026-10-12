@@ -36,6 +36,21 @@ const stats = await client.post.aggregate({
 | `_min` | Minimum value | Comparable fields |
 | `_max` | Maximum value | Comparable fields |
 
+A selected `_sum` that leaves its type's range does not fail the call: a
+`number` sum is the provider's double sum computed without intermediate
+overflow, `Infinity` or `-Infinity` past the double range; an `int` sum past
+2^53 is the provider's total as the nearest double, so it loses precision like a
+`number` sum (use `s.bigInt()` for exact sums past 2^53); and a `bigint` or
+`decimal` sum is exact past the int64 range on every provider. The other
+aggregates of the call are returned as usual. A `groupBy` `having` or `orderBy`
+on such a sum compares and sorts that same total, `Infinity` past every finite
+sum. MySQL has no infinite double, so its `having` cannot tell an infinite
+`number` sum from `±Number.MAX_VALUE` (its `orderBy` still can). A `bigint` or
+`int` sum's `having` operand is a JavaScript `number`, so past 2^53 it is not
+exact: PostgreSQL and MySQL compare the number's shortest decimal spelling
+(`2 ** 63` as `9223372036854776000`), and SQLite compares the double itself.
+`orderBy` stays exact.
+
 ## Options
 
 ```ts

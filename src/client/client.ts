@@ -58,6 +58,11 @@ import {
 } from "@query-engine/routed-operations";
 import type { TransactionOperation } from "@query-engine/transaction-operation";
 import { hydrateSchemaNames } from "@schema/hydration";
+import type { Scalar } from "@schema/scalars/base";
+import {
+  describeDecimalProviderLimitRefusal,
+  findDecimalProviderLimitRefusal,
+} from "@schema/scalars/decimal/provider-limits";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import {
   resolveCheckedSchemaOrThrow,
@@ -68,13 +73,11 @@ import {
   executeArrayTransaction,
   runOutcomeTransaction,
 } from "./array-transaction";
-import { assertDecimalDomainsFitProvider } from "./decimal-provider-limits";
 import {
   getOfficialDefaultOmitChainCapability,
   type OfficialDefaultOmitExtension,
   type OfficialDefaultOmitRequestContribution,
 } from "./default-omit-extension";
-import { assertGeoPointFieldsFitAdapter } from "./geo-point-provider-limit";
 import {
   applyClientOmit,
   type ClientOmitResolver,
@@ -106,6 +109,19 @@ export type {
 } from "./schema-links";
 
 import { assertNonEmptyUniqueWhere } from "./unique-where-guard";
+
+/** The schema-bind refusal for an adapter with no physical GeoPoint protocol. */
+function refuseGeoPointFields(schema: Schema): void {
+  for (const [modelName, model] of Object.entries(schema)) {
+    const scalars: Record<string, Scalar> = model["~"].state.scalars;
+    for (const [fieldName, scalar] of Object.entries(scalars)) {
+      if (scalar["~"].state.type !== "point") continue;
+      throw new ClientInitializationError(
+        `GeoPoint field '${modelName}.${fieldName}' cannot be stored by this driver because its adapter has no GeoPoint protocol.`
+      );
+    }
+  }
+}
 
 interface OfficialReadCache {
   readonly capability: NonNullable<
@@ -334,17 +350,25 @@ export type TransactionClient<
 > = ExtensionModelClient<C, X> &
   RawSurface & {
     readonly $schema: ClientSchema<C>;
-    $transaction: {
-      <T>(
-        fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
-        options?: TransactionOptions
-      ): Promise<T>;
-      <T extends BatchTransactionOperation<unknown>[]>(
-        operations: [...T],
-        options?: BatchTransactionOptions
-      ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
-    };
+    $transaction: TransactionMethod<C, X>;
   } & X["client"];
+
+/** `$transaction`'s two forms: an interactive callback, or a batch array. */
+type TransactionMethod<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+> = {
+  // Overload 1: Dynamic transaction (callback)
+  <T>(
+    fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
+    options?: TransactionOptions
+  ): Promise<T>;
+  // Overload 2: Batch of independent operations (Prisma-style)
+  <T extends BatchTransactionOperation<unknown>[]>(
+    operations: [...T],
+    options?: BatchTransactionOptions
+  ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
+};
 
 /**
  * Extended client type with utility methods
@@ -420,18 +444,7 @@ interface VibORMClientMembers<
    * The array form takes `isolationLevel` only: a preplanned array has no
    * interactive window for `timeout` or `maxWait` to bound.
    */
-  $transaction: {
-    // Overload 1: Dynamic transaction (callback)
-    <T>(
-      fn: (tx: TransactionClient<C, X>) => PromiseLike<T>,
-      options?: TransactionOptions
-    ): Promise<T>;
-    // Overload 2: Batch of independent operations (Prisma-style)
-    <T extends BatchTransactionOperation<unknown>[]>(
-      operations: [...T],
-      options?: BatchTransactionOptions
-    ): Promise<{ [K in keyof T]: Awaited<T[K]> }>;
-  };
+  $transaction: TransactionMethod<C, X>;
   /** Connect to the database */
   $connect: () => Promise<void>;
   /** Disconnect from the database */
@@ -609,17 +622,21 @@ export class VibORM<C extends VibORMConfig> {
       lookupPlacedControls(chain, modelNameStr, operation).length > 0;
     let operationArgs: Record<string, unknown> = rawArgs;
     let prepareInput: PrepareOperationInput | undefined;
+    // Apply the client omit, then refuse an empty unique where.
+    const finish = (requestArgs: Record<string, unknown>) => {
+      const omittedArgs = clientOmit
+        ? applyClientOmit(model, operation, requestArgs, clientOmit)
+        : requestArgs;
+      assertNonEmptyUniqueWhere(modelNameStr, operation, omittedArgs);
+      return omittedArgs;
+    };
 
     if (
       requestHandlers === undefined &&
       !hasPlacedControls &&
       !hasOperationObservers
     ) {
-      const requestArgs = rawArgs;
-      operationArgs = clientOmit
-        ? applyClientOmit(model, operation, requestArgs, clientOmit)
-        : requestArgs;
-      assertNonEmptyUniqueWhere(operation, operationArgs);
+      operationArgs = finish(rawArgs);
     } else {
       // Request code stays behind PendingOperation's first preparation
       // boundary. That boundary memoizes both this callback's value and its
@@ -638,12 +655,7 @@ export class VibORM<C extends VibORMConfig> {
                   ? undefined
                   : { names: chain.controls.names, admitted: controls }
               );
-        const requestArgs = transformed ?? {};
-        const omittedArgs = clientOmit
-          ? applyClientOmit(model, operation, requestArgs, clientOmit)
-          : requestArgs;
-        assertNonEmptyUniqueWhere(operation, omittedArgs);
-        return omittedArgs;
+        return finish(transformed ?? {});
       };
     }
 
@@ -663,23 +675,16 @@ export class VibORM<C extends VibORMConfig> {
             );
 
     // Engine handles OrThrow suffix internally. Routing to the V2 operation is
-    // decided lazily — before any I/O — for the whole payload.
-    const pendingOperation = officialReadCache
-      ? engine.prepare(
-          model,
-          operation,
-          operationArgs,
-          { skipSpan: true },
-          prepareInput
-        )
-      : engine.prepare(
-          model,
-          operation,
-          operationArgs,
-          undefined,
-          prepareInput,
-          prepareWriteOutcomeRegistration
-        );
+    // decided lazily — before any I/O — for the whole payload. A cached read
+    // is never a write, so it carries no outcome registration.
+    const pendingOperation = engine.prepare(
+      model,
+      operation,
+      operationArgs,
+      officialReadCache ? { skipSpan: true } : undefined,
+      prepareInput,
+      prepareWriteOutcomeRegistration
+    );
     if (officialReadCache === undefined) return pendingOperation;
     return this.#wrapOfficialCachedRead(
       engine,
@@ -1021,9 +1026,19 @@ export class VibORM<C extends VibORMConfig> {
       // any provider I/O (plan §3.1). A decimal domain no dialect could store is
       // a definition error, and the caller learns it at the line that bound the
       // schema rather than at the first UPDATE that could not compute inside it.
-      if (!reused?.fittingDialects.has(config.driver.dialect))
-        assertDecimalDomainsFitProvider(config.schema, config.driver.dialect);
-      assertGeoPointFieldsFitAdapter(config.schema, config.driver.adapter);
+      // On SQLite the refusal is load-bearing: past 18 digits its range CHECK
+      // stops being exact (see the SQLite adapter's arithmetic guards).
+      const decimalRefusal = reused?.fittingDialects.has(config.driver.dialect)
+        ? undefined
+        : findDecimalProviderLimitRefusal(config.schema, config.driver.dialect);
+      if (decimalRefusal !== undefined) {
+        throw new ClientInitializationError(
+          describeDecimalProviderLimitRefusal(decimalRefusal)
+        );
+      }
+      if (config.driver.adapter.geoPoint === undefined) {
+        refuseGeoPointFields(config.schema);
+      }
       // ONE resolution for the whole client lifecycle: the gate's index goes
       // straight into the constructor, so the registry and query scopes are
       // composed over the same object (§11.4.10).

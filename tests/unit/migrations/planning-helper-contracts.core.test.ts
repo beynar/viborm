@@ -8,7 +8,6 @@ import {
 } from "@src/migrations/catalog-probes";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import {
-  bindingId,
   canonicalizeSnapshotPredicates,
   canonicalValue,
   fingerprintSnapshot,
@@ -244,35 +243,32 @@ describe("migration planning helper contracts", () => {
     );
   });
 
-  test("push target identity is stable per binding and provider-specific", async () => {
+  test("push target identity names the database, never the client instance", async () => {
     const postgres = pgEstateDriver("tenant");
     postgres.respond = () => [{ database: "app" }];
-    const pgClient = { $driver: postgres, $schema: {} };
-    expect(bindingId(pgClient)).toBe(bindingId(pgClient));
-    await expect(
-      pushTargetIdentity(pgClient, postgres, getMigrationDriver(postgres))
-    ).resolves.toMatchObject({
+    const identity = await pushTargetIdentity(
+      postgres,
+      getMigrationDriver(postgres)
+    );
+    expect(identity).toEqual({
       dialect: "postgresql",
       database: "app",
       namespace: "tenant",
     });
+    const otherInstance = pgEstateDriver("tenant");
+    otherInstance.respond = () => [{ database: "app" }];
+    await expect(
+      pushTargetIdentity(otherInstance, getMigrationDriver(otherInstance))
+    ).resolves.toEqual(identity);
 
     const mysql = mysqlEstateDriver({ namespace: "tenant", attested: true });
     await expect(
-      pushTargetIdentity(
-        { $driver: mysql, $schema: {} },
-        mysql,
-        getMigrationDriver(mysql)
-      )
+      pushTargetIdentity(mysql, getMigrationDriver(mysql))
     ).resolves.toMatchObject({ dialect: "mysql", database: "tenant" });
 
     const sqlite = sqliteEstateDriver();
     await expect(
-      pushTargetIdentity(
-        { $driver: sqlite, $schema: {} },
-        sqlite,
-        getMigrationDriver(sqlite)
-      )
+      pushTargetIdentity(sqlite, getMigrationDriver(sqlite))
     ).resolves.toMatchObject({ dialect: "sqlite", location: null });
   });
 
@@ -297,22 +293,14 @@ describe("coverage low value", () => {
     const postgres = pgEstateDriver("tenant");
     postgres.respond = () => [{ database: "" }];
     await expect(
-      pushTargetIdentity(
-        { $driver: postgres, $schema: {} },
-        postgres,
-        getMigrationDriver(postgres)
-      )
+      pushTargetIdentity(postgres, getMigrationDriver(postgres))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
     });
 
     const mysql = mysqlEstateDriver({ attested: true });
     await expect(
-      pushTargetIdentity(
-        { $driver: mysql, $schema: {} },
-        mysql,
-        getMigrationDriver(mysql)
-      )
+      pushTargetIdentity(mysql, getMigrationDriver(mysql))
     ).rejects.toBeInstanceOf(MigrationError);
   });
 

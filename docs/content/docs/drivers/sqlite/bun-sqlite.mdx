@@ -26,6 +26,9 @@ const client = createClient({
 | `dataDir` | `string` | Path to SQLite file (`:memory:` for in-memory) |
 | `options` | `object` | SQLite options |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it: a database file is passed as `dataDir`, not `databaseUrl`.
+
 ### Options Object
 
 | Option | Type | Description |
@@ -34,6 +37,7 @@ const client = createClient({
 | `create` | `boolean` | Create file if it doesn't exist |
 | `readwrite` | `boolean` | Open with read-write access |
 | `strict` | `boolean` | Enable strict mode |
+| `timeout` | `number` | Busy timeout in milliseconds (default 5000). A VibORM option: `bun:sqlite` has none, so VibORM applies it as `PRAGMA busy_timeout` |
 
 ### In-Memory Database
 
@@ -72,9 +76,10 @@ const client = createClient({ schema, client: database });
 VibORM checks supplied foreign-key enforcement without changing it, and
 `$disconnect()` leaves the supplied database open. Its owner calls
 `database.close()`. Wrappers sharing one database use the same transaction
-queue. Transactions begin with `BEGIN IMMEDIATE`; owned databases use a
-5-second busy timeout. Strings with unpaired UTF-16 surrogates are refused
-before dispatch because Bun SQLite cannot preserve them.
+queue. Transactions begin with `BEGIN IMMEDIATE`; an owned database uses
+`options.timeout` as its busy timeout, 5 seconds by default. Strings with
+unpaired UTF-16 surrogates are refused before dispatch because Bun SQLite cannot
+preserve them.
 
 Typed statements are reused through the database's own `query()` cache: they
 share its bounded size, are finalized when the database closes, and keep

@@ -31,6 +31,9 @@ const client = createClient({
 | `authToken` | `string` | Authentication token for Turso |
 | `options` | `Config` | Additional libSQL configuration |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
 ### Local Development
 
 ```typescript

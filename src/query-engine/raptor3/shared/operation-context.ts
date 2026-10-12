@@ -53,6 +53,7 @@ import {
   Queries,
   type Query,
   type Read,
+  RecursiveOutputOverBudget,
   returningSafeProjection,
   wholeValue,
 } from "./query";
@@ -662,6 +663,8 @@ export class OperationContext {
         }
       );
     }
+    if (error instanceof RecursiveOutputOverBudget)
+      failure = error.refusal(this.operation, this.modelName);
     const attribution = member
       ? this.#memberAttributionMap?.get(member)
       : undefined;
@@ -868,14 +871,11 @@ export class OperationContext {
     // instead published a series' progress for an ordinary UPDATE that had
     // committed nothing (`tests/raptor3/g2-transport.test.ts`, "An ordinary
     // UPDATE must retain only acknowledged progress").
-    if (
+    const decoding =
       error instanceof InvalidScalarResult ||
-      (this.usesBatch && this.#committedSegments > 0)
-    )
-      return this.failure(
-        error,
-        error instanceof InvalidScalarResult ? "result" : "member"
-      );
+      error instanceof RecursiveOutputOverBudget;
+    if (decoding || (this.usesBatch && this.#committedSegments > 0))
+      return this.failure(error, decoding ? "result" : "member");
     return error;
   }
   /**
@@ -2423,6 +2423,11 @@ export class OperationContext {
    * at all — the array route, which can issue no planning read (D-46) — so
    * every other route keeps the conditional form and its pins. Zero rows back
    * is a provider anomaly, not a premise: `single` throws it.
+   *
+   * Each assignment is the payload's value over the CONFLICTING row's own
+   * column, named through its table (`Queries.updateValue`): a counter reads
+   * `"<table>"."visits" + $n`, because PostgreSQL also sees `excluded` there
+   * and refuses a bare column as ambiguous.
    */
   async upsertOne(
     model: AnyModel,
@@ -2436,6 +2441,7 @@ export class OperationContext {
     const adapter = this.driver.adapter;
     const columns = Object.keys(row);
     const insert = this.#insertStatement(model, columns, [row]);
+    const table = model["~"].names.sql!;
     const conflict = adapter.mutations.onConflict(
       sql.join(
         target.map((field) =>
@@ -2444,7 +2450,15 @@ export class OperationContext {
         ", "
       ),
       adapter.mutations.onConflictUpdate(
-        sql.join(this.#updateAssignments(model, updates), ", ")
+        sql.join(
+          Object.entries(updates).map(([field, value]) =>
+            adapter.set.assign(
+              q.column(model, field),
+              q.updateValue(model, field, value, q.column(model, field, table))
+            )
+          ),
+          ", "
+        )
       )
     );
     return this.#completeSetMutation(

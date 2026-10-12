@@ -46,6 +46,10 @@ function schema(
         negative: s.int().default(-1),
         fractional: s.number().default(-0.5),
         tiny: s.number().default(1e-7),
+        exponent: s.number().default(1e21),
+        negativeExponent: s.number().default(-1e21),
+        huge: s.number().default(1e300),
+        largest: s.number().default(Number.MAX_VALUE),
         status: s
           .enum([...values])
           .name("adversarial_status")
@@ -179,16 +183,13 @@ describe("adversarial PostgreSQL round trip", () => {
     const acquire = migrationDriver.generateAcquireLock(12_345);
     if (acquire === null)
       throw new Error("PostgreSQL must supply a lock statement");
+    // A transaction lock (plan D1): it ends with its transaction, so no
+    // session-level unlock finds it afterwards.
+    await database.exec("BEGIN");
     expect((await database.query<{ acquired: boolean }>(acquire)).rows).toEqual(
       [{ acquired: true }]
     );
-    expect(
-      (
-        await database.query<{ released: boolean }>(
-          "SELECT pg_advisory_unlock(12345) AS released"
-        )
-      ).rows
-    ).toEqual([{ released: true }]);
+    await database.exec("COMMIT");
     expect(
       (
         await database.query<{ released: boolean }>(
@@ -222,6 +223,12 @@ describe("adversarial PostgreSQL round trip", () => {
     });
     for (const value of [generatedSix.microStamp, generatedSix.microZoned])
       expect(value).toBeInstanceOf(Date);
+    expect(generatedSix).toMatchObject({
+      exponent: 1e21,
+      negativeExponent: -1e21,
+      huge: 1e300,
+      largest: Number.MAX_VALUE,
+    });
     await expect(
       initial.entry.findUniqueOrThrow({
         where: {
@@ -313,5 +320,49 @@ describe("adversarial PostgreSQL round trip", () => {
         )
       ).rows[0]?.definition
     ).toContain("DESC");
+  });
+
+  test("push refuses a polymorphic stored-value change that orphans stored rows", async () => {
+    const fixture = family();
+    const namespace = `${fixture.namespace}_tagged`;
+    await fixture.database.exec(`CREATE SCHEMA "${namespace}"`);
+    const driver = new PGliteDriver({ client: fixture.database, namespace });
+    const tagged = (postValue: string) => {
+      const post = s
+        .model({ id: s.string().id(), title: s.string() })
+        .map("tagged_post");
+      const note = s
+        .model({
+          id: s.string().id(),
+          subject: s.toOne(
+            { post: () => post },
+            { values: { post: postValue } }
+          ),
+        })
+        .map("tagged_note");
+      return { post, note };
+    };
+    const before = createClient({ schema: tagged("post.v1"), driver });
+    await syncLiveSchema(before);
+    await before.post.create({ data: { id: "p1", title: "Post" } });
+    await before.note.create({
+      data: {
+        id: "n1",
+        subject: { connect: { type: "post", where: { id: "p1" } } },
+      },
+    });
+    const after = createClient({ schema: tagged("post.v2"), driver });
+    await expect(createMigrationClient(after).push()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
+      message: expect.stringContaining(
+        'Polymorphic storage "tagged_note.subject" stores "post.v1"'
+      ),
+    });
+    await expect(
+      before.note.findUnique({
+        where: { id: "n1" },
+        include: { subject: true },
+      })
+    ).resolves.toMatchObject({ subject: { type: "post", data: { id: "p1" } } });
   });
 });

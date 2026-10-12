@@ -87,8 +87,8 @@ declares the groups that give every provider-owning file its own process. The
 seven PGlite files it keeps out of the focused report are pinned by name.
 `test:all` selects its extended-local estate through
 `scripts/credential-free-test-manifest.mjs`, which takes every non-core
-`.test.ts` outside `tests/package/` and `tests/providers/` except the three
-Docker suites a provider project already owns.
+`.test.ts` outside `tests/package/` and `tests/providers/` except the Docker
+suites a provider project already owns.
 
 Only the query and write core admission is a literal list: a new architecture,
 query, or write `.core.test.ts` is unowned, and the policy gate fails, until
@@ -329,6 +329,10 @@ Do not bypass these launchers for large selections.
 - PostgreSQL projects use `PG_TEST_CONNECTION_STRING` and optional
   `PGVECTOR_TEST_CONNECTION_STRING`.
 - MySQL uses `MYSQL_TEST_CONNECTION_STRING`.
+- `provider-pgbouncer` runs the PostgreSQL push and apply suites through a
+  transaction-mode PgBouncer named by `PGBOUNCER_TEST_CONNECTION_STRING`, and
+  skips without it. CI reports it without requiring it until the
+  transaction-scoped migration lock lands.
 - Neon HTTP uses `NEON_TEST_DATABASE_URL`.
 - PlanetScale connectivity uses `PLANETSCALE_TEST_DATABASE_URL`. Its read-only
   decimal fixture also needs `PLANETSCALE_TEST_NAMESPACE` and

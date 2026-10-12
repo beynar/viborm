@@ -57,9 +57,3 @@ export function hasCommittedRecordSeriesProgress(error: unknown): boolean {
     progress?.mayHaveCommittedSegment === true
   );
 }
-
-export function hasRecordSeriesProgress(error: unknown): boolean {
-  return (
-    isVibORMError(error) && getTrustedRecordSeriesProgress(error) !== undefined
-  );
-}

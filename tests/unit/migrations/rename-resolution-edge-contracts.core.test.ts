@@ -2,7 +2,7 @@ import { VibORMErrorCode } from "@src/errors";
 import { applyNativeRename } from "@src/migrations/native-rename";
 import {
   alwaysAddDropResolver,
-  applyResolutions,
+  ambiguousToResolveChange,
   callbackAsResolver,
   createPredefinedResolver,
   resolveAmbiguousChanges,
@@ -192,9 +192,16 @@ describe("native rename contracts", () => {
 });
 
 describe("resolution edge contracts", () => {
-  test("missing resolutions refuse both ambiguity kinds", () => {
+  test("missing resolutions refuse both ambiguity kinds", async () => {
     for (const change of [columnChange(), tableChange()]) {
-      expect(() => applyResolutions([change], new Map())).toThrowError(
+      await expect(
+        resolveAmbiguousChanges(
+          { operations: [], ambiguousChanges: [change] },
+          { tables: [] },
+          { tables: [] },
+          async () => new Map()
+        )
+      ).rejects.toThrowError(
         expect.objectContaining({
           code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
         })
@@ -214,9 +221,8 @@ describe("resolution edge contracts", () => {
         resolution: "rename",
       },
     ]);
-    const resolutions = await predefined([column, table]);
-    expect(resolutions.get(column)).toEqual({ type: "rename" });
-    expect(resolutions.has(table)).toBe(false);
+    expect(await predefined(ambiguousToResolveChange(column))).toBe("rename");
+    expect(await predefined(ambiguousToResolveChange(table))).toBeUndefined();
 
     const callback = callbackAsResolver((change) =>
       change.type === "ambiguous" ? change.addAndDrop() : undefined

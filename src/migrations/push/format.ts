@@ -52,17 +52,6 @@ export function formatOperation(op: DiffOperation): string {
   }
 }
 
-/**
- * Formats all operations for human-readable display.
- */
-export function formatOperations(operations: DiffOperation[]): string {
-  if (operations.length === 0) {
-    return "No changes detected.";
-  }
-
-  return operations.map(formatOperation).join("\n");
-}
-
 export function formatDestructiveOperation(op: DiffOperation): string {
   switch (op.type) {
     case "dropTable":

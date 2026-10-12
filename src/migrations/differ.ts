@@ -388,6 +388,34 @@ function matchByIdentity<T>(
   };
 }
 
+/**
+ * A table's keyed members: each current one is dropped when nothing desired
+ * matches it, or dropped and re-added when its match differs; each unmatched
+ * desired one is then added. Current order first, then desired order.
+ */
+function diffKeyed<T>(
+  current: readonly T[],
+  desired: readonly T[],
+  identityOf: (item: T) => string,
+  equal: (from: T, to: T) => boolean,
+  drop: (item: T) => DiffOperation,
+  add: (item: T) => DiffOperation
+): DiffOperation[] {
+  const { matches, unmatchedDesired } = matchByIdentity(
+    current,
+    desired,
+    identityOf
+  );
+  return [
+    ...current.flatMap((item, position) => {
+      const match = matches[position];
+      if (match === undefined) return [drop(item)];
+      return equal(item, match) ? [] : [drop(item), add(match)];
+    }),
+    ...unmatchedDesired.map(add),
+  ];
+}
+
 function enumsEqual(a: EnumDef, b: EnumDef): boolean {
   return a.name === b.name && arraysEqual(a.values, b.values);
 }
@@ -420,7 +448,8 @@ function diffTable(
   canonical: CanonicalPredicates,
   matchConstraintsByShape: boolean,
   compareDateTimeDeclarations: boolean,
-  refuseConstraintNameChurn: boolean
+  refuseConstraintNameChurn: boolean,
+  projectRename: DiffOptions["projectRename"]
 ): TableDiffResult {
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
@@ -489,11 +518,20 @@ function diffTable(
   const usedDropped = new Set<string>();
   const usedAdded = new Set<string>();
 
+  // The dropped column as the rename would leave it: a type derived from its
+  // name (a PostgreSQL per-column enum) follows the column.
+  const asRenamed = (dropped: ColumnDef, added: ColumnDef): ColumnDef =>
+    projectRename?.(
+      { tables: [current] },
+      { type: "renameColumn", tableName, from: dropped.name, to: added.name }
+    ).tables[0]?.columns.find((column) => column.name === added.name) ??
+    dropped;
+
   for (const dropped of droppedColumns) {
     for (const added of addedColumns) {
       if (usedDropped.has(dropped.name) || usedAdded.has(added.name)) continue;
 
-      if (columnsCanBeRenamed(dropped, added)) {
+      if (columnsCanBeRenamed(asRenamed(dropped, added), added)) {
         // This could be a rename - mark as ambiguous
         ambiguousChanges.push({
           type: "ambiguousColumn",
@@ -581,91 +619,40 @@ function diffTable(
     }
   }
 
-  // Diff indexes
-  const currentIndexes = new Map(current.indexes.map((i) => [i.name, i]));
-  const desiredIndexes = new Map(desired.indexes.map((i) => [i.name, i]));
-
-  for (const [name, idx] of currentIndexes) {
-    const desiredIdx = desiredIndexes.get(name);
-    if (!desiredIdx) {
-      operations.push({ type: "dropIndex", tableName, indexName: name });
-    } else if (!indexesEqual(tableName, idx, desiredIdx, canonical)) {
-      // Index changed - drop and recreate
-      operations.push({ type: "dropIndex", tableName, indexName: name });
-      operations.push({ type: "createIndex", tableName, index: desiredIdx });
-    }
-  }
-
-  for (const [name, idx] of desiredIndexes) {
-    if (!currentIndexes.has(name)) {
-      operations.push({ type: "createIndex", tableName, index: idx });
-    }
-  }
-
-  // Diff foreign keys, under whichever identity this dialect's introspection
-  // supports (see `foreignKeyShape`).
-  const fkMatch = matchByIdentity(
-    current.foreignKeys,
-    desired.foreignKeys,
-    matchConstraintsByShape ? foreignKeyShape : (fk) => fk.name
-  );
-
-  for (const [position, fk] of current.foreignKeys.entries()) {
-    const desiredFk = fkMatch.matches[position];
-    if (!desiredFk) {
-      operations.push({ type: "dropForeignKey", tableName, fkName: fk.name });
-    } else if (foreignKeyShape(fk) !== foreignKeyShape(desiredFk)) {
-      // The pair is the same constraint under a name; its definition changed,
-      // so drop and recreate. Under shape identity a pair IS one shape, so this
-      // is the name-identity dialects' branch — it is where a changed
-      // referential action or referenced column is caught on Postgres and
-      // MySQL, and where SQLite's own drop-and-add falls out of the definition
-      // having actually changed rather than out of an unreadable name.
-      operations.push({ type: "dropForeignKey", tableName, fkName: fk.name });
-      operations.push({ type: "addForeignKey", tableName, fk: desiredFk });
-    }
-  }
-
-  for (const fk of fkMatch.unmatchedDesired) {
-    operations.push({ type: "addForeignKey", tableName, fk });
-  }
-
-  // Diff unique constraints — same identity question, same answer.
-  const uniqueMatch = matchByIdentity(
-    current.uniqueConstraints,
-    desired.uniqueConstraints,
-    matchConstraintsByShape ? uniqueConstraintShape : (uq) => uq.name
-  );
-
-  for (const [position, uq] of current.uniqueConstraints.entries()) {
-    const desiredUq = uniqueMatch.matches[position];
-    if (!desiredUq) {
-      operations.push({
+  // Foreign keys and uniques match under whichever identity this dialect's
+  // introspection supports (see `foreignKeyShape`). Under shape identity a
+  // pair IS one shape, so a changed definition — a referential action, a
+  // referenced column — is the name-identity dialects' drop and re-add.
+  operations.push(
+    ...diffKeyed(
+      current.indexes,
+      desired.indexes,
+      (index) => index.name,
+      (from, to) => indexesEqual(tableName, from, to, canonical),
+      (index) => ({ type: "dropIndex", tableName, indexName: index.name }),
+      (index) => ({ type: "createIndex", tableName, index })
+    ),
+    ...diffKeyed(
+      current.foreignKeys,
+      desired.foreignKeys,
+      matchConstraintsByShape ? foreignKeyShape : (fk) => fk.name,
+      (from, to) => foreignKeyShape(from) === foreignKeyShape(to),
+      (fk) => ({ type: "dropForeignKey", tableName, fkName: fk.name }),
+      (fk) => ({ type: "addForeignKey", tableName, fk })
+    ),
+    ...diffKeyed(
+      current.uniqueConstraints,
+      desired.uniqueConstraints,
+      matchConstraintsByShape ? uniqueConstraintShape : (uq) => uq.name,
+      (from, to) => uniqueConstraintShape(from) === uniqueConstraintShape(to),
+      (uq) => ({
         type: "dropUniqueConstraint",
         tableName,
         constraintName: uq.name,
-      });
-    } else if (uniqueConstraintShape(uq) !== uniqueConstraintShape(desiredUq)) {
-      operations.push({
-        type: "dropUniqueConstraint",
-        tableName,
-        constraintName: uq.name,
-      });
-      operations.push({
-        type: "addUniqueConstraint",
-        tableName,
-        constraint: desiredUq,
-      });
-    }
-  }
-
-  for (const constraint of uniqueMatch.unmatchedDesired) {
-    operations.push({
-      type: "addUniqueConstraint",
-      tableName,
-      constraint,
-    });
-  }
+      }),
+      (constraint) => ({ type: "addUniqueConstraint", tableName, constraint })
+    )
+  );
 
   // Diff primary key
   const currentPk = current.primaryKey;
@@ -846,7 +833,8 @@ export async function diff(
         canonicalPredicates,
         options.matchConstraintsByShape ?? false,
         options.compareDateTimeDeclarations ?? false,
-        options.refuseConstraintNameChurn ?? false
+        options.refuseConstraintNameChurn ?? false,
+        options.projectRename
       );
       operations.push(...tableDiff.operations);
       ambiguousChanges.push(...tableDiff.ambiguousChanges);
@@ -1004,27 +992,14 @@ export function isDestructiveOperation(operation: DiffOperation): boolean {
   );
 }
 
-/** Checks if any operation can cause data loss or refuse existing rows. */
-export function hasDestructiveOperations(operations: DiffOperation[]): boolean {
-  return operations.some(isDestructiveOperation);
-}
-
-/**
- * Gets a human-readable description of destructive operations
- */
+/** What each destructive column alteration risks, one sentence per risk. */
 export function getDestructiveOperationDescriptions(
   operations: DiffOperation[]
 ): string[] {
   const descriptions: string[] = [];
 
   for (const op of operations) {
-    if (op.type === "dropTable") {
-      descriptions.push(`Drop table "${op.tableName}" (all data will be lost)`);
-    } else if (op.type === "dropColumn") {
-      descriptions.push(
-        `Drop column "${op.columnName}" from table "${op.tableName}" (data will be lost)`
-      );
-    } else if (op.type === "alterColumn") {
+    if (op.type === "alterColumn") {
       if (normalizeType(op.from.type) !== normalizeType(op.to.type)) {
         descriptions.push(
           `Change type of "${op.tableName}"."${op.columnName}" from ${op.from.type} to ${op.to.type} (may cause data loss)`

@@ -1,10 +1,6 @@
-import {
-  diff,
-  getDestructiveOperationDescriptions,
-} from "@src/migrations/differ";
+import { diff } from "@src/migrations/differ";
 import type {
   ColumnDef,
-  DiffOperation,
   SchemaSnapshot,
   TableDef,
 } from "@src/migrations/types";
@@ -119,18 +115,6 @@ describe("remaining differ contracts", () => {
         { tableName: "invitations", columnName: "status" },
       ],
     });
-  });
-
-  test("describes destructive table and column removal at the public boundary", () => {
-    const operations: DiffOperation[] = [
-      { type: "dropTable", tableName: "sessions" },
-      { type: "dropColumn", tableName: "users", columnName: "legacy_token" },
-    ];
-
-    expect(getDestructiveOperationDescriptions(operations)).toEqual([
-      'Drop table "sessions" (all data will be lost)',
-      'Drop column "legacy_token" from table "users" (data will be lost)',
-    ]);
   });
 });
 

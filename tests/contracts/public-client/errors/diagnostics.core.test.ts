@@ -3,7 +3,6 @@ import {
   getTrustedErrorCause,
   getTrustedRecordSeriesProgress,
   hasCommittedRecordSeriesProgress,
-  hasRecordSeriesProgress,
   QueryEngineError,
   type RecordSeriesProgress,
   registerTrustedError,
@@ -149,6 +148,21 @@ describe("diagnostic disclosure contracts", () => {
         query: 1,
         timeout: -1,
       })
+    ).toEqual({});
+
+    // A migration outcome keeps the estate's own addresses and its effect
+    // state, so a V11020 still says which state and dispatch it lost.
+    const outcome = {
+      effectState: "may-have-committed",
+      partial: true,
+      fromState: "a".repeat(64),
+      toState: "b".repeat(64),
+      dispatchId: "d1",
+      operationId: "o1",
+    };
+    expect(sanitizeErrorMetadata(outcome)).toEqual(outcome);
+    expect(
+      sanitizeErrorMetadata({ effectState: "maybe", partial: "yes" })
     ).toEqual({});
 
     const sparseColumns = new Array<string>(1);
@@ -533,7 +547,6 @@ describe("record-series progress diagnostics", () => {
     const error = new QueryEngineError("series failed");
     expect(attachRecordSeriesProgress(error, progress)).toBe(error);
     expect(getTrustedRecordSeriesProgress(error)).toEqual(progress);
-    expect(hasRecordSeriesProgress(error)).toBe(true);
     expect(hasCommittedRecordSeriesProgress(error)).toBe(true);
 
     attachRecordSeriesProgress(error, {
@@ -548,7 +561,7 @@ describe("record-series progress diagnostics", () => {
     const cause = new Error("series provider failed");
     const wrapped = attachRecordSeriesProgress(cause, progress);
     expect(wrapped).toBeInstanceOf(QueryEngineError);
-    expect(hasRecordSeriesProgress(wrapped)).toBe(true);
+    expect(getTrustedRecordSeriesProgress(wrapped as Error)).toEqual(progress);
 
     const thrown = "not an Error";
     expect(
@@ -557,7 +570,6 @@ describe("record-series progress diagnostics", () => {
         committedSegments: -1,
       })
     ).toBe(thrown);
-    expect(hasRecordSeriesProgress(thrown)).toBe(false);
     expect(hasCommittedRecordSeriesProgress(thrown)).toBe(false);
   });
 

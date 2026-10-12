@@ -415,13 +415,14 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
       tags: { ...BASELINE_M2M_TAGS, t9: "tag-9" },
     }),
   },
+  // engine-04: an adding verb spelled before `deleteMany` still runs after it,
+  // in the relation body's canonical clear-first order. The removal finds no
+  // member t1 and the supply lands; run in spelling order, `connect` t1 would
+  // instead be consumed by the removal.
   ...["connect", "create", "connectOrCreate"].map(
     (verb): Scenario<ManyToManySchema> => ({
-      name: `m2m ${verb} before deleteMany is refused without row or membership effects`,
+      name: `m2m ${verb} spelled before deleteMany runs clear-first`,
       seed: m2mBaselineSeed,
-      expectReject: true,
-      expectedError:
-        "Collection mutation must spell clearing verb 'deleteMany' before adding verb",
       act: (client) =>
         client.post.update({
           where: { id: "p1" },
@@ -441,7 +442,13 @@ const m2mScenarios: Scenario<ManyToManySchema>[] = [
             },
           },
         }),
-      expected: m2mExpected(),
+      expected:
+        verb === "connect"
+          ? m2mExpected({ membership: { p1: ["t1"] } })
+          : m2mExpected({
+              membership: { p1: ["t9"] },
+              tags: { ...BASELINE_M2M_TAGS, t9: "tag-9" },
+            }),
     })
   ),
   {

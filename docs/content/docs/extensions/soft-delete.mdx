@@ -56,11 +56,12 @@ may follow those. The [cache](#caching) can go on either side.
 | `models.<model>.deletedBy` | Optional. A scalar field that receives `actor` on delete and is cleared on restore. |
 | `actor` | Optional. The value written into `deletedBy`. Without it, `deletedBy` is written `null`. |
 
-A definition is not checked at runtime. TypeScript flags a misspelt member in
-your editor; an unknown model name, a field of the wrong type or a `removeWhen`
-that names no control is not caught and misbehaves at the first call.
-In `softDelete`, a model name the schema lacks is still refused when the
-extension is applied, through its `restore` methods.
+Names are checked when the extension is applied: a model the schema lacks or a
+field the model lacks is refused there with a `ClientInitializationError`
+(`V1004`). Field types are not checked: a `deletedAt` that names a field of
+another type, such as a string, is accepted, and the first delete fails with
+a `ValidationError` (`V4001`). TypeScript flags a misspelt member in your
+editor.
 
 ### One actor per client, one actor per transaction
 

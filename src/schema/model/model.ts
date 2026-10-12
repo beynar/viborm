@@ -273,6 +273,34 @@ function compoundMembers(
   return members;
 }
 
+/**
+ * One compound ID or unique, written into its own slot. The first tuple of a
+ * name is preserved before Record storage could overwrite it.
+ */
+function withCompound(
+  state: ModelState,
+  slot: "compoundId" | "compoundUniques",
+  label: "Compound ID" | "Compound unique",
+  fields: readonly string[],
+  options: CompoundKeyOptions | undefined
+): Model<any> {
+  const storedFields = snapshotModelKeyMembers(fields, label);
+  const name = getNameFromKeys(options?.name, storedFields);
+  if (Object.hasOwn(state[slot] ?? {}, name)) {
+    throw new Error(
+      `${label} name '${name}' is already used by another compound key; give this tuple a distinct name`
+    );
+  }
+  const fieldsRecord = compoundMembers(state, storedFields, label);
+  return new Model({
+    ...state,
+    [slot]: {
+      ...state[slot],
+      [name]: v.object(fieldsRecord, { partial: false }),
+    },
+  });
+}
+
 /** Snapshot one declaration tuple without consulting caller iteration hooks. */
 function snapshotModelKeyMembers(fields: unknown, label: string): string[] {
   if (!Array.isArray(fields)) {
@@ -314,19 +342,6 @@ function refuseDuplicateModelKeyMembers(
 ): void {
   if (new Set(fields).size !== fields.length) {
     throw new Error(`${label} cannot repeat a field in one tuple`);
-  }
-}
-
-/** Preserve the first tuple before Record storage could overwrite it. */
-function refuseCompoundKeyStateOverwrite(
-  existing: ModelState["compoundId"] | ModelState["compoundUniques"],
-  name: string,
-  label: string
-): void {
-  if (Object.hasOwn(existing ?? {}, name)) {
-    throw new Error(
-      `${label} name '${name}' is already used by another compound key; give this tuple a distinct name`
-    );
   }
 }
 
@@ -460,24 +475,13 @@ export class Model<State extends ModelState> {
     const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
-    const storedFields = snapshotModelKeyMembers(fields, "Compound ID");
-    const name = getNameFromKeys(options?.name, storedFields);
-    refuseCompoundKeyStateOverwrite(
-      this.#state.compoundId,
-      name,
-      "Compound ID"
-    );
-    const fieldsRecord = compoundMembers(
+    return withCompound(
       this.#state,
-      storedFields,
-      "Compound ID"
-    );
-
-    const compoundId = {
-      ...this.#state.compoundId,
-      [name]: v.object(fieldsRecord, { partial: false }),
-    } as any;
-    return new Model({ ...this.#state, compoundId }) as unknown as Model<{
+      "compoundId",
+      "Compound ID",
+      fields,
+      options
+    ) as unknown as Model<{
       [KState in keyof UpdateState<
         State,
         {
@@ -510,24 +514,13 @@ export class Model<State extends ModelState> {
     const Keys extends PortableKeyScalarKeys<State["scalars"]>[],
     const O extends CompoundKeyOptions = Record<never, never>,
   >(fields: Keys, options?: ExactOptions<O, CompoundKeyOptions>) {
-    const storedFields = snapshotModelKeyMembers(fields, "Compound unique");
-    const name = getNameFromKeys(options?.name, storedFields);
-    refuseCompoundKeyStateOverwrite(
-      this.#state.compoundUniques,
-      name,
-      "Compound unique"
-    );
-    const fieldsRecord = compoundMembers(
+    return withCompound(
       this.#state,
-      storedFields,
-      "Compound unique"
-    );
-
-    const compoundUniques = {
-      ...this.#state.compoundUniques,
-      [name]: v.object(fieldsRecord, { partial: false }),
-    } as any;
-    return new Model({ ...this.#state, compoundUniques }) as unknown as Model<{
+      "compoundUniques",
+      "Compound unique",
+      fields,
+      options
+    ) as unknown as Model<{
       [KState in keyof UpdateState<
         State,
         {

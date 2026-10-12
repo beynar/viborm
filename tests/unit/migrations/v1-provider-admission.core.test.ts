@@ -45,8 +45,9 @@ describe("a transport with no interactive session is refused", () => {
     expect(canPinSession(new PGliteDriver())).toBe(true);
   });
 
+  // apply() is admitted: it sends each transactional group as one request
+  // (plan D7, neon-http-batch-apply-pglite.test.ts).
   it.each([
-    ["apply()", (migrations: WritableMigrations) => migrations.apply()],
     ["down()", (migrations: WritableMigrations) => migrations.down()],
     ["reset()", (migrations: WritableMigrations) => migrations.reset()],
     ["verify()", (migrations: WritableMigrations) => migrations.verify()],

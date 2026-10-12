@@ -36,6 +36,9 @@ const client = createClient({
 | `pgvector` | `boolean` | Assert that the database has pgvector (see [Extensions](#extensions)) |
 | `postgis` | `boolean` | Assert that the database has PostGIS (see [Extensions](#extensions)) |
 
+`createClient` refuses any other key with a `ClientInitializationError` that
+names it.
+
 ### In-Memory Database
 
 ```typescript
@@ -71,6 +74,11 @@ const client = createClient({
   schema,
 });
 ```
+
+The instance may come from another copy of `@electric-sql/pglite` than the one
+VibORM imports, such as its CommonJS build beside the ESM one, or a second
+installed version: VibORM recognizes a database by its `transaction` method, not
+by its class.
 
 ## Namespace
 

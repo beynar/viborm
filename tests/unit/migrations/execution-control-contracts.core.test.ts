@@ -1,16 +1,13 @@
 import { VibORMErrorCode } from "@src/errors";
+import { qualifiedName } from "@src/migrations/catalog-probes";
 import {
   appendLedger,
   casMarker,
-  controlTableNames,
-  DEFAULT_CONTROL_BASE,
   markerFromPath,
-  qualifyControl,
   refuseIncompatibleHistory,
   refusePartialControl,
 } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
-import { executeLiveNamespaceReset } from "@src/migrations/live-reset";
 import {
   mayWrapTransaction,
   resolveCommandDriver,
@@ -55,19 +52,12 @@ function ledgerEvent(kind: LedgerEventV1["kind"]): LedgerEventV1 {
 }
 
 describe("migration execution and control contracts", () => {
-  test("control names are validated and qualified by the bound dialect", () => {
-    expect(controlTableNames("history_1")).toEqual({
-      state: "history_1_state",
-      log: "history_1_log",
-    });
-    expect(() => controlTableNames("bad-name")).toThrowError(
-      expect.objectContaining({ code: VibORMErrorCode.INVALID_INPUT })
-    );
+  test("control names are qualified by the bound dialect", () => {
     expect(
-      qualifyControl(getMigrationDriver(pgEstateDriver("tenant")), 'a"b')
+      qualifiedName(getMigrationDriver(pgEstateDriver("tenant")), 'a"b')
     ).toBe('"tenant"."a""b"');
     expect(
-      qualifyControl(
+      qualifiedName(
         getMigrationDriver(
           mysqlEstateDriver({ namespace: "tenant", attested: true })
         ),
@@ -75,7 +65,7 @@ describe("migration execution and control contracts", () => {
       )
     ).toBe("`tenant`.`a``b`");
     expect(
-      qualifyControl(getMigrationDriver(sqliteEstateDriver()), "state")
+      qualifiedName(getMigrationDriver(sqliteEstateDriver()), "state")
     ).toBe('"state"');
   });
 
@@ -116,20 +106,14 @@ describe("migration execution and control contracts", () => {
     const initial = markerFromPath(HASH_A, HASH_B, [], 1);
     const next = markerFromPath(HASH_A, HASH_B, [], 2);
 
-    await casMarker(producer, command, DEFAULT_CONTROL_BASE, null, initial);
+    await casMarker(producer, command, null, initial);
     await casMarker(
       producer,
       command,
-      DEFAULT_CONTROL_BASE,
       { revision: initial.revision, pathHash: initial.pathHash },
       next
     );
-    await appendLedger(
-      producer,
-      command,
-      DEFAULT_CONTROL_BASE,
-      ledgerEvent("applied")
-    );
+    await appendLedger(producer, command, ledgerEvent("applied"));
 
     expect(
       producer.statements.some((statement) => statement.startsWith("INSERT"))
@@ -146,7 +130,6 @@ describe("migration execution and control contracts", () => {
       casMarker(
         failed,
         getMigrationDriver(failed),
-        DEFAULT_CONTROL_BASE,
         null,
         markerFromPath(HASH_A, HASH_B, [], 1)
       )
@@ -161,37 +144,12 @@ describe("migration execution and control contracts", () => {
       casMarker(
         conflicted,
         getMigrationDriver(conflicted),
-        DEFAULT_CONTROL_BASE,
         { revision: 1, pathHash: HASH_A },
         markerFromPath(HASH_A, HASH_B, [], 2)
       )
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_MARKER_CONFLICT,
     });
-  });
-
-  test("a planned namespace reset executes its complete mutation order", async () => {
-    const driver = sqliteEstateDriver();
-    const result = await executeLiveNamespaceReset(driver, {
-      tables: ["child", "parent"],
-      clearTracking: "DELETE FROM tracking",
-      dropForeignKeys: ["ALTER TABLE child DROP CONSTRAINT fk_parent"],
-      dropTables: [
-        { name: "child", sql: "DROP TABLE child" },
-        { name: "parent", sql: "DROP TABLE parent" },
-      ],
-      dropEnums: ["DROP TYPE status"],
-    });
-
-    expect(result).toEqual({ dropped: ["child", "parent"] });
-    expect(driver.statements).toEqual([
-      "<connect>",
-      "DELETE FROM tracking",
-      "ALTER TABLE child DROP CONSTRAINT fk_parent",
-      "DROP TABLE child",
-      "DROP TABLE parent",
-      "DROP TYPE status",
-    ]);
   });
 
   test("command resolution preserves the provider spelling and target selection", async () => {
@@ -258,6 +216,10 @@ describe("migration execution and control contracts", () => {
       )
     ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_LOCK_FAILED });
 
+    // Only stepwise work holds a session lock to release (plan D1): a
+    // CONCURRENTLY statement takes it.
+    const stepwise = (pinned: { _executeRaw(sql: string): Promise<unknown> }) =>
+      pinned._executeRaw('CREATE INDEX CONCURRENTLY "i" ON "public"."t" ("c")');
     const release = pgEstateDriver("public");
     release.respond = (statement) =>
       statement.includes("pg_namespace") ? [{ present: 1 }] : [];
@@ -266,7 +228,10 @@ describe("migration execution and control contracts", () => {
       withLockedMigrationProducer(
         release,
         getMigrationDriver(release),
-        async () => "ran"
+        async (pinned) => {
+          await stepwise(pinned);
+          return "ran";
+        }
       )
     ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_LOCK_FAILED });
     expect(release.sessions).toEqual(["reserve", "destroy"]);
@@ -278,7 +243,8 @@ describe("migration execution and control contracts", () => {
     const caught = await withLockedMigrationProducer(
       primary,
       getMigrationDriver(primary),
-      async () => {
+      async (pinned) => {
+        await stepwise(pinned);
         throw bodyFailure;
       }
     ).catch((error: unknown) => error);

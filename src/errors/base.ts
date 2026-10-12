@@ -96,6 +96,7 @@ export enum VibORMErrorCode {
   MIGRATION_AMBIGUOUS_COMMIT = "V11020",
   MIGRATION_UNSUPPORTED_PROVIDER = "V11021",
   MIGRATION_CORRUPTION = "V11022",
+  MIGRATION_INVALID_INDEX = "V11023",
 
   // Pending operation errors (12xxx)
   OPERATION_ALREADY_EXECUTED = "V12001",
@@ -219,6 +220,13 @@ export interface VibORMErrorMeta {
   [key: string]: unknown;
 }
 
+/** The options every VibORM error constructor forwards to {@link VibORMError}. */
+export interface VibORMErrorOptions {
+  cause?: Error | undefined;
+  diagnostics?: DiagnosticDisclosure | undefined;
+  meta?: VibORMErrorMeta | undefined;
+}
+
 /**
  * Base error class for all VibORM errors
  */
@@ -238,10 +246,7 @@ export class VibORMError extends Error {
   constructor(
     message: string,
     code: VibORMErrorCode,
-    options?: {
-      cause?: Error | undefined;
-      meta?: VibORMErrorMeta | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
+    options?: VibORMErrorOptions & {
       /** Internal validation boundary evidence, snapshotted with the error. */
       validation?: { source: unknown; issues: unknown };
     }
@@ -348,16 +353,6 @@ function readDiagnosticName(errorConstructor: typeof VibORMError): string {
  */
 export function isVibORMError(error: unknown): error is VibORMError {
   return error instanceof VibORMError;
-}
-
-/**
- * Type guard for specific error codes
- */
-export function hasErrorCode(
-  error: unknown,
-  code: VibORMErrorCode
-): error is VibORMError {
-  return isVibORMError(error) && error.code === code;
 }
 
 /**
@@ -501,6 +496,7 @@ interface CodeDisposition {
   [VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT]: "expected";
   [VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER]: "expected";
   [VibORMErrorCode.MIGRATION_CORRUPTION]: "expected";
+  [VibORMErrorCode.MIGRATION_INVALID_INDEX]: "expected";
 
   // Pending operations (12xxx). Caller misuse of the operation lifecycle — awaiting twice,
   // mixing transaction scopes. A refusal aimed at the person writing the call.

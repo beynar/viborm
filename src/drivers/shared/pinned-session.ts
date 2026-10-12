@@ -1,9 +1,26 @@
 import { ConnectionError, VibORMErrorCode } from "@errors";
-import { errorCause } from "./driver-options";
+import { errorCause } from "../../errors/diagnostic-safety";
+import { settleWithin } from "./settle";
 import { withSuppressedFailure } from "./suppressed-failure";
 
 /** The PostgreSQL statement that resets a session's advisory-lock state. */
 const ADVISORY_RESET = "SELECT pg_advisory_unlock_all()";
+
+/** Why a reserved session is abandoned, in the refusal's own words. */
+const LOST_SESSION =
+  "lost the connection of a reserved migration session and sent nothing more on it.";
+const ADVISORY_RESET_FAILED = `could not prove the advisory-lock state of a discarded migration session: its "${ADVISORY_RESET}" reset failed.`;
+
+/**
+ * How long one cleanup statement — `ROLLBACK`, the unlock, the limits reset,
+ * the advisory reset — may take before its session is treated as lost.
+ *
+ * A healthy server answers each of them in milliseconds. A session that does
+ * not answer one within this bound is a half-open socket or a dying backend,
+ * and waiting on it longer only keeps the caller from the failure it already
+ * has (plan S2: "bound every cleanup statement").
+ */
+export const CLEANUP_BOUND_MS = 5000;
 
 /**
  * One reserved physical session, as a provider hands it back.
@@ -18,6 +35,15 @@ export interface PinnedSessionReservation<TSession> {
   /** The reserved producer. Every statement of the session runs on it. */
   readonly session: TSession;
   /**
+   * The failure the provider itself saw end this session's connection, or
+   * `undefined` while it has seen none.
+   *
+   * Only a provider that observes its connection has one (`pg`, through the
+   * client's `error` event). Elsewhere a lost connection is recognized by the
+   * failure that reported it.
+   */
+  readonly lost?: () => unknown;
+  /**
    * Returns the producer to the provider.
    *
    * `discard` is true when the session's state is unknown — a failed unlock, a
@@ -26,8 +52,12 @@ export interface PinnedSessionReservation<TSession> {
    * pool. A provider whose session can never be made clean again (MySQL2, which
    * has executed `USE` and possibly author-owned statements) destroys
    * unconditionally and ignores the flag.
+   *
+   * `lost` is true when the connection itself is gone or stopped answering:
+   * the provider must send nothing more on it — not even the reset a discard
+   * otherwise runs — and abandon or destroy it.
    */
-  release(discard: boolean): Promise<void>;
+  release(discard: boolean, lost?: boolean): Promise<void>;
 }
 
 /**
@@ -41,6 +71,14 @@ export interface PinnedSessionReservation<TSession> {
 export interface PinnedSessionControl {
   /** Condemn this producer; it will be destroyed instead of released. */
   discard(): void;
+  /**
+   * Whether this session's connection is gone: the provider saw it end,
+   * `failure` reports it, or a cleanup statement went unanswered. Once true it
+   * stays true, and nothing more is sent on the session (plan S2).
+   */
+  lost(failure?: unknown): boolean;
+  /** Runs one cleanup statement within `CLEANUP_BOUND_MS`; past it, the session is lost. */
+  cleanup<T>(run: () => Promise<T>): Promise<T>;
 }
 
 /**
@@ -63,11 +101,25 @@ export function unprovenLockStateError(
   containment: string,
   cause: unknown
 ): ConnectionError {
+  return abandonedSessionError(
+    driverName,
+    ADVISORY_RESET_FAILED,
+    containment,
+    errorCause(cause)
+  );
+}
+
+function abandonedSessionError(
+  driverName: string,
+  reason: string,
+  containment: string,
+  cause: Error | undefined
+): ConnectionError {
   return new ConnectionError(
-    `Driver "${driverName}" could not prove the advisory-lock state of a discarded migration session: its "${ADVISORY_RESET}" reset failed. ${containment}`,
+    `Driver "${driverName}" ${reason} ${containment}`,
     {
       code: VibORMErrorCode.CONNECTION_CLOSED,
-      cause: errorCause(cause),
+      cause,
       meta: { driver: driverName, operation: "pinnedSession" },
     }
   );
@@ -126,10 +178,17 @@ const CLOSE_FAILED_CONTAINMENT =
  * supplied is never closed for this — it is theirs, may be serving their own
  * code, and closing it to tidy up VibORM's cleanup failure would be a far
  * larger effect than the one being contained.
+ *
+ * A LOST session (plan S2) is abandoned the same way without the reset: its
+ * connection is gone or stopped answering, and a statement written to it is,
+ * on postgres.js, an uncaught crash from inside the provider's write loop. Its
+ * owned transport is closed; a supplied one is reported, since abandoning is
+ * all VibORM may do with it.
  */
 export async function releaseReservedPostgresSession(reservation: {
   readonly driverName: string;
   readonly discard: boolean;
+  readonly lost?: boolean | undefined;
   /** Runs `SELECT pg_advisory_unlock_all()` on the reserved session. */
   readonly reset: () => Promise<unknown>;
   /** Hands the reserved session back to the provider's pool. */
@@ -137,43 +196,87 @@ export async function releaseReservedPostgresSession(reservation: {
   /** Closes the transport, or absent when the CALLER owns it. */
   readonly closeOwnedTransport: (() => Promise<void>) | undefined;
 }): Promise<void> {
+  if (reservation.lost === true) {
+    const { closeOwnedTransport, driverName } = reservation;
+    if (closeOwnedTransport === undefined) {
+      throw abandonedSessionError(
+        driverName,
+        LOST_SESSION,
+        CALLER_OWNED_CONTAINMENT,
+        undefined
+      );
+    }
+    // Not awaited: the connection failure the caller holds is already the
+    // answer, and the close lets the transport's other queries finish first
+    // (postgres.js waits on the dead connection's unsettled query until its
+    // bound). The transport is withdrawn before it closes, and a session the
+    // close cannot end is ended by the server's idle limit.
+    closeOwnedTransport().catch(() => undefined);
+    return;
+  }
   if (!reservation.discard) {
     reservation.release();
     return;
   }
 
   try {
-    await reservation.reset();
-  } catch (resetFailure) {
-    const { closeOwnedTransport } = reservation;
-    if (closeOwnedTransport === undefined) {
-      throw unprovenLockStateError(
-        reservation.driverName,
-        CALLER_OWNED_CONTAINMENT,
-        resetFailure
-      );
-    }
-    try {
-      await closeOwnedTransport();
-    } catch (closeFailure) {
-      // The reset stays primary — it is what the caller acts on — and the
-      // close's own failure is cleanup evidence beside it.
-      throw withSuppressedFailure(
-        unprovenLockStateError(
-          reservation.driverName,
-          CLOSE_FAILED_CONTAINMENT,
-          resetFailure
-        ),
-        closeFailure
-      );
-    }
-    throw unprovenLockStateError(
-      reservation.driverName,
-      CLOSED_CONTAINMENT,
-      resetFailure
+    await settleWithin(
+      reservation.reset(),
+      CLEANUP_BOUND_MS,
+      () =>
+        new Error(
+          `The advisory-lock reset went unanswered for ${CLEANUP_BOUND_MS} ms.`
+        )
     );
+  } catch (resetFailure) {
+    await abandon(reservation, ADVISORY_RESET_FAILED, resetFailure);
   }
   reservation.release();
+}
+
+/**
+ * Abandons a reserved session: never released, its owned transport closed,
+ * and the refusal that says so thrown. A transport the caller supplied is only
+ * abandoned.
+ */
+async function abandon(
+  reservation: {
+    readonly driverName: string;
+    readonly closeOwnedTransport: (() => Promise<void>) | undefined;
+  },
+  reason: string,
+  cause: unknown
+): Promise<void> {
+  const { closeOwnedTransport, driverName } = reservation;
+  if (closeOwnedTransport === undefined) {
+    throw abandonedSessionError(
+      driverName,
+      reason,
+      CALLER_OWNED_CONTAINMENT,
+      errorCause(cause)
+    );
+  }
+  try {
+    await closeOwnedTransport();
+  } catch (closeFailure) {
+    // The reason stays primary — it is what the caller acts on — and the
+    // close's own failure is cleanup evidence beside it.
+    throw withSuppressedFailure(
+      abandonedSessionError(
+        driverName,
+        reason,
+        CLOSE_FAILED_CONTAINMENT,
+        errorCause(cause)
+      ),
+      closeFailure
+    );
+  }
+  throw abandonedSessionError(
+    driverName,
+    reason,
+    CLOSED_CONTAINMENT,
+    errorCause(cause)
+  );
 }
 
 /** What VibORM knows about one PHYSICAL session it pins commands on. */

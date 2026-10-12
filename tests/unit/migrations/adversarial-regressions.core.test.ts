@@ -14,7 +14,7 @@ import {
   normalizeDefault,
   normalizeType,
 } from "@migrations/push-fingerprint";
-import { applyResolutions } from "@migrations/resolver";
+import { resolveAmbiguousChanges } from "@migrations/resolver";
 import { serializeModels } from "@migrations/serializer";
 import { SqlAssembly } from "@migrations/sql-assembly";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
@@ -185,7 +185,7 @@ describe("adversarial migration regressions", () => {
         },
       ],
     });
-    const sql = postgresMigrationDriver.compileAlterEnum(
+    const sql = postgresMigrationDriver.compileStatements(
       {
         type: "alterEnum",
         enumName: "Role",
@@ -328,7 +328,7 @@ describe("adversarial migration regressions", () => {
   });
 
   test("an enum addition without a requested ordering appends its value", () => {
-    const statements = postgresMigrationDriver.compileAlterEnum(
+    const statements = postgresMigrationDriver.compileStatements(
       { type: "alterEnum", enumName: "Role", addValues: ["new"] },
       ddlContext("artifact", {
         currentSchema: {
@@ -453,7 +453,7 @@ describe("adversarial migration regressions", () => {
       }),
       enums: [{ name: "Role", values: ["one"] }],
     };
-    const sql = postgresMigrationDriver.compileAlterColumn(
+    const sql = postgresMigrationDriver.compileStatements(
       {
         type: "alterColumn",
         tableName: "users",
@@ -573,7 +573,7 @@ describe("adversarial migration regressions", () => {
       );
       if (!table) throw new Error("Expected serialized table");
       expect(
-        driver.generateCreateTable(
+        driver.generateDDL(
           { type: "createTable", table },
           { destination: "artifact" }
         )
@@ -730,7 +730,7 @@ describe("adversarial migration regressions", () => {
       expect(columns.get("flag")?.default).toBe(
         driver.dialect === "mysql" ? "('true')" : "'true'"
       );
-      const ddl = driver.generateCreateTable(
+      const ddl = driver.generateDDL(
         { type: "createTable", table },
         { destination: "artifact" }
       );
@@ -826,22 +826,28 @@ describe("adversarial migration regressions", () => {
     const driver = pgEstateDriver("public");
     const migrations = getMigrationDriver(driver);
     await expect(
-      migrations.preflightSchemaRequirements([desired], (query, params) =>
-        driver._executeRaw(query, params)
+      migrations.preflightSchemaRequirements(
+        [desired],
+        (query, params) => driver._executeRaw(query, params),
+        []
       )
     ).rejects.toThrow("pgvector: true");
     expect(driver.statements).toEqual([]);
     driver.adapter.capabilities.supportsVector = true;
     driver.respond = () => [{ ready: false }];
     await expect(
-      migrations.preflightSchemaRequirements([desired], (query, params) =>
-        driver._executeRaw(query, params)
+      migrations.preflightSchemaRequirements(
+        [desired],
+        (query, params) => driver._executeRaw(query, params),
+        []
       )
     ).rejects.toThrow("extension-owned vector type");
     driver.respond = () => [{ ready: true }];
     await expect(
-      migrations.preflightSchemaRequirements([desired], (query, params) =>
-        driver._executeRaw(query, params)
+      migrations.preflightSchemaRequirements(
+        [desired],
+        (query, params) => driver._executeRaw(query, params),
+        []
       )
     ).resolves.toBeUndefined();
     expect(
@@ -887,7 +893,7 @@ describe("adversarial migration regressions", () => {
     };
     expect(
       sqlite3MigrationDriver
-        .generateCreateTable(
+        .generateDDL(
           {
             type: "createTable",
             table: sqlite3MigrationDriver.finalizeTable(valid),
@@ -901,7 +907,7 @@ describe("adversarial migration regressions", () => {
       primaryKey: undefined,
       indexes: [{ name: "counter_key", columns: ["id"], unique: false }],
     });
-    const ddl = mysqlMigrationDriver.generateCreateTable(
+    const ddl = mysqlMigrationDriver.generateDDL(
       { type: "createTable", table: keyed },
       { destination: "artifact" }
     );
@@ -972,23 +978,28 @@ describe("adversarial migration regressions", () => {
       fingerprintSnapshot(snapshot(after), driver)
     );
   });
-  test("missing rename decisions refuse", () => {
+  test("missing rename decisions refuse", async () => {
     const old = table("old");
     const next = table("next");
-    expect(() =>
-      applyResolutions(
-        [
-          {
-            type: "ambiguousTable",
-            droppedTable: "old",
-            addedTable: "next",
-            droppedTableDef: old,
-            addedTableDef: next,
-          },
-        ],
-        new Map()
+    await expect(
+      resolveAmbiguousChanges(
+        {
+          operations: [],
+          ambiguousChanges: [
+            {
+              type: "ambiguousTable",
+              droppedTable: "old",
+              addedTable: "next",
+              droppedTableDef: old,
+              addedTableDef: next,
+            },
+          ],
+        },
+        { tables: [old] },
+        { tables: [next] },
+        async () => new Map()
       )
-    ).toThrow(MISSING_RESOLUTION_PATTERN);
+    ).rejects.toThrow(MISSING_RESOLUTION_PATTERN);
   });
   test("renaming a table with all columns renamed still asks", async () => {
     const next = {

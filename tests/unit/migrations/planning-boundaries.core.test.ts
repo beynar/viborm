@@ -11,8 +11,6 @@ import {
   ambiguousToResolveChange,
   callbackAsResolver,
   createPredefinedResolver,
-  createUnifiedResolver,
-  formatAmbiguousChanges,
   validateResolveResult,
 } from "@src/migrations/resolver";
 import type {
@@ -283,30 +281,28 @@ describe("migration planning boundaries", () => {
   });
 
   test("formats and predefines column and table ambiguity decisions", async () => {
-    expect(formatAmbiguousChanges([])).toBe("No ambiguous changes detected.");
-    expect(formatAmbiguousChanges([columnAmbiguity, tableAmbiguity])).toContain(
-      "Column rename detected"
-    );
     expect(ambiguousToResolveChange(tableAmbiguity)).toMatchObject({
       operation: "renameTable",
       oldName: "user",
       newName: "account",
     });
-    const resolver = createPredefinedResolver([
-      {
-        type: "column",
-        from: "name",
-        to: "display_name",
-        tableName: "user",
-        resolution: "rename",
-      },
-      {
-        type: "table",
-        from: "user",
-        to: "account",
-        resolution: "addAndDrop",
-      },
-    ]);
+    const resolver = callbackAsResolver(
+      createPredefinedResolver([
+        {
+          type: "column",
+          from: "name",
+          to: "display_name",
+          tableName: "user",
+          resolution: "rename",
+        },
+        {
+          type: "table",
+          from: "user",
+          to: "account",
+          resolution: "addAndDrop",
+        },
+      ])
+    );
     const resolutions = await resolver([columnAmbiguity, tableAmbiguity]);
     expect(resolutions.get(columnAmbiguity)).toEqual({ type: "rename" });
     expect(resolutions.get(tableAmbiguity)).toEqual({ type: "addAndDrop" });
@@ -327,9 +323,6 @@ describe("migration planning boundaries", () => {
     );
     expect(() => validateResolveResult("ambiguous", change, null)).toThrow(
       INVALID_NULL_RESOLUTION
-    );
-    expect(await createUnifiedResolver(async () => "addAndDrop")(change)).toBe(
-      "addAndDrop"
     );
   });
 });

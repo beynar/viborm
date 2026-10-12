@@ -1,6 +1,5 @@
 import type {
   AnyDriver,
-  BatchQuery,
   QueryExecutionContext,
   QueryResult,
 } from "@drivers/exports";
@@ -21,7 +20,6 @@ import type {
   TransactionOperationCapability,
   TransactionOperationOwner,
 } from "@query-engine/transaction-operation";
-import type { PreparedBatchGuard } from "@query-engine/types";
 import {
   combineArrayFailures,
   markArrayCommitCertainty,
@@ -29,17 +27,13 @@ import {
 import {
   assertNativeBatchResults,
   executeNativeBatch,
-  missingOperationResult,
-  unbatchableArrayError,
+  type PreparedNativeBatch,
+  prepareNativeBatch,
 } from "./array-transaction-native-batch";
 
 export interface NativeArraySlot extends ArrayAdmissionSlot {
   readonly operation: TransactionOperationCapability;
   readonly owner: TransactionOperationOwner<TransactionOperationCapability>;
-}
-
-interface NativeMember {
-  parse(batchResults: QueryResult<unknown>[]): Promise<unknown>;
 }
 
 export async function executeInterceptedNativeArray(
@@ -50,59 +44,14 @@ export async function executeInterceptedNativeArray(
   context: QueryExecutionContext,
   reportCertainty?: (certainty: WriteOutcome["certainty"]) => void
 ): Promise<unknown[]> {
-  const operationQueries: BatchQuery[] = [];
-  const batchGuards: PreparedBatchGuard[] = [];
-  const members: NativeMember[] = [];
+  let batch: PreparedNativeBatch;
   try {
-    for (const slot of slots) {
-      const preparation = await slot.owner.observeBatchPhase(
-        slot.operation,
-        driver,
-        async () => {
-          const prepared = slot.owner.prepare(slot.operation, driver);
-          if (prepared) return { kind: "single" as const, prepared };
-          return {
-            kind: "batch" as const,
-            preparedBatch: await slot.owner.prepareBatch(slot.operation),
-          };
-        }
-      );
-      if (preparation.kind === "single") {
-        const start = operationQueries.length;
-        operationQueries.push(preparation.prepared);
-        members.push({
-          parse: (batchResults) =>
-            slot.owner.observeBatchPhase(slot.operation, driver, () => {
-              const result = batchResults[start];
-              if (!result)
-                throw missingOperationResult(
-                  driver,
-                  slot.operation,
-                  slot.owner
-                );
-              return slot.owner.parseResult(slot.operation, result);
-            }),
-        });
-        continue;
-      }
-      const { preparedBatch } = preparation;
-      if (!preparedBatch) throw unbatchableArrayError(driver);
-      const start = operationQueries.length;
-      const length = preparedBatch.queries.length;
-      for (const query of preparedBatch.queries) operationQueries.push(query);
-      for (const guard of preparedBatch.guards ?? []) {
-        batchGuards.push({ ...guard, queryIndex: start + guard.queryIndex });
-      }
-      members.push({
-        parse: (batchResults) =>
-          slot.owner.observeBatchPhase(slot.operation, driver, () =>
-            preparedBatch.parseResult(batchResults.slice(start, start + length))
-          ),
-      });
-    }
+    batch = await prepareNativeBatch(slots, driver);
   } catch (error) {
-    throw await closePreDispatchFailure(slots, outcomes, error);
+    outcomes.discardAll();
+    throw await rejectAndCombine(slots, error);
   }
+  const { queries, guards, parsers } = batch;
 
   let committed = false;
   const commitFailures: unknown[] = [];
@@ -120,8 +69,8 @@ export async function executeInterceptedNativeArray(
   try {
     batchResults = await executeNativeBatch(
       driver,
-      operationQueries,
-      batchGuards,
+      queries,
+      guards,
       options,
       context,
       driver.supportsOrderedCommittedSegments ? confirmCommit : undefined
@@ -135,7 +84,7 @@ export async function executeInterceptedNativeArray(
   }
   await confirmCommit();
   try {
-    assertNativeBatchResults(driver, batchResults, operationQueries.length);
+    assertNativeBatchResults(driver, batchResults, queries.length);
   } catch (error) {
     throw await closeCommittedFailure(slots, error, commitFailures);
   }
@@ -144,7 +93,7 @@ export async function executeInterceptedNativeArray(
   for (let index = 0; index < slots.length; index += 1) {
     const slot = slots[index]!;
     try {
-      slot.child.resolve(await members[index]!.parse(batchResults));
+      slot.child.resolve(await parsers[index]!(batchResults));
     } catch (error) {
       slot.child.reject(markArrayCommitCertainty(error, "committed"));
     }
@@ -172,24 +121,6 @@ export async function executeInterceptedNativeArray(
   return results;
 }
 
-async function closePreDispatchFailure(
-  slots: readonly NativeArraySlot[],
-  outcomes: TransactionWriteOutcomes,
-  failure: unknown
-): Promise<unknown> {
-  outcomes.discardAll();
-  for (const slot of slots) slot.child.reject(failure);
-  const settled = await Promise.allSettled(slots.map(readArrayQuery));
-  const suppressed: unknown[] = [];
-  for (const outcome of settled) {
-    if (outcome.status !== "rejected") continue;
-    for (const queryFailure of queryFailureParts(outcome.reason)) {
-      if (queryFailure !== failure) suppressed.push(queryFailure);
-    }
-  }
-  return combineArrayFailures(failure, suppressed);
-}
-
 async function closeDispatchedFailure(
   slots: readonly NativeArraySlot[],
   outcomes: TransactionWriteOutcomes,
@@ -202,19 +133,7 @@ async function closeDispatchedFailure(
     outcomes,
     "may-have-committed"
   );
-  for (const slot of slots) slot.child.reject(primary);
-  const settled = await Promise.allSettled(slots.map(readArrayQuery));
-  const suppressed: unknown[] = [];
-  for (const outcome of settled) {
-    if (outcome.status !== "rejected") continue;
-    for (const queryFailure of queryFailureParts(outcome.reason)) {
-      if (queryFailure !== primary) suppressed.push(queryFailure);
-    }
-  }
-  for (const commitFailure of commitFailures) {
-    suppressed.push(commitFailure);
-  }
-  return combineArrayFailures(primary, suppressed);
+  return rejectAndCombine(slots, primary, commitFailures);
 }
 
 async function closeCommittedFailure(
@@ -222,23 +141,28 @@ async function closeCommittedFailure(
   failure: unknown,
   commitFailures: readonly unknown[]
 ): Promise<unknown> {
-  const primary = markArrayCommitCertainty(failure, "committed");
-  for (const slot of slots) {
-    slot.certainty = "committed";
-    slot.child.reject(primary);
-  }
-  const failures: unknown[] = [];
-  const settled = await Promise.allSettled(slots.map(readArrayQuery));
-  for (const outcome of settled) {
-    if (outcome.status !== "rejected") continue;
-    for (const queryFailure of queryFailureParts(outcome.reason)) {
-      if (queryFailure !== primary) failures.push(queryFailure);
+  for (const slot of slots) slot.certainty = "committed";
+  return rejectAndCombine(
+    slots,
+    markArrayCommitCertainty(failure, "committed"),
+    commitFailures
+  );
+}
+
+/** Reject every child with the primary failure and fold in what settled. */
+async function rejectAndCombine(
+  slots: readonly NativeArraySlot[],
+  primary: unknown,
+  extra: readonly unknown[] = []
+): Promise<unknown> {
+  for (const slot of slots) slot.child.reject(primary);
+  const suppressed: unknown[] = [];
+  for (const outcome of await Promise.allSettled(slots.map(readArrayQuery))) {
+    if (outcome.status === "rejected") {
+      suppressed.push(...queryFailureParts(outcome.reason));
     }
   }
-  for (const commitFailure of commitFailures) {
-    failures.push(commitFailure);
-  }
-  return combineArrayFailures(primary, failures);
+  return combineArrayFailures(primary, [...suppressed, ...extra]);
 }
 
 async function publishNativeOutcome(

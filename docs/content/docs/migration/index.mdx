@@ -49,7 +49,8 @@ npx viborm migrate status
 For programmatic control (scripts, CI/CD, custom tooling), use the migration client:
 
 ```ts title="src/db/migrations.ts"
-import { createFsStorageWriter, createMigrationClient } from "viborm/migrations";
+import { createMigrationClient } from "viborm/migrations";
+import { createFsStorageWriter } from "viborm/migrations/storage/fs";
 import { client } from "./client";
 
 const migrations = createMigrationClient(client, {
@@ -89,6 +90,11 @@ a storage reader. `log` reads the database ledger and `push` is history-free,
 so neither reads estate storage.
 :::
 
+`viborm/migrations` carries the migration driver of every dialect. To bundle
+only one, import the same API from `viborm/migrations/postgres`,
+`viborm/migrations/sqlite` or `viborm/migrations/mysql`. On Cloudflare Workers
+this keeps the other dialects' migration code out of the Worker.
+
 ### Capability-Typed Clients
 
 The returned client exposes only operations that its storage can support:
@@ -122,15 +128,18 @@ Both push and migrate follow the same core process:
 
 Migration atomicity is a DDL-specific guarantee and is not implied by support
 for client transactions. VibORM admits effectful work only when the concrete
-provider proves its lock, marker compare-and-swap, and execution boundary.
+provider proves its marker compare-and-swap, execution boundary and migration
+lock. PostgreSQL takes it in each migration transaction and SQLite through
+`BEGIN IMMEDIATE`, and both read the marker under it before the first effect.
 MySQL DDL is the documented stepwise exception because each statement commits:
 
 | Driver | `push` | `migrate apply` |
 |--------|--------|-----------------|
 | **PGlite, pg, postgres.js, Bun SQL** | Transaction when every statement permits it | Same guarantee |
-| **SQLite3, Bun SQLite** | One writer boundary; transactional where supported | Same guarantee |
+| **SQLite3, Bun SQLite** | Transaction (`BEGIN IMMEDIATE`, whose write lock is the migration lock) | Same, per group: a concurrent `apply` of the same state reads the first one's marker and reports `noop`, or refuses with `V11015`. Stepwise transitions are refused (`V11021`) |
 | **MySQL2** | Stepwise — a failed run can leave earlier statements applied | Same limitation, with durable progress evidence |
-| **Neon HTTP, PlanetScale, D1, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
+| **Neon HTTP** | Refused: no session; dry-run and read-only paths remain | One request per transactional group, which takes the lock and asserts the marker, the checks and the destination digest in SQL. Stepwise transitions refused (`V11021`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations) |
+| **PlanetScale, D1, libSQL** | Effectful work refused; dry-run and read-only paths remain | Effectful work refused until the provider boundary is proven |
 
 On the atomic paths, a successful migration applies every statement and a
 failed one applies none. The portable API exposes no transaction isolation

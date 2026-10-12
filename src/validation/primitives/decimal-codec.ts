@@ -339,7 +339,7 @@ export function decodePhysicalDecimalList(
 ): string[] | undefined {
   let members: string[];
   if (representation === "coefficient") {
-    const decoded = decodeDecimalListContainerAtPrecision(
+    const decoded = decodeDecimalListContainer(
       value,
       descriptor.scale,
       descriptor.precision
@@ -563,13 +563,6 @@ export function encodeDecimalListContainer(
  * grammar. Order and multiplicity are preserved exactly.
  */
 export function decodeDecimalListContainer(
-  container: unknown,
-  scale: number
-): string[] | undefined {
-  return decodeDecimalListContainerAtPrecision(container, scale);
-}
-
-function decodeDecimalListContainerAtPrecision(
   container: unknown,
   scale: number,
   precision?: number

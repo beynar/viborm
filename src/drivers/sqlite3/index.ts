@@ -24,8 +24,8 @@ import {
   Driver,
   type DriverResultParser,
   type QueryExecutionContext,
+  SQLITE_MIGRATION_CAPABILITY,
 } from "../driver";
-import { getExecutionTransactionPhases } from "../execution-context";
 import { assertNormalizedQueryResult } from "../normalized-result";
 import {
   assertPositionalRows,
@@ -36,14 +36,16 @@ import {
 import {
   convertValueForSQLite,
   isSQLiteBinaryValue,
-  runTransactionLifecycle,
   sqliteBinaryToUint8Array,
   sqliteResultParser,
   type TransactionOptionSupport,
 } from "../shared";
+import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import {
+  LOCAL_SQLITE_TRANSACTION_SUPPORT,
   normalizeSQLiteRawRows,
   parseSQLiteField,
+  runLocalSQLiteTransaction,
 } from "../shared/sqlite-utils";
 import type { QueryResult } from "../types";
 
@@ -115,6 +117,12 @@ export interface SQLite3DriverOptions {
 export type SQLite3ClientConfig<C extends DriverConfig> = SQLite3DriverOptions &
   C;
 
+const SQLITE3_CONFIG_KEYS: Record<keyof SQLite3DriverOptions, true> = {
+  client: true,
+  dataDir: true,
+  options: true,
+};
+
 // ============================================================
 // DRIVER IMPLEMENTATION
 // ============================================================
@@ -133,6 +141,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
   readonly adapter: DatabaseAdapter = new SQLiteAdapter();
   readonly maxBindParametersPerStatement: number | undefined = 32_766;
   readonly result: DriverResultParser = sqliteResultParser;
+  readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;
   protected override readonly serializeTransactions = true;
 
   private readonly driverOptions: SQLite3DriverOptions;
@@ -193,7 +202,9 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     // better-sqlite3 happens to enable this already; stated explicitly so FK
     // enforcement is a viborm guarantee, not an inherited library default.
     db.pragma("foreign_keys = ON");
-    db.pragma("busy_timeout = 5000");
+    // The caller's `timeout` is better-sqlite3's busy timeout and stands, as
+    // libsql's does; VibORM's 5000 ms applies only when none is given.
+    if (options.timeout === undefined) db.pragma("busy_timeout = 5000");
     return db;
   }
 
@@ -384,21 +395,8 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     );
   }
 
-  /**
-   * SQLite has no isolation-level statement: one writer at a time on one
-   * connection makes every transaction serializable already. `Serializable` is
-   * therefore honored by construction, with no SQL to emit; the three weaker
-   * levels are refused because pretending to relax isolation we cannot relax
-   * would misreport what the transaction actually guarantees.
-   */
   protected override transactionOptionSupport(): TransactionOptionSupport {
-    return {
-      isolationLevel: "serializable-only",
-      isolationLevelReason:
-        "SQLite serializes transactions on a single connection and has no statement to weaken isolation, so only Serializable can be honored truthfully",
-      timeout: true,
-      maxWait: "queue",
-    };
+    return LOCAL_SQLITE_TRANSACTION_SUPPORT;
   }
 
   protected async transaction<T>(
@@ -406,17 +404,7 @@ export class SQLite3Driver extends Driver<SQLite3Database, SQLite3Database> {
     fn: (tx: SQLite3Database) => Promise<T>,
     context?: QueryExecutionContext
   ): Promise<T> {
-    return runTransactionLifecycle({
-      begin: () => client.exec("BEGIN IMMEDIATE"),
-      callback: () => fn(client),
-      commit: () => client.exec("COMMIT"),
-      // A failed BEGIN never grants rollback ownership. After a failed COMMIT,
-      // successful rollback restores this same database, including :memory:.
-      rollback: () => {
-        if (client.inTransaction) client.exec("ROLLBACK");
-      },
-      phases: getExecutionTransactionPhases(context),
-    });
+    return runLocalSQLiteTransaction(client, fn, context);
   }
 }
 
@@ -433,6 +421,9 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
     C & { driver: SQLite3Driver }
   >]: LinkedClientConfig<C & { driver: SQLite3Driver }>[P];
 }> {
+  refuseUnknownDriverConfigKeys(config, "sqlite3", SQLITE3_CONFIG_KEYS, {
+    databaseUrl: "pass the database file as dataDir",
+  });
   const { client, dataDir, options } = config;
 
   const driver = new SQLite3Driver({ client, dataDir, options });

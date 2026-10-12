@@ -83,8 +83,42 @@ preflight requires PostgreSQL 12 or later.
 
 ## Guarantees and limits
 
-A bounded advisory try-lock retries for at most ten seconds. One successful
-acquisition is released once; a timeout refuses before migration effects.
+Every migration transaction opens with `BEGIN`, its limits and a
+transaction-scoped advisory lock (`pg_try_advisory_xact_lock`), retried for at
+most `lockWait` (ten seconds by default, see [Limits](#limits)); a
+timeout refuses before migration effects. The marker, the ledger and the drift
+check are read under that lock, in the transaction that then runs the first
+group of the path, so two runners apply a migration once: the second sees the
+first one's marker and reports `noop`, or refuses with `V11015`. A later group
+(after an edge that adds an enum value, or a stepwise group after a
+transactional one in `apply`, `down` or `reset`) locks again and re-reads the
+marker before it acts: if another command moved it in between, the command
+refuses with `V11015` and nothing of the rest of its path runs.
+
+An `apply` with nothing to do is proven before that transaction, in two
+statements: the control tables' definition, then the marker, the open attempts
+and a digest of the managed schema that the server computes, read together and
+only while `pg_try_advisory_xact_lock` succeeds (the statement releases it). A
+marker at the target, nothing open and a matching digest answer `noop`;
+anything else, another command holding the lock included, takes the locked
+path above. The digest abstains where SQL cannot reproduce the schema exactly:
+partial indexes (for example the soft-delete extension's partial unique
+indexes) and some literal defaults. Such schemas keep the locked no-op and
+introspect for the proof after a change, as in 1.1.0.
+
+The lock ends with its transaction, so it cannot outlive the command, and a
+transaction pooler such as PgBouncer in transaction mode may hand each
+transaction to a different server session: `apply`, `push` and the other
+locked commands run through one. Stepwise work (a manual
+`execution: "stepwise"` transition, or an index statement run `CONCURRENTLY`) runs
+outside a transaction and needs a session lock: it is taken inside the locked
+transaction before that transaction commits, held to the end of the command and
+released with `pg_advisory_unlock`. It needs a direct session. Cloudflare
+Hyperdrive and Neon `-pooler` hosts are refused for effectful commands unless
+you pass `migrationSessionAttestation: "dedicated-session"`. The lock key is
+one per database: independent schema estates in one database serialize with
+each other.
+
 Transactional DDL, schema proof, marker compare-and-swap, and the append-only
 ledger govern effectful operations. A native type swap cannot recover data
 already deleted by an earlier migration.
@@ -98,10 +132,175 @@ PostgreSQL connections from hosted transports that lack a proven session/lock
 contract.
 
 
+## Limits
+
+Every locked command (`apply`, `down`, `reset`, `baseline`, `resolve`,
+`verify` and `push`) runs on one reserved session, and VibORM bounds it:
+
+| Limit | Default | What it bounds |
+| --- | --- | --- |
+| `lockTimeout` | 4 s | `lock_timeout`, with `SET LOCAL` in every migration transaction (and on the session during stepwise work): a DDL statement waiting for a table lock gives up instead of stalling every query queued behind it. |
+| `statementTimeout` | 10 min | `statement_timeout`, likewise; the lock wait runs under it. A longer statement, such as a large table rewrite, fails with `V11001` whose `cause` is `V2002`: raise it for such migrations. Must be 0 or longer than `lockWait`. |
+| `idleTimeout` | 1 s | `idle_in_transaction_session_timeout` in every migration transaction, and during stepwise work `idle_session_timeout` on PostgreSQL 14+: the server ends a migration whose client stopped talking, and frees its migration lock with it. |
+| `lockWait` | 10 s | How long the command retries for the migration lock another command holds. |
+| `connectionWait` | 10 s | How long the command waits for its connection. Applies to MySQL too. |
+| `largeTableRows` | 1,000,000 | A row count, not milliseconds: the planner's estimate above which a change that rewrites or scans a table under a lock that blocks it (a column type change, `SET NOT NULL`, a volatile `ADD COLUMN` default, a validated `FOREIGN KEY`/`CHECK`) is refused before any effect with `V11009`. See [Large tables](/docs/migration/migrate#large-tables). 0 admits every size. |
+
+Pass any of them as `limits` (milliseconds, and rows for `largeTableRows`):
+
+```ts
+import { createMigrationClient } from "viborm/migrations";
+
+const migrations = createMigrationClient(client, {
+  storage,
+  limits: { lockTimeout: 2000, statementTimeout: 30 * 60_000 },
+});
+```
+
+`0` turns a server limit, or `largeTableRows`, off. `lockWait` and `connectionWait` must be at least
+1, and no value may exceed 2147483647. On PostgreSQL 14+ stepwise work also
+sets `client_connection_check_interval` to 1 s where the server supports it,
+so a statement whose client disconnected stops within a second.
+
+A command reads and decides inside its first migration transaction, so
+`idleTimeout` also bounds the client's own pauses between two of those
+statements. On PostgreSQL 14+ 1.1.0 bounded them too (`idle_session_timeout`);
+on PostgreSQL 12 and 13 this is new. A `down` loss-approval callback is not
+such a pause: `down` asks it with no transaction open and the lock let go, so
+no limit bounds it. The rollback then takes the lock again and re-reads the
+marker; if another command moved it meanwhile, `down` refuses with `V11015`
+and runs nothing.
+
+A limit that fires surfaces as a retryable error: `V5006` for `lock_timeout`,
+`V2002` for `statement_timeout`, and `V1001` or `V1002` for a lost or
+unanswered connection. On a statement the migration dispatches, `V5006` and
+`V2002` arrive as the `cause` of the `V11001` it fails with. Nothing is retried for you; run the command again. It
+re-reads the marker under the lock, so a transaction that committed before
+its connection failed reports `noop`.
+
+Transactional work sets nothing on the session: its limits end with each
+transaction, which is what lets it run through a transaction pooler. Settings
+stepwise work put on the session are reset before its connection goes back to
+your pool, to the values the connection started with; a session whose reset
+fails is never returned to the pool. A `CREATE [UNIQUE] INDEX CONCURRENTLY`,
+`DROP INDEX CONCURRENTLY` or `REINDEX … CONCURRENTLY` statement runs with no
+`lock_timeout` and no `statement_timeout`: it waits for older transactions by
+design, without blocking anyone. Only the statement itself counts, after any
+leading comment: the words in a comment or a string literal of another
+statement leave its limits in place. PGlite gets
+`statement_timeout` and `lock_timeout` only: an in-process database has no
+client to lose.
+
+When the connection is lost mid-command, VibORM sends nothing more on it: no
+`ROLLBACK`, no unlock. PostgreSQL rolls back the open transaction and frees the
+migration lock when the session ends. With postgres.js, a transport VibORM
+created is then closed (in-flight queries on it get up to 5 s to finish); a
+`client` you supplied is left to you: its reserved connection is abandoned,
+never returned to its pool, and the thrown `V1001` records that as a `V1003`
+in its `suppressedFailures` property.
+
+### A dedicated migration pool
+
+Settings VibORM does not manage (TCP keepalives, a `search_path`, a role) and
+a pool your application cannot exhaust come from a client built only for
+migrations. Every setting below reaches the migration session as its starting
+value:
+
+```ts
+import { createClient } from "viborm/pg";
+
+const migrationClient = createClient({
+  schema,
+  databaseUrl: process.env.DATABASE_URL,
+  options: {
+    max: 1,
+    connectionTimeoutMillis: 10_000,
+    keepAlive: true,
+    lock_timeout: 4000,
+    statement_timeout: 600_000,
+    idle_in_transaction_session_timeout: 1000,
+  },
+});
+```
+
+`limits` still applies on top, and its reset restores these values.
+
+## PlanetScale Postgres (Neki)
+
+PlanetScale's Postgres (Neki) runs PostgreSQL 18 but refuses two shapes
+standard PostgreSQL accepts, and VibORM emits neither:
+
+- a whole-row reference to a relation, such as `to_jsonb(ix)` over `pg_index`
+  (`0A000`). Catalog reads name their columns. `pg_index.indnullsnotdistinct`
+  exists from PostgreSQL 15 on, so introspection first asks whether the server
+  has it and reads every unique index as `NULLS DISTINCT` where it does not;
+- a recursive CTE of more than two terms (`42P01`). A `recurse` query with
+  `self: true` merges the starting row and its first hop into one
+  non-recursive term.
+
+Its connection URL carries `sslrootcert=system`, which `viborm/pg` and
+`viborm/postgres` read as `sslmode=verify-full`.
+
+Queries, introspection, `push`, `generate`, `apply`, `baseline`, `verify`,
+`status`, `down` and `reset` run on Neki, partial indexes included. Two more
+Neki differences shape how:
+
+- Neki has no temporary views (`NK013`). VibORM reads a partial-index
+  predicate back through a scratch view in the estate's schema, created, read
+  and dropped in one transaction. The migration role therefore needs `CREATE`
+  on that schema, which it already has to change the schema.
+- A row statement plans against the schema committed before its transaction:
+  after `ALTER TABLE … ADD COLUMN z`, an `UPDATE` naming `z` in the same
+  transaction fails (`42703`). Schema statements and catalog reads see the
+  transaction's own changes. VibORM commits the control tables before the
+  first marker on every PostgreSQL server. On Neki it refuses a migration that
+  runs a data statement after a schema change in one transaction, before any
+  effect (`V11021`, naming both statements). Which table an authored
+  statement reads cannot be told from its text, so any data statement after
+  any schema change on the path one command runs counts. Put the data change
+  in a state of its own, then apply in two runs: `apply({ to })` stops at the
+  schema change, and a second `apply` runs the data change.
+
+```ts
+const schema = await migrations.generate({ name: "nickname" });
+await migrations.generate({
+  name: "backfill-nickname",
+  manualMigration: {
+    transitions: [
+      {
+        from: schema.stateId,
+        execution: "transactional",
+        up: [sql`UPDATE "accounts" SET "nickname" = "email"`],
+        rollback: { kind: "irreversible", reason: "derived data" },
+      },
+    ],
+  },
+});
+await migrations.apply({ to: { id: schema.stateId! } });
+await migrations.apply();
+```
+
+Stepwise transitions, including `generate({ lowLock: true })`'s
+`CONCURRENTLY` steps, do not run on Neki: they take the session lock and
+session limits, which Neki refuses (`V11005`, before any effect). The
+refusal reads statements, not a manual transition's checks: a check that reads
+a table its own transaction created, like a `RENAME COLUMN` or column type
+change of such a table, fails inside the transaction, which rolls back. Apply
+such a path one state at a time.
+
+A catalog read the server refuses fails with `V11001` and names itself and its
+SQLSTATE, for example `PostgreSQL catalog query "indexes" failed with SQLSTATE
+0A000`, instead of reporting control tables that cannot be authenticated. The
+SQLSTATE is in `meta.providerSqlState`. The server's own message is not: drivers
+redact provider messages, and migration commands do not run under the
+[instrumentation](/docs/extensions/instrumentation) extension's
+`diagnostics.includeProviderDetails`, which opts query errors into them.
+
 ## Native index and constraint fidelity
 
-Indexes with expressions, descending keys, INCLUDE columns, nondefault opclasses
-or collations, or methods outside the declaration language refuse synchronization
+Indexes with expressions, descending keys, INCLUDE columns, `NULLS NOT DISTINCT`,
+nondefault opclasses or collations, or methods outside the declaration language
+refuse synchronization
 while their table is managed. VibORM preserves the existing artifact and refuses
 before effects; it does not turn a hand-authored HNSW or trigram index into an
 ordinary index. Excluding the table through `migrations.tables` requires the same

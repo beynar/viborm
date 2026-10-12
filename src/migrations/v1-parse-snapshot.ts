@@ -37,6 +37,7 @@ import type {
 import {
   exactObject,
   parseIdentifierArray,
+  parseMember,
   parseRequiredString,
   parseStringArray,
   refuse,
@@ -243,21 +244,13 @@ function parseIndex(value: unknown, label: string): IndexDef {
   return index;
 }
 
-function parseReferentialAction(
-  value: unknown,
-  label: string
-): ReferentialAction {
-  if (
-    value === "cascade" ||
-    value === "setNull" ||
-    value === "restrict" ||
-    value === "noAction" ||
-    value === "setDefault"
-  ) {
-    return value;
-  }
-  refuse(`${label} is not a referential action`);
-}
+const REFERENTIAL_ACTIONS: readonly ReferentialAction[] = [
+  "cascade",
+  "setNull",
+  "restrict",
+  "noAction",
+  "setDefault",
+];
 
 function parseForeignKey(value: unknown, label: string): ForeignKeyDef {
   const record = exactObject(
@@ -279,15 +272,17 @@ function parseForeignKey(value: unknown, label: string): ForeignKeyDef {
     ),
   };
   if ("onDelete" in record) {
-    foreignKey.onDelete = parseReferentialAction(
+    foreignKey.onDelete = parseMember(
       record.onDelete,
-      `${label}.onDelete`
+      REFERENTIAL_ACTIONS,
+      `${label}.onDelete is not a referential action`
     );
   }
   if ("onUpdate" in record) {
-    foreignKey.onUpdate = parseReferentialAction(
+    foreignKey.onUpdate = parseMember(
       record.onUpdate,
-      `${label}.onUpdate`
+      REFERENTIAL_ACTIONS,
+      `${label}.onUpdate is not a referential action`
     );
   }
   return foreignKey;

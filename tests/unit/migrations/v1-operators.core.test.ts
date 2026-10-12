@@ -12,7 +12,6 @@ import {
 import { createMigrationClient } from "@src/migrations/client";
 import {
   createControlTableSQL,
-  DEFAULT_CONTROL_BASE,
   markerFromPath,
   unfinishedAttempts,
 } from "@src/migrations/control";
@@ -20,7 +19,7 @@ import { getMigrationDriver } from "@src/migrations/drivers";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import { generateV1 } from "@src/migrations/generate-v1";
 import { domainHash, HASH_DOMAIN } from "@src/migrations/identity";
-import { downV1, resolveV1 } from "@src/migrations/operators";
+import { resolveV1 } from "@src/migrations/operators";
 import { resetV1 } from "@src/migrations/reset-v1";
 import { composeSqlBlob } from "@src/migrations/sql-blob";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
@@ -170,7 +169,7 @@ describe("migration v1 operators", () => {
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const command = getMigrationDriver(driver);
-    const control = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const control = createControlTableSQL(command);
     await driver._executeRaw(control.state);
     await driver._executeRaw(
       `CREATE TABLE "_viborm_migration_log" (event_id TEXT NOT NULL, attempt_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)`
@@ -236,9 +235,7 @@ describe("migration v1 operators", () => {
     if (!generated.stateId) throw new Error("expected a published state");
     await syncLiveSchema(client);
     const command = getMigrationDriver(driver);
-    await driver._executeRaw(
-      createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
-    );
+    await driver._executeRaw(createControlTableSQL(command).state);
 
     await expect(
       migrations.baseline({ to: { id: generated.stateId } })
@@ -253,9 +250,7 @@ describe("migration v1 operators", () => {
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const command = getMigrationDriver(driver);
-    await driver._executeRaw(
-      createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
-    );
+    await driver._executeRaw(createControlTableSQL(command).state);
 
     await expect(migrations.reset()).resolves.toMatchObject({ preview: false });
     await expect(migrations.verify()).resolves.toEqual({ ok: true });
@@ -322,7 +317,7 @@ describe("migration v1 operators", () => {
     const driver = createInMemorySQLite3Driver();
     const client = createClient({ schema: { user }, driver });
     const command = getMigrationDriver(driver);
-    const control = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const control = createControlTableSQL(command);
     await driver._executeRaw(control.state);
 
     await expect(createMigrationClient(client).push()).rejects.toMatchObject({
@@ -461,76 +456,6 @@ async function publishRoot(options: { readonly opaque?: boolean } = {}) {
   };
 }
 
-async function publishRollbackProgram() {
-  const storage = new MemoryEstateStorage();
-  const estate = encodeEstateDescriptor({ dialect: "sqlite" });
-  const snapshot = encodeSnapshot(emptyManagedSnapshot());
-  const firstSql = "SELECT 'rollback-first'";
-  const secondSql = "SELECT 'rollback-second'";
-  const blob = composeSqlBlob([firstSql, secondSql]);
-  const first = opaqueDispatchAt(blob, 0);
-  const second = opaqueDispatchAt(blob, 1);
-  const parent: Omit<MigrationParentTransitionV1, "transitionHash"> = {
-    fromState: null,
-    originChecks: [],
-    requestedForwardBoundary: null,
-    operations: [],
-    rollback: {
-      kind: "manual",
-      requestedBoundary: "stepwise",
-      operations: [
-        {
-          id: "rollback:first",
-          label: "first",
-          origin: "manual",
-          risk: "opaque",
-          steps: [{ retry: "opaque", execute: first }],
-        },
-        {
-          id: "rollback:second",
-          label: "second",
-          origin: "manual",
-          risk: "opaque",
-          steps: [{ retry: "opaque", execute: second }],
-        },
-      ],
-    },
-  };
-  const transitionHash = encodeTransitionHash(parent);
-  const state = encodeStateManifest({
-    format: "1",
-    estateHash: estate.estateHash,
-    name: "rollback",
-    snapshotHash: snapshot.snapshotHash,
-    sqlHash: blob.sqlHash,
-    destinationChecks: [],
-    parents: [{ ...parent, transitionHash }],
-  });
-  await storage.publishEstate(estate.bytes);
-  await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
-  await storage.publishSql(blob.sqlHash, blob.bytes);
-  await storage.publishState(state.stateId, state.bytes);
-  const marker = markerFromPath(
-    estate.estateHash,
-    snapshot.snapshotHash,
-    [{ stateId: state.stateId, transitionHash, baselineBoundary: false }],
-    1
-  );
-  return {
-    storage,
-    estateHash: estate.estateHash,
-    snapshotHash: snapshot.snapshotHash,
-    sqlHash: blob.sqlHash,
-    stateId: state.stateId,
-    transitionHash,
-    marker,
-    first,
-    second,
-    firstSql,
-    secondSql,
-  };
-}
-
 async function publishMixedApplyProgram() {
   const storage = new MemoryEstateStorage();
   const estate = encodeEstateDescriptor({ dialect: "sqlite" });
@@ -622,133 +547,6 @@ function opaqueDispatchAt(
   };
 }
 
-function requiredMigrationDispatch(
-  dispatch: MigrationDispatchV1 | undefined
-): MigrationDispatchV1 {
-  if (!dispatch) throw new Error("expected migration dispatch");
-  return dispatch;
-}
-
-function rollbackStarted(
-  program: Awaited<ReturnType<typeof publishRollbackProgram>>
-): LedgerEventV1 {
-  const event = {
-    format: "1" as const,
-    attemptId: "c".repeat(64),
-    kind: "started" as const,
-    estateHash: program.estateHash,
-    snapshotHash: program.snapshotHash,
-    sqlHash: program.sqlHash,
-    fromState: program.stateId,
-    toState: null,
-    transitionHash: program.transitionHash,
-    direction: "rollback" as const,
-    operationId: null,
-    dispatchId: null,
-    effectState: "none" as const,
-    startedAt: "2026-08-29T10:00:00.000Z",
-    finishedAt: null,
-    toolVersion: "v1",
-    failure: null,
-  };
-  return { ...event, eventId: eventIdFor(event) };
-}
-
-function rollbackProgress(
-  started: LedgerEventV1,
-  operationId: string,
-  dispatchId: string,
-  effectState: "none" | "committed"
-): LedgerEventV1 {
-  const { eventId: _eventId, ...startedBody } = started;
-  const event = {
-    ...startedBody,
-    kind: "step-confirmed" as const,
-    operationId,
-    dispatchId,
-    effectState,
-    finishedAt: "2026-08-29T10:00:01.000Z",
-  };
-  return { ...event, eventId: eventIdFor(event) };
-}
-
-function resetStarted(options: {
-  readonly estateHash: string;
-  readonly snapshotHash: string;
-  readonly path: readonly string[];
-  readonly clearDispatches?: readonly MigrationDispatchV1[];
-}): LedgerEventV1 {
-  const planBody = {
-    estateHash: options.estateHash,
-    targetIdentity: "sqlite:",
-    sourceRevision: 0,
-    sourceFingerprint: options.snapshotHash,
-    replayPath: options.path,
-    clearDispatches: options.clearDispatches ?? [],
-    referencedStates: options.path,
-  };
-  const resetPlanHash = domainHash(
-    HASH_DOMAIN.resetPlan,
-    canonicalizeJson(planBody)
-  );
-  const event = {
-    format: "1" as const,
-    attemptId: resetPlanHash,
-    kind: "reset-started" as const,
-    estateHash: options.estateHash,
-    snapshotHash: options.snapshotHash,
-    sqlHash: null,
-    fromState: null,
-    toState: options.path.at(-1)!,
-    transitionHash: null,
-    direction: "reset" as const,
-    operationId: null,
-    dispatchId: null,
-    effectState: "none" as const,
-    startedAt: "2026-08-29T10:00:00.000Z",
-    finishedAt: null,
-    toolVersion: "v1",
-    resetPlan: { ...planBody, resetPlanHash },
-    failure: null,
-  };
-  return { ...event, eventId: eventIdFor(event) };
-}
-
-function resetProgress(
-  started: LedgerEventV1,
-  edge: {
-    readonly fromState: string | null;
-    readonly toState: string;
-    readonly snapshotHash: string;
-    readonly sqlHash: string;
-    readonly transitionHash: string;
-    readonly operationId: string;
-    readonly dispatch: MigrationDispatchV1;
-  },
-  effectState: "none" | "committed"
-): LedgerEventV1 {
-  const event = {
-    format: "1" as const,
-    attemptId: started.attemptId,
-    kind: "reset-step-confirmed" as const,
-    estateHash: started.estateHash,
-    snapshotHash: edge.snapshotHash,
-    sqlHash: edge.sqlHash,
-    fromState: edge.fromState,
-    toState: edge.toState,
-    transitionHash: edge.transitionHash,
-    direction: "reset" as const,
-    operationId: edge.operationId,
-    dispatchId: edge.dispatch.dispatchId,
-    effectState,
-    startedAt: "2026-08-29T10:00:01.000Z",
-    finishedAt: "2026-08-29T10:00:01.000Z",
-    toolVersion: "v1",
-    failure: null,
-  };
-  return { ...event, eventId: eventIdFor(event) };
-}
-
 function startedEvent(toState: string, estateHash: string): LedgerEventV1 {
   const event = {
     format: "1" as const,
@@ -814,241 +612,33 @@ function controlRespond(options: {
 }
 
 describe("migration v1 resolve and reset shapes", () => {
-  test("apply keeps transactional edges atomic around a stepwise edge", async () => {
+  // Plan S5: SQLite applies no stepwise transition. The path is refused while
+  // it is prepared, before any edge of it runs.
+  test("apply refuses a SQLite path around a stepwise edge before any of it runs", async () => {
     const program = await publishMixedApplyProgram();
     const driver = sqliteEstateDriver();
     driver.respond = controlRespond({});
 
     await expect(
       applyV1(clientFor(driver), program.storage)
-    ).resolves.toMatchObject({ outcome: "applied", path: program.stateIds });
-    expect(driver.statements.filter((sql) => sql === "<begin>")).toHaveLength(
-      2
-    );
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+    });
+    expect(driver.statements.some((sql) => sql.includes("mixed-"))).toBe(false);
   });
 
-  test("reset keeps transactional replay groups atomic around a stepwise edge", async () => {
+  test("reset refuses a SQLite path around a stepwise edge before any of it runs", async () => {
     const program = await publishMixedApplyProgram();
     const driver = sqliteEstateDriver();
     driver.respond = controlRespond({});
 
     await expect(
       resetV1(clientFor(driver), program.storage)
-    ).resolves.toMatchObject({ preview: false, path: program.stateIds });
-    expect(driver.statements.filter((sql) => sql === "<begin>")).toHaveLength(
-      2
-    );
-  });
-
-  test("reset resumes after the last committed replay dispatch", async () => {
-    const published = await publishRoot({ opaque: true });
-    const started = resetStarted({
-      estateHash: published.estateHash,
-      snapshotHash: published.snapshotHash,
-      path: [published.stateId],
-    });
-    const driver = sqliteEstateDriver();
-    const edge = {
-      fromState: null,
-      toState: published.stateId,
-      snapshotHash: published.snapshotHash,
-      sqlHash: published.sqlHash,
-      transitionHash: published.transitionHash,
-      operationId: "manual:forward:0",
-      dispatch: requiredMigrationDispatch(published.dispatch),
-    };
-    driver.respond = controlRespond({
-      ledger: [
-        started,
-        resetProgress(started, edge, "none"),
-        resetProgress(started, edge, "committed"),
-      ],
-    });
-
-    await expect(
-      resetV1(clientFor(driver), published.storage)
-    ).resolves.toMatchObject({ preview: false, path: [published.stateId] });
-    expect(driver.statements).not.toContain("SELECT 1");
-  });
-
-  test("reset refuses noncontiguous replay evidence before dispatch", async () => {
-    const program = await publishMixedApplyProgram();
-    const started = resetStarted({
-      estateHash: program.estateHash,
-      snapshotHash: program.snapshotHash,
-      path: program.stateIds,
-    });
-    const driver = sqliteEstateDriver();
-    driver.respond = controlRespond({
-      ledger: [started, resetProgress(started, program.edges[1]!, "committed")],
-    });
-
-    await expect(
-      resetV1(clientFor(driver), program.storage)
     ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_CORRUPTION,
-      message: expect.stringContaining("contiguous dispatch prefix"),
+      code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+      meta: { dialect: "sqlite", feature: "stepwise execution" },
     });
     expect(driver.statements.some((sql) => sql.includes("mixed-"))).toBe(false);
-  });
-
-  test("reset refuses replay evidence before the stored clear prefix completes", async () => {
-    const published = await publishRoot({ opaque: true });
-    const clearBlob = composeSqlBlob(["DROP TABLE leftover"]);
-    const started = resetStarted({
-      estateHash: published.estateHash,
-      snapshotHash: published.snapshotHash,
-      path: [published.stateId],
-      clearDispatches: [opaqueDispatchAt(clearBlob, 0)],
-    });
-    const driver = sqliteEstateDriver();
-    driver.respond = controlRespond({
-      ledger: [
-        started,
-        resetProgress(
-          started,
-          {
-            fromState: null,
-            toState: published.stateId,
-            snapshotHash: published.snapshotHash,
-            sqlHash: published.sqlHash,
-            transitionHash: published.transitionHash,
-            operationId: "manual:forward:0",
-            dispatch: requiredMigrationDispatch(published.dispatch),
-          },
-          "committed"
-        ),
-      ],
-    });
-
-    await expect(
-      resetV1(clientFor(driver), published.storage)
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_CORRUPTION,
-      message: expect.stringContaining("clear prefix"),
-    });
-    expect(driver.statements).not.toContain("SELECT 1");
-  });
-
-  test("reset refuses an announced opaque replay dispatch as ambiguous", async () => {
-    const published = await publishRoot({ opaque: true });
-    const started = resetStarted({
-      estateHash: published.estateHash,
-      snapshotHash: published.snapshotHash,
-      path: [published.stateId],
-    });
-    const driver = sqliteEstateDriver();
-    driver.respond = controlRespond({
-      ledger: [
-        started,
-        resetProgress(
-          started,
-          {
-            fromState: null,
-            toState: published.stateId,
-            snapshotHash: published.snapshotHash,
-            sqlHash: published.sqlHash,
-            transitionHash: published.transitionHash,
-            operationId: "manual:forward:0",
-            dispatch: requiredMigrationDispatch(published.dispatch),
-          },
-          "none"
-        ),
-      ],
-    });
-
-    await expect(
-      resetV1(clientFor(driver), published.storage)
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
-    });
-    expect(driver.statements).not.toContain("SELECT 1");
-  });
-
-  test("down resumes after the last committed rollback dispatch", async () => {
-    const program = await publishRollbackProgram();
-    const started = rollbackStarted(program);
-    const driver = sqliteEstateDriver();
-    driver.respond = controlRespond({
-      marker: program.marker,
-      ledger: [
-        started,
-        rollbackProgress(
-          started,
-          "rollback:first",
-          program.first.dispatchId,
-          "committed"
-        ),
-      ],
-    });
-
-    await expect(
-      downV1(clientFor(driver), program.storage, { steps: 1 })
-    ).resolves.toMatchObject({ preview: false, path: [program.stateId] });
-    expect(driver.statements).not.toContain(program.firstSql);
-    expect(driver.statements).toContain(program.secondSql);
-  });
-
-  test("down closes the marker-CAS crash window without replaying rollback", async () => {
-    const program = await publishRollbackProgram();
-    const started = rollbackStarted(program);
-    const marker = markerFromPath(
-      program.estateHash,
-      program.snapshotHash,
-      [],
-      program.marker.revision + 1
-    );
-    const driver = sqliteEstateDriver();
-    driver.respond = controlRespond({
-      marker,
-      ledger: [
-        started,
-        rollbackProgress(
-          started,
-          "rollback:first",
-          program.first.dispatchId,
-          "committed"
-        ),
-        rollbackProgress(
-          started,
-          "rollback:second",
-          program.second.dispatchId,
-          "committed"
-        ),
-      ],
-    });
-
-    await expect(
-      downV1(clientFor(driver), program.storage, { steps: 1 })
-    ).resolves.toMatchObject({ preview: false, path: [program.stateId] });
-    expect(driver.statements).not.toContain(program.firstSql);
-    expect(driver.statements).not.toContain(program.secondSql);
-  });
-
-  test("down refuses an opaque dispatch whose durable outcome is ambiguous", async () => {
-    const program = await publishRollbackProgram();
-    const started = rollbackStarted(program);
-    const driver = sqliteEstateDriver();
-    driver.respond = controlRespond({
-      marker: program.marker,
-      ledger: [
-        started,
-        rollbackProgress(
-          started,
-          "rollback:first",
-          program.first.dispatchId,
-          "none"
-        ),
-      ],
-    });
-
-    await expect(
-      downV1(clientFor(driver), program.storage, { steps: 1 })
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
-    });
-    expect(driver.statements).not.toContain(program.firstSql);
-    expect(driver.statements).not.toContain(program.secondSql);
   });
 
   test("resolve complete, rolled-back, and retry shapes", async () => {

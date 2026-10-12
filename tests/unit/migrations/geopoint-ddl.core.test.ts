@@ -180,7 +180,8 @@ describe("PostGIS migration preflight", () => {
     await expect(
       getMigrationDriver(execution).preflightSchemaRequirements(
         [pointSnapshot],
-        (sql, params) => execution._executeRaw(sql, params)
+        (sql, params) => execution._executeRaw(sql, params),
+        []
       )
     ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_INVALID_STATE });
     expect(
@@ -201,7 +202,8 @@ describe("PostGIS migration preflight", () => {
       await expect(
         command.preflightSchemaRequirements(
           [{ tables: [], enums: [{ name: "Role", values: ["one"] }] }],
-          (sql, params) => execution._executeRaw(sql, params)
+          (sql, params) => execution._executeRaw(sql, params),
+          []
         )
       ).rejects.toMatchObject({
         code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
@@ -211,7 +213,8 @@ describe("PostGIS migration preflight", () => {
     await expect(
       command.preflightSchemaRequirements(
         [{ tables: [], enums: [{ name: "Role", values: ["one"] }] }],
-        (sql, params) => execution._executeRaw(sql, params)
+        (sql, params) => execution._executeRaw(sql, params),
+        []
       )
     ).resolves.toBeUndefined();
     expect(execution.statements.some((sql) => sql.startsWith("ALTER"))).toBe(
@@ -228,8 +231,10 @@ describe("PostGIS migration preflight", () => {
     );
     execution.respond = () => [{ ready: true }];
     const command = getMigrationDriver(execution);
-    await command.preflightSchemaRequirements([pointSnapshot], (sql, params) =>
-      execution._executeRaw(sql, params)
+    await command.preflightSchemaRequirements(
+      [pointSnapshot],
+      (sql, params) => execution._executeRaw(sql, params),
+      []
     );
     const calls = execution.statements.filter(
       (statement) => statement !== "<connect>"
@@ -256,7 +261,7 @@ describe("PostGIS migration preflight", () => {
 
     await command.preflightSchemaRequirements([{ tables: [] }], () => {
       throw new Error("non-point snapshots must not query PostGIS");
-    });
+    }, []);
   });
 
   it.each([
@@ -273,8 +278,10 @@ describe("PostGIS migration preflight", () => {
     execution.respond = () => rows;
     const command = getMigrationDriver(execution);
     await expect(
-      command.preflightSchemaRequirements([pointSnapshot], (sql, params) =>
-        execution._executeRaw(sql, params)
+      command.preflightSchemaRequirements(
+        [pointSnapshot],
+        (sql, params) => execution._executeRaw(sql, params),
+        []
       )
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
@@ -290,7 +297,7 @@ describe("PostGIS migration preflight", () => {
       command.preflightSchemaRequirements([pointSnapshot], () => {
         called = true;
         return Promise.resolve({ rows: [] });
-      })
+      }, [])
     ).rejects.toMatchObject({ code: VibORMErrorCode.DRIVER_NOT_SUPPORTED });
     expect(called).toBe(false);
   });

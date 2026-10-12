@@ -56,8 +56,7 @@ beforeAll(() => hydrateSchemaNames(schema));
 const refs = createModelFieldRefs("Doc", Doc);
 
 /** What the parse boundary says when a column may not carry a `startsWith`. */
-const STARTS_WITH_REFUSAL =
-  /Unknown key: startsWith|did not match any union member/;
+const STARTS_WITH_REFUSAL = /Unknown key: startsWith/;
 
 /** The alias the engine gave `prefix_docs` in a built statement. */
 const TABLE_ALIAS = /prefix_docs["`] AS (["`]\w+["`])/;

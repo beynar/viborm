@@ -126,6 +126,13 @@ describe("batch assertion attribution", () => {
     ["mysql", "SELECT value + 1", false],
     ["sqlite", "SELECT value -> '$.id'", true],
     ["sqlite", "SELECT value + 1", false],
+    // A bound `in` list reads JSON the adapter stringified (engine-09).
+    [
+      "sqlite",
+      "DELETE FROM t WHERE id IN (SELECT value FROM json_each(?))",
+      false,
+    ],
+    ["sqlite", "SELECT 1 FROM json_each(?) AS required", true],
   ] as const)("%s classifies %s with collision=%s", (dialect, statement, expected) => {
     expect(
       batchMayContainAssertionCollision([{ sql: statement }], dialect)

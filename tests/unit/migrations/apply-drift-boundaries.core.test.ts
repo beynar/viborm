@@ -1,9 +1,9 @@
 import { VibORMErrorCode } from "@src/errors";
-import { assertNoDrift } from "@src/migrations/apply-v1";
 import { markerFromPath } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import type { MigrationGraph } from "@src/migrations/graph";
+import { assertNoDrift } from "@src/migrations/proof";
 import type {
   MigrationMarkerV1,
   MigrationParentTransitionV1,
@@ -188,19 +188,6 @@ describe("apply drift boundaries", () => {
       1
     );
     expect(await expectDriftRefusal(graph(), marker)).toMatchObject({
-      failure: { code: VibORMErrorCode.MIGRATION_CORRUPTION },
-      statements: [],
-    });
-  });
-
-  test("rejects a marker whose authenticated snapshot bytes are absent", async () => {
-    const withoutStateSnapshot: MigrationGraph = {
-      ...graph(),
-      snapshots: new Map([[EMPTY_SNAPSHOT_HASH, emptyManagedSnapshot()]]),
-    };
-    expect(
-      await expectDriftRefusal(withoutStateSnapshot, goodMarker())
-    ).toMatchObject({
       failure: { code: VibORMErrorCode.MIGRATION_CORRUPTION },
       statements: [],
     });

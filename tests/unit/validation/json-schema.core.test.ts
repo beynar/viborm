@@ -54,7 +54,8 @@ describe("JSON Schema conversion", () => {
         "Exact decimal with at most 10 total digits and at most 2 fractional digits";
       const inputStringValue = {
         type: "string",
-        pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
+        pattern:
+          "^[+-]?(?:(?:0+|0*[1-9]\\d{0,7})(?:\\.\\d{0,2}0*)?|\\.\\d{1,2}0*)$",
       };
       const outputStringValue = {
         type: "string",
@@ -144,7 +145,8 @@ describe("JSON Schema conversion", () => {
         description:
           "Exact decimal with at most 10 total digits and at most 2 fractional digits",
         type: "string",
-        pattern: "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
+        pattern:
+          "^[+-]?(?:(?:0+|0*[1-9]\\d{0,7})(?:\\.\\d{0,2}0*)?|\\.\\d{1,2}0*)$",
       };
       const outputDecimal = {
         description:
@@ -174,14 +176,15 @@ describe("JSON Schema conversion", () => {
       });
     });
 
-    test("bigint schema", () => {
+    test("bigint schema: an integer string, the text the validator admits", () => {
       const schema = v.bigint();
       const jsonSchema = schema["~standard"].jsonSchema.output({
         target: "draft-07",
       });
 
       expect(jsonSchema).toMatchObject({
-        type: "integer",
+        type: "string",
+        pattern: "^[+-]?\\d+$",
       });
     });
 
@@ -1087,23 +1090,25 @@ describe("JSON Schema conversion", () => {
     });
 
     /**
-     * A decimal's JSON-expressible half, and the half that is only SAID.
+     * A decimal's declared domain is part of its pattern.
      *
      * The value family is `Decimal | string`; a class instance has no JSON
      * Schema at all, so what the document describes is the string (the exact
      * spelling, and what `Decimal#toJSON()` produces). A JSON number is a
-     * double and is refused, so it has no arm. The DECLARED DOMAIN is not expressible: `precision` and `scale`
-     * count SIGNIFICANT digits, counted after canonicalization, so `"1.500"`
-     * fits a scale-2 field — a `pattern` counting raw digits would refuse
-     * values this schema accepts. It is stated in `description` rather than
-     * silently dropped.
+     * double and is refused, so it has no arm. `precision` and `scale` count
+     * SIGNIFICANT digits, after canonicalization, so `"1.500"` fits a scale-2
+     * field: the pattern bounds the integer digits after leading zeros and the
+     * fractional digits before trailing zeros. The domain is also stated in
+     * `description`. (Validator parity: `json-schema-parity.core.test.ts`.)
      */
-    test("a decimal states the domain it cannot express", () => {
+    test("a decimal's pattern carries its declared domain", () => {
       const document = toJsonSchema(filterOf("dec"));
       const operand = document.anyOf?.[0] as JsonSchema;
 
       expect(operand.type).toBe("string");
-      expect(operand.pattern).toBe("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$");
+      expect(operand.pattern).toBe(
+        "^[+-]?(?:(?:0+|0*[1-9]\\d{0,7})(?:\\.\\d{0,2}0*)?|\\.\\d{1,2}0*)$"
+      );
       expect(operand).not.toHaveProperty("anyOf");
       expect(operand.description).toBe(
         "Exact decimal with at most 10 total digits and at most 2 fractional digits"
@@ -1118,7 +1123,7 @@ describe("JSON Schema conversion", () => {
       // built on. With no declared domain there is nothing to state.
       const bare = toJsonSchema(v.decimal());
       expect(bare.description).toBeUndefined();
-      expect(bare.pattern).toBe(operand.pattern);
+      expect(bare.pattern).toBe("^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$");
 
       // Reach the decimal-only comparison wrapper itself. Its validator closes
       // generic SQL fragments while `createSchema` owns the Standard Schema

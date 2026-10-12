@@ -2,7 +2,6 @@ import { VibORMErrorCode } from "@src/errors";
 import {
   assertControlTablesAuthentic,
   createControlTableSQL,
-  DEFAULT_CONTROL_BASE,
   ensureControlTables,
   inspectControlPresence,
   refusePartialControl,
@@ -15,6 +14,7 @@ import {
   controlCatalogAnswer,
   mysqlEstateDriver,
   pgEstateDriver,
+  postgresControlCatalogAnswer,
   type RecordingDriver,
   sqliteEstateDriver,
 } from "./_estate";
@@ -37,6 +37,12 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
     );
     let failFirstLogCreate = true;
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: statePresent,
+        log: logPresent,
+        check: SINGLETON_CHECK,
+      });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: statePresent,
         log: logPresent,
@@ -86,24 +92,16 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
     };
 
     await expect(
-      ensureControlTables(driver, migrationDriver, DEFAULT_CONTROL_BASE)
+      ensureControlTables(driver, migrationDriver)
     ).rejects.toThrow();
-    expect(
-      await inspectControlPresence(
-        driver,
-        migrationDriver,
-        DEFAULT_CONTROL_BASE
-      )
-    ).toEqual({ kind: "recoverable-state-only" });
+    expect(await inspectControlPresence(driver, migrationDriver)).toEqual({
+      kind: "recoverable-state-only",
+    });
 
-    await ensureControlTables(driver, migrationDriver, DEFAULT_CONTROL_BASE);
-    expect(
-      await inspectControlPresence(
-        driver,
-        migrationDriver,
-        DEFAULT_CONTROL_BASE
-      )
-    ).toEqual({ kind: "present" });
+    await ensureControlTables(driver, migrationDriver);
+    expect(await inspectControlPresence(driver, migrationDriver)).toEqual({
+      kind: "present",
+    });
   });
 
   test("still refuses a missing ledger beside an existing marker", async () => {
@@ -112,6 +110,12 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       getMigrationDriver(driver)
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: false,
+        check: SINGLETON_CHECK,
+      });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
         log: false,
@@ -142,11 +146,7 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       return [];
     };
 
-    const presence = await inspectControlPresence(
-      driver,
-      migrationDriver,
-      DEFAULT_CONTROL_BASE
-    );
+    const presence = await inspectControlPresence(driver, migrationDriver);
     expect(presence).toEqual({ kind: "missing-table", table: "log" });
     expect(() => refusePartialControl(presence)).toThrowError(
       expect.objectContaining({
@@ -162,6 +162,12 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       true
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: false,
+        malformed: true,
+      });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
         log: false,
@@ -171,7 +177,7 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
     };
 
     await expect(
-      inspectControlPresence(driver, migrationDriver, DEFAULT_CONTROL_BASE)
+      inspectControlPresence(driver, migrationDriver)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("unexpected definition"),
@@ -187,6 +193,8 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       getMigrationDriver(driver)
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, { state: true, log: false });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
         log: false,
@@ -203,7 +211,7 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
     };
 
     await expect(
-      inspectControlPresence(driver, migrationDriver, DEFAULT_CONTROL_BASE)
+      inspectControlPresence(driver, migrationDriver)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("unexpected definition"),
@@ -222,6 +230,13 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       true
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: SINGLETON_CHECK,
+        malformedLog: true,
+      });
+      if (pg) return pg;
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
         log: true,
@@ -247,11 +262,7 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
     };
 
     await expect(
-      assertControlTablesAuthentic(
-        driver,
-        migrationDriver,
-        DEFAULT_CONTROL_BASE
-      )
+      assertControlTablesAuthentic(driver, migrationDriver)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("unexpected definition"),
@@ -266,6 +277,13 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
       () => true
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: SINGLETON_CHECK,
+        attached: true,
+      });
+      if (pg) return pg;
       if (sql.includes("AS attached")) return [{ attached: 1 }];
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
@@ -292,17 +310,15 @@ describe.each(dialects)("%s control bootstrap", (_name, createDriver) => {
     };
 
     await expect(
-      assertControlTablesAuthentic(
-        driver,
-        migrationDriver,
-        DEFAULT_CONTROL_BASE
-      )
+      assertControlTablesAuthentic(driver, migrationDriver)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("executable attachments"),
     });
   });
 });
+
+const SINGLETON_CHECK = "CHECK (singleton = 1)";
 
 function commandWithStateDefinition(
   driver: BoundMigrationDriver,
@@ -392,12 +408,12 @@ describe("live SQLite control bootstrap", () => {
   test("accepts only the exact empty state table created by bootstrap", async () => {
     const driver = createInMemorySQLite3Driver();
     const command = getMigrationDriver(driver);
-    const sql = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const sql = createControlTableSQL(command);
     await driver._executeRaw(sql.state);
 
-    await expect(
-      inspectControlPresence(driver, command, DEFAULT_CONTROL_BASE)
-    ).resolves.toEqual({ kind: "recoverable-state-only" });
+    await expect(inspectControlPresence(driver, command)).resolves.toEqual({
+      kind: "recoverable-state-only",
+    });
     await driver._disconnect();
   });
 
@@ -408,26 +424,24 @@ describe("live SQLite control bootstrap", () => {
       'CREATE TABLE "_viborm_migration_state" (singleton INTEGER PRIMARY KEY, payload TEXT NOT NULL)'
     );
 
-    await expect(
-      inspectControlPresence(driver, command, DEFAULT_CONTROL_BASE)
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
-    });
+    await expect(inspectControlPresence(driver, command)).rejects.toMatchObject(
+      {
+        code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      }
+    );
     await driver._disconnect();
   });
 
   test("refuses a state-only table with a trigger before recovery effects", async () => {
     const driver = createInMemorySQLite3Driver();
     const command = getMigrationDriver(driver);
-    const sql = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const sql = createControlTableSQL(command);
     await driver._executeRaw(sql.state);
     await driver._executeRaw(
       `CREATE TRIGGER reject_control_insert BEFORE INSERT ON "_viborm_migration_state" BEGIN SELECT RAISE(ABORT, 'blocked'); END`
     );
 
-    await expect(
-      ensureControlTables(driver, command, DEFAULT_CONTROL_BASE)
-    ).rejects.toMatchObject({
+    await expect(ensureControlTables(driver, command)).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("executable attachments"),
     });
@@ -449,14 +463,14 @@ describe("live SQLite control bootstrap", () => {
   test("refuses a present control pair whose log lacks its primary key", async () => {
     const driver = createInMemorySQLite3Driver();
     const command = getMigrationDriver(driver);
-    const sql = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const sql = createControlTableSQL(command);
     await driver._executeRaw(sql.state);
     await driver._executeRaw(
       `CREATE TABLE "_viborm_migration_log" (event_id TEXT NOT NULL, attempt_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)`
     );
 
     await expect(
-      assertControlTablesAuthentic(driver, command, DEFAULT_CONTROL_BASE)
+      assertControlTablesAuthentic(driver, command)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("unexpected definition"),
@@ -482,6 +496,12 @@ describe.each([
       () => true
     );
     driver.respond = (sql, params) => {
+      const pg = postgresControlCatalogAnswer(sql, {
+        state: true,
+        log: true,
+        check: null,
+      });
+      if (pg) return pg;
       if (sql.includes("AS attached")) return [{ attached: 0 }];
       const catalog = controlCatalogAnswer(sql, params, {
         state: true,
@@ -498,11 +518,7 @@ describe.each([
     };
 
     await expect(
-      assertControlTablesAuthentic(
-        driver,
-        migrationDriver,
-        DEFAULT_CONTROL_BASE
-      )
+      assertControlTablesAuthentic(driver, migrationDriver)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("unexpected definition"),

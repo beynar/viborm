@@ -4,8 +4,10 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { bytesEqual } from "./canonical-json";
 import { emptyManagedSnapshot } from "./empty-snapshot";
 import type { Sha256 } from "./identity";
+import { freezeDeep } from "./push-fingerprint";
 import { sliceDispatch, validateSqlRanges } from "./sql-blob";
 import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageReader } from "./storage/contract";
@@ -58,8 +60,77 @@ export function requireStateSnapshot(
   return snapshot;
 }
 
+type CachedArtifact =
+  | { readonly bytes: Uint8Array; readonly snapshot: SchemaSnapshot }
+  | { readonly bytes: Uint8Array; readonly manifest: MigrationStateManifestV1 };
+
+/**
+ * Parsed artifacts, keyed by their own content hash: never by the estate
+ * hash, which every estate with the same target shares. Only the parse is
+ * skipped. Every command still lists and reads the tenant's storage, and an
+ * entry answers only bytes identical to the ones it was parsed from, so
+ * changed bytes are parsed, and refused, as if nothing were cached. Values
+ * are deep-frozen because commands and tenants share them. Least recently
+ * used entries are dropped once the held bytes exceed `maxBytes`.
+ */
+export class ArtifactCache {
+  private readonly entries = new Map<Sha256, CachedArtifact>();
+  private readonly maxBytes: number;
+  private held = 0;
+
+  constructor(maxBytes: number) {
+    this.maxBytes = maxBytes;
+  }
+
+  get heldBytes(): number {
+    return this.held;
+  }
+
+  snapshot(hash: Sha256, bytes: Uint8Array): SchemaSnapshot {
+    const hit = this.hit(hash, bytes);
+    if (hit && "snapshot" in hit) return hit.snapshot;
+    const snapshot = freezeDeep(parseSnapshotDocument(bytes, hash));
+    return this.keep(hash, { bytes: bytes.slice(), snapshot }).snapshot;
+  }
+
+  manifest(id: Sha256, bytes: Uint8Array): MigrationStateManifestV1 {
+    const hit = this.hit(id, bytes);
+    if (hit && "manifest" in hit) return hit.manifest;
+    const manifest = freezeDeep(parseStateManifest(bytes, id));
+    return this.keep(id, { bytes: bytes.slice(), manifest }).manifest;
+  }
+
+  private hit(hash: Sha256, bytes: Uint8Array): CachedArtifact | undefined {
+    const entry = this.entries.get(hash);
+    if (!(entry && bytesEqual(entry.bytes, bytes))) return undefined;
+    this.entries.delete(hash);
+    this.entries.set(hash, entry);
+    return entry;
+  }
+
+  private keep<T extends CachedArtifact>(hash: Sha256, entry: T): T {
+    // Only a miss parses, and a miss on a held hash has other bytes, which
+    // the parse refuses, so `hash` is never already held here.
+    this.entries.set(hash, entry);
+    this.held += entry.bytes.length;
+    for (const [key, oldest] of this.entries) {
+      if (this.held <= this.maxBytes) break;
+      this.entries.delete(key);
+      this.held -= oldest.bytes.length;
+    }
+    return entry;
+  }
+}
+
+/**
+ * One per isolate. 8 MiB of artifact bytes hold a 200-state estate of twenty
+ * 15-column tables; the parsed values add about as much again.
+ */
+const artifacts = new ArtifactCache(8 * 1024 * 1024);
+
 export async function loadMigrationGraph(
-  storage: MigrationStorageReader
+  storage: MigrationStorageReader,
+  cache: ArtifactCache = artifacts
 ): Promise<MigrationGraph> {
   const estateBytes = await storage.readEstate();
   if (!estateBytes) {
@@ -89,7 +160,7 @@ export async function loadMigrationGraph(
         VibORMErrorCode.MIGRATION_CORRUPTION
       );
     }
-    const manifest = parseStateManifest(bytes, id);
+    const manifest = cache.manifest(id, bytes);
     if (manifest.estateHash !== estateHash) {
       throw new MigrationError(
         `State ${id} belongs to a different estate`,
@@ -112,7 +183,7 @@ export async function loadMigrationGraph(
         VibORMErrorCode.MIGRATION_CORRUPTION
       );
     }
-    snapshots.set(hash, parseSnapshotDocument(bytes, hash));
+    snapshots.set(hash, cache.snapshot(hash, bytes));
   }
 
   const sql = new Map<Sha256, Uint8Array>();
@@ -134,8 +205,7 @@ export async function loadMigrationGraph(
   }
 
   for (const manifest of states.values()) {
-    const blob = sql.get(manifest.sqlHash);
-    if (!blob) continue;
+    const blob = sql.get(manifest.sqlHash)!;
     const dispatches: MigrationDispatchV1[] = [];
     for (const parent of manifest.parents) {
       collectDispatches(parent, dispatches);
@@ -336,7 +406,10 @@ export function resolveStateSelector(
         VibORMErrorCode.MIGRATION_NOT_FOUND
       );
     }
-    throw pathRequired(graph.leaves.map((leaf) => [leaf]));
+    throw pathRequired(
+      graph.leaves.map((leaf) => [leaf]),
+      "Multiple leaf states exist; choose the target with --to / { to }"
+    );
   }
   if ("id" in selector) {
     if (!graph.states.has(selector.id)) {
@@ -358,7 +431,10 @@ export function resolveStateSelector(
         VibORMErrorCode.MIGRATION_NOT_FOUND
       );
     }
-    throw pathRequired(matches.map((id) => [id]));
+    throw pathRequired(
+      matches.map((id) => [id]),
+      AMBIGUOUS_SELECTOR
+    );
   }
   const matches = [...graph.states.values()]
     .filter((state) => state.name === selector.name)
@@ -370,7 +446,10 @@ export function resolveStateSelector(
       VibORMErrorCode.MIGRATION_NOT_FOUND
     );
   }
-  throw pathRequired(matches.map((id) => [id]));
+  throw pathRequired(
+    matches.map((id) => [id]),
+    AMBIGUOUS_SELECTOR
+  );
 }
 
 export function selectRoute(
@@ -415,7 +494,10 @@ export function selectRoute(
       VibORMErrorCode.MIGRATION_NOT_FOUND
     );
   }
-  throw pathRequired(routes);
+  throw pathRequired(
+    routes,
+    "Multiple migration paths exist; choose one with --via / { via }"
+  );
 }
 
 function hasEdge(
@@ -426,6 +508,36 @@ function hasEdge(
   const state = graph.states.get(to);
   if (!state) return false;
   return state.parents.some((parent) => parent.fromState === from);
+}
+
+/**
+ * Plan T4: what a history pruned at `checkpoint` keeps. The checkpoint, every
+ * state after it, and every state those name as a parent, so no kept
+ * transition dangles: a merge with older history keeps that history.
+ */
+export function statesFrom(
+  graph: MigrationGraph,
+  checkpoint: Sha256
+): ReadonlySet<Sha256> {
+  const children = childrenIndex(graph);
+  const closure = (
+    start: Iterable<Sha256>,
+    next: (id: Sha256) => readonly (Sha256 | null)[]
+  ) => {
+    const seen = new Set<Sha256>();
+    const pending = [...start];
+    while (pending.length > 0) {
+      const id = pending.pop()!;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      for (const step of next(id)) if (step !== null) pending.push(step);
+    }
+    return seen;
+  };
+  return closure(
+    closure([checkpoint], (id) => children.get(id) ?? []),
+    (id) => graph.states.get(id)!.parents.map((parent) => parent.fromState)
+  );
 }
 
 function childrenIndex(graph: MigrationGraph): Map<string, Sha256[]> {
@@ -472,14 +584,20 @@ function enumerateRoutes(
   return found;
 }
 
-function pathRequired(routes: readonly (readonly Sha256[])[]): never {
+const AMBIGUOUS_SELECTOR =
+  "The state selector matches several states; pass a longer prefix or the full state id";
+
+function pathRequired(
+  routes: readonly (readonly Sha256[])[],
+  hint: string
+): never {
   const witness: PathWitness = {
     routes: routes.slice(0, 2),
     frontier: firstFrontier(routes),
     more: routes.length > 2,
   };
   throw new MigrationError(
-    `Multiple migration paths exist; pass via. Candidates: ${witness.routes
+    `${hint}. Candidates: ${witness.routes
       .map((route) => route.join(" -> "))
       .join(" | ")}`,
     VibORMErrorCode.MIGRATION_PATH_REQUIRED,
@@ -500,6 +618,32 @@ function firstFrontier(routes: readonly (readonly Sha256[])[]): Sha256[] {
     }
   }
   return frontier;
+}
+
+/** One edge of a route: its endpoints, transition, arrival state and SQL. */
+export interface RouteEdge {
+  readonly from: Sha256 | null;
+  readonly to: Sha256;
+  readonly transition: MigrationParentTransitionV1;
+  readonly state: MigrationStateManifestV1;
+  readonly blob: Uint8Array;
+}
+
+/**
+ * The edges of `path` walked from `origin`. `parentTransition` refuses a
+ * missing edge; the loaded graph holds every state and blob an edge names.
+ */
+export function routeEdges(
+  graph: MigrationGraph,
+  origin: Sha256 | null,
+  path: readonly Sha256[]
+): RouteEdge[] {
+  return path.map((to, index) => {
+    const from = index === 0 ? origin : path[index - 1]!;
+    const transition = parentTransition(graph, from, to);
+    const state = graph.states.get(to)!;
+    return { from, to, transition, state, blob: graph.sql.get(state.sqlHash)! };
+  });
 }
 
 export function parentTransition(

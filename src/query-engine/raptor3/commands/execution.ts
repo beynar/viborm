@@ -848,8 +848,31 @@ export class CommandExecution {
         // (U6.2, "the phase pass stays").
         for (const child of occurrence.children)
           if (child.placement === "capture") await this.run(child, member);
-        for (const child of occurrence.children)
-          if (child.placement === "after") await this.run(child, member);
+        // A nested `create` list places its entries as consecutive `after`
+        // records, and the child-free ones share one INSERT per run.
+        const children = occurrence.children;
+        for (let index = 0; index < children.length; index++) {
+          const child = children[index]!;
+          if (child.placement !== "after") continue;
+          // The maximal run of consecutive `after` records sharing `child`'s
+          // INSERT (`child` itself first, when it qualifies at all).
+          const run: CommandOccurrence<RecordCommand>[] = [];
+          let next = children[index];
+          if (isRecordOccurrence(child))
+            while (
+              next?.placement === "after" &&
+              this.#sharesInsert(child.command, next)
+            ) {
+              run.push(next);
+              next = children[index + run.length];
+            }
+          if (run.length < 2) await this.run(child, member);
+          else {
+            index += run.length - 1;
+            if ((await this.#insertTogether(run)) === undefined)
+              for (const one of run) await this.run(one, member);
+          }
+        }
         return;
       }
       case "lookup": {
@@ -1168,6 +1191,47 @@ export class CommandExecution {
       )
     );
   }
+  /**
+   * Whether `candidate` may share `first`'s INSERT: a create of the same model
+   * writing the same columns in the same order, whose output nothing demands
+   * and which carries no child, suppression or refusal of its own. Rows that
+   * pass reach the provider as one grouped, bind-budgeted INSERT
+   * ({@link insertTogether}) in their declared order, so generated keys are
+   * allocated as the one-row-at-a-time path allocates them.
+   */
+  #sharesInsert(
+    first: RecordCommand,
+    candidate: CommandOccurrence
+  ): candidate is CommandOccurrence<RecordCommand> {
+    if (!isRecordOccurrence(candidate)) return false;
+    const { command, children, refusal } = candidate;
+    const columns = first.fields.writtenFields();
+    const written = command.fields.writtenFields();
+    return (
+      command.model === first.model &&
+      command.fields.operation === "create" &&
+      command.fields.demands.size === 0 &&
+      written.length === columns.length &&
+      written.every((field, index) => field === columns[index]) &&
+      !command.suppression &&
+      !command.located &&
+      children.length === 0 &&
+      refusal === undefined
+    );
+  }
+  /**
+   * The rows of `records` through the operation's one grouped INSERT owner
+   * (`OperationContext.insertMany`), or `undefined` where that owner declines
+   * (outside the operation's own region, or on the batch route).
+   */
+  #insertTogether(
+    records: CommandOccurrence<RecordCommand>[]
+  ): Promise<number | undefined> {
+    return this.context.insertMany(records[0]!.command.model, () => {
+      for (const { command } of records) command.fields.activate();
+      return records.map(({ command }) => this.stored(command.fields));
+    });
+  }
   async #executeRecords(
     records: CommandOccurrence<RecordCommand>[],
     member: Member,
@@ -1177,30 +1241,13 @@ export class CommandExecution {
     const members = ctx.prepareMembers(() => records, member);
     const identities: Input[] = [];
     const first = members[0];
-    const columns = first?.command.fields.writtenFields() ?? [];
     if (
       !identified &&
       members.length > 1 &&
       first &&
-      members.every(
-        ({ command, children, refusal }) =>
-          command.model === first.command.model &&
-          command.fields.operation === "create" &&
-          command.fields.demands.size === 0 &&
-          command.fields.writtenFields().length === columns.length &&
-          command.fields
-            .writtenFields()
-            .every((field, index) => field === columns[index]) &&
-          !command.suppression &&
-          !command.located &&
-          children.length === 0 &&
-          refusal === undefined
-      )
+      members.every((record) => this.#sharesInsert(first.command, record))
     ) {
-      const count = await ctx.insertMany(first.command.model, () => {
-        for (const { command } of members) command.fields.activate();
-        return members.map(({ command }) => this.stored(command.fields));
-      });
+      const count = await this.#insertTogether(members);
       if (count !== undefined) return { count, identities };
     }
     let count = 0;

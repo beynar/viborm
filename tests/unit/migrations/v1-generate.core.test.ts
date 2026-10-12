@@ -442,17 +442,17 @@ describe("migration v1 generate", () => {
     await client.$disconnect();
   });
 
-  test("a second virtual-root transition is refused after any published state", async () => {
+  test("a second virtual-root transition is an authored checkpoint of the leaf's schema", async () => {
     const storage = new MemoryEstateStorage();
     const client = clientWith({ user });
-    await generateV1(client, storage, { name: "init" });
+    const init = await generateV1(client, storage, { name: "init" });
     await expect(
-      generateV1(client, storage, { from: null, name: "second-root" })
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_INVALID_ESTATE,
-      message: expect.stringContaining("virtual-root"),
+      generateV1(client, storage, { from: null, name: "checkpoint" })
+    ).resolves.toMatchObject({
+      outcome: "published",
+      snapshotHash: init.snapshotHash,
     });
-    expect(await storage.listStates()).toHaveLength(1);
+    expect(await storage.listStates()).toHaveLength(2);
     await client.$disconnect();
   });
 

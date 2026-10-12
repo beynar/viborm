@@ -71,6 +71,7 @@ import {
   discardAsyncValidationResult,
   validationFailureFromThrown,
 } from "./parse-failure";
+import { reportingAllIssues } from "./primitives/helpers";
 import type { ParseResult, ValidationFailure } from "./types";
 import { isFunction, isRecord } from "./value-guards";
 
@@ -86,16 +87,25 @@ const malformedValidationFailure: ValidationFailure = {
   issues: [{ message: "Schema returned a malformed validation result" }],
 };
 
+/**
+ * Validate `value` against `schema`. `allIssues: true` reports every issue of
+ * the value — each object member, each list item, every unknown or missing
+ * key — instead of stopping at the first.
+ */
 export function parse<const S extends StandardSchemaV1>(
   schema: S,
-  value: unknown
+  value: unknown,
+  options?: { readonly allIssues?: boolean | undefined }
 ): ParseResult<S>;
 export function parse(
   schema: StandardSchemaV1,
-  value: unknown
+  value: unknown,
+  options?: { readonly allIssues?: boolean | undefined }
 ): StandardSchemaV1.Result<unknown> {
   try {
-    const result = schema["~standard"].validate(value);
+    const result = reportingAllIssues(options?.allIssues === true, () =>
+      schema["~standard"].validate(value)
+    );
     if (isPromiseLike(result)) {
       discardAsyncValidationResult(result);
       return asyncValidationFailure;

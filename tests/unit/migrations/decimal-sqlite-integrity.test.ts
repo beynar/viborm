@@ -9,6 +9,7 @@
 
 import { sqliteDecimalCheck } from "@adapters/databases/sqlite/storage/decimal";
 import { createClient } from "@client/client";
+import type { MigrationDriver } from "@migrations/drivers";
 import { sqlite3MigrationDriver } from "@migrations/drivers/sqlite";
 import {
   assertForeignKeysIntact,
@@ -16,7 +17,6 @@ import {
   withForeignKeysLifted,
 } from "@migrations/foreign-keys";
 import { invertOperations } from "@migrations/invert";
-import { generateDDLStatements } from "@migrations/push/executor";
 import type {
   DiffOperation,
   ForeignKeyDef,
@@ -28,6 +28,22 @@ import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { describe, expect, it } from "vitest";
 import { ddlContext } from "./_estate";
+
+/** Every live statement of `operations`, in order, each in its own context. */
+function liveStatements(
+  operations: DiffOperation[],
+  migrationDriver: MigrationDriver,
+  currentSchema: SchemaSnapshot
+): string[] {
+  return operations.flatMap((operation, position) =>
+    migrationDriver.compileStatements(operation, {
+      destination: "live",
+      currentSchema,
+      precedingOperations: operations.slice(0, position),
+      followingOperations: operations.slice(position + 1),
+    })
+  );
+}
 
 const COLLIDING_JSON_EACH_COLUMNS = [
   "key",
@@ -96,7 +112,7 @@ async function executeSchemaStatements(
       for (const statement of lifted.statements) {
         await transaction._executeRaw(statement);
       }
-      await assertForeignKeysIntact(transaction, lifted.bracket);
+      if (lifted.bracket) await assertForeignKeysIntact(transaction);
     })
   );
 }
@@ -404,7 +420,7 @@ describe("SQLite decimal reconstruction integrity", () => {
       `INSERT INTO "decimal_replay_child" ("id","amount_ref","note") VALUES ('row',120,'kept')`
     );
 
-    const statements = generateDDLStatements(
+    const statements = liveStatements(
       operations,
       sqlite3MigrationDriver,
       before
@@ -468,7 +484,7 @@ describe("SQLite decimal reconstruction integrity", () => {
       `INSERT INTO "table_replay_child" ("id","parent_id","note") VALUES ('child','parent','kept')`
     );
 
-    const statements = generateDDLStatements(
+    const statements = liveStatements(
       operations,
       sqlite3MigrationDriver,
       before
@@ -519,7 +535,7 @@ describe("SQLite decimal reconstruction integrity", () => {
 
     await executeSchemaStatements(
       driver,
-      generateDDLStatements(operations, sqlite3MigrationDriver, before)
+      liveStatements(operations, sqlite3MigrationDriver, before)
     );
 
     const definition = await driver._executeRaw<{ sql: string }>(

@@ -1,12 +1,16 @@
 /** Deterministic SQLite foreign-key pragma lifting contracts. */
 
 import type { AnyDriver } from "@src/drivers/driver";
+import { VibORMErrorCode } from "@src/errors";
 import { liftForeignKeyPragmas } from "@src/migrations/foreign-keys";
 import { describe, expect, it } from "vitest";
 
 describe("which batches get lifted", () => {
-  const transactional = { supportsBatch: false } as unknown as AnyDriver;
-  const batchOnly = { supportsBatch: true } as unknown as AnyDriver;
+  const transactional = { supportsTransactions: true } as unknown as AnyDriver;
+  const transactionless = {
+    supportsTransactions: false,
+    driverName: "d1",
+  } as unknown as AnyDriver;
   const recreation = [
     "PRAGMA foreign_keys=OFF",
     'CREATE TABLE "__new_t" ("id" TEXT)',
@@ -24,11 +28,12 @@ describe("which batches get lifted", () => {
     });
   });
 
-  it("leaves a native batch alone — one round trip has no outside to lift to", () => {
-    expect(liftForeignKeyPragmas(batchOnly, recreation)).toEqual({
-      bracket: null,
-      statements: recreation,
-    });
+  it("refuses a recreation where no transaction can prove the lift", () => {
+    expect(() => liftForeignKeyPragmas(transactionless, recreation)).toThrow(
+      expect.objectContaining({
+        code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+      })
+    );
   });
 
   it("refuses half a bracket rather than leave enforcement off past the batch", () => {
@@ -41,9 +46,11 @@ describe("which batches get lifted", () => {
 
   it("leaves a batch that never asked for the pragma untouched", () => {
     const plain = ['ALTER TABLE "t" ADD COLUMN "c" TEXT'];
-    expect(liftForeignKeyPragmas(transactional, plain)).toEqual({
-      bracket: null,
-      statements: plain,
-    });
+    for (const driver of [transactional, transactionless]) {
+      expect(liftForeignKeyPragmas(driver, plain)).toEqual({
+        bracket: null,
+        statements: plain,
+      });
+    }
   });
 });

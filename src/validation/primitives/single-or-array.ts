@@ -6,10 +6,6 @@ import { array } from "./array";
 import { coerce } from "./transform";
 import { union } from "./union";
 
-export type SingleOrArraySchema<S extends VibSchema> = ReturnType<
-  typeof singleOrArray<S>
->;
-
 /**
  * Creates a schema that accepts either a single value or an array of values.
  * Single values are coerced to a single-element array for consistent output.

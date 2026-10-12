@@ -1,0 +1,18 @@
+{
+  "$schema": "../../../../node_modules/wrangler/config-schema.json",
+  "name": "viborm-tenant-do-tests",
+  "main": "worker.ts",
+  // Maximum date supported by the Node 18-compatible Workers pool pinned here.
+  "compatibility_date": "2025-10-11",
+  // `pg` needs the Node.js APIs. This pool version predates workerd's own
+  // `node:vm` and `node:console`, so they stay off for its runner.
+  "compatibility_flags": [
+    "nodejs_compat",
+    "disable_nodejs_vm_module",
+    "disable_nodejs_console_module"
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "TENANT", "class_name": "TenantObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TenantObject"] }]
+}

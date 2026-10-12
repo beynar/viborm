@@ -4,7 +4,9 @@
  */
 
 import { ValidationError } from "@errors";
+import { BIGINT_TEXT_PATTERN } from "../primitives/bigint";
 import type { DecimalSchema } from "../primitives/decimal";
+import type { DecimalDescriptor } from "../primitives/decimal-codec";
 import {
   GEO_BOUNDS_KEYS,
   GEO_LATITUDE_MAX,
@@ -14,6 +16,7 @@ import {
   GEO_POINT_KEYS,
   GEO_POLYGON_MIN_RING_POINTS,
 } from "../primitives/geo-values";
+import { type IdDomain, idDomainPattern } from "../primitives/id-codec";
 import type { ExactlyOneSchema } from "../scalars/decimal";
 import type { VibSchema } from "../types";
 import { isFunction, isRecord, isString } from "../value-guards";
@@ -36,6 +39,19 @@ const WRAPPER_TYPES = new Set(["array", "nullable", "optional", "lazyRef"]);
 const DECIMAL_INPUT_PATTERN = "^[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$";
 const DECIMAL_OUTPUT_PATTERN =
   "^(?:0|-?(?:[1-9]\\d*(?:\\.\\d*[1-9])?|0\\.\\d*[1-9]))$";
+
+/**
+ * The input literal grammar restricted to a declared domain: at most
+ * `precision - scale` significant integer digits and at most `scale`
+ * significant fractional digits, any leading and trailing zeros aside.
+ */
+function decimalDomainPattern({ precision, scale }: DecimalDescriptor): string {
+  const integer = precision - scale;
+  const whole = integer === 0 ? "0+" : `(?:0+|0*[1-9]\\d{0,${integer - 1}})`;
+  const fraction = `\\d{0,${scale}}0*`;
+  const bareFraction = scale === 0 ? "0+" : `\\d{1,${scale}}0*`;
+  return `^[+-]?(?:${whole}(?:\\.${fraction})?|\\.${bareFraction})$`;
+}
 
 function geoPointJsonSchema(): JsonSchema {
   return {
@@ -256,13 +272,11 @@ function convertSchemaBody(
     // no arm. A `Decimal` object has no JSON Schema because a class instance
     // is not a JSON value; its own `toJSON()` produces the string.
     //
-    // The DECLARED DOMAIN is NOT expressible here and is stated rather than
-    // silently dropped. `precision` counts the SIGNIFICANT digits of the
-    // unscaled coefficient and `scale` the significant fractional digits, and
-    // both are counted AFTER canonicalization — `"1.500"` fits a scale-2
-    // field because it names 1.5. A `pattern` counting raw digits would
-    // therefore refuse values this schema accepts, which is a worse lie than
-    // an unexpressed bound.
+    // The DECLARED DOMAIN is part of the input pattern. Both bounds count
+    // SIGNIFICANT digits, after canonicalization (`"1.500"` fits a scale-2
+    // field because it names 1.5): at most `scale` fractional digits before
+    // trailing zeros, and at most `precision - scale` integer digits after
+    // leading zeros — `domainRefusal`'s rule, spelled as text.
     const options = schema.options;
     const domain = options?.decimal;
     if (domain) {
@@ -272,10 +286,13 @@ function convertSchemaBody(
     // Output is the codec's ONE canonical spelling, not the broader literal
     // grammar accepted on input: no leading plus/zero, dangling point,
     // trailing fractional zero, or signed zero survives validation.
-    jsonSchema.pattern =
-      context.direction === "output"
-        ? DECIMAL_OUTPUT_PATTERN
+    if (context.direction === "output") {
+      jsonSchema.pattern = DECIMAL_OUTPUT_PATTERN;
+    } else {
+      jsonSchema.pattern = domain
+        ? decimalDomainPattern(domain)
         : DECIMAL_INPUT_PATTERN;
+    }
 
     return jsonSchema;
   }
@@ -312,9 +329,13 @@ function convertSchemaBody(
     // Primitive Schemas
     // =========================================================================
 
-    case "string":
+    case "string": {
       jsonSchema.type = "string";
+      const idDomain = (schema as { options?: { idDomain?: IdDomain } }).options
+        ?.idDomain;
+      if (idDomain) jsonSchema.pattern = idDomainPattern(idDomain);
       break;
+    }
 
     case "number":
     case "integer":
@@ -330,8 +351,10 @@ function convertSchemaBody(
       break;
 
     case "bigint":
-      // BigInt maps to integer in JSON Schema
-      jsonSchema.type = "integer";
+      // A bigint crosses JSON as integer text: a JSON number past 2^53 has
+      // already lost digits. The validator admits the same text.
+      jsonSchema.type = "string";
+      jsonSchema.pattern = BIGINT_TEXT_PATTERN;
       break;
 
     case "literal": {
@@ -621,6 +644,14 @@ function convertSchemaBody(
       // stays the document language.
       const operand = (schema as any).wrapped as VibSchema<unknown, unknown>;
       return convertSchema(operand as any, context);
+    }
+
+    case "polymorphic_only": {
+      // A variant allow-list: the membership list, each variant at most once.
+      const { wrapped } = schema as VibSchema<unknown, unknown> & {
+        wrapped: VibSchema<unknown, unknown>;
+      };
+      return { ...convertSchema(wrapped, context), uniqueItems: true };
     }
 
     case "pipe": {

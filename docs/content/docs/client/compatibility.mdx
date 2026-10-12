@@ -218,8 +218,10 @@ The matrices show operation support. These restrictions are independent:
   value with no transient `NULL`. Literal `false` is inactive. Other
   combinations fail at the validation and type boundary. Direct polymorphic
   payloads contain exactly one typed intent. To-many payloads may combine
-  operation kinds. See
-  [Combining operations on one to-one relation](/docs/client/nested-writes#combining-operations-on-one-to-one-relation).
+  operation kinds; they run clear-first in one fixed order, whatever order the
+  verbs are spelled in. See
+  [Combining operations on one to-one relation](/docs/client/nested-writes#combining-operations-on-one-to-one-relation)
+  and [on one to-many relation](/docs/client/nested-writes#combining-operations-on-one-to-many-relation).
 - Nested `createMany` rows and nested `updateMany.data` may contain ordinary or
   direct polymorphic relation writes. Scalar-only shapes stay grouped. A
   relation-bearing shape becomes an ordered record series at that exact
@@ -255,6 +257,11 @@ an unrestricted mutation filter directly from optional request input.
 `every` uses SQL three-valued logic: a nullable child value that makes the child
 predicate unknown is not a counterexample. Use an explicit non-null condition
 when every child must have a matching value.
+
+To-one `isNot: P` is `NOT (is: P)`: a related record whose compared field is
+`NULL` does not match `P`, so `isNot` keeps it, where Prisma's `isNot` drops
+it. Write `is: { NOT: P }` to drop it. See
+[To-one relation filters](/docs/client/filtering/relations-to-one#isnot).
 
 Enum sorting follows declaration order on PostgreSQL/MySQL and text order on
 SQLite. Ordinary string ordering and aggregates follow the column/database

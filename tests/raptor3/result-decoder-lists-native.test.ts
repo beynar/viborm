@@ -35,10 +35,10 @@
  * refused as not canonical). Both answer identically at `544ab9465` and belong
  * to the driver and the relation projection, not to the list reader: the
  * carried `bigint` list here stays inside the safe range, and the wide member
- * is read at physical placements only, on `tally`. An identifier-generator
- * list (`s.string().uuid().array()`) cannot be created on PostgreSQL
- * (`text[] DEFAULT gen_random_uuid()`); its SQLite pins stay in
- * `result-decoder-lists.test.ts`.
+ * is read at physical placements only, on `tally`. A uuid list
+ * (`s.string().uuid().array()`) now creates on PostgreSQL with no column
+ * default (1.2.0, types-08) but is not part of this fixture; its pins stay in
+ * the SQLite `result-decoder-lists.test.ts`.
  *
  * Every expected value is the value the test wrote, or the baseline's
  * published sentence (`544ab9465`). The provider decides only the physical

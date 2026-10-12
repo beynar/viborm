@@ -10,6 +10,7 @@ import type { IdDomain } from "@validation/primitives/id-codec";
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import {
@@ -25,6 +26,7 @@ import {
 import type {
   ColumnDef,
   DiffOperation,
+  ForeignKeyDef,
   SchemaSnapshot,
   TableDef,
 } from "../../types";
@@ -69,6 +71,7 @@ import {
   type CreateIndexOperation,
   type CreateTableOperation,
   type DDLContext,
+  type DerivedRename,
   type DropColumnOperation,
   type DropEnumOperation,
   type DropForeignKeyOperation,
@@ -88,12 +91,14 @@ import {
 } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
+import { planInterruptedMySQLDecimalRecovery } from "./decimal-recovery";
 import { introspect as introspectMySQL } from "./introspect";
 import {
   mysqlAcquireLockStatement,
   mysqlLockAnswer,
   mysqlReleaseLockStatement,
   mysqlSelectTargetStatement,
+  proveMySQLExactValueSession,
 } from "./pinned-session";
 
 const MYSQL_POINT_ATTRIBUTE_START = MYSQL_TYPE_DEFAULTS.point.indexOf(" ");
@@ -310,7 +315,7 @@ export class MySQLMigrationDriver
    * qualification primitive: handing `database.table` to `escapeIdentifier`
    * would silently produce one identifier naming a table with a dot in it.
    */
-  private tableRef(
+  protected override tableRef(
     tableName: string,
     destination: DDLContext["destination"]
   ): string {
@@ -545,8 +550,7 @@ export class MySQLMigrationDriver
    */
   private validateAutoIncrementType(column: ColumnDef): void {
     // Extract base type (e.g., "INT UNSIGNED" -> "int", "BIGINT(20)" -> "bigint")
-    const baseType =
-      column.type.toLowerCase().split(BASE_TYPE_PATTERN)[0] ?? "";
+    const baseType = column.type.toLowerCase().split(BASE_TYPE_PATTERN)[0]!;
 
     if (!MySQLMigrationDriver.AUTO_INCREMENT_TYPES.has(baseType)) {
       throw new MigrationError(
@@ -620,11 +624,7 @@ export class MySQLMigrationDriver
   // DDL GENERATION - Table Operations
   // ===========================================================================
 
-  generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
-    return this.compileCreateTable(op, context).join(";\n");
-  }
-
-  override compileCreateTable(
+  generateCreateTable(
     op: CreateTableOperation,
     context: DDLContext
   ): readonly string[] {
@@ -666,20 +666,7 @@ export class MySQLMigrationDriver
 
     // Foreign keys (inline in CREATE TABLE for MySQL)
     for (const fk of table.foreignKeys) {
-      const fkCols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
-      const refCols = fk.referencedColumns
-        .map((c) => this.escapeIdentifier(c))
-        .join(", ");
-      let fkDef = `CONSTRAINT ${this.escapeIdentifier(fk.name)} `;
-      fkDef += `FOREIGN KEY (${fkCols}) `;
-      fkDef += `REFERENCES ${this.tableRef(fk.referencedTable, context.destination)} (${refCols})`;
-      if (fk.onDelete && fk.onDelete !== "noAction") {
-        fkDef += ` ON DELETE ${this.formatReferentialAction(fk.onDelete)}`;
-      }
-      if (fk.onUpdate && fk.onUpdate !== "noAction") {
-        fkDef += ` ON UPDATE ${this.formatReferentialAction(fk.onUpdate)}`;
-      }
-      columnDefs.push(fkDef);
+      columnDefs.push(this.foreignKeyClause(fk, context));
     }
 
     const sql = `CREATE TABLE ${this.tableRef(table.name, context.destination)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
@@ -701,7 +688,7 @@ export class MySQLMigrationDriver
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
   generateDropTable(op: DropTableOperation, context: DDLContext): string {
@@ -715,6 +702,26 @@ export class MySQLMigrationDriver
     // independent tables, and an unqualified destination would move the table
     // into the connection's default database instead of renaming it in place.
     return `RENAME TABLE ${this.tableRef(op.from, context.destination)} TO ${this.tableRef(op.to, context.destination)}`;
+  }
+
+  // An index or unique (one object here) is renamed in place. A foreign key
+  // cannot be: it is dropped and added under its new name in the same
+  // statement, so the key is never absent.
+  protected override renameDerivedNames(
+    owner: string,
+    renames: ReadonlyMap<string, DerivedRename>,
+    table: TableDef,
+    context: DDLContext
+  ): string[] {
+    const clauses = [...renames].map(([from, { to }]) => {
+      const key = table.foreignKeys.find((item) => item.name === from);
+      return key
+        ? `DROP FOREIGN KEY ${this.escapeIdentifier(from)}, ADD ${this.foreignKeyClause({ ...key, name: to }, context)}`
+        : `RENAME INDEX ${this.escapeIdentifier(from)} TO ${this.escapeIdentifier(to)}`;
+    });
+    return [
+      `ALTER TABLE ${this.tableRef(owner, context.destination)} ${clauses.join(", ")}`,
+    ];
   }
 
   // ===========================================================================
@@ -736,21 +743,10 @@ export class MySQLMigrationDriver
     return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
   }
 
-  generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
-    return this.alterColumnStatements(op, context).join(";\n");
-  }
-
-  override compileAlterColumn(
+  generateAlterColumn(
     op: AlterColumnOperation,
     context: DDLContext
   ): readonly string[] {
-    return this.filterStatements(this.alterColumnStatements(op, context));
-  }
-
-  private alterColumnStatements(
-    op: AlterColumnOperation,
-    context: DDLContext
-  ): string[] {
     const { tableName, columnName, to } = op;
     const table = this.tableRef(tableName, context.destination);
 
@@ -1020,24 +1016,23 @@ export class MySQLMigrationDriver
     op: AddForeignKeyOperation,
     context: DDLContext
   ): string {
-    const { tableName, fk } = op;
+    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} ADD ${this.foreignKeyClause(op.fk, context)}`;
+  }
+
+  private foreignKeyClause(fk: ForeignKeyDef, context: DDLContext): string {
     const cols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
     const refCols = fk.referencedColumns
       .map((c) => this.escapeIdentifier(c))
       .join(", ");
-
-    let sql = `ALTER TABLE ${this.tableRef(tableName, context.destination)} `;
-    sql += `ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} `;
+    let sql = `CONSTRAINT ${this.escapeIdentifier(fk.name)} `;
     sql += `FOREIGN KEY (${cols}) `;
     sql += `REFERENCES ${this.tableRef(fk.referencedTable, context.destination)} (${refCols})`;
-
     if (fk.onDelete && fk.onDelete !== "noAction") {
       sql += ` ON DELETE ${this.formatReferentialAction(fk.onDelete)}`;
     }
     if (fk.onUpdate && fk.onUpdate !== "noAction") {
       sql += ` ON UPDATE ${this.formatReferentialAction(fk.onUpdate)}`;
     }
-
     return sql;
   }
 
@@ -1109,11 +1104,7 @@ export class MySQLMigrationDriver
     return "-- MySQL: ENUM type is part of column definition";
   }
 
-  generateAlterEnum(op: AlterEnumOperation, context: DDLContext): string {
-    return this.compileAlterEnum(op, context).join(";\n");
-  }
-
-  override compileAlterEnum(
+  generateAlterEnum(
     op: AlterEnumOperation,
     context: DDLContext
   ): readonly string[] {
@@ -1121,15 +1112,11 @@ export class MySQLMigrationDriver
     const { enumName, newValues, dependentColumns } = op;
 
     if (!newValues || newValues.length === 0) {
-      return this.filterStatements([
-        `-- MySQL: no new values provided for enum "${enumName}"`,
-      ]);
+      return [`-- MySQL: no new values provided for enum "${enumName}"`];
     }
 
     if (!dependentColumns || dependentColumns.length === 0) {
-      return this.filterStatements([
-        `-- MySQL: no dependent columns found for enum "${enumName}"`,
-      ]);
+      return [`-- MySQL: no dependent columns found for enum "${enumName}"`];
     }
 
     const statements: string[] = [];
@@ -1139,7 +1126,7 @@ export class MySQLMigrationDriver
     // holding a removed value, MODIFY errors in strict mode. Replacement
     // targets must already exist in the old enum (surviving values or NULL);
     // mapping to a value added in the same alter is not supported.
-    statements.push(...this.buildMySQLEnumReplacementUpdates(op, context));
+    statements.push(...this.buildEnumReplacementUpdates(op, context));
 
     for (const dep of dependentColumns) {
       const currentTable = context.currentSchema?.tables.find(
@@ -1167,52 +1154,6 @@ export class MySQLMigrationDriver
       );
     }
 
-    return this.filterStatements(statements);
-  }
-
-  /**
-   * The enum-replacement UPDATEs, with their table position qualified (§5.1).
-   *
-   * `MigrationDriver.buildEnumReplacementUpdates` renders the same statements
-   * database-relative and takes no `DDLContext`, so it cannot express a live
-   * table position; `base.ts` is shared with the PostgreSQL and SQLite dialects
-   * and is owned by no unit of this change, so MySQL renders its own text here
-   * and keeps the SHARED decision — which surviving value (or NULL) replaces a
-   * removed one — in `getEnumValueReplacement`.
-   *
-   * With no namespace or an artifact destination this produces the base
-   * builder's exact bytes.
-   */
-  private buildMySQLEnumReplacementUpdates(
-    op: AlterEnumOperation,
-    context: DDLContext
-  ): string[] {
-    const { removeValues, dependentColumns } = op;
-    if (!(removeValues?.length && dependentColumns?.length)) {
-      return [];
-    }
-
-    const statements: string[] = [];
-    for (const { tableName, columnName } of dependentColumns) {
-      const table = this.tableRef(tableName, context.destination);
-      const column = this.escapeIdentifier(columnName);
-      for (const removedValue of removeValues) {
-        const replacement = this.getEnumValueReplacement(
-          op,
-          tableName,
-          columnName,
-          removedValue
-        );
-        if (replacement === undefined) {
-          continue;
-        }
-        const newValue =
-          replacement === null ? "NULL" : this.escapeValue(replacement);
-        statements.push(
-          `UPDATE ${table} SET ${column} = ${newValue} WHERE ${column} = ${this.escapeValue(removedValue)}`
-        );
-      }
-    }
     return statements;
   }
 
@@ -1255,14 +1196,6 @@ export class MySQLMigrationDriver
    */
   async resolveCommandNamespace(read: CatalogRead): Promise<string> {
     return await resolveCatalogNamespace(read, this.namespace);
-  }
-
-  override generateClearMigrations(tableName: string): string {
-    return `DELETE FROM ${this.tableRef(tableName, "live")}`;
-  }
-
-  override generateDropTableSQL(tableName: string): string {
-    return `DROP TABLE IF EXISTS ${this.tableRef(tableName, "live")}`;
   }
 
   // ===========================================================================
@@ -1319,6 +1252,58 @@ export class MySQLMigrationDriver
     }
     return mysqlSelectTargetStatement(this.namespace, (name) =>
       this.escapeIdentifier(name)
+    );
+  }
+
+  /**
+   * Proves the session's strict exact-value mode, then binds the command to
+   * its ONE interrupted decimal-conversion recovery: planned by its first
+   * sequential program (after apply has read its journal), empty for later
+   * ones, and left untaken when the plan's own proof fails.
+   */
+  override async proveSession(read: CatalogRead): Promise<this> {
+    await proveMySQLExactValueSession(
+      read,
+      `database "${this.namespace ?? "(unbound)"}"`
+    );
+    const namespace = this.requireLockScope();
+    let taken = false;
+    let planned: Promise<readonly string[]> | undefined;
+    const command: this = Object.create(this);
+    Object.defineProperty(command, "programPreamble", {
+      value: async (producer: AnyDriver): Promise<readonly string[]> => {
+        if (taken) return [];
+        if (planned !== undefined) {
+          await planned;
+          return [];
+        }
+        planned = planInterruptedMySQLDecimalRecovery(
+          (sql, params) => producer._executeRaw(sql, params),
+          namespace,
+          (name) => this.escapeIdentifier(name)
+        );
+        try {
+          const statements = await planned;
+          taken = true;
+          return statements;
+        } catch (error) {
+          planned = undefined;
+          throw error;
+        }
+      },
+    });
+    Object.freeze(command);
+    return command;
+  }
+
+  /** A program no locked command bound has no recovery scope to run under. */
+  override programPreamble(): Promise<readonly string[]> {
+    return Promise.reject(
+      new MigrationError(
+        "This MySQL sequential migration program is not bound to its locked command's decimal-recovery scope.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { dialect: "mysql", type: "unbound-migration-command" } }
+      )
     );
   }
 

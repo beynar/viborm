@@ -242,7 +242,7 @@ const _parentHeldReplaceThenModify = () =>
 // =============================================================================
 
 /**
- * The four rows below are **misspelled calls that compile**. They carry no
+ * Three of the four rows below are **misspelled calls that compile**. They carry no
  * `@ts-expect-error`, so the day the surface starts refusing them the call itself
  * becomes a type error, this file goes red, and someone deletes the pin.
  *
@@ -256,6 +256,10 @@ const _parentHeldReplaceThenModify = () =>
  * contradict. The one probe that IS red — `_typoAlone` below — is red because of
  * weak-type detection, which stops applying the moment one real key joins it. That is
  * the trap `AGENTS.md` documents, and these pins are it, measured rather than assumed.
+ *
+ * The third row is refused since 1.2.0 (types-10): nested write DATA is keyed by
+ * walking the caller's literal against the target model's fields, and the error lands
+ * on the root `data` clause. Operation keys and selectors are still not keyed.
  */
 const _pinUnknownOperationKeyBesideARealOne = () =>
   client.hub.update({
@@ -273,10 +277,10 @@ const _pinUnknownKeyInsideASupplierArm = () =>
     },
   });
 
-const _pinUnknownKeyInsideTheModifyArm = () =>
+const _unknownKeyInsideTheModifyArmRefused = () =>
   client.hub.update({
     where: { id: "h1" },
-    // PIN: "tagg" is not a field of `badge`, and this compiles.
+    // @ts-expect-error "tagg" is not a field of `badge` (nested data is keyed)
     data: {
       badge: { connect: { id: "b-alt" }, update: { tag: "t", tagg: "t" } },
     },

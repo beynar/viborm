@@ -110,24 +110,27 @@ export interface PrepareOptions {
  * substrate (result shape, program lowering, identity helpers); the client never
  * spells them, and they share their family's arg schema.
  */
-export type Operation =
-  | "findFirst"
-  | "findMany"
-  | "findUnique"
-  | "create"
-  | "createMany"
-  | "createManyAndReturn"
-  | "update"
-  | "updateMany"
-  | "updateManyAndReturn"
-  | "delete"
-  | "deleteMany"
-  | "deleteManyAndReturn"
-  | "upsert"
-  | "count"
-  | "aggregate"
-  | "groupBy"
-  | "exist";
+export const OPERATIONS = [
+  "findFirst",
+  "findMany",
+  "findUnique",
+  "create",
+  "createMany",
+  "createManyAndReturn",
+  "update",
+  "updateMany",
+  "updateManyAndReturn",
+  "delete",
+  "deleteMany",
+  "deleteManyAndReturn",
+  "upsert",
+  "count",
+  "aggregate",
+  "groupBy",
+  "exist",
+] as const;
+
+export type Operation = (typeof OPERATIONS)[number];
 
 /** Operations that return BatchPayload { count: number } */
 export const BATCH_OPERATIONS = [

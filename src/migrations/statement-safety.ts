@@ -291,8 +291,8 @@ function scanStatements(
   let governing: string | undefined;
 
   while (index < sql.length) {
-    const char = sql[index] ?? "";
-    const next = sql[index + 1] ?? "";
+    const char = sql.charAt(index);
+    const next = sql.charAt(index + 1);
 
     if (char === "-" && next === "-" && opensLineComment(sql, index, dialect)) {
       index = skipLine(sql, index);
@@ -356,7 +356,7 @@ function scanStatements(
     if (characters.start.test(char)) {
       const start = index;
       index += 1;
-      while (index < sql.length && characters.part.test(sql[index] ?? "")) {
+      while (index < sql.length && characters.part.test(sql.charAt(index))) {
         index += 1;
       }
       const text = sql
@@ -487,7 +487,7 @@ function callsArguments(
   }
   let cursor = end;
   while (cursor < sql.length) {
-    const char = sql[cursor] ?? "";
+    const char = sql.charAt(cursor);
     if (
       char === "-" &&
       sql[cursor + 1] === "-" &&
@@ -561,7 +561,7 @@ function skipLine(sql: string, start: number): number {
  */
 function openExecutableComment(sql: string, start: number): number {
   let cursor = start + 3;
-  while (cursor < sql.length && VERSION_DIGIT.test(sql[cursor] ?? "")) {
+  while (cursor < sql.length && VERSION_DIGIT.test(sql.charAt(cursor))) {
     cursor += 1;
   }
   return cursor;
@@ -664,7 +664,7 @@ function skipQuoted(
  */
 function skipDollarQuoted(sql: string, start: number): number | null {
   let cursor = start + 1;
-  while (cursor < sql.length && DOLLAR_TAG_PART.test(sql[cursor] ?? "")) {
+  while (cursor < sql.length && DOLLAR_TAG_PART.test(sql.charAt(cursor))) {
     cursor += 1;
   }
   if (sql[cursor] !== "$") {
@@ -759,10 +759,8 @@ function classifyOne(
   dialect: ClassifiedDialect,
   artifact: string
 ): void {
-  const leader = words[0]?.text;
-  if (leader === undefined) {
-    return;
-  }
+  // `scanStatements` keeps only statements with at least one word.
+  const leader = words[0]!.text;
 
   if (dialect === "postgresql") {
     const control = leadingTransactionCommand(
@@ -871,4 +869,77 @@ export function needsEnumAdditionCommitBoundary(
     }
   }
   return false;
+}
+
+/** A PostgreSQL statement that changes the schema. */
+const SCHEMA_CHANGES = new Set(["ALTER", "COMMENT", "CREATE", "DROP"]);
+/** A PostgreSQL statement that reads or writes rows, or may (a routine). */
+const ROW_STATEMENTS = new Set([
+  "CALL",
+  "COPY",
+  "DELETE",
+  "DO",
+  "INSERT",
+  "MERGE",
+  "SELECT",
+  "TABLE",
+  "UPDATE",
+  "VALUES",
+  "WITH",
+]);
+
+/**
+ * The first statement of a PostgreSQL `program` that reads or writes rows after
+ * one that changed the schema, and that change, as their positions in
+ * `program` and their leading words; `undefined` when no such pair exists.
+ * PlanetScale's Neki plans a row statement against the schema committed before
+ * its transaction (`42P01`, `42703`). Which relation an opaque statement reads
+ * cannot be told from its text, so any row statement after any change counts.
+ */
+export function rowsAfterSchemaChange(program: readonly string[]):
+  | {
+      readonly change: { readonly position: number; readonly words: string };
+      readonly rows: { readonly position: number; readonly words: string };
+    }
+  | undefined {
+  let change: { position: number; words: string } | undefined;
+  for (const [position, chunk] of program.entries()) {
+    for (const words of readExecutableStatements(chunk, "postgresql")) {
+      const [verb = ""] = words;
+      if (change && ROW_STATEMENTS.has(verb)) {
+        return { change, rows: { position, words: verb } };
+      }
+      if (!change && SCHEMA_CHANGES.has(verb)) {
+        change = { position, words: words.slice(0, 2).join(" ") };
+      }
+    }
+  }
+  return;
+}
+
+/**
+ * Whether `sql` holds a PostgreSQL statement run `CONCURRENTLY` that refuses
+ * a transaction block: `CREATE [UNIQUE] INDEX CONCURRENTLY`, `DROP INDEX
+ * CONCURRENTLY`, a `REINDEX … CONCURRENTLY` or `ALTER TABLE … DETACH
+ * PARTITION … CONCURRENTLY`. Only these wait, by design, for every older
+ * transaction without blocking anyone (plan S1). Read from each statement's
+ * executable words, so the words in a comment or a literal are not one, and
+ * neither is `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
+ */
+export function runsConcurrently(sql: string): boolean {
+  return readExecutableStatements(sql, "postgresql").some((words) => {
+    const [verb] = words;
+    if (verb === "REINDEX") return words.includes("CONCURRENTLY");
+    if (verb === "ALTER") {
+      return ["DETACH", "PARTITION", "CONCURRENTLY"].every((word) =>
+        words.includes(word)
+      );
+    }
+    const index = verb === "CREATE" && words[1] === "UNIQUE" ? 2 : 1;
+    return (
+      (verb === "CREATE" || verb === "DROP") &&
+      words[index] === "INDEX" &&
+      words[index + 1] === "CONCURRENTLY"
+    );
+  });
 }

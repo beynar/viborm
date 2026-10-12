@@ -4,7 +4,7 @@ import { type Sql, sql } from "@sql";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterAll, beforeAll, expect, test } from "vitest";
 
-const TAG_ALIAS = /FROM "tag" AS "(q\d+)"/;
+const TAG_ALIAS = /"tag" AS "(q\d+)"/;
 
 const parent = s.model({ id: s.int().id(), entries: s.toMany(() => entry) });
 const entry = s.model({
@@ -248,10 +248,30 @@ test("JSON equality and array membership compare structure and scalar types", as
   }
 });
 
+const JUNCTION_DRIVEN = {
+  statements: 1,
+  targetSearchedByKey: true,
+  targetScanned: false,
+  junctionCovering: true,
+};
+
+/** Articles and tags joined by the generated `article_tag` junction. */
+function membershipClient() {
+  const article = s.model({
+    id: s.int().id(),
+    title: s.string().nullable(),
+    tags: s.toMany(() => tag),
+  });
+  const tag = s.model({
+    id: s.int().id(),
+    name: s.string().nullable(),
+    articles: s.toMany(() => article),
+  });
+  return createClient({ schema: { article, tag } });
+}
+
 test("relation-filtered pages do not duplicate parents with multiple matching junction rows", async () => {
-  const article = s.model({ id: s.int().id(), tags: s.toMany(() => tag) });
-  const tag = s.model({ id: s.int().id(), articles: s.toMany(() => article) });
-  const db = createClient({ schema: { article, tag } });
+  const db = membershipClient();
   try {
     await syncLiveSchema(db);
     await db.tag.createMany({ data: [{ id: 1 }, { id: 2 }] });
@@ -272,42 +292,105 @@ test("relation-filtered pages do not duplicate parents with multiple matching ju
         })
       ).map(({ id }) => id)
     ).toEqual([3, 4, 5]);
-    const statements: Sql[] = [];
-    const observed = db.$extends({
-      name: "plan-witness",
-      statement(context) {
-        if (context.model === "article" && context.operation === "findMany")
-          statements.push(context.statement);
-        return context.statement;
-      },
+    expect(await includePlan(db, 7)).toMatchObject({
+      parents: 7,
+      memberships: 14,
+      ...JUNCTION_DRIVEN,
     });
-    expect(
-      (await observed.article.findMany({ include: { tags: true } })).length
-    ).toBe(7);
-    expect(statements).toHaveLength(1);
-    const statement = statements[0]!;
-    const targetAlias = TAG_ALIAS.exec(statement.toStatement("?"))?.[1];
-    expect(targetAlias).toBeDefined();
-    const plan = await db.$queryRaw<{ detail: string }>(
-      sql`EXPLAIN QUERY PLAN ${statement}`
-    );
-    const details = plan.map((row) => row.detail);
-    expect(
-      details.some((detail) =>
-        detail.startsWith(`SEARCH ${targetAlias} USING INTEGER PRIMARY KEY`)
-      )
-    ).toBe(true);
-    expect(
-      details.some((detail) => detail.startsWith(`SCAN ${targetAlias}`))
-    ).toBe(false);
-    expect(
-      details.some(
-        (detail) =>
-          detail.includes("USING COVERING INDEX") &&
-          detail.includes("(articleId=?)")
-      )
-    ).toBe(true);
   } finally {
     await db.$disconnect();
   }
 });
+
+/**
+ * The m:n include plan after ANALYZE, on a target table smaller than the
+ * parents' (the case SQLite's planner prefers to scan) and on a large one:
+ * `memberships` junction rows over `articles` parents and `tags` targets.
+ */
+test.each([
+  { articles: 10_000, tags: 50, perArticle: 3 },
+  { articles: 10_000, tags: 10_000, perArticle: 5 },
+])("an m:n include after ANALYZE stays junction-driven: $articles parents, $tags targets, $perArticle each", async ({
+  articles,
+  tags,
+  perArticle,
+}) => {
+  const db = membershipClient();
+  try {
+    await syncLiveSchema(db);
+    const series = (count: number) =>
+      sql`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${count}) `;
+    await db.$executeRaw(
+      sql`INSERT INTO "article" ("id", "title") ${series(articles)}SELECT i, 'article ' || i FROM n`
+    );
+    await db.$executeRaw(
+      sql`INSERT INTO "tag" ("id", "name") ${series(tags)}SELECT i, 'tag ' || i FROM n`
+    );
+    for (let k = 0; k < perArticle; k++) {
+      await db.$executeRaw(
+        sql`INSERT INTO "article_tag" ("articleId", "tagId") SELECT "id", 1 + (("id" * 7 + ${k * 13}) % ${tags}) FROM "article"`
+      );
+    }
+    expect(
+      await db.$queryRawUnsafe<{ n: number }>(
+        'SELECT count(*) AS n FROM "article_tag"'
+      )
+    ).toEqual([{ n: articles * perArticle }]);
+    await db.$executeRawUnsafe("ANALYZE");
+    expect(await includePlan(db, 100)).toMatchObject({
+      parents: 100,
+      memberships: 100 * perArticle,
+      ...JUNCTION_DRIVEN,
+    });
+  } finally {
+    await db.$disconnect();
+  }
+}, 60_000);
+
+/**
+ * The one statement of a page of `take` articles with their tags, and the
+ * facts of its plan the witnesses assert: the target is searched by primary
+ * key from the junction's covering index on the parent side, never scanned.
+ */
+async function includePlan(
+  db: ReturnType<typeof membershipClient>,
+  take: number
+) {
+  const statements: Sql[] = [];
+  const observed = db.$extends({
+    name: "plan-witness",
+    statement(context) {
+      if (context.model === "article" && context.operation === "findMany")
+        statements.push(context.statement);
+      return context.statement;
+    },
+  });
+  const rows = await observed.article.findMany({
+    where: { id: { gte: 1 } },
+    orderBy: { id: "asc" },
+    take,
+    include: { tags: true },
+  });
+  const statement = statements[0]!;
+  const alias = TAG_ALIAS.exec(statement.toStatement("?"))?.[1];
+  const plan = (
+    await db.$queryRaw<{ detail: string }>(sql`EXPLAIN QUERY PLAN ${statement}`)
+  ).map((row) => row.detail);
+  return {
+    parents: rows.length,
+    memberships: rows.reduce((sum, row) => sum + row.tags.length, 0),
+    statements: statements.length,
+    targetSearchedByKey: plan.some((detail) =>
+      detail.startsWith(`SEARCH ${alias} USING INTEGER PRIMARY KEY`)
+    ),
+    targetScanned: plan.some(
+      (detail) =>
+        detail === `SCAN ${alias}` || detail.startsWith(`SCAN ${alias} `)
+    ),
+    junctionCovering: plan.some(
+      (detail) =>
+        detail.includes("USING COVERING INDEX") &&
+        detail.includes("(articleId=?)")
+    ),
+  };
+}

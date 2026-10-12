@@ -175,15 +175,7 @@ test("a noncanonical legacy row no longer takes its model offline; the audit cou
     const sameInstant = { at: { equals: new Date("2024-01-13T10:30:00Z") } };
     expect(await client.legacy.count({ where: sameInstant })).toBe(0);
 
-    // The helper refuses zone-less text; this writer is known to write UTC.
-    await expect(
-      client.$executeRawUnsafe(
-        `UPDATE legacy_event SET "createdAt" = ${sqliteCanonicalDateTimeExpression("createdAt")}`
-      )
-    ).rejects.toThrow("numeric range");
-    await client.$executeRawUnsafe(
-      `UPDATE legacy_event SET "createdAt" = replace("createdAt", ' ', 'T') || 'Z' WHERE "createdAt" GLOB '????-??-?? ??:??:??'`
-    );
+    // SQLite's zone-less datetime('now') text is read as UTC (1.2.0, decision 4).
     await client.$executeRawUnsafe(
       `UPDATE legacy_event SET at = ${sqliteCanonicalDateTimeExpression("at")}, clock = ${sqliteCanonicalTimeExpression("clock")}, "createdAt" = ${sqliteCanonicalDateTimeExpression("createdAt")}`
     );

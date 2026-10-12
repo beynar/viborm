@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { UnsupportedOperationError } from "@errors";
-import { Queries } from "@query-engine/raptor3/shared/query";
+import {
+  Queries,
+  RecursiveOutputOverBudget,
+} from "@query-engine/raptor3/shared/query";
 import { EngineSchema } from "@query-engine/raptor3/shared/schema";
 import { s } from "@schema";
 import type { NormalizedRecurrence } from "@validation/relations/recurrence";
@@ -34,7 +37,6 @@ const INVALID_PROVIDER_RECURSIVE_CARRIER_PATTERN =
 const INVALID_PROVIDER_JSON_PATTERN = /Invalid provider json/;
 const INVALID_PROVIDER_RECURSIVE_SINGULAR_RELATION_PATTERN =
   /Invalid provider recursive singular relation/;
-const OCCURRENCE_BUDGET_PATTERN = /10000 occurrence budget/;
 
 const treeNode = (() => {
   const node = s.model({
@@ -644,25 +646,48 @@ describe("recursive carrier boundary", () => {
     assert.deepEqual(level, []);
   });
   it("refuses factorial path amplification before exceeding the occurrence budget", () => {
-    const decode = graphDecoder({ depth: false, cycles: "prevent" });
     const keys = [
       "root",
       ...Array.from({ length: 8 }, (_, index) => `n${index}`),
     ];
+    const complete = carrier(
+      ["root"],
+      keys.map((key) => node(key)),
+      keys.flatMap((parent) =>
+        keys
+          .filter((child) => child !== parent)
+          .map((child) => edge(parent, child))
+      )
+    );
+    const overBudget = (limit: number) => (error: unknown) =>
+      error instanceof RecursiveOutputOverBudget &&
+      error.relation === "links" &&
+      error.limit === limit;
+    assert.throws(
+      () => graphDecoder({ depth: false, cycles: "prevent" })(complete),
+      overBudget(10_000)
+    );
+    // The bag's own budget replaces the default, in either direction.
     assert.throws(
       () =>
-        decode(
-          carrier(
-            ["root"],
-            keys.map((key) => node(key)),
-            keys.flatMap((parent) =>
-              keys
-                .filter((child) => child !== parent)
-                .map((child) => edge(parent, child))
-            )
-          )
+        graphDecoder({ depth: false, cycles: "prevent", maxOccurrences: 8 })(
+          complete
         ),
-      OCCURRENCE_BUDGET_PATTERN
+      overBudget(8)
     );
+    // 8 children, 8·7 grandchildren, … — every simple path from the root.
+    const paths = Array.from({ length: 8 }, (_, depth) =>
+      Array.from({ length: depth + 1 }, (_, step) => 8 - step).reduce(
+        (product, factor) => product * factor,
+        1
+      )
+    ).reduce((total, count) => total + count, 0);
+    const decoded = graphDecoder({
+      depth: false,
+      cycles: "prevent",
+      maxOccurrences: paths,
+    })(complete);
+    assert(Array.isArray(decoded));
+    assert.equal(decoded.length, 8);
   });
 });

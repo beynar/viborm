@@ -164,34 +164,46 @@ results, `count`, `exist`, `aggregate` and `groupBy` do not take it.
 | --- | --- |
 | `recurse: true` or `recurse: {}` | follow the relation to depth **100** |
 | `recurse: { depth: n }` | follow it `n` levels, `1 ≤ n ≤ 1000` |
-| `recurse: { depth: false }` | **exhaustive**: follow it until the data ends |
+| `recurse: { depth: false }` | **exhaustive**: follow it until the data ends, within the output budget |
 | `recurse: { preventCycles: false }` | graph relations only, with a bounded depth: unfold a cycle instead of pruning it |
+| `recurse: { maxOccurrences: n }` | decode at most `n` occurrences under each outer row instead of **10,000**; combines with the forms above |
 
 At a numeric cutoff the repeated key is **absent** from the deepest occurrence
 (that is why it is optional in the type); where the data ends before the
 cutoff the key is present and holds `[]` for a collection or `null` for a
 nullable singular. With `depth: false` the key is always present. A foreign-key
-cycle inside the traversed window is refused with a `QueryEngineError` naming
-the relation (`Recursive relation 'parent' contains a cycle.`); this is a
-property of the data, not an engine defect; a graph cycle is pruned
-path-locally by default. Filters prune every hop, each level keeps its own
-`orderBy`, and the node's `select`/`include`/`omit` — including other
-relations and another recursive slot — repeat at every level. Results
-compose with the cache, `omit`, extensions, arrays and callback transactions
-like any other relation projection. A provider may cap an exhaustive
-traversal with its own recursion limit. MySQL's `cte_max_recursion_depth`
-defaults to 1,000. That failure surfaces as the driver's error, never as a
-truncated result. On MySQL the error has `meta.providerErrno` 3636
-(`ER_CTE_MAX_RECURSION_DEPTH`), and the provider's message is redacted.
+cycle inside the traversed window is refused with an
+`UnsupportedOperationError` (`V8003`) naming the relation
+(`Recursive relation 'parent' contains a cycle.`); this is a property of the
+data, not an engine defect; a graph cycle is pruned path-locally by default.
+Filters prune every hop, each level keeps its own `orderBy`, and the node's
+`select`/`include`/`omit` — including other relations and another recursive
+slot — repeat at every level. Results compose with the cache, `omit`,
+extensions, arrays and callback transactions like any other relation
+projection. A provider may cap an exhaustive traversal with its own
+recursion limit. MySQL's `cte_max_recursion_depth` defaults to 1,000. That
+failure surfaces as the driver's error, never as a truncated result. On
+MySQL the error has `meta.providerErrno` 3636 (`ER_CTE_MAX_RECURSION_DEPTH`),
+and the provider's message is redacted.
 
-The same `recurse` options filter in `where`: `{ parent: { recurse: true,
-some: { … } } }` matches a row when an ancestor matches. A filter reads the
-closure as a set, so it never refuses a foreign-key cycle. See
+The same `recurse` options, except `maxOccurrences`, filter in `where`:
+`{ parent: { recurse: true, some: { … } } }` matches a row when an ancestor
+matches. A filter reads the closure as a set, so it never refuses a
+foreign-key cycle. See
 [Recursive filters](/docs/client/filtering/relations#recursive-filters).
 
 Output grows with paths, not rows: a graph can return exponentially more
 occurrences than it stores, even with cycle prevention, so depth 100 is not a
-size bound. `take`, `skip`, `cursor` and `distinct` cannot be combined with
+size bound. The size bound is the **occurrence budget**: one recursive
+relation decodes at most 10,000 occurrences under each outer row, or
+`maxOccurrences` when the node sets it. It counts output rows, one per path,
+not distinct nodes, so a node reached by three paths counts three times, and
+`depth: false` is exhaustive only within it. The rows still travel in one
+statement; past the budget the call is refused with an
+`UnsupportedOperationError` (`V8003`) whose message names the operation that
+ran and whose `meta.feature` is `recursive output budget`, never a truncated
+result. Raise `maxOccurrences`, lower `depth` or filter the relation to stay
+inside it. `take`, `skip`, `cursor` and `distinct` cannot be combined with
 `recurse`, and a singular recursive node accepts only `select`, `include` and
 `omit`. `recurse: false` is refused; leave `recurse` out for an ordinary node.
 The recursive key cannot be spelled again inside its own node's `select` or
