@@ -162,10 +162,10 @@ export async function introspectSchema(
  * plans a drop and a create, which is the safe direction.
  *
  * The whole canonicalization runs inside ONE transaction, for two reasons that
- * both matter: it pins a single connection (the scratch objects it needs are
- * session-local, and a pool hands out a different connection per statement),
- * and a failure anywhere rolls the scratch away instead of leaving it attached
- * to a table this push may be about to drop.
+ * both matter: it pins a single connection (the scratch objects it needs exist
+ * only inside their transaction, and a pool hands out a different connection
+ * per statement), and a failure anywhere rolls the scratch away instead of
+ * leaving it attached to a table this push may be about to drop.
  */
 function buildIndexPredicateCanonicalizer(
   driver: AnyDriver,

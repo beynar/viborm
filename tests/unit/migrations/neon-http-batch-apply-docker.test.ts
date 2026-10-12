@@ -223,8 +223,8 @@ describeIfPg("apply over Neon HTTP on a server with other sessions", () => {
 
   it("proves a partial-index origin with each canonicalization pass as one request", async () => {
     // The drift proof deparses each partial-index predicate through scratch
-    // TEMP VIEWs: created, read and dropped in one request, else the read
-    // lands on a session that never had the view. The change drops both
+    // views: created, read and dropped in one request, else the read lands
+    // outside the transaction that made the view. The change drops both
     // indexes, so the destination digest has no partial index to abstain on.
     const plain = {
       account: s
@@ -245,7 +245,7 @@ describeIfPg("apply over Neon HTTP on a server with other sessions", () => {
     });
     expect(await stateId()).toBe(target);
     expect(
-      received.filter((sql) => sql.startsWith("CREATE OR REPLACE TEMP VIEW"))
+      received.filter((sql) => sql.includes('."viborm_index_predicate_'))
     ).not.toHaveLength(0);
     expect(nekiRefusals(received)).toEqual([]);
   });

@@ -319,7 +319,20 @@ describe("down arrival-path planning", () => {
       { name: "root" }
     );
     if (!generated.stateId) throw new Error("expected a published root");
-    driver.respond = () => [];
+    // The control tables are bootstrapped before the proof (and, on
+    // PostgreSQL, committed); they read as created once created.
+    const presence = { state: false, log: false };
+    driver.respond = (sql, params) => {
+      if (sql.startsWith("CREATE TABLE")) {
+        presence.state ||= sql.includes("_viborm_migration_state");
+        presence.log ||= sql.includes("_viborm_migration_log");
+      }
+      return (
+        controlCatalogAnswer(sql, params, presence) ??
+        sqliteControlDefinitionAnswer(sql, presence) ??
+        []
+      );
+    };
 
     await expect(
       baselineV1({ $driver: driver, $schema: schema }, storage, {

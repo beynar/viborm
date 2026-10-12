@@ -24,6 +24,10 @@ import {
   RecordingDriver,
 } from "./_estate";
 
+const SCRATCH_VIEW_NAME = /'(viborm_index_predicate_\w+)'/;
+const SCRATCH_VIEW_CREATE =
+  /^CREATE VIEW "billing"\."viborm_index_predicate_[0-9a-f]{32}_0" AS SELECT 1 AS c FROM "billing"\."account" WHERE active = true$/;
+
 const EMPTY_TABLE: TableDef = {
   name: "account",
   columns: [{ name: "id", type: "integer", nullable: false }],
@@ -246,7 +250,14 @@ describe("provider migration-driver public entrypoints", () => {
   test("PostgreSQL delegates predicate canonicalization through the bound table", async () => {
     const execution = pgEstateDriver("billing");
     execution.respond = (sql) =>
-      sql.includes("pg_get_viewdef") ? [{ d0: "(active = true)" }] : [];
+      sql.includes("pg_get_viewdef")
+        ? [
+            {
+              name: SCRATCH_VIEW_NAME.exec(sql)?.[1],
+              definition: "(active = true)",
+            },
+          ]
+        : [];
     const driver = getMigrationDriver(execution);
 
     await expect(
@@ -256,8 +267,8 @@ describe("provider migration-driver public entrypoints", () => {
         (sql, params) => execution._executeRaw(sql, params)
       )
     ).resolves.toEqual(["(active = true)"]);
-    expect(execution.statements).toContain(
-      'CREATE OR REPLACE TEMP VIEW "viborm_index_predicate_0" AS SELECT 1 AS c FROM "billing"."account" WHERE active = true'
+    expect(execution.statements).toContainEqual(
+      expect.stringMatching(SCRATCH_VIEW_CREATE)
     );
   });
 

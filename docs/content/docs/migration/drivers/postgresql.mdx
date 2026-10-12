@@ -238,12 +238,52 @@ standard PostgreSQL accepts, and VibORM emits neither:
 Its connection URL carries `sslrootcert=system`, which `viborm/pg` and
 `viborm/postgres` read as `sslmode=verify-full`.
 
-Queries, introspection and `push` of a schema without partial indexes run on
-Neki. `apply` and `baseline` do not yet: Neki does not implement temporary
-views (`NK013`), through which VibORM reads partial-index predicates, and a
-statement in a transaction does not see a table or column created earlier in
-that transaction, which a first `apply` (control tables, then the marker) and a
-manual step that adds a column and backfills it both need.
+Queries, introspection, `push`, `generate`, `apply`, `baseline`, `verify`,
+`status`, `down` and `reset` run on Neki, partial indexes included. Two more
+Neki differences shape how:
+
+- Neki has no temporary views (`NK013`). VibORM reads a partial-index
+  predicate back through a scratch view in the estate's schema, created, read
+  and dropped in one transaction. The migration role therefore needs `CREATE`
+  on that schema, which it already has to change the schema.
+- A row statement plans against the schema committed before its transaction:
+  after `ALTER TABLE … ADD COLUMN z`, an `UPDATE` naming `z` in the same
+  transaction fails (`42703`). Schema statements and catalog reads see the
+  transaction's own changes. VibORM commits the control tables before the
+  first marker on every PostgreSQL server. On Neki it refuses a migration that
+  runs a data statement after a schema change in one transaction, before any
+  effect (`V11021`, naming both statements). Which table an authored
+  statement reads cannot be told from its text, so any data statement after
+  any schema change on the path one command runs counts. Put the data change
+  in a state of its own, then apply in two runs: `apply({ to })` stops at the
+  schema change, and a second `apply` runs the data change.
+
+```ts
+const schema = await migrations.generate({ name: "nickname" });
+await migrations.generate({
+  name: "backfill-nickname",
+  manualMigration: {
+    transitions: [
+      {
+        from: schema.stateId,
+        execution: "transactional",
+        up: [sql`UPDATE "accounts" SET "nickname" = "email"`],
+        rollback: { kind: "irreversible", reason: "derived data" },
+      },
+    ],
+  },
+});
+await migrations.apply({ to: { id: schema.stateId! } });
+await migrations.apply();
+```
+
+Stepwise transitions, including `generate({ lowLock: true })`'s
+`CONCURRENTLY` steps, do not run on Neki: they take the session lock and
+session limits, which Neki refuses (`V11005`, before any effect). The
+refusal reads statements, not a manual transition's checks: a check that reads
+a table its own transaction created, like a `RENAME COLUMN` or column type
+change of such a table, fails inside the transaction, which rolls back. Apply
+such a path one state at a time.
 
 A catalog read the server refuses fails with `V11001` and names itself and its
 SQLSTATE, for example `PostgreSQL catalog query "indexes" failed with SQLSTATE

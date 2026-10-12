@@ -31,6 +31,7 @@ import {
 } from "../../identifier-conversion";
 import { DEFAULT_MIGRATION_LIMITS } from "../../limits";
 import type { NativeRenameOperation } from "../../native-rename";
+import { rowsAfterSchemaChange } from "../../statement-safety";
 import type {
   ColumnDef,
   DiffOperation,
@@ -405,6 +406,30 @@ export class PostgresMigrationDriver extends MigrationDriver {
     program: readonly string[] = []
   ): Promise<void> {
     try {
+      // PlanetScale's Neki plans a row statement against the schema committed
+      // before its transaction, so one that follows a schema change in it
+      // fails (42P01, 42703). Asked of the server only for such a program.
+      const late = rowsAfterSchemaChange(program);
+      if (
+        late &&
+        (
+          await executeRaw<{ neki: boolean }>(
+            "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki"
+          )
+        ).rows[0]?.neki === true
+      ) {
+        const { change, rows } = late;
+        throw new MigrationError(
+          `On PlanetScale's Neki, a statement does not see a schema change made earlier in its own transaction, and this migration runs statement ${rows.position + 1} (${rows.words}) after statement ${change.position + 1} (${change.words}). Nothing ran. Put the data change in a state of its own after the schema change, and apply up to the schema change first (apply({ to })).`,
+          VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+          {
+            meta: {
+              dialect: this.dialect,
+              feature: "data after schema change in one transaction",
+            },
+          }
+        );
+      }
       // T5a: a statement that rewrites or scans a table holds a lock that
       // blocks it for as long as that takes, so above `largeTableRows` (the
       // planner's estimate, as EXPLAIN reports it) it is refused here, before
@@ -602,6 +627,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     executeBatch?: BatchExecutor
   ): Promise<ReadonlyArray<string | undefined>> {
     return canonicalizeIndexPredicates(
+      this.requireEstateNamespace(),
       this.qualify(tableName),
       predicates,
       executeRaw,

@@ -871,6 +871,52 @@ export function needsEnumAdditionCommitBoundary(
   return false;
 }
 
+/** A PostgreSQL statement that changes the schema. */
+const SCHEMA_CHANGES = new Set(["ALTER", "COMMENT", "CREATE", "DROP"]);
+/** A PostgreSQL statement that reads or writes rows, or may (a routine). */
+const ROW_STATEMENTS = new Set([
+  "CALL",
+  "COPY",
+  "DELETE",
+  "DO",
+  "INSERT",
+  "MERGE",
+  "SELECT",
+  "TABLE",
+  "UPDATE",
+  "VALUES",
+  "WITH",
+]);
+
+/**
+ * The first statement of a PostgreSQL `program` that reads or writes rows after
+ * one that changed the schema, and that change, as their positions in
+ * `program` and their leading words; `undefined` when no such pair exists.
+ * PlanetScale's Neki plans a row statement against the schema committed before
+ * its transaction (`42P01`, `42703`). Which relation an opaque statement reads
+ * cannot be told from its text, so any row statement after any change counts.
+ */
+export function rowsAfterSchemaChange(program: readonly string[]):
+  | {
+      readonly change: { readonly position: number; readonly words: string };
+      readonly rows: { readonly position: number; readonly words: string };
+    }
+  | undefined {
+  let change: { position: number; words: string } | undefined;
+  for (const [position, chunk] of program.entries()) {
+    for (const words of readExecutableStatements(chunk, "postgresql")) {
+      const [verb = ""] = words;
+      if (change && ROW_STATEMENTS.has(verb)) {
+        return { change, rows: { position, words: verb } };
+      }
+      if (!change && SCHEMA_CHANGES.has(verb)) {
+        change = { position, words: words.slice(0, 2).join(" ") };
+      }
+    }
+  }
+  return;
+}
+
 /**
  * Whether `sql` holds a PostgreSQL index statement run `CONCURRENTLY`:
  * `CREATE [UNIQUE] INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY` or a

@@ -42,6 +42,7 @@ import {
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
+  commitControlBootstrap,
   type MigrationBatch,
   migrationLockFree,
   openMigrationBatch,
@@ -325,16 +326,16 @@ async function applyPathUnderLock(
 
   let current = marker;
   const nextPath = marker ? [...marker.path] : [];
-  let bootstrapPending = needsBootstrap;
+  // Before the program, as statements of their own: one request cannot read
+  // what the bootstrap reads (plan D7), and a PostgreSQL bootstrap commits.
+  if (needsBootstrap) {
+    await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
+    await commitControlBootstrap(pinned, command);
+  }
   const statementsOf = ({ transition, blob }: PreparedForwardEdge) =>
     stepStatements(blob, transition.operations);
   for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
     if (batched) {
-      // Before the request: the bootstrap reads what one request cannot.
-      if (bootstrapPending) {
-        await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
-        bootstrapPending = false;
-      }
       current = await applyGroupBatch(
         pinned,
         command,
@@ -352,10 +353,6 @@ async function applyPathUnderLock(
       atomic: boolean
     ) => {
       await assertLockedSinceDecision(pinned, producer, command, current);
-      if (bootstrapPending) {
-        await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
-        bootstrapPending = false;
-      }
       if (atomic) {
         current = await executeAtomicGroup(
           producer,

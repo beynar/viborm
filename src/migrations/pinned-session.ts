@@ -693,7 +693,7 @@ interface LockedTransactions {
   group<T>(fn: () => Promise<T>): Promise<T> | undefined;
   /** Marks the work about to run as stepwise (PostgreSQL). */
   stepwise(): void;
-  /** Ends the open locked transaction, so what follows runs between two (SQLite). */
+  /** Ends the open locked transaction: SQLite's pragma, a PostgreSQL bootstrap. */
   between(): Promise<void>;
   /** Whether the lock has been held without a gap since the first read. */
   continuous(): boolean;
@@ -858,6 +858,23 @@ function lockTransactions(
     },
     abort,
   };
+}
+
+/**
+ * Commits the control tables a PostgreSQL command has just created, before any
+ * statement writes them: PlanetScale's Neki plans a statement against the
+ * schema committed before its transaction, so a control table created in the
+ * same one is not there for it. The next statement opens another locked
+ * transaction, and {@link lockedSinceDecision} is then false. SQLite writes
+ * them in the transaction that made them; MySQL commits each DDL as it runs.
+ */
+export async function commitControlBootstrap(
+  pinned: AnyDriver,
+  command: BoundMigrationDriver
+): Promise<void> {
+  if (command.target.dialect === "postgresql") {
+    await LOCKED.get(pinned)?.between();
+  }
 }
 
 /**

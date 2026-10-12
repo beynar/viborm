@@ -10,6 +10,11 @@
  * and its SQLSTATE instead of blaming the estate.
  *
  * `postgres-neki-catalog.test.ts` runs the same reads on PGlite.
+ *
+ * Neki also plans a row statement against the schema committed before its
+ * transaction: one that follows a schema change in it is refused before
+ * effects there, and only there (`postgres-neki-apply.test.ts` runs the
+ * commands).
  */
 
 import { ConnectionError, QueryError, VibORMErrorCode } from "@errors";
@@ -23,6 +28,7 @@ import {
   introspectPostgresSchema,
   NULLS_NOT_DISTINCT_QUERY,
 } from "@migrations/drivers/postgres/introspect";
+import { rowsAfterSchemaChange } from "@migrations/statement-safety";
 import {
   nekiRefusals,
   recursiveTermCounts,
@@ -164,5 +170,78 @@ describe("a catalog read the provider refuses names itself", () => {
         'PostgreSQL catalog query "control catalog" failed with SQLSTATE 0A000'
       ),
     });
+  });
+});
+
+describe("a row statement after a schema change in one transaction", () => {
+  const ADD = 'ALTER TABLE "public"."accounts" ADD COLUMN "nickname" text';
+  const BACKFILL = 'UPDATE "public"."accounts" SET "nickname" = "email"';
+  const VERSION = "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki";
+
+  it("is read from executable words, in program order", () => {
+    expect(rowsAfterSchemaChange([ADD, 'CREATE INDEX "i" ON a (b)'])).toBe(
+      undefined
+    );
+    expect(rowsAfterSchemaChange([BACKFILL, ADD])).toBe(undefined);
+    // A quoted name, a literal and a comment are not statements.
+    expect(
+      rowsAfterSchemaChange([
+        'ALTER TABLE a ADD COLUMN "update" text -- then UPDATE',
+        "COMMENT ON TABLE a IS 'INSERT'",
+      ])
+    ).toBe(undefined);
+    // One opaque manual dispatch holding both.
+    expect(rowsAfterSchemaChange([`${ADD}; ${BACKFILL}`])).toEqual({
+      change: { position: 0, words: "ALTER TABLE" },
+      rows: { position: 0, words: "UPDATE" },
+    });
+    expect(
+      rowsAfterSchemaChange([BACKFILL, ADD, "SELECT 1", BACKFILL])
+    ).toEqual({
+      change: { position: 1, words: "ALTER TABLE" },
+      rows: { position: 2, words: "SELECT" },
+    });
+  });
+
+  const preflight = (program: readonly string[], neki: boolean) => {
+    const asked: string[] = [];
+    const run = getMigrationDriver(
+      pgEstateDriver("public")
+    ).preflightSchemaRequirements(
+      [],
+      <T>(sql: string) => {
+        asked.push(sql);
+        return Promise.resolve({
+          rows: (sql === VERSION ? [{ neki }] : []) as T[],
+        });
+      },
+      program
+    );
+    return { asked, run };
+  };
+
+  it("is refused before effects on Neki, naming both statements", async () => {
+    const { asked, run } = preflight([ADD, BACKFILL], true);
+    await expect(run).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+      message: expect.stringContaining(
+        "runs statement 2 (UPDATE) after statement 1 (ALTER TABLE)"
+      ),
+      meta: {
+        dialect: "postgresql",
+        feature: "data after schema change in one transaction",
+      },
+    });
+    expect(asked).toEqual([VERSION]);
+  });
+
+  it("runs on PostgreSQL, which asks once, and is never asked of a program without one", async () => {
+    const postgres = preflight([ADD, BACKFILL], false);
+    await expect(postgres.run).resolves.toBeUndefined();
+    expect(postgres.asked).toEqual([VERSION]);
+
+    const schemaOnly = preflight([ADD], true);
+    await expect(schemaOnly.run).resolves.toBeUndefined();
+    expect(schemaOnly.asked).toEqual([]);
   });
 });

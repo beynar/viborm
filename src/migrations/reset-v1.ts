@@ -41,6 +41,7 @@ import {
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { planLiveNamespaceReset } from "./live-reset";
 import {
+  commitControlBootstrap,
   mayWrapTransaction,
   resolveCommandDriver,
   runProgram,
@@ -272,33 +273,22 @@ export async function resetV1(
       const remaining = resetAttempt
         ? remainingResetReplay(graph, prepared, resetAttempt, plan, ledger)
         : prepared;
-      const begin =
-        !resetAttempt || needsBootstrap
-          ? async (producer: Parameters<typeof appendLedger>[0]) => {
-              if (needsBootstrap) {
-                await ensureControlTables(
-                  producer,
-                  command,
-                  DEFAULT_CONTROL_BASE
-                );
-              }
-              if (!resetAttempt) {
-                await appendLedger(
-                  producer,
-                  command,
-                  DEFAULT_CONTROL_BASE,
-                  ledgerEvent({
-                    ...resetEvent,
-                    attemptId: resetPlanHash,
-                    kind: "reset-started",
-                    effectState: "none",
-                    resetPlan: plan,
-                    open: true,
-                  })
-                );
-              }
-            }
-          : undefined;
+      const begin = resetAttempt
+        ? undefined
+        : (producer: Parameters<typeof appendLedger>[0]) =>
+            appendLedger(
+              producer,
+              command,
+              DEFAULT_CONTROL_BASE,
+              ledgerEvent({
+                ...resetEvent,
+                attemptId: resetPlanHash,
+                kind: "reset-started",
+                effectState: "none",
+                resetPlan: plan,
+                open: true,
+              })
+            );
       const finish = async (producer: Parameters<typeof appendLedger>[0]) => {
         await proveLive(
           producer,
@@ -327,6 +317,11 @@ export async function resetV1(
           })
         );
       };
+      // Committed before the program, whose first group re-reads the marker.
+      if (needsBootstrap) {
+        await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
+        await commitControlBootstrap(pinned, command);
+      }
       await runProgram(pinned, command, undefined, (producer) =>
         executeResetProgram(
           pinned,

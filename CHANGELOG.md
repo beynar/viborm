@@ -3,6 +3,450 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.2.0
+
+Makes migrations safe to run unattended, from a deploy step or from a tenant's
+Durable Object: bounded sessions, honest outcomes, recovery commands, consent at
+`generate`, and SQLite rebuilds that cannot lose data. Also closes the round-2
+review's client leftovers.
+
+### Added
+
+- **Tenant migrator.** `createTenantMigrator({ client, history, tables, limits })`
+  from `viborm/migrations/tenant` changes one tenant's schema from its Durable
+  Object. It is a helper over `createMigrationClient`.
+  - `change(schema, { decisions, signal, beforeDestructive })` never throws. It
+    returns `{ kind: "applied" | "noop" | "refused" | "failed" | "ambiguous",
+    error?, marker? }`. `refused` means nothing changed.
+  - Calls queue one at a time per migrator. `apply` is retried up to 4 times on
+    transient failures and on a held lock (V11005), never after an ambiguous
+    one. `beforeDestructive` is awaited before a destructive change publishes;
+    if it throws, nothing is published.
+  - `status`, `log`, `resolve`, `down`, `reanchor` and `prune` are exposed for
+    RPC.
+- **Decisions as data.** `createPredefinedResolver(decisions)` and the type
+  `MigrationDecision` (from `viborm/migrations`) build a resolver from plain
+  JSON: column and table renames, enum value mappings, and destructive
+  approvals by `{ operation, table, column }`. A change no decision names is
+  refused (V11010); an invalid entry, or one that answers no change of the
+  plan, is refused with V4002 before anything is published.
+- **`reanchor()`** (`migrations.reanchor()`, the tenant migrator's `reanchor()`,
+  `viborm migrate reanchor [--to <state>]`). After a restore leaves the history
+  older than the database (`status().markerState` is `"ahead"` or
+  `"unknown"`), it moves the marker, under the lock, onto the one state whose
+  snapshot the live schema matches exactly, writes a `reanchored` ledger event
+  and runs no migration SQL. It refuses when no state matches (V11014), when
+  several match, when the route holds a manual, opaque or data-only transition,
+  when the marker's own path passed through the state, when an attempt is
+  unfinished, or when the history holds the marker (V11009). `{ to }` adopts the
+  named state as the new baseline.
+- **Authored checkpoints bound a history.** `generate({ from: null })` (CLI
+  `--from empty`) on a history whose schema equals its single leaf publishes a
+  checkpoint. `migrations.prune({ checkpoint, into })` copies the checkpoint
+  and the states after it into a fresh storage, never changes the source and
+  touches no database (API only). `reanchor()` then moves each database onto the
+  checkpoint, and every command loads only the checkpoint onwards.
+- **Migration history storage for Workers.**
+  `createDurableObjectStorageWriter(ctx.storage, { prefix })` from
+  `viborm/migrations/storage/durable-object` and
+  `createR2StorageWriter(bucket, { prefix })` from
+  `viborm/migrations/storage/r2`. Both publish with an atomic conditional
+  create and load without `nodejs_compat`.
+- **Per-dialect migration entries.** `viborm/migrations/postgres`,
+  `viborm/migrations/sqlite` and `viborm/migrations/mysql` have the API of
+  `viborm/migrations` but register only their own dialect's migration driver,
+  so a PostgreSQL Worker no longer bundles the MySQL, SQLite and libSQL
+  migration code.
+- **Recoverable PostgreSQL index builds and foreign keys.**
+  `generate({ lowLock: true })` (CLI `viborm migrate generate --low-lock`)
+  publishes indexes on existing tables as `CREATE [UNIQUE] INDEX CONCURRENTLY`
+  steps and foreign keys as `NOT VALID` plus a separate `VALIDATE CONSTRAINT`.
+  No step blocks writes, the large-table refusal applies to none of them, and an
+  interrupted build leaves one attempt that `resolve` settles. Apply such states
+  over a direct, unpooled connection.
+- **Migration limits.** `createMigrationClient(client, { limits })` takes a
+  `MigrationLimits`: `lockTimeout`, `statementTimeout`, `idleTimeout`,
+  `lockWait`, `connectionWait` (milliseconds) and `largeTableRows` (rows,
+  PostgreSQL only). It is accepted without `storage` or `tables`.
+- `auditStorage(client)` from `viborm/migrations`: the SQLite storage audit
+  behind `viborm check --db`, for runtime and Durable Object callers.
+- `parse(schema, value, { allIssues: true })` in `viborm/validation` reports
+  every issue of a payload. Client operations still report the first one.
+- `recurse: { maxOccurrences: n }` on a recursive projection sets its output
+  budget (default 10,000 occurrences per outer row).
+- `viborm/bun-sqlite` accepts `options.timeout`, the busy timeout in
+  milliseconds (default 5000), applied as `PRAGMA busy_timeout`.
+- Driver hook `beforeForeignKeysOff()`, run on the migration connection before
+  `PRAGMA foreign_keys=OFF` (a Durable Object driver calls
+  `ctx.storage.sync()` there).
+- Exported types: `MigrationApproval`, `InvalidIndex`, `DownPreviewEdge` and
+  `StorageColumnAudit` from `viborm/migrations`; `SQLITE_MIGRATION_CAPABILITY`
+  and `SqliteMigrationCapability` from `viborm/driver`.
+- Docs: a guide, "Per-tenant schemas from Durable Objects"
+  (/docs/migration/per-tenant-schemas-durable-objects), and "Bounded History
+  with Checkpoints" in the migrate guide.
+
+### Changed
+
+#### Migrations: safety
+
+- **`generate` asks before destructive changes.** Drops, type changes, a
+  tightened NOT NULL, a narrower decimal and a required column without a
+  default go to the `resolve` callback before anything is published, as in
+  `push`. Without a resolver `generate` refuses with V11017
+  (`MIGRATION_CONSENT_REQUIRED`); a rejected change refuses with V11010. The
+  approvals are saved in the state and shown by `show()` and `reviewSql`.
+  `viborm migrate generate` asks on a terminal, accepts `--accept-data-loss`, or
+  uses `migrations.resolve` from `viborm.config.ts`; piped input or `--json`
+  without either refuses.
+- **`down` and `resolve` refuse what they cannot do safely.** `down` asks
+  before a generated destructive rollback touches a table that holds rows
+  (V11017 without a resolver, V11010 when rejected) and takes `expectRevision`
+  (V11015 when the marker moved). `viborm migrate down` gains
+  `--accept-data-loss` and `--expect-revision <n>` and asks on a terminal.
+  `resolve({ outcome: "rolled-back" })` refuses while a manual opaque step
+  committed (V11019) or may have committed (V11020).
+- **`down({ dryRun: true })`** returns `edges` (each edge's rollback SQL) and
+  `refusal` (what `down` would raise, or `null`); `DownResult` is a union on
+  `preview`. `viborm migrate down --dry-run` prints both and exits non-zero
+  where `down` would refuse.
+- **PostgreSQL migrations run under limits.** `lock_timeout = 4s` and
+  `statement_timeout = 10min` on every migration transaction, idle timeouts of
+  1 s, and a 10 s wait for the migration connection on every dialect. A
+  statement stopped by a limit fails with V11001 whose `cause` is the V5006 or
+  V2002. Only `CREATE`/`DROP INDEX CONCURRENTLY` and `REINDEX … CONCURRENTLY`,
+  read from the statement's own words, run without the limits.
+- **PostgreSQL refuses a large-table rewrite** (`apply`, `down`, `push`, and
+  `push({ dryRun: true })`), before any statement: a type change, `SET NOT
+  NULL`, a volatile default, or a `FOREIGN KEY`/`CHECK` without `NOT VALID` on a
+  table the planner estimates above `limits.largeTableRows` (1,000,000) is
+  V11009.
+- **`generate` refuses a manual `CONCURRENTLY` statement declared
+  `execution: "transactional"`** (V11012); 1.1.0 published it and `apply`
+  failed with V2001.
+- **Hyperdrive and Neon `-pooler` are refused for migrations.** Effectful
+  commands (`apply`, `down`, `reset`, `baseline`, `resolve`, `verify`, `push`)
+  refuse a `*.hyperdrive.local` or `ep-…-pooler.…` host with V8002 before
+  connecting, unless the driver is given `migrationSessionAttestation:
+  "dedicated-session"`.
+- **SQLite admission is positive.** Migrations run only on a SQLite driver that
+  declares `sqliteMigrationCapability` (the stock `sqlite3` and `bun-sqlite`
+  do). An undeclared custom SQLite driver is refused (V8002) by every migration
+  command, `generate` and `check` included.
+- **SQLite stepwise transitions are refused.** Applying a transition declared
+  `execution: "stepwise"` refuses with V11021 before any of the path runs;
+  `down`, `reset` and `resolve` of one 1.1.0 applied still work.
+- **SQLite rebuilds refuse to lose data.**
+  - A rebuild that would drop a trigger or break a view, including one written
+    after a leading SQL comment, is refused with V11009 naming each dependent.
+  - A type change into INTEGER, REAL or TEXT storage converts each value
+    exactly or aborts with nothing changed (V2005).
+  - The foreign-key lift is proven: `PRAGMA foreign_keys` must read `0`
+    (V11021), and each `DROP TABLE` must keep every referencing table's rows
+    and keys (V11001, rolled back).
+  - A rebuild on a driver without transactions is refused (V11021).
+  - Dropping a `decimal(p,s)` domain converts the stored coefficient (`5.00`
+    becomes `5`, not `500`); a fractional value aborts; decimal to TEXT, REAL
+    or a list is refused (V8001).
+- **SQLite zone-less DateTime text is read as UTC.** `YYYY-MM-DD HH:MM:SS[.fff]`
+  (as `datetime('now')` writes it) is accepted by the storage audit and by
+  rebuilds. After every program that runs manual SQL, VibORM rewrites the
+  destination's DateTime and Time text into canonical storage in the same
+  transaction; a value it cannot rewrite aborts with V11014 and the marker does
+  not move. Typed-client input still needs `T` and a zone.
+- **SQLite migrations hold the write lock.** Every effectful command reads the
+  marker inside `BEGIN IMMEDIATE`, waiting up to `limits.lockWait` (10 s). A
+  concurrent runner gets `noop` or V11015 instead of its first colliding
+  statement's error.
+- **A reorder-only document is a `noop`.** `generate` publishes nothing for a
+  schema that only reorders models or fields.
+- **`push` refuses to orphan polymorphic rows**: a stored discriminator the
+  schema no longer declares refuses with V11010, as `generate` already did.
+
+#### Migrations: outcomes and recovery
+
+- A statement a migration dispatches that the database refuses fails with
+  `MigrationError` V11001 (`meta.providerCode`/`providerSqlState`, provider
+  error as `cause`) instead of the driver's `QueryError`/`ConstraintError`. A
+  refused PostgreSQL catalog read is V11001 naming the read and its SQLSTATE.
+- A failed transactional `apply` leaves a durable `failed` event, shown by
+  `status().lastFailure`; a failed first apply keeps the two control tables.
+- A lost COMMIT reply is decided by re-reading the marker: `applied`, or V11020
+  (`MIGRATION_AMBIGUOUS_COMMIT`). A failure to end the session after a commit is
+  an `applied` with `warnings`.
+- A lost migration connection fails with retryable V1001 and nothing more is
+  sent on it (node-postgres, postgres.js and Bun SQL). postgres.js
+  `CONNECTION_DESTROYED`, `CONNECTION_ENDED` and `EPIPE` map to `ConnectionError`
+  (V1001) instead of `QueryError`.
+- An INVALID index left by an interrupted concurrent build no longer breaks
+  every command: `status()` lists it in `invalidIndexes`, schema-comparing
+  commands refuse with V11023 (`MIGRATION_INVALID_INDEX`), and `resolve` drops
+  or rebuilds it.
+- A marker the history does not hold: `status()` returns
+  `markerState: "ahead" | "unknown"` instead of throwing V11002, `verify()`
+  returns `{ ok: false, markerState }`, and `apply({ ifAhead: "noop" })`
+  boots without touching the database.
+- `apply` starts again when no marker exists and every attempt is closed;
+  `baseline` accepts the same histories.
+- A transactional group writes one `applied` event per state instead of
+  `started` and `step-confirmed` events, and a step that fails inside it reports
+  V11001 or V11014 instead of V11009/`MIGRATION_PARTIAL_EFFECT`. Every command
+  except `log()` reads only the open attempts and the latest failure.
+- An edge that validates a constraint commits alone.
+- `baseline`, `down`, `resolve({ outcome: "retry" })` and `reset` prove the
+  live schema with the catalog digest; a digest defect is `INTERNAL_ERROR`
+  instead of `MIGRATION_DRIFT`.
+- The ledger has a new event kind, `reanchored`, written only by `reanchor()`.
+- PostgreSQL stores each partial-index predicate in the marker row
+  (`predicates`) when `apply()` reaches a state.
+- `generate({ from: null })` on a populated history publishes a checkpoint when
+  the schema equals the single leaf, and otherwise refuses with V11012.
+- A push consent is no longer tied to the client that previewed it;
+  `PushTargetIdentity` loses `bindingId`.
+- The tenant migrator applies a tenant's first `change()` when given
+  `beforeDestructive` (1.1.0 refused it with V11012).
+- Migration errors keep their metadata and keep a thrown non-Error as `cause`;
+  `MIGRATION_PATH_REQUIRED` (V11013) and the `createMigrationClient` options
+  refusal (V4002) have new messages.
+
+#### Migrations: transports and packaging
+
+- **PostgreSQL migrations take a transaction-scoped lock** in each migration
+  transaction, so every command runs through PgBouncer in transaction mode.
+  Only stepwise work takes a session lock. A later group re-reads the marker
+  and refuses with V11015 if it moved.
+- **Neon HTTP runs `apply()`**, one HTTP request per transactional group.
+  Stepwise transitions and destinations the one-statement digest cannot prove
+  (a partial index) are refused with V11021. The other commands still refuse
+  (V8002).
+- **`createFsStorageWriter` is exported only from
+  `viborm/migrations/storage/fs`.** `viborm/migrations` loads no Node builtin
+  and runs on Workers without `nodejs_compat`.
+- `viborm/migrations/tenant` registers no migration driver; the dialect entry
+  you import does.
+- `sideEffects` in `package.json` lists the four migrations entries instead of
+  `false`.
+- `createStorageConformanceSuite()` runs nine cases instead of four.
+
+#### Schema and drivers
+
+- **PostgreSQL: only a generated uuid gets `DEFAULT gen_random_uuid()`.** A
+  caller-supplied uuid (`.uuid()` off the key, `.id({ generate: false })`, or one
+  with its own `.default(...)`) gets none, so the next `generate` or `push`
+  emits one `ALTER COLUMN … DROP DEFAULT` per affected column.
+- **Connection URL and options combine key by key.** On `viborm/pg`,
+  `viborm/postgres` and `viborm/mysql2`, the URL supplies only the keys it
+  carries and every key set in `options` wins. `viborm/pg`'s
+  `options.connectionString` wins over `databaseUrl`. On `viborm/pg` and
+  `viborm/postgres`, an undefined or empty `databaseUrl` with no host, pool or
+  client throws V1004.
+- Every driver's `createClient` refuses a configuration key it does not read
+  (V1004), for example `databaseUrl` on `viborm/sqlite3`.
+- `viborm/sqlite3` keeps the `options.timeout` you pass instead of 5000 ms.
+- `viborm/mysql2` refuses TLS URL settings it cannot honour with its own
+  messages.
+- `sslrootcert=system` in a PostgreSQL URL is read by `viborm/pg` and
+  `viborm/postgres` as `sslmode=verify-full`.
+- `@cloudflare/workers-types` peer range is `^4 || ^5`.
+
+#### Client
+
+- **To-many nested writes accept any verb order.** `{ connect, disconnect }`
+  and other adding-before-clearing spellings no longer fail with V4001; they
+  run in the fixed clear-first order (`disconnect, delete, set, updateMany,
+  deleteMany, update, upsert, connectOrCreate, connect, create, createMany`).
+- **JSON `{ set: value }` is the write envelope on create too**: `create`,
+  `createMany`, both `upsert` arms and nested creates store `value`, as update
+  did.
+- **Caller-input mistakes are `ValidationError` (V4001)** with the key in the
+  issue path: an empty `groupBy` `by` (was V2001); an `orderBy` or `having`
+  field outside `by` (was V9001); a `select` that names nothing at any depth,
+  `select: { _count: true }` on a model with no to-many relation included (was
+  V9001; `createMany` now refuses before writing); a JSON null sentinel under
+  `path` or used as a filter.
+- A recursive projection over its output budget is `UnsupportedOperationError`
+  (V8003, `meta.feature: "recursive output budget"`) instead of V4001.
+- A `ValidationError` names its model (`Validation failed for user.create: …`),
+  and a union refusal reports the failing member's own issue.
+- A BigInt field accepts an integer string (`"-42"` reads as `-42n`).
+  `toJsonSchema` describes BigInt as an integer string and exports decimal
+  precision and identifier formats as patterns.
+- A `_sum` that leaves its type's range no longer fails the call: a `number`
+  sum returns `±Infinity`, a `bigint`/`decimal` sum is exact on SQLite, an
+  `int` sum past 2^53 returns the nearest double. `having` and `orderBy` on a
+  `_sum` use the same total.
+- `in`/`notIn` lists bind as one parameter on PostgreSQL (`= ANY($1)`) and the
+  SQLite family (`json_each(?)`); an `OR` of equalities on one column is sent
+  as `in`, and other long `OR`s are balanced trees.
+- Nested one-to-many `create` lists send one multi-row INSERT per child table,
+  and a counter `upsert` on one unique key is one `INSERT … ON CONFLICT DO
+  UPDATE` on PostgreSQL and SQLite.
+- The client types reject a misspelled key beside a correct one in nested write
+  data, a nested `select`/`include`/`where`, a root `where` operator object and
+  a `groupBy` `orderBy` outside `by`.
+
+- PostgreSQL: `apply`, `baseline` and `reset` create the migration control
+  tables in a transaction of their own, committed before the first marker; the
+  lock is taken again and the marker re-read before work continues. A
+  `baseline` refused by its live proof now leaves the empty control tables
+  behind, as a failed first `apply` already did.
+- PostgreSQL: partial-index predicates are deparsed through regular scratch
+  views in the estate's schema (created, read and dropped in one transaction,
+  under a random name) instead of temporary views. The deparsed text is
+  unchanged.
+- PlanetScale Neki: `apply`, `down` and `push` refuse, before any effect and
+  with V11021 naming both statements, a transaction that runs a data statement
+  after a schema change (Neki plans each statement against the schema committed
+  before its transaction).
+
+### Fixed
+
+- Works on PlanetScale Neki: two-term recursive CTEs; no whole-row reference in
+  introspection; introspection errors name their query.
+- Works on PlanetScale Neki: `apply`, `baseline`, `verify`, `status`, `down`
+  and `reset`, partial indexes included. Stepwise transitions (and `lowLock`
+  steps) do not run on Neki yet.
+- SQLite `push`: rebuilding a table with an expression default, such as
+  `s.dateTime().now()`, no longer fails with V2001, and the rebuild no longer
+  copies a `sqlite_autoindex_*` name into its UNIQUE constraint. Present in
+  1.1.0.
+- PostgreSQL: a partial-index predicate combining `BETWEEN` with `AND` no longer
+  fails its first `apply` with false drift (V11014).
+- PostgreSQL: float defaults at or above 1e21 no longer fail `push` with V11014.
+- `viborm/pglite` accepts a PGlite instance from another copy of
+  `@electric-sql/pglite` (1.1.0 failed every transaction with V5001).
+- R2 history storage: losing a publish race with R2 error 10058 returns
+  `identical` or V11022 when the winner is readable.
+- Workers with `nodejs_compat`: a refusal raised before any I/O no longer
+  surfaces as an unhandled rejection.
+- A PostgreSQL `apply` no longer reports the large-table preflight as "NaN
+  rows" when `EXPLAIN` gives no estimate; it names the plan line.
+
+### Performance
+
+- PostgreSQL: an `apply()` with nothing to do sends 2 statements instead of
+  about 30, estates with partial indexes (soft delete) included. Every command
+  reads the control plane in 3 statements instead of 5.
+- PostgreSQL: a two-operation transactional change sends 3 control statements
+  while holding the table lock instead of 17.
+- Migration commands cache parsed artifacts per process: a 200-state history
+  loads in about 11 ms warm instead of 190 ms.
+- A nested `create` of 25 posts sends 5 statements instead of 29 on SQLite and
+  4 instead of 28 on PGlite.
+- SQLite: a page of 100 posts with their tags (many-to-many) went from about
+  7.8 ms to 0.8 ms.
+- Type-checking a 100-model schema (TypeScript 5.9): a three-level include
+  1.66M instantiations to 311k, a nested create with include 1.66M to 347k, a
+  filtered select 1.53M to 311k (2.1 s to 0.65 s).
+
+### Upgrading from 1.1.0
+
+- **Upgrade every machine and CI job together** that runs migration commands
+  or reads the history. 1.1.0 refuses three things 1.2.0 writes:
+  - a destructive state's `approvals`: keep 1.2.0 for any history that holds
+    one;
+  - the PostgreSQL marker's `predicates` key (V11012). To run 1.1.0 against the
+    database again, first run
+    `UPDATE "<schema>"."_viborm_migration_state" SET payload = (payload::jsonb - 'predicates')::text WHERE singleton = 1;`
+  - a `reanchored` event (V11012). To run 1.1.0 again, run
+    `DELETE FROM "<schema>"."_viborm_migration_log" WHERE kind = 'reanchored';`
+    (on MySQL and SQLite drop the `"<schema>".` qualifier; MySQL keeps it, with
+    backticks, when the client sets a namespace).
+- **PostgreSQL migration role:** commands that compare partial indexes
+  (`apply`, `baseline`, `verify`, `down`, `reset`, `push`) need `CREATE` on the
+  estate's schema instead of `TEMP` on the database. A role that changes the
+  schema already has it; grant it to a role that only applies data-only
+  transitions.
+- **PlanetScale Neki:** put a data change that depends on a schema change in a
+  state of its own, then run `apply({ to: <schema state> })` and `apply()`.
+- **Destructive changes:** pass `resolve` to `generate` and `down`, for example
+  `resolve: (c) => (c.type === "destructive" ? c.proceed() : undefined)` or
+  `lenientResolver`. CI jobs running `viborm migrate generate` or `migrate down`
+  on such changes pass `--accept-data-loss` or set `migrations.resolve`. A
+  relative `down({ steps })` should pass `expectRevision`. When
+  `resolve --rolled-back` refuses with V11019/V11020, finish by hand and run
+  `resolve --complete`. Scripts that check only the exit code of
+  `migrate down --dry-run` now fail where `down` would; narrow `DownResult` on
+  `preview`.
+- **Limits:** a migration that waits over 4 s for a lock or runs over 10 min
+  now fails; re-run it, or raise `limits` (`0` turns a server limit off). A
+  V11009 large-table refusal runs from a job with
+  `limits: { largeTableRows: 0, statementTimeout: 0 }`, or use
+  `generate({ lowLock: true })` for indexes and foreign keys. A manual
+  `CONCURRENTLY` transition must declare `execution: "stepwise"`.
+- **Hyperdrive and Neon:** migrate through the direct endpoint (drop `-pooler`;
+  use the origin URL instead of Hyperdrive). Pass
+  `migrationSessionAttestation: "dedicated-session"` only after verifying the
+  endpoint keeps one server session per connection. PgBouncer in transaction
+  mode now works without it. `apply()` over Neon HTTP migrates instead of
+  throwing V8002: remove a fallback that relied on it, and keep a session client
+  for the other commands, stepwise and partial-index changes.
+- **Custom SQLite drivers** that run migrations add
+  `readonly sqliteMigrationCapability = SQLITE_MIGRATION_CAPABILITY;` after
+  confirming its claims, need transactions for rebuilds, and on Durable Objects
+  implement `beforeForeignKeysOff()`.
+- **SQLite stepwise transitions:** apply any a database still needs with 1.1.0
+  first; regenerate an unapplied one as `execution: "transactional"`.
+- **SQLite rebuilds:** drop the triggers or views a V11009 names before the
+  change and recreate them after; clean values that do not convert exactly
+  before a type change; a decimal column retyped to `int`/`bigint` under 1.1.x
+  holds coefficients (divide by `10^scale`); regenerate unapplied 1.1.x
+  transitions to get the checked copies.
+- **SQLite DateTime:** remove manual `replace(col, ' ', 'T') || 'Z'` repair
+  steps, and run `viborm check --db` before a manual migration on an existing
+  database.
+- **Reorder-only documents:** treat `outcome: "noop"` (`stateId: null`) as
+  nothing to apply.
+- **`generate({ from: null })`** on a populated history: omit `from` to keep
+  generating ordinary states.
+- **Error codes:** catch V11001 (read `error.cause` or
+  `meta.providerSqlState`) where you caught `QueryError`, `ConstraintError`,
+  V2xxx, V5006 or V2002 from migration commands, or V11009 from a refused
+  catalog read; treat V1001, V1002 and V11020 as retryable; read `apply()`'s
+  `warnings` instead of alerting on V11005 after success; handle V11001 and
+  V11014 where you matched V11009 or `MIGRATION_PARTIAL_EFFECT` from a
+  transactional apply; handle `INTERNAL_ERROR` beside `MIGRATION_DRIFT` from
+  `baseline`, `down`, `resolve` and `reset`; match V11023 instead of V8001 for an
+  invalid index, and `status().markerState` instead of V11002/V11022 for version
+  skew. Match migration errors on `code`, not message text.
+- **Ledger and status readers:** expect one `applied` event per state from a
+  transactional apply; check `marker`, not the presence of the control tables;
+  handle `"reanchored"` in a switch over `LedgerEventV1["kind"]`. Push consents
+  saved by 1.1.0 are stale (V11018): preview again, and stop reading
+  `bindingId`.
+- **Imports:** `import { createFsStorageWriter } from
+  "viborm/migrations/storage/fs"`. Next to `viborm/migrations/tenant`, import a
+  dialect entry such as `import "viborm/migrations/postgres";`. Custom storage
+  writers must pass the nine conformance cases.
+- **PostgreSQL uuid defaults:** run `migrate generate` once per history and
+  apply the `DROP DEFAULT` everywhere (`push` shows the same diff); raw SQL that
+  relied on the database inventing those uuids must supply them.
+- **Driver configuration:** remove keys a driver does not document (on
+  `viborm/sqlite3`, `dataDir` replaces `databaseUrl`); remove from `options` any
+  value you relied on the URL to override; set or omit a `databaseUrl` that may
+  be undefined; on `viborm/sqlite3`, remove `options.timeout` to keep 5000 ms. A
+  URL combining `sslrootcert=system` with a weaker `sslmode` now verifies TLS.
+  PlanetScale users stay on `@planetscale/database` 1.x.
+- **Nested writes:** a payload naming one target in a clearing and an adding
+  verb meets the clearing verb first; split it if the removal must win.
+- **JSON:** to store a document whose only key is `set` through a create, write
+  `{ set: { set: value } }`.
+- **Validation:** catch `ValidationError` (`V4001`) and read
+  `error.issues[0].path` for the mistakes listed above; catch the recursion
+  budget as `UnsupportedOperationError`; match `error.meta.model` instead of
+  message text; check types before VibORM if a BigInt field must refuse
+  strings; regenerate published JSON Schemas.
+- **Aggregates:** test `Number.isFinite(result._sum.field)` for a `number`
+  sum and `Number.isSafeInteger` for an `int` sum, or declare `s.bigInt()`;
+  grouped `orderBy` on an overflowing sum may reorder rows.
+- **Logged SQL:** `in` lists appear as one parameter, nested `create` lists as
+  one multi-row INSERT, counter upserts as one `INSERT … ON CONFLICT`, and
+  many-to-many pages join the junction first: update statement counters, log
+  filters and fingerprints. Manual chunking of large `in` lists can go.
+- **Types:** fix the misspelled keys `tsc` reports; write out whole nested
+  write objects, root operator objects or nested `where`s instead of passing a
+  type parameter, and narrow a `groupBy` `orderBy` type to the grouped fields.
+
 ## 1.1.0 — 2026-10-10
 
 Adds recursive relation filters, fixes the regressions found in the round-2

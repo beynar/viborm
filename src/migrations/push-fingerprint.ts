@@ -83,8 +83,8 @@ export function bindIndexPredicateCanonicalizer(
           : undefined
       );
     try {
-      // Its scratch views are session-local, so on a pool, or behind a
-      // transaction pooler, its statements must share one transaction. A
+      // Its scratch views exist only inside their transaction, so on a
+      // pool, or behind a transaction pooler, its statements share one. A
       // locked command's pinned producer is already inside one (plan D1).
       // With no session at all, each pass is one request (plan D7).
       return await (canPinSession(producer) && producer.supportsTransactions

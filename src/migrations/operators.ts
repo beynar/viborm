@@ -51,6 +51,7 @@ import {
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
+  commitControlBootstrap,
   resolveCommandDriver,
   runProgram,
   withLockedMigrationProducer,
@@ -250,7 +251,6 @@ export async function baselineV1(
     async (pinned, command) => {
       const control = await readCommandControl(pinned, command, true);
       const { marker, ledger } = control;
-      const needsBootstrap = control.presence.kind !== "present";
       if (marker || unfinishedAttempts(ledger).length > 0) {
         throw new MigrationError(
           "baseline requires an unmarked database without an unfinished attempt",
@@ -263,6 +263,13 @@ export async function baselineV1(
         [requireStateSnapshot(graph, target)],
         (sql, params) => pinned._executeRaw(sql, params)
       );
+      // Committed before the proof, which then runs under the lock taken
+      // again, as does the marker it publishes.
+      if (control.presence.kind !== "present") {
+        await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
+        await commitControlBootstrap(pinned, command);
+        await assertLockedSinceDecision(pinned, pinned, command, null);
+      }
       await proveLive(
         pinned,
         command,
@@ -271,7 +278,7 @@ export async function baselineV1(
         async (differences) =>
           `baseline requires exact live equality with the target snapshot. Differences: ${await differences()}`
       );
-      await adoptRoute(pinned, command, graph, path, null, needsBootstrap);
+      await adoptRoute(pinned, command, graph, path, null);
       return { stateId: target };
     }
   );
@@ -347,7 +354,7 @@ export async function reanchorV1(
         [requireStateSnapshot(graph, target)],
         (sql, params) => pinned._executeRaw(sql, params)
       );
-      await adoptRoute(pinned, command, graph, path, marker, false);
+      await adoptRoute(pinned, command, graph, path, marker);
       return { stateId: target };
     }
   );
@@ -393,8 +400,7 @@ async function adoptRoute(
   command: Parameters<typeof appendLedger>[1],
   graph: MigrationGraph,
   path: readonly Sha256[],
-  current: MigrationMarkerV1 | null,
-  needsBootstrap: boolean
+  current: MigrationMarkerV1 | null
 ): Promise<void> {
   const edges = path.map((stateId, index) => ({
     stateId,
@@ -407,9 +413,6 @@ async function adoptRoute(
   }));
   const target = path.at(-1)!;
   const publish = async (producer: AnyDriver) => {
-    if (needsBootstrap) {
-      await ensureControlTables(producer, command, DEFAULT_CONTROL_BASE);
-    }
     const next = await advanceMarker(
       producer,
       command,
