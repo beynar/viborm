@@ -107,6 +107,11 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // S7 (1.2.0): control authentication no longer interprets managed tables;
   // its two scoped reads became one.
   "src/migrations/control.ts executeRaw 17",
+  // Consolidation (1.2.0): MySQL's interrupted exact-decimal recovery plan is
+  // the dialect's own `programPreamble`, reading on the producer the
+  // sequential program hands it (the pinned session). It moved here out of
+  // the shared operators; no new path opens.
+  "src/migrations/drivers/mysql/index.ts executeRaw 1",
   // D5 (1.2.0): the PostgreSQL catalog digest, one read-only statement on the
   // producer its caller hands it (the pinned session, or the pre-lock no-op
   // proof's own read).
@@ -126,7 +131,7 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // preflight on the unlocked producer it previews from.
   // T3 (1.2.0): reanchor runs the chosen state's schema preflight on
   // `pinned`, under the lock, as baseline does.
-  "src/migrations/operators.ts executeRaw 10",
+  "src/migrations/operators.ts executeRaw 8",
   // §3.5's pinned-session owner: target selection, the command-view catalog
   // read, and the sequential program's recording view. Exact-decimal migration
   // recovery adds two sites in THIS SAME owner: its catalog read and execution
@@ -136,8 +141,11 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // added to an already admitted file.
   // S1 (1.2.0): the session's time limits are set once it is reserved and
   // reset before it goes back, both on the pinned view itself.
+  // Consolidation (1.2.0): MySQL's strict-mode proof moved into the dialect's
+  // `proveSession`, which reads through the catalog reader this owner hands
+  // it, so one query executor left this file.
   "src/migrations/pinned-session.ts executeRaw 7",
-  "src/migrations/pinned-session.ts queryExecutorFactory 3",
+  "src/migrations/pinned-session.ts queryExecutorFactory 2",
   "src/migrations/push-fingerprint.ts executeRaw 2",
   // Selected-table population proof uses the handed producer and its adapter's
   // qualified identifier before refusing an unsafe required-column addition.
