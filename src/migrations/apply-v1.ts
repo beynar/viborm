@@ -26,13 +26,8 @@ import {
   refusePartialControl,
   unfinishedAttempts,
 } from "./control";
-import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
-import {
-  postgresCatalogDigest,
-  postgresCatalogDigestQuery,
-} from "./drivers/postgres/catalog-digest";
-import { emptyManagedSnapshot } from "./empty-snapshot";
+import { postgresCatalogDigestQuery } from "./drivers/postgres/catalog-digest";
 import {
   checkCondition,
   evaluateAllChecks,
@@ -49,7 +44,6 @@ import {
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
-  lockedSinceDecision,
   MIGRATION_LOCK_FREE,
   type MigrationBatch,
   mayWrapTransaction,
@@ -58,13 +52,18 @@ import {
   runsMigrationBatches,
   withLockedMigrationProducer,
 } from "./pinned-session";
-import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import {
-  fingerprintDeparsed,
-  fingerprintLive,
-  fingerprintSnapshot,
-} from "./push-fingerprint";
-import { introspectManaged } from "./push-plan";
+  assertEmptyManaged,
+  assertLockedSinceDecision,
+  assertNoDrift,
+  markedSnapshotHash,
+  markerStanding,
+  proveLive,
+  snapshotOf,
+} from "./proof";
+import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
+import { fingerprintDeparsed, fingerprintSnapshot } from "./push-fingerprint";
+import type { introspectManaged } from "./push-plan";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
@@ -73,12 +72,18 @@ import { eventIdFor } from "./v1-parse";
 import type {
   ApplyV1Options,
   LedgerEventV1,
-  MarkerIndexPredicateV1,
   MarkerPathEdgeV1,
   MigrationBooleanCheckV1,
   MigrationMarkerV1,
   MigrationStateManifestV1,
 } from "./v1-types";
+
+// Moved to proof.ts; re-exported for the commands not yet importing from there.
+export {
+  assertLockedSinceDecision,
+  assertNoDrift,
+  markerStanding,
+} from "./proof";
 
 export interface ApplyV1Result {
   readonly outcome: "applied" | "noop" | "preview";
@@ -271,25 +276,6 @@ async function keepCommittedOutcome(
       ],
     };
   }
-}
-
-/**
- * Where the live marker stands relative to this history. A marker naming a
- * state the graph holds — or no state — is `known`, and `assertNoDrift` proves
- * the rest. Otherwise its arrival path tells version skew from a stranger: the
- * marker is `ahead` when that path passes through a state of this estate
- * before leaving it (newer code applied the rest), and `unknown` when nothing
- * on it belongs here.
- */
-export function markerStanding(
-  graph: MigrationGraph,
-  marker: MigrationMarkerV1 | null
-): "known" | "ahead" | "unknown" {
-  if (!marker?.stateId || graph.states.has(marker.stateId)) return "known";
-  return marker.estateHash === graph.estateHash &&
-    marker.path.some((edge) => graph.states.has(edge.stateId))
-    ? "ahead"
-    : "unknown";
 }
 
 /** True when `ifAhead: "noop"` applies; refuses every other marker this history does not hold. */
@@ -566,12 +552,7 @@ async function executeAtomicGroup(
     const write = markerWrite(command, DEFAULT_CONTROL_BASE, expected, next);
     await producer._executeRaw(write.sql, write.params);
   } else {
-    const predicates = await assertFingerprint(
-      producer,
-      command,
-      graph,
-      snapshotHash
-    );
+    const predicates = await proveLive(producer, command, graph, snapshotHash);
     await casMarker(
       producer,
       command,
@@ -703,42 +684,6 @@ async function assertChecks(
     return;
   }
   throw refusal();
-}
-
-/**
- * Refuses a group whose decision was taken under a lock the command has since
- * let go (plans D1, S5): an earlier group committed, or SQLite committed the
- * decision's transaction to switch foreign keys. Read as the group's first
- * statements, under its own lock: if another command moved the marker in
- * between, nothing of this group runs. Apply never leaves an attempt of its own
- * open between two groups, so an unfinished one is another command's; `down`
- * and `reset` carry theirs across groups and pass `ownAttempt`.
- */
-export async function assertLockedSinceDecision(
-  pinned: Parameters<typeof appendLedger>[0],
-  producer: Parameters<typeof appendLedger>[0],
-  command: BoundMigrationDriver,
-  expected: MigrationMarkerV1 | null,
-  ownAttempt = false
-): Promise<void> {
-  if (lockedSinceDecision(pinned)) return;
-  const { marker, ledger } = await readControlState(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    { ledger: "open" }
-  );
-  if (
-    marker?.revision === expected?.revision &&
-    marker?.pathHash === expected?.pathHash &&
-    (ownAttempt || unfinishedAttempts(ledger).length === 0)
-  ) {
-    return;
-  }
-  throw new MigrationError(
-    "Another migration command moved the marker between two of this command's transactions. Nothing of the remaining path ran; running the command again re-reads the marker.",
-    VibORMErrorCode.MIGRATION_MARKER_CONFLICT
-  );
 }
 
 interface ForwardAttempt {
@@ -953,7 +898,7 @@ async function executeForwardEdge(
     state.destinationChecks,
     "destination"
   );
-  const predicates = await assertFingerprint(
+  const predicates = await proveLive(
     producer,
     command,
     graph,
@@ -1030,164 +975,6 @@ function previewStatements(
     from = to;
   }
   return statements;
-}
-
-export async function assertNoDrift(
-  producer: Parameters<typeof introspectManaged>[0],
-  command: BoundMigrationDriver,
-  graph: MigrationGraph,
-  marker: MigrationMarkerV1
-): Promise<void> {
-  await assertFingerprint(
-    producer,
-    command,
-    graph,
-    markedSnapshotHash(graph, marker)
-  );
-}
-
-/** The authenticated snapshot a marker names, once its identity is proven. */
-function markedSnapshotHash(
-  graph: MigrationGraph,
-  marker: MigrationMarkerV1
-): Sha256 {
-  if (marker.estateHash !== graph.estateHash) {
-    throw new MigrationError(
-      "Live marker estate does not match storage",
-      VibORMErrorCode.MIGRATION_DRIFT,
-      { meta: { estateHash: marker.estateHash } }
-    );
-  }
-  if (marker.stateId) {
-    const state = graph.states.get(marker.stateId);
-    if (!state) {
-      throw new MigrationError(
-        "Marker state is missing from the estate",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-    if (state.snapshotHash !== marker.snapshotHash) {
-      throw new MigrationError(
-        "Marker snapshot does not match the authenticated state",
-        VibORMErrorCode.MIGRATION_DRIFT
-      );
-    }
-  } else if (marker.snapshotHash !== graph.emptySnapshotHash) {
-    throw new MigrationError(
-      "An empty-path marker must name the empty managed snapshot",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
-  if (marker.path.length === 0) {
-    if (marker.stateId !== null) {
-      throw new MigrationError(
-        "Marker path does not end at the marked state",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-  } else {
-    if (marker.path.at(-1)!.stateId !== marker.stateId) {
-      throw new MigrationError(
-        "Marker path does not end at the marked state",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-    let from: Sha256 | null = null;
-    for (const edge of marker.path) {
-      const state = graph.states.get(edge.stateId);
-      const parent = state?.parents.find(
-        (item) =>
-          item.transitionHash === edge.transitionHash && item.fromState === from
-      );
-      if (!(state && parent)) {
-        throw new MigrationError(
-          "Marker path is not an authenticated arrival route",
-          VibORMErrorCode.MIGRATION_CORRUPTION
-        );
-      }
-      from = edge.stateId;
-    }
-  }
-  const snapshotHash = marker.stateId
-    ? graph.states.get(marker.stateId)!.snapshotHash
-    : graph.emptySnapshotHash;
-  if (!graph.snapshots.get(snapshotHash)) {
-    throw new MigrationError(
-      "Marker snapshot is missing from the estate",
-      VibORMErrorCode.MIGRATION_CORRUPTION
-    );
-  }
-  return snapshotHash;
-}
-
-/**
- * Proves the live managed schema is the snapshot: on PostgreSQL in one
- * statement (plan D5, `catalog-digest.ts`), else, and where that digest
- * abstains, through an introspection, read once. On PostgreSQL it returns each
- * partial-index predicate that introspection read, the server's own deparse
- * (`pg_get_expr`), which a forward apply records beside the marker
- * (`casMarker`) for the no-op; the digest abstains on any partial index, so
- * a proof without introspection has none to record.
- */
-async function assertFingerprint(
-  producer: Parameters<typeof introspectManaged>[0],
-  command: BoundMigrationDriver,
-  graph: MigrationGraph,
-  snapshotHash: Sha256
-): Promise<readonly MarkerIndexPredicateV1[]> {
-  const expected = snapshotOf(graph, snapshotHash);
-  const fingerprint =
-    expected && (await fingerprintLive(expected, command, producer));
-  const postgres = command.target.dialect === "postgresql";
-  const digest = postgres
-    ? await postgresCatalogDigest(
-        producer,
-        command,
-        controlTableNames(DEFAULT_CONTROL_BASE)
-      )
-    : undefined;
-  if (digest !== undefined && digest === fingerprint) return [];
-  const live = await introspectManaged(producer, command);
-  if ((await fingerprintLive(live, command, producer)) !== fingerprint) {
-    throw new MigrationError(
-      `Live managed schema drifted from the authenticated snapshot. Differences: ${expected ? JSON.stringify(await diff(live, expected)) : "authenticated snapshot is missing"}`,
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  }
-  if (digest !== undefined) {
-    throw new MigrationError(
-      "The PostgreSQL catalog digest disagrees with the introspected schema, which matches the authenticated snapshot. This is a VibORM defect in the digest (drivers/postgres/catalog-digest.ts), not drift: nothing ran. Please report it with the snapshot.",
-      VibORMErrorCode.INTERNAL_ERROR
-    );
-  }
-  if (!postgres) return [];
-  return live.tables.flatMap((table) =>
-    table.indexes.flatMap((index) =>
-      index.where
-        ? [{ table: table.name, index: index.name, deparsed: index.where }]
-        : []
-    )
-  );
-}
-
-function snapshotOf(graph: MigrationGraph, snapshotHash: Sha256) {
-  return (
-    graph.snapshots.get(snapshotHash) ??
-    (snapshotHash === graph.emptySnapshotHash ? emptyManagedSnapshot() : null)
-  );
-}
-
-async function assertEmptyManaged(
-  producer: Parameters<typeof introspectManaged>[0],
-  command: BoundMigrationDriver
-): Promise<void> {
-  const live = await introspectManaged(producer, command);
-  if (live.tables.length > 0 || (live.enums?.length ?? 0) > 0) {
-    throw new MigrationError(
-      "Ordinary apply requires an empty managed target; use baseline to adopt an existing schema",
-      VibORMErrorCode.MIGRATION_INVALID_STATE
-    );
-  }
 }
 
 function ledgerEvent(

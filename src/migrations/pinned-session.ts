@@ -54,6 +54,7 @@ import {
 import type { BoundMigrationDriver } from "./drivers";
 import { planInterruptedMySQLDecimalRecovery } from "./drivers/mysql/decimal-recovery";
 import { providerRefused } from "./execute-dispatch";
+import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
 import { snapshotExactRecord } from "./input-boundary";
 import { buildsIndexConcurrently } from "./statement-safety";
 import { type CatalogRead, readsCommandNamespace } from "./target";
@@ -1415,6 +1416,53 @@ export function mayWrapTransaction(
 ): boolean {
   if (!transactional) LOCKED.get(producer)?.stepwise();
   return transactional && dialect !== "mysql" && producer.supportsTransactions;
+}
+
+/**
+ * Runs one program of a command, the one owner of how it runs: on MySQL as a
+ * sequential program; else, given its `program`, in a transaction where
+ * {@link mayWrapTransaction} admits one, SQLite's foreign-key pragmas lifted
+ * around it (a recreation is refused where nothing can lift them), and
+ * directly otherwise; without one, directly. `atomic` tells the body which.
+ * `phase` records how far a transaction got: past its body and checks
+ * (`committing`), past its COMMIT (`committed`), for a caller that classifies
+ * a failure at COMMIT (plan S3).
+ */
+export async function runProgram<T>(
+  pinned: AnyDriver,
+  command: BoundMigrationDriver,
+  program:
+    | {
+        readonly transactional: boolean;
+        readonly statements: string[];
+        readonly phase?: { committing: boolean; committed: boolean };
+      }
+    | undefined,
+  body: (producer: AnyDriver, atomic: boolean) => Promise<T>
+): Promise<T> {
+  const { dialect } = command.target;
+  if (dialect === "mysql") {
+    return runSequentialProgram(pinned, command, (producer) =>
+      body(producer, false)
+    );
+  }
+  if (!program) return body(pinned, false);
+  const { bracket } = liftForeignKeyPragmas(pinned, program.statements);
+  if (!mayWrapTransaction(pinned, dialect, program.transactional)) {
+    return body(pinned, false);
+  }
+  const { phase } = program;
+  return withForeignKeysLifted(pinned, bracket, async (inside) => {
+    const result = await pinned.withTransaction(async (transaction) => {
+      const value = await inside(transaction, (producer) =>
+        body(producer, true)
+      );
+      if (phase) phase.committing = true;
+      return value;
+    });
+    if (phase) phase.committed = true;
+    return result;
+  });
 }
 
 /**

@@ -18,7 +18,12 @@ import {
 import { throwIfCatalogRefusal } from "./drivers/postgres/introspect";
 import type { Sha256 } from "./identity";
 import type { SchemaSnapshot, TableDef } from "./types";
-import { encodePathHash, parseLedgerEvent, parseMarkerRow } from "./v1-parse";
+import {
+  encodePathHash,
+  eventIdFor,
+  parseLedgerEvent,
+  parseMarkerRow,
+} from "./v1-parse";
 import { exactObject, parseRequiredString, refuse } from "./v1-parse-shared";
 import type {
   LedgerEventV1,
@@ -1291,6 +1296,90 @@ export function markerFromPath(
     revision,
     updatedAt: new Date().toISOString(),
   };
+}
+
+/** Every ledger event's sealed fields: format, times, tool version and id. */
+export function ledgerEvent({
+  open = false,
+  failure = null,
+  ...fields
+}: Omit<
+  LedgerEventV1,
+  "format" | "eventId" | "toolVersion" | "startedAt" | "finishedAt" | "failure"
+> & { failure?: string | null; open?: boolean }): LedgerEventV1 {
+  const startedAt = new Date().toISOString();
+  const event = {
+    format: "1" as const,
+    ...fields,
+    startedAt,
+    finishedAt: open ? null : startedAt,
+    toolVersion: "v1",
+    failure,
+  };
+  return { ...event, eventId: eventIdFor(event) };
+}
+
+/** An attempt's id: the id of its `started` event under the zero attempt. */
+export function attemptIdFor(
+  seed: Pick<
+    LedgerEventV1,
+    | "estateHash"
+    | "snapshotHash"
+    | "sqlHash"
+    | "fromState"
+    | "toState"
+    | "transitionHash"
+    | "direction"
+  >
+): Sha256 {
+  return ledgerEvent({
+    ...seed,
+    attemptId: "0".repeat(64),
+    kind: "started",
+    operationId: null,
+    dispatchId: null,
+    effectState: "none",
+    open: true,
+  }).eventId;
+}
+
+/** Whether a read marker is the one expected; two absent markers are. */
+export function sameMarker(
+  marker: MigrationMarkerV1 | null,
+  expected: { revision: number; pathHash: Sha256 } | null
+): boolean {
+  return (
+    marker?.revision === expected?.revision &&
+    marker?.pathHash === expected?.pathHash
+  );
+}
+
+/** Compare-and-swaps the marker from `current` to the one `path` ends at. */
+export async function advanceMarker(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver,
+  estateHash: Sha256,
+  current: MigrationMarkerV1 | null,
+  path: MigrationMarkerV1["path"],
+  snapshotHash: Sha256,
+  revisionStep = 1,
+  predicates?: readonly MarkerIndexPredicateV1[]
+): Promise<MigrationMarkerV1> {
+  const next = markerFromPath(
+    estateHash,
+    snapshotHash,
+    path,
+    (current?.revision ?? 0) + revisionStep
+  );
+  await casMarker(
+    producer,
+    driver,
+    DEFAULT_CONTROL_BASE,
+    current,
+    next,
+    predicates
+  );
+  return next;
 }
 
 function parsePayload(value: unknown): unknown {
