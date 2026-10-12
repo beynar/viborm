@@ -215,17 +215,3 @@ function findMigrationDriver(
     { meta: { driver: driverName, dialect } }
   );
 }
-
-/**
- * Lists all registered migration drivers.
- */
-export function listMigrationDrivers(): MigrationDriver[] {
-  return [...driverRegistry.values()];
-}
-
-/**
- * Checks if a migration driver is registered.
- */
-export function hasMigrationDriver(driverName: string): boolean {
-  return driverRegistry.has(driverName);
-}

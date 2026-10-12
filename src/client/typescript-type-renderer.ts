@@ -19,7 +19,7 @@ import {
   isVariantRelationState,
   slotMayBeEmpty,
 } from "@schema/relation";
-import type { Scalar } from "@schema/scalars";
+import type { Scalar, ScalarType } from "@schema/scalars";
 import type { ResolvedRelationIndex } from "@schema/validation/relation-resolution";
 import type { Operations, Schema } from "./types";
 
@@ -132,54 +132,42 @@ function enumType(scalar: Scalar): TypeNode {
   return unionOf(...values.map((value) => atom(JSON.stringify(value))));
 }
 
+/** Scalar kinds whose TypeScript type is one fixed atom. */
+const SCALAR_ATOMS: Readonly<
+  Record<Exclude<ScalarType, "vector" | "point" | "enum">, string>
+> = Object.freeze({
+  string: "string",
+  time: "string",
+  int: "number",
+  number: "number",
+  decimal: 'import("viborm").Decimal',
+  boolean: "boolean",
+  datetime: "Date",
+  date: "Date",
+  bigint: "bigint",
+  // A custom Standard Schema carries its output only in an erased generic.
+  json: "unknown",
+  blob: "Uint8Array",
+});
+
 function scalarType(scalar: Scalar): TypeNode {
   const state = scalar["~"].state;
   let value: TypeNode;
-  switch (state.type) {
-    case "string":
-    case "time":
-      value = atom("string");
-      break;
-    case "int":
-    case "number":
-      value = atom("number");
-      break;
-    case "decimal":
-      value = atom('import("viborm").Decimal');
-      break;
-    case "boolean":
-      value = atom("boolean");
-      break;
-    case "datetime":
-    case "date":
-      value = atom("Date");
-      break;
-    case "bigint":
-      value = atom("bigint");
-      break;
-    case "json":
-      // A custom Standard Schema carries its output only in an erased generic.
-      value = atom("unknown");
-      break;
-    case "blob":
-      value = atom("Uint8Array");
-      break;
-    case "vector":
-      value = arrayOf(atom("number"));
-      break;
-    case "point":
-      value = objectOf([
-        { name: "longitude", type: atom("number") },
-        { name: "latitude", type: atom("number") },
-      ]);
-      break;
-    case "enum":
-      value = enumType(scalar);
-      break;
-    default:
-      throw new QueryEngineError(
-        "The TypeScript renderer does not support this scalar type."
-      );
+  if (Object.hasOwn(SCALAR_ATOMS, state.type)) {
+    value = atom(SCALAR_ATOMS[state.type as keyof typeof SCALAR_ATOMS]);
+  } else if (state.type === "vector") {
+    value = arrayOf(atom("number"));
+  } else if (state.type === "point") {
+    value = objectOf([
+      { name: "longitude", type: atom("number") },
+      { name: "latitude", type: atom("number") },
+    ]);
+  } else if (state.type === "enum") {
+    value = enumType(scalar);
+  } else {
+    throw new QueryEngineError(
+      "The TypeScript renderer does not support this scalar type."
+    );
   }
   if (state.array) value = arrayOf(value);
   return state.nullable ? unionOf(value, NULL_TYPE) : value;

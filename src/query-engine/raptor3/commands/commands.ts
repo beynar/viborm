@@ -843,10 +843,8 @@ export class Commands {
           ? owner.command.located?.facts.equals.get(field)
           : undefined;
       };
-      const literal = (field: string) => {
-        const stated = this.#literalOf(command, field, write.occurrence);
-        return stated;
-      };
+      const literal = (field: string) =>
+        this.#literalOf(command, field, write.occurrence);
       let touchesMember = false;
       let disjoint = false;
       if (edge.kind === "reference" && edge.owner === "target") {

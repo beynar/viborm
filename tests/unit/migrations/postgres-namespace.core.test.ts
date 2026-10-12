@@ -375,15 +375,12 @@ describe("a column type is qualified only when it names a managed enum", () => {
 
 describe("control and inventory statements name the estate", () => {
   it("qualifies every control-table statement", () => {
-    const sql = createControlTableSQL(billing, "_viborm_migration");
+    const sql = createControlTableSQL(billing);
     expect(sql.state).toContain(
       'CREATE TABLE IF NOT EXISTS "billing"."_viborm_migration_state"'
     );
     expect(sql.log).toContain(
       'CREATE TABLE IF NOT EXISTS "billing"."_viborm_migration_log"'
-    );
-    expect(billing.generateClearMigrations("_viborm_migration_state")).toBe(
-      'DELETE FROM "billing"."_viborm_migration_state"'
     );
   });
 

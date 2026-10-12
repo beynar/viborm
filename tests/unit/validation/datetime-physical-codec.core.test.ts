@@ -5,7 +5,6 @@ import {
   encodeMySqlDateTime,
   encodePhysicalDateTime,
   encodePostgresTemporal,
-  numericDateTimeForm,
 } from "@validation/primitives/datetime-physical-codec";
 import {
   MAX_DATETIME_EPOCH_MILLISECONDS,
@@ -149,18 +148,6 @@ describe("datetime physical codec", () => {
       // A day number outside the public domain is a malformed row, not an
       // extended-year Date.
       expect(decodePhysicalDateTime(1e12, "julianDay")).toBeUndefined();
-    });
-  });
-
-  describe("numericDateTimeForm", () => {
-    test("text and undeclared stay on the identical no-codec path", () => {
-      expect(numericDateTimeForm(undefined)).toBeUndefined();
-      expect(numericDateTimeForm("text")).toBeUndefined();
-    });
-
-    test("the two numeric forms pass through", () => {
-      expect(numericDateTimeForm("epochMillis")).toBe("epochMillis");
-      expect(numericDateTimeForm("julianDay")).toBe("julianDay");
     });
   });
 });

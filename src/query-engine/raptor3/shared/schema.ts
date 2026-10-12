@@ -138,6 +138,19 @@ export function record(value: unknown): Input {
 export function entries(value: unknown): Input[] {
   return Array.isArray(value) ? value : [record(value)];
 }
+/** `key`'s view in `views`, created on its first use and kept as long as `views`. */
+export function memo<K, V>(
+  views: { get(key: K): V | undefined; set(key: K, value: V): unknown },
+  key: K,
+  create: () => V
+): V {
+  let view = views.get(key);
+  if (view === undefined) {
+    view = create();
+    views.set(key, view);
+  }
+  return view;
+}
 
 /**
  * What this engine resolves once per (adapter, model) and never again.
@@ -553,24 +566,11 @@ export class EngineSchema {
     );
   }
   membership(model: AnyModel, name: string, variant?: string): Membership {
-    let modelViews = this.#membershipViews.get(model);
-    if (!modelViews) {
-      modelViews = new Map();
-      this.#membershipViews.set(model, modelViews);
-    }
-    let slotViews = modelViews.get(name);
-    if (!slotViews) {
-      slotViews = new Map();
-      modelViews.set(name, slotViews);
-    }
-    let view = slotViews.get(variant);
-    if (!view) {
-      view = freezeMembershipView(
-        buildMembershipView(this, model, name, variant)
-      );
-      slotViews.set(variant, view);
-    }
-    return view;
+    const modelViews = memo(this.#membershipViews, model, () => new Map());
+    const slotViews = memo(modelViews, name, () => new Map());
+    return memo(slotViews, variant, () =>
+      freezeMembershipView(buildMembershipView(this, model, name, variant))
+    );
   }
   /**
    * The slots through which the database refuses a hard delete of a `model` row
@@ -580,34 +580,29 @@ export class EngineSchema {
    * the migration spells. A polymorphic carrier stores no constraint.
    */
   restrictingSlots(model: AnyModel): readonly string[] {
-    let slots = this.#restrictingSlotViews.get(model);
-    if (slots) return slots;
-    const found: string[] = [];
-    for (const [name, resolved] of this.index.get(model) ?? []) {
-      const edge = resolved.edge;
-      if (edge.kind !== "foreignKey" && edge.kind !== "junction") continue;
-      const view = this.membership(model, name);
-      const action =
-        view.kind === "junction"
-          ? junctionOnDelete(view.sourceSide)
-          : edge.kind === "foreignKey" && view.owner === "target"
-            ? foreignKeyOnDelete(edge)
-            : undefined;
-      if (action === "restrict" || action === "noAction") found.push(name);
-    }
-    slots = Object.freeze(found);
-    this.#restrictingSlotViews.set(model, slots);
-    return slots;
+    return memo(this.#restrictingSlotViews, model, () => {
+      const found: string[] = [];
+      for (const [name, resolved] of this.index.get(model) ?? []) {
+        const edge = resolved.edge;
+        if (edge.kind !== "foreignKey" && edge.kind !== "junction") continue;
+        const view = this.membership(model, name);
+        const action =
+          view.kind === "junction"
+            ? junctionOnDelete(view.sourceSide)
+            : edge.kind === "foreignKey" && view.owner === "target"
+              ? foreignKeyOnDelete(edge)
+              : undefined;
+        if (action === "restrict" || action === "noAction") found.push(name);
+      }
+      return Object.freeze(found);
+    });
   }
   clearability(resolved: ResolvedSlot): ClearableMembership {
-    let view = this.#clearabilityViews.get(resolved);
-    if (!view) {
-      view = clearableMembership(resolved);
+    return memo(this.#clearabilityViews, resolved, () => {
+      const view = clearableMembership(resolved);
       if (view.kind === "columns") Object.freeze(view.fields);
-      Object.freeze(view);
-      this.#clearabilityViews.set(resolved, view);
-    }
-    return view;
+      return Object.freeze(view);
+    });
   }
   physicalField(model: AnyModel, field: string): PhysicalField {
     let fields = this.#physicalFields.get(model);
@@ -642,20 +637,12 @@ export class EngineSchema {
    */
   readonly #queryViewsByAdapter = new WeakMap<DatabaseAdapter, QueryViews>();
   queryViews(adapter: DatabaseAdapter): QueryViews {
-    let views = this.#queryViewsByAdapter.get(adapter);
-    if (views === undefined) {
-      views = createQueryViews();
-      this.#queryViewsByAdapter.set(adapter, views);
-    }
-    return views;
+    return memo(this.#queryViewsByAdapter, adapter, createQueryViews);
   }
   storedFields(model: AnyModel): readonly string[] {
-    let fields = this.#storedFieldLists.get(model);
-    if (!fields) {
-      fields = Object.freeze(buildStoredFieldsView(this, model));
-      this.#storedFieldLists.set(model, fields);
-    }
-    return fields;
+    return memo(this.#storedFieldLists, model, () =>
+      Object.freeze(buildStoredFieldsView(this, model))
+    );
   }
   /**
    * The admitted payload's scalar fields, in the model's own scalar order.

@@ -12,7 +12,6 @@ import {
 import { createMigrationClient } from "@src/migrations/client";
 import {
   createControlTableSQL,
-  DEFAULT_CONTROL_BASE,
   markerFromPath,
   unfinishedAttempts,
 } from "@src/migrations/control";
@@ -170,7 +169,7 @@ describe("migration v1 operators", () => {
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const command = getMigrationDriver(driver);
-    const control = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const control = createControlTableSQL(command);
     await driver._executeRaw(control.state);
     await driver._executeRaw(
       `CREATE TABLE "_viborm_migration_log" (event_id TEXT NOT NULL, attempt_id TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL)`
@@ -236,9 +235,7 @@ describe("migration v1 operators", () => {
     if (!generated.stateId) throw new Error("expected a published state");
     await syncLiveSchema(client);
     const command = getMigrationDriver(driver);
-    await driver._executeRaw(
-      createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
-    );
+    await driver._executeRaw(createControlTableSQL(command).state);
 
     await expect(
       migrations.baseline({ to: { id: generated.stateId } })
@@ -253,9 +250,7 @@ describe("migration v1 operators", () => {
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const command = getMigrationDriver(driver);
-    await driver._executeRaw(
-      createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
-    );
+    await driver._executeRaw(createControlTableSQL(command).state);
 
     await expect(migrations.reset()).resolves.toMatchObject({ preview: false });
     await expect(migrations.verify()).resolves.toEqual({ ok: true });
@@ -322,7 +317,7 @@ describe("migration v1 operators", () => {
     const driver = createInMemorySQLite3Driver();
     const client = createClient({ schema: { user }, driver });
     const command = getMigrationDriver(driver);
-    const control = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const control = createControlTableSQL(command);
     await driver._executeRaw(control.state);
 
     await expect(createMigrationClient(client).push()).rejects.toMatchObject({

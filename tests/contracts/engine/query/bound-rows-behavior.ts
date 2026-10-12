@@ -1,4 +1,4 @@
-import type { CacheEntry } from "@cache";
+import type { CacheEntry } from "@cache/driver";
 import { MemoryCache } from "@cache/drivers/memory";
 import { cache } from "@cache/extension";
 import { createClient } from "@client/client";

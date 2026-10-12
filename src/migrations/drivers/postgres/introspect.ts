@@ -25,12 +25,11 @@ import type {
   ForeignKeyDef,
   IndexDef,
   PrimaryKeyDef,
-  ReferentialAction,
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
-import { groupBy, groupByNested } from "../utils";
+import { groupBy, groupByNested, mapReferentialAction } from "../utils";
 import { throwIfCatalogRefusal } from "./catalog-refusal";
 
 import type {
@@ -377,21 +376,6 @@ const ENUMS_QUERY = `${ENUMS_SOURCE}ORDER BY t.typname, e.enumsortorder;
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-function mapReferentialAction(rule: string): ReferentialAction {
-  switch (rule) {
-    case "CASCADE":
-      return "cascade";
-    case "SET NULL":
-      return "setNull";
-    case "RESTRICT":
-      return "restrict";
-    case "SET DEFAULT":
-      return "setDefault";
-    default:
-      return "noAction";
-  }
-}
 
 /** The element type's name for an array type, else the name itself. */
 function baseTypeName(udtName: string): string {

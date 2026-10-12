@@ -36,6 +36,7 @@ import {
 import { observeOperation } from "@extensions/observation";
 import {
   executePreparedQuery,
+  type QueryInterceptionMode,
   type RawQueryKind,
   type WriteOutcomeNotifications,
 } from "@extensions/query";
@@ -69,13 +70,6 @@ export const RAW_METHOD_NAMES = Object.freeze({
   $queryRaw: true,
   $queryRawUnsafe: true,
 } satisfies Readonly<Record<RawMethodName, true>>);
-
-function rawQueryKind(method: RawMethodName): RawQueryKind {
-  if (method === "$queryRaw") return "queryRaw";
-  if (method === "$executeRaw") return "executeRaw";
-  if (method === "$queryRawUnsafe") return "queryRawUnsafe";
-  return "executeRawUnsafe";
-}
 
 /** The execute families are the only raw calls that publish write outcomes. */
 function isRawWrite(method: RawMethodName): boolean {
@@ -139,60 +133,22 @@ function isTemplateStringsArray(value: unknown): value is TemplateStringsArray {
   return Array.isArray(value) && Array.isArray(Reflect.get(value, "raw"));
 }
 
-function invalidRawQueryError(method: RawMethodName): QueryError {
-  return new QueryError(
-    `${method} expects a tagged template (${method}\`SELECT ...\`) or an Sql fragment built with sql\`...\`. Received a value that is neither.`,
-    {
-      code: VibORMErrorCode.INVALID_INPUT,
-      meta: { method },
-    }
-  );
-}
-
-function fragmentWithValuesError(method: RawMethodName): QueryError {
-  return new QueryError(
-    `${method} received an Sql fragment together with extra values. The fragment already carries its parameters — interpolate them into it instead.`,
-    {
-      code: VibORMErrorCode.INVALID_INPUT,
-      meta: { method },
-    }
-  );
-}
-
-function invalidRawDateError(
+function rawInputError(
   method: RawMethodName,
-  parameterIndex: number
+  message: string,
+  parameterIndex?: number
 ): QueryError {
-  return new QueryError(
-    `${method} received an invalid Date as bound parameter ${parameterIndex}. An invalid Date names no instant, so a provider either refuses the statement after dispatch or binds it as null.`,
-    {
-      code: VibORMErrorCode.INVALID_INPUT,
-      meta: { method, parameterIndex },
-    }
-  );
-}
-
-function unsupportedRawArrayError(
-  method: RawMethodName,
-  parameterIndex: number
-): QueryError {
-  return new QueryError(
-    `${method} received raw array parameter ${parameterIndex} with custom inherited or accessor behavior. VibORM cannot validate that behavior without invoking caller code before dispatch.`,
-    {
-      code: VibORMErrorCode.INVALID_INPUT,
-      meta: { method, parameterIndex },
-    }
-  );
-}
-
-function hasOwnIndex(values: readonly unknown[], index: number): boolean {
-  return Object.hasOwn(values, index);
+  return new QueryError(`${method} ${message}`, {
+    code: VibORMErrorCode.INVALID_INPUT,
+    meta:
+      parameterIndex === undefined ? { method } : { method, parameterIndex },
+  });
 }
 
 function copyIndexedValues(values: readonly unknown[]): unknown[] {
   const copy = new Array<unknown>(values.length);
   for (let index = 0; index < values.length; index += 1) {
-    if (hasOwnIndex(values, index)) copy[index] = values[index];
+    if (Object.hasOwn(values, index)) copy[index] = values[index];
   }
   return copy;
 }
@@ -226,9 +182,17 @@ function validateRawParametersBeforeInterception(
 ): void {
   validateRawParameters(params, {
     invalidDate: (parameterIndex) =>
-      invalidRawDateError(method, parameterIndex),
+      rawInputError(
+        method,
+        `received an invalid Date as bound parameter ${parameterIndex}. An invalid Date names no instant, so a provider either refuses the statement after dispatch or binds it as null.`,
+        parameterIndex
+      ),
     unsupportedArray: (parameterIndex) =>
-      unsupportedRawArrayError(method, parameterIndex),
+      rawInputError(
+        method,
+        `received raw array parameter ${parameterIndex} with custom inherited or accessor behavior. VibORM cannot validate that behavior without invoking caller code before dispatch.`,
+        parameterIndex
+      ),
   });
 }
 
@@ -344,19 +308,8 @@ class DeferredRawOperation<T>
         const handlers = operation.#queryHandlers;
         if (handlers === undefined || handlers.length === 0) return child();
         const query = operation.#resolve();
-        const inspectionInput =
-          query.kind === "fragment"
-            ? { query: query.query }
-            : { sql: query.sql, params: [...query.params] };
-        const queryContext = Object.freeze({
-          mode: "array" as const,
-          kind: rawQueryKind(operation.#method),
-          model: undefined,
-          operation: operation.#method,
-          input: snapshotQueryInput(inspectionInput),
-        });
         return executePreparedQuery<unknown, Record<string, unknown>>(
-          queryContext,
+          operation.#queryContext("array", query),
           handlers,
           child,
           isRawWrite(operation.#method),
@@ -482,20 +435,41 @@ class DeferredRawOperation<T>
   }
 
   #resolveQuery(): ResolvedRawQuery {
+    const method = this.#method;
     const { query, values } = this.#captured;
     if (this.#captured.family === "unsafe") {
-      if (typeof query !== "string") throw invalidRawQueryError(this.#method);
-      return { kind: "verbatim", sql: query, params: [...values] };
-    }
-
-    if (isTemplateStringsArray(query)) {
+      if (typeof query === "string") {
+        return { kind: "verbatim", sql: query, params: [...values] };
+      }
+    } else if (isTemplateStringsArray(query)) {
       return { kind: "fragment", query: new Sql(query, values) };
-    }
-    if (isSql(query)) {
-      if (values.length > 0) throw fragmentWithValuesError(this.#method);
+    } else if (isSql(query)) {
+      if (values.length > 0) {
+        throw rawInputError(
+          method,
+          "received an Sql fragment together with extra values. The fragment already carries its parameters — interpolate them into it instead."
+        );
+      }
       return { kind: "fragment", query: createOperationSql(query) };
     }
-    throw invalidRawQueryError(this.#method);
+    throw rawInputError(
+      method,
+      `expects a tagged template (${method}\`SELECT ...\`) or an Sql fragment built with sql\`...\`. Received a value that is neither.`
+    );
+  }
+
+  #queryContext(mode: QueryInterceptionMode, query: ResolvedRawQuery) {
+    return Object.freeze({
+      mode,
+      kind: this.#method.slice(1) as RawQueryKind,
+      model: undefined,
+      operation: this.#method,
+      input: snapshotQueryInput(
+        query.kind === "fragment"
+          ? { query: query.query }
+          : { sql: query.sql, params: [...query.params] }
+      ),
+    });
   }
 
   #run(driver: AnyDriver): Promise<T> {
@@ -519,19 +493,11 @@ class DeferredRawOperation<T>
     } catch (error) {
       return Promise.reject(error);
     }
-    const inspectionInput =
-      query.kind === "fragment"
-        ? { query: query.query }
-        : { sql: query.sql, params: [...query.params] };
-    const context = Object.freeze({
-      mode: this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
-      kind: rawQueryKind(this.#method),
-      model: undefined,
-      operation: this.#method,
-      input: snapshotQueryInput(inspectionInput),
-    });
     return executePreparedQuery<T, Record<string, unknown>>(
-      context,
+      this.#queryContext(
+        this.#engine.transactionWriteOutcomes ? "transaction" : "direct",
+        query
+      ),
       handlers,
       (notifications) =>
         this.#runResolved(
@@ -682,64 +648,27 @@ class DeferredRawOperation<T>
  */
 export function createRawSurface(options: RawSurfaceOptions): RawSurface {
   const { engine } = options;
-
-  function $queryRaw<T = unknown>(query: RawQueryInput): RawOperation<T[]>;
-  function $queryRaw<T = unknown>(
-    query: TemplateStringsArray,
-    ...values: unknown[]
-  ): RawOperation<T[]>;
-  function $queryRaw<T = unknown>(
-    query: RawQueryInput,
-    ...values: unknown[]
-  ): RawOperation<T[]> {
-    return createDeferredRawOperation<T[]>(
-      engine,
-      "$queryRaw",
-      { family: "safe", query, values: captureValues(values) },
-      (raw) => raw.rows
-    );
-  }
-
-  function $queryRawUnsafe<T = unknown>(
-    query: string,
-    ...values: unknown[]
-  ): RawOperation<T[]> {
-    return createDeferredRawOperation<T[]>(
-      engine,
-      "$queryRawUnsafe",
-      { family: "unsafe", query, values: captureValues(values) },
-      (raw) => raw.rows
-    );
-  }
-
-  function $executeRaw(query: RawQueryInput): RawOperation<number>;
-  function $executeRaw(
-    query: TemplateStringsArray,
-    ...values: unknown[]
-  ): RawOperation<number>;
-  function $executeRaw(
-    query: RawQueryInput,
-    ...values: unknown[]
-  ): RawOperation<number> {
-    return createDeferredRawOperation<number>(
-      engine,
-      "$executeRaw",
-      { family: "safe", query, values: captureValues(values) },
-      (raw) => raw.rowCount
-    );
-  }
-
-  function $executeRawUnsafe(
-    query: string,
-    ...values: unknown[]
-  ): RawOperation<number> {
-    return createDeferredRawOperation<number>(
-      engine,
-      "$executeRawUnsafe",
-      { family: "unsafe", query, values: captureValues(values) },
-      (raw) => raw.rowCount
-    );
-  }
-
-  return { $executeRaw, $executeRawUnsafe, $queryRaw, $queryRawUnsafe };
+  // The RawSurface interface owns the overloads; a name fixes the family
+  // (the `Unsafe` suffix) and the answer (rows, or the affected count). The
+  // computed key gives each function its public `.name` (`$queryRaw`, ...).
+  const method = (name: RawMethodName) =>
+    ({
+      [name]: (query: unknown, ...values: unknown[]) =>
+        createDeferredRawOperation<unknown>(
+          engine,
+          name,
+          {
+            family: name.endsWith("Unsafe") ? "unsafe" : "safe",
+            query,
+            values: captureValues(values),
+          } as CapturedRawQuery,
+          isRawWrite(name) ? (raw) => raw.rowCount : (raw) => raw.rows
+        ),
+    })[name];
+  return {
+    $executeRaw: method("$executeRaw"),
+    $executeRawUnsafe: method("$executeRawUnsafe"),
+    $queryRaw: method("$queryRaw"),
+    $queryRawUnsafe: method("$queryRawUnsafe"),
+  } as RawSurface;
 }

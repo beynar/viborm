@@ -1,4 +1,4 @@
-import { errorCause } from "../drivers/shared/driver-options";
+import { errorCause } from "../errors/diagnostic-safety";
 /**
  * One execution owner for authenticated SQL slices and typed parameters.
  * Apply, down, reset, and push consume this. There is no second executor.

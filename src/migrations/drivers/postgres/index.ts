@@ -17,8 +17,8 @@ import type { Scalar, ScalarState } from "@schema/scalars";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import { hasIdPrefix } from "@validation/primitives/id-formats";
 import type { AnyDriver } from "../../../drivers/driver";
-import { errorCause } from "../../../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
+import { errorCause } from "../../../errors/diagnostic-safety";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import { type LowLockContext, tableRewrites } from "../../compile";
 import {
@@ -335,6 +335,11 @@ export class PostgresMigrationDriver extends MigrationDriver {
       this.estateNamespace(),
       objectName
     );
+  }
+
+  /** A table position is qualified like any object, whatever the destination. */
+  protected override tableRef(tableName: string): string {
+    return this.qualify(tableName);
   }
 
   /**
@@ -912,11 +917,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Table Operations
   // ===========================================================================
 
-  generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
-    return this.compileCreateTable(op, context).join(";\n");
-  }
-
-  override compileCreateTable(
+  generateCreateTable(
     op: CreateTableOperation,
     context: DDLContext
   ): readonly string[] {
@@ -970,7 +971,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
   /**
@@ -1030,11 +1031,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `ALTER TABLE ${this.qualify(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
   }
 
-  generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
-    return this.compileAlterColumn(op, context).join(";\n");
-  }
-
-  override compileAlterColumn(
+  generateAlterColumn(
     op: AlterColumnOperation,
     context: DDLContext
   ): readonly string[] {
@@ -1141,7 +1138,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
   // ===========================================================================
@@ -1280,10 +1277,6 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `DROP TYPE ${this.qualify(op.enumName)}`;
   }
 
-  override generateClearMigrations(tableName: string): string {
-    return `DELETE FROM ${this.qualify(tableName)}`;
-  }
-
   // ===========================================================================
   // MIGRATION LOCKING
   // ===========================================================================
@@ -1380,13 +1373,9 @@ export class PostgresMigrationDriver extends MigrationDriver {
     };
   }
 
-  // No CASCADE on either drop (§6.1). PostgreSQL's default RESTRICT is the
-  // containment boundary: a dependant this estate does not own aborts the
-  // operation instead of being deleted with it.
-  override generateDropTableSQL(tableName: string): string {
-    return `DROP TABLE IF EXISTS ${this.qualify(tableName)}`;
-  }
-
+  // No CASCADE here or on the inherited table drop (§6.1). PostgreSQL's
+  // default RESTRICT is the containment boundary: a dependant this estate does
+  // not own aborts the operation instead of being deleted with it.
   override generateDropEnumSQL(enumName: string): string | null {
     return `DROP TYPE IF EXISTS ${this.qualify(enumName)}`;
   }
@@ -1395,11 +1384,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // DDL GENERATION - Enum Operations
   // ===========================================================================
 
-  generateAlterEnum(op: AlterEnumOperation, _context: DDLContext): string {
-    return this.compileAlterEnum(op, _context).join(";\n");
-  }
-
-  override compileAlterEnum(
+  generateAlterEnum(
     op: AlterEnumOperation,
     context: DDLContext
   ): readonly string[] {
@@ -1443,7 +1428,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
         );
         available.add(value);
       }
-      return this.filterStatements(statements);
+      return statements;
     }
     if (!newValues?.length)
       throw new MigrationError(
@@ -1486,73 +1471,36 @@ export class PostgresMigrationDriver extends MigrationDriver {
           `ALTER TABLE ${reference} SET DEFAULT ${column.default}`
         );
     }
-    return this.filterStatements(statements);
+    return statements;
   }
 
   /**
-   * The data migration off removed enum values, with its table qualified.
-   *
-   * The shared base implementation names the table with one identifier, which
-   * is right for a dialect whose statements are namespace-relative. These
-   * UPDATEs run in the middle of an enum recreation on THIS estate's tables, so
-   * PostgreSQL owns the statement rather than inheriting a spelling that
-   * `search_path` resolves.
+   * An array column's members move in one UPDATE that keeps their order; a
+   * scalar column takes the shared per-value UPDATEs.
    */
-  protected override buildEnumReplacementUpdates(
+  protected override enumColumnReplacementUpdates(
     op: AlterEnumOperation,
-    context?: DDLContext
+    tableName: string,
+    columnName: string,
+    context: DDLContext
   ): string[] {
-    const { removeValues, dependentColumns } = op;
-    if (!(removeValues?.length && dependentColumns?.length)) {
-      return [];
+    const columnType = context.currentSchema?.tables
+      .find((table) => table.name === tableName)
+      ?.columns.find((column) => column.name === columnName)?.type;
+    if (!columnType?.endsWith("[]")) {
+      return super.enumColumnReplacementUpdates(
+        op,
+        tableName,
+        columnName,
+        context
+      );
     }
-
-    const statements: string[] = [];
-    for (const { tableName, columnName } of dependentColumns) {
-      const columnType = context?.currentSchema?.tables
-        .find((table) => table.name === tableName)
-        ?.columns.find((column) => column.name === columnName)?.type;
-      if (columnType?.endsWith("[]")) {
-        const cases = removeValues.flatMap((value) => {
-          const replacement = this.getEnumValueReplacement(
-            op,
-            tableName,
-            columnName,
-            value
-          );
-          return replacement === undefined
-            ? []
-            : [
-                `WHEN ${this.escapeValue(value)} THEN ${replacement === null ? "NULL" : this.escapeValue(replacement)}`,
-              ];
-        });
-        if (cases.length > 0) {
-          const column = this.escapeIdentifier(columnName);
-          statements.push(
-            `UPDATE ${this.qualify(tableName)} SET ${column} = ARRAY(SELECT CASE value ${cases.join(" ")} ELSE value END FROM unnest(${column}) WITH ORDINALITY AS member(value, position) ORDER BY position) WHERE ${column} IS NOT NULL`
-          );
-        }
-        continue;
-      }
-      for (const removedValue of removeValues) {
-        const replacement = this.getEnumValueReplacement(
-          op,
-          tableName,
-          columnName,
-          removedValue
-        );
-        if (replacement === undefined) {
-          continue;
-        }
-        const newValue =
-          replacement === null ? "NULL" : this.escapeValue(replacement);
-        const column = this.escapeIdentifier(columnName);
-        statements.push(
-          `UPDATE ${this.qualify(tableName)} SET ${column} = ${newValue} WHERE ${column} = ${this.escapeValue(removedValue)}`
-        );
-      }
-    }
-    return statements;
+    const cases = this.enumReplacementCases(op, tableName, columnName);
+    if (cases.length === 0) return [];
+    const column = this.escapeIdentifier(columnName);
+    return [
+      `UPDATE ${this.qualify(tableName)} SET ${column} = ARRAY(SELECT CASE value ${cases.join(" ")} ELSE value END FROM unnest(${column}) WITH ORDINALITY AS member(value, position) ORDER BY position) WHERE ${column} IS NOT NULL`,
+    ];
   }
 }
 

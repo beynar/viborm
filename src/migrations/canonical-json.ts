@@ -1,4 +1,4 @@
-import { errorCause } from "../drivers/shared/driver-options";
+import { errorCause } from "../errors/diagnostic-safety";
 /**
  * RFC 8785 JSON Canonicalization Scheme (JCS).
  *

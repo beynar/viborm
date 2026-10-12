@@ -18,7 +18,7 @@ import { createClient } from "@drivers/pglite";
 import type { PGlite } from "@electric-sql/pglite";
 import { VibORMErrorCode } from "@errors";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
-import { controlTableNames, DEFAULT_CONTROL_BASE } from "@migrations/control";
+import { CONTROL_TABLES } from "@migrations/control";
 import { postgresCatalogDigestQuery } from "@migrations/drivers/postgres/catalog-digest";
 import { getPushMigrationDriver } from "@migrations/push/planner";
 import { fingerprintSnapshot } from "@migrations/push-fingerprint";
@@ -130,7 +130,7 @@ describe("a soft-delete estate of 10,000 rows on PGlite", () => {
     const digest = (deparsed: boolean) => {
       const query = postgresCatalogDigestQuery(
         driver,
-        controlTableNames(DEFAULT_CONTROL_BASE),
+        CONTROL_TABLES,
         deparsed
       );
       return client.$driver

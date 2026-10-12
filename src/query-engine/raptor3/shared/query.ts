@@ -90,6 +90,7 @@ import {
   type EngineSchema,
   entries,
   type Input,
+  memo,
   type QueryViews,
   type ReadOperation,
   record,
@@ -958,20 +959,15 @@ export class PreparedDomain {
     const name = model["~"].names.ts!;
     const inputs = this.rows[purpose].get(name);
     if (inputs === undefined) return undefined;
-    const prepared = this.#prepared[purpose];
-    let selector = prepared.get(name);
-    if (selector === undefined) {
-      const queries = this.#queries;
-      selector =
-        inputs.length === 1
-          ? queries.prepareSelector(model, inputs[0])
-          : queries.andSelectors(
-              model,
-              inputs.map((where) => queries.prepareSelector(model, where))
-            );
-      prepared.set(name, selector);
-    }
-    return selector;
+    const queries = this.#queries;
+    return memo(this.#prepared[purpose], name, () =>
+      inputs.length === 1
+        ? queries.prepareSelector(model, inputs[0])
+        : queries.andSelectors(
+            model,
+            inputs.map((where) => queries.prepareSelector(model, where))
+          )
+    );
   }
 }
 
@@ -2311,6 +2307,14 @@ export class Queries {
       ),
     });
   }
+  /** One prepared scalar: the field and its memoised physical view. */
+  #scalar(model: AnyModel, field: string): PreparedScalar {
+    return freeze({
+      model,
+      field,
+      physical: physicalField(this.schema, model, field),
+    });
+  }
   #prepareScalarPredicate(
     model: AnyModel,
     field: string,
@@ -2319,11 +2323,7 @@ export class Queries {
     key = false,
     positive = true
   ): PreparedPredicate {
-    const scalar = freeze({
-      model,
-      field,
-      physical: physicalField(this.schema, model, field),
-    });
+    const scalar = this.#scalar(model, field);
     if (facts) {
       facts.fields.add(field);
       const filter =
@@ -2589,11 +2589,7 @@ export class Queries {
       );
     return {
       kind: "field",
-      scalar: freeze({
-        model,
-        field: payload.field,
-        physical: physicalField(this.schema, model, payload.field),
-      }),
+      scalar: this.#scalar(model, payload.field),
     };
   }
   /** One relation slot: ordinary quantifiers, to-one shorthand, or tagged arms. */
@@ -4419,13 +4415,7 @@ export class Queries {
           selected.map(([field]) => {
             const leaf = leaves[field]!;
             const scalar =
-              field === "_all"
-                ? undefined
-                : freeze({
-                    model,
-                    field,
-                    physical: physicalField(this.schema, model, field),
-                  });
+              field === "_all" ? undefined : this.#scalar(model, field);
             const split = this.#splitSum(leaf);
             if (split)
               return [
@@ -5874,11 +5864,7 @@ export class Queries {
                 )
               ),
             ];
-          const scalar = freeze({
-            model,
-            field: key,
-            physical: physicalField(this.schema, model, key),
-          });
+          const scalar = this.#scalar(model, key);
           const filter = record(value);
           const aggregated = AGGREGATES.filter(
             (name) => filter[name] !== undefined
@@ -5919,13 +5905,7 @@ export class Queries {
           return [this.#orderTerm(model, name, direction, alias)];
         return Object.entries(record(direction)).flatMap(([field, sort]) => {
           const scalar =
-            field === "_all"
-              ? undefined
-              : freeze({
-                  model,
-                  field,
-                  physical: physicalField(this.schema, model, field),
-                });
+            field === "_all" ? undefined : this.#scalar(model, field);
           const split =
             name === "_sum" &&
             this.#splitSumSql(scalar!, this.#preparedColumn(scalar!, alias));
@@ -6638,10 +6618,7 @@ export class Queries {
           );
         };
       case "json":
-        return (value) => {
-          const document = this.jsonValue(value);
-          return document;
-        };
+        return (value) => this.jsonValue(value);
       case "blob":
         return decodeBlob;
       case "vector":

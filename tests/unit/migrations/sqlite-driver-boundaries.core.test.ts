@@ -13,12 +13,7 @@ import {
   skipSqlNonStructuralRegion,
 } from "@src/adapters/databases/sqlite/storage/sql-lexing";
 import { VibORMErrorCode } from "@src/errors";
-import {
-  getMigrationDriver,
-  hasMigrationDriver,
-  listMigrationDrivers,
-  MigrationDriver,
-} from "@src/migrations/drivers";
+import { getMigrationDriver, MigrationDriver } from "@src/migrations/drivers";
 import type {
   AlterEnumOperation,
   CreateTableOperation,
@@ -105,13 +100,7 @@ class BaseMethodProbe extends SQLite3MigrationDriver {
 }
 
 describe("migration driver base contracts", () => {
-  test("the registry exposes all built-in drivers", () => {
-    const names = listMigrationDrivers().map((driver) => driver.driverName);
-    expect(names).toEqual(
-      expect.arrayContaining(["postgresql", "sqlite3", "libsql", "mysql"])
-    );
-    expect(hasMigrationDriver("sqlite3")).toBe(true);
-    expect(hasMigrationDriver("missing-driver")).toBe(false);
+  test("the registry binds a stock SQLite driver", () => {
     expect(getMigrationDriver(d1EstateDriver()).driverName).toBe("sqlite3");
   });
 
@@ -127,14 +116,14 @@ describe("migration driver base contracts", () => {
     const context = ddlContext("artifact");
 
     expect(
-      MigrationDriver.prototype.compileCreateTable.call(
+      MigrationDriver.prototype.compileStatements.call(
         sqlite3MigrationDriver,
         create,
         context
       )
     ).toHaveLength(1);
     expect(
-      MigrationDriver.prototype.compileAlterEnum.call(
+      MigrationDriver.prototype.compileStatements.call(
         sqlite3MigrationDriver,
         alter,
         context
@@ -590,19 +579,19 @@ describe("coverage low value", () => {
       currentSchema: postSchema,
     } satisfies DDLContext;
     expect(
-      sqlite3MigrationDriver.generateCreateTable(
+      sqlite3MigrationDriver.generateDDL(
         { type: "createTable", table: userTable },
         context
       )
     ).toContain('CREATE TABLE "user"');
     expect(
-      sqlite3MigrationDriver.generateRenameColumn(
+      sqlite3MigrationDriver.generateDDL(
         { type: "renameColumn", tableName: "user", from: "id", to: "key" },
         context
       )
     ).toContain("RENAME COLUMN");
     expect(
-      sqlite3MigrationDriver.generateAlterColumn(
+      sqlite3MigrationDriver.generateDDL(
         {
           type: "alterColumn",
           tableName: "user",
@@ -614,13 +603,13 @@ describe("coverage low value", () => {
       )
     ).toContain('CREATE TABLE "__new_user"');
     expect(
-      sqlite3MigrationDriver.generateAddForeignKey(
+      sqlite3MigrationDriver.generateDDL(
         { type: "addForeignKey", tableName: "post", fk: foreignKey },
         context
       )
     ).toContain('CREATE TABLE "__new_post"');
     expect(
-      sqlite3MigrationDriver.generateDropForeignKey(
+      sqlite3MigrationDriver.generateDDL(
         {
           type: "dropForeignKey",
           tableName: "post",
@@ -630,7 +619,7 @@ describe("coverage low value", () => {
       )
     ).toContain('CREATE TABLE "__new_post"');
     expect(
-      sqlite3MigrationDriver.generateAddUniqueConstraint(
+      sqlite3MigrationDriver.generateDDL(
         {
           type: "addUniqueConstraint",
           tableName: "user",
@@ -640,7 +629,7 @@ describe("coverage low value", () => {
       )
     ).toContain('CREATE TABLE "__new_user"');
     expect(
-      sqlite3MigrationDriver.generateDropUniqueConstraint(
+      sqlite3MigrationDriver.generateDDL(
         {
           type: "dropUniqueConstraint",
           tableName: "user",
@@ -660,7 +649,7 @@ describe("coverage low value", () => {
       )
     ).toContain('CREATE TABLE "__new_user"');
     expect(
-      sqlite3MigrationDriver.generateAddPrimaryKey(
+      sqlite3MigrationDriver.generateDDL(
         {
           type: "addPrimaryKey",
           tableName: "user",
@@ -670,7 +659,7 @@ describe("coverage low value", () => {
       )
     ).toContain('CREATE TABLE "__new_user"');
     expect(
-      sqlite3MigrationDriver.generateDropPrimaryKey(
+      sqlite3MigrationDriver.generateDDL(
         {
           type: "dropPrimaryKey",
           tableName: "user",
@@ -690,13 +679,13 @@ describe("coverage low value", () => {
       )
     ).toContain('CREATE TABLE "__new_user"');
     expect(
-      sqlite3MigrationDriver.generateDropEnum(
+      sqlite3MigrationDriver.generateDDL(
         { type: "dropEnum", enumName: "role" },
         context
       )
     ).toContain("no dependent columns");
     expect(
-      sqlite3MigrationDriver.generateAlterEnum(
+      sqlite3MigrationDriver.generateDDL(
         { type: "alterEnum", enumName: "role" },
         context
       )
@@ -720,7 +709,7 @@ describe("coverage low value", () => {
       columns: [decimalFrom],
     };
     expect(
-      libsqlMigrationDriver.generateAlterColumn(
+      libsqlMigrationDriver.generateDDL(
         {
           type: "alterColumn",
           tableName: "ledger",
@@ -745,13 +734,13 @@ describe("coverage low value", () => {
       tables: [{ ...postTable, foreignKeys: [compound] }, userTable],
     };
     expect(
-      libsqlMigrationDriver.generateAddForeignKey(
+      libsqlMigrationDriver.generateDDL(
         { type: "addForeignKey", tableName: "post", fk: compound },
         { destination: "live", currentSchema: compoundSchema }
       )
     ).toContain('CREATE TABLE "__new_post"');
     expect(
-      libsqlMigrationDriver.generateDropForeignKey(
+      libsqlMigrationDriver.generateDDL(
         {
           type: "dropForeignKey",
           tableName: "post",

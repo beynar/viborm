@@ -1,4 +1,8 @@
 import { ValidationError } from "@errors";
+import {
+  baseOperation,
+  ROUTED_OPERATIONS,
+} from "@query-engine/routed-operations";
 import type { Operation } from "@query-engine/types";
 import { hydrateSchemaNames } from "@schema/hydration";
 import { resolveSchemaOrThrow } from "@schema/validation";
@@ -6,7 +10,6 @@ import {
   createResolvedSchemaRegistry,
   createSchemaRegistry,
 } from "@validation/builder";
-import type { SchemaRegistryOperation } from "@validation/types";
 import type {
   OperationPayloadSchema,
   Operations,
@@ -19,41 +22,11 @@ function publicOperationOrThrow(
   modelName: string,
   operation: string
 ): Operations {
-  switch (operation) {
-    case "findFirst":
-    case "findMany":
-    case "findUnique":
-    case "findUniqueOrThrow":
-    case "findFirstOrThrow":
-    case "create":
-    case "createMany":
-    case "update":
-    case "updateMany":
-    case "delete":
-    case "deleteMany":
-    case "count":
-    case "aggregate":
-    case "groupBy":
-    case "upsert":
-    case "exist":
-      return operation;
-    default:
-      throw new ValidationError(
-        { kind: "registry", model: modelName, property: operation },
-        [{ path: "operation", message: `${operation} does not exist` }]
-      );
-  }
-}
-
-function operationSchemaName(operation: Operations): SchemaRegistryOperation {
-  switch (operation) {
-    case "findUniqueOrThrow":
-      return "findUnique";
-    case "findFirstOrThrow":
-      return "findFirst";
-    default:
-      return operation;
-  }
+  if (ROUTED_OPERATIONS.has(operation)) return operation as Operations;
+  throw new ValidationError(
+    { kind: "registry", model: modelName, property: operation },
+    [{ path: "operation", message: `${operation} does not exist` }]
+  );
 }
 
 function requireIdentifier(
@@ -71,30 +44,12 @@ function resultOperation(
   args: Record<string, unknown>
 ): Operation {
   switch (operation) {
-    case "findUniqueOrThrow":
-      return "findUnique";
-    case "findFirstOrThrow":
-      return "findFirst";
     case "createMany":
-      return args.select === undefined ? operation : "createManyAndReturn";
     case "updateMany":
-      return args.select === undefined ? operation : "updateManyAndReturn";
     case "deleteMany":
-      return args.select === undefined ? operation : "deleteManyAndReturn";
-    case "findFirst":
-    case "findMany":
-    case "findUnique":
-    case "create":
-    case "update":
-    case "delete":
-    case "count":
-    case "aggregate":
-    case "groupBy":
-    case "upsert":
-    case "exist":
-      return operation;
+      return args.select === undefined ? operation : `${operation}AndReturn`;
     default:
-      return operation;
+      return baseOperation(operation);
   }
 }
 
@@ -118,7 +73,7 @@ export function getOperationPayloadSchema<
     requireIdentifier(operation, "operation")
   );
   return createSchemaRegistry(schema).proxy[modelName].args[
-    operationSchemaName(validatedOperation)
+    baseOperation(validatedOperation)
   ];
 }
 
@@ -150,7 +105,7 @@ export function validateOperationPayload(
   const registry = createSchemaRegistry(schema);
   return registry.validate(
     validatedModelName,
-    operationSchemaName(validatedOperation),
+    baseOperation(validatedOperation),
     payload ?? {}
   );
 }
@@ -186,7 +141,7 @@ export function renderOperationResultType(
     validatedModelName,
     requireIdentifier(operation, "operation")
   );
-  const schemaOperation = operationSchemaName(validatedOperation);
+  const schemaOperation = baseOperation(validatedOperation);
   hydrateSchemaNames(schema);
   const index = resolveSchemaOrThrow(schema);
   const registry = createResolvedSchemaRegistry(schema, index);

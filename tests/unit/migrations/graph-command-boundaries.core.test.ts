@@ -320,26 +320,6 @@ describe("migration graph command boundaries", () => {
     });
   });
 
-  test("generate rejects reader-only storage before schema work", async () => {
-    const storage = new MemoryEstateStorage();
-    const reader: MigrationStorageReader = {
-      readEstate: () => storage.readEstate(),
-      listStates: () => storage.listStates(),
-      listSnapshots: () => storage.listSnapshots(),
-      listSql: () => storage.listSql(),
-      readState: (id) => storage.readState(id),
-      readSnapshot: (hash) => storage.readSnapshot(hash),
-      readSql: (hash) => storage.readSql(hash),
-    };
-    const client = planningClient();
-    await expect(
-      Reflect.apply(generateV1, undefined, [client, reader, {}])
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_STORAGE_REQUIRED,
-    });
-    await client.$disconnect();
-  });
-
   test("generate covers skip-validation, generated naming, and explicit-parent refusals", async () => {
     const storage = new MemoryEstateStorage();
     const client = planningClient();

@@ -968,23 +968,19 @@ describe("baseline across a two-edge path", () => {
 });
 
 describe("coverage low value", () => {
-  test("a clear policy naming no extra preserved table keeps only the tracking table", async () => {
+  test("a clear keeps the migration control pair and drops the rest", async () => {
     const driver = mysqlEstate({
       tables: [...CONTROL_TABLES, "ns_orgs"],
     });
 
     const plan = await planLiveNamespaceReset(
       driver,
-      getMigrationDriver(driver),
-      {
-        trackingTable: "preserve",
-        trackingTableName: "_viborm_migration_state",
-      }
+      getMigrationDriver(driver)
     );
 
     const dropped = plan.dropTables.map((table) => table.name);
     expect(dropped).not.toContain("_viborm_migration_state");
-    expect(dropped).toContain("_viborm_migration_log");
+    expect(dropped).not.toContain("_viborm_migration_log");
     expect(dropped).toContain("ns_orgs");
   });
 });

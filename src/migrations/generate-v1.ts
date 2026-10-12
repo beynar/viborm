@@ -4,14 +4,9 @@
  */
 
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { hydrateSchemaNames } from "../schema/hydration";
-import { allRules } from "../schema/validation/rules";
-import {
-  resolveSchemaOrThrow,
-  validateResolvedSchemaOrThrow,
-} from "../schema/validation/validator";
 import {
   assertManualStepwiseProof,
+  type CompiledTransition,
   compileGeneratedTransition,
   compileManualTransition,
   compileTrustedCheck,
@@ -40,7 +35,8 @@ import {
   detectEnumValueRemovals,
   resolveEnumValueRemovalMappings,
 } from "./push/enum-removals";
-import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
+import type { getPushMigrationDriver, MigrationClient } from "./push/planner";
+import { prepareSchema } from "./push-v1";
 import {
   approveDestructiveOperations,
   callbackAsResolver,
@@ -49,15 +45,11 @@ import {
   resolveAmbiguousChanges,
   strictResolver,
 } from "./resolver";
-import {
-  assertMigrationDecimalDomainsFitProvider,
-  serializeResolvedModels,
-} from "./serializer";
+import { serializeResolvedModels } from "./serializer";
 import { SqlAssembly } from "./sql-assembly";
 import { sliceDispatch } from "./sql-blob";
 import { assertArtifactExecutionSafe } from "./statement-safety";
 import type { MigrationStorageWriter } from "./storage/contract";
-import { isMigrationStorageWriter } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import type { DiffOperation, ResolveCallback, SchemaSnapshot } from "./types";
 import { generateMigrationName, prepareSchemaProgram } from "./utils";
@@ -110,25 +102,13 @@ export async function generateV1(
   options: GenerateV1Options = {}
 ): Promise<GenerateV1Result> {
   const request = normalizeGenerateOptions(options);
-  if (!isMigrationStorageWriter(storage)) {
-    throw new MigrationError(
-      "generate requires a storage writer",
-      VibORMErrorCode.MIGRATION_STORAGE_REQUIRED
-    );
-  }
-  hydrateSchemaNames(client.$schema);
-  const relations = request.skipValidation
-    ? resolveSchemaOrThrow(client.$schema)
-    : validateResolvedSchemaOrThrow(client.$schema, allRules);
-  const driver = getPushMigrationDriver(client);
-  assertMigrationDecimalDomainsFitProvider(client.$schema, driver.dialect);
-  let estateBytes = await storage.readEstate();
-  if (!estateBytes) {
-    const encoded = encodeEstateDescriptor(driver.target);
-    estateBytes = encoded.bytes;
-  }
+  const { relations, driver } = prepareSchema(
+    client,
+    request.skipValidation ?? false
+  );
   const publishedEstate = await storage.readEstate();
-  if (publishedEstate) estateBytes = publishedEstate;
+  const estateBytes =
+    publishedEstate ?? encodeEstateDescriptor(driver.target).bytes;
   const { estateHash, descriptor } = parseEstateDescriptor(estateBytes);
   assertEstateTargetMatches(descriptor.target, driver.target);
   const loaded = publishedEstate
@@ -200,11 +180,7 @@ export async function generateV1(
     }
   } else {
     for (const [index, from] of parents.entries()) {
-      const current =
-        from === null
-          ? emptyManagedSnapshot()
-          : (loaded.snapshots.get(loaded.states.get(from)!.snapshotHash) ??
-            emptyManagedSnapshot());
+      const current = requireStateSnapshot(loaded, from);
       const diffOptions = {
         ...AUTHENTICATED_SNAPSHOT_DIFF_OPTIONS,
         projectRename: driver.projectNativeRename.bind(driver),
@@ -298,15 +274,8 @@ export async function generateV1(
             assembly,
             split?.steps
           );
-      warnings.push(...(compiled.warnings ?? []));
-      if (compiled.rollback.kind === "irreversible")
-        warnings.push(compiled.rollback.reason);
-      const parent = sealParent(origin.from, compiled);
-      parentBodies.push(
-        origin.approvals.length === 0
-          ? parent
-          : { ...parent, approvals: origin.approvals }
-      );
+      warnings.push(...transitionWarnings(compiled));
+      parentBodies.push(sealParent(origin.from, compiled, origin.approvals));
     }
   }
 
@@ -356,34 +325,7 @@ export async function generateV1(
       request.resolve ? undefined : "Needs approval at generate"
     ),
   ].join("\n\n");
-  if (request.dryRun) {
-    return {
-      outcome: "preview",
-      stateId: encoded.stateId,
-      name: named,
-      estateHash,
-      snapshotHash: desiredEncoded.snapshotHash,
-      sqlHash: sealed.sqlHash,
-      operations: reported,
-      warnings,
-      operationsByParent,
-      sql: sqlText,
-      reviewSql,
-    };
-  }
-
-  if (!publishedEstate) {
-    await storage.publishEstate(estateBytes);
-  }
-  // Every state is complete before the first publishes. A low-lock split's
-  // states publish parent first, each manifest after its snapshot and SQL.
-  for (const { snapshot, sealed: sql, encoded: manifest } of states) {
-    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
-    await storage.publishSql(sql.sqlHash, sql.bytes);
-    await storage.publishState(manifest.stateId, manifest.bytes);
-  }
-  return {
-    outcome: "published",
+  const candidate = {
     stateId: encoded.stateId,
     name: named,
     estateHash,
@@ -395,6 +337,19 @@ export async function generateV1(
     sql: sqlText,
     reviewSql,
   };
+  if (request.dryRun) return { outcome: "preview", ...candidate };
+
+  if (!publishedEstate) {
+    await storage.publishEstate(estateBytes);
+  }
+  // Every state is complete before the first publishes. A low-lock split's
+  // states publish parent first, each manifest after its snapshot and SQL.
+  for (const { snapshot, sealed: sql, encoded: manifest } of states) {
+    await storage.publishSnapshot(snapshot.snapshotHash, snapshot.bytes);
+    await storage.publishSql(sql.sqlHash, sql.bytes);
+    await storage.publishState(manifest.stateId, manifest.bytes);
+  }
+  return { outcome: "published", ...candidate };
 }
 
 /** Decision 8: two snapshots that differ only in field and model order. */
@@ -496,15 +451,10 @@ function sealLowLockState(
     assembly,
     steps
   );
-  const body = sealParent(origin.from, compiled);
   const snapshot = encodeSnapshot(state.snapshot);
   const sealed = sealState(
     assembly,
-    [
-      origin.approvals.length === 0
-        ? body
-        : { ...body, approvals: origin.approvals },
-    ],
+    [sealParent(origin.from, compiled, origin.approvals)],
     [],
     driver.target.dialect,
     estateHash,
@@ -519,13 +469,18 @@ function sealLowLockState(
       [],
       sealed.sealed.bytes
     ),
-    warnings: [
-      ...(compiled.warnings ?? []),
-      ...(compiled.rollback.kind === "irreversible"
-        ? [compiled.rollback.reason]
-        : []),
-    ],
+    warnings: transitionWarnings(compiled),
   };
+}
+
+/** What a compiled transition warns of: its own warnings, then irreversibility. */
+function transitionWarnings(compiled: CompiledTransition): string[] {
+  return [
+    ...(compiled.warnings ?? []),
+    ...(compiled.rollback.kind === "irreversible"
+      ? [compiled.rollback.reason]
+      : []),
+  ];
 }
 
 function assertManualParents(
@@ -598,15 +553,16 @@ function emptyGraph(
   estateHash: Sha256,
   descriptor: ReturnType<typeof parseEstateDescriptor>["descriptor"]
 ): MigrationGraph {
+  const emptySnapshotHash = encodeSnapshot(emptyManagedSnapshot()).snapshotHash;
   return {
     estateHash,
     descriptor,
     states: new Map(),
-    snapshots: new Map(),
+    snapshots: new Map([[emptySnapshotHash, emptyManagedSnapshot()]]),
     sql: new Map(),
     roots: [],
     leaves: [],
-    emptySnapshotHash: encodeSnapshot(emptyManagedSnapshot()).snapshotHash,
+    emptySnapshotHash,
   };
 }
 

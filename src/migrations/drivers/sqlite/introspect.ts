@@ -23,11 +23,11 @@ import type {
   ForeignKeyDef,
   IndexDef,
   PrimaryKeyDef,
-  ReferentialAction,
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
 } from "../../types";
+import { mapReferentialAction } from "../utils";
 import type {
   SqliteColumn,
   SqliteForeignKey,
@@ -173,21 +173,6 @@ function partialIndexPredicate(sql: string | null): string | undefined {
 
   const match = TRAILING_WHERE.exec(sql.slice(columnListEnd + 1).trimStart());
   return match?.[1];
-}
-
-function mapReferentialAction(rule: string): ReferentialAction {
-  switch (rule.toUpperCase()) {
-    case "CASCADE":
-      return "cascade";
-    case "SET NULL":
-      return "setNull";
-    case "RESTRICT":
-      return "restrict";
-    case "SET DEFAULT":
-      return "setDefault";
-    default:
-      return "noAction";
-  }
 }
 
 // =============================================================================

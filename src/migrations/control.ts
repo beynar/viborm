@@ -1,15 +1,19 @@
 import { normalizeType } from "./push-fingerprint";
 /**
- * Marker and ledger control tables. Two tables, one validated base name.
+ * Marker and ledger control tables: one reserved pair.
  * Read-only commands never bootstrap. Parsers in v1-parse own row truth.
  */
 
 import type { AnyDriver } from "../drivers/driver";
-import { errorCause } from "../drivers/shared/driver-options";
 import { isRetryableError, MigrationError, VibORMErrorCode } from "../errors";
+import { errorCause } from "../errors/diagnostic-safety";
 import { isRecord } from "../validation/value-guards";
 import { canonicalizeJsonText } from "./canonical-json";
-import { boundNamespace, tableExistsProbe } from "./catalog-probes";
+import {
+  boundNamespace,
+  qualifiedName,
+  tableExistsProbe,
+} from "./catalog-probes";
 import type { BoundMigrationDriver } from "./drivers";
 import { throwIfCatalogRefusal } from "./drivers/postgres/catalog-refusal";
 import { isSha256, type Sha256 } from "./identity";
@@ -23,9 +27,13 @@ import type {
   MigrationMarkerV1,
 } from "./v1-types";
 
-export const DEFAULT_CONTROL_BASE = "_viborm_migration";
+/** The reserved control pair: the marker's table and the ledger's. */
+export const CONTROL_TABLES: { readonly state: string; readonly log: string } =
+  Object.freeze({
+    state: "_viborm_migration_state",
+    log: "_viborm_migration_log",
+  });
 
-const CONTROL_BASE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const CHECK_PREFIX = /^\s*check\s*/i;
 const CHECK_FORMATTING = /[\s()"`]/g;
 
@@ -34,47 +42,6 @@ export type ControlPresence =
   | { readonly kind: "recoverable-state-only" }
   | { readonly kind: "present" };
 
-export function controlTableNames(base: string): {
-  state: string;
-  log: string;
-} {
-  if (!CONTROL_BASE_NAME.test(base)) {
-    throw new MigrationError(
-      "Control table base name is not a safe identifier",
-      VibORMErrorCode.INVALID_INPUT
-    );
-  }
-  return { state: `${base}_state`, log: `${base}_log` };
-}
-
-export function qualifyControl(
-  driver: BoundMigrationDriver,
-  name: string
-): string {
-  if (driver.target.dialect === "postgresql") {
-    return `${quotePg(driver.namespace ?? driver.target.namespace)}.${quotePg(name)}`;
-  }
-  if (driver.target.dialect === "mysql" && driver.namespace) {
-    return `${quoteMy(driver.namespace)}.${quoteMy(name)}`;
-  }
-  return quoteIdent(driver.target.dialect, name);
-}
-
-function quotePg(value: string): string {
-  return `"${value.replaceAll('"', '""')}"`;
-}
-
-function quoteMy(value: string): string {
-  return `\`${value.replaceAll("`", "``")}\``;
-}
-
-function quoteIdent(
-  dialect: "postgresql" | "mysql" | "sqlite",
-  value: string
-): string {
-  return dialect === "mysql" ? quoteMy(value) : quotePg(value);
-}
-
 function placeholder(
   dialect: BoundMigrationDriver["target"]["dialect"],
   index: number
@@ -82,10 +49,44 @@ function placeholder(
   return dialect === "postgresql" ? `$${index}` : "?";
 }
 
-const STATE_CONTROL_DEFINITION = `(
-      singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
-      payload TEXT NOT NULL
-    )`;
+type ControlTable = keyof typeof CONTROL_TABLES;
+
+/**
+ * The one declaration of a control table: its columns, primary key first,
+ * with the types VibORM's DDL spells.
+ */
+function controlColumns(
+  dialect: BoundMigrationDriver["target"]["dialect"],
+  table: ControlTable
+): readonly (readonly [name: string, type: string])[] {
+  if (table === "state") {
+    return [
+      ["singleton", "INTEGER"],
+      ["payload", "TEXT"],
+    ];
+  }
+  const id = dialect === "mysql" ? "VARCHAR(64)" : "TEXT";
+  return [
+    ["event_id", id],
+    ["attempt_id", id],
+    ["kind", dialect === "mysql" ? "VARCHAR(32)" : "TEXT"],
+    ["payload", "TEXT"],
+  ];
+}
+
+/** The parenthesized definition `CREATE TABLE` writes for one control table. */
+function controlDefinition(
+  dialect: BoundMigrationDriver["target"]["dialect"],
+  table: ControlTable
+): string {
+  const check = table === "state" ? " CHECK (singleton = 1)" : "";
+  const columns = controlColumns(dialect, table).map(([name, type], index) =>
+    index === 0
+      ? `${name} ${type} PRIMARY KEY${check}`
+      : `${name} ${type} NOT NULL`
+  );
+  return `(\n      ${columns.join(",\n      ")}\n    )`;
+}
 
 /** Exact writer-owned state definition; the control owner authenticates its contents separately. */
 export function isSqliteStateControlDefinition(
@@ -93,36 +94,20 @@ export function isSqliteStateControlDefinition(
   sql: string | null
 ): boolean {
   return (
-    name === controlTableNames(DEFAULT_CONTROL_BASE).state &&
+    name === CONTROL_TABLES.state &&
     sql !== null &&
-    sqliteDefinitionBody(sql) === sqliteDefinitionBody(STATE_CONTROL_DEFINITION)
+    sqliteDefinitionBody(sql) ===
+      sqliteDefinitionBody(controlDefinition("sqlite", "state"))
   );
 }
 
-export function createControlTableSQL(
-  driver: BoundMigrationDriver,
-  base: string
-): { state: string; log: string } {
-  const names = controlTableNames(base);
-  const state = qualifyControl(driver, names.state);
-  const log = qualifyControl(driver, names.log);
-  return {
-    state: `CREATE TABLE IF NOT EXISTS ${state} ${STATE_CONTROL_DEFINITION}`,
-    log:
-      driver.target.dialect === "mysql"
-        ? `CREATE TABLE IF NOT EXISTS ${log} (
-      event_id VARCHAR(64) PRIMARY KEY,
-      attempt_id VARCHAR(64) NOT NULL,
-      kind VARCHAR(32) NOT NULL,
-      payload TEXT NOT NULL
-    )`
-        : `CREATE TABLE IF NOT EXISTS ${log} (
-      event_id TEXT PRIMARY KEY,
-      attempt_id TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      payload TEXT NOT NULL
-    )`,
-  };
+export function createControlTableSQL(driver: BoundMigrationDriver): {
+  state: string;
+  log: string;
+} {
+  const create = (table: ControlTable) =>
+    `CREATE TABLE IF NOT EXISTS ${qualifiedName(driver, CONTROL_TABLES[table])} ${controlDefinition(driver.target.dialect, table)}`;
+  return { state: create("state"), log: create("log") };
 }
 
 export function refusePartialControl(presence: ControlPresence): void {
@@ -174,18 +159,15 @@ export function refuseIncompatibleHistory(
 export async function inspectControlPresence(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string,
   catalog?: PostgresControlCatalog
 ): Promise<ControlPresence> {
-  const names = controlTableNames(base);
-  const read =
-    catalog ?? (await postgresControlCatalog(producer, driver, base));
+  const read = catalog ?? (await postgresControlCatalog(producer, driver));
   const stateMissing = read
     ? !read.state
-    : await isTableMissing(producer, driver, names.state);
+    : await isTableMissing(producer, driver, CONTROL_TABLES.state);
   const logMissing = read
     ? !read.log
-    : await isTableMissing(producer, driver, names.log);
+    : await isTableMissing(producer, driver, CONTROL_TABLES.log);
   if (stateMissing && logMissing)
     return { kind: "missing-table", table: "both" };
   if (stateMissing) return { kind: "missing-table", table: "state" };
@@ -194,8 +176,8 @@ export async function inspectControlPresence(
     // empty state table is the one recognizable partial state that can be
     // completed idempotently. A marker row means this is real history with a
     // missing ledger and must remain a hard refusal.
-    await assertControlTablesAuthentic(producer, driver, base, "state", read);
-    if (await isStateControlEmpty(producer, driver, names.state)) {
+    await assertControlTablesAuthentic(producer, driver, "state", read);
+    if (await isStateControlEmpty(producer, driver)) {
       return { kind: "recoverable-state-only" };
     }
     return { kind: "missing-table", table: "log" };
@@ -215,14 +197,13 @@ export async function inspectControlPresence(
  */
 function introspectControlTables(
   producer: AnyDriver,
-  driver: BoundMigrationDriver,
-  names: { readonly state: string; readonly log: string }
+  driver: BoundMigrationDriver
 ): Promise<SchemaSnapshot> {
   const scoped: BoundMigrationDriver = Object.create(driver);
   Object.defineProperty(scoped, "target", {
     value: Object.freeze({
       ...driver.target,
-      tables: [names.log, names.state],
+      tables: [CONTROL_TABLES.log, CONTROL_TABLES.state],
     }),
     enumerable: true,
   });
@@ -256,15 +237,12 @@ const UNAUTHENTIC = {
 export async function assertControlTablesAuthentic(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string,
   scope: keyof typeof UNAUTHENTIC = "pair",
   catalog?: PostgresControlCatalog
 ): Promise<void> {
-  const names = controlTableNames(base);
   if (driver.target.dialect === "postgresql") {
     assertPostgresControlAuthentic(
-      catalog ?? (await readPostgresControlCatalog(producer, driver, names)),
-      names,
+      catalog ?? (await readPostgresControlCatalog(producer, driver)),
       scope
     );
     return;
@@ -272,7 +250,7 @@ export async function assertControlTablesAuthentic(
   const refusal = UNAUTHENTIC[scope];
   let snapshot: SchemaSnapshot;
   try {
-    snapshot = await introspectControlTables(producer, driver, names);
+    snapshot = await introspectControlTables(producer, driver);
   } catch (failure) {
     // The pair keeps introspection's own refusal; the partial state wraps it.
     if (failure instanceof MigrationError && scope === "pair") throw failure;
@@ -280,18 +258,14 @@ export async function assertControlTablesAuthentic(
   }
   const matches = (name: string) =>
     snapshot.tables.filter((table) => table.name === name);
-  const [state, ...otherStates] = matches(names.state);
-  const [log, ...otherLogs] = matches(names.log);
+  const [state, ...otherStates] = matches(CONTROL_TABLES.state);
+  const [log, ...otherLogs] = matches(CONTROL_TABLES.log);
   if (
     !state ||
     otherStates.length > 0 ||
-    !hasExpectedStateTableShape(state, driver, names.state) ||
+    !hasExpectedShape(state, driver, "state") ||
     (scope === "pair" &&
-      !(
-        log &&
-        otherLogs.length === 0 &&
-        hasExpectedLogTableShape(log, driver, names.log)
-      ))
+      !(log && otherLogs.length === 0 && hasExpectedShape(log, driver, "log")))
   ) {
     throw new MigrationError(
       refusal.unexpected,
@@ -300,11 +274,7 @@ export async function assertControlTablesAuthentic(
   }
   let hasSingletonCheck: boolean;
   try {
-    hasSingletonCheck = await hasExpectedSingletonCheck(
-      producer,
-      driver,
-      names.state
-    );
+    hasSingletonCheck = await hasExpectedSingletonCheck(producer, driver);
   } catch (failure) {
     throw unreadable(refusal.unreadable, failure);
   }
@@ -316,7 +286,7 @@ export async function assertControlTablesAuthentic(
   }
   let hasAttachments: boolean;
   try {
-    hasAttachments = await hasControlAttachments(producer, driver, names);
+    hasAttachments = await hasControlAttachments(producer, driver);
   } catch (failure) {
     if (failure instanceof MigrationError) throw failure;
     throw unreadable(refusal.unreadable, failure);
@@ -329,79 +299,37 @@ export async function assertControlTablesAuthentic(
   }
 }
 
-function hasExpectedStateTableShape(
+/**
+ * The definition VibORM creates, as introspection reads it back: the declared
+ * columns, NOT NULL with no default, and the primary key alone. MySQL reports
+ * the singleton's INTEGER as `int`.
+ */
+function hasExpectedShape(
   table: TableDef,
   driver: BoundMigrationDriver,
-  tableName: string
+  kind: ControlTable
 ): boolean {
-  const singleton = table.columns[0];
-  const payload = table.columns[1];
-  const singletonType = driver.target.dialect === "mysql" ? "INT" : "INTEGER";
-  const payloadType = driver.target.dialect === "mysql" ? "TEXT" : "text";
-  const primaryKeyName =
-    driver.target.dialect === "mysql" ? "PRIMARY" : `${tableName}_pkey`;
+  const mysql = driver.target.dialect === "mysql";
+  const columns = controlColumns(driver.target.dialect, kind);
   return (
-    table.columns.length === 2 &&
-    singleton?.name === "singleton" &&
-    normalizeType(singleton.type) === normalizeType(singletonType) &&
-    singleton.nullable === false &&
-    singleton.default === undefined &&
-    singleton.autoIncrement !== true &&
-    singleton.decimal === undefined &&
-    payload?.name === "payload" &&
-    payload.type.toLowerCase() === payloadType.toLowerCase() &&
-    payload.nullable === false &&
-    payload.default === undefined &&
-    payload.autoIncrement !== true &&
-    payload.decimal === undefined &&
-    table.primaryKey?.name === primaryKeyName &&
-    table.primaryKey.columns.length === 1 &&
-    table.primaryKey.columns[0] === "singleton" &&
-    table.indexes.length === 0 &&
-    table.foreignKeys.length === 0 &&
-    table.uniqueConstraints.length === 0 &&
-    table.relationStorage === undefined
-  );
-}
-
-function hasExpectedLogTableShape(
-  table: TableDef,
-  driver: BoundMigrationDriver,
-  tableName: string
-): boolean {
-  const expected =
-    driver.target.dialect === "mysql"
-      ? [
-          ["event_id", "varchar(64)"],
-          ["attempt_id", "varchar(64)"],
-          ["kind", "varchar(32)"],
-          ["payload", "text"],
-        ]
-      : [
-          ["event_id", "text"],
-          ["attempt_id", "text"],
-          ["kind", "text"],
-          ["payload", "text"],
-        ];
-  const primaryKeyName =
-    driver.target.dialect === "mysql" ? "PRIMARY" : `${tableName}_pkey`;
-  return (
-    table.columns.length === expected.length &&
+    table.columns.length === columns.length &&
     table.columns.every((column, index) => {
-      const shape = expected[index];
+      const [name, type] = columns[index]!;
       return (
-        shape !== undefined &&
-        column.name === shape[0] &&
-        column.type.toLowerCase() === shape[1] &&
+        column.name === name &&
+        (name === "singleton"
+          ? normalizeType(column.type) === normalizeType(mysql ? "INT" : type)
+          : column.type.toLowerCase() === type.toLowerCase()) &&
         column.nullable === false &&
         column.default === undefined &&
         column.autoIncrement !== true &&
         column.decimal === undefined
       );
     }) &&
-    table.primaryKey?.name === primaryKeyName &&
+    table.primaryKey?.name ===
+      (mysql ? "PRIMARY" : `${CONTROL_TABLES[kind]}_pkey`) &&
     table.primaryKey.columns.length === 1 &&
-    table.primaryKey.columns[0] === "event_id" &&
+    table.primaryKey.columns[0] === columns[0]![0] &&
     table.indexes.length === 0 &&
     table.foreignKeys.length === 0 &&
     table.uniqueConstraints.length === 0 &&
@@ -411,21 +339,18 @@ function hasExpectedLogTableShape(
 
 async function hasExpectedSingletonCheck(
   producer: AnyDriver,
-  driver: BoundMigrationDriver,
-  tableName: string
+  driver: BoundMigrationDriver
 ): Promise<boolean> {
   if (driver.target.dialect === "sqlite") {
     const result = await producer._executeRaw<{ sql: unknown }>(
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
-      [tableName]
+      [CONTROL_TABLES.state]
     );
-    if (result.rows.length !== 1 || typeof result.rows[0]?.sql !== "string") {
-      return false;
-    }
-    const expected = createControlTableSQL(driver, DEFAULT_CONTROL_BASE).state;
+    const sql = result.rows[0]?.sql;
     return (
-      sqliteDefinitionBody(result.rows[0].sql) ===
-      sqliteDefinitionBody(expected)
+      result.rows.length === 1 &&
+      typeof sql === "string" &&
+      isSqliteStateControlDefinition(CONTROL_TABLES.state, sql)
     );
   }
   const result = await producer._executeRaw<{ definition: unknown }>(
@@ -438,7 +363,7 @@ WHERE tc.CONSTRAINT_SCHEMA = ?
   AND tc.TABLE_NAME = ?
   AND tc.CONSTRAINT_TYPE = 'CHECK'
 ORDER BY tc.CONSTRAINT_NAME`,
-    [driver.namespace, tableName]
+    [driver.namespace, CONTROL_TABLES.state]
   );
   return (
     result.rows.length === 1 &&
@@ -461,18 +386,18 @@ function normalizeSingletonCheck(value: unknown): string | undefined {
 
 async function hasControlAttachments(
   producer: AnyDriver,
-  driver: BoundMigrationDriver,
-  names: { readonly state: string; readonly log: string }
+  driver: BoundMigrationDriver
 ): Promise<boolean> {
+  const names = [CONTROL_TABLES.state, CONTROL_TABLES.log];
   const result =
     driver.target.dialect === "sqlite"
       ? await producer._executeRaw<Record<string, unknown>>(
           "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND tbl_name IN (?, ?)) AS attached",
-          [names.state, names.log]
+          names
         )
       : await producer._executeRaw<Record<string, unknown>>(
           "SELECT EXISTS (SELECT 1 FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? AND EVENT_OBJECT_TABLE IN (?, ?)) AS attached",
-          [driver.namespace, names.state, names.log]
+          [driver.namespace, ...names]
         );
   if (result.rows.length !== 1) {
     throw new MigrationError(
@@ -490,10 +415,9 @@ async function hasControlAttachments(
 
 async function isStateControlEmpty(
   producer: AnyDriver,
-  driver: BoundMigrationDriver,
-  tableName: string
+  driver: BoundMigrationDriver
 ): Promise<boolean> {
-  const table = qualifyControl(driver, tableName);
+  const table = qualifiedName(driver, CONTROL_TABLES.state);
   try {
     const result = await producer._executeRaw(
       `SELECT payload FROM ${table} WHERE singleton = 1`
@@ -595,29 +519,22 @@ const CLOSING_KINDS: ReadonlySet<LedgerEventV1["kind"]> = new Set([
 export async function readControlState(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string,
   { ledger: scope = "all" }: { readonly ledger?: "open" | "all" } = {}
 ): Promise<MigrationControlRead> {
-  const catalog = await postgresControlCatalog(producer, driver, base);
-  const presence = await inspectControlPresence(
-    producer,
-    driver,
-    base,
-    catalog
-  );
+  const catalog = await postgresControlCatalog(producer, driver);
+  const presence = await inspectControlPresence(producer, driver, catalog);
   if (presence.kind !== "present") {
     return { presence, marker: null, ledger: [] };
   }
-  await assertControlTablesAuthentic(producer, driver, base, "pair", catalog);
-  const names = controlTableNames(base);
+  await assertControlTablesAuthentic(producer, driver, "pair", catalog);
   const markerResult = await producer._executeRaw<{ payload: unknown }>(
-    `SELECT payload FROM ${qualifyControl(driver, names.state)} WHERE singleton = 1`
+    `SELECT payload FROM ${qualifiedName(driver, CONTROL_TABLES.state)} WHERE singleton = 1`
   );
   // Without a marker every event is read: `refuseIncompatibleHistory` judges
   // the whole history then.
   const all = scope === "all" || markerResult.rows.length === 0;
   const ledgerResult = await producer._executeRaw<{ payload: unknown }>(
-    ledgerSql(driver, names, all)
+    ledgerSql(driver, all)
   );
   const { marker, ledger } = decodeControlRows(
     markerResult.rows,
@@ -632,12 +549,8 @@ export async function readControlState(
  * or those of an unfinished attempt and the latest `failed` one (plan D5,
  * new defect 6).
  */
-function ledgerSql(
-  driver: BoundMigrationDriver,
-  names: { readonly state: string; readonly log: string },
-  all: boolean
-): string {
-  const log = qualifyControl(driver, names.log);
+function ledgerSql(driver: BoundMigrationDriver, all: boolean): string {
+  const log = qualifiedName(driver, CONTROL_TABLES.log);
   if (all) return `SELECT payload FROM ${log}`;
   return `SELECT payload FROM ${log} WHERE ${openAttempt(log)}
   OR event_id = (SELECT event_id FROM ${log} WHERE kind = 'failed' ORDER BY ${jsonField(driver.target.dialect, "startedAt")} DESC, event_id DESC LIMIT 1)`;
@@ -658,13 +571,11 @@ function openAttempt(log: string): string {
  */
 export function markerUnmovedCondition(
   driver: BoundMigrationDriver,
-  base: string,
   expected: MarkerIdentity | null
 ): { readonly sql: string; readonly params: unknown[] } {
-  const names = controlTableNames(base);
-  const log = qualifyControl(driver, names.log);
+  const log = qualifiedName(driver, CONTROL_TABLES.log);
   const at = expected && markerAt(driver.target.dialect, 1, expected);
-  const marker = `EXISTS (SELECT 1 FROM ${qualifyControl(driver, names.state)}${at ? ` WHERE singleton = 1 AND ${at.sql}` : ""})`;
+  const marker = `EXISTS (SELECT 1 FROM ${qualifiedName(driver, CONTROL_TABLES.state)}${at ? ` WHERE singleton = 1 AND ${at.sql}` : ""})`;
   return {
     sql: `(${at ? "" : "NOT "}${marker} AND NOT EXISTS (SELECT 1 FROM ${log} WHERE ${openAttempt(log)}))`,
     params: at ? at.params : [],
@@ -728,7 +639,6 @@ function decodeControlRows(
 export async function readPostgresDecision(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string,
   lockFree: string
 ): Promise<
   | {
@@ -739,19 +649,18 @@ export async function readPostgresDecision(
     }
   | undefined
 > {
-  const names = controlTableNames(base);
-  const catalog = await readPostgresControlCatalog(producer, driver, names);
+  const catalog = await readPostgresControlCatalog(producer, driver);
   if (!(catalog.state && catalog.log)) return;
-  assertPostgresControlAuthentic(catalog, names, "pair");
+  assertPostgresControlAuthentic(catalog, "pair");
   // Only PostgreSQL reads a decision in one statement: its driver owns this.
-  const digest = driver.catalogDigestQuery!(names, true);
+  const digest = driver.catalogDigestQuery!(CONTROL_TABLES, true);
   const { rows } = await producer._executeRaw<{
     marker: unknown;
     ledger: unknown;
     digest: unknown;
   }>(
-    `SELECT (SELECT json_agg(json_build_object('payload', marker.payload)) FROM (SELECT payload FROM ${qualifyControl(driver, names.state)} WHERE singleton = 1) marker)::text AS marker,
-  (SELECT json_agg(json_build_object('payload', ledger.payload)) FROM (${ledgerSql(driver, names, false)}) ledger)::text AS ledger,
+    `SELECT (SELECT json_agg(json_build_object('payload', marker.payload)) FROM (SELECT payload FROM ${qualifiedName(driver, CONTROL_TABLES.state)} WHERE singleton = 1) marker)::text AS marker,
+  (SELECT json_agg(json_build_object('payload', ledger.payload)) FROM (${ledgerSql(driver, false)}) ledger)::text AS ledger,
   (${digest.sql}) AS digest WHERE ${lockFree}`,
     digest.parameters
   );
@@ -909,24 +818,22 @@ ORDER BY control.position`;
 /** {@link readPostgresControlCatalog} on PostgreSQL; nothing elsewhere. */
 function postgresControlCatalog(
   producer: AnyDriver,
-  driver: BoundMigrationDriver,
-  base: string
+  driver: BoundMigrationDriver
 ): Promise<PostgresControlCatalog | undefined> {
   return driver.target.dialect === "postgresql"
-    ? readPostgresControlCatalog(producer, driver, controlTableNames(base))
+    ? readPostgresControlCatalog(producer, driver)
     : Promise.resolve(undefined);
 }
 
 async function readPostgresControlCatalog(
   producer: AnyDriver,
-  driver: BoundMigrationDriver,
-  names: { readonly state: string; readonly log: string }
+  driver: BoundMigrationDriver
 ): Promise<PostgresControlCatalog> {
   let rows: readonly Record<string, unknown>[];
   try {
     ({ rows } = await producer._executeRaw<Record<string, unknown>>(
       POSTGRES_CONTROL_CATALOG,
-      [boundNamespace(driver), names.state, names.log]
+      [boundNamespace(driver), CONTROL_TABLES.state, CONTROL_TABLES.log]
     ));
   } catch (failure) {
     throwIfCatalogRefusal("control catalog", failure);
@@ -953,23 +860,14 @@ function presentControlTable(row: unknown): PostgresControlTable | undefined {
 
 function assertPostgresControlAuthentic(
   { state, log }: PostgresControlCatalog,
-  names: { readonly state: string; readonly log: string },
   scope: keyof typeof UNAUTHENTIC
 ): void {
   const pair = scope === "pair";
   if (
     !(
       state &&
-      hasPostgresStateShape(state, names.state) &&
-      (!pair ||
-        (log &&
-          hasPostgresShape(
-            log,
-            LOG_COLUMNS,
-            `${names.log}_pkey`,
-            "event_id",
-            false
-          )))
+      hasPostgresShape(state, "state") &&
+      (!pair || (log && hasPostgresShape(log, "log")))
     )
   ) {
     throw new MigrationError(
@@ -988,30 +886,6 @@ function assertPostgresControlAuthentic(
   }
 }
 
-const STATE_COLUMNS = [
-  ["singleton", "integer"],
-  ["payload", "text"],
-] as const;
-const LOG_COLUMNS = [
-  ["event_id", "text"],
-  ["attempt_id", "text"],
-  ["kind", "text"],
-  ["payload", "text"],
-] as const;
-
-function hasPostgresStateShape(
-  table: PostgresControlTable,
-  name: string
-): boolean {
-  return hasPostgresShape(
-    table,
-    STATE_COLUMNS,
-    `${name}_pkey`,
-    "singleton",
-    true
-  );
-}
-
 /**
  * The exact definition VibORM creates: an ordinary table of NOT NULL columns
  * with no default, identity or generation, its primary key, the state
@@ -1019,11 +893,9 @@ function hasPostgresStateShape(
  */
 function hasPostgresShape(
   table: PostgresControlTable,
-  columns: readonly (readonly [string, string])[],
-  primaryKeyName: string,
-  primaryKeyColumn: string,
-  singletonCheck: boolean
+  kind: ControlTable
 ): boolean {
+  const columns = controlColumns("postgresql", kind);
   const constraints = readCatalogRows(table.constraints);
   if (constraints === undefined) return false;
   const checks = constraints.filter((constraint) => constraint[0] === "c");
@@ -1034,13 +906,20 @@ function hasPostgresShape(
     String(table.indexes) === "1" &&
     canonicalizeJsonText(readCatalogJson(table.columns)) ===
       canonicalizeJsonText(
-        columns.map(([name, type]) => [name, type, true, false, "", ""])
+        columns.map(([name, type]) => [
+          name,
+          type.toLowerCase(),
+          true,
+          false,
+          "",
+          "",
+        ])
       ) &&
     constraints.length === keys.length + checks.length &&
     keys.length === 1 &&
-    keys[0]?.[1] === primaryKeyName &&
-    keys[0]?.[2] === `PRIMARY KEY (${primaryKeyColumn})` &&
-    checks.length === (singletonCheck ? 1 : 0) &&
+    keys[0]?.[1] === `${CONTROL_TABLES[kind]}_pkey` &&
+    keys[0]?.[2] === `PRIMARY KEY (${columns[0]![0]})` &&
+    checks.length === (kind === "state" ? 1 : 0) &&
     checks.every((check) => normalizeSingletonCheck(check[2]) === "singleton=1")
   );
 }
@@ -1078,30 +957,24 @@ function readCatalogRows(
  */
 export async function ensureControlTables(
   producer: AnyDriver,
-  driver: BoundMigrationDriver,
-  base: string
+  driver: BoundMigrationDriver
 ): Promise<void> {
-  const catalog = await postgresControlCatalog(producer, driver, base);
-  const presence = await inspectControlPresence(
-    producer,
-    driver,
-    base,
-    catalog
-  );
+  const catalog = await postgresControlCatalog(producer, driver);
+  const presence = await inspectControlPresence(producer, driver, catalog);
   if (presence.kind === "present") {
-    await assertControlTablesAuthentic(producer, driver, base, "pair", catalog);
+    await assertControlTablesAuthentic(producer, driver, "pair", catalog);
     return;
   }
   if (presence.kind === "missing-table") refusePartialControl(presence);
   else {
     await producer._executeRaw(
-      `DROP TABLE ${qualifyControl(driver, controlTableNames(base).state)}`
+      `DROP TABLE ${qualifiedName(driver, CONTROL_TABLES.state)}`
     );
   }
-  const sql = createControlTableSQL(driver, base);
+  const sql = createControlTableSQL(driver);
   await producer._executeRaw(sql.state);
   await producer._executeRaw(sql.log);
-  await assertControlTablesAuthentic(producer, driver, base);
+  await assertControlTablesAuthentic(producer, driver);
 }
 
 /**
@@ -1112,12 +985,11 @@ export async function ensureControlTables(
 export async function casMarker(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string,
   expected: MarkerIdentity | null,
   next: MigrationMarkerV1,
   predicates: readonly MarkerIndexPredicateV1[] = []
 ): Promise<void> {
-  const { sql, params } = markerWrite(driver, base, expected, next, predicates);
+  const { sql, params } = markerWrite(driver, expected, next, predicates);
   if (expected === null) {
     try {
       const result = await producer._executeRaw(sql, params);
@@ -1154,12 +1026,11 @@ export async function casMarker(
  */
 export function markerWrite(
   driver: BoundMigrationDriver,
-  base: string,
   expected: MarkerIdentity | null,
   next: MigrationMarkerV1,
   predicates: readonly MarkerIndexPredicateV1[] = []
 ): { readonly sql: string; readonly params: unknown[] } {
-  const table = qualifyControl(driver, controlTableNames(base).state);
+  const table = qualifiedName(driver, CONTROL_TABLES.state);
   const payload = canonicalizeJsonText(
     predicates.length > 0 ? { ...next, predicates } : next
   );
@@ -1180,10 +1051,9 @@ export function markerWrite(
 export async function appendLedger(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string,
   ...events: readonly LedgerEventV1[]
 ): Promise<void> {
-  const table = qualifyControl(driver, controlTableNames(base).log);
+  const table = qualifiedName(driver, CONTROL_TABLES.log);
   const dialect = driver.target.dialect;
   const rows = events.map((_, index) =>
     [1, 2, 3, 4].map((column) => placeholder(dialect, index * 4 + column))
@@ -1239,19 +1109,20 @@ export function ledgerEvent({
   return { ...event, eventId: eventIdFor(event) };
 }
 
+/** The fields every event of one attempt carries. */
+type AttemptSeed = Pick<
+  LedgerEventV1,
+  | "estateHash"
+  | "snapshotHash"
+  | "sqlHash"
+  | "fromState"
+  | "toState"
+  | "transitionHash"
+  | "direction"
+>;
+
 /** An attempt's id: the id of its `started` event under the zero attempt. */
-export function attemptIdFor(
-  seed: Pick<
-    LedgerEventV1,
-    | "estateHash"
-    | "snapshotHash"
-    | "sqlHash"
-    | "fromState"
-    | "toState"
-    | "transitionHash"
-    | "direction"
-  >
-): Sha256 {
+export function attemptIdFor(seed: AttemptSeed): Sha256 {
   return ledgerEvent({
     ...seed,
     attemptId: "0".repeat(64),
@@ -1261,6 +1132,45 @@ export function attemptIdFor(
     effectState: "none",
     open: true,
   }).eventId;
+}
+
+/** The builder of one attempt's ledger events. */
+export interface AttemptEvents {
+  readonly attemptId: Sha256;
+  event(
+    kind: LedgerEventV1["kind"],
+    effectState: LedgerEventV1["effectState"],
+    step?: {
+      readonly operationId: string | null;
+      readonly dispatchId: Sha256 | null;
+    },
+    failure?: string
+  ): LedgerEventV1;
+}
+
+/**
+ * One attempt's events: each carries `seed` (and a reset plan, when it has
+ * one) and `attemptId`, by default the id of the attempt's own `started`
+ * event. An opening kind leaves its event unfinished.
+ */
+export function attemptEvents(
+  seed: AttemptSeed & Pick<LedgerEventV1, "resetPlan">,
+  attemptId: Sha256 = attemptIdFor(seed)
+): AttemptEvents {
+  return {
+    attemptId,
+    event: (kind, effectState, step, failure) =>
+      ledgerEvent({
+        ...seed,
+        attemptId,
+        kind,
+        effectState,
+        operationId: step?.operationId ?? null,
+        dispatchId: step?.dispatchId ?? null,
+        failure,
+        open: OPENING_KINDS.has(kind),
+      }),
+  };
 }
 
 /** Whether a read marker is the one expected; two absent markers are. */
@@ -1291,14 +1201,7 @@ export async function advanceMarker(
     path,
     (current?.revision ?? 0) + revisionStep
   );
-  await casMarker(
-    producer,
-    driver,
-    DEFAULT_CONTROL_BASE,
-    current,
-    next,
-    predicates
-  );
+  await casMarker(producer, driver, current, next, predicates);
   return next;
 }
 

@@ -122,7 +122,9 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // between two counts of the referencing tables, all on the pinned session
   // or the transaction it opened.
   "src/migrations/foreign-keys.ts executeRaw 8",
-  "src/migrations/live-reset.ts executeRaw 4",
+  // Compression (1.2.0): the unused `executeLiveNamespaceReset` executor and
+  // its four `executeRaw` sites were deleted; the plan's `clear` statements now
+  // run through the reset and push programs' own dispatch.
   "src/migrations/live-reset.ts queryExecutorFactory 1",
   // S7 (1.2.0): resolve repairs the attempt's own INVALID index on `pinned`.
   // 1.2.0: down's loss approval reads whether a table holds rows

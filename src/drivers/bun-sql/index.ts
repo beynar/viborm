@@ -5,7 +5,6 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -14,7 +13,6 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import { unsupportedVector } from "@errors";
 import {
   Driver,
   type DriverResultParser,
@@ -35,6 +33,7 @@ import {
 } from "../shared";
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
+import { installPostgresAdapter } from "../shared/postgres-adapter";
 import type { QueryResult } from "../types";
 
 // ============================================================
@@ -198,10 +197,7 @@ export class BunSQLDriver extends Driver<BunSQL, BunSQLTransaction> {
       this.client = this.suppliedClient;
     }
 
-    const adapter = new PostgresAdapter(namespace, options.postgis === true);
-    adapter.capabilities.supportsVector = options.pgvector === true;
-    if (!options.pgvector) adapter.vector = unsupportedVector;
-    defineImmutableDriverFact(this, "adapter", adapter);
+    installPostgresAdapter(this, namespace, options);
     defineImmutableDriverFact(
       this,
       "migrationSessionAttestation",

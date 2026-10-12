@@ -233,7 +233,8 @@ function formatDuration(microseconds: number): string {
   return `${(microseconds / 1_000_000).toFixed(2)} s`;
 }
 
-import { cache, MemoryCache } from "@cache";
+import { MemoryCache } from "@cache/drivers/memory";
+import { cache } from "@cache/extension";
 import { PGlite } from "@electric-sql/pglite";
 import { instrumentation } from "@instrumentation/extension";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";

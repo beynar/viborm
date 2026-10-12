@@ -60,11 +60,3 @@ export interface BatchQuery {
 
 /** Internal acknowledgement fired after a native batch commits, before decoding. */
 export type CommittedBatchNotification = () => Promise<void>;
-
-/**
- * Options for batch execution
- */
-export interface BatchOptions {
-  /** Whether to wrap in a transaction (for drivers that support it) */
-  atomic?: boolean;
-}

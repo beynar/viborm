@@ -1,11 +1,11 @@
 import { ClientInitializationError } from "@errors";
 import type { ResolvedExtensionChain } from "@extensions/chain";
-import { extensionCause } from "@extensions/definition";
 import type {
   GenericRequestHandler,
   OfficialGenericRequestHandler,
 } from "@extensions/request";
 import { isFunction, isRecord } from "@validation/value-guards";
+import { errorCause } from "../errors/diagnostic-safety";
 import type { ClientOmitConfig, ExactClientOmitConfig } from "./omit";
 import type { Schema } from "./types";
 
@@ -41,7 +41,7 @@ const capabilitiesByChain = new WeakMap<
 
 function configurationError(message: string, cause?: unknown): never {
   throw new ClientInitializationError(message, {
-    cause: cause === undefined ? undefined : extensionCause(cause),
+    cause: cause === undefined ? undefined : errorCause(cause),
   });
 }
 

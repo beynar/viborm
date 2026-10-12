@@ -6,11 +6,10 @@
 
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { renderQualifiedIdentifier } from "../sql/identifiers";
 import { admitLiveMigrationCapability } from "./admission";
 import {
-  boundNamespace,
   type InvalidIndex,
+  qualifiedName,
   readInvalidIndexes,
 } from "./catalog-probes";
 import {
@@ -23,8 +22,7 @@ import {
 import {
   advanceMarker,
   appendLedger,
-  attemptIdFor,
-  DEFAULT_CONTROL_BASE,
+  attemptEvents,
   ensureControlTables,
   isTableMissing,
   ledgerEvent,
@@ -47,6 +45,7 @@ import {
   parentTransition,
   requireStateSnapshot,
   resolveStateSelector,
+  routeEdges,
   selectRoute,
   statesFrom,
 } from "./graph";
@@ -218,11 +217,7 @@ export async function logV1(
   const driver = getPushMigrationDriver(client);
   admitLiveMigrationCapability(driver, "read-only", "log()");
   const command = await resolveCommandDriver(client.$driver, driver);
-  const control = await readControlState(
-    client.$driver,
-    command,
-    DEFAULT_CONTROL_BASE
-  );
+  const control = await readControlState(client.$driver, command);
   if (control.presence.kind !== "present") {
     refusePartialControl(control.presence);
     throw new MigrationError(
@@ -264,7 +259,7 @@ export async function baselineV1(
       // Committed before the proof, which then runs under the lock taken
       // again, as does the marker it publishes.
       if (control.presence.kind !== "present") {
-        await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
+        await ensureControlTables(pinned, command);
         await commitLockedTransaction(pinned, command);
         await assertLockedSinceDecision(pinned, pinned, command, null);
       }
@@ -365,20 +360,17 @@ function assertStructuralRoute(
   path: readonly Sha256[],
   command: "baseline" | "reanchor"
 ): void {
-  for (const [index, stateId] of path.entries()) {
-    const from = index === 0 ? null : path[index - 1]!;
-    const transition = parentTransition(graph, from, stateId);
+  for (const { from, transition, state } of routeEdges(graph, null, path)) {
     const parentSnapshot =
       from === null
         ? graph.emptySnapshotHash
         : graph.states.get(from)?.snapshotHash;
-    const childSnapshot = graph.states.get(stateId)?.snapshotHash;
     if (
       transition.operations.some(
         (operation) =>
           operation.origin === "manual" || operation.risk === "opaque"
       ) ||
-      parentSnapshot === childSnapshot
+      parentSnapshot === state.snapshotHash
     ) {
       throw new MigrationError(
         `${command} refuses a path containing manual, opaque, or data-only transitions`,
@@ -401,15 +393,13 @@ async function adoptRoute(
   path: readonly Sha256[],
   current: MigrationMarkerV1 | null
 ): Promise<void> {
-  const edges = path.map((stateId, index) => ({
-    stateId,
-    transitionHash: parentTransition(
-      graph,
-      index === 0 ? null : path[index - 1]!,
-      stateId
-    ).transitionHash,
-    baselineBoundary: index === 0,
-  }));
+  const edges = routeEdges(graph, null, path).map(
+    ({ to, transition }, index) => ({
+      stateId: to,
+      transitionHash: transition.transitionHash,
+      baselineBoundary: index === 0,
+    })
+  );
   const target = path.at(-1)!;
   const publish = async (producer: AnyDriver) => {
     const next = await advanceMarker(
@@ -423,7 +413,6 @@ async function adoptRoute(
     await appendLedger(
       producer,
       command,
-      DEFAULT_CONTROL_BASE,
       ledgerEvent({
         attemptId: next.pathHash,
         kind: current ? "reanchored" : "baselined",
@@ -958,13 +947,8 @@ async function repairInvalidIndexes(
         declared.name === table &&
         declared.indexes.some((item) => item.name === index)
     );
-    const name = renderQualifiedIdentifier(
-      (part) => command.escapeIdentifier(part),
-      boundNamespace(command),
-      index
-    );
     await pinned._executeRaw(
-      `${rebuild ? "REINDEX INDEX" : "DROP INDEX"} CONCURRENTLY ${name}`
+      `${rebuild ? "REINDEX INDEX" : "DROP INDEX"} CONCURRENTLY ${qualifiedName(command, index)}`
     );
   }
 }
@@ -1019,7 +1003,6 @@ async function finishResolve(
   await appendLedger(
     pinned,
     command,
-    DEFAULT_CONTROL_BASE,
     ledgerEvent({
       attemptId: attempt.attemptId,
       kind: "resolved",
@@ -1233,23 +1216,12 @@ async function executeRollbackEdge(
       "Destination checks failed before rollback"
     );
   }
-  const seed = rollbackEventSeed(graph, item);
-  const attemptId = resume?.attemptId ?? attemptIdFor(seed);
+  const events = attemptEvents(
+    rollbackEventSeed(graph, item),
+    resume?.attemptId
+  );
   if (!resume) {
-    await appendLedger(
-      producer,
-      command,
-      DEFAULT_CONTROL_BASE,
-      ledgerEvent({
-        ...seed,
-        attemptId,
-        kind: "started",
-        operationId: null,
-        dispatchId: null,
-        effectState: "none",
-        open: true,
-      })
-    );
+    await appendLedger(producer, command, events.event("started", "none"));
   }
   await executeOperations(
     producer,
@@ -1262,16 +1234,7 @@ async function executeRollbackEdge(
       appendLedger(
         producer,
         command,
-        DEFAULT_CONTROL_BASE,
-        ledgerEvent({
-          ...seed,
-          attemptId,
-          kind: "step-confirmed",
-          operationId: progress.operationId,
-          dispatchId: progress.dispatchId,
-          effectState: effect,
-          failure,
-        })
+        events.event("step-confirmed", effect, progress, failure)
       ),
     command.namespace,
     { fromState: edge.stateId, toState: nextState }
@@ -1292,7 +1255,7 @@ async function executeRollbackEdge(
     current.path.slice(0, -1),
     snapshotHash
   );
-  await appendRolledBackEvent(producer, command, graph, item, attemptId);
+  await appendRolledBackEvent(producer, command, graph, item, events.attemptId);
   return next;
 }
 
@@ -1373,19 +1336,14 @@ async function appendRolledBackEvent(
   item: PreparedRollback,
   attemptId: Sha256
 ): Promise<void> {
+  const arrived = {
+    ...rollbackEventSeed(graph, item),
+    snapshotHash: snapshotHashOf(graph, item.nextState),
+  };
   await appendLedger(
     producer,
     command,
-    DEFAULT_CONTROL_BASE,
-    ledgerEvent({
-      ...rollbackEventSeed(graph, item),
-      snapshotHash: snapshotHashOf(graph, item.nextState),
-      attemptId,
-      kind: "rolled-back",
-      operationId: null,
-      dispatchId: null,
-      effectState: "committed",
-    })
+    attemptEvents(arrived, attemptId).event("rolled-back", "committed")
   );
 }
 
@@ -1555,13 +1513,8 @@ async function holdsRows(
   table: string
 ): Promise<boolean> {
   if (await isTableMissing(producer, command, table)) return false;
-  const name = renderQualifiedIdentifier(
-    (part) => command.escapeIdentifier(part),
-    boundNamespace(command),
-    table
-  );
   const result = await producer._executeRaw(
-    `SELECT 1 AS populated FROM ${name} LIMIT 1`
+    `SELECT 1 AS populated FROM ${qualifiedName(command, table)} LIMIT 1`
   );
   return result.rows.length > 0;
 }

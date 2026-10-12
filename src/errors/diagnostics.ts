@@ -39,6 +39,11 @@ export interface DiagnosticDisclosure {
   includeCallsite?: boolean | undefined;
 }
 
+export const EMPTY_DISCLOSURE: DiagnosticDisclosure = Object.freeze({
+  includeParams: false,
+  includeSql: false,
+});
+
 export interface ResolvedDiagnosticDisclosure {
   includeSql: boolean;
   includeParams: boolean;
@@ -95,15 +100,20 @@ const PARAMETER_KEYS = new Set([
   "values",
 ]);
 const CAUSE_KEYS = new Set(["cause", "originalcause"]);
-/** How one metadata key's value is admitted. */
-enum MetaValue {
-  String = 0,
-  StringArray = 1,
-  /** A finite, non-negative number no larger than `Number.MAX_SAFE_INTEGER`. */
-  Count = 2,
-  /** The key has its own rule in {@link filterAllowedDiagnosticValue}. */
-  OwnRule = 3,
-}
+/** How one metadata key's value is admitted: the value kept, or `undefined`. */
+type MetaRule = (value: unknown) => unknown;
+const text: MetaRule = (value) =>
+  typeof value === "string" ? value : undefined;
+const flag: MetaRule = (value) =>
+  typeof value === "boolean" ? value : undefined;
+/** A finite, non-negative number no larger than `Number.MAX_SAFE_INTEGER`. */
+const count: MetaRule = (value) =>
+  typeof value === "number" &&
+  Number.isFinite(value) &&
+  value >= 0 &&
+  value <= Number.MAX_SAFE_INTEGER
+    ? value
+    : undefined;
 // The migration-outcome keys (`stateId`, `fromState`, `toState`, `estateHash`,
 // `planHash`, `operationId`, `dispatchId`, `lastConfirmedStep`, `effectState`,
 // `partial`) are content addresses and authored operation ids of the estate,
@@ -123,84 +133,91 @@ const EFFECT_STATES: ReadonlySet<string> = new Set([
 // data, query text, or credentials — and plan §3.3 requires the normalized
 // namespace to reach safe metadata, so a refusal can be read programmatically
 // instead of only as prose.
+const commitCertainty: MetaRule = (value) =>
+  value === "committed" || value === "may-have-committed" ? value : undefined;
+const effectState: MetaRule = (value) =>
+  typeof value === "string" && EFFECT_STATES.has(value) ? value : undefined;
 /**
  * Every metadata key a sanitizer may keep, and how its value is admitted — in
  * key order, which is also the order sanitized metadata lists them.
  */
-const META_KEY_VALUES: Readonly<Record<string, MetaValue>> = {
-  actualChecksum: MetaValue.String,
-  actualResultCount: MetaValue.Count,
-  actualRowCount: MetaValue.Count,
-  autoIncrement: MetaValue.OwnRule,
-  callsite: MetaValue.String,
-  candidates: MetaValue.StringArray,
-  clientTarget: MetaValue.String,
-  column: MetaValue.String,
-  columns: MetaValue.StringArray,
-  command: MetaValue.String,
-  commitCertainty: MetaValue.OwnRule,
-  conflictsWith: MetaValue.String,
-  constraint: MetaValue.String,
-  context: MetaValue.String,
-  correlationId: MetaValue.String,
-  deprecation: MetaValue.String,
-  dialect: MetaValue.String,
-  dispatchId: MetaValue.String,
-  driver: MetaValue.String,
-  effectState: MetaValue.OwnRule,
-  estateHash: MetaValue.String,
-  expectedChecksum: MetaValue.String,
-  expectedResultCount: MetaValue.Count,
-  expectedRowCount: MetaValue.Count,
-  expectedStatementCount: MetaValue.Count,
-  feature: MetaValue.String,
-  field: MetaValue.String,
-  fromState: MetaValue.String,
-  hint: MetaValue.String,
-  indexName: MetaValue.String,
-  indexType: MetaValue.String,
-  journalTarget: MetaValue.String,
-  lastConfirmedStep: MetaValue.String,
-  method: MetaValue.String,
-  migrationIndex: MetaValue.Count,
-  migrationName: MetaValue.String,
-  migrationsDir: MetaValue.String,
-  model: MetaValue.String,
-  namespace: MetaValue.String,
-  notice: MetaValue.String,
-  operation: MetaValue.String,
-  operationId: MetaValue.String,
-  parameterIndex: MetaValue.Count,
-  params: MetaValue.OwnRule,
-  partial: MetaValue.OwnRule,
-  planHash: MetaValue.String,
-  providerCode: MetaValue.OwnRule,
-  providerErrno: MetaValue.OwnRule,
-  providerSqlState: MetaValue.OwnRule,
-  providerStatus: MetaValue.OwnRule,
-  query: MetaValue.OwnRule,
-  recordSeriesProgress: MetaValue.OwnRule,
-  referencedTable: MetaValue.String,
-  relation: MetaValue.String,
-  relations: MetaValue.StringArray,
-  representation: MetaValue.String,
-  resultIndex: MetaValue.Count,
-  scalarType: MetaValue.String,
-  reason: MetaValue.String,
-  stateId: MetaValue.String,
-  statementIndex: MetaValue.Count,
-  step: MetaValue.String,
-  strategy: MetaValue.String,
-  table: MetaValue.String,
-  target: MetaValue.String,
-  timeout: MetaValue.Count,
-  toState: MetaValue.String,
-  type: MetaValue.String,
-};
+const META_KEY_VALUES: ReadonlyMap<string, MetaRule> = new Map<
+  string,
+  MetaRule
+>([
+  ["actualChecksum", text],
+  ["actualResultCount", count],
+  ["actualRowCount", count],
+  ["autoIncrement", flag],
+  ["callsite", text],
+  ["candidates", sanitizeStringArray],
+  ["clientTarget", text],
+  ["column", text],
+  ["columns", sanitizeStringArray],
+  ["command", text],
+  ["commitCertainty", commitCertainty],
+  ["conflictsWith", text],
+  ["constraint", text],
+  ["context", text],
+  ["correlationId", text],
+  ["deprecation", text],
+  ["dialect", text],
+  ["dispatchId", text],
+  ["driver", text],
+  ["effectState", effectState],
+  ["estateHash", text],
+  ["expectedChecksum", text],
+  ["expectedResultCount", count],
+  ["expectedRowCount", count],
+  ["expectedStatementCount", count],
+  ["feature", text],
+  ["field", text],
+  ["fromState", text],
+  ["hint", text],
+  ["indexName", text],
+  ["indexType", text],
+  ["journalTarget", text],
+  ["lastConfirmedStep", text],
+  ["method", text],
+  ["migrationIndex", count],
+  ["migrationName", text],
+  ["migrationsDir", text],
+  ["model", text],
+  ["namespace", text],
+  ["notice", text],
+  ["operation", text],
+  ["operationId", text],
+  ["parameterIndex", count],
+  ["params", (value) => (isArrayValue(value) ? value : undefined)],
+  ["partial", flag],
+  ["planHash", text],
+  ["providerCode", sanitizeProviderCode],
+  ["providerErrno", sanitizeProviderErrno],
+  ["providerSqlState", sanitizeSqlState],
+  ["providerStatus", sanitizeProviderStatus],
+  ["query", text],
+  ["recordSeriesProgress", sanitizeRecordSeriesProgress],
+  ["referencedTable", text],
+  ["relation", text],
+  ["relations", sanitizeStringArray],
+  ["representation", text],
+  ["resultIndex", count],
+  ["scalarType", text],
+  ["reason", text],
+  ["stateId", text],
+  ["statementIndex", count],
+  ["step", text],
+  ["strategy", text],
+  ["table", text],
+  ["target", text],
+  ["timeout", count],
+  ["toState", text],
+  ["type", text],
+]);
 // `deprecation` and `notice` are logger metadata (instrumentation/logger.ts);
 // an error's metadata keeps every other key.
 const ERROR_META_KEYS: ReadonlySet<string> = new Set(
-  Object.keys(META_KEY_VALUES).filter(
+  [...META_KEY_VALUES.keys()].filter(
     (key) => key !== "deprecation" && key !== "notice"
   )
 );
@@ -797,14 +814,6 @@ function filterAllowedDiagnosticValue(
   value: unknown,
   validateLogMetadata: boolean
 ): unknown {
-  if (key === "recordSeriesProgress") {
-    return sanitizeRecordSeriesProgress(value);
-  }
-  if (key === "commitCertainty") {
-    return value === "committed" || value === "may-have-committed"
-      ? value
-      : undefined;
-  }
   if (key === "event" && validateLogMetadata) {
     return typeof value === "string" &&
       ["bypass", "hit", "miss", "revalidate"].includes(value)
@@ -824,35 +833,8 @@ function filterAllowedDiagnosticValue(
       ? value
       : undefined;
   }
-  if (key === "providerCode") return sanitizeProviderCode(value);
-  if (key === "providerErrno") return sanitizeProviderErrno(value);
-  if (key === "providerSqlState") return sanitizeSqlState(value);
-  if (key === "providerStatus") return sanitizeProviderStatus(value);
-  const admission = META_KEY_VALUES[key];
-  if (admission === MetaValue.String) {
-    return typeof value === "string" ? value : undefined;
-  }
-  if (admission === MetaValue.StringArray) return sanitizeStringArray(value);
-  if (admission === MetaValue.Count) {
-    return typeof value === "number" &&
-      Number.isFinite(value) &&
-      value >= 0 &&
-      value <= Number.MAX_SAFE_INTEGER
-      ? value
-      : undefined;
-  }
-  if (key === "autoIncrement" || key === "partial") {
-    return typeof value === "boolean" ? value : undefined;
-  }
-  if (key === "effectState") {
-    return typeof value === "string" && EFFECT_STATES.has(value)
-      ? value
-      : undefined;
-  }
-  if (key === "query") return typeof value === "string" ? value : undefined;
-  if (key === "params") return isArrayValue(value) ? value : undefined;
-  // No other key carries MetaValue.OwnRule. A future unclassified key reaches
-  // JavaScript's fail-closed `undefined` until it receives a rule.
+  // An unclassified key is refused: it has no rule until it receives one.
+  return META_KEY_VALUES.get(key)?.(value);
 }
 
 function safeProgressInteger(value: unknown): number | undefined {

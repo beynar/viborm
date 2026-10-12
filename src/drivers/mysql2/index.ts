@@ -541,16 +541,15 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
 }> {
   refuseUnknownDriverConfigKeys(config, "mysql2", MYSQL2_CONFIG_KEYS);
   const { pool, options, databaseUrl } = config;
-  const attestation = resolveMigrationNamespaceAttestationOption(config);
-  const namespace = resolveNamespaceOption(config);
-
-  const driverOptions: MySQL2DriverOptions = { pool, options, databaseUrl };
-  if (namespace !== undefined) driverOptions.namespace = namespace;
-  if (attestation !== undefined) {
-    driverOptions.migrationNamespaceAttestation = attestation;
-  }
-
-  const driver = new MySQL2Driver(driverOptions);
+  const driver = new MySQL2Driver({
+    // Attestation first, then namespace: the order a refusal reports in.
+    migrationNamespaceAttestation:
+      resolveMigrationNamespaceAttestationOption(config),
+    namespace: resolveNamespaceOption(config),
+    pool,
+    options,
+    databaseUrl,
+  });
 
   return createClientFromDriverConfig<S, C, MySQL2Driver>(config, driver);
 }

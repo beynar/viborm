@@ -620,6 +620,32 @@ function firstFrontier(routes: readonly (readonly Sha256[])[]): Sha256[] {
   return frontier;
 }
 
+/** One edge of a route: its endpoints, transition, arrival state and SQL. */
+export interface RouteEdge {
+  readonly from: Sha256 | null;
+  readonly to: Sha256;
+  readonly transition: MigrationParentTransitionV1;
+  readonly state: MigrationStateManifestV1;
+  readonly blob: Uint8Array;
+}
+
+/**
+ * The edges of `path` walked from `origin`. `parentTransition` refuses a
+ * missing edge; the loaded graph holds every state and blob an edge names.
+ */
+export function routeEdges(
+  graph: MigrationGraph,
+  origin: Sha256 | null,
+  path: readonly Sha256[]
+): RouteEdge[] {
+  return path.map((to, index) => {
+    const from = index === 0 ? origin : path[index - 1]!;
+    const transition = parentTransition(graph, from, to);
+    const state = graph.states.get(to)!;
+    return { from, to, transition, state, blob: graph.sql.get(state.sqlHash)! };
+  });
+}
+
 export function parentTransition(
   graph: MigrationGraph,
   from: Sha256 | null,

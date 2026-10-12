@@ -14,7 +14,6 @@ import { s } from "@schema";
 import {
   appendLedger,
   casMarker,
-  DEFAULT_CONTROL_BASE,
   ensureControlTables,
   markerFromPath,
   readControlState,
@@ -68,21 +67,19 @@ async function ledgerOf(
   const driver = createInMemorySQLite3Driver();
   const command = getMigrationDriver(driver);
   try {
-    await ensureControlTables(driver, command, DEFAULT_CONTROL_BASE);
+    await ensureControlTables(driver, command);
     if (options.marker) {
       await casMarker(
         driver,
         command,
-        DEFAULT_CONTROL_BASE,
         null,
         markerFromPath(ESTATE, hashSnapshot(emptyManagedSnapshot()), [], 1)
       );
     }
-    await appendLedger(driver, command, DEFAULT_CONTROL_BASE, ...events);
+    await appendLedger(driver, command, ...events);
     const { ledger } = await readControlState(
       driver,
       command,
-      DEFAULT_CONTROL_BASE,
       options.open ? { ledger: "open" } : {}
     );
     return ledger.map(({ attemptId, kind }) => `${attemptId[0]}:${kind}`);

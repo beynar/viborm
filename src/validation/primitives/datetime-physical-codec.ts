@@ -118,20 +118,6 @@ export function decodePhysicalDateTime(
   return new Date(epochMilliseconds);
 }
 
-/**
- * The numeric form of a declared physical spelling, or `undefined` when the
- * column holds timestamp text and there is no re-interpretation to do.
- *
- * The one narrowing between "which of the three forms did the schema declare"
- * and "does the result boundary have to read this column through the codec",
- * so an undeclared field and a TEXT-declared one stay on the identical path.
- */
-export function numericDateTimeForm(
-  form: DateTimePhysicalForm | undefined
-): DateTimeNumericForm | undefined {
-  return form === undefined || form === "text" ? undefined : form;
-}
-
 const TIMESTAMP_TEXT =
   /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?(?:(Z)|([+-])(\d{2})(?::?(\d{2}))?(?::?(\d{2}))?)?(?: (BC))?$/;
 

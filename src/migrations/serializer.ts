@@ -52,33 +52,10 @@ import type {
   PolymorphicToOneSnapshotMember,
   PolymorphicToOneStorageRegistryEntry,
   PrimaryKeyDef,
-  ReferentialAction,
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
 } from "./types";
-
-// =============================================================================
-// REFERENTIAL ACTION MAPPING
-// =============================================================================
-
-function mapReferentialAction(
-  action: "cascade" | "setNull" | "restrict" | "noAction" | undefined,
-  fallback: ReferentialAction
-): ReferentialAction {
-  switch (action) {
-    case "cascade":
-      return "cascade";
-    case "setNull":
-      return "setNull";
-    case "restrict":
-      return "restrict";
-    case "noAction":
-      return "noAction";
-    default:
-      return fallback;
-  }
-}
 
 // =============================================================================
 // SERIALIZER
@@ -576,7 +553,7 @@ export function serializeResolvedModels(
         referencedTable: targetTableName,
         referencedColumns,
         onDelete: foreignKeyOnDelete(edge),
-        onUpdate: mapReferentialAction(edge.reference.onUpdate, "noAction"),
+        onUpdate: edge.reference.onUpdate ?? "noAction",
       });
 
       // The inverse of a plural stored reference is to-many: every include,
@@ -730,14 +707,14 @@ export function serializeResolvedModels(
       table: sourceTableName,
       sortKey: modelName.toLowerCase(),
       onDelete: junctionOnDelete(topology.source),
-      onUpdate: mapReferentialAction(topology.source.onUpdate, "cascade"),
+      onUpdate: topology.source.onUpdate ?? "cascade",
     };
     const targetSide = {
       members: targetMembers,
       table: targetTableName,
       sortKey: targetModelName.toLowerCase(),
       onDelete: junctionOnDelete(topology.target),
-      onUpdate: mapReferentialAction(topology.target.onUpdate, "cascade"),
+      onUpdate: topology.target.onUpdate ?? "cascade",
     };
     let [first, second] = [sourceSide, targetSide];
     if (!topology.sourceIsFirst) {

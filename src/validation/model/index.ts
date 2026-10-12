@@ -15,8 +15,6 @@ export type ScalarSchemas<M extends AnyModel> = {
   polymorphic: GetPolymorphicRelationsSchemas<M>;
 };
 
-export type AnyScalarSchemas = ScalarSchemas<AnyModel>;
-
 type SchemaInput<S> = S extends { " vibInferred": [infer Input, unknown] }
   ? Input
   : never;

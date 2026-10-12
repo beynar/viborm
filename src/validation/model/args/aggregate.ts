@@ -949,10 +949,9 @@ const ungroupedHavingPath = (
 
 /**
  * The refusals that read `by` against the rest of the payload, reported at the
- * key that is wrong, which `refuse` cannot do: it answers for the payload as a
- * whole. An empty `by` groups nothing (the database answered with a syntax
- * error); a `having` condition or an `orderBy` field outside `by` names a
- * column no grouped row has.
+ * key that is wrong. An empty `by` groups nothing (the database answered with
+ * a syntax error); a `having` condition or an `orderBy` field outside `by`
+ * names a column no grouped row has.
  */
 const groupedMembershipIssue = (
   {
@@ -992,26 +991,6 @@ const groupedMembershipIssue = (
   return undefined;
 };
 
-/** `schema`, refusing what {@link groupedMembershipIssue} finds in its output. */
-const withGroupedMembership = <
-  S extends VibSchema<unknown, { readonly by: readonly string[] }>,
->(
-  schema: S,
-  scalars: Readonly<Record<string, unknown>>
-): S => {
-  const validate = schema["~standard"].validate;
-  Object.defineProperty(schema["~standard"], "validate", {
-    value: (value: unknown) => {
-      const result = validate(value);
-      const issue = result.issues
-        ? undefined
-        : groupedMembershipIssue(result.value, scalars);
-      return issue ? { issues: [issue] } : result;
-    },
-  });
-  return schema;
-};
-
 export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   model: M,
   fieldSchemas: F,
@@ -1030,29 +1009,31 @@ export const getGroupByArgs = <M extends AnyModel, F extends ScalarSchemas<M>>(
   const havingSchema = getHavingSchema(model, fieldSchemas);
   const orderBySchema = getGroupByOrderBySchema(model);
 
-  return withGroupedMembership(
-    v.object(
-      {
-        // ONE admitted shape downstream: `by: "category"` and
-        // `by: ["category"]` are the same grouped column set, normalised here
-        // so no preparer asks the question again (or calls `.map` on a string).
-        by: v.union([v.array(scalarSchema), v.shorthandArray(scalarSchema)]),
-        where: v.lazyRef(() => core.where),
-        having: havingSchema,
-        orderBy: v.union([orderBySchema, v.array(orderBySchema)]),
-        take: paginationTake(),
-        skip: paginationSkip(),
-        _count: v.union([v.literal(true), aggSchemas.count]),
-        _avg: aggSchemas.avg,
-        _sum: aggSchemas.sum,
-        _min: aggSchemas.min,
-        _max: aggSchemas.max,
-      },
-      {
-        atLeast: ["by"],
-        refuse: groupByCollisions,
-      }
-    ),
-    state.scalars
+  return v.object(
+    {
+      // ONE admitted shape downstream: `by: "category"` and
+      // `by: ["category"]` are the same grouped column set, normalised here
+      // so no preparer asks the question again (or calls `.map` on a string).
+      by: v.union([v.array(scalarSchema), v.shorthandArray(scalarSchema)]),
+      where: v.lazyRef(() => core.where),
+      having: havingSchema,
+      orderBy: v.union([orderBySchema, v.array(orderBySchema)]),
+      take: paginationTake(),
+      skip: paginationSkip(),
+      _count: v.union([v.literal(true), aggSchemas.count]),
+      _avg: aggSchemas.avg,
+      _sum: aggSchemas.sum,
+      _min: aggSchemas.min,
+      _max: aggSchemas.max,
+    },
+    {
+      atLeast: ["by"],
+      refuse: (value) =>
+        groupByCollisions(value) ??
+        groupedMembershipIssue(
+          value as { readonly by: readonly string[] },
+          state.scalars
+        ),
+    }
   ) as GroupByArgs<M, F>;
 };

@@ -362,3 +362,18 @@ export function boundNamespace(
 ): string | undefined {
   return namespace(driver);
 }
+
+/**
+ * One object's name as a live statement spells it: qualified with the bound
+ * namespace, or bare on SQLite and on unbound MySQL.
+ */
+export function qualifiedName(
+  driver: BoundMigrationDriver,
+  name: string
+): string {
+  return renderQualifiedIdentifier(
+    (part) => driver.escapeIdentifier(part),
+    driver.target.dialect === "sqlite" ? undefined : namespace(driver),
+    name
+  );
+}

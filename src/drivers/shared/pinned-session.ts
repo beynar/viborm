@@ -1,5 +1,5 @@
 import { ConnectionError, VibORMErrorCode } from "@errors";
-import { errorCause } from "./driver-options";
+import { errorCause } from "../../errors/diagnostic-safety";
 import { settleWithin } from "./settle";
 import { withSuppressedFailure } from "./suppressed-failure";
 

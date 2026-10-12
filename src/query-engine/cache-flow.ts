@@ -26,7 +26,7 @@ import type { WriteOutcomeRegistration } from "@extensions/query";
 import { parse } from "@validation";
 import { readValidationFailureCause } from "@validation/parse-failure";
 import { isRecord } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
+import { errorCause } from "../errors/diagnostic-safety";
 import { isWriteOperation } from "./routed-operations";
 
 const CACHEABLE_OPERATIONS: Set<string> = new Set([
@@ -132,9 +132,7 @@ export function prepareMutationCacheWriteOutcome(
         throw new CacheConfigurationError(
           `Cache invalidation failed after mutation '${operation}' on model '${modelName}'.`,
           {
-            cause: isError(error)
-              ? error
-              : new Error("A non-Error value was thrown.", { cause: error }),
+            cause: errorCause(error),
             meta: {
               method: "invalidate",
               model: modelName,

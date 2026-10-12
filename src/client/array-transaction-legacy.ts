@@ -1,11 +1,9 @@
 import { bindExecutionTransactionPhases } from "@drivers/execution-context";
 import type {
   AnyDriver,
-  BatchQuery,
   QueryExecutionContext,
   QueryResult,
 } from "@drivers/exports";
-import { assertNormalizedBatchResults } from "@drivers/normalized-result";
 import type {
   BatchTransactionOptions,
   TransactionOptions,
@@ -17,18 +15,14 @@ import {
   type TransactionOperationCapability,
   transactionOperationOwner,
 } from "@query-engine/transaction-operation";
-import type { PreparedBatchGuard } from "@query-engine/types";
 import {
   assertAtomicArraySupport,
   assertNativeBatchResults,
   executeNativeBatch,
-  missingOperationResult,
-  unbatchableArrayError,
+  type NativeBatchMember,
+  type PreparedNativeBatch,
+  prepareNativeBatch,
 } from "./array-transaction-native-batch";
-
-interface LegacyNativeMember {
-  parse(batchResults: QueryResult<unknown>[]): Promise<unknown>;
-}
 
 /** The allocation-compatible array path used when no query handler compiled. */
 export async function executeLegacyArrayTransaction(
@@ -58,71 +52,20 @@ export async function executeLegacyArrayTransaction(
     for (const operation of operations) {
       transactionOperationOwner(operation).reserveWith(operation, driver);
     }
-    const operationQueries: BatchQuery[] = [];
-    const batchGuards: PreparedBatchGuard[] = [];
-    const members: LegacyNativeMember[] = [];
-
-    for (const operation of operations) {
-      const owner = transactionOperationOwner(operation);
-      const preparation = await owner.observeBatchPhase(
-        operation,
-        driver,
-        async () => {
-          const prepared = owner.prepare(operation, driver);
-          if (prepared) return { kind: "single" as const, prepared };
-          return {
-            kind: "batch" as const,
-            preparedBatch: await owner.prepareBatch(operation),
-          };
-        }
-      );
-      if (preparation.kind === "single") {
-        const start = operationQueries.length;
-        operationQueries.push(preparation.prepared);
-        members.push({
-          parse: (batchResults) =>
-            owner.observeBatchPhase(operation, driver, () => {
-              const result = batchResults[start];
-              if (!result)
-                throw missingOperationResult(driver, operation, owner);
-              return owner.parseResult(operation, result);
-            }),
-        });
-        continue;
-      }
-
-      const { preparedBatch } = preparation;
-      if (!preparedBatch) break;
-      const start = operationQueries.length;
-      const length = preparedBatch.queries.length;
-      for (const query of preparedBatch.queries) operationQueries.push(query);
-      for (const guard of preparedBatch.guards ?? []) {
-        batchGuards.push({ ...guard, queryIndex: start + guard.queryIndex });
-      }
-      members.push({
-        parse: (batchResults) =>
-          owner.observeBatchPhase(operation, driver, () =>
-            preparedBatch.parseResult(batchResults.slice(start, start + length))
-          ),
-      });
-    }
-
-    if (members.length !== operations.length) {
-      throw unbatchableArrayError(driver);
-    }
+    const { queries, guards, parsers } = await prepareNativeBatch(
+      batchMembers(operations),
+      driver
+    );
     const batchResults = await executeNativeBatch(
       driver,
-      operationQueries,
-      batchGuards,
+      queries,
+      guards,
       options,
       context
     );
-    assertNormalizedBatchResults(batchResults, operationQueries.length, {
-      provider: driver.driverName,
-      operation: "$transaction([...])",
-    });
-    for (let index = 0; index < members.length; index += 1) {
-      results[index] = await members[index]!.parse(batchResults);
+    assertNativeBatchResults(driver, batchResults, queries.length);
+    for (let index = 0; index < parsers.length; index += 1) {
+      results[index] = await parsers[index]!(batchResults);
     }
     return results;
   }
@@ -138,20 +81,35 @@ export async function executeLegacyArrayTransaction(
     );
   }
   return driver.withTransaction(
-    async (transactionDriver) => {
-      for (let index = 0; index < operations.length; index += 1) {
-        const operation = operations[index]!;
-        const value = await transactionOperationOwner(operation).executeWith(
-          operation,
-          transactionDriver
-        );
-        results[index] = value;
-      }
-      return results;
-    },
+    runInOrder(operations, results),
     options as TransactionOptions | undefined,
     context
   );
+}
+
+function batchMembers(
+  operations: readonly TransactionOperationCapability[]
+): NativeBatchMember[] {
+  return operations.map((operation) => ({
+    operation,
+    owner: transactionOperationOwner(operation),
+  }));
+}
+
+function runInOrder(
+  operations: readonly TransactionOperationCapability[],
+  results: unknown[]
+): (transactionDriver: AnyDriver) => Promise<unknown[]> {
+  return async (transactionDriver) => {
+    for (let index = 0; index < operations.length; index += 1) {
+      const operation = operations[index]!;
+      results[index] = await transactionOperationOwner(operation).executeWith(
+        operation,
+        transactionDriver
+      );
+    }
+    return results;
+  };
 }
 
 interface ObservedNativeMember {
@@ -181,67 +139,24 @@ async function executeObservedNativeArray(
     rejectObservedMembers(observations, error);
     throw error;
   }
-  const operationQueries: BatchQuery[] = [];
-  const batchGuards: PreparedBatchGuard[] = [];
-  const parsers: ((
-    batchResults: QueryResult<unknown>[]
-  ) => Promise<unknown>)[] = [];
-
+  let batch: PreparedNativeBatch;
   try {
     for (const operation of operations) {
       transactionOperationOwner(operation).reserveWith(operation, driver);
     }
-    for (const operation of operations) {
-      const owner = transactionOperationOwner(operation);
-      const preparation = await owner.observeBatchPhase(
-        operation,
-        driver,
-        async () => {
-          const prepared = owner.prepare(operation, driver);
-          if (prepared) return { kind: "single" as const, prepared };
-          return {
-            kind: "batch" as const,
-            preparedBatch: await owner.prepareBatch(operation),
-          };
-        }
-      );
-      if (preparation.kind === "single") {
-        const start = operationQueries.length;
-        operationQueries.push(preparation.prepared);
-        parsers.push((batchResults) =>
-          owner.observeBatchPhase(operation, driver, () => {
-            const result = batchResults[start];
-            if (!result) throw missingOperationResult(driver, operation, owner);
-            return owner.parseResult(operation, result);
-          })
-        );
-        continue;
-      }
-      const { preparedBatch } = preparation;
-      if (!preparedBatch) throw unbatchableArrayError(driver);
-      const start = operationQueries.length;
-      const length = preparedBatch.queries.length;
-      for (const query of preparedBatch.queries) operationQueries.push(query);
-      for (const guard of preparedBatch.guards ?? []) {
-        batchGuards.push({ ...guard, queryIndex: start + guard.queryIndex });
-      }
-      parsers.push((batchResults) =>
-        owner.observeBatchPhase(operation, driver, () =>
-          preparedBatch.parseResult(batchResults.slice(start, start + length))
-        )
-      );
-    }
+    batch = await prepareNativeBatch(batchMembers(operations), driver);
   } catch (error) {
     rejectObservedMembers(observations, error);
     throw error;
   }
+  const { queries, guards, parsers } = batch;
 
   let batchResults: QueryResult<unknown>[];
   try {
     batchResults = await executeNativeBatch(
       driver,
-      operationQueries,
-      batchGuards,
+      queries,
+      guards,
       options,
       context
     );
@@ -255,7 +170,7 @@ async function executeObservedNativeArray(
   setObservedCertainty(observations, "committed");
   reportCertainty?.("committed");
   try {
-    assertNativeBatchResults(driver, batchResults, operationQueries.length);
+    assertNativeBatchResults(driver, batchResults, queries.length);
     for (let index = 0; index < parsers.length; index += 1) {
       const value = await parsers[index]!(batchResults);
       const observation = observations[index]!;
@@ -295,17 +210,7 @@ async function executeObservedFallbackArray(
       });
   try {
     const transactionResults = await engine.driver.withTransaction(
-      async (transactionDriver) => {
-        for (let index = 0; index < operations.length; index += 1) {
-          const operation = operations[index]!;
-          const value = await transactionOperationOwner(operation).executeWith(
-            operation,
-            transactionDriver
-          );
-          results[index] = value;
-        }
-        return results;
-      },
+      runInOrder(operations, results),
       options as TransactionOptions | undefined,
       transactionContext
     );

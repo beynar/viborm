@@ -1,4 +1,4 @@
-import type { Dialect } from "@src/drivers";
+import type { Dialect } from "@drivers/types";
 
 export const TEST_LAYERS = [
   "validation",

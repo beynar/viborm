@@ -17,8 +17,6 @@ const ASYNC_REFUSAL: readonly ValidationIssue[] = Object.freeze([
   Object.freeze({ message: "Async schemas are not supported" }),
 ]);
 
-export type UnionOptions<T extends readonly VibSchema<any, any>[]> = T;
-
 export interface UnionSchema<
   TOptions extends readonly VibSchema<any, any>[],
   TInput = TOptions[number][" vibInferred"]["0"],

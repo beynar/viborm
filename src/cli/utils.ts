@@ -160,6 +160,52 @@ export async function finishCli(
   }
 }
 
+/** Every command's frame: load the config, own its client, report through {@link finishCli}. */
+export async function runCli(
+  load: LoadConfigOptions,
+  json: boolean | undefined,
+  body: (config: LoadedConfig) => Promise<void>
+): Promise<void> {
+  let client: { $disconnect(): Promise<void> } | undefined;
+  let failure: { value: unknown } | undefined;
+  try {
+    const config = await loadConfig(load);
+    client = config.client;
+    await body(config);
+  } catch (error) {
+    failure = { value: error };
+  } finally {
+    await finishCli(client, failure, json);
+  }
+}
+
+/** JSON for `--json`, else an indented outline of the same value. */
+export function printJson(value: unknown, json: boolean): void {
+  if (json) {
+    process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+    return;
+  }
+  const lines: string[] = [];
+  const render = (item: unknown, indent = "") => {
+    if (Array.isArray(item)) {
+      for (const entry of item) {
+        lines.push(`${indent}-`);
+        render(entry, `${indent}  `);
+      }
+      if (item.length === 0) lines.push(`${indent}(none)`);
+    } else if (item !== null && typeof item === "object") {
+      for (const [key, entry] of Object.entries(item)) {
+        if (entry !== null && typeof entry === "object") {
+          lines.push(`${indent}${key}:`);
+          render(entry, `${indent}  `);
+        } else lines.push(`${indent}${key}: ${String(entry)}`);
+      }
+    } else lines.push(`${indent}${String(item)}`);
+  };
+  render(value);
+  process.stdout.write(`${lines.join("\n")}\n`);
+}
+
 export async function loadConfig(
   options: LoadConfigOptions = {}
 ): Promise<LoadedConfig> {

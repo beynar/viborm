@@ -10,7 +10,6 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -19,11 +18,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import {
-  ClientInitializationError,
-  QueryError,
-  unsupportedVector,
-} from "@errors";
+import { ClientInitializationError, QueryError } from "@errors";
 import type {
   CustomTypesConfig,
   NeonQueryFunction,
@@ -32,13 +27,13 @@ import { Driver, type QueryExecutionContext } from "../driver";
 import { isNormalizedResultRow } from "../normalized-result";
 import {
   type BatchTransactionOptions,
-  defineImmutableDriverFact,
   normalizePostgresRowCount,
   resolveNamespaceOption,
   type TransactionOptionSupport,
   unsupportedCallbackTransactionError,
 } from "../shared";
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
+import { installPostgresAdapter } from "../shared/postgres-adapter";
 import type {
   BatchQuery,
   CommittedBatchNotification,
@@ -150,10 +145,7 @@ export class NeonHTTPDriver extends Driver<NeonQuery, NeonQuery> {
     const namespace = resolveNamespaceOption(options);
     this.driverOptions = options;
 
-    const adapter = new PostgresAdapter(namespace, options.postgis === true);
-    adapter.capabilities.supportsVector = options.pgvector === true;
-    if (!options.pgvector) adapter.vector = unsupportedVector;
-    defineImmutableDriverFact(this, "adapter", adapter);
+    installPostgresAdapter(this, namespace, options);
   }
 
   protected async initClient(): Promise<NeonQuery> {

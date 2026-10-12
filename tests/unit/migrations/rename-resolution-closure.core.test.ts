@@ -7,7 +7,6 @@ import {
 import { invertOperations } from "@migrations/invert";
 import {
   alwaysAddDropResolver,
-  alwaysRenameResolver,
   resolveAmbiguousChanges,
 } from "@migrations/resolver";
 import type {
@@ -18,6 +17,9 @@ import type {
 } from "@migrations/types";
 import { sortOperations } from "@migrations/utils";
 import { expect, it } from "vitest";
+
+const renameEveryChange: Resolver = async (changes) =>
+  new Map(changes.map((change) => [change, { type: "rename" as const }]));
 
 const decimal = (precision: number, scale: number) => ({ precision, scale });
 
@@ -150,7 +152,7 @@ it("re-diffs outer and inner renames through native PK/index/UQ/FK effects", asy
   const batches: string[][] = [];
   const resolver: Resolver = async (changes) => {
     batches.push(changes.map((change) => change.type));
-    return alwaysRenameResolver(changes);
+    return renameEveryChange(changes);
   };
   const options: DiffOptions = { matchConstraintsByShape: true };
 
@@ -233,7 +235,7 @@ it("canonicalizes a renamed PostgreSQL table against its live old name", async (
       await diff(current, desired, options),
       current,
       desired,
-      alwaysRenameResolver,
+      renameEveryChange,
       options
     )
   ).toEqual([

@@ -1,25 +1,20 @@
 import { ValidationError } from "@errors";
+import { baseOperation } from "@query-engine/routed-operations";
 import type { Operation as ValidationOperation } from "@query-engine/types";
 import { isRecord } from "@validation/value-guards";
 import type { Operations } from "./types";
 
-/** Each unique-selector operation, mapped to the operation its error names. */
-const UNIQUE_SELECTOR_OPERATIONS: ReadonlyMap<Operations, ValidationOperation> =
-  new Map([
-    ["findUnique", "findUnique"],
-    ["findUniqueOrThrow", "findUnique"],
-    ["update", "update"],
-    ["delete", "delete"],
-    ["upsert", "upsert"],
-  ]);
+/** The unique-selector verbs; an `…OrThrow` verb is refused as its base. */
+const UNIQUE_SELECTOR_OPERATIONS: ReadonlySet<string> =
+  new Set<ValidationOperation>(["findUnique", "update", "delete", "upsert"]);
 
 export function assertNonEmptyUniqueWhere(
   model: string,
   operation: Operations,
   args: unknown
 ): void {
-  const validationOperation = UNIQUE_SELECTOR_OPERATIONS.get(operation);
-  if (validationOperation === undefined) return;
+  const validationOperation = baseOperation(operation);
+  if (!UNIQUE_SELECTOR_OPERATIONS.has(validationOperation)) return;
   if (!isRecord(args)) return;
   const where = args.where;
   if (!isRecord(where)) return;

@@ -4,6 +4,7 @@ import type { DatabaseAdapter } from "@adapters/database-adapter";
 import {
   ConnectionError,
   type DiagnosticDisclosure,
+  EMPTY_DISCLOSURE,
   TransactionError,
   VibORMErrorCode,
 } from "@errors";
@@ -63,11 +64,6 @@ import type {
   QueryExecutionContext,
   QueryResult,
 } from "./types";
-
-const EMPTY_DISCLOSURE: DiagnosticDisclosure = Object.freeze({
-  includeParams: false,
-  includeSql: false,
-});
 
 // ============================================================
 // DRIVER INTERFACE

@@ -7,7 +7,6 @@ import { physicalConnectionQueue } from "../connection-scope";
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -21,12 +20,10 @@ import {
   type PGliteOptions,
   type Transaction,
 } from "@electric-sql/pglite";
-import { unsupportedVector } from "@errors";
 import { Driver, type QueryExecutionContext } from "../driver";
 import { getExecutionTransactionPhases } from "../execution-context";
 import { normalizeProviderRowCount } from "../normalized-result";
 import {
-  defineImmutableDriverFact,
   nestedTransactionDispatchError,
   resolveNamespaceOption,
   runProviderManagedTransaction,
@@ -38,6 +35,7 @@ import {
   type PinnedSessionReservation,
   unprovenLockStateError,
 } from "../shared/pinned-session";
+import { installPostgresAdapter } from "../shared/postgres-adapter";
 import type { QueryResult } from "../types";
 
 const temporalParsers = Object.fromEntries(
@@ -117,10 +115,7 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
       });
     }
 
-    const adapter = new PostgresAdapter(namespace, options.postgis === true);
-    adapter.capabilities.supportsVector = options.pgvector === true;
-    if (!options.pgvector) adapter.vector = unsupportedVector;
-    defineImmutableDriverFact(this, "adapter", adapter);
+    installPostgresAdapter(this, namespace, options);
   }
 
   /**
@@ -177,18 +172,7 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     params: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "execute";
-    const result = await client.query<T>(sql, params, {
-      parsers: temporalParsers,
-    });
-    const affectedRows = normalizeProviderRowCount(result.affectedRows, {
-      provider: "pglite",
-      operation,
-    });
-    return {
-      rows: result.rows,
-      rowCount: result.rows.length > 0 ? result.rows.length : affectedRows,
-    };
+    return this.executeQuery(client, sql, params, context, "execute");
   }
 
   protected async executeRaw<T>(
@@ -197,7 +181,17 @@ export class PGliteDriver extends Driver<PGlite, Transaction> {
     params: unknown[] | undefined,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "executeRaw";
+    return this.executeQuery(client, sql, params, context, "executeRaw");
+  }
+
+  private async executeQuery<T>(
+    client: PGlite | Transaction,
+    sql: string,
+    params: unknown[] | undefined,
+    context: QueryExecutionContext | undefined,
+    fallbackOperation: "execute" | "executeRaw"
+  ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? fallbackOperation;
     const result = await client.query<T>(sql, params, {
       parsers: temporalParsers,
     });

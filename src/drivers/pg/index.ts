@@ -13,7 +13,6 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -22,11 +21,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import {
-  ClientInitializationError,
-  TransactionError,
-  unsupportedVector,
-} from "@errors";
+import { ClientInitializationError, TransactionError } from "@errors";
 import { Pool, type PoolClient, type PoolConfig, types as pgTypes } from "pg";
 import {
   Driver,
@@ -56,6 +51,7 @@ import {
   refuseUnknownDriverConfigKeys,
   systemRootAsVerifyFull,
 } from "../shared/driver-options";
+import { installPostgresAdapter } from "../shared/postgres-adapter";
 import type { QueryResult } from "../types";
 
 // DATE (1082) and TIMESTAMP WITHOUT TIME ZONE (1114): pg's default parsers
@@ -311,10 +307,7 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
       this.client = this.suppliedPool;
     }
 
-    const adapter = new PostgresAdapter(namespace, options.postgis === true);
-    adapter.capabilities.supportsVector = options.pgvector === true;
-    if (!options.pgvector) adapter.vector = unsupportedVector;
-    defineImmutableDriverFact(this, "adapter", adapter);
+    installPostgresAdapter(this, namespace, options);
     defineImmutableDriverFact(
       this,
       "migrationSessionAttestation",
@@ -526,7 +519,26 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
     params: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "execute";
+    return this.executeQuery(client, sql, params, context, "execute");
+  }
+
+  protected async executeRaw<T>(
+    client: PgPool | PgPoolClient,
+    sql: string,
+    params: unknown[] | undefined,
+    context?: QueryExecutionContext
+  ): Promise<QueryResult<T>> {
+    return this.executeQuery(client, sql, params, context, "executeRaw");
+  }
+
+  private async executeQuery<T>(
+    client: PgPool | PgPoolClient,
+    sql: string,
+    params: unknown[] | undefined,
+    context: QueryExecutionContext | undefined,
+    fallbackOperation: "execute" | "executeRaw"
+  ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? fallbackOperation;
     const observed = this.readBackgroundPoolFailure(client);
     const result = await client
       .query({ text: sql, values: params, types: utcSafeTypes })
@@ -542,38 +554,6 @@ export class PgDriver extends Driver<PgPool, PgPoolClient> {
       );
     // `Pool.query` includes an acquisition. Its success proves transport
     // recovery, but only for evidence that predates this exact operation.
-    this.clearBackgroundPoolFailure(client, observed);
-    return {
-      rows: result.rows,
-      rowCount: normalizePostgresRowCount(
-        result.rowCount,
-        result.command,
-        result.rows,
-        { provider: "pg", operation }
-      ),
-    };
-  }
-
-  protected async executeRaw<T>(
-    client: PgPool | PgPoolClient,
-    sql: string,
-    params: unknown[] | undefined,
-    context?: QueryExecutionContext
-  ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "executeRaw";
-    const observed = this.readBackgroundPoolFailure(client);
-    const result = await client
-      .query({ text: sql, values: params, types: utcSafeTypes })
-      .catch((error: unknown) =>
-        this.throwPoolQueryFailure(
-          client,
-          observed,
-          error,
-          sql,
-          params,
-          context
-        )
-      );
     this.clearBackgroundPoolFailure(client, observed);
     return {
       rows: result.rows,
@@ -734,23 +714,19 @@ export function createClient<S extends Schema, C extends DriverConfig<S>>(
 }> {
   refuseUnknownDriverConfigKeys(config, "pg", PG_CONFIG_KEYS);
   const { pool, options = {}, pgvector, postgis, databaseUrl } = config;
-  const namespace = resolveNamespaceOption(config);
-  const attestation = resolveMigrationSessionAttestationOption(config);
-
-  const driverOptions: PgDriverOptions = { options };
-  // Present even when undefined: the driver refuses an empty one (parity-18).
-  if (Object.hasOwn(config, "databaseUrl")) {
-    driverOptions.databaseUrl = databaseUrl;
-  }
-  if (pool) driverOptions.pool = pool;
-  if (pgvector !== undefined) driverOptions.pgvector = pgvector;
-  if (postgis !== undefined) driverOptions.postgis = postgis;
-  if (namespace !== undefined) driverOptions.namespace = namespace;
-  if (attestation !== undefined) {
-    driverOptions.migrationSessionAttestation = attestation;
-  }
-
-  const driver = new PgDriver(driverOptions);
+  const driver = new PgDriver({
+    // Namespace, then attestation: the order a refusal reports in.
+    namespace: resolveNamespaceOption(config),
+    migrationSessionAttestation:
+      resolveMigrationSessionAttestationOption(config),
+    // Only a supplied pool counts: a falsy one leaves the driver to build its own.
+    pool: pool || undefined,
+    options,
+    // Present even when undefined: the driver refuses an empty one (parity-18).
+    ...(Object.hasOwn(config, "databaseUrl") ? { databaseUrl } : {}),
+    pgvector,
+    postgis,
+  });
 
   return createClientFromDriverConfig<S, C, PgDriver>(config, driver);
 }

@@ -147,12 +147,7 @@ describe("the SQLite foreign-key bracket runs each pragma exactly once", () => {
     driver.respond = (sql) =>
       sql.startsWith("PRAGMA foreign_key_check") ? [{ table: "child" }] : [];
 
-    await expect(
-      assertForeignKeysIntact(driver, {
-        disable: "PRAGMA foreign_keys=OFF",
-        enable: "PRAGMA foreign_keys=ON",
-      })
-    ).rejects.toMatchObject({
+    await expect(assertForeignKeysIntact(driver)).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_FAILED,
       message: expect.stringContaining("child -> ?"),
     });

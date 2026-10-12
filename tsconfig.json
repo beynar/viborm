@@ -41,14 +41,12 @@
       "@adapters/*": ["./src/adapters/*"],
       "@adapters": ["./src/adapters/index.ts"],
       "@drivers/*": ["./src/drivers/*"],
-      "@drivers": ["./src/drivers/index.ts"],
+      "@drivers": ["./src/drivers/exports.ts"],
       "@sql": ["./src/sql/sql.ts"],
       "@migrations/*": ["./src/migrations/*"],
       "@migrations": ["./src/migrations/index.ts"],
       "@errors": ["./src/errors.ts"],
-      "@instrumentation": ["./src/instrumentation/index.ts"],
       "@instrumentation/*": ["./src/instrumentation/*"],
-      "@cache": ["./src/cache/index.ts"],
       "@cache/*": ["./src/cache/*"]
     }
   },

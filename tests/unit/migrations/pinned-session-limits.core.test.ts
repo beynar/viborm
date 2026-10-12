@@ -22,7 +22,7 @@ import {
 import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
 import { ConnectionError, VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations/client";
-import { DEFAULT_CONTROL_BASE, readControlState } from "@migrations/control";
+import { readControlState } from "@migrations/control";
 import { getMigrationDriver } from "@migrations/drivers";
 import {
   DEFAULT_MIGRATION_LIMITS,
@@ -283,7 +283,7 @@ describe("the session's time limits", () => {
         );
         // ...which another command takes before the next read asks again.
         driver.lockAnswers.acquire = [{ acquired: false }];
-        await readControlState(pinned, command, DEFAULT_CONTROL_BASE);
+        await readControlState(pinned, command);
       }
     ).catch((error: unknown) => error);
 

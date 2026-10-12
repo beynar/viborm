@@ -6,7 +6,6 @@ import {
   CheckConstraintError,
   ClientInitializationError,
   ForeignKeyError,
-  hasErrorCode,
   InvalidTransactionInputError,
   isCheckConstraintError,
   isClientInitializationError,
@@ -32,27 +31,11 @@ import {
   unsupportedVector,
   ValidationError,
   ValueTooLongError,
-  type VibORMError,
   VibORMErrorCode,
   wrapError,
 } from "@errors";
-import { expectTypeOf } from "vitest";
 
 describe("public error helpers", () => {
-  it("narrows VibORM errors by their stable code", () => {
-    const error: unknown = new UniqueConstraintError("duplicate");
-
-    if (!hasErrorCode(error, VibORMErrorCode.UNIQUE_CONSTRAINT)) {
-      throw new Error("expected the code guard to match");
-    }
-
-    expectTypeOf(error).toEqualTypeOf<VibORMError>();
-    expect(hasErrorCode(error, VibORMErrorCode.FOREIGN_KEY_CONSTRAINT)).toBe(
-      false
-    );
-    expect(hasErrorCode(new Error("foreign"), error.code)).toBe(false);
-  });
-
   it("recognizes every exported class-specific guard", () => {
     const unique = new UniqueConstraintError("unique");
     const foreignKey = new ForeignKeyError("foreign key");

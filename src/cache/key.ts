@@ -117,19 +117,6 @@ function buildPrefix(version?: string | number): string {
   return version !== undefined ? `${CACHE_PREFIX}:v${version}` : CACHE_PREFIX;
 }
 
-/**
- * Generate an unprefixed cache key (internal use)
- * Key structure: <model>:<operation>:<hash>
- */
-export function generateUnprefixedCacheKey(
-  modelName: string,
-  operation: string,
-  args: unknown
-): string {
-  const argsHash = hashArgs(args);
-  return `${modelName}:${operation}:${argsHash}`;
-}
-
 /** Hash for storage lookup, exact identity for collision verification. */
 export function cacheLookupOf(
   model: string,

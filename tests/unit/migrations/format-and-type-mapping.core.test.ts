@@ -9,7 +9,6 @@ import {
   formatAmbiguousChangeDescription,
   formatDestructiveOperation,
   formatOperation,
-  formatOperations,
 } from "@src/migrations/push/format";
 import type {
   AmbiguousChange,
@@ -165,16 +164,6 @@ describe("migration operation formatting", () => {
     },
   ])("formats $operation.type", ({ operation, text }) => {
     expect(formatOperation(operation)).toBe(text);
-  });
-
-  test("formats operation collections and the empty plan", () => {
-    expect(formatOperations([])).toBe("No changes detected.");
-    expect(
-      formatOperations([
-        { type: "dropTable", tableName: "user" },
-        { type: "dropEnum", enumName: "role" },
-      ])
-    ).toBe('- Drop table "user"\n- Drop enum "role"');
   });
 
   test.each<{ operation: DiffOperation; text: string }>([

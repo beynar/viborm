@@ -67,13 +67,13 @@ describe("provider migration-driver public entrypoints", () => {
       to: { name: "id", type: "BIGINT", nullable: false },
     };
 
-    expect(driver.generateCreateTable(create, ddlContext("live"))).toContain(
+    expect(driver.generateDDL(create, ddlContext("live"))).toContain(
       "CONSTRAINT `account_id_key` UNIQUE (`id`)"
     );
-    expect(driver.generateCreateTable(create, ddlContext("live"))).toContain(
+    expect(driver.generateDDL(create, ddlContext("live"))).toContain(
       "ON UPDATE SET NULL"
     );
-    expect(driver.generateAlterColumn(alter, ddlContext("live"))).toBe(
+    expect(driver.generateDDL(alter, ddlContext("live"))).toBe(
       "ALTER TABLE `billing`.`account` MODIFY COLUMN `id` BIGINT NOT NULL"
     );
     expect(driver.generateSelectTarget()).toBe("USE `billing`");
@@ -162,19 +162,16 @@ describe("provider migration-driver public entrypoints", () => {
     });
 
     expect(
-      driver.generateAlterEnum(
-        { type: "alterEnum", enumName: "state" },
-        context
-      )
+      driver.generateDDL({ type: "alterEnum", enumName: "state" }, context)
     ).toContain("no new values provided");
     expect(
-      driver.generateAlterEnum(
+      driver.generateDDL(
         { type: "alterEnum", enumName: "state", newValues: ["active"] },
         context
       )
     ).toContain("no dependent columns found");
 
-    const rendered = driver.generateAlterEnum(
+    const rendered = driver.generateDDL(
       {
         type: "alterEnum",
         enumName: "state",
@@ -224,14 +221,14 @@ describe("provider migration-driver public entrypoints", () => {
       ],
     };
 
-    expect(driver.generateCreateTable(create, ddlContext("artifact"))).toBe(
+    expect(driver.generateDDL(create, ddlContext("artifact"))).toBe(
       'CREATE TABLE "billing"."account" (\n  "id" integer NOT NULL,\n  CONSTRAINT "account_pkey" PRIMARY KEY ("id")\n)'
     );
-    expect(driver.generateAlterColumn(alter, ddlContext("artifact"))).toContain(
+    expect(driver.generateDDL(alter, ddlContext("artifact"))).toContain(
       'ALTER TABLE "billing"."account" ALTER COLUMN "id" TYPE bigint'
     );
     expect(
-      driver.compileRenameTable(
+      driver.compileStatements(
         { type: "renameTable", from: "account", to: "customer" },
         ddlContext("live", { currentSchema })
       )
@@ -240,7 +237,7 @@ describe("provider migration-driver public entrypoints", () => {
       'ALTER TABLE "billing"."customer" RENAME CONSTRAINT "account_pkey" TO "customer_pkey"',
     ]);
     expect(
-      driver.generateAlterEnum(
+      driver.generateDDL(
         { type: "alterEnum", enumName: "state", addValues: ["pending"] },
         ddlContext("artifact")
       )
@@ -394,7 +391,7 @@ describe("coverage low value", () => {
 
   test("refuses structurally impossible auto-increment declarations", () => {
     expect(() =>
-      mysqlMigrationDriver.generateCreateTable(
+      mysqlMigrationDriver.generateDDL(
         {
           type: "createTable",
           table: {
@@ -415,7 +412,7 @@ describe("coverage low value", () => {
       expect.objectContaining({ code: VibORMErrorCode.INVALID_INPUT })
     );
     expect(() =>
-      postgresMigrationDriver.generateCreateTable(
+      postgresMigrationDriver.generateDDL(
         {
           type: "createTable",
           table: {

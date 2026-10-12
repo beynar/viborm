@@ -4,6 +4,24 @@
  * Shared helper functions used across multiple migration drivers.
  */
 
+import type { ReferentialAction } from "../types";
+
+/** A catalog's `ON DELETE` / `ON UPDATE` spelling, as a ReferentialAction. */
+export function mapReferentialAction(rule: string): ReferentialAction {
+  switch (rule.toUpperCase()) {
+    case "CASCADE":
+      return "cascade";
+    case "SET NULL":
+      return "setNull";
+    case "RESTRICT":
+      return "restrict";
+    case "SET DEFAULT":
+      return "setDefault";
+    default:
+      return "noAction";
+  }
+}
+
 /**
  * Groups items by a key function.
  *

@@ -12,7 +12,6 @@ import {
   type MigrationLiveRequirement,
 } from "./admission";
 import {
-  DEFAULT_CONTROL_BASE,
   type MigrationControlRead,
   readControlState,
   refusePartialControl,
@@ -46,12 +45,7 @@ export async function readCommandControl(
   command: BoundMigrationDriver,
   bootstrap = false
 ): Promise<MigrationControlRead> {
-  const control = await readControlState(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    { ledger: "open" }
-  );
+  const control = await readControlState(producer, command, { ledger: "open" });
   if (!bootstrap || control.presence.kind === "missing-table") {
     refusePartialControl(control.presence);
   }

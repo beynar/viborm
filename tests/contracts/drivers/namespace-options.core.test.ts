@@ -12,11 +12,11 @@ import { MySQLAdapter } from "@adapters/databases/mysql/mysql-adapter";
 import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import { SQLiteAdapter } from "@adapters/databases/sqlite/sqlite-adapter";
 import { VibORM } from "@client/client";
-import { Driver, TransactionBoundDriver } from "@drivers";
 import {
   BunSQLDriver,
   createClient as createBunSQLClient,
 } from "@drivers/bun-sql";
+import { Driver, TransactionBoundDriver } from "@drivers/driver";
 import {
   createClient as createMySQL2Client,
   MySQL2Driver,

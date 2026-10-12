@@ -12,13 +12,12 @@ import {
   stepStatements,
 } from "./compile";
 import {
+  type AttemptEvents,
   advanceMarker,
   appendLedger,
-  attemptIdFor,
-  controlTableNames,
-  DEFAULT_CONTROL_BASE,
+  attemptEvents,
+  CONTROL_TABLES,
   ensureControlTables,
-  ledgerEvent,
   markerFromPath,
   markerUnmovedCondition,
   markerWrite,
@@ -33,9 +32,10 @@ import { assertAllChecks, executeOperations } from "./execute-dispatch";
 import {
   loadMigrationGraph,
   type MigrationGraph,
-  parentTransition,
+  type RouteEdge,
   requireStateSnapshot,
   resolveStateSelector,
+  routeEdges,
   selectRoute,
 } from "./graph";
 import type { Sha256 } from "./identity";
@@ -68,7 +68,6 @@ import type {
   LedgerEventV1,
   MarkerPathEdgeV1,
   MigrationMarkerV1,
-  MigrationStateManifestV1,
 } from "./v1-types";
 
 export interface ApplyV1Result {
@@ -186,12 +185,7 @@ async function provenNoop(
   target: Sha256,
   options: ApplyV1Options
 ): Promise<ApplyV1Result | undefined> {
-  const decision = await readPostgresDecision(
-    session,
-    driver,
-    DEFAULT_CONTROL_BASE,
-    lockFree
-  );
+  const decision = await readPostgresDecision(session, driver, lockFree);
   const marker = decision?.marker;
   if (!marker || unfinishedAttempts(decision.ledger).length > 0) return;
   // A refusal thrown here is decided again, and thrown, under the lock.
@@ -279,12 +273,8 @@ async function applyPathUnderLock(
   needsBootstrap = false
 ): Promise<void> {
   const batched = runsMigrationBatches(pinned);
-  const prepared = path.map((to, index) => {
-    const from = index === 0 ? origin : path[index - 1]!;
-    const transition = parentTransition(graph, from, to);
-    const state = graph.states.get(to)!;
-    const blob = graph.sql.get(state.sqlHash)!;
-    const requested = transition.requestedForwardBoundary;
+  const prepared = routeEdges(graph, origin, path).map((edge) => {
+    const requested = edge.transition.requestedForwardBoundary;
     assertTransactionalBoundaryHonored(
       pinned.supportsTransactions || batched,
       requested
@@ -292,12 +282,14 @@ async function applyPathUnderLock(
     const boundary = classifyStoredAtomicity(
       command,
       requested,
-      transition.operations,
-      blob
+      edge.transition.operations,
+      edge.blob
     );
-    refuseSqliteStepwise(command, requested, to);
-    if (batched && boundary === "stepwise") refuseBatchedStepwise(pinned, to);
-    return { from, to, transition, state, blob, boundary };
+    refuseSqliteStepwise(command, requested, edge.to);
+    if (batched && boundary === "stepwise") {
+      refuseBatchedStepwise(pinned, edge.to);
+    }
+    return { ...edge, boundary };
   });
 
   let current = marker;
@@ -305,7 +297,7 @@ async function applyPathUnderLock(
   // Before the program, as statements of their own: one request cannot read
   // what the bootstrap reads (plan D7), and a PostgreSQL bootstrap commits.
   if (needsBootstrap) {
-    await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
+    await ensureControlTables(pinned, command);
     await commitLockedTransaction(pinned, command);
   }
   const statementsOf = ({ transition, blob }: PreparedForwardEdge) =>
@@ -345,12 +337,7 @@ async function applyPathUnderLock(
       // Edge by edge, each step probed and recorded as it runs.
       for (const item of group.items) {
         const attempt = forwardAttempt(graph, item);
-        await appendLedger(
-          producer,
-          command,
-          DEFAULT_CONTROL_BASE,
-          attempt.event("started", "none")
-        );
+        await appendLedger(producer, command, attempt.event("started", "none"));
         await runForwardEdge(
           producer,
           command,
@@ -374,7 +361,6 @@ async function applyPathUnderLock(
         await appendLedger(
           producer,
           command,
-          DEFAULT_CONTROL_BASE,
           attempt.event("applied", "committed")
         );
       }
@@ -457,7 +443,6 @@ async function runForwardEdge(
           appendLedger(
             producer,
             command,
-            DEFAULT_CONTROL_BASE,
             attempt.event("step-confirmed", effect, progress, failure)
           )
       : undefined,
@@ -533,7 +518,7 @@ async function executeAtomicGroup(
       (current?.revision ?? 0) + items.length
     );
     // The request asserted `current` under its lock first.
-    const write = markerWrite(command, DEFAULT_CONTROL_BASE, current, next);
+    const write = markerWrite(command, current, next);
     await producer._executeRaw(write.sql, write.params);
   } else {
     next = await advanceMarker(
@@ -547,7 +532,7 @@ async function executeAtomicGroup(
       await proveLive(producer, command, graph, snapshotHash)
     );
   }
-  await appendLedger(producer, command, DEFAULT_CONTROL_BASE, ...arrivals);
+  await appendLedger(producer, command, ...arrivals);
   return next;
 }
 
@@ -570,11 +555,7 @@ async function applyGroupBatch(
   models: MigrationClient["$schema"]
 ): Promise<MigrationMarkerV1> {
   const batch = openMigrationBatch(driver, command);
-  const unmoved = markerUnmovedCondition(
-    command,
-    DEFAULT_CONTROL_BASE,
-    current
-  );
+  const unmoved = markerUnmovedCondition(command, current);
   batch.assert(
     unmoved.sql,
     unmoved.params,
@@ -629,9 +610,7 @@ function assertDigest(
   snapshot: SchemaSnapshot
 ): void {
   // A batch runs only on PostgreSQL, whose driver owns the digest.
-  const digest = command.catalogDigestQuery!(
-    controlTableNames(DEFAULT_CONTROL_BASE)
-  );
+  const digest = command.catalogDigestQuery!(CONTROL_TABLES);
   batch.assert(
     `(${digest.sql}) IS NOT NULL`,
     digest.parameters,
@@ -667,13 +646,10 @@ async function commitLanded(
 ): Promise<boolean> {
   // On a lost connection the pinned view refuses this read (plan S2).
   const marker = await (runsMigrationBatches(pinned)
-    ? readPostgresDecision(
-        pinned,
-        command,
-        DEFAULT_CONTROL_BASE,
-        migrationLockFree(command)
-      ).then((decision) => decision?.marker)
-    : readControlState(pinned, command, DEFAULT_CONTROL_BASE, {
+    ? readPostgresDecision(pinned, command, migrationLockFree(command)).then(
+        (decision) => decision?.marker
+      )
+    : readControlState(pinned, command, {
         ledger: "open",
       }).then((control) => control.marker)
   ).catch(() => undefined);
@@ -725,12 +701,12 @@ async function recordFailedAttempt(
   try {
     if (runsMigrationBatches(pinned)) {
       // Its control tables were made before the request (plan D7).
-      await appendLedger(pinned, command, DEFAULT_CONTROL_BASE, event);
+      await appendLedger(pinned, command, event);
       return;
     }
     await pinned.withTransaction(async (transaction) => {
-      await ensureControlTables(transaction, command, DEFAULT_CONTROL_BASE);
-      await appendLedger(transaction, command, DEFAULT_CONTROL_BASE, event);
+      await ensureControlTables(transaction, command);
+      await appendLedger(transaction, command, event);
     });
   } catch {
     // Best effort: the caller is owed the failure itself, not this one.
@@ -742,56 +718,30 @@ function describeFailure(failure: unknown): string {
   return failure instanceof Error ? failure.name : "a non-error value";
 }
 
-interface PreparedForwardEdge {
-  readonly from: Sha256 | null;
-  readonly to: Sha256;
-  readonly transition: ReturnType<typeof parentTransition>;
-  readonly state: MigrationStateManifestV1;
-  readonly blob: Uint8Array;
+interface PreparedForwardEdge extends RouteEdge {
   readonly boundary: "transactional" | "stepwise";
 }
 
 /** One edge's attempt: the edge, and the builder of its ledger events. */
-interface ForwardAttempt {
+interface ForwardAttempt extends AttemptEvents {
   readonly item: PreparedForwardEdge;
-  event(
-    kind: LedgerEventV1["kind"],
-    effectState: LedgerEventV1["effectState"],
-    step?: {
-      readonly operationId: string | null;
-      readonly dispatchId: string | null;
-    },
-    failure?: string
-  ): LedgerEventV1;
 }
 
 function forwardAttempt(
   graph: MigrationGraph,
   item: PreparedForwardEdge
 ): ForwardAttempt {
-  const seed = {
-    estateHash: graph.estateHash,
-    snapshotHash: item.state.snapshotHash,
-    sqlHash: item.state.sqlHash,
-    fromState: item.from,
-    toState: item.to,
-    transitionHash: item.transition.transitionHash,
-    direction: "forward" as const,
-  };
-  const attemptId = attemptIdFor(seed);
   return {
     item,
-    event: (kind, effectState, step, failure) =>
-      ledgerEvent({
-        ...seed,
-        attemptId,
-        kind,
-        effectState,
-        operationId: step?.operationId ?? null,
-        dispatchId: step?.dispatchId ?? null,
-        failure,
-        open: kind === "started",
-      }),
+    ...attemptEvents({
+      estateHash: graph.estateHash,
+      snapshotHash: item.state.snapshotHash,
+      sqlHash: item.state.sqlHash,
+      fromState: item.from,
+      toState: item.to,
+      transitionHash: item.transition.transitionHash,
+      direction: "forward",
+    }),
   };
 }
 
@@ -800,13 +750,7 @@ function previewStatements(
   origin: Sha256 | null,
   path: readonly Sha256[]
 ): string[] {
-  const statements: string[] = [];
-  let from = origin;
-  for (const to of path) {
-    const transition = parentTransition(graph, from, to);
-    const blob = graph.sql.get(graph.states.get(to)!.sqlHash)!;
-    statements.push(...stepStatements(blob, transition.operations));
-    from = to;
-  }
-  return statements;
+  return routeEdges(graph, origin, path).flatMap(({ blob, transition }) =>
+    stepStatements(blob, transition.operations)
+  );
 }

@@ -100,7 +100,7 @@ describeIfDocker("PostgreSQL estate containment (docker)", () => {
       // A pool hands out a different connection per statement, so a control
       // table reached through an ambient `search_path` is a coin flip. Every
       // statement below names the schema.
-      const sql = createControlTableSQL(migrationDriver, "_viborm_migration");
+      const sql = createControlTableSQL(migrationDriver);
       await client.$driver._executeRaw(sql.state);
       await client.$driver._executeRaw(sql.log);
 

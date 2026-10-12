@@ -1,6 +1,4 @@
 import { VibORM } from "@client/client";
-// biome-ignore lint/performance/noNamespaceImport: this contract audits the intentional runtime barrels
-import * as drivers from "@drivers";
 import { createClient as createBunSQLClient } from "@drivers/bun-sql";
 import {
   BunSQLiteDriver,
@@ -146,37 +144,6 @@ describe("driver runtime export surface", () => {
       Reflect.apply(create, undefined, [{ schema: {}, notAKey: true }]);
     expect(attempt).toThrow(ClientInitializationError);
     expect(attempt).toThrow(`viborm/${name} does not accept "notAKey"`);
-  });
-
-  test("the aggregate driver barrel exposes every shipped runtime driver", () => {
-    expect(Object.keys(drivers).sort()).toEqual([
-      "BunSQLDriver",
-      "BunSQLiteDriver",
-      "CheckConstraintError",
-      "ConnectionError",
-      "D1Driver",
-      "Driver",
-      "DriverError",
-      "FeatureNotSupportedError",
-      "ForeignKeyError",
-      "LibSQLDriver",
-      "MySQL2Driver",
-      "NeonHTTPDriver",
-      "NotNullConstraintError",
-      "PGliteDriver",
-      "PgDriver",
-      "PlanetScaleDriver",
-      "PostgresDriver",
-      "QueryError",
-      "SQLite3Driver",
-      "TransactionBoundDriver",
-      "TransactionError",
-      "UniqueConstraintError",
-      "isRetryableError",
-      "isUniqueConstraintError",
-      "unsupportedVector",
-    ]);
-    expect(drivers.Driver).toBe(Driver);
   });
 
   test.each(

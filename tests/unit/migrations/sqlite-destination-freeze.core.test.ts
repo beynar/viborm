@@ -232,9 +232,6 @@ describe("SQLite ignores the DDL destination", () => {
     }
 
     it(`${name} keeps its control and inventory statements destination-free`, () => {
-      expect(driver.generateClearMigrations("_viborm_migration_state")).toBe(
-        'DELETE FROM "_viborm_migration_state"'
-      );
       expect(driver.generateDropTableSQL("users")).toBe(
         'DROP TABLE IF EXISTS "users"'
       );

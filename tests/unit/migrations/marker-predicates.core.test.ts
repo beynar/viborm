@@ -17,8 +17,8 @@ import {
 } from "@migrations/push-fingerprint";
 import { serializeModels } from "@migrations/serializer";
 import {
+  CONTROL_TABLES,
   casMarker,
-  DEFAULT_CONTROL_BASE,
   ensureControlTables,
   markerFromPath,
   readControlState,
@@ -39,28 +39,26 @@ const RECORD = {
 async function markerRowWith(predicates: unknown) {
   const driver = createInMemorySQLite3Driver();
   const command = getMigrationDriver(driver);
-  await ensureControlTables(driver, command, DEFAULT_CONTROL_BASE);
+  await ensureControlTables(driver, command);
   const marker = markerFromPath(
     "e".repeat(64),
     hashSnapshot(emptyManagedSnapshot()),
     [],
     1
   );
-  await casMarker(driver, command, DEFAULT_CONTROL_BASE, null, marker, [
-    RECORD,
-  ]);
+  await casMarker(driver, command, null, marker, [RECORD]);
   if (predicates !== undefined) {
     const { rows } = await driver._executeRaw<{ payload: string }>(
-      `SELECT payload FROM "${DEFAULT_CONTROL_BASE}_state"`
+      `SELECT payload FROM "${CONTROL_TABLES.state}"`
     );
     await driver._executeRaw(
-      `UPDATE "${DEFAULT_CONTROL_BASE}_state" SET payload = ?`,
+      `UPDATE "${CONTROL_TABLES.state}" SET payload = ?`,
       [JSON.stringify({ ...JSON.parse(rows[0]!.payload), predicates })]
     );
   }
   return {
     marker,
-    read: () => readControlState(driver, command, DEFAULT_CONTROL_BASE),
+    read: () => readControlState(driver, command),
   };
 }
 

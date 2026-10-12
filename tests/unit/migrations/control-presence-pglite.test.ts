@@ -11,7 +11,6 @@
 import type { AnyDriver } from "@drivers/driver";
 import { VibORMErrorCode } from "@src/errors";
 import {
-  DEFAULT_CONTROL_BASE,
   ensureControlTables,
   inspectControlPresence,
   readControlState,
@@ -42,16 +41,16 @@ describe("PostgreSQL control presence", () => {
     const driver = createInMemoryPGliteDriver();
     const command = getMigrationDriver(driver);
     try {
-      await ensureControlTables(driver, command, DEFAULT_CONTROL_BASE);
+      await ensureControlTables(driver, command);
       const sent = await statementsOf(driver, (producer) =>
-        readControlState(producer, command, DEFAULT_CONTROL_BASE, {
+        readControlState(producer, command, {
           ledger: "open",
         })
       );
       expect(sent).toHaveLength(3);
       expect(
         await statementsOf(driver, (producer) =>
-          ensureControlTables(producer, command, DEFAULT_CONTROL_BASE)
+          ensureControlTables(producer, command)
         )
       ).toHaveLength(1);
     } finally {
@@ -66,12 +65,11 @@ describe("PostgreSQL control presence", () => {
       await driver._executeRaw(
         `CREATE VIEW "public"."_viborm_migration_state" AS SELECT 1 AS singleton, '{}'::text AS payload`
       );
-      expect(
-        await inspectControlPresence(driver, command, DEFAULT_CONTROL_BASE)
-      ).toEqual({ kind: "missing-table", table: "both" });
-      await expect(
-        ensureControlTables(driver, command, DEFAULT_CONTROL_BASE)
-      ).rejects.toMatchObject({
+      expect(await inspectControlPresence(driver, command)).toEqual({
+        kind: "missing-table",
+        table: "both",
+      });
+      await expect(ensureControlTables(driver, command)).rejects.toMatchObject({
         code: VibORMErrorCode.MIGRATION_INVALID_STATE,
         message: "Migration control tables have an unexpected definition",
       });
@@ -84,20 +82,20 @@ describe("PostgreSQL control presence", () => {
     const driver = createInMemoryPGliteDriver();
     const command = getMigrationDriver(driver);
     try {
-      await ensureControlTables(driver, command, DEFAULT_CONTROL_BASE);
+      await ensureControlTables(driver, command);
       await driver._executeRaw(`DROP TABLE "public"."_viborm_migration_log"`);
-      expect(
-        await inspectControlPresence(driver, command, DEFAULT_CONTROL_BASE)
-      ).toEqual({ kind: "recoverable-state-only" });
+      expect(await inspectControlPresence(driver, command)).toEqual({
+        kind: "recoverable-state-only",
+      });
       // Presence and its proofs once, then DROP, CREATE ×2 and the catalog.
       expect(
         await statementsOf(driver, (producer) =>
-          ensureControlTables(producer, command, DEFAULT_CONTROL_BASE)
+          ensureControlTables(producer, command)
         )
       ).toHaveLength(6);
-      expect(
-        (await readControlState(driver, command, DEFAULT_CONTROL_BASE)).presence
-      ).toEqual({ kind: "present" });
+      expect((await readControlState(driver, command)).presence).toEqual({
+        kind: "present",
+      });
     } finally {
       await driver._disconnect();
     }

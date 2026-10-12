@@ -9,7 +9,7 @@ import { cancel, confirm, isCancel, note, outro } from "@clack/prompts";
 import { Command } from "commander";
 import { createMigrationClient } from "../../migrations/client";
 import type { PushPreview } from "../../migrations/push-v1";
-import { finishCli, loadConfig } from "../utils";
+import { printJson, runCli } from "../utils";
 
 interface PushCliOptions {
   readonly config?: string;
@@ -18,10 +18,6 @@ interface PushCliOptions {
   readonly yes?: boolean;
   readonly acceptDataLoss?: boolean;
   readonly json?: boolean;
-}
-
-function printJson(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
 
 function printPlan(preview: PushPreview): void {
@@ -50,11 +46,7 @@ function printPlan(preview: PushPreview): void {
 }
 
 async function runPush(options: PushCliOptions): Promise<void> {
-  let orm: { $disconnect(): Promise<void> } | undefined;
-  let failure: { value: unknown } | undefined;
-  try {
-    const config = await loadConfig({ config: options.config });
-    orm = config.client;
+  await runCli({ config: options.config }, options.json, async (config) => {
     const migrations =
       config.migrations?.tables === undefined
         ? createMigrationClient(config.client)
@@ -91,7 +83,7 @@ async function runPush(options: PushCliOptions): Promise<void> {
     }
 
     if (options.dryRun) {
-      if (options.json) printJson(preview);
+      if (options.json) printJson(preview, true);
       else printPlan(preview);
       return;
     }
@@ -127,16 +119,12 @@ async function runPush(options: PushCliOptions): Promise<void> {
     }
 
     const result = await migrations.push({ consent: preview.consent });
-    if (options.json) printJson(result);
+    if (options.json) printJson(result, true);
     else
       outro(
         result.outcome === "noop" ? "Schema is up to date." : "Push applied."
       );
-  } catch (error) {
-    failure = { value: error };
-  } finally {
-    await finishCli(orm, failure, options.json);
-  }
+  });
 }
 
 export function createPushCommand(): Command {

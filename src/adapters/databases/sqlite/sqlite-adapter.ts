@@ -110,10 +110,10 @@ function sqliteIntegerPrecision(coefficient: string): number | undefined {
  *
  * 10^18 is not arbitrary, and it is not independent. `precision + scale <= 18`
  * is SQLite's declared field limit (plan 3.1), ENFORCED once when the schema is
- * bound (`client/decimal-provider-limits.ts`), so every mathematically in-range
- * result has `|x * y| <= 10^(p+s) <= 10^18`: the guard never rejects an answer
- * that fits the field, and int64 keeps a factor of nine in reserve for the
- * `+/- 1` step and the `d - |r|` tie test.
+ * bound (`schema/scalars/decimal/provider-limits.ts`), so every mathematically
+ * in-range result has `|x * y| <= 10^(p+s) <= 10^18`: the guard never rejects
+ * an answer that fits the field, and int64 keeps a factor of nine in reserve
+ * for the `+/- 1` step and the `d - |r|` tie test.
  *
  * THE COUPLING IS LOAD-BEARING, in both directions. This constant is flat where
  * the per-descriptor bound would be `B = scale === 0 ? M : M*F + F/2 - 1`, and
@@ -140,10 +140,10 @@ const SQLITE_INTERMEDIATE_LIMIT = sql.raw("1000000000000000000");
  * it INSIDE the range of a `precision >= 19` column, which is a silently
  * written wrong value rather than a failure. No such column exists: plan 3.1's
  * `precision <= 18 && precision + scale <= 18` is proven once at schema bind
- * (`client/decimal-provider-limits.ts`), before any I/O, so `min(p, 18)` is
- * `p` for every descriptor that ever reaches here. The clamp is what an
- * unreachable arm does when it is reached anyway, not a policy — and it is why
- * the bind limit is load-bearing rather than ergonomic.
+ * (`schema/scalars/decimal/provider-limits.ts`), before any I/O, so
+ * `min(p, 18)` is `p` for every descriptor that ever reaches here. The clamp is
+ * what an unreachable arm does when it is reached anyway, not a policy — and it
+ * is why the bind limit is load-bearing rather than ergonomic.
  */
 const overflowCoefficient = (descriptor: DecimalDescriptor): Sql =>
   sql.raw(`1${"0".repeat(Math.min(descriptor.precision, 18))}`);
@@ -162,19 +162,6 @@ const guardedCoefficientAssignment = (
   descriptor: DecimalDescriptor
 ): Sql =>
   sql`${column} = CASE WHEN ${column} IS NULL OR ${safe} THEN ${value} ELSE ${overflowCoefficient(descriptor)} END`;
-
-/**
- * The physical form a SQLite datetime column holds, from what the field
- * declared — the ONE reading of that declaration, shared by the value lowering
- * below and the result promise this adapter publishes.
- *
- * SQLite has no temporal type, so `s.dateTime(SQLITE.DATETIME.…)` is a real
- * storage choice the DDL already honors: INTEGER holds epoch milliseconds and
- * REAL holds a Julian day, which are the two spellings SQLite's own date
- * functions read. Anything else — a declaration for another dialect, an
- * explicit TEXT, no declaration at all — is the timestamp text this adapter has
- * always stored.
- */
 
 const JSON_ARRAY_INDEX_SEGMENT = /^\d+$/;
 const JSON_UNADDRESSABLE_LABEL = /["\\]/;
@@ -200,23 +187,18 @@ const jsonPathLeg = (segment: string): string => {
 const jsonExtract = (column: Sql, path: string[]): Sql => {
   let expr = sql`${column} -> '$'`;
   for (const segment of path) {
-    const leg = jsonPathLeg(segment);
-    expr = sql`${expr} -> ${leg}`;
+    expr = sql`${expr} -> ${jsonPathLeg(segment)}`;
   }
   return expr;
 };
 
 /** Same chain, but the final leg uses `->>` so strings come back unquoted. */
 const jsonExtractText = (column: Sql, path: string[]): Sql => {
-  const legs: string[] = [];
-  for (const segment of path) {
-    const leg = jsonPathLeg(segment);
-    legs.push(leg);
-  }
-  const last = legs.pop();
-  if (last === undefined) {
+  if (path.length === 0) {
     return sql`${column} ->> '$'`;
   }
+  const legs = path.map(jsonPathLeg);
+  const last = legs.pop()!;
   let expr: Sql = column;
   for (const leg of legs) {
     expr = sql`${expr} -> ${leg}`;
@@ -233,22 +215,6 @@ const jsonExtractText = (column: Sql, path: string[]): Sql => {
 const jsonArrayConcat = (left: Sql, right: Sql): Sql =>
   sql`(CASE WHEN ${left} = '[]' THEN ${right} WHEN ${right} = '[]' THEN ${left} ELSE substr(${left}, 1, length(${left}) - 1) || ',' || substr(${right}, 2) END)`;
 
-/**
- * SQLite Database Adapter
- *
- * Implements the DatabaseAdapter interface for SQLite-specific SQL generation.
- *
- * Key SQLite features:
- * - Double-quote identifier escaping: "table"."column"
- * - No native ARRAY type - uses JSON for arrays
- * - Portable text predicates do not depend on SQLite's LIKE behavior
- * - json_object(), json_group_array() for JSON operations (SQLite 3.38+)
- * - RETURNING clause supported (SQLite 3.35+)
- * - No NULLS FIRST/LAST ordering
- * - ON CONFLICT DO UPDATE/NOTHING (same as PostgreSQL)
- * - || for string concatenation
- * - Boolean stored as 0/1 integers
- */
 /** The one JSON list container every SQLite list value crosses as. */
 const sqliteJsonListValue = (values: unknown[]): Sql =>
   sql`${stringifyJson(values)}`;
@@ -395,10 +361,8 @@ const SQLITE_LITERALS = {
 };
 
 const SQLITE_OPERATORS = {
-  // Comparison
   ...createComparisonOperators(),
 
-  // Pattern matching
   // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder
   like: (column: Sql, pattern: Sql): Sql =>
     sql`${column} LIKE ${pattern} ESCAPE '\\'`,
@@ -443,19 +407,15 @@ const SQLITE_OPERATORS = {
   exactTextIn: (column: Sql, values: Sql): Sql =>
     sql`${column} COLLATE BINARY IN ${values}`,
 
-  // Set membership
   ...createMembershipOperators(),
 
-  // Null checks
   ...createNullOperators(),
 
-  // Range
   ...createRangeOperators(),
 
   // Logical (vacuous cases use SQLite's 1/0 booleans)
   ...createLogicalOperators(SQLITE_LITERALS.true, SQLITE_LITERALS.false),
 
-  // Subquery existence
   ...createExistenceOperators(),
 };
 
@@ -466,7 +426,6 @@ const SQLITE_EXPRESSIONS = {
   asciiCaseFold: (expr: Sql): Sql => sql`lower(${expr})`,
   caseSensitiveText: (expr: Sql): Sql => sql`${expr} COLLATE BINARY`,
 
-  // String concatenation via ||
   concat: (...parts: Sql[]): Sql => {
     if (parts.length === 0) return sql.raw("''");
     if (parts.length === 1) return parts[0]!;
@@ -563,6 +522,12 @@ function sqliteJsonEquals(left: Sql, right: Sql): Sql {
   return sql`(CASE WHEN ${left} IS NULL OR ${right} IS NULL THEN NULL ELSE NOT EXISTS (${nodes(left)} EXCEPT ${nodes(right)}) AND NOT EXISTS (${nodes(right)} EXCEPT ${nodes(left)}) END)`;
 }
 
+const sqliteJsonObject = (pairs: [string, Sql][]): Sql => {
+  if (pairs.length === 0) return sql.raw("json_object()");
+  const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
+  return sql`json_object(${sql.join(args, ", ")})`;
+};
+
 const SQLITE_JSON = {
   equals: sqliteJsonEquals,
   number: (expression: Sql): Sql =>
@@ -574,11 +539,7 @@ const SQLITE_JSON = {
   // quoted JSON string inside the outer document.
   document: (expression: Sql): Sql => sql`json(${expression})`,
 
-  object: (pairs: [string, Sql][]): Sql => {
-    if (pairs.length === 0) return sql.raw("json_object()");
-    const args = pairs.flatMap(([key, value]) => [sql`${key}`, value]);
-    return sql`json_object(${sql.join(args, ", ")})`;
-  },
+  object: sqliteJsonObject,
 
   array: (items: Sql[]): Sql => {
     if (items.length === 0) return sql.raw("json_array()");
@@ -592,11 +553,7 @@ const SQLITE_JSON = {
   agg: (expr: Sql): Sql =>
     sql`COALESCE(json_group_array(json(${expr})), json_array())`,
 
-  objectFromColumns: (columns: [string, Sql][]): Sql => {
-    if (columns.length === 0) return sql.raw("json_object()");
-    const args = columns.flatMap(([key, value]) => [sql`${key}`, value]);
-    return sql`json_object(${sql.join(args, ", ")})`;
-  },
+  objectFromColumns: sqliteJsonObject,
 
   // `->` returns the value as canonical JSON text ('"str"', '2', 'null'),
   // the same format json.value binds, so extracted values compare with
@@ -888,57 +845,22 @@ export class SQLiteAdapter implements DatabaseAdapter {
     });
   }
 
-  // ============================================================
-  // RAW
-  // ============================================================
-
   raw = SQLITE_RAW;
-
-  // ============================================================
-  // IDENTIFIERS
-  // ============================================================
 
   identifiers = { ...SQLITE_IDENTIFIERS };
 
-  // ============================================================
-  // LITERALS
-  // ============================================================
-
   literals = { ...SQLITE_LITERALS };
-
-  // ============================================================
-  // OPERATORS
-  // ============================================================
 
   operators = { ...SQLITE_OPERATORS };
 
-  // ============================================================
-  // EXPRESSIONS
-  // ============================================================
-
   expressions = { ...SQLITE_EXPRESSIONS };
-
-  // ============================================================
-  // AGGREGATES
-  // ============================================================
 
   aggregates = { ...SQLITE_AGGREGATES };
 
-  // ============================================================
-  // JSON (SQLite 3.38+ JSON functions)
-  // ============================================================
-
+  // SQLite 3.38+ JSON functions
   json = { ...SQLITE_JSON };
 
-  // ============================================================
-  // ARRAYS (JSON-based for SQLite)
-  // ============================================================
-
   arrays = { ...SQLITE_ARRAYS };
-
-  // ============================================================
-  // ORDER BY
-  // ============================================================
 
   // SQLite parses NULLS FIRST/LAST natively since 3.30 (2019-10-04), which is
   // below this adapter's documented 3.35+ floor. The `(col IS NULL)` emulation
@@ -950,33 +872,13 @@ export class SQLiteAdapter implements DatabaseAdapter {
   // any version.
   orderBy = { ...SQLITE_ORDER_BY };
 
-  // ============================================================
-  // CLAUSES
-  // ============================================================
-
   clauses = { ...SQLITE_CLAUSES };
-
-  // ============================================================
-  // SET (UPDATE operations)
-  // ============================================================
 
   set = { ...SQLITE_SET };
 
-  // ============================================================
-  // FILTERS (Relation subquery wrappers)
-  // ============================================================
-
   filters = { ...SQLITE_FILTERS };
 
-  // ============================================================
-  // SUBQUERIES
-  // ============================================================
-
   subqueries = { ...SQLITE_SUBQUERIES };
-
-  // ============================================================
-  // ASSEMBLE (Build complete SQL statements)
-  // ============================================================
 
   // SQLite has no bare OFFSET; LIMIT -1 means "no limit"
   noLimitValue = sql.raw("-1");
@@ -1003,35 +905,15 @@ export class SQLiteAdapter implements DatabaseAdapter {
     },
   };
 
-  // ============================================================
-  // CTE (Common Table Expressions)
-  // ============================================================
-
   cte = { ...SQLITE_CTE };
-
-  // ============================================================
-  // MUTATIONS
-  // ============================================================
 
   mutations = { ...SQLITE_MUTATIONS };
 
   assertions = { ...SQLITE_ASSERTIONS };
 
-  // ============================================================
-  // JOINS
-  // ============================================================
-
   joins = { ...SQLITE_JOINS };
 
-  // ============================================================
-  // SET OPERATIONS
-  // ============================================================
-
   setOperations = { ...SQLITE_SET_OPERATIONS };
-
-  // ============================================================
-  // CAPABILITIES
-  // ============================================================
 
   capabilities = { ...SQLITE_CAPABILITIES };
 
@@ -1062,15 +944,7 @@ export class SQLiteAdapter implements DatabaseAdapter {
     });
   }
 
-  // ============================================================
-  // VECTOR (not natively supported in SQLite)
-  // ============================================================
-
   vector = unsupportedVector;
-
-  // ============================================================
-  // GEOPOINT (canonical JSON text transport)
-  // ============================================================
 
   readonly geoPoint: GeoPointSql = (() => {
     const longitude = (point: Sql): Sql =>
@@ -1089,11 +963,6 @@ export class SQLiteAdapter implements DatabaseAdapter {
       ),
     };
   })();
-
-  // RESULT PARSING
-  // SQLite-specific parsing is handled by the driver (SQLite3Driver.result)
-  // Adapter just passes through to default parsing
-  // ============================================================
 
   result: AdapterResultParser = { ...SQLITE_RESULT };
 }

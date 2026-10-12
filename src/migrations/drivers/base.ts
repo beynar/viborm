@@ -149,6 +149,13 @@ export type DropEnumOperation = Extract<DiffOperation, { type: "dropEnum" }>;
 export type AlterEnumOperation = Extract<DiffOperation, { type: "alterEnum" }>;
 
 /**
+ * What a dialect states one operation compiles to: one statement, or the
+ * ordered statements it needs. {@link MigrationDriver.compileStatements}
+ * filters blanks once for every operation.
+ */
+type GeneratedStatements = string | readonly string[];
+
+/**
  * Abstract base class for migration drivers.
  *
  * Each database (PostgreSQL, SQLite, LibSQL, etc.) extends this class
@@ -571,15 +578,15 @@ export abstract class MigrationDriver {
   abstract generateCreateTable(
     op: CreateTableOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropTable(
     op: DropTableOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateRenameTable(
     op: RenameTableOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Column Operations
@@ -588,19 +595,19 @@ export abstract class MigrationDriver {
   abstract generateAddColumn(
     op: AddColumnOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropColumn(
     op: DropColumnOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateRenameColumn(
     op: RenameColumnOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateAlterColumn(
     op: AlterColumnOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Index Operations
@@ -609,11 +616,11 @@ export abstract class MigrationDriver {
   abstract generateCreateIndex(
     op: CreateIndexOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropIndex(
     op: DropIndexOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Foreign Key Operations
@@ -622,11 +629,11 @@ export abstract class MigrationDriver {
   abstract generateAddForeignKey(
     op: AddForeignKeyOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropForeignKey(
     op: DropForeignKeyOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Unique Constraint Operations
@@ -635,11 +642,11 @@ export abstract class MigrationDriver {
   abstract generateAddUniqueConstraint(
     op: AddUniqueConstraintOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropUniqueConstraint(
     op: DropUniqueConstraintOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Primary Key Operations
@@ -648,11 +655,11 @@ export abstract class MigrationDriver {
   abstract generateAddPrimaryKey(
     op: AddPrimaryKeyOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
   abstract generateDropPrimaryKey(
     op: DropPrimaryKeyOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL GENERATION - Enum Operations
@@ -661,12 +668,15 @@ export abstract class MigrationDriver {
   abstract generateCreateEnum(
     op: CreateEnumOperation,
     context: DDLContext
-  ): string;
-  abstract generateDropEnum(op: DropEnumOperation, context: DDLContext): string;
+  ): GeneratedStatements;
+  abstract generateDropEnum(
+    op: DropEnumOperation,
+    context: DDLContext
+  ): GeneratedStatements;
   abstract generateAlterEnum(
     op: AlterEnumOperation,
     context: DDLContext
-  ): string;
+  ): GeneratedStatements;
 
   // ===========================================================================
   // DDL COMPILATION
@@ -681,142 +691,6 @@ export abstract class MigrationDriver {
         statement !== undefined &&
         statement.trim().length > 0
     );
-  }
-
-  compileCreateTable(
-    op: CreateTableOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateCreateTable(op, context)]);
-  }
-
-  compileDropTable(
-    op: DropTableOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropTable(op, context)]);
-  }
-
-  compileRenameTable(
-    op: RenameTableOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([
-      this.generateRenameTable(op, context),
-      ...this.compileDerivedRenames(op, context),
-    ]);
-  }
-
-  compileAddColumn(
-    op: AddColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAddColumn(op, context)]);
-  }
-
-  compileDropColumn(
-    op: DropColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropColumn(op, context)]);
-  }
-
-  compileRenameColumn(
-    op: RenameColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([
-      this.generateRenameColumn(op, context),
-      ...this.compileDerivedRenames(op, context),
-    ]);
-  }
-
-  compileAlterColumn(
-    op: AlterColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAlterColumn(op, context)]);
-  }
-
-  compileCreateIndex(
-    op: CreateIndexOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateCreateIndex(op, context)]);
-  }
-
-  compileDropIndex(
-    op: DropIndexOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropIndex(op, context)]);
-  }
-
-  compileAddForeignKey(
-    op: AddForeignKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAddForeignKey(op, context)]);
-  }
-
-  compileDropForeignKey(
-    op: DropForeignKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropForeignKey(op, context)]);
-  }
-
-  compileAddUniqueConstraint(
-    op: AddUniqueConstraintOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([
-      this.generateAddUniqueConstraint(op, context),
-    ]);
-  }
-
-  compileDropUniqueConstraint(
-    op: DropUniqueConstraintOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([
-      this.generateDropUniqueConstraint(op, context),
-    ]);
-  }
-
-  compileAddPrimaryKey(
-    op: AddPrimaryKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAddPrimaryKey(op, context)]);
-  }
-
-  compileDropPrimaryKey(
-    op: DropPrimaryKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropPrimaryKey(op, context)]);
-  }
-
-  compileCreateEnum(
-    op: CreateEnumOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateCreateEnum(op, context)]);
-  }
-
-  compileDropEnum(
-    op: DropEnumOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateDropEnum(op, context)]);
-  }
-
-  compileAlterEnum(
-    op: AlterEnumOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([this.generateAlterEnum(op, context)]);
   }
 
   /**
@@ -845,35 +719,60 @@ export abstract class MigrationDriver {
   /**
    * Builds the UPDATE statements that migrate rows off removed enum values,
    * honoring per-column mappings. Dialects run these before the type change
-   * (Postgres: while columns are text; MySQL: before MODIFY COLUMN; SQLite:
-   * before table recreation).
+   * (Postgres: while columns are text; MySQL: before MODIFY COLUMN).
    */
-  protected buildEnumReplacementUpdates(op: AlterEnumOperation): string[] {
-    const { removeValues, dependentColumns } = op;
-    if (!(removeValues?.length && dependentColumns?.length)) {
-      return [];
-    }
+  protected buildEnumReplacementUpdates(
+    op: AlterEnumOperation,
+    context: DDLContext
+  ): string[] {
+    return (op.dependentColumns ?? []).flatMap(({ tableName, columnName }) =>
+      this.enumColumnReplacementUpdates(op, tableName, columnName, context)
+    );
+  }
 
-    const statements: string[] = [];
-    for (const { tableName, columnName } of dependentColumns) {
-      for (const removedValue of removeValues) {
-        const replacement = this.getEnumValueReplacement(
-          op,
-          tableName,
-          columnName,
-          removedValue
-        );
-        if (replacement === undefined) {
-          continue;
-        }
-        const newValue =
-          replacement === null ? "NULL" : this.escapeValue(replacement);
-        statements.push(
-          `UPDATE ${this.escapeIdentifier(tableName)} SET ${this.escapeIdentifier(columnName)} = ${newValue} WHERE ${this.escapeIdentifier(columnName)} = ${this.escapeValue(removedValue)}`
-        );
-      }
-    }
-    return statements;
+  /** One dependent column's UPDATEs, one per removed value it replaces. */
+  protected enumColumnReplacementUpdates(
+    op: AlterEnumOperation,
+    tableName: string,
+    columnName: string,
+    context: DDLContext
+  ): string[] {
+    const table = this.tableRef(tableName, context.destination);
+    const column = this.escapeIdentifier(columnName);
+    return (op.removeValues ?? []).flatMap((removedValue) => {
+      const replacement = this.getEnumValueReplacement(
+        op,
+        tableName,
+        columnName,
+        removedValue
+      );
+      return replacement === undefined
+        ? []
+        : [
+            `UPDATE ${table} SET ${column} = ${this.escapeValue(replacement)} WHERE ${column} = ${this.escapeValue(removedValue)}`,
+          ];
+    });
+  }
+
+  /** The `WHEN removed THEN replacement` arms of a column's value mapping. */
+  protected enumReplacementCases(
+    op: AlterEnumOperation,
+    tableName: string,
+    columnName: string
+  ): string[] {
+    return (op.removeValues ?? []).flatMap((value) => {
+      const replacement = this.getEnumValueReplacement(
+        op,
+        tableName,
+        columnName,
+        value
+      );
+      return replacement === undefined
+        ? []
+        : [
+            `WHEN ${this.escapeValue(value)} THEN ${this.escapeValue(replacement)}`,
+          ];
+    });
   }
 
   // ===========================================================================
@@ -892,6 +791,17 @@ export abstract class MigrationDriver {
       );
     }
     return `"${String(name).replace(/"/g, '""')}"`;
+  }
+
+  /**
+   * A table position. Default: one identifier. PostgreSQL qualifies it with
+   * the estate schema; MySQL names the database in a live statement.
+   */
+  protected tableRef(
+    tableName: string,
+    _destination: DDLContext["destination"]
+  ): string {
+    return this.escapeIdentifier(tableName);
   }
 
   /**
@@ -1192,17 +1102,6 @@ export abstract class MigrationDriver {
     return Promise.resolve();
   }
 
-  /**
-   * Clears every row in a preserved control table during live reset.
-   *
-   * @param tableName - The control table name
-   * @returns SQL DELETE statement
-   */
-  generateClearMigrations(tableName: string): string {
-    const table = this.escapeIdentifier(tableName);
-    return `DELETE FROM ${table}`;
-  }
-
   // ===========================================================================
   // MIGRATION LOCKING
   // ===========================================================================
@@ -1337,7 +1236,7 @@ export abstract class MigrationDriver {
    * @returns SQL DROP TABLE statement
    */
   generateDropTableSQL(tableName: string): string {
-    return `DROP TABLE IF EXISTS ${this.escapeIdentifier(tableName)}`;
+    return `DROP TABLE IF EXISTS ${this.tableRef(tableName, "live")}`;
   }
 
   /**
@@ -1362,21 +1261,34 @@ export abstract class MigrationDriver {
     operation: DiffOperation,
     context: DDLContext
   ): readonly string[] {
+    const generated = this.generateOperation(operation, context);
+    const statements = typeof generated === "string" ? [generated] : generated;
+    return this.filterStatements(
+      operation.type === "renameTable" || operation.type === "renameColumn"
+        ? [...statements, ...this.compileDerivedRenames(operation, context)]
+        : statements
+    );
+  }
+
+  private generateOperation(
+    operation: DiffOperation,
+    context: DDLContext
+  ): GeneratedStatements {
     switch (operation.type) {
       case "createTable":
-        return this.compileCreateTable(operation, context);
+        return this.generateCreateTable(operation, context);
       case "dropTable":
-        return this.compileDropTable(operation, context);
+        return this.generateDropTable(operation, context);
       case "renameTable":
-        return this.compileRenameTable(operation, context);
+        return this.generateRenameTable(operation, context);
       case "addColumn":
-        return this.compileAddColumn(operation, context);
+        return this.generateAddColumn(operation, context);
       case "dropColumn":
-        return this.compileDropColumn(operation, context);
+        return this.generateDropColumn(operation, context);
       case "renameColumn":
-        return this.compileRenameColumn(operation, context);
+        return this.generateRenameColumn(operation, context);
       case "alterColumn":
-        // Asked HERE rather than in each driver's `compileAlterColumn`: the
+        // Asked HERE rather than in each driver's `generateAlterColumn`: the
         // question is one — "can this dialect re-read the stored bytes as the
         // new type?" — and three copies of it would drift the way the three
         // conversion routes already did (PostgreSQL cast, SQLite rebuild,
@@ -1388,29 +1300,29 @@ export abstract class MigrationDriver {
           operation.to.type,
           this.dialect
         );
-        return this.compileAlterColumn(operation, context);
+        return this.generateAlterColumn(operation, context);
       case "createIndex":
-        return this.compileCreateIndex(operation, context);
+        return this.generateCreateIndex(operation, context);
       case "dropIndex":
-        return this.compileDropIndex(operation, context);
+        return this.generateDropIndex(operation, context);
       case "addForeignKey":
-        return this.compileAddForeignKey(operation, context);
+        return this.generateAddForeignKey(operation, context);
       case "dropForeignKey":
-        return this.compileDropForeignKey(operation, context);
+        return this.generateDropForeignKey(operation, context);
       case "addUniqueConstraint":
-        return this.compileAddUniqueConstraint(operation, context);
+        return this.generateAddUniqueConstraint(operation, context);
       case "dropUniqueConstraint":
-        return this.compileDropUniqueConstraint(operation, context);
+        return this.generateDropUniqueConstraint(operation, context);
       case "addPrimaryKey":
-        return this.compileAddPrimaryKey(operation, context);
+        return this.generateAddPrimaryKey(operation, context);
       case "dropPrimaryKey":
-        return this.compileDropPrimaryKey(operation, context);
+        return this.generateDropPrimaryKey(operation, context);
       case "createEnum":
-        return this.compileCreateEnum(operation, context);
+        return this.generateCreateEnum(operation, context);
       case "dropEnum":
-        return this.compileDropEnum(operation, context);
+        return this.generateDropEnum(operation, context);
       case "alterEnum":
-        return this.compileAlterEnum(operation, context);
+        return this.generateAlterEnum(operation, context);
       default:
         throw new MigrationError(
           `Unknown operation type: ${(operation as any).type}`,

@@ -10,7 +10,7 @@ import { s } from "@schema";
 import { sql } from "@sql";
 import { VibORMErrorCode } from "@src/errors";
 import { createMigrationClient } from "@src/migrations/client";
-import { appendLedger, DEFAULT_CONTROL_BASE } from "@src/migrations/control";
+import { appendLedger } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
 import { eventIdFor } from "@src/migrations/v1-parse";
@@ -256,12 +256,10 @@ describe("reanchor after a restore", () => {
       attemptId: a,
       finishedAt: null,
     };
-    await appendLedger(
-      driver,
-      getMigrationDriver(driver),
-      DEFAULT_CONTROL_BASE,
-      { ...body, eventId: eventIdFor(body) }
-    );
+    await appendLedger(driver, getMigrationDriver(driver), {
+      ...body,
+      eventId: eventIdFor(body),
+    });
     await expect(migrations.reanchor()).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("unfinished"),

@@ -32,7 +32,7 @@ import {
   VibORMErrorCode,
   type VibORMErrorMeta,
 } from "@errors";
-import type { Operation } from "@query-engine/types";
+import { OPERATIONS, type Operation } from "@query-engine/types";
 import {
   isArrayValue,
   isError,
@@ -98,7 +98,7 @@ const EXECUTION_META_KEYS = [
 const MYSQL_SQLSTATE_IN_MESSAGE_PATTERN = /\(sqlstate ([^)]+)\)/i;
 const MYSQL_KEY_IN_MESSAGE_PATTERN = /for key '([^']+)'/;
 
-function readProperty(value: object, key: string): unknown {
+export function readProperty(value: object, key: string): unknown {
   try {
     return Reflect.get(value, key);
   } catch {
@@ -311,25 +311,7 @@ function snapshotValidationIssues(value: unknown[]): Array<{
 function isOperation(value: unknown): value is Operation {
   return (
     typeof value === "string" &&
-    [
-      "aggregate",
-      "count",
-      "create",
-      "createMany",
-      "createManyAndReturn",
-      "delete",
-      "deleteMany",
-      "deleteManyAndReturn",
-      "exist",
-      "findFirst",
-      "findMany",
-      "findUnique",
-      "groupBy",
-      "update",
-      "updateMany",
-      "updateManyAndReturn",
-      "upsert",
-    ].includes(value)
+    (OPERATIONS as readonly string[]).includes(value)
   );
 }
 

@@ -6,7 +6,6 @@ import {
 } from "@src/migrations/canonical-json";
 import {
   assertControlTablesAuthentic,
-  DEFAULT_CONTROL_BASE,
   inspectControlPresence,
   markerFromPath,
   readControlState,
@@ -413,7 +412,7 @@ describe("migration control command boundaries", () => {
     });
 
     await expect(
-      readControlState(driver, getMigrationDriver(driver), DEFAULT_CONTROL_BASE)
+      readControlState(driver, getMigrationDriver(driver))
     ).resolves.toMatchObject({ marker, ledger: [event] });
   });
 
@@ -423,11 +422,7 @@ describe("migration control command boundaries", () => {
       statement.includes("EXISTS") ? [{ exists: 0 }, { exists: 0 }] : [];
 
     await expect(
-      inspectControlPresence(
-        driver,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      inspectControlPresence(driver, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("exactly one row"),
@@ -455,7 +450,7 @@ describe("migration control command boundaries", () => {
     };
 
     await expect(
-      assertControlTablesAuthentic(driver, command, DEFAULT_CONTROL_BASE)
+      assertControlTablesAuthentic(driver, command)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
     });
@@ -476,7 +471,7 @@ describe("migration control command boundaries", () => {
     };
 
     await expect(
-      assertControlTablesAuthentic(driver, command, DEFAULT_CONTROL_BASE)
+      assertControlTablesAuthentic(driver, command)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
     });
@@ -494,7 +489,7 @@ describe("coverage low value", () => {
     });
 
     await expect(
-      assertControlTablesAuthentic(driver, command, DEFAULT_CONTROL_BASE)
+      assertControlTablesAuthentic(driver, command)
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       originalCause: expect.any(Error),

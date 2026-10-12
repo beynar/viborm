@@ -16,8 +16,7 @@ import {
 import {
   advanceMarker,
   appendLedger,
-  controlTableNames,
-  DEFAULT_CONTROL_BASE,
+  attemptEvents,
   ensureControlTables,
   ledgerEvent,
   markerFromPath,
@@ -34,9 +33,10 @@ import {
 import {
   loadMigrationGraph,
   type MigrationGraph,
-  parentTransition,
+  type RouteEdge,
   requireStateSnapshot,
   resolveStateSelector,
+  routeEdges,
   selectRoute,
 } from "./graph";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
@@ -68,7 +68,6 @@ import type {
   MigrationDispatchV1,
   MigrationMarkerV1,
   MigrationOperationV1,
-  MigrationStateManifestV1,
   ResetPlanV1,
   ResetV1Options,
 } from "./v1-types";
@@ -94,12 +93,7 @@ export async function resetV1(
   );
   if (dryRun) {
     const command = await resolveCommandDriver(client.$driver, driver);
-    const names = controlTableNames(DEFAULT_CONTROL_BASE);
-    const plan = await planLiveNamespaceReset(client.$driver, command, {
-      trackingTable: "preserve",
-      trackingTableName: names.state,
-      preserveTables: [names.log],
-    });
+    const plan = await planLiveNamespaceReset(client.$driver, command);
     await command.preflightSchemaRequirements(
       path.map((stateId) => requireStateSnapshot(graph, stateId)),
       (sql, params) => client.$driver._executeRaw(sql, params),
@@ -123,7 +117,6 @@ export async function resetV1(
     client.$driver,
     driver,
     async (pinned, command) => {
-      const names = controlTableNames(DEFAULT_CONTROL_BASE);
       const control = await readCommandControl(pinned, command, true);
       const { marker, ledger } = control;
       const needsBootstrap = control.presence.kind !== "present";
@@ -147,15 +140,13 @@ export async function resetV1(
       }
       const targetSnapshot = requireStateSnapshot(graph, target);
       const targetSnapshotHash = graph.states.get(target)!.snapshotHash;
-      const edges: MarkerPathEdgeV1[] = path.map((stateId, index) => ({
-        stateId,
-        transitionHash: parentTransition(
-          graph,
-          index === 0 ? null : path[index - 1]!,
-          stateId
-        ).transitionHash,
-        baselineBoundary: false,
-      }));
+      const edges: MarkerPathEdgeV1[] = routeEdges(graph, null, path).map(
+        ({ to, transition }) => ({
+          stateId: to,
+          transitionHash: transition.transitionHash,
+          baselineBoundary: false,
+        })
+      );
       const resetEvent = {
         estateHash: graph.estateHash,
         snapshotHash: targetSnapshotHash,
@@ -164,8 +155,6 @@ export async function resetV1(
         toState: target,
         transitionHash: null,
         direction: "reset",
-        operationId: null,
-        dispatchId: null,
       } as const;
       if (
         resetAttempt &&
@@ -187,14 +176,10 @@ export async function resetV1(
         await appendLedger(
           pinned,
           command,
-          DEFAULT_CONTROL_BASE,
-          ledgerEvent({
-            ...resetEvent,
-            attemptId: resetAttempt.attemptId,
-            kind: "reset-applied",
-            fromState: resetAttempt.fromState,
-            effectState: "committed",
-          })
+          attemptEvents(
+            { ...resetEvent, fromState: resetAttempt.fromState },
+            resetAttempt.attemptId
+          ).event("reset-applied", "committed")
         );
         return { preview: false, path };
       }
@@ -226,11 +211,7 @@ export async function resetV1(
         : false;
       const livePlan = hasReplayEvidence
         ? undefined
-        : await planLiveNamespaceReset(pinned, command, {
-            trackingTable: "preserve",
-            trackingTableName: names.state,
-            preserveTables: [names.log],
-          });
+        : await planLiveNamespaceReset(pinned, command);
       const clearDispatches = resetProgram(livePlan, []).map((sql) =>
         dispatchForClearSql(sql)
       );
@@ -286,15 +267,10 @@ export async function resetV1(
             appendLedger(
               producer,
               command,
-              DEFAULT_CONTROL_BASE,
-              ledgerEvent({
-                ...resetEvent,
-                attemptId: resetPlanHash,
-                kind: "reset-started",
-                effectState: "none",
-                resetPlan: plan,
-                open: true,
-              })
+              attemptEvents(
+                { ...resetEvent, resetPlan: plan },
+                resetPlanHash
+              ).event("reset-started", "none")
             );
       const finish = async (producer: Parameters<typeof appendLedger>[0]) => {
         await proveLive(
@@ -315,18 +291,15 @@ export async function resetV1(
         await appendLedger(
           producer,
           command,
-          DEFAULT_CONTROL_BASE,
-          ledgerEvent({
-            ...resetEvent,
-            attemptId: resetPlanHash,
-            kind: "reset-applied",
-            effectState: "committed",
-          })
+          attemptEvents(resetEvent, resetPlanHash).event(
+            "reset-applied",
+            "committed"
+          )
         );
       };
       // Committed before the program, whose first group re-reads the marker.
       if (needsBootstrap) {
-        await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
+        await ensureControlTables(pinned, command);
         await commitLockedTransaction(pinned, command);
       }
       await runProgram(pinned, command, undefined, (producer) =>
@@ -475,9 +448,7 @@ function resetProgram(
   replay: readonly Pick<PreparedResetReplayEdge, "blob" | "operations">[]
 ): string[] {
   return [
-    ...(livePlan?.dropForeignKeys ?? []),
-    ...(livePlan?.dropTables.map((table) => table.sql) ?? []),
-    ...(livePlan?.dropEnums ?? []),
+    ...(livePlan?.clear ?? []),
     ...replay.flatMap(({ blob, operations }) =>
       stepStatements(blob, operations)
     ),
@@ -572,7 +543,6 @@ async function confirmResetDispatch(
   await appendLedger(
     pinned,
     command,
-    DEFAULT_CONTROL_BASE,
     ledgerEvent({
       attemptId,
       kind: "reset-step-confirmed",
@@ -590,12 +560,7 @@ async function confirmResetDispatch(
   );
 }
 
-interface PreparedResetReplayEdge {
-  readonly from: Sha256 | null;
-  readonly to: Sha256;
-  readonly transition: ReturnType<typeof parentTransition>;
-  readonly state: MigrationStateManifestV1;
-  readonly blob: Uint8Array;
+interface PreparedResetReplayEdge extends RouteEdge {
   readonly boundary: "transactional" | "stepwise";
   readonly operations: readonly MigrationOperationV1[];
 }
@@ -606,30 +571,17 @@ function prepareResetReplay(
   graph: MigrationGraph,
   path: readonly Sha256[]
 ): readonly PreparedResetReplayEdge[] {
-  return path.map((to, index) => {
-    const from = index === 0 ? null : path[index - 1]!;
-    const transition = parentTransition(graph, from, to);
-    // The graph holds every state and blob its transitions name.
-    const state = graph.states.get(to)!;
-    const blob = graph.sql.get(state.sqlHash)!;
-    const requested = transition.requestedForwardBoundary;
+  return routeEdges(graph, null, path).map((edge) => {
+    const requested = edge.transition.requestedForwardBoundary;
     const boundary = classifyStoredAtomicity(
       command,
       requested,
-      transition.operations,
-      blob
+      edge.transition.operations,
+      edge.blob
     );
     assertTransactionalBoundaryHonored(supportsTransactions, requested);
-    refuseSqliteStepwise(command, requested, to);
-    return {
-      from,
-      to,
-      transition,
-      state,
-      blob,
-      boundary,
-      operations: transition.operations,
-    };
+    refuseSqliteStepwise(command, requested, edge.to);
+    return { ...edge, boundary, operations: edge.transition.operations };
   });
 }
 
@@ -923,6 +875,18 @@ async function executeResetReplayEdge(
   models: MigrationClient["$schema"]
 ): Promise<void> {
   const { from, to, transition, state, blob, boundary, operations } = edge;
+  const events = attemptEvents(
+    {
+      estateHash: graph.estateHash,
+      snapshotHash: state.snapshotHash,
+      sqlHash: state.sqlHash,
+      fromState: from,
+      toState: to,
+      transitionHash: transition.transitionHash,
+      direction: "reset",
+    },
+    attemptId
+  );
   await executeOperations(
     pinned,
     blob,
@@ -932,22 +896,7 @@ async function executeResetReplayEdge(
       appendLedger(
         pinned,
         command,
-        DEFAULT_CONTROL_BASE,
-        ledgerEvent({
-          attemptId,
-          kind: "reset-step-confirmed",
-          estateHash: graph.estateHash,
-          snapshotHash: state.snapshotHash,
-          sqlHash: state.sqlHash,
-          fromState: from,
-          toState: to,
-          transitionHash: transition.transitionHash,
-          direction: "reset",
-          operationId: progress.operationId,
-          dispatchId: progress.dispatchId,
-          effectState: effect,
-          failure,
-        })
+        events.event("reset-step-confirmed", effect, progress, failure)
       ),
     command.namespace
   );

@@ -12,6 +12,7 @@ import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
 import type { OfficialCacheControls } from "../cache/capability";
+import { errorCause } from "../errors/diagnostic-safety";
 import type { ResolvedExtensionChain } from "./chain";
 import type {
   DefinitionControls,
@@ -19,7 +20,7 @@ import type {
   NoControls,
   RowsModels,
 } from "./controls";
-import { extensionCause, extensionError } from "./definition";
+import { extensionError } from "./definition";
 
 type NoMethods = Record<never, never>;
 type ExtensionMethod = (this: void, ...args: never[]) => unknown;
@@ -393,7 +394,7 @@ function readMethodRecord(
   } catch (cause) {
     throw new ClientInitializationError(
       `Extension "${extension}" ${label} methods could not be inspected.`,
-      { cause: extensionCause(cause), meta: { extension } }
+      { cause: errorCause(cause), meta: { extension } }
     );
   }
   for (const name of names) {
@@ -409,7 +410,7 @@ function readMethodRecord(
     } catch (cause) {
       throw new ClientInitializationError(
         `Extension "${extension}" ${label} method "${name}" could not be read.`,
-        { cause: extensionCause(cause), meta: { extension } }
+        { cause: errorCause(cause), meta: { extension } }
       );
     }
     if (!isFunction(method)) {
@@ -434,7 +435,7 @@ function invokeFactory(
   } catch (cause) {
     throw new ClientInitializationError(
       `Extension "${extension}" ${label} factory failed.`,
-      { cause: extensionCause(cause), meta: { extension } }
+      { cause: errorCause(cause), meta: { extension } }
     );
   }
 }

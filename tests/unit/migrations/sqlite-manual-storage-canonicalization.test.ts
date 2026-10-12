@@ -16,7 +16,7 @@ import {
   createMigrationClient,
   type ManualMigrationInput,
 } from "@migrations";
-import { appendLedger, DEFAULT_CONTROL_BASE } from "@migrations/control";
+import { appendLedger } from "@migrations/control";
 import { loadMigrationGraph, parentTransition } from "@migrations/graph";
 import type { Sha256 } from "@migrations/identity";
 import { getPushMigrationDriver } from "@migrations/push/planner";
@@ -188,7 +188,7 @@ async function seedUnfinishedStepwiseAttempt(
       ? [event(attemptId, "step-confirmed", "committed")]
       : []),
   ]) {
-    await appendLedger(client.$driver, command, DEFAULT_CONTROL_BASE, {
+    await appendLedger(client.$driver, command, {
       ...seeded,
       eventId: eventIdFor(seeded),
     });

@@ -82,6 +82,9 @@ const quoteIdent = createIdentifierQuoter('"');
 function postgresLikeLiteral(value: Sql): Sql {
   return sql`REPLACE(REPLACE(REPLACE(${value}, CHR(92), CHR(92) || CHR(92)), '%', CHR(92) || '%'), '_', CHR(92) || '_')`;
 }
+function postgresAsciiCaseFold(expr: Sql): Sql {
+  return sql`TRANSLATE(${expr}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`;
+}
 function postgresJsonObject(pairs: [string, Sql][]): Sql {
   if (pairs.length === 0) return sql.raw`'{}'::json`;
   const chunks: Sql[] = [];
@@ -179,28 +182,10 @@ const POSTGRES_INTEGERS: ExactIntegerArithmetic = {
  * unambiguous without a per-member decision.
  */
 
-/**
- * PostgreSQL Database Adapter
- *
- * Implements the DatabaseAdapter interface for PostgreSQL-specific SQL generation.
- *
- * Key PostgreSQL features:
- * - Double-quote identifier escaping: "table"."column"
- * - Native ARRAY type with operators: @>, &&, ANY()
- * - ILIKE for case-insensitive matching
- * - json_build_object(), json_agg() for JSON operations
- * - RETURNING clause for mutations
- * - NULLS FIRST/LAST ordering
- * - ON CONFLICT DO UPDATE/NOTHING
- */
 const NON_TEXT_STRING_TYPE =
   /^(?:inet|cidr|macaddr8?|uuid|xml|tsvector|tsquery|bit|varbit)(?:\(|$)/i;
 
 export class PostgresAdapter implements DatabaseAdapter {
-  // ============================================================
-  // NAMESPACE
-  // ============================================================
-
   /**
    * The bound schema. PostgreSQL always qualifies, so this adapter has no
    * unbound mode: an omitted or explicitly `undefined` argument means the
@@ -222,21 +207,9 @@ export class PostgresAdapter implements DatabaseAdapter {
     });
   }
 
-  // ============================================================
-  // RAW
-  // ============================================================
-
   raw = createRawSql();
 
-  // ============================================================
-  // IDENTIFIERS
-  // ============================================================
-
   identifiers: DatabaseAdapter["identifiers"];
-
-  // ============================================================
-  // LITERALS
-  // ============================================================
 
   literals = {
     ...createStandardLiterals(),
@@ -282,24 +255,18 @@ export class PostgresAdapter implements DatabaseAdapter {
       arrayParameter(values) ?? PARENTHESIZED_LIST(values),
   };
 
-  // ============================================================
-  // OPERATORS
-  // ============================================================
-
   operators = {
-    // Comparison
     ...createComparisonOperators(),
 
-    // Pattern matching
     // Explicit ESCAPE '\' pairs with wildcard escaping in the where-builder
     like: (column: Sql, pattern: Sql): Sql =>
       sql`${column} LIKE ${pattern} ESCAPE '\\'`,
     notLike: (column: Sql, pattern: Sql): Sql =>
       sql`${column} NOT LIKE ${pattern} ESCAPE '\\'`,
     ilike: (column: Sql, pattern: Sql): Sql =>
-      sql`TRANSLATE(${column}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') LIKE TRANSLATE(${pattern}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ESCAPE '\\'`,
+      sql`${postgresAsciiCaseFold(column)} LIKE ${postgresAsciiCaseFold(pattern)} ESCAPE '\\'`,
     notIlike: (column: Sql, pattern: Sql): Sql =>
-      sql`TRANSLATE(${column}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') NOT LIKE TRANSLATE(${pattern}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') ESCAPE '\\'`,
+      sql`${postgresAsciiCaseFold(column)} NOT LIKE ${postgresAsciiCaseFold(pattern)} ESCAPE '\\'`,
     containsText: (column: Sql, value: Sql): Sql =>
       sql`${column} LIKE ('%' || ${postgresLikeLiteral(value)} || '%') ESCAPE '\\'`,
     startsWithText: (column: Sql, value: Sql): Sql =>
@@ -366,22 +333,14 @@ export class PostgresAdapter implements DatabaseAdapter {
         ? sql`${column} <> ALL(${values})`
         : sql`${column} NOT IN ${values}`,
 
-    // Null checks
     ...createNullOperators(),
 
-    // Range
     ...createRangeOperators(),
 
-    // Logical
     ...createLogicalOperators(this.literals.true, this.literals.false),
 
-    // Subquery existence
     ...createExistenceOperators(),
   };
-
-  // ============================================================
-  // EXPRESSIONS
-  // ============================================================
 
   expressions = {
     ...createCommonExpressions(),
@@ -401,10 +360,8 @@ export class PostgresAdapter implements DatabaseAdapter {
         ? sql`CAST(${expr} AS TEXT)`
         : expr;
     },
-    asciiCaseFold: (expr: Sql): Sql =>
-      sql`TRANSLATE(${expr}, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')`,
+    asciiCaseFold: postgresAsciiCaseFold,
 
-    // String concatenation via ||
     concat: (...parts: Sql[]): Sql => {
       if (parts.length === 0) return sql.raw`''`;
       if (parts.length === 1) return parts[0]!;
@@ -429,7 +386,6 @@ export class PostgresAdapter implements DatabaseAdapter {
             representation === "uuid" ? "UUID" : "TEXT"
           )})`,
 
-    // PostgreSQL type mappings
     cast: createCastExpression({
       text: "TEXT",
       integer: "INTEGER",
@@ -440,10 +396,6 @@ export class PostgresAdapter implements DatabaseAdapter {
 
     blobToHex: (expr: Sql): Sql => sql`encode(${expr}, 'hex')`,
   };
-
-  // ============================================================
-  // AGGREGATES
-  // ============================================================
 
   aggregates = {
     ...createAggregateFunctions("'Infinity'::float8"),
@@ -461,10 +413,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     // domain a comparison against that sum is actually limited by.
     decimalSumOperandPrecision: createDecimalSumOperandPrecision(1000),
   };
-
-  // ============================================================
-  // JSON
-  // ============================================================
 
   json = {
     equals: (left: Sql, right: Sql): Sql =>
@@ -517,10 +465,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     value: (v: unknown): Sql => sql`${JsonParameter.from(v)}`,
   };
 
-  // ============================================================
-  // ARRAYS (Native PostgreSQL arrays)
-  // ============================================================
-
   arrays = {
     literal: (items: Sql[]): Sql => {
       if (items.length === 0) return sql.raw`'{}'`;
@@ -564,10 +508,6 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`${column}[:${index}-1] || ARRAY[${value}] || ${column}[${index}+1:]`,
   };
 
-  // ============================================================
-  // ORDER BY
-  // ============================================================
-
   orderBy = {
     ...createDirectionOrderBy(),
     nullsFirst: (column: Sql, direction: "asc" | "desc"): Sql =>
@@ -580,15 +520,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         : sql`${column} ASC NULLS LAST`,
   };
 
-  // ============================================================
-  // CLAUSES
-  // ============================================================
-
   clauses = createStandardClauses();
-
-  // ============================================================
-  // SET (UPDATE operations)
-  // ============================================================
 
   set = {
     ...createNumericSetOperations(),
@@ -617,21 +549,9 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`${column} = array_cat(${values}, COALESCE(${column}, '{}'))`,
   };
 
-  // ============================================================
-  // FILTERS (Relation subquery wrappers)
-  // ============================================================
-
   filters = createRelationFilters();
 
-  // ============================================================
-  // SUBQUERIES
-  // ============================================================
-
   subqueries = createSubqueries(quoteIdent);
-
-  // ============================================================
-  // ASSEMBLE (Build complete SQL statements)
-  // ============================================================
 
   readonly #assemble = {
     select: (parts: QueryParts): Sql => {
@@ -654,15 +574,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     },
   };
 
-  // ============================================================
-  // CTE (Common Table Expressions)
-  // ============================================================
-
   cte = createCteBuilders(quoteIdent);
-
-  // ============================================================
-  // MUTATIONS
-  // ============================================================
 
   mutations = {
     skipDuplicatesStrategy: "sql" as const,
@@ -684,10 +596,6 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`SELECT 1 / CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
   };
 
-  // ============================================================
-  // JOINS
-  // ============================================================
-
   joins = {
     ...createCoreJoins(),
 
@@ -697,15 +605,7 @@ export class PostgresAdapter implements DatabaseAdapter {
     ...createLateralJoins(quoteIdent),
   };
 
-  // ============================================================
-  // SET OPERATIONS
-  // ============================================================
-
   setOperations = createSetOperations();
-
-  // ============================================================
-  // CAPABILITIES
-  // ============================================================
 
   capabilities = {
     supportsReturning: true,
@@ -767,10 +667,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     };
   })();
 
-  // ============================================================
-  // VECTOR (pgvector)
-  // ============================================================
-
   vector = {
     literal: (values: number[]): Sql => {
       if (values.some((value) => !Number.isFinite(Math.fround(value))))
@@ -786,10 +682,6 @@ export class PostgresAdapter implements DatabaseAdapter {
     cosine: (column: Sql, vector: Sql): Sql =>
       sql`NULLIF(${column} <=> ${vector}, 'NaN'::double precision)`,
   };
-
-  // ============================================================
-  // GEOPOINT (PostGIS)
-  // ============================================================
 
   #createGeoPointSql(): GeoPointSql {
     const longitude = (point: Sql): Sql => sql`ST_X(${point}::geometry)`;
@@ -832,11 +724,6 @@ export class PostgresAdapter implements DatabaseAdapter {
       },
     };
   }
-
-  // ============================================================
-  // RESULT PARSING
-  // PostgreSQL: passthrough - native JSON and boolean types
-  // ============================================================
 
   result: DatabaseAdapter["result"] = {
     // PostgreSQL returns native JS scalars and parseField below is a pure

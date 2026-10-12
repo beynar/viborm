@@ -189,7 +189,6 @@ export const vectorDistanceSelectSchema = v.object(
   },
   { partial: false }
 );
-export type VectorDistanceSelectSchema = typeof vectorDistanceSelectSchema;
 
 export const pointDistanceSelectSchema = v.object(
   {
@@ -202,7 +201,6 @@ export const pointDistanceSelectSchema = v.object(
   },
   { partial: false }
 );
-export type PointDistanceSelectSchema = typeof pointDistanceSelectSchema;
 
 const vectorScalarSelectSchema = v.union([
   scalarSelectSchema,

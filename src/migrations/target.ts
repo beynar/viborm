@@ -11,7 +11,7 @@
 
 import type { AnyDriver } from "../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../errors";
-import { controlTableNames, DEFAULT_CONTROL_BASE } from "./control";
+import { CONTROL_TABLES } from "./control";
 import { snapshotExactArray } from "./input-boundary";
 import type { MigrationTarget, SchemaSnapshot } from "./types";
 import { normalizeDialect } from "./utils";
@@ -52,10 +52,11 @@ export function selectManagedSnapshot(
 ): SchemaSnapshot {
   const names = target.tables;
   if (names === undefined) return snapshot;
-  const control = controlTableNames(DEFAULT_CONTROL_BASE);
   // Control authenticity reads the same inventory, independently of user scope.
   const selected = (name: string) =>
-    names.includes(name) || name === control.state || name === control.log;
+    names.includes(name) ||
+    name === CONTROL_TABLES.state ||
+    name === CONTROL_TABLES.log;
   if (desired && snapshot.tables.some((table) => !names.includes(table.name)))
     throw new MigrationError(
       "The schema declares a physical table outside the authenticated managed-table list",

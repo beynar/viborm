@@ -220,6 +220,13 @@ export interface VibORMErrorMeta {
   [key: string]: unknown;
 }
 
+/** The options every VibORM error constructor forwards to {@link VibORMError}. */
+export interface VibORMErrorOptions {
+  cause?: Error | undefined;
+  diagnostics?: DiagnosticDisclosure | undefined;
+  meta?: VibORMErrorMeta | undefined;
+}
+
 /**
  * Base error class for all VibORM errors
  */
@@ -239,10 +246,7 @@ export class VibORMError extends Error {
   constructor(
     message: string,
     code: VibORMErrorCode,
-    options?: {
-      cause?: Error | undefined;
-      meta?: VibORMErrorMeta | undefined;
-      diagnostics?: DiagnosticDisclosure | undefined;
+    options?: VibORMErrorOptions & {
       /** Internal validation boundary evidence, snapshotted with the error. */
       validation?: { source: unknown; issues: unknown };
     }
@@ -349,16 +353,6 @@ function readDiagnosticName(errorConstructor: typeof VibORMError): string {
  */
 export function isVibORMError(error: unknown): error is VibORMError {
   return error instanceof VibORMError;
-}
-
-/**
- * Type guard for specific error codes
- */
-export function hasErrorCode(
-  error: unknown,
-  code: VibORMErrorCode
-): error is VibORMError {
-  return isVibORMError(error) && error.code === code;
 }
 
 /**

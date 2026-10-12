@@ -63,6 +63,17 @@ export function parseIdentifierArray(value: unknown, label: string): string[] {
   );
 }
 
+/** One of a closed list of literals, or the refusal `message`. */
+export function parseMember<T>(
+  value: unknown,
+  allowed: readonly T[],
+  message: string
+): T {
+  const member = allowed.find((entry) => entry === value);
+  if (member === undefined) refuse(message);
+  return member;
+}
+
 const TRUE_FLAGS: readonly unknown[] = [true, 1, 1n, "1", "t", "true"];
 const FALSE_FLAGS: readonly unknown[] = [false, 0, 0n, "0", "f", "false"];
 

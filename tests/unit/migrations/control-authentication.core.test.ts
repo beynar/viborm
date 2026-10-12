@@ -9,15 +9,14 @@
 
 import type { AnyDriver } from "@drivers/driver";
 import { VibORMErrorCode } from "@src/errors";
+import { qualifiedName } from "@src/migrations/catalog-probes";
 import {
   assertControlTablesAuthentic,
   casMarker,
   createControlTableSQL,
-  DEFAULT_CONTROL_BASE,
   ensureControlTables,
   inspectControlPresence,
   markerFromPath,
-  qualifyControl,
 } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { describe, expect, test } from "vitest";
@@ -76,15 +75,14 @@ describe("control table qualification", () => {
     const bound = mysqlEstateDriver({ namespace: "tenant" });
 
     expect(
-      qualifyControl(getMigrationDriver(unbound), "_viborm_migration_state")
+      qualifiedName(getMigrationDriver(unbound), "_viborm_migration_state")
     ).toBe("`_viborm_migration_state`");
     expect(
-      qualifyControl(getMigrationDriver(bound), "_viborm_migration_state")
+      qualifiedName(getMigrationDriver(bound), "_viborm_migration_state")
     ).toBe("`tenant`.`_viborm_migration_state`");
-    expect(
-      createControlTableSQL(getMigrationDriver(unbound), DEFAULT_CONTROL_BASE)
-        .log
-    ).toContain("`_viborm_migration_log`");
+    expect(createControlTableSQL(getMigrationDriver(unbound)).log).toContain(
+      "`_viborm_migration_log`"
+    );
   });
 
   test("PostgreSQL qualifies by schema and SQLite by bare name", () => {
@@ -92,10 +90,10 @@ describe("control table qualification", () => {
     const sqlite = sqliteEstateDriver();
 
     expect(
-      qualifyControl(getMigrationDriver(postgres), "_viborm_migration_log")
+      qualifiedName(getMigrationDriver(postgres), "_viborm_migration_log")
     ).toBe('"tenant"."_viborm_migration_log"');
     expect(
-      qualifyControl(getMigrationDriver(sqlite), "_viborm_migration_log")
+      qualifiedName(getMigrationDriver(sqlite), "_viborm_migration_log")
     ).toBe('"_viborm_migration_log"');
   });
 });
@@ -116,11 +114,7 @@ describe("control table authentication refuses what it cannot read", () => {
     };
 
     await expect(
-      assertControlTablesAuthentic(
-        driver,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      assertControlTablesAuthentic(driver, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("cannot be authenticated"),
@@ -137,11 +131,7 @@ describe("control table authentication refuses what it cannot read", () => {
     );
 
     await expect(
-      assertControlTablesAuthentic(
-        producer,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      assertControlTablesAuthentic(producer, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("exactly one row"),
@@ -165,11 +155,7 @@ describe("partial control state authentication", () => {
     };
 
     await expect(
-      inspectControlPresence(
-        driver,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      inspectControlPresence(driver, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining(
@@ -189,11 +175,7 @@ describe("partial control state authentication", () => {
     };
 
     await expect(
-      inspectControlPresence(
-        driver,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      inspectControlPresence(driver, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining(
@@ -213,11 +195,7 @@ describe("partial control state authentication", () => {
     };
 
     await expect(
-      inspectControlPresence(
-        driver,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      inspectControlPresence(driver, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining(
@@ -240,11 +218,7 @@ describe("partial control state authentication", () => {
     };
 
     await expect(
-      inspectControlPresence(
-        driver,
-        getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE
-      )
+      inspectControlPresence(driver, getMigrationDriver(driver))
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,
       message: expect.stringContaining("cannot be proven empty"),
@@ -256,11 +230,7 @@ describe("bootstrap is idempotent", () => {
   test("an authenticated pair is left exactly as it is", async () => {
     const driver = sqliteControl({ state: true, log: true });
 
-    await ensureControlTables(
-      driver,
-      getMigrationDriver(driver),
-      DEFAULT_CONTROL_BASE
-    );
+    await ensureControlTables(driver, getMigrationDriver(driver));
 
     expect(driver.statements.some((sql) => CREATE_TABLE.test(sql))).toBe(false);
   });
@@ -278,7 +248,6 @@ describe("coverage low value", () => {
       casMarker(
         producer,
         getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE,
         null,
         markerFromPath(HASH_A, HASH_B, [], 1)
       )

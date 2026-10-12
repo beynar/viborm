@@ -80,13 +80,6 @@ export interface StaticUnknownMembership {
   readonly kind: "unknown";
 }
 
-/** The closed union §8.1 fixes. Nothing else may leak out of the projection. */
-export type StaticMembership =
-  | StaticForeignKeyMembership
-  | StaticJunctionMembership
-  | StaticVariantInverseMembership
-  | StaticUnknownMembership;
-
 // =============================================================================
 // DECLARATION READERS
 // =============================================================================

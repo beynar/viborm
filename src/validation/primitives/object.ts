@@ -76,12 +76,15 @@ export interface ObjectOptions<T = unknown, TKeys extends string = string> {
    * So one hook: it runs after every member validated, over the validated
    * output (a key spelled `undefined` is already absent there, which is the
    * `{ f: undefined }` ≡ `{}` rule the whole surface follows), and returns the
-   * refusal sentence or `undefined`. It is deliberately NOT part of the
+   * refusal sentence, an issue carrying the path of the key that is wrong, or
+   * `undefined`. It is deliberately NOT part of the
    * inferred input type: these are runtime completeness facts about a
    * recursive filter surface, and distributing them into the type would turn
    * every filter object into a union of one variant per operator.
    */
-  refuse?: (value: Record<string, unknown>) => string | undefined;
+  refuse?: (
+    value: Record<string, unknown>
+  ) => string | ValidationIssue | undefined;
 }
 
 /**
@@ -756,7 +759,10 @@ function createObjectValidator(
 
     if (issues) return { issues };
     const refusal = refuse?.(output);
-    return refusal ? { issues: [{ message: refusal }] } : { value: output };
+    if (!refusal) return { value: output };
+    return {
+      issues: [typeof refusal === "string" ? { message: refusal } : refusal],
+    };
   };
 
   // Slow path (partial: false or atLeast): output is intentionally DENSE —
@@ -841,7 +847,10 @@ function createObjectValidator(
 
     if (issues) return { issues };
     const refusal = refuse?.(output);
-    return refusal ? { issues: [{ message: refusal }] } : { value: output };
+    if (!refusal) return { value: output };
+    return {
+      issues: [typeof refusal === "string" ? { message: refusal } : refusal],
+    };
   };
 
   return partial && !atLeast ? parsePartial : parseDense;

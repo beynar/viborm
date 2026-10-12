@@ -18,7 +18,6 @@ import type {
   ForeignKeyDef,
   IndexDef,
   PrimaryKeyDef,
-  ReferentialAction,
   SchemaSnapshot,
   TableDef,
   UniqueConstraintDef,
@@ -29,7 +28,7 @@ import {
   mysqlStringLiteral,
   parseMySqlEnumValues,
 } from "../type-mapping";
-import { groupBy, groupByNested } from "../utils";
+import { groupBy, groupByNested, mapReferentialAction } from "../utils";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
 import type {
   MySQLColumn,
@@ -160,21 +159,6 @@ const MYSQL_NUMERIC_DATA_TYPES = new Set([
 // =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
-
-function mapReferentialAction(rule: string): ReferentialAction {
-  switch (rule.toUpperCase()) {
-    case "CASCADE":
-      return "cascade";
-    case "SET NULL":
-      return "setNull";
-    case "RESTRICT":
-      return "restrict";
-    case "SET DEFAULT":
-      return "setDefault";
-    default:
-      return "noAction";
-  }
-}
 
 function formatColumnType(col: MySQLColumn): string {
   if (col.DATA_TYPE.toLowerCase() === "point") {

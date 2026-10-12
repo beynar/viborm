@@ -1,6 +1,10 @@
 import { physicalConnectionQueue } from "../connection-scope";
 import { refuseUnknownDriverConfigKeys } from "../shared/driver-options";
-import { normalizeSQLiteRawRows } from "../shared/sqlite-utils";
+import {
+  LOCAL_SQLITE_TRANSACTION_SUPPORT,
+  normalizeSQLiteRawRows,
+  runLocalSQLiteTransaction,
+} from "../shared/sqlite-utils";
 /**
  * Bun SQLite Driver
  *
@@ -24,11 +28,9 @@ import {
   type QueryExecutionContext,
   SQLITE_MIGRATION_CAPABILITY,
 } from "../driver";
-import { getExecutionTransactionPhases } from "../execution-context";
 import {
   convertValueForSQLite,
   isSQLiteBinaryValue,
-  runTransactionLifecycle,
   sqliteBinaryToUint8Array,
   sqliteResultParser,
   type TransactionOptionSupport,
@@ -277,21 +279,8 @@ export class BunSQLiteDriver extends Driver<
     return { rows: [] as T[], rowCount: result.changes };
   }
 
-  /**
-   * SQLite has no isolation-level statement: one writer at a time on one
-   * connection makes every transaction serializable already. `Serializable` is
-   * therefore honored by construction, with no SQL to emit; the three weaker
-   * levels are refused because pretending to relax isolation we cannot relax
-   * would misreport what the transaction actually guarantees.
-   */
   protected override transactionOptionSupport(): TransactionOptionSupport {
-    return {
-      isolationLevel: "serializable-only",
-      isolationLevelReason:
-        "SQLite serializes transactions on a single connection and has no statement to weaken isolation, so only Serializable can be honored truthfully",
-      timeout: true,
-      maxWait: "queue",
-    };
+    return LOCAL_SQLITE_TRANSACTION_SUPPORT;
   }
 
   protected async transaction<T>(
@@ -299,17 +288,7 @@ export class BunSQLiteDriver extends Driver<
     fn: (tx: BunSQLiteDatabase) => Promise<T>,
     context?: QueryExecutionContext
   ): Promise<T> {
-    return runTransactionLifecycle({
-      begin: () => client.exec("BEGIN IMMEDIATE"),
-      callback: () => fn(client),
-      commit: () => client.exec("COMMIT"),
-      // A failed BEGIN never grants rollback ownership. After a failed COMMIT,
-      // successful rollback restores this same database, including :memory:.
-      rollback: () => {
-        if (client.inTransaction) client.exec("ROLLBACK");
-      },
-      phases: getExecutionTransactionPhases(context),
-    });
+    return runLocalSQLiteTransaction(client, fn, context);
   }
 }
 

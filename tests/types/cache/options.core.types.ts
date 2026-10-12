@@ -1,4 +1,4 @@
-import type { WithCacheOptions } from "@src/cache";
+import type { WithCacheOptions } from "@cache/schema";
 
 const cacheOptions: WithCacheOptions = { ttl: "5 seconds", bypass: true };
 

@@ -18,10 +18,7 @@
  */
 
 import { ConnectionError, QueryError, VibORMErrorCode } from "@errors";
-import {
-  DEFAULT_CONTROL_BASE,
-  readPostgresDecision,
-} from "@migrations/control";
+import { readPostgresDecision } from "@migrations/control";
 import { getMigrationDriver } from "@migrations/drivers";
 import { postgresCatalogDigestQuery } from "@migrations/drivers/postgres/catalog-digest";
 import {
@@ -103,7 +100,7 @@ describe("PostgreSQL catalog SQL holds no shape Neki refuses", () => {
         check: "CHECK ((singleton = 1))",
       }) ?? [];
     const driver = getMigrationDriver(producer);
-    await readPostgresDecision(producer, driver, DEFAULT_CONTROL_BASE, "TRUE");
+    await readPostgresDecision(producer, driver, "TRUE");
     const statements = [
       ...producer.statements.filter((sql) => sql !== "<connect>"),
       postgresCatalogDigestQuery(
@@ -158,12 +155,7 @@ describe("a catalog read the provider refuses names itself", () => {
           })
         : [];
     await expect(
-      readPostgresDecision(
-        producer,
-        getMigrationDriver(producer),
-        DEFAULT_CONTROL_BASE,
-        "TRUE"
-      )
+      readPostgresDecision(producer, getMigrationDriver(producer), "TRUE")
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_FAILED,
       message: expect.stringContaining(

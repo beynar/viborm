@@ -4,22 +4,29 @@ import { configDefaults } from "vitest/config";
 
 export default defineWorkersConfig({
   resolve: {
-    alias: {
-      "@src": resolve(__dirname, "src"),
-      "@tests": resolve(__dirname, "tests"),
-      "@schema": resolve(__dirname, "src/schema"),
-      "@client": resolve(__dirname, "src/client"),
-      "@extensions": resolve(__dirname, "src/extensions"),
-      "@validation": resolve(__dirname, "src/validation"),
-      "@query-engine": resolve(__dirname, "src/query-engine"),
-      "@adapters": resolve(__dirname, "src/adapters"),
-      "@drivers": resolve(__dirname, "src/drivers"),
-      "@migrations": resolve(__dirname, "src/migrations"),
-      "@errors": resolve(__dirname, "src/errors.ts"),
-      "@instrumentation": resolve(__dirname, "src/instrumentation"),
-      "@cache": resolve(__dirname, "src/cache"),
-      "@sql": resolve(__dirname, "src/sql/sql.ts"),
-    },
+    alias: [
+      // Bare `@drivers` is the custom-driver entry; `@drivers/*` stays a prefix.
+      {
+        find: /^@drivers$/,
+        replacement: resolve(__dirname, "src/drivers/exports.ts"),
+      },
+      ...Object.entries({
+        "@src": resolve(__dirname, "src"),
+        "@tests": resolve(__dirname, "tests"),
+        "@schema": resolve(__dirname, "src/schema"),
+        "@client": resolve(__dirname, "src/client"),
+        "@extensions": resolve(__dirname, "src/extensions"),
+        "@validation": resolve(__dirname, "src/validation"),
+        "@query-engine": resolve(__dirname, "src/query-engine"),
+        "@adapters": resolve(__dirname, "src/adapters"),
+        "@drivers": resolve(__dirname, "src/drivers"),
+        "@migrations": resolve(__dirname, "src/migrations"),
+        "@errors": resolve(__dirname, "src/errors.ts"),
+        "@instrumentation": resolve(__dirname, "src/instrumentation"),
+        "@cache": resolve(__dirname, "src/cache"),
+        "@sql": resolve(__dirname, "src/sql/sql.ts"),
+      }).map(([find, replacement]) => ({ find, replacement })),
+    ],
   },
   test: {
     name: "provider-d1",

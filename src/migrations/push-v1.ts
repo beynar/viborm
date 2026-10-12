@@ -405,7 +405,7 @@ function publicPreview(plan: InternalPushPlan): PushPreview {
   });
 }
 
-function prepareSchema(
+export function prepareSchema(
   client: MigrationClient,
   skipValidation: boolean
 ): {

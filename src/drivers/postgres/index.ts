@@ -9,7 +9,6 @@
  */
 
 import type { DatabaseAdapter } from "@adapters/database-adapter";
-import { PostgresAdapter } from "@adapters/databases/postgres/postgres-adapter";
 import {
   createClientFromDriverConfig,
   type DriverConfig,
@@ -18,11 +17,7 @@ import {
   type VibORMClient,
 } from "@client/client";
 import type { Schema } from "@client/types";
-import {
-  ClientInitializationError,
-  unsupportedVector,
-  VibORMErrorCode,
-} from "@errors";
+import { ClientInitializationError, VibORMErrorCode } from "@errors";
 import postgres, {
   type Options as PostgresOptionsType,
   type Sql as PostgresSql,
@@ -54,6 +49,7 @@ import {
   systemRootAsVerifyFull,
 } from "../shared/driver-options";
 import { CLEANUP_BOUND_MS } from "../shared/pinned-session";
+import { installPostgresAdapter } from "../shared/postgres-adapter";
 import type { QueryResult } from "../types";
 
 export type PostgresOptions = PostgresOptionsType<
@@ -192,10 +188,7 @@ export class PostgresDriver extends Driver<
       this.client = this.suppliedClient;
     }
 
-    const adapter = new PostgresAdapter(namespace, options.postgis === true);
-    adapter.capabilities.supportsVector = options.pgvector === true;
-    if (!options.pgvector) adapter.vector = unsupportedVector;
-    defineImmutableDriverFact(this, "adapter", adapter);
+    installPostgresAdapter(this, namespace, options);
     defineImmutableDriverFact(
       this,
       "migrationSessionAttestation",
@@ -259,26 +252,15 @@ export class PostgresDriver extends Driver<
     params: unknown[],
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "execute";
     // postgres.js unsafe() takes (query, parameters?, queryOptions?)
     // parameters must be cast as postgres expects specific types
-    const result = await client.unsafe<T[]>(
+    return this.executeQuery(
+      client,
       sqlStr,
       encodeListParameters(params),
-      { prepare: this.driverOptions.options?.prepare === true }
+      context,
+      "execute"
     );
-    return {
-      rows: result,
-      rowCount: normalizePostgresRowCount(
-        result.count,
-        result.command,
-        result,
-        {
-          provider: "postgres",
-          operation,
-        }
-      ),
-    };
   }
 
   protected async executeRaw<T>(
@@ -287,7 +269,17 @@ export class PostgresDriver extends Driver<
     params: unknown[] | undefined,
     context?: QueryExecutionContext
   ): Promise<QueryResult<T>> {
-    const operation = context?.operation ?? "executeRaw";
+    return this.executeQuery(client, sqlStr, params, context, "executeRaw");
+  }
+
+  private async executeQuery<T>(
+    client: PostgresClient | PostgresTransaction,
+    sqlStr: string,
+    params: unknown[] | undefined,
+    context: QueryExecutionContext | undefined,
+    fallbackOperation: "execute" | "executeRaw"
+  ): Promise<QueryResult<T>> {
+    const operation = context?.operation ?? fallbackOperation;
     const result = await client.unsafe<T[]>(sqlStr, params, {
       prepare: this.driverOptions.options?.prepare === true,
     });

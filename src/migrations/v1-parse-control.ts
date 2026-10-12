@@ -14,6 +14,7 @@ import {
   exactObject,
   parseFiniteInteger,
   parseFormat,
+  parseMember,
   parseRequiredString,
   refuse,
 } from "./v1-parse-shared";
@@ -151,6 +152,13 @@ const EFFECT_STATES: readonly LedgerEffectStateV1[] = [
   "partial",
   "may-have-committed",
 ];
+const DIRECTIONS: readonly LedgerEventV1["direction"][] = [
+  "forward",
+  "rollback",
+  "reset",
+  "baseline",
+  "resolve",
+];
 const LEDGER_KEYS = [
   "attemptId",
   "direction",
@@ -185,7 +193,11 @@ const RESET_PLAN_KEYS = [
 
 export function parseLedgerEvent(value: unknown): LedgerEventV1 {
   if (!isRecord(value)) refuse("ledger event must be an object");
-  const kind = parseLedgerKind(value.kind);
+  const kind = parseMember(
+    value.kind,
+    LEDGER_KINDS,
+    "ledger event.kind is not a V1 kind"
+  );
   const record = exactObject(
     value,
     kind === "reset-started" ? RESET_LEDGER_KEYS : LEDGER_KEYS,
@@ -215,7 +227,11 @@ export function parseLedgerEvent(value: unknown): LedgerEventV1 {
       record.transitionHash === null
         ? null
         : parseSha256(record.transitionHash, "ledger.transitionHash"),
-    direction: parseDirection(record.direction),
+    direction: parseMember(
+      record.direction,
+      DIRECTIONS,
+      "ledger event.direction is invalid"
+    ),
     operationId:
       record.operationId === null
         ? null
@@ -224,7 +240,11 @@ export function parseLedgerEvent(value: unknown): LedgerEventV1 {
       record.dispatchId === null
         ? null
         : parseSha256(record.dispatchId, "ledger.dispatchId"),
-    effectState: parseEffectState(record.effectState),
+    effectState: parseMember(
+      record.effectState,
+      EFFECT_STATES,
+      "ledger event.effectState is invalid"
+    ),
     startedAt: parseRequiredString(record.startedAt, "ledger.startedAt"),
     finishedAt:
       record.finishedAt === null
@@ -248,37 +268,6 @@ export function parseLedgerEvent(value: unknown): LedgerEventV1 {
     );
   }
   return admitted;
-}
-
-function parseLedgerKind(value: unknown): LedgerEventKindV1 {
-  if (isString(value)) {
-    for (const kind of LEDGER_KINDS) {
-      if (value === kind) return kind;
-    }
-  }
-  refuse("ledger event.kind is not a V1 kind");
-}
-
-function parseEffectState(value: unknown): LedgerEffectStateV1 {
-  if (isString(value)) {
-    for (const effectState of EFFECT_STATES) {
-      if (value === effectState) return effectState;
-    }
-  }
-  refuse("ledger event.effectState is invalid");
-}
-
-function parseDirection(value: unknown): LedgerEventV1["direction"] {
-  if (
-    value === "forward" ||
-    value === "rollback" ||
-    value === "reset" ||
-    value === "baseline" ||
-    value === "resolve"
-  ) {
-    return value;
-  }
-  refuse("ledger event.direction is invalid");
 }
 
 function parseResetPlan(value: unknown): ResetPlanV1 {

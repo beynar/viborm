@@ -14,7 +14,7 @@
  * a second predicate is a second thing to get wrong.
  */
 
-import { errorCause } from "@drivers/shared/driver-options";
+import { errorCause } from "@src/errors/diagnostic-safety";
 import { describe, expect, it } from "vitest";
 
 /**

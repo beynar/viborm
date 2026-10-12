@@ -4,8 +4,8 @@
  */
 
 import { Sql } from "@sql";
-import { errorCause } from "../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../errors";
+import { errorCause } from "../errors/diagnostic-safety";
 import { snapshotExactArray, snapshotExactRecord } from "./input-boundary";
 import type { ResolveCallback } from "./types";
 import type {

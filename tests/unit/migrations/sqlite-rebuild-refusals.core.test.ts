@@ -13,12 +13,7 @@ import { createClient } from "@client/client";
 import { VibORMErrorCode } from "@errors";
 import { isMigrationError, lenientResolver } from "@migrations";
 import { createMigrationClient } from "@migrations/client";
-import {
-  appendLedger,
-  attemptIdFor,
-  DEFAULT_CONTROL_BASE,
-  ledgerEvent,
-} from "@migrations/control";
+import { appendLedger, attemptIdFor, ledgerEvent } from "@migrations/control";
 import { getMigrationDriver } from "@migrations/drivers";
 import { SQLite3MigrationDriver } from "@migrations/drivers/sqlite";
 import { loadMigrationGraph, parentTransition } from "@migrations/graph";
@@ -309,7 +304,6 @@ describe("SQLite recreation preflight", () => {
     await appendLedger(
       driver,
       getMigrationDriver(driver),
-      DEFAULT_CONTROL_BASE,
       ledgerEvent({
         ...seed,
         attemptId: attemptIdFor(seed),

@@ -2,7 +2,6 @@ import { VibORMErrorCode } from "@src/errors";
 import { canonicalizeJsonText } from "@src/migrations/canonical-json";
 import {
   casMarker,
-  DEFAULT_CONTROL_BASE,
   markerFromPath,
   readControlState,
 } from "@src/migrations/control";
@@ -53,13 +52,7 @@ describe("migration marker compare-and-swap", () => {
   test("requires a singleton insert and preserves provider failure context", async () => {
     const missing = sqliteEstateDriver();
     await expect(
-      casMarker(
-        missing,
-        getMigrationDriver(missing),
-        DEFAULT_CONTROL_BASE,
-        null,
-        marker()
-      )
+      casMarker(missing, getMigrationDriver(missing), null, marker())
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_MARKER_CONFLICT,
       message: expect.stringContaining("singleton row"),
@@ -69,13 +62,7 @@ describe("migration marker compare-and-swap", () => {
     const failed = sqliteEstateDriver();
     failed.respond = () => providerFailure;
     await expect(
-      casMarker(
-        failed,
-        getMigrationDriver(failed),
-        DEFAULT_CONTROL_BASE,
-        null,
-        marker()
-      )
+      casMarker(failed, getMigrationDriver(failed), null, marker())
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_MARKER_CONFLICT,
       message: expect.stringContaining("compare-and-swap failed"),
@@ -90,7 +77,6 @@ describe("migration marker compare-and-swap", () => {
       casMarker(
         driver,
         getMigrationDriver(driver),
-        DEFAULT_CONTROL_BASE,
         { revision: current.revision, pathHash: current.pathHash },
         markerFromPath(ESTATE_HASH, SNAPSHOT_HASH, [], 2)
       )
@@ -136,11 +122,7 @@ describe("migration ledger read ordering", () => {
       return [];
     };
 
-    const control = await readControlState(
-      driver,
-      getMigrationDriver(driver),
-      DEFAULT_CONTROL_BASE
-    );
+    const control = await readControlState(driver, getMigrationDriver(driver));
     // Neither tied attempt follows the other on the state chain, and both
     // open in that instant: their attempt ids settle it (plan D5,
     // `inCausalOrder`).

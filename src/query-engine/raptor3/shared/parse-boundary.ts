@@ -99,7 +99,3 @@ export const upsertEnvelopeSchema = object(
   },
   { atLeast: ["where", "create", "update"] }
 );
-
-/** The envelope's validated output — the three arms typed, the five optional keys
- *  untouched. */
-export type UpsertEnvelope = InferOutput<typeof upsertEnvelopeSchema>;

@@ -1,22 +1,49 @@
 import type { Operations } from "@client/types";
 import { QueryError, retainWriteOutcomeFailure } from "@errors";
+import type { ResolvedOperationHandler } from "@extensions/chain";
 import type { GenericQueryKind } from "@extensions/query";
 import {
   decomposeQueryCoordinationFailure,
   decomposeWriteOutcomePublicationFailure,
   executePreparedQuery,
   type PreparedModelQueryContext,
+  type PreparedQueryContext,
   type PreparedRawQueryContext,
   publishWriteOutcomes,
   type QueryInterceptionMode,
-  type QueryInterceptor,
-  runQueryInterceptors,
+  type QueryInterceptorContext,
+  runCompiledQueryInterceptors,
   TransactionWriteOutcomes,
   type WriteOutcomeListener,
   type WriteOutcomeNotifications,
   type WriteOutcomeRegistration,
+  type WriteOutcomeRegistrationCapture,
 } from "@extensions/query";
 import { describe, expect, test, vi } from "vitest";
+
+type QueryInterceptor<
+  Result,
+  Input extends object = Record<string, unknown>,
+> = ResolvedOperationHandler<
+  (context: QueryInterceptorContext<Result, Input>) => Promise<Result>
+>;
+
+/** The compiled runner, with its handlers typed against one prepared context. */
+const runQueryInterceptors = <
+  Result,
+  Input extends object = Record<string, unknown>,
+>(
+  context: PreparedQueryContext<Input>,
+  interceptors: readonly QueryInterceptor<Result, Input>[] | undefined,
+  child: () => Promise<NoInfer<Result>>,
+  captureWriteOutcome: WriteOutcomeRegistrationCapture
+): Promise<Result> =>
+  runCompiledQueryInterceptors(
+    context,
+    interceptors,
+    child,
+    captureWriteOutcome
+  );
 
 type Rows = { id: string }[];
 type Count = { count: number };

@@ -315,7 +315,7 @@ export class MySQLMigrationDriver
    * qualification primitive: handing `database.table` to `escapeIdentifier`
    * would silently produce one identifier naming a table with a dot in it.
    */
-  private tableRef(
+  protected override tableRef(
     tableName: string,
     destination: DDLContext["destination"]
   ): string {
@@ -624,11 +624,7 @@ export class MySQLMigrationDriver
   // DDL GENERATION - Table Operations
   // ===========================================================================
 
-  generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
-    return this.compileCreateTable(op, context).join(";\n");
-  }
-
-  override compileCreateTable(
+  generateCreateTable(
     op: CreateTableOperation,
     context: DDLContext
   ): readonly string[] {
@@ -692,7 +688,7 @@ export class MySQLMigrationDriver
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
   generateDropTable(op: DropTableOperation, context: DDLContext): string {
@@ -747,21 +743,10 @@ export class MySQLMigrationDriver
     return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
   }
 
-  generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
-    return this.alterColumnStatements(op, context).join(";\n");
-  }
-
-  override compileAlterColumn(
+  generateAlterColumn(
     op: AlterColumnOperation,
     context: DDLContext
   ): readonly string[] {
-    return this.filterStatements(this.alterColumnStatements(op, context));
-  }
-
-  private alterColumnStatements(
-    op: AlterColumnOperation,
-    context: DDLContext
-  ): string[] {
     const { tableName, columnName, to } = op;
     const table = this.tableRef(tableName, context.destination);
 
@@ -1119,11 +1104,7 @@ export class MySQLMigrationDriver
     return "-- MySQL: ENUM type is part of column definition";
   }
 
-  generateAlterEnum(op: AlterEnumOperation, context: DDLContext): string {
-    return this.compileAlterEnum(op, context).join(";\n");
-  }
-
-  override compileAlterEnum(
+  generateAlterEnum(
     op: AlterEnumOperation,
     context: DDLContext
   ): readonly string[] {
@@ -1131,15 +1112,11 @@ export class MySQLMigrationDriver
     const { enumName, newValues, dependentColumns } = op;
 
     if (!newValues || newValues.length === 0) {
-      return this.filterStatements([
-        `-- MySQL: no new values provided for enum "${enumName}"`,
-      ]);
+      return [`-- MySQL: no new values provided for enum "${enumName}"`];
     }
 
     if (!dependentColumns || dependentColumns.length === 0) {
-      return this.filterStatements([
-        `-- MySQL: no dependent columns found for enum "${enumName}"`,
-      ]);
+      return [`-- MySQL: no dependent columns found for enum "${enumName}"`];
     }
 
     const statements: string[] = [];
@@ -1149,7 +1126,7 @@ export class MySQLMigrationDriver
     // holding a removed value, MODIFY errors in strict mode. Replacement
     // targets must already exist in the old enum (surviving values or NULL);
     // mapping to a value added in the same alter is not supported.
-    statements.push(...this.buildMySQLEnumReplacementUpdates(op, context));
+    statements.push(...this.buildEnumReplacementUpdates(op, context));
 
     for (const dep of dependentColumns) {
       const currentTable = context.currentSchema?.tables.find(
@@ -1177,52 +1154,6 @@ export class MySQLMigrationDriver
       );
     }
 
-    return this.filterStatements(statements);
-  }
-
-  /**
-   * The enum-replacement UPDATEs, with their table position qualified (§5.1).
-   *
-   * `MigrationDriver.buildEnumReplacementUpdates` renders the same statements
-   * database-relative and takes no `DDLContext`, so it cannot express a live
-   * table position; `base.ts` is shared with the PostgreSQL and SQLite dialects
-   * and is owned by no unit of this change, so MySQL renders its own text here
-   * and keeps the SHARED decision — which surviving value (or NULL) replaces a
-   * removed one — in `getEnumValueReplacement`.
-   *
-   * With no namespace or an artifact destination this produces the base
-   * builder's exact bytes.
-   */
-  private buildMySQLEnumReplacementUpdates(
-    op: AlterEnumOperation,
-    context: DDLContext
-  ): string[] {
-    const { removeValues, dependentColumns } = op;
-    if (!(removeValues?.length && dependentColumns?.length)) {
-      return [];
-    }
-
-    const statements: string[] = [];
-    for (const { tableName, columnName } of dependentColumns) {
-      const table = this.tableRef(tableName, context.destination);
-      const column = this.escapeIdentifier(columnName);
-      for (const removedValue of removeValues) {
-        const replacement = this.getEnumValueReplacement(
-          op,
-          tableName,
-          columnName,
-          removedValue
-        );
-        if (replacement === undefined) {
-          continue;
-        }
-        const newValue =
-          replacement === null ? "NULL" : this.escapeValue(replacement);
-        statements.push(
-          `UPDATE ${table} SET ${column} = ${newValue} WHERE ${column} = ${this.escapeValue(removedValue)}`
-        );
-      }
-    }
     return statements;
   }
 
@@ -1265,14 +1196,6 @@ export class MySQLMigrationDriver
    */
   async resolveCommandNamespace(read: CatalogRead): Promise<string> {
     return await resolveCatalogNamespace(read, this.namespace);
-  }
-
-  override generateClearMigrations(tableName: string): string {
-    return `DELETE FROM ${this.tableRef(tableName, "live")}`;
-  }
-
-  override generateDropTableSQL(tableName: string): string {
-    return `DROP TABLE IF EXISTS ${this.tableRef(tableName, "live")}`;
   }
 
   // ===========================================================================

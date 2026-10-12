@@ -1,6 +1,10 @@
 import type { Operation } from "../query-engine/types";
-import { VibORMError, VibORMErrorCode, type VibORMErrorMeta } from "./base";
-import type { DiagnosticDisclosure } from "./diagnostics";
+import {
+  VibORMError,
+  VibORMErrorCode,
+  type VibORMErrorMeta,
+  type VibORMErrorOptions,
+} from "./base";
 
 /**
  * Validation issue details
@@ -32,12 +36,6 @@ export type ValidationErrorSource =
       readonly target?: string | undefined;
       readonly schemaType?: string | undefined;
     };
-
-export interface ValidationErrorOptions {
-  cause?: Error | undefined;
-  diagnostics?: DiagnosticDisclosure | undefined;
-  meta?: VibORMErrorMeta | undefined;
-}
 
 /**
  * The INTERNAL operation names that have no client spelling, mapped to the name
@@ -91,7 +89,7 @@ export class ValidationError extends VibORMError {
   constructor(
     sourceOrOperation: Operation | ValidationErrorSource,
     issues: ValidationIssue[],
-    options?: ValidationErrorOptions
+    options?: VibORMErrorOptions
   ) {
     const issuesSummary =
       issues.length === 1

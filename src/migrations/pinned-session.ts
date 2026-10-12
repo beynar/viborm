@@ -9,7 +9,6 @@
 
 import type { AnyDriver } from "../drivers/driver";
 import { normalizeDriverError } from "../drivers/error-mapping";
-import { errorCause } from "../drivers/shared/driver-options";
 import {
   CLEANUP_BOUND_MS,
   leasePinnedCommand,
@@ -28,6 +27,7 @@ import {
   VibORMError,
   VibORMErrorCode,
 } from "../errors";
+import { errorCause } from "../errors/diagnostic-safety";
 import type { BoundMigrationDriver } from "./drivers";
 import { providerRefused } from "./execute-dispatch";
 import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
@@ -476,32 +476,16 @@ function createPinnedSessionView<D extends AnyDriver>(
         await locked?.before(sql);
         // A `CONCURRENTLY` statement runs without the session's limits, which
         // would cut it short: an INVALID index, a pending detach (plan S1).
+        const send = (statement: string, parameters?: unknown[]) =>
+          executeRaw.call(this, client, statement, parameters, context);
         const run = async () => {
           try {
             if (limits === undefined || !runsConcurrently(sql)) {
-              return await executeRaw.call(this, client, sql, params, context);
+              return await send(sql, params);
             }
-            await executeRaw.call(
-              this,
-              client,
-              limits.unbound,
-              undefined,
-              context
-            );
-            const result = await executeRaw.call(
-              this,
-              client,
-              sql,
-              params,
-              context
-            );
-            await executeRaw.call(
-              this,
-              client,
-              limits.rebound,
-              undefined,
-              context
-            );
+            await send(limits.unbound);
+            const result = await send(sql, params);
+            await send(limits.rebound);
             return result;
           } catch (failure) {
             control.lost(failure);
@@ -592,6 +576,11 @@ export function withLockedMigrationProducer<T>(
   const { dialect } = migrationDriver.target;
   const limits = migrationDriver.limits;
   const lockFree = migrationLockFree(migrationDriver);
+  const run = async (producer: AnyDriver) =>
+    body(
+      producer,
+      await validateAndSelectMigrationTarget(producer, migrationDriver)
+    );
   const scope: PinnedSessionScope = {
     connectionWait: limits.connectionWait,
     limits:
@@ -608,10 +597,7 @@ export function withLockedMigrationProducer<T>(
     return (async () => {
       const answer = await unlocked?.(driver, lockFree).catch(() => undefined);
       if (answer !== undefined) return answer;
-      return body(
-        driver,
-        await validateAndSelectMigrationTarget(driver, migrationDriver)
-      );
+      return run(driver);
     })();
   }
   if (dialect === "mysql") {
@@ -622,11 +608,7 @@ export function withLockedMigrationProducer<T>(
         await acquireLock(pinned, migrationDriver, control);
         let result: T;
         try {
-          const command = await validateAndSelectMigrationTarget(
-            pinned,
-            migrationDriver
-          );
-          result = await body(pinned, command);
+          result = await run(pinned);
         } catch (error) {
           await releaseAfterFailure(pinned, migrationDriver, control, error);
           throw error;
@@ -648,12 +630,7 @@ export function withLockedMigrationProducer<T>(
       }
       // An admitted SQLite driver without transactions runs under the
       // driver's queue lease alone.
-      if (!pinned.supportsTransactions) {
-        return body(
-          pinned,
-          await validateAndSelectMigrationTarget(pinned, migrationDriver)
-        );
-      }
+      if (!pinned.supportsTransactions) return run(pinned);
       const locked = lockTransactions(
         pinned,
         migrationDriver,
@@ -663,11 +640,7 @@ export function withLockedMigrationProducer<T>(
       LOCKED.set(pinned, locked);
       let result: T;
       try {
-        const command = await validateAndSelectMigrationTarget(
-          pinned,
-          migrationDriver
-        );
-        result = await body(pinned, command);
+        result = await run(pinned);
       } catch (error) {
         await locked.abort(error);
         throw error;

@@ -24,6 +24,7 @@ import type { DiffOperation, SchemaSnapshot } from "./types";
 import { encodeTransitionHash } from "./v1-parse";
 import type {
   AtomicityClass,
+  MigrationApprovalV1,
   MigrationBooleanCheckV1,
   MigrationCheckInput,
   MigrationDispatchV1,
@@ -533,15 +534,17 @@ export function compileTrustedCheck(
 
 export function sealParent(
   fromState: string | null,
-  compiled: CompiledTransition
+  compiled: CompiledTransition,
+  approvals: readonly MigrationApprovalV1[] = []
 ): Omit<MigrationParentTransitionV1, "transitionHash"> {
-  return {
+  const parent = {
     fromState,
     originChecks: compiled.originChecks,
     requestedForwardBoundary: compiled.requestedForwardBoundary,
     operations: compiled.operations,
     rollback: compiled.rollback,
   };
+  return approvals.length === 0 ? parent : { ...parent, approvals };
 }
 
 export function hashParent(
@@ -591,7 +594,7 @@ function rebindStep(
   step: MigrationStepV1,
   dispatches: readonly MigrationDispatchV1[]
 ): MigrationStepV1 {
-  const execute = takeDispatch(step.execute, dispatches);
+  const execute = dispatchAt(dispatches, step.execute.offset);
   if (step.retry === "opaque") {
     return { retry: "opaque", execute };
   }
@@ -599,21 +602,22 @@ function rebindStep(
     retry: "proven",
     precheck: {
       ...step.precheck,
-      query: takeDispatch(step.precheck.query, dispatches),
+      query: dispatchAt(dispatches, step.precheck.query.offset),
     },
     execute,
     postcheck: {
       ...step.postcheck,
-      query: takeDispatch(step.postcheck.query, dispatches),
+      query: dispatchAt(dispatches, step.postcheck.query.offset),
     },
   };
 }
 
-function takeDispatch(
-  placeholder: MigrationDispatchV1,
-  dispatches: readonly MigrationDispatchV1[]
+/** The sealed dispatch at an index the same assembly handed out. */
+export function dispatchAt(
+  dispatches: readonly MigrationDispatchV1[],
+  index: number
 ): MigrationDispatchV1 {
-  const found = dispatches[placeholder.offset];
+  const found = dispatches[index];
   if (!found) {
     throw new MigrationError(
       "Compiled dispatch is missing from the SQL assembly",
@@ -629,7 +633,7 @@ export function rebindChecks(
 ): MigrationBooleanCheckV1[] {
   return checks.map((check) => ({
     ...check,
-    query: takeDispatch(check.query, dispatches),
+    query: dispatchAt(dispatches, check.query.offset),
   }));
 }
 

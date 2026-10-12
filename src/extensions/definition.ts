@@ -5,6 +5,7 @@ import type { AnyDriver } from "@drivers/exports";
 import { ClientInitializationError } from "@errors";
 import { ROUTED_OPERATIONS } from "@query-engine/routed-operations";
 import { isFunction, isRecord } from "@validation/value-guards";
+import { errorCause } from "../errors/diagnostic-safety";
 import type {
   ControlsContribution,
   DataContribution,
@@ -91,15 +92,6 @@ export function extensionError(message: string, extension?: string): never {
   });
 }
 
-export function extensionCause(cause: unknown): Error {
-  try {
-    if (cause instanceof Error) return cause;
-  } catch {
-    // A hostile thrown proxy is still normalized at this boundary.
-  }
-  return new Error("A non-Error value was thrown.", { cause });
-}
-
 function readOwnKeys(
   value: Record<string, unknown>,
   extension?: string
@@ -112,7 +104,7 @@ function readOwnKeys(
         ? `Extension "${extension}" members could not be inspected.`
         : "Client extension members could not be inspected.",
       {
-        cause: extensionCause(cause),
+        cause: errorCause(cause),
         meta: extension ? { extension } : undefined,
       }
     );
@@ -132,7 +124,7 @@ function readOwn(
         ? `Extension "${extension}" member "${key}" could not be read.`
         : `Client extension member "${key}" could not be read.`,
       {
-        cause: extensionCause(cause),
+        cause: errorCause(cause),
         meta: extension ? { extension } : undefined,
       }
     );

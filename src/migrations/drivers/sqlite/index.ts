@@ -1244,11 +1244,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // DDL GENERATION - Table Operations
   // ===========================================================================
 
-  generateCreateTable(op: CreateTableOperation, context: DDLContext): string {
-    return this.compileCreateTable(op, context).join(";\n");
-  }
-
-  override compileCreateTable(
+  generateCreateTable(
     op: CreateTableOperation,
     context: DDLContext
   ): readonly string[] {
@@ -1269,7 +1265,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
   generateDropTable(op: DropTableOperation, _context: DDLContext): string {
@@ -1284,15 +1280,10 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   // DDL GENERATION - Column Operations
   // ===========================================================================
 
-  generateAddColumn(op: AddColumnOperation, context: DDLContext): string {
-    const colDef = this.generateColumnDef(op.column, context);
-    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} ADD COLUMN ${colDef}`;
-  }
-
-  override compileAddColumn(
+  generateAddColumn(
     op: AddColumnOperation,
     context: DDLContext
-  ): readonly string[] {
+  ): string | readonly string[] {
     if (
       op.column.default !== undefined &&
       COMPUTED_DEFAULT_PREFIX.test(op.column.default)
@@ -1310,7 +1301,8 @@ export class SQLite3MigrationDriver extends MigrationDriver {
         context
       );
     }
-    return super.compileAddColumn(op, context);
+    const colDef = this.generateColumnDef(op.column, context);
+    return `ALTER TABLE ${this.escapeIdentifier(op.tableName)} ADD COLUMN ${colDef}`;
   }
 
   generateDropColumn(op: DropColumnOperation, _context: DDLContext): string {
@@ -1339,28 +1331,20 @@ export class SQLite3MigrationDriver extends MigrationDriver {
    * copies the new column name from a current definition that already contains
    * the rename; it is not a second rename mechanism.
    */
-  generateRenameColumn(op: RenameColumnOperation, context: DDLContext): string {
-    return this.compileRenameColumn(op, context).join(";\n");
-  }
-
-  override compileRenameColumn(
+  generateRenameColumn(
     op: RenameColumnOperation,
     context: DDLContext
-  ): readonly string[] {
+  ): string | readonly string[] {
     const currentTable = this.getCurrentTable(op.tableName, context);
     const renamed = currentTable?.columns.find(
       (column) => column.name === op.from
     );
+    // SQLite 3.25.0+ supports RENAME COLUMN
+    const nativeRename = `ALTER TABLE ${this.escapeIdentifier(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
     if (currentTable === undefined || renamed?.decimal === undefined) {
-      // SQLite 3.25.0+ supports RENAME COLUMN
-      return this.filterStatements([
-        `ALTER TABLE ${this.escapeIdentifier(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`,
-      ]);
+      return nativeRename;
     }
 
-    const nativeRename =
-      `ALTER TABLE ${this.escapeIdentifier(op.tableName)} ` +
-      `RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
     const renamedTable = applyNativeRename({ tables: [currentTable] }, op)
       .tables[0];
     if (renamedTable === undefined) {
@@ -1377,7 +1361,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       context,
       "decimal"
     );
-    return this.filterStatements([
+    return [
       nativeRename,
       ...this.compileTableRecreation(
         op.tableName,
@@ -1385,39 +1369,28 @@ export class SQLite3MigrationDriver extends MigrationDriver {
         renamedTable,
         context
       ),
-    ]);
+    ];
   }
 
-  generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
-    return this.compileAlterColumn(op, context).join(";\n");
-  }
-
-  override compileAlterColumn(
+  generateAlterColumn(
     op: AlterColumnOperation,
     context: DDLContext
-  ): readonly string[] {
-    // A derived SQLite driver may own a native single-statement form.
-    if (
-      this.generateAlterColumn !==
-      SQLite3MigrationDriver.prototype.generateAlterColumn
-    ) {
-      return super.compileAlterColumn(op, context);
-    }
-
-    return this.compileAlterColumnByRecreation(op, context);
+  ): string | readonly string[] {
+    return this.compileAlterColumnByRecreation(op, context, true);
   }
 
-  /** SQLite's value-preserving ALTER COLUMN implementation. */
+  /**
+   * SQLite's value-preserving ALTER COLUMN implementation. `grouped` folds a
+   * run of compatible changes to one table into one recreation; a dialect
+   * that recreates only some changes (LibSQL) recreates each on its own.
+   */
   protected compileAlterColumnByRecreation(
     op: AlterColumnOperation,
-    context: DDLContext
+    context: DDLContext,
+    grouped: boolean
   ): readonly string[] {
     const group = [op];
-    if (
-      context.followingOperations &&
-      this.generateAlterColumn ===
-        SQLite3MigrationDriver.prototype.generateAlterColumn
-    ) {
+    if (grouped && context.followingOperations) {
       const compatible = (
         candidate: DiffOperation | undefined
       ): candidate is AlterColumnOperation =>
@@ -1529,87 +1502,54 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   generateAddForeignKey(
     op: AddForeignKeyOperation,
     context: DDLContext
-  ): string {
-    return this.compileAddForeignKey(op, context).join(";\n");
-  }
-
-  override compileAddForeignKey(
-    op: AddForeignKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    // LibSQL owns the native single-column form; its multi-column fallback
-    // remains a SQLite recreation and therefore keeps these boundaries.
-    if (
-      op.fk.columns.length <= 1 &&
-      this.generateAddForeignKey !==
-        SQLite3MigrationDriver.prototype.generateAddForeignKey
-    ) {
-      return super.compileAddForeignKey(op, context);
-    }
-
-    const currentTable = this.getCurrentTable(op.tableName, context);
-    if (!currentTable) {
-      throw new Error(
-        `Cannot add foreign key: table "${op.tableName}" not found in current schema. ` +
-          "Supply the current schema when compiling this operation."
-      );
-    }
-
-    const newTable: TableDef = {
-      ...currentTable,
-      foreignKeys: [...currentTable.foreignKeys, op.fk],
-    };
-
-    return this.compileTableRecreation(
+  ): string | readonly string[] {
+    return this.recreateWith(
       op.tableName,
-      newTable,
-      currentTable,
-      context
+      context,
+      "add foreign key",
+      (table) => ({
+        ...table,
+        foreignKeys: [...table.foreignKeys, op.fk],
+      })
     );
   }
 
   generateDropForeignKey(
     op: DropForeignKeyOperation,
     context: DDLContext
-  ): string {
-    return this.compileDropForeignKey(op, context).join(";\n");
+  ): string | readonly string[] {
+    return this.recreateWith(
+      op.tableName,
+      context,
+      "drop foreign key",
+      (table) => ({
+        ...table,
+        foreignKeys: table.foreignKeys.filter((fk) => fk.name !== op.fkName),
+      })
+    );
   }
 
-  override compileDropForeignKey(
-    op: DropForeignKeyOperation,
-    context: DDLContext
-  ): readonly string[] {
-    const currentTable = this.getCurrentTable(op.tableName, context);
+  /**
+   * Recreates `tableName` as `change` derives it from the table the batch has
+   * left, which is how SQLite changes an inline foreign key, unique or primary
+   * key.
+   */
+  protected recreateWith(
+    tableName: string,
+    context: DDLContext,
+    action: string,
+    change: (table: TableDef) => TableDef
+  ): string[] {
+    const currentTable = this.getCurrentTable(tableName, context);
     if (!currentTable) {
       throw new Error(
-        `Cannot drop foreign key: table "${op.tableName}" not found in current schema. ` +
+        `Cannot ${action}: table "${tableName}" not found in current schema. ` +
           "Supply the current schema when compiling this operation."
       );
     }
-
-    const currentForeignKey = currentTable.foreignKeys.find(
-      (fk) => fk.name === op.fkName
-    );
-    // Preserve a derived driver's native single-column form and its own
-    // missing/invalid-constraint diagnostics.
-    if (
-      (!currentForeignKey || currentForeignKey.columns.length <= 1) &&
-      this.generateDropForeignKey !==
-        SQLite3MigrationDriver.prototype.generateDropForeignKey
-    ) {
-      return super.compileDropForeignKey(op, context);
-    }
-
-    const newTable: TableDef = {
-      ...currentTable,
-      foreignKeys: currentTable.foreignKeys.filter(
-        (fk) => fk.name !== op.fkName
-      ),
-    };
-
     return this.compileTableRecreation(
-      op.tableName,
-      newTable,
+      tableName,
+      change(currentTable),
       currentTable,
       context
     );
@@ -1660,66 +1600,32 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   generateAddUniqueConstraint(
     op: AddUniqueConstraintOperation,
     context: DDLContext
-  ): string {
-    return this.compileAddUniqueConstraint(op, context).join(";\n");
-  }
-
-  override compileAddUniqueConstraint(
-    op: AddUniqueConstraintOperation,
-    context: DDLContext
   ): readonly string[] {
-    const currentTable = this.getCurrentTable(op.tableName, context);
-    if (!currentTable) {
-      throw new Error(
-        `Cannot add unique constraint: table "${op.tableName}" not found in current schema. ` +
-          "Supply the current schema when compiling this operation."
-      );
-    }
-
-    const newTable: TableDef = {
-      ...currentTable,
-      uniqueConstraints: [...currentTable.uniqueConstraints, op.constraint],
-    };
-
-    return this.compileTableRecreation(
+    return this.recreateWith(
       op.tableName,
-      newTable,
-      currentTable,
-      context
+      context,
+      "add unique constraint",
+      (table) => ({
+        ...table,
+        uniqueConstraints: [...table.uniqueConstraints, op.constraint],
+      })
     );
   }
 
   generateDropUniqueConstraint(
     op: DropUniqueConstraintOperation,
     context: DDLContext
-  ): string {
-    return this.compileDropUniqueConstraint(op, context).join(";\n");
-  }
-
-  override compileDropUniqueConstraint(
-    op: DropUniqueConstraintOperation,
-    context: DDLContext
   ): readonly string[] {
-    const currentTable = this.getCurrentTable(op.tableName, context);
-    if (!currentTable) {
-      throw new Error(
-        `Cannot drop unique constraint: table "${op.tableName}" not found in current schema. ` +
-          "Supply the current schema when compiling this operation."
-      );
-    }
-
-    const newTable: TableDef = {
-      ...currentTable,
-      uniqueConstraints: currentTable.uniqueConstraints.filter(
-        (constraint) => constraint.name !== op.constraintName
-      ),
-    };
-
-    return this.compileTableRecreation(
+    return this.recreateWith(
       op.tableName,
-      newTable,
-      currentTable,
-      context
+      context,
+      "drop unique constraint",
+      (table) => ({
+        ...table,
+        uniqueConstraints: table.uniqueConstraints.filter(
+          (constraint) => constraint.name !== op.constraintName
+        ),
+      })
     );
   }
 
@@ -1730,64 +1636,30 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   generateAddPrimaryKey(
     op: AddPrimaryKeyOperation,
     context: DDLContext
-  ): string {
-    return this.compileAddPrimaryKey(op, context).join(";\n");
-  }
-
-  override compileAddPrimaryKey(
-    op: AddPrimaryKeyOperation,
-    context: DDLContext
   ): readonly string[] {
-    const currentTable = this.getCurrentTable(op.tableName, context);
-    if (!currentTable) {
-      throw new Error(
-        `Cannot add primary key: table "${op.tableName}" not found in current schema. ` +
-          "Supply the current schema when compiling this operation."
-      );
-    }
-
-    const newTable: TableDef = {
-      ...currentTable,
-      primaryKey: op.primaryKey,
-    };
-
-    return this.compileTableRecreation(
+    return this.recreateWith(
       op.tableName,
-      newTable,
-      currentTable,
-      context
+      context,
+      "add primary key",
+      (table) => ({
+        ...table,
+        primaryKey: op.primaryKey,
+      })
     );
   }
 
   generateDropPrimaryKey(
     op: DropPrimaryKeyOperation,
     context: DDLContext
-  ): string {
-    return this.compileDropPrimaryKey(op, context).join(";\n");
-  }
-
-  override compileDropPrimaryKey(
-    op: DropPrimaryKeyOperation,
-    context: DDLContext
   ): readonly string[] {
-    const currentTable = this.getCurrentTable(op.tableName, context);
-    if (!currentTable) {
-      throw new Error(
-        `Cannot drop primary key: table "${op.tableName}" not found in current schema. ` +
-          "Supply the current schema when compiling this operation."
-      );
-    }
-
-    const newTable: TableDef = {
-      ...currentTable,
-      primaryKey: undefined,
-    };
-
-    return this.compileTableRecreation(
+    return this.recreateWith(
       op.tableName,
-      newTable,
-      currentTable,
-      context
+      context,
+      "drop primary key",
+      (table) => ({
+        ...table,
+        primaryKey: undefined,
+      })
     );
   }
 
@@ -1801,22 +1673,16 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     return "-- SQLite: enum CHECK constraint is part of column definition";
   }
 
-  generateDropEnum(op: DropEnumOperation, context: DDLContext): string {
-    return this.compileDropEnum(op, context).join(";\n");
-  }
-
-  override compileDropEnum(
+  generateDropEnum(
     op: DropEnumOperation,
     context: DDLContext
-  ): readonly string[] {
+  ): string | readonly string[] {
     // Dropping an enum means removing CHECK constraints from dependent columns
     // This requires table recreation for each dependent table
     const { enumName, dependentColumns } = op;
 
     if (!dependentColumns || dependentColumns.length === 0) {
-      return this.filterStatements([
-        `-- SQLite: no dependent columns for enum "${enumName}"`,
-      ]);
+      return `-- SQLite: no dependent columns for enum "${enumName}"`;
     }
 
     const statements: string[] = [];
@@ -1849,32 +1715,24 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
-  generateAlterEnum(op: AlterEnumOperation, context: DDLContext): string {
-    return this.compileAlterEnum(op, context).join(";\n\n");
-  }
-
-  override compileAlterEnum(
+  generateAlterEnum(
     op: AlterEnumOperation,
     context: DDLContext
-  ): readonly string[] {
+  ): string | readonly string[] {
     // Altering an enum means updating CHECK constraints on dependent columns
     // This requires table recreation for each dependent column
     const { enumName, newValues, dependentColumns } = op;
     const statements: string[] = [];
 
     if (!newValues || newValues.length === 0) {
-      return this.filterStatements([
-        `-- SQLite: no new values provided for enum "${enumName}"`,
-      ]);
+      return `-- SQLite: no new values provided for enum "${enumName}"`;
     }
 
     if (!dependentColumns || dependentColumns.length === 0) {
-      return this.filterStatements([
-        `-- SQLite: no dependent columns found for enum "${enumName}"`,
-      ]);
+      return `-- SQLite: no dependent columns found for enum "${enumName}"`;
     }
 
     // Apply mappings in the reconstruction SELECT. A replacement belongs to
@@ -1905,19 +1763,11 @@ export class SQLite3MigrationDriver extends MigrationDriver {
 
       const newTable: TableDef = { ...currentTable, columns: newColumns };
       const source = this.escapeIdentifier(dep.columnName);
-      const cases = (op.removeValues ?? []).flatMap((value) => {
-        const replacement = this.getEnumValueReplacement(
-          op,
-          dep.tableName,
-          dep.columnName,
-          value
-        );
-        return replacement === undefined
-          ? []
-          : [
-              `WHEN ${this.escapeValue(value)} THEN ${replacement === null ? "NULL" : this.escapeValue(replacement)}`,
-            ];
-      });
+      const cases = this.enumReplacementCases(
+        op,
+        dep.tableName,
+        dep.columnName
+      );
       const expressions =
         cases.length === 0
           ? undefined
@@ -1939,7 +1789,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
       );
     }
 
-    return this.filterStatements(statements);
+    return statements;
   }
 
   // ===========================================================================

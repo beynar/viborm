@@ -13,7 +13,7 @@ import {
 import type { Operation } from "@query-engine/types";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { isFunction, isRecord } from "@validation/value-guards";
-import { isError } from "../errors/diagnostic-safety";
+import { errorCause } from "../errors/diagnostic-safety";
 import type { ControlLiteral, RuntimeExtensionDefinition } from "./definition";
 
 // =============================================================================
@@ -760,9 +760,7 @@ function controlFailure(
   cause: unknown
 ): QueryError {
   return new QueryError(`${message}.`, {
-    cause: isError(cause)
-      ? cause
-      : new Error("A non-Error value was thrown.", { cause }),
+    cause: errorCause(cause),
     meta: { model, operation },
   });
 }

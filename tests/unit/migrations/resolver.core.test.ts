@@ -6,14 +6,12 @@ import { diff } from "@src/migrations/differ";
 import {
   addDropResolver,
   alwaysAddDropResolver,
-  alwaysRenameResolver,
   ambiguousToResolveChange,
-  applyResolutions,
   callbackAsResolver,
   createPredefinedResolver,
-  createResolver,
   // Unified resolvers
   lenientResolver,
+  operationsFor,
   rejectAllResolver,
   resolveAmbiguousChanges,
   strictResolver,
@@ -73,7 +71,7 @@ function makeTableChange(
 // TESTS
 // =============================================================================
 
-describe("applyResolutions", () => {
+describe("operationsFor", () => {
   describe("column changes", () => {
     it("should convert rename resolution to renameColumn operation", () => {
       const change = makeColumnChange("users", "username", "name");
@@ -81,7 +79,7 @@ describe("applyResolutions", () => {
         [change, { type: "rename" }],
       ]);
 
-      const ops = applyResolutions([change], resolutions);
+      const ops = operationsFor(change, resolutions.get(change)!);
 
       expect(ops).toContainEqual({
         type: "renameColumn",
@@ -97,7 +95,7 @@ describe("applyResolutions", () => {
         [change, { type: "addAndDrop" }],
       ]);
 
-      const ops = applyResolutions([change], resolutions);
+      const ops = operationsFor(change, resolutions.get(change)!);
 
       expect(ops).toContainEqual({
         type: "dropColumn",
@@ -155,7 +153,10 @@ describe("applyResolutions", () => {
             await diff(current, desired),
             current,
             desired,
-            alwaysRenameResolver
+            async (changes) =>
+              new Map(
+                changes.map((change) => [change, { type: "rename" as const }])
+              )
           )
         ).map((operation) => operation.type)
       ).toEqual(["renameColumn", "alterColumn"]);
@@ -169,7 +170,7 @@ describe("applyResolutions", () => {
         [change, { type: "rename" }],
       ]);
 
-      const ops = applyResolutions([change], resolutions);
+      const ops = operationsFor(change, resolutions.get(change)!);
 
       expect(ops).toContainEqual({
         type: "renameTable",
@@ -184,7 +185,7 @@ describe("applyResolutions", () => {
         [change, { type: "addAndDrop" }],
       ]);
 
-      const ops = applyResolutions([change], resolutions);
+      const ops = operationsFor(change, resolutions.get(change)!);
 
       expect(ops).toContainEqual({
         type: "dropTable",
@@ -193,26 +194,16 @@ describe("applyResolutions", () => {
     });
   });
 
-  it("refuses when no resolution is provided", () => {
+  it("refuses when no resolution is provided", async () => {
     const change = makeColumnChange("users", "username", "name");
-    const resolutions = new Map<AmbiguousChange, ChangeResolution>();
-    expect(() => applyResolutions([change], resolutions)).toThrow(
-      MISSING_RESOLUTION_PATTERN
-    );
-  });
-});
-
-describe("alwaysRenameResolver", () => {
-  it("should resolve all changes as rename", async () => {
-    const changes = [
-      makeColumnChange("users", "username", "name"),
-      makeTableChange("posts", "articles"),
-    ];
-
-    const resolutions = await alwaysRenameResolver(changes);
-
-    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
-    expect(resolutions.get(changes[1]!)).toEqual({ type: "rename" });
+    await expect(
+      resolveAmbiguousChanges(
+        { operations: [], ambiguousChanges: [change] },
+        { tables: [] },
+        { tables: [] },
+        async () => new Map()
+      )
+    ).rejects.toThrow(MISSING_RESOLUTION_PATTERN);
   });
 });
 
@@ -242,41 +233,6 @@ describe("strictResolver", () => {
   it("should return empty map when no changes", async () => {
     const resolutions = await strictResolver([]);
     expect(resolutions.size).toBe(0);
-  });
-});
-
-describe("createResolver", () => {
-  it("should create resolver from decision function", async () => {
-    const resolver = createResolver((change) => {
-      if (change.type === "ambiguousColumn") {
-        return "rename";
-      }
-      return "addAndDrop";
-    });
-
-    const changes = [
-      makeColumnChange("users", "username", "name"),
-      makeTableChange("posts", "articles"),
-    ];
-
-    const resolutions = await resolver(changes);
-
-    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
-    expect(resolutions.get(changes[1]!)).toEqual({ type: "addAndDrop" });
-  });
-
-  it("should support async decision function", async () => {
-    const resolver = createResolver(
-      async (_change): Promise<"rename" | "addAndDrop"> => {
-        await new Promise((resolve) => setTimeout(resolve, 1));
-        return "rename";
-      }
-    );
-
-    const changes = [makeColumnChange("users", "username", "name")];
-    const resolutions = await resolver(changes);
-
-    expect(resolutions.get(changes[0]!)).toEqual({ type: "rename" });
   });
 });
 

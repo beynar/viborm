@@ -16,7 +16,7 @@ import type {
   TargetKind,
   VariantEntries,
 } from "@schema/relation/static-membership";
-import type { ScalarState } from "@schema/scalars";
+import type { ScalarState, ScalarType } from "@schema/scalars";
 import type { Prettify } from "@validation";
 import type {
   ModelArgsSchemas,
@@ -399,6 +399,24 @@ type ResolvedOperationResultOmit<Args, DefaultOmit, Merged> =
     ? MergeClientOmit<DefaultOmit, NodeOmit<Args>>
     : NodeOmit<Merged>;
 
+/** The verbs whose result is the selected row, wrapped by cardinality. */
+type RowOperation =
+  | "findFirst"
+  | "findUnique"
+  | "findFirstOrThrow"
+  | "findUniqueOrThrow"
+  | "findMany"
+  | "create"
+  | "update"
+  | "delete"
+  | "upsert";
+
+type RowCardinality<O, Row> = O extends "findFirst" | "findUnique"
+  ? Row | null
+  : O extends "findMany"
+    ? Row[]
+    : Row;
+
 /**
  * Operation result type - infers result shape based on select/include args
  * This provides full type safety for ORM operation results
@@ -421,18 +439,10 @@ type OperationResultWithClientDefaults<
   ResultArgs = ResolvedOperationResultArgs<Args, Merged>,
   UnselectedOmit = ResolvedOperationResultOmit<Args, DefaultOmit, Merged>,
 > = M extends Model<infer S>
-  ? O extends "findFirst" | "findUnique"
-    ? Prettify<
-        InferSelectInclude<
-          S,
-          ResultArgs,
-          NodeSelect<ResultArgs>,
-          UnselectedOmit,
-          ClientDefaults
-        >
-      > | null
-    : O extends "findFirstOrThrow" | "findUniqueOrThrow"
-      ? Prettify<
+  ? O extends RowOperation
+    ? RowCardinality<
+        O,
+        Prettify<
           InferSelectInclude<
             S,
             ResultArgs,
@@ -441,37 +451,18 @@ type OperationResultWithClientDefaults<
             ClientDefaults
           >
         >
-      : O extends "findMany"
-        ? Prettify<
-            InferSelectInclude<
-              S,
-              ResultArgs,
-              NodeSelect<ResultArgs>,
-              UnselectedOmit,
-              ClientDefaults
-            >
-          >[]
-        : O extends "create" | "update" | "delete" | "upsert"
-          ? Prettify<
-              InferSelectInclude<
-                S,
-                ResultArgs,
-                NodeSelect<ResultArgs>,
-                UnselectedOmit,
-                ClientDefaults
-              >
-            >
-          : O extends "createMany" | "updateMany" | "deleteMany"
-            ? BulkWriteResult<S, Args, DefaultOmit>
-            : O extends "count"
-              ? CountResultType<Args>
-              : O extends "exist"
-                ? boolean
-                : O extends "aggregate"
-                  ? AggregateResultType<ExtractFields<M>, Args>
-                  : O extends "groupBy"
-                    ? GroupByResultType<ExtractFields<M>, Args>[]
-                    : never
+      >
+    : O extends "createMany" | "updateMany" | "deleteMany"
+      ? BulkWriteResult<S, Args, DefaultOmit>
+      : O extends "count"
+        ? CountResultType<Args>
+        : O extends "exist"
+          ? boolean
+          : O extends "aggregate"
+            ? AggregateResultType<ExtractFields<M>, Args>
+            : O extends "groupBy"
+              ? GroupByResultType<ExtractFields<M>, Args>[]
+              : never
   : never;
 
 /**
@@ -1485,17 +1476,17 @@ type NodeWhereSeal<Where, T> = [T] extends [never]
       : unknown
     : unknown;
 
-type DecimalStateOf<Field> = Field extends {
+type ScalarStateOf<Field, Kind extends ScalarType> = Field extends {
   readonly "~": {
-    readonly state: infer State extends ScalarState<"decimal">;
+    readonly state: infer State extends ScalarState<Kind>;
   };
 }
   ? State
   : never;
 
-type DirectDecimalScalarKeys<State extends ModelState> = {
+type ScalarKeysOf<State extends ModelState, Kind extends ScalarType> = {
   [Key in keyof State["scalars"]]: [
-    DecimalStateOf<State["scalars"][Key]>,
+    ScalarStateOf<State["scalars"][Key], Kind>,
   ] extends [never]
     ? never
     : Key;
@@ -1536,7 +1527,7 @@ type NoExtraDecimalUpdateLeafKeys<
 
 type UsedDirectDecimalFields<Given, State extends ModelState> = Extract<
   SpelledClauseKeys<Given>,
-  DirectDecimalScalarKeys<State>
+  ScalarKeysOf<State, "decimal">
 >;
 
 /** One direct-field map after union branches have contributed their keys. */
@@ -1550,7 +1541,7 @@ type DirectDecimalUpdateObjectGuard<
         State
       >]?: NoExtraDecimalUpdateLeafKeys<
         ValueAt<Given, Key>,
-        DecimalStateOf<State["scalars"][Key]>
+        ScalarStateOf<State["scalars"][Key], "decimal">
       >;
     }
   : unknown;
@@ -1577,22 +1568,6 @@ type DirectDecimalUpdateGuard<
   : O extends "upsert"
     ? DirectDecimalUpdateClauseGuard<Arg, M, "update">
     : unknown;
-
-type GeoPointStateOf<Field> = Field extends {
-  readonly "~": {
-    readonly state: infer State extends ScalarState<"point">;
-  };
-}
-  ? State
-  : never;
-
-type DirectGeoPointScalarKeys<State extends ModelState> = {
-  [Key in keyof State["scalars"]]: [
-    GeoPointStateOf<State["scalars"][Key]>,
-  ] extends [never]
-    ? never
-    : Key;
-}[keyof State["scalars"]];
 
 type NoExtraRecognizedKeys<
   Given,
@@ -1728,7 +1703,7 @@ type DirectGeoPointGuard<
   Arg,
   M extends Model<any>,
   PointKeys extends PropertyKey = M extends Model<infer State>
-    ? DirectGeoPointScalarKeys<State>
+    ? ScalarKeysOf<State, "point">
     : never,
 > = [PointKeys] extends [never]
   ? unknown
@@ -1812,11 +1787,49 @@ type NoExtraOperationKeys<
   DirectGeoPointGuard<O, Arg, M>;
 
 /**
- * Operation type - returns PendingOperation which implements PromiseLike
- * This allows operations to be:
- * - Awaited directly: `await client.user.findMany()`
- * - Batched in transactions: `await client.$transaction([op1, op2])`
+ * One client method signature. `Pending` picks its carrier: a PendingOperation
+ * (PromiseLike, so it can be awaited directly or batched in
+ * `$transaction([op1, op2])`), or a plain Promise for a cached read, which is
+ * not batchable.
  */
+type OperationMethod<
+  O extends Operations,
+  M extends Model<any>,
+  DefaultOmit,
+  ClientDefaults,
+  Controls,
+  Payload,
+  Pending extends boolean,
+> = undefined extends Payload
+  ? <Arg extends Payload>(
+      args?: WithControlArgs<
+        NoExtraOperationKeys<
+          O,
+          Exclude<Arg, undefined>,
+          Exclude<Payload, undefined>,
+          M,
+          Controls
+        >,
+        Controls
+      >
+    ) => OperationCarrier<
+      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>,
+      Pending
+    >
+  : <Arg extends Payload>(
+      args: WithControlArgs<
+        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
+        Controls
+      >
+    ) => OperationCarrier<
+      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>,
+      Pending
+    >;
+
+type OperationCarrier<Result, Pending extends boolean> = Pending extends true
+  ? PendingOperation<Result>
+  : Promise<Result>;
+
 type Operation<
   O extends Operations,
   M extends Model<any>,
@@ -1824,63 +1837,23 @@ type Operation<
   ClientDefaults = never,
   Controls = NoControls,
   Payload = OperationPayload<O, M>,
-> = undefined extends Payload
-  ? <Arg extends Payload>(
-      args?: WithControlArgs<
-        NoExtraOperationKeys<
-          O,
-          Exclude<Arg, undefined>,
-          Exclude<Payload, undefined>,
-          M,
-          Controls
-        >,
-        Controls
-      >
-    ) => PendingOperation<
-      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
-    >
-  : <Arg extends Payload>(
-      args: WithControlArgs<
-        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
-        Controls
-      >
-    ) => PendingOperation<
-      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
-    >;
+> = OperationMethod<O, M, DefaultOmit, ClientDefaults, Controls, Payload, true>;
 
-/**
- * Cached operation type - returns Promise directly (not batchable)
- */
 type CachedOperation<
   O extends Operations,
   M extends Model<any>,
   DefaultOmit = undefined,
   ClientDefaults = never,
   Controls = NoControls,
-  Payload = OperationPayload<O, M>,
-> = undefined extends Payload
-  ? <Arg extends Payload>(
-      args?: WithControlArgs<
-        NoExtraOperationKeys<
-          O,
-          Exclude<Arg, undefined>,
-          Exclude<Payload, undefined>,
-          M,
-          Controls
-        >,
-        Controls
-      >
-    ) => Promise<
-      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
-    >
-  : <Arg extends Payload>(
-      args: WithControlArgs<
-        NoExtraOperationKeys<O, Arg, Payload, M, Controls>,
-        Controls
-      >
-    ) => Promise<
-      OperationResultWithClientDefaults<O, M, Arg, DefaultOmit, ClientDefaults>
-    >;
+> = OperationMethod<
+  O,
+  M,
+  DefaultOmit,
+  ClientDefaults,
+  Controls,
+  OperationPayload<O, M>,
+  false
+>;
 
 /**
  * Cached client type - provides typed access to only cacheable (read) operations

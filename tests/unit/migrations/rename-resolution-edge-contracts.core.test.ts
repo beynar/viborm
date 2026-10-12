@@ -3,7 +3,6 @@ import { applyNativeRename } from "@src/migrations/native-rename";
 import {
   alwaysAddDropResolver,
   ambiguousToResolveChange,
-  applyResolutions,
   callbackAsResolver,
   createPredefinedResolver,
   resolveAmbiguousChanges,
@@ -193,9 +192,16 @@ describe("native rename contracts", () => {
 });
 
 describe("resolution edge contracts", () => {
-  test("missing resolutions refuse both ambiguity kinds", () => {
+  test("missing resolutions refuse both ambiguity kinds", async () => {
     for (const change of [columnChange(), tableChange()]) {
-      expect(() => applyResolutions([change], new Map())).toThrowError(
+      await expect(
+        resolveAmbiguousChanges(
+          { operations: [], ambiguousChanges: [change] },
+          { tables: [] },
+          { tables: [] },
+          async () => new Map()
+        )
+      ).rejects.toThrowError(
         expect.objectContaining({
           code: VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED,
         })

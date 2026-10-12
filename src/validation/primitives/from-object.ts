@@ -102,14 +102,6 @@ type ComputeEntries<
   [K in keyof TObject]: SchemaAtPath<TObject, TPath, K>;
 };
 
-/**
- * FromObject schema type (alias for ObjectSchema with computed entries).
- */
-export type FromObjectSchema<
-  TEntries,
-  TOpts extends FromObjectOptions | undefined = undefined,
-> = ObjectSchema<TEntries, TOpts>;
-
 // =============================================================================
 // FromObject Schema Implementation
 // =============================================================================
@@ -155,10 +147,7 @@ export function entriesFromObject<
       result[key] = value;
     }
   }
-  if (
-    Object.keys(sourceObject).length > 0 &&
-    Object.keys(result).length === 0
-  )
+  if (Object.keys(sourceObject).length > 0 && Object.keys(result).length === 0)
     refuseUnmatchedPath(sourceObject, path);
   // The runtime path projection is the boundary that establishes this mapping.
   return result as ComputeEntries<TObject, TPath>;

@@ -8,9 +8,9 @@
 import { MigrationError, VibORMErrorCode } from "../errors";
 import {
   type appendLedger,
-  controlTableNames,
-  DEFAULT_CONTROL_BASE,
+  CONTROL_TABLES,
   readControlState,
+  sameMarker,
   unfinishedAttempts,
 } from "./control";
 import { diff } from "./differ";
@@ -59,15 +59,11 @@ export async function assertLockedSinceDecision(
   ownAttempt = false
 ): Promise<void> {
   if (lockedSinceDecision(pinned)) return;
-  const { marker, ledger } = await readControlState(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    { ledger: "open" }
-  );
+  const { marker, ledger } = await readControlState(producer, command, {
+    ledger: "open",
+  });
   if (
-    marker?.revision === expected?.revision &&
-    marker?.pathHash === expected?.pathHash &&
+    sameMarker(marker, expected) &&
     (ownAttempt || unfinishedAttempts(ledger).length === 0)
   ) {
     return;
@@ -119,35 +115,26 @@ export function markedSnapshotHash(
       VibORMErrorCode.MIGRATION_DRIFT
     );
   }
-  if (marker.path.length === 0) {
-    if (marker.stateId !== null) {
+  if ((marker.path.at(-1)?.stateId ?? null) !== marker.stateId) {
+    throw new MigrationError(
+      "Marker path does not end at the marked state",
+      VibORMErrorCode.MIGRATION_CORRUPTION
+    );
+  }
+  let from: Sha256 | null = null;
+  for (const edge of marker.path) {
+    const state = graph.states.get(edge.stateId);
+    const parent = state?.parents.find(
+      (item) =>
+        item.transitionHash === edge.transitionHash && item.fromState === from
+    );
+    if (!(state && parent)) {
       throw new MigrationError(
-        "Marker path does not end at the marked state",
+        "Marker path is not an authenticated arrival route",
         VibORMErrorCode.MIGRATION_CORRUPTION
       );
     }
-  } else {
-    if (marker.path.at(-1)!.stateId !== marker.stateId) {
-      throw new MigrationError(
-        "Marker path does not end at the marked state",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-    let from: Sha256 | null = null;
-    for (const edge of marker.path) {
-      const state = graph.states.get(edge.stateId);
-      const parent = state?.parents.find(
-        (item) =>
-          item.transitionHash === edge.transitionHash && item.fromState === from
-      );
-      if (!(state && parent)) {
-        throw new MigrationError(
-          "Marker path is not an authenticated arrival route",
-          VibORMErrorCode.MIGRATION_CORRUPTION
-        );
-      }
-      from = edge.stateId;
-    }
+    from = edge.stateId;
   }
   // Proven above to be the marked state's, which the graph holds.
   return marker.snapshotHash;
@@ -176,10 +163,7 @@ export async function proveLive(
   // `loadMigrationGraph` loads every state's snapshot and seeds the empty one.
   const expected = graph.snapshots.get(snapshotHash)!;
   const fingerprint = await fingerprintLive(expected, command, producer);
-  const digest = await command.catalogDigest?.(
-    producer,
-    controlTableNames(DEFAULT_CONTROL_BASE)
-  );
+  const digest = await command.catalogDigest?.(producer, CONTROL_TABLES);
   if (digest !== undefined && digest === fingerprint) return [];
   const live = await introspectManaged(producer, command);
   if ((await fingerprintLive(live, command, producer)) !== fingerprint) {

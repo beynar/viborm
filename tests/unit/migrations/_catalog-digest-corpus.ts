@@ -13,7 +13,7 @@
  */
 
 import type { AnyDriver } from "@drivers/driver";
-import { controlTableNames, DEFAULT_CONTROL_BASE } from "@migrations/control";
+import { CONTROL_TABLES } from "@migrations/control";
 import { postgresCatalogDigest } from "@migrations/drivers/postgres/catalog-digest";
 import type { MigrationClient } from "@migrations/push/planner";
 import { getPushMigrationDriver } from "@migrations/push/planner";
@@ -199,11 +199,7 @@ export async function digestAndFingerprint(
   const driver = getPushMigrationDriver(tables ? scoped : orm);
   const live = await introspectManaged(orm.$driver, driver);
   return {
-    digest: await postgresCatalogDigest(
-      orm.$driver,
-      driver,
-      controlTableNames(DEFAULT_CONTROL_BASE)
-    ),
+    digest: await postgresCatalogDigest(orm.$driver, driver, CONTROL_TABLES),
     fingerprint: await fingerprintLive(live, driver, orm.$driver),
   };
 }

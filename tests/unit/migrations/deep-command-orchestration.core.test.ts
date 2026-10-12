@@ -4,7 +4,7 @@ import {
   canonicalizeJson,
   canonicalizeJsonText,
 } from "@src/migrations/canonical-json";
-import { markerFromPath } from "@src/migrations/control";
+import { CONTROL_TABLES, markerFromPath } from "@src/migrations/control";
 import type { BoundMigrationDriver } from "@src/migrations/drivers";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
@@ -350,6 +350,8 @@ describe("deep reset orchestration", () => {
   });
 });
 
+const CONTROL = CONTROL_TABLES;
+
 describe("deep live reset planning", () => {
   test("plans owned foreign keys, cyclic tables, preserved tables, and enums before effects", async () => {
     const snapshot: SchemaSnapshot = {
@@ -363,7 +365,15 @@ describe("deep live reset planning", () => {
       ],
       enums: [{ name: "status", values: ["open", "closed"] }],
     };
-    const tables = ["_track", "kept", "parent", "child", "self", "base", "kid"];
+    const tables = [
+      CONTROL.state,
+      CONTROL.log,
+      "parent",
+      "child",
+      "self",
+      "base",
+      "kid",
+    ];
     const enums = ["status"];
     const driver = pgEstateDriver("tenant");
     driver.respond = inventoryRespond({ tables, enums });
@@ -372,14 +382,8 @@ describe("deep live reset planning", () => {
       enums,
     });
 
-    const plan = await planLiveNamespaceReset(driver, command, {
-      trackingTable: "preserve",
-      trackingTableName: "_track",
-      preserveTables: ["kept"],
-    });
+    const plan = await planLiveNamespaceReset(driver, command);
 
-    expect(plan.tables).toEqual(tables);
-    expect(plan.clearTracking).toContain("_track");
     expect(plan.dropForeignKeys).toHaveLength(4);
     // Children before parents; the cycle, whose keys are already dropped,
     // follows in inventory order.
@@ -391,6 +395,11 @@ describe("deep live reset planning", () => {
       "child",
     ]);
     expect(plan.dropEnums).toHaveLength(1);
+    expect(plan.clear).toEqual([
+      ...plan.dropForeignKeys,
+      ...plan.dropTables.map(({ sql }) => sql),
+      ...plan.dropEnums,
+    ]);
     expect(
       driver.statements.some((statement) => statement.startsWith("DROP"))
     ).toBe(false);
@@ -398,10 +407,10 @@ describe("deep live reset planning", () => {
 
   test("MySQL refuses an inbound tracking-table reference during planning", async () => {
     const snapshot: SchemaSnapshot = {
-      tables: [table("application", [foreignKey("history_fk", "_track")])],
+      tables: [table("application", [foreignKey("history_fk", CONTROL.state)])],
       enums: [],
     };
-    const tables = ["_track", "application"];
+    const tables = [CONTROL.state, "application"];
     const driver = mysqlEstateDriver({
       namespace: "tenant",
       attested: true,
@@ -411,15 +420,12 @@ describe("deep live reset planning", () => {
       tables,
     });
 
-    await expect(
-      planLiveNamespaceReset(driver, command, {
-        trackingTable: "preserve",
-        trackingTableName: "_track",
-      })
-    ).rejects.toMatchObject({
-      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
-      meta: expect.objectContaining({ constraint: "history_fk" }),
-    });
+    await expect(planLiveNamespaceReset(driver, command)).rejects.toMatchObject(
+      {
+        code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+        meta: expect.objectContaining({ constraint: "history_fk" }),
+      }
+    );
     expect(
       driver.statements.some((statement) => statement.startsWith("DROP"))
     ).toBe(false);

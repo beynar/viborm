@@ -1,4 +1,4 @@
-import { errorCause } from "../drivers/shared/driver-options";
+import { errorCause } from "../errors/diagnostic-safety";
 import { isDestructiveOperation } from "./differ";
 import { formatOperation } from "./push/format";
 /**
@@ -12,8 +12,8 @@ import type { ResolvedRelationIndex } from "../schema/validation/relation-resolu
 import { sql } from "../sql/sql";
 import { isRecord } from "../validation/value-guards";
 import { canonicalizeJson, canonicalizeJsonText } from "./canonical-json";
-import { classifyGeneratedAtomicity } from "./compile";
-import { controlTableNames, DEFAULT_CONTROL_BASE } from "./control";
+import { classifyGeneratedAtomicity, dispatchAt } from "./compile";
+import { CONTROL_TABLES } from "./control";
 import type {
   BoundMigrationDriver,
   DDLContext,
@@ -131,12 +131,7 @@ export async function buildPushPlan(
   let operations: readonly DiffOperation[];
   if (options.forceReset) {
     current = await introspectManaged(producer, command);
-    const control = controlTableNames(DEFAULT_CONTROL_BASE);
-    reset = await planLiveNamespaceReset(producer, command, {
-      trackingTable: "preserve",
-      trackingTableName: control.state,
-      preserveTables: [control.log],
-    });
+    reset = await planLiveNamespaceReset(producer, command);
     const rebuild = await planRebuildFromEmpty(
       { $driver: producer, $schema: client.$schema },
       planningDriver,
@@ -215,7 +210,7 @@ export async function buildPushPlan(
           : "safe",
     })
   );
-  const atomicity = classifyPlanAtomicity(command, operations);
+  const atomicity = classifyGeneratedAtomicity(command, operations);
   const destructive =
     mode === "force-reset" ||
     reportedOperations.some((operation) => operation.risk === "destructive");
@@ -274,19 +269,12 @@ export function compilePlanStatements(
     readonly index: number;
   }> = [];
 
-  if (reset) {
-    const clear = [
-      ...reset.dropForeignKeys,
-      ...reset.dropTables.map((table) => table.sql),
-      ...reset.dropEnums,
-    ];
-    for (const [index, sql] of clear.entries()) {
-      pending.push({
-        kind: "clear",
-        operationId: `force-reset:clear:${index}`,
-        index: assembly.add(sql),
-      });
-    }
+  for (const [index, sql] of (reset?.clear ?? []).entries()) {
+    pending.push({
+      kind: "clear",
+      operationId: `force-reset:clear:${index}`,
+      index: assembly.add(sql),
+    });
   }
 
   for (const [operationIndex, operation] of operations.entries()) {
@@ -312,7 +300,7 @@ export function compilePlanStatements(
     statements: pending.map((statement) => ({
       kind: statement.kind,
       operationId: statement.operationId,
-      dispatch: requiredDispatch(sealed.dispatches, statement.index),
+      dispatch: dispatchAt(sealed.dispatches, statement.index),
     })),
   };
 }
@@ -354,13 +342,6 @@ export function hashPushPlan(input: {
   );
 }
 
-export function classifyPlanAtomicity(
-  driver: MigrationDriver,
-  operations: readonly DiffOperation[]
-): AtomicityClass {
-  return classifyGeneratedAtomicity(driver, operations);
-}
-
 export async function introspectManaged(
   producer: AnyDriver,
   driver: MigrationDriver
@@ -368,20 +349,6 @@ export async function introspectManaged(
   return withoutControlTables(
     await driver.introspect((sql, params) => producer._executeRaw(sql, params))
   );
-}
-
-function requiredDispatch(
-  dispatches: readonly MigrationDispatchV1[],
-  index: number
-): MigrationDispatchV1 {
-  const dispatch = dispatches[index];
-  if (!dispatch) {
-    throw new MigrationError(
-      "The structured push compiler omitted a planned dispatch",
-      VibORMErrorCode.INTERNAL_ERROR
-    );
-  }
-  return dispatch;
 }
 
 function managedPlanningDriver(
@@ -398,11 +365,11 @@ function managedPlanningDriver(
 }
 
 function withoutControlTables(snapshot: SchemaSnapshot): SchemaSnapshot {
-  const names = controlTableNames(DEFAULT_CONTROL_BASE);
   return {
     ...snapshot,
     tables: snapshot.tables.filter(
-      (table) => table.name !== names.state && table.name !== names.log
+      (table) =>
+        table.name !== CONTROL_TABLES.state && table.name !== CONTROL_TABLES.log
     ),
   };
 }

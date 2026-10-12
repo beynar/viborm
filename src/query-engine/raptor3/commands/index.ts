@@ -2,8 +2,8 @@ import type { Operations } from "@client/types";
 import type { QueryExecutionContext } from "@drivers/types";
 import { NotFoundError } from "@errors";
 import type { Sql } from "@sql";
+import { baseOperation } from "../../routed-operations";
 import type { PreparedBatchOperation } from "../../types";
-import { unreachable } from "../shared/invariant";
 import {
   type ExecutionBinding,
   OperationContext,
@@ -21,44 +21,10 @@ import {
   type EngineConfig,
   EngineSchema,
   isReadOperation,
+  memo,
   type Operation,
 } from "../shared/schema";
 import { Commands, type PhysicalPlan } from "./commands";
-
-/**
- * The admitted operation an `…OrThrow` verb shares its whole envelope with.
- *
- * Every verb the client can spell is a member of the closed `Operations`
- * union, so the arms below are the whole vocabulary and the compiler proves
- * it: the `default` arm's value has no members left. There is no operation
- * this engine does not implement — that was a sentence about a state the type
- * forbids (N4, plan §4).
- */
-function admittedOperation(operation: Operations): Operation {
-  switch (operation) {
-    case "findUniqueOrThrow":
-      return "findUnique";
-    case "findFirstOrThrow":
-      return "findFirst";
-    case "create":
-    case "createMany":
-    case "update":
-    case "upsert":
-    case "updateMany":
-    case "delete":
-    case "deleteMany":
-    case "findMany":
-    case "findUnique":
-    case "findFirst":
-    case "count":
-    case "exist":
-    case "aggregate":
-    case "groupBy":
-      return operation;
-    default:
-      return unreachable(operation, "client operation");
-  }
-}
 
 /**
  * What a prepared read publishes before it runs.
@@ -185,7 +151,7 @@ class PreparedCommand implements PreparedOperation {
     this.#config = config;
     this.#schema = schema;
     this.#queries = queries;
-    this.#operation = admittedOperation(requested);
+    this.#operation = baseOperation(requested);
     this.#model = config.schema[modelName]!;
     this.#modelName = modelName;
     this.#rawArgs = rawArgs;
@@ -224,16 +190,38 @@ class PreparedCommand implements PreparedOperation {
     return (this.#facts ??= publishedFacts(value));
   }
 
+  /** This call's context; only the binding, preparation and attribution vary. */
+  #context(
+    preparing: boolean,
+    attribution?: QueryExecutionContext,
+    binding?: ExecutionBinding
+  ): OperationContext {
+    return new OperationContext(
+      this.#schema,
+      this.#config.driver,
+      this.#modelName,
+      this.#operation,
+      binding,
+      preparing,
+      attribution,
+      this.#scope
+    );
+  }
+
+  #plan(context: OperationContext): PhysicalPlan {
+    return new Commands(context).plan(
+      this.#model,
+      this.args,
+      this.#rawArgs as Arguments
+    );
+  }
+
   #body(context: OperationContext) {
     const value = this.#read();
     if (value) return context.run(() => context.publish(value, this.#missing));
     // The physical form is constructed BEFORE the envelope decision and runs
     // once, whichever envelope the rule chooses.
-    let planned: PhysicalPlan | undefined = new Commands(context).plan(
-      this.#model,
-      this.args,
-      this.#rawArgs as Arguments
-    );
+    let planned: PhysicalPlan | undefined = this.#plan(context);
     const single = planned.single;
     // Each ATTEMPT runs its own occurrence tree. The envelope restart and the
     // recovery both re-enter this body, and a recovery re-plans from the same
@@ -244,13 +232,7 @@ class PreparedCommand implements PreparedOperation {
     // answered the envelope question, so nothing is constructed twice to
     // START an operation.
     return context.run(() => {
-      const plan =
-        planned ??
-        new Commands(context).plan(
-          this.#model,
-          this.args,
-          this.#rawArgs as Arguments
-        );
+      const plan = planned ?? this.#plan(context);
       planned = undefined;
       return plan.run();
     }, single);
@@ -261,18 +243,7 @@ class PreparedCommand implements PreparedOperation {
     attribution?: QueryExecutionContext
   ): Promise<unknown> {
     try {
-      return this.#body(
-        new OperationContext(
-          this.#schema,
-          this.#config.driver,
-          this.#modelName,
-          this.#operation,
-          binding,
-          false,
-          attribution,
-          this.#scope
-        )
-      );
+      return this.#body(this.#context(false, attribution, binding));
     } catch (error) {
       return Promise.reject(error);
     }
@@ -284,17 +255,8 @@ class PreparedCommand implements PreparedOperation {
     // Preparing admits the input whatever the verb compiles to: an
     // operation that publishes no single query still answers for the
     // payload it was handed, exactly as `prepareBatch` does.
-    const args = this.args;
-    const context = new OperationContext(
-      this.#schema,
-      this.#config.driver,
-      this.#modelName,
-      this.#operation,
-      undefined,
-      true,
-      attribution,
-      this.#scope
-    );
+    this.args;
+    const context = this.#context(true, attribution);
     const value = this.#read();
     if (value) {
       context.publishPrepared(value, this.#missing);
@@ -311,11 +273,7 @@ class PreparedCommand implements PreparedOperation {
     // is refused again, and reported, by the arm that actually runs the
     // operation, which is the only arm a caller takes once no single
     // package is published.
-    const plan = new Commands(context).plan(
-      this.#model,
-      args,
-      this.#rawArgs as Arguments
-    );
+    const plan = this.#plan(context);
     if (!plan.single) return undefined;
     plan.run().catch(() => undefined);
     return context.preparedBatch();
@@ -324,16 +282,7 @@ class PreparedCommand implements PreparedOperation {
   async prepareBatch(
     attribution?: QueryExecutionContext
   ): Promise<PreparedBatchOperation<unknown> | undefined> {
-    const context = new OperationContext(
-      this.#schema,
-      this.#config.driver,
-      this.#modelName,
-      this.#operation,
-      undefined,
-      true,
-      attribution,
-      this.#scope
-    );
+    const context = this.#context(true, attribution);
     try {
       await this.#body(context);
     } catch (error) {
@@ -380,11 +329,8 @@ const preparedDomains = new WeakMap<
 >();
 
 function preparedDomain(queries: Queries, rows: RowDomain): PreparedDomain {
-  let byDomain = preparedDomains.get(queries);
-  if (!byDomain) preparedDomains.set(queries, (byDomain = new WeakMap()));
-  let domain = byDomain.get(rows);
-  if (!domain) byDomain.set(rows, (domain = new PreparedDomain(rows, queries)));
-  return domain;
+  const byDomain = memo(preparedDomains, queries, () => new WeakMap());
+  return memo(byDomain, rows, () => new PreparedDomain(rows, queries));
 }
 
 function sharedQueries(config: EngineConfig): Queries {

@@ -11,8 +11,6 @@ import {
   ambiguousToResolveChange,
   callbackAsResolver,
   createPredefinedResolver,
-  createUnifiedResolver,
-  formatAmbiguousChanges,
   validateResolveResult,
 } from "@src/migrations/resolver";
 import type {
@@ -283,10 +281,6 @@ describe("migration planning boundaries", () => {
   });
 
   test("formats and predefines column and table ambiguity decisions", async () => {
-    expect(formatAmbiguousChanges([])).toBe("No ambiguous changes detected.");
-    expect(formatAmbiguousChanges([columnAmbiguity, tableAmbiguity])).toContain(
-      "Column rename detected"
-    );
     expect(ambiguousToResolveChange(tableAmbiguity)).toMatchObject({
       operation: "renameTable",
       oldName: "user",
@@ -329,9 +323,6 @@ describe("migration planning boundaries", () => {
     );
     expect(() => validateResolveResult("ambiguous", change, null)).toThrow(
       INVALID_NULL_RESOLUTION
-    );
-    expect(await createUnifiedResolver(async () => "addAndDrop")(change)).toBe(
-      "addAndDrop"
     );
   });
 });

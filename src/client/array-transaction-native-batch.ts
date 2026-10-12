@@ -17,6 +17,68 @@ import type {
 } from "@query-engine/transaction-operation";
 import type { PreparedBatchGuard } from "@query-engine/types";
 
+export interface NativeBatchMember {
+  readonly operation: TransactionOperationCapability;
+  readonly owner: TransactionOperationOwner<TransactionOperationCapability>;
+}
+
+export interface PreparedNativeBatch {
+  readonly queries: BatchQuery[];
+  readonly guards: PreparedBatchGuard[];
+  readonly parsers: ((
+    batchResults: QueryResult<unknown>[]
+  ) => Promise<unknown>)[];
+}
+
+/** Prepare members in order into one native batch with per-member parsers. */
+export async function prepareNativeBatch(
+  members: readonly NativeBatchMember[],
+  driver: AnyDriver
+): Promise<PreparedNativeBatch> {
+  const queries: BatchQuery[] = [];
+  const guards: PreparedBatchGuard[] = [];
+  const parsers: PreparedNativeBatch["parsers"] = [];
+  for (const { operation, owner } of members) {
+    const preparation = await owner.observeBatchPhase(
+      operation,
+      driver,
+      async () => {
+        const prepared = owner.prepare(operation, driver);
+        if (prepared) return { kind: "single" as const, prepared };
+        return {
+          kind: "batch" as const,
+          preparedBatch: await owner.prepareBatch(operation),
+        };
+      }
+    );
+    const start = queries.length;
+    if (preparation.kind === "single") {
+      queries.push(preparation.prepared);
+      parsers.push((batchResults) =>
+        owner.observeBatchPhase(operation, driver, () => {
+          const result = batchResults[start];
+          if (!result) throw missingOperationResult(driver, operation, owner);
+          return owner.parseResult(operation, result);
+        })
+      );
+      continue;
+    }
+    const { preparedBatch } = preparation;
+    if (!preparedBatch) throw unbatchableArrayError(driver);
+    const length = preparedBatch.queries.length;
+    for (const query of preparedBatch.queries) queries.push(query);
+    for (const guard of preparedBatch.guards ?? []) {
+      guards.push({ ...guard, queryIndex: start + guard.queryIndex });
+    }
+    parsers.push((batchResults) =>
+      owner.observeBatchPhase(operation, driver, () =>
+        preparedBatch.parseResult(batchResults.slice(start, start + length))
+      )
+    );
+  }
+  return { queries, guards, parsers };
+}
+
 export async function executeNativeBatch(
   driver: AnyDriver,
   queries: BatchQuery[],

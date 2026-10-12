@@ -190,7 +190,7 @@ export async function withForeignKeysLifted<T>(
     await assertEnforcement(driver, 0);
     const result = await work(async (transaction, body) => {
       const value = await body(keepingChildren(transaction));
-      await assertForeignKeysIntact(transaction, bracket);
+      await assertForeignKeysIntact(transaction);
       return value;
     });
     completed = true;
@@ -328,7 +328,7 @@ async function countChildren(
 /**
  * Refuses a lifted batch that would commit against a broken reference: the
  * last statement `inside` runs, in the transaction, so the throw takes the
- * batch back. A no-op without a bracket.
+ * batch back.
  *
  * This is why the lift is not a fail-open trade. Lifting the pragma disables
  * enforcement for the whole batch, not just the recreation, so a `dropTable`
@@ -341,13 +341,8 @@ async function countChildren(
  * schema change is to be abandoned.
  */
 export async function assertForeignKeysIntact(
-  transaction: AnyDriver,
-  bracket: ForeignKeyBracket | null
+  transaction: AnyDriver
 ): Promise<void> {
-  if (!bracket) {
-    return;
-  }
-
   const result = await transaction._executeRaw<ForeignKeyCheckRow>(
     "PRAGMA foreign_key_check;"
   );

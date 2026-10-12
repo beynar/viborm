@@ -9,7 +9,7 @@
  */
 
 import type { AnyDriver } from "@drivers/driver";
-import { controlTableNames, DEFAULT_CONTROL_BASE } from "@migrations/control";
+import { CONTROL_TABLES } from "@migrations/control";
 import { postgresCatalogDigest } from "@migrations/drivers/postgres/catalog-digest";
 import { NULLS_NOT_DISTINCT_QUERY } from "@migrations/drivers/postgres/introspect";
 import type { MigrationClient } from "@migrations/push/planner";
@@ -57,7 +57,7 @@ export async function readNullsNotDistinctIndex(
   const digest = await postgresCatalogDigest(
     orm.$driver,
     driver,
-    controlTableNames(DEFAULT_CONTROL_BASE)
+    CONTROL_TABLES
   );
   const legacy = await introspectManaged(beforePostgres15(orm.$driver), driver);
   return {

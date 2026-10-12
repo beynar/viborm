@@ -28,6 +28,17 @@ const appendSelectParts = (
   parts: QueryParts,
   options: SelectAssemblyOptions
 ): void => {
+  appendFilterParts(fragments, parts);
+
+  if (parts.orderBy) {
+    fragments.push(sql`ORDER BY ${parts.orderBy}`);
+  }
+
+  appendLimitOffset(fragments, parts.limit, parts.offset, options.noLimitValue);
+};
+
+/** Joins, WHERE, GROUP BY and HAVING: shared by the plain and the emulated-DISTINCT select. */
+const appendFilterParts = (fragments: Sql[], parts: QueryParts): void => {
   if (parts.joins && parts.joins.length > 0) {
     fragments.push(...parts.joins);
   }
@@ -43,12 +54,6 @@ const appendSelectParts = (
   if (parts.having) {
     fragments.push(sql`HAVING ${parts.having}`);
   }
-
-  if (parts.orderBy) {
-    fragments.push(sql`ORDER BY ${parts.orderBy}`);
-  }
-
-  appendLimitOffset(fragments, parts.limit, parts.offset, options.noLimitValue);
 };
 
 const appendLimitOffset = (
@@ -120,39 +125,16 @@ export const assembleDistinctOnEmulation = (
     sql`FROM ${parts.from}`,
   ];
 
-  if (parts.joins && parts.joins.length > 0) {
-    innerFragments.push(...parts.joins);
-  }
-
-  if (parts.where) {
-    innerFragments.push(sql`WHERE ${parts.where}`);
-  }
-
-  if (parts.groupBy) {
-    innerFragments.push(sql`GROUP BY ${parts.groupBy}`);
-  }
-
-  if (parts.having) {
-    innerFragments.push(sql`HAVING ${parts.having}`);
-  }
+  appendFilterParts(innerFragments, parts);
 
   const innerQuery = sql.join(innerFragments, " ");
 
-  // Build outer SELECT - use explicit column aliases to exclude _rn/_ord
-  let outerSelect: Sql;
-  if (parts.distinctColumnAliases && parts.distinctColumnAliases.length > 0) {
-    const aliasColumns = parts.distinctColumnAliases.map((alias) =>
-      escapeIdentifier(alias)
-    );
-    outerSelect = sql`SELECT ${sql.join(aliasColumns, ", ")} FROM (${innerQuery}) AS ${escapeIdentifier("_distinct_subquery")}`;
-  } else {
-    // Fallback to SELECT * (includes _rn/_ord)
-    outerSelect = sql`SELECT * FROM (${innerQuery}) AS ${escapeIdentifier("_distinct_subquery")}`;
-  }
-
-  // Outer query that filters for first row of each partition
+  // Outer query that filters for first row of each partition. It names the
+  // output columns so _rn/_ord stay inside: every engine DISTINCT carrier
+  // states its aliases.
+  const aliasColumns = parts.distinctColumnAliases!.map(escapeIdentifier);
   const outerFragments: Sql[] = [
-    outerSelect,
+    sql`SELECT ${sql.join(aliasColumns, ", ")} FROM (${innerQuery}) AS ${escapeIdentifier("_distinct_subquery")}`,
     sql`WHERE ${escapeIdentifier("_rn")} = 1`,
   ];
 

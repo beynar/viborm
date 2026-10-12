@@ -16,8 +16,10 @@
 
 import type { DriverConfig } from "@client/client";
 import { ClientInitializationError } from "@errors";
-import { isError } from "../../errors/diagnostic-safety";
+import { errorCause } from "../../errors/diagnostic-safety";
 import type { MigrationSessionAttestation } from "../driver";
+
+// Migrations still import the normalizer from this module.
 
 /**
  * MySQL2's transport assertion. It selects nothing: it states that qualified
@@ -31,28 +33,6 @@ const MIGRATION_NAMESPACE_ATTESTATION: MigrationNamespaceAttestation =
 
 const MIGRATION_SESSION_ATTESTATION: MigrationSessionAttestation =
   "dedicated-session";
-
-/**
- * The ONE normalizer for a thrown value that has to become an error's cause.
- *
- * A thrown `Error` stays the cause. Anything else becomes one deterministic
- * `Error` that keeps the thrown value as its own cause and never renders it —
- * rendering runs `toString` on a value chosen by whoever wrote the accessor.
- *
- * TOTAL, which a bare `thrown instanceof Error` is not: `instanceof` walks the
- * prototype chain through `[[GetPrototypeOf]]`, so a Proxy trap that throws
- * makes the TEST fail rather than the value. Every caller runs this inside the
- * `catch` that is building a typed error, so a throw here does not lose the
- * cause — it replaces the typed boundary with the trap's own error, and a
- * caller catching that boundary catches nothing. `isError` is the project's
- * existing guarded predicate; this is its one driver-side consumer, so the
- * option boundary, the pinned session's condemnation and the migration reset
- * all normalize the same way rather than each writing the test again.
- */
-export function errorCause(thrown: unknown): Error {
-  if (isError(thrown)) return thrown;
-  return new Error("A non-Error value was thrown.", { cause: thrown });
-}
 
 /** Read one caller-owned option, exactly once, from the object itself. */
 function readOptionOnce(source: object, key: string): unknown {

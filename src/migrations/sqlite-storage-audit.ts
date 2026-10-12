@@ -1,4 +1,4 @@
-import { errorCause } from "../drivers/shared/driver-options";
+import { errorCause } from "../errors/diagnostic-safety";
 /**
  * SQLite storage that typed queries compare but never inspect: text DateTime
  * and Time (scalar or JSON list) and checked decimals.

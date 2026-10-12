@@ -17,22 +17,21 @@ import { applyNativeRename } from "../native-rename";
 import {
   alwaysAddDropResolver,
   ambiguousDropKey,
+  ambiguousToResolveChange,
   approveDestructiveOperations,
   resolveAmbiguousChanges,
   validateResolveResult,
 } from "../resolver";
 import { serializeResolvedModels } from "../serializer";
 import { MANAGED_TABLES, MIGRATION_LIMITS } from "../target";
-import {
-  type AmbiguousChange,
-  type AmbiguousResolveChange,
-  type ChangeResolution,
-  createAmbiguousChange,
-  type DiffOperation,
-  type DiffResult,
-  type ResolveCallback,
-  type Resolver,
-  type SchemaSnapshot,
+import type {
+  AmbiguousChange,
+  ChangeResolution,
+  DiffOperation,
+  DiffResult,
+  ResolveCallback,
+  Resolver,
+  SchemaSnapshot,
 } from "../types";
 import { prepareSchemaProgram, sortOperations } from "../utils";
 import {
@@ -485,29 +484,4 @@ function rejectUnresolvedChanges(
       "Provide a resolve callback to choose each change explicitly.",
     VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
   );
-}
-
-function ambiguousToResolveChange(
-  change: AmbiguousChange
-): AmbiguousResolveChange {
-  if (change.type === "ambiguousColumn") {
-    return createAmbiguousChange({
-      operation: "renameColumn",
-      table: change.tableName,
-      column: change.addedColumn.name,
-      oldName: change.droppedColumn.name,
-      newName: change.addedColumn.name,
-      oldType: change.droppedColumn.type,
-      newType: change.addedColumn.type,
-      description: `Column "${change.droppedColumn.name}" → "${change.addedColumn.name}" in table "${change.tableName}" (rename or add+drop?)`,
-    });
-  }
-
-  return createAmbiguousChange({
-    operation: "renameTable",
-    table: change.addedTable,
-    oldName: change.droppedTable,
-    newName: change.addedTable,
-    description: `Table "${change.droppedTable}" → "${change.addedTable}" (rename or add+drop?)`,
-  });
 }

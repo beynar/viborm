@@ -24,6 +24,7 @@ import {
   buildMeta,
   type DriverErrorContext,
   type DriverErrorShape,
+  readProperty,
   transferSuppressedFailureEvidence,
 } from "./driver-error-context";
 import type { Dialect } from "./types";
@@ -667,14 +668,6 @@ function readStringOrNumber(
   return typeof member === "string" || typeof member === "number"
     ? member
     : undefined;
-}
-
-function readProperty(value: object, key: string): unknown {
-  try {
-    return Reflect.get(value, key);
-  } catch {
-    return undefined;
-  }
 }
 
 function parseMessageErrno(message: string): number | undefined {

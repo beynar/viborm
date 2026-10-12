@@ -6,11 +6,7 @@ import { VibORMErrorCode } from "@src/errors";
 import { applyV1 } from "@src/migrations/apply-v1";
 import { canonicalizeJsonText } from "@src/migrations/canonical-json";
 import { createMigrationClient } from "@src/migrations/client";
-import {
-  controlTableNames,
-  createControlTableSQL,
-  DEFAULT_CONTROL_BASE,
-} from "@src/migrations/control";
+import { CONTROL_TABLES, createControlTableSQL } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import { composeSqlBlob } from "@src/migrations/sql-blob";
@@ -119,7 +115,7 @@ describe("migration v1 apply", () => {
 
     const applied = await migrations.apply();
     expect(applied.path).toHaveLength(2);
-    const { state, log } = controlTableNames(DEFAULT_CONTROL_BASE);
+    const { state, log } = CONTROL_TABLES;
     const writes = (table: string) =>
       executed.flatMap((statement, index) =>
         ROW_WRITE.test(statement) && statement.includes(table) ? [index] : []
@@ -167,7 +163,7 @@ describe("migration v1 apply", () => {
     await expect(migrations.apply()).resolves.toMatchObject({
       outcome: "applied",
     });
-    const { state, log } = controlTableNames(DEFAULT_CONTROL_BASE);
+    const { state, log } = CONTROL_TABLES;
     const order = executed.flatMap((statement) => {
       if (statement.includes('CREATE TABLE "user"')) return ["ddl"];
       if (!ROW_WRITE.test(statement)) return [];
@@ -440,9 +436,7 @@ describe("migration v1 apply control-plane refusals", () => {
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const command = getMigrationDriver(driver);
-    await driver._executeRaw(
-      createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
-    );
+    await driver._executeRaw(createControlTableSQL(command).state);
 
     await expect(migrations.apply()).resolves.toMatchObject({
       outcome: "applied",
@@ -473,9 +467,7 @@ describe("migration v1 apply control-plane refusals", () => {
       },
     });
     const command = getMigrationDriver(driver);
-    await driver._executeRaw(
-      createControlTableSQL(command, DEFAULT_CONTROL_BASE).state
-    );
+    await driver._executeRaw(createControlTableSQL(command).state);
 
     await expect(migrations.apply()).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_FAILED,
@@ -514,7 +506,7 @@ describe("migration v1 apply control-plane refusals", () => {
     const migrations = createMigrationClient(client, { storage });
     await migrations.generate({ name: "init" });
     const command = getMigrationDriver(driver);
-    const control = createControlTableSQL(command, DEFAULT_CONTROL_BASE);
+    const control = createControlTableSQL(command);
     await driver._executeRaw(control.state);
     if (shape === "malformed-log") {
       await driver._executeRaw(

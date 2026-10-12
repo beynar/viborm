@@ -39,9 +39,8 @@ import { ValidationError } from "@errors";
 // WIDTHS AND DOMAINS
 // =============================================================================
 
-/** Bytes in a UUID (RFC 9562 §4) and characters in its canonical text. */
+/** Bytes in a UUID (RFC 9562 §4). */
 export const UUID_BYTE_LENGTH = 16;
-export const UUID_TEXT_LENGTH = 36;
 
 /** Bytes in a ULID and characters in its Crockford base32 text. */
 export const ULID_BYTE_LENGTH = 16;
