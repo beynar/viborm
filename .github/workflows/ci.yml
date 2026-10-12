@@ -148,10 +148,12 @@ jobs:
   coverage:
     name: Coverage gates
     runs-on: ubuntu-latest
-    # Retain the 25-minute job ceiling. CI12's 14 projects / 86 bounded parts
-    # took 17.5 minutes; policy checks and setup fit the remaining time.
-    # Each coverage part still has its own unchanged 600000 ms ceiling.
-    timeout-minutes: 25
+    # CI12's 14 projects / 86 bounded parts took 17.5 minutes under a 25-minute
+    # ceiling. 1.2.0's realistic-scale migration and driver suites (10,000-row
+    # estates, run instrumented) brought the job to 20-26 minutes, so the
+    # ceiling is 40. Each coverage part still has its own unchanged 600000 ms
+    # ceiling, so a hung part fails there, not here.
+    timeout-minutes: 40
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
