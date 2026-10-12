@@ -98,6 +98,13 @@ const MIGRATION_CORE_PROVIDER_EXCEPTIONS = new Map([
     "tests/unit/migrations/push-polymorphic-stored-values.core.test.ts",
     "in-memory-sqlite",
   ],
+  ["tests/unit/migrations/reset-program.core.test.ts", "in-memory-sqlite"],
+  // The Durable Object storage stand-in runs the binding's SQL on an
+  // in-memory better-sqlite3 database.
+  [
+    "tests/unit/migrations/v1-cloudflare-storage.core.test.ts",
+    "in-memory-sqlite",
+  ],
   ["tests/unit/migrations/decimal-provider-limits.core.test.ts", "no-database"],
   ["tests/unit/migrations/v1-provider-admission.core.test.ts", "no-database"],
   // Driver construction only: pg, postgres.js and Bun SQL pools connect
