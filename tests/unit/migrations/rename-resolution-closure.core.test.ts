@@ -264,19 +264,37 @@ it("normalizes a restored self-FK only while the forward rename is active", () =
     referencedTable: "item",
     referencedColumns: ["uid"],
   };
-  const up = sortOperations([
-    { type: "renameTable", from: "node", to: "item" },
-    { type: "renameColumn", tableName: "item", from: "id", to: "uid" },
-    { type: "dropForeignKey", tableName: "item", fkName: "node_parent_fkey" },
-    { type: "addForeignKey", tableName: "item", fk: replacement },
-  ] satisfies DiffOperation[]);
-
-  expect(up.map((operation) => operation.type)).toEqual([
-    "renameTable",
-    "dropForeignKey",
-    "renameColumn",
-    "addForeignKey",
-  ]);
+  const renameTable = {
+    type: "renameTable",
+    from: "node",
+    to: "item",
+  } as const;
+  const renameColumn = {
+    type: "renameColumn",
+    tableName: "item",
+    from: "id",
+    to: "uid",
+  } as const;
+  const drop = {
+    type: "dropForeignKey",
+    tableName: "item",
+    fkName: "node_parent_fkey",
+  } as const;
+  const add = {
+    type: "addForeignKey",
+    tableName: "item",
+    fk: replacement,
+  } as const;
+  // The sorter runs a key drop after its table's column renames, since a
+  // derived key name follows its column (PostgreSQL)...
+  expect(
+    sortOperations([renameTable, renameColumn, drop, add]).map(
+      (operation) => operation.type
+    )
+  ).toEqual(["renameTable", "renameColumn", "dropForeignKey", "addForeignKey"]);
+  // ...and the inverse still restores a key dropped between two renames at
+  // the identity of that exact prefix.
+  const up: DiffOperation[] = [renameTable, drop, renameColumn, add];
   const down = invertOperations(up, previous).operations;
   const restored = down.find(
     (operation) =>

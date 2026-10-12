@@ -420,7 +420,8 @@ function diffTable(
   canonical: CanonicalPredicates,
   matchConstraintsByShape: boolean,
   compareDateTimeDeclarations: boolean,
-  refuseConstraintNameChurn: boolean
+  refuseConstraintNameChurn: boolean,
+  projectRename: DiffOptions["projectRename"]
 ): TableDiffResult {
   const operations: DiffOperation[] = [];
   const ambiguousChanges: AmbiguousChange[] = [];
@@ -489,11 +490,20 @@ function diffTable(
   const usedDropped = new Set<string>();
   const usedAdded = new Set<string>();
 
+  // The dropped column as the rename would leave it: a type derived from its
+  // name (a PostgreSQL per-column enum) follows the column.
+  const asRenamed = (dropped: ColumnDef, added: ColumnDef): ColumnDef =>
+    projectRename?.(
+      { tables: [current] },
+      { type: "renameColumn", tableName, from: dropped.name, to: added.name }
+    ).tables[0]?.columns.find((column) => column.name === added.name) ??
+    dropped;
+
   for (const dropped of droppedColumns) {
     for (const added of addedColumns) {
       if (usedDropped.has(dropped.name) || usedAdded.has(added.name)) continue;
 
-      if (columnsCanBeRenamed(dropped, added)) {
+      if (columnsCanBeRenamed(asRenamed(dropped, added), added)) {
         // This could be a rename - mark as ambiguous
         ambiguousChanges.push({
           type: "ambiguousColumn",
@@ -846,7 +856,8 @@ export async function diff(
         canonicalPredicates,
         options.matchConstraintsByShape ?? false,
         options.compareDateTimeDeclarations ?? false,
-        options.refuseConstraintNameChurn ?? false
+        options.refuseConstraintNameChurn ?? false,
+        options.projectRename
       );
       operations.push(...tableDiff.operations);
       ambiguousChanges.push(...tableDiff.ambiguousChanges);

@@ -43,6 +43,8 @@ const LIMITS_ENTER = /^DO \$viborm_limits\$/;
 const LIMITS_RESET = /set_config\(name, reset_val, false\)/;
 const LOCK = /pg_try_advisory_lock/;
 const XACT_LOCK = /pg_try_advisory_xact_lock/;
+/** One try for the transaction lock: a session waits with these, no loop. */
+const LOCK_TRY = /^SELECT pg_try_advisory_xact_lock\(\d+\) AS acquired$/;
 const UNLOCK = /pg_advisory_unlock\(/;
 const POSTGRES_LIMITS = /set_config|DO \$/;
 
@@ -145,8 +147,7 @@ describe("the session's time limits", () => {
 
     const { statements } = driver;
     expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_LIMITS]);
-    expect(statements[2]).toMatch(XACT_LOCK);
-    expect(statements[2]).toContain("interval '10 seconds'");
+    expect(statements[2]).toMatch(LOCK_TRY);
     expect(statements.slice(-2)).toEqual(["ALTER TABLE t ADD c int", "COMMIT"]);
     // One transaction: the body's continues the one that took the lock.
     expect(statements.filter((sql) => sql === "BEGIN")).toHaveLength(1);
@@ -214,17 +215,45 @@ describe("the session's time limits", () => {
       );
     });
 
-    const [, transaction, lock] = driver.statements;
+    const [, transaction] = driver.statements;
     expect(transaction).toContain(
       "set_config('lock_timeout', '1500', true), set_config('statement_timeout', '90000', true)"
     );
     expect(transaction).toContain("ELSE '2500' END");
-    expect(lock).toContain("interval '3 seconds'");
     const enter = driver.statements.find((sql) => LIMITS_ENTER.test(sql));
     expect(enter).toContain(
       "set_config('lock_timeout', '1500', false), set_config('statement_timeout', '90000', false)"
     );
     expect(enter).toContain("set_config(name, '2500', false)");
+  });
+
+  test("the command's lockWait bounds its lock tries, each in a transaction it rolls back, so no wait holds a snapshot", async () => {
+    const driver = pgEstateDriver("public");
+    driver.respond = answerPublicSchema;
+    driver.lockAnswers.acquire = [{ acquired: false }];
+    const bound = getMigrationDriver(
+      driver,
+      undefined,
+      resolveMigrationLimits({ lockWait: 300 })
+    );
+    let ran = false;
+    const started = Date.now();
+
+    await expect(
+      withLockedMigrationProducer(driver, bound, async () => {
+        ran = true;
+      })
+    ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_LOCK_FAILED });
+
+    expect(ran).toBe(false);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+    const tries = driver.statements.filter((sql) => LOCK_TRY.test(sql));
+    expect(tries.length).toBeGreaterThan(1);
+    // Every try is BEGIN, the limits, the try and its ROLLBACK: no
+    // transaction outlives a refused try.
+    expect(driver.statements).toEqual(
+      tries.flatMap(() => ["BEGIN", TRANSACTION_LIMITS, tries[0], "ROLLBACK"])
+    );
   });
 
   test("a CONCURRENTLY index statement runs with no limits, which are restored after it", async () => {

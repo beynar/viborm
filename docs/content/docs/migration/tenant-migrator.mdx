@@ -79,12 +79,18 @@ Object RPC intact.
 | `ambiguous` | The database may be between two states. | `error`; `marker` when it could be read |
 
 `error` is `{ name, code, message }`, with `code` a VibORM error code when
-there is one:
+there is one, `causeCode` the code of its cause when it has one (the driver's
+error, such as V3001 for a unique violation), and `providerSqlState` the
+SQLSTATE the server answered when there is one. They are codes only: no message
+of a statement that carried data is added.
 
 - **refused:** V11010 (a rename, enum or destructive change that `decisions`
   did not answer), V4002 (a decision that is not one, or that answers nothing),
-  V11013 (a forked history), a schema validation error, or the error
-  `beforeDestructive` threw. These come before anything is published.
+  V11013 (a forked history), V8002 (a transport `apply` refuses, such as a Neon
+  `-pooler` endpoint or Hyperdrive; see
+  [transports](/docs/migration/per-tenant-schemas-durable-objects#transports)),
+  a schema validation error, or the error `beforeDestructive` threw. These come
+  before anything is published.
 - **refused, or failed:** V11009 (a rewrite of a table above
   `limits.largeTableRows`), V11014 (drift) and V11002 (the database's marker is
   not in this history, as after a [restore](#restores)). Only `apply` can see
@@ -174,6 +180,17 @@ migration client's own, over the migrator's `client` and `history`, and return
 plain data. `resolve`, `down`, `reanchor` and `prune` wait in the queue. On SQLite, give the migrator a client over the
 tenant's current schema: a resumed SQLite transition rewrites temporal columns
 by that schema.
+
+The history is append-only, so `down()` moves the database's marker back and
+leaves the history's newest state where it was. The next `change` applies the
+states `down` left first, then its own. Sending the earlier document again does
+not go back: it is a change from the newest state, so it asks for the inverse's
+approval (V11010) as any change would.
+
+`verify()`, from a migration client over the same client and history, takes the
+migration lock so that it reads one consistent state. Under contention, as when
+several namespaces share one database and its lock, it can fail with V11005:
+retry it.
 
 ## Schema Documents
 

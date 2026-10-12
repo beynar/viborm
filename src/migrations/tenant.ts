@@ -7,6 +7,7 @@
  */
 
 import { isRetryableError, isVibORMError, VibORMErrorCode } from "../errors";
+import { admitLiveMigrationCapability } from "./admission";
 import {
   createMigrationClient,
   type ReadableMigrations,
@@ -15,7 +16,7 @@ import {
 import { isDestructiveOperation } from "./differ";
 import type { Sha256 } from "./identity";
 import type { MigrationLimits } from "./limits";
-import type { MigrationClient } from "./push/planner";
+import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { createPredefinedResolver } from "./resolver";
 import type {
   MigrationStorageReader,
@@ -60,6 +61,10 @@ export interface TenantChangeError {
   readonly name: string;
   readonly code?: string;
   readonly message: string;
+  /** The code of the error's cause, such as the driver's, when it has one. */
+  readonly causeCode?: string;
+  /** The SQLSTATE the server answered, when the error carries one. */
+  readonly providerSqlState?: string;
 }
 
 export type TenantChangeResult =
@@ -154,6 +159,12 @@ export function createTenantMigrator({
     let migrations: WritableMigrations;
     try {
       signal?.throwIfAborted();
+      // A transport apply refuses is refused before generate publishes.
+      admitLiveMigrationCapability(
+        getPushMigrationDriver(client),
+        "batch",
+        "apply()"
+      );
       migrations = createMigrationClient(
         { $driver: client.$driver, $schema: schema },
         options
@@ -282,10 +293,18 @@ function describe(failure: unknown): TenantChangeError {
   if (!(failure instanceof Error)) {
     return { name: "Error", message: String(failure) };
   }
+  // Codes only: a cause's message may quote a data-bearing statement.
+  const causeCode: unknown =
+    failure.cause instanceof Error ? Reflect.get(failure.cause, "code") : null;
+  const sqlState = isVibORMError(failure)
+    ? failure.meta.providerSqlState
+    : undefined;
   return {
     name: failure.name,
     ...(isVibORMError(failure) ? { code: failure.code } : {}),
     message: failure.message,
+    ...(typeof causeCode === "string" ? { causeCode } : {}),
+    ...(typeof sqlState === "string" ? { providerSqlState: sqlState } : {}),
   };
 }
 

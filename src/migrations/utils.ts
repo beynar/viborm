@@ -271,6 +271,15 @@ function operationTargetsColumn(
   tableName: string,
   columnName: string
 ): boolean {
+  // A drop names a key as the rename left it: on PostgreSQL a derived key
+  // name follows its column.
+  if (
+    operation.type === "dropIndex" ||
+    operation.type === "dropUniqueConstraint" ||
+    operation.type === "dropForeignKey"
+  ) {
+    return operation.tableName === tableName;
+  }
   if (operation.type === "alterEnum" || operation.type === "dropEnum") {
     return (
       operation.dependentColumns?.some(

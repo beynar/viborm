@@ -49,8 +49,8 @@ const schema = {
 
 const DECISION = /AS digest WHERE pg_try_advisory_xact_lock\(/;
 const CONTROL_CATALOG = "AS control(position, name)";
-/** The locked path: its first transaction takes the bounded transaction lock. */
-const LOCKED_PATH = /^WITH RECURSIVE lock_attempt AS/;
+/** The locked path: its first transaction tries the transaction lock. */
+const LOCKED_PATH = /^SELECT pg_try_advisory_xact_lock\(\d+\) AS acquired$/;
 const NOOP = { outcome: "noop", path: [], statements: [] };
 /** The catalog digest read on its own, as the locked drift proof sends it. */
 const LOCKED_DIGEST = "END AS digest\nFROM projection";
@@ -177,8 +177,10 @@ function applyOn(
   storage: MemoryStorage,
   options?: ApplyV1Options
 ) {
+  // A refused lock is given up at once, not after the default 10 s.
   return createMigrationClient(createClient({ driver, schema }), {
     storage,
+    limits: { lockWait: 1 },
   }).apply(options);
 }
 
@@ -314,8 +316,8 @@ describe("whatever the decision read cannot prove is decided again under the loc
   ])("%s: the command goes on to take the lock", async (_, decisionFor) => {
     const estate = await generatedEstate();
     const driver = databaseAnswering(decisionFor(estate));
-    // A lock the server refuses ends the locked path at its first statement,
-    // so what is observed is that the unlocked read did not answer.
+    // A lock the server refuses ends the locked path at its tries, so what
+    // is observed is that the unlocked read did not answer.
     driver.lockAnswers.acquire = [{ acquired: false }];
 
     await expect(applyOn(driver, estate.storage)).rejects.toMatchObject({
@@ -323,7 +325,7 @@ describe("whatever the decision read cannot prove is decided again under the loc
     });
     const statements = sent(driver);
     expect(statements[1]).toMatch(DECISION);
-    expect(statements.filter((sql) => LOCKED_PATH.test(sql))).toHaveLength(1);
+    expect(statements.some((sql) => LOCKED_PATH.test(sql))).toBe(true);
   });
 });
 

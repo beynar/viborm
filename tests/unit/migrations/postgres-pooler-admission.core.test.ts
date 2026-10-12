@@ -10,7 +10,11 @@
  * risk. Read-only work stays admitted.
  */
 
+import { createClient } from "@client/client";
 import type { MigrationSessionAttestation } from "@drivers/driver";
+import { MemoryEstateStorage } from "@migrations/storage/memory";
+import { createTenantMigrator } from "@migrations/tenant";
+import { s } from "@schema";
 import { VibORMErrorCode } from "@src/errors";
 import {
   admitLiveMigrationCapability,
@@ -161,5 +165,27 @@ describe("transaction-pooling hosts are refused for effectful migration work", (
         'migrationSessionAttestation: "dedicated-session"'
       );
     }
+  });
+});
+
+describe("the tenant migrator on a transport apply refuses", () => {
+  test("a change is refused V8002 before generate publishes anything", async () => {
+    const schema = {
+      member: s.model({ id: s.string().id(), name: s.string() }),
+    };
+    const driver = new EndpointPostgres([
+      `postgres://app:secret@${NEON_POOLER}/app`,
+    ]);
+    const history = new MemoryEstateStorage();
+    const migrator = createTenantMigrator({
+      client: createClient({ driver, schema }),
+      history,
+    });
+
+    const result = await migrator.change(schema);
+
+    expect(result).toMatchObject({ kind: "refused", error: { code: REFUSED } });
+    expect(await history.listStates()).toEqual([]);
+    expect(driver.statements).toEqual([]);
   });
 });

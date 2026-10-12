@@ -45,6 +45,8 @@ import { createQueryExecutor } from "./utils";
  * names its lock after the database instead (`drivers/mysql/pinned-session.ts`).
  */
 const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d;
+/** The pause between two PostgreSQL lock tries, as the server-side loop's. */
+const LOCK_RETRY_MS = 50;
 
 /**
  * A condition true while no command holds the migration lock (plan D5), for a
@@ -751,23 +753,39 @@ function lockTransactions(
       }
     }
   };
+  // PostgreSQL waits for the lock between transactions, one try each, so a
+  // wait holds no snapshot: another command's `CREATE INDEX CONCURRENTLY`
+  // under the session lock would otherwise wait for this one to give up.
+  const tryLock = sqlite
+    ? null
+    : `SELECT ${migrationLockFree(migrationDriver)} AS acquired`;
   const begin = async (): Promise<void> => {
-    try {
-      await (sqlite ? beginImmediate() : run("BEGIN"));
-    } catch (error) {
-      // SQLite's lock IS its BEGIN IMMEDIATE: a busy database is a lock wait.
-      if (!sqlite || control.lost(error)) throw error;
-      throw lockStatementFailed(migrationDriver, error);
-    }
-    open = true;
-    try {
-      if (limits !== undefined) await run(limits.transaction);
-      await acquireLock(direct, migrationDriver, control);
-    } catch (error) {
-      await rollback().catch((cleanup: unknown) => {
-        throw withSuppressedFailure(error, cleanup);
-      });
-      throw error;
+    const deadline = Date.now() + migrationDriver.limits.lockWait;
+    for (;;) {
+      try {
+        await (sqlite ? beginImmediate() : run("BEGIN"));
+      } catch (error) {
+        // SQLite's lock IS its BEGIN IMMEDIATE: a busy database is a lock wait.
+        if (!sqlite || control.lost(error)) throw error;
+        throw lockStatementFailed(migrationDriver, error);
+      }
+      open = true;
+      let held: boolean;
+      try {
+        if (limits !== undefined) await run(limits.transaction);
+        held = await lockHeld(direct, migrationDriver, control, tryLock);
+      } catch (error) {
+        await rollback().catch((cleanup: unknown) => {
+          throw withSuppressedFailure(error, cleanup);
+        });
+        throw error;
+      }
+      if (held) return;
+      // Nothing was read under a lock never held: not a gap in `continuous`.
+      open = false;
+      await control.cleanup(() => run("ROLLBACK"));
+      if (Date.now() >= deadline) throw lockNotConfirmed(migrationDriver);
+      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
     }
   };
   const escalate = async (): Promise<void> => {
@@ -1100,8 +1118,20 @@ async function acquireLock(
   control: PinnedSessionControl,
   statement = migrationDriver.generateAcquireLock(MIGRATION_LOCK_ID)
 ): Promise<void> {
+  if (!(await lockHeld(pinned, migrationDriver, control, statement))) {
+    throw lockNotConfirmed(migrationDriver);
+  }
+}
+
+/** Runs one lock statement: whether the provider proved the lock held. */
+async function lockHeld(
+  pinned: AnyDriver,
+  migrationDriver: BoundMigrationDriver,
+  control: PinnedSessionControl,
+  statement: string | null
+): Promise<boolean> {
   if (statement === null) {
-    return;
+    return true;
   }
 
   const executor = createQueryExecutor(pinned);
@@ -1113,10 +1143,7 @@ async function acquireLock(
     if (control.lost(error)) throw error;
     throw lockStatementFailed(migrationDriver, error);
   }
-
-  if (!migrationDriver.provesLockAcquired(rows)) {
-    throw lockNotConfirmed(migrationDriver);
-  }
+  return migrationDriver.provesLockAcquired(rows);
 }
 
 function lockNotConfirmed(

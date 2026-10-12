@@ -277,8 +277,12 @@ describe("tenant migrator outcomes", () => {
     expect(kindOf(result)).toBe("failed");
     // Not retryable: one attempt.
     expect(state.thrown).toBe(1);
+    // The driver's code crosses RPC too, so the failure can be diagnosed.
     expect(result).toMatchObject({
-      error: { code: VibORMErrorCode.MIGRATION_FAILED },
+      error: {
+        code: VibORMErrorCode.MIGRATION_FAILED,
+        causeCode: VibORMErrorCode.QUERY_FAILED,
+      },
       marker: { stateId: before?.stateId, revision: before?.revision },
     });
     const status = await migrator.status();

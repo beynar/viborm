@@ -298,6 +298,24 @@ review's client leftovers.
   with V11021 naming both statements, a transaction that runs a data statement
   after a schema change (Neki plans each statement against the schema committed
   before its transaction).
+- PostgreSQL: a command waiting for the migration lock tries it once per
+  transaction and rolls that transaction back between tries (every 50 ms, up
+  to `lockWait`), instead of one statement looping on the server. The wait
+  holds no snapshot, so another command's `CREATE INDEX CONCURRENTLY` (a
+  `lowLock` step) is no longer held up until the waiter gives up with V11005.
+  Neon HTTP keeps the one-statement wait, since one request cannot loop across
+  requests.
+- PostgreSQL: renaming a column or a table also renames the names derived from
+  it: a per-column enum type (`<table>_<column>_enum`, by `ALTER TYPE …
+  RENAME`), and an index, unique constraint or foreign key named after its
+  table and columns (`_idx`, `_key`, `_fkey`). Such a rename was refused with
+  V8001 (a unique index), asked as a destructive drop or type change (an enum
+  without `name`), or rebuilt its index. A custom name stays as it is.
+- Tenant migrator: a transport `apply` refuses (a Neon `-pooler` host or
+  Hyperdrive without the attestation) is `refused` with V8002 before `generate`
+  publishes anything; it was `failed`, with a published state left behind.
+- Tenant migrator: `error` carries `causeCode`, the code of its cause, and
+  `providerSqlState`, the server's SQLSTATE, when there is one.
 
 ### Fixed
 
@@ -446,6 +464,16 @@ review's client leftovers.
 - **Types:** fix the misspelled keys `tsc` reports; write out whole nested
   write objects, root operator objects or nested `where`s instead of passing a
   type parameter, and narrow a `groupBy` `orderBy` type to the grouped fields.
+- **Migration lock wait (PostgreSQL):** while a command waits for the lock,
+  logs show `BEGIN`, the limits, `SELECT pg_try_advisory_xact_lock(…) AS
+  acquired` and `ROLLBACK` every 50 ms instead of one `WITH RECURSIVE
+  lock_attempt` statement: update statement counters and log filters.
+- **Renames (PostgreSQL):** a rename refused before can be generated now; its
+  SQL carries the derived names' `RENAME` statements. States published earlier
+  keep their SQL, and a name you set yourself is not renamed.
+- **Tenant migrator:** handle V8002 as `refused` (use the direct endpoint), and
+  read `error.causeCode` and `error.providerSqlState` to diagnose a failure
+  received over RPC.
 
 ## 1.1.0 — 2026-10-10
 

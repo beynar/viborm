@@ -141,7 +141,8 @@ codes behind it and what to do next are on the
 - **`applied`, `noop`:** store the document as the tenant's current one.
 - **`refused`:** nothing changed. Answer the question it names (a rename, an
   enum mapping or a destructive change needs a `decisions` entry) and send the
-  document again.
+  document again. `V8002` names the transport instead: see
+  [transports](#transports).
 - **`failed`:** the change did not reach its schema, but its state may be
   published and the next `change` applies it first. Remove the cause before
   anything else: repair the drift, or run a too-large change from the alarm.
@@ -175,7 +176,7 @@ marker's compare-and-swap.
 | `pg` (`viborm/pg`) to the direct endpoint | Supported. |
 | A Neon WebSocket `Pool` passed to `viborm/pg`, direct endpoint | Supported; qualified against hosted Neon from a Worker on 2026-10-11. See [Neon WebSocket Pool](/docs/drivers/postgresql/pg#neon-websocket-pool). |
 | Neon HTTP (`viborm/neon-http`) | `change` (its `apply`) only, one HTTP request per transactional group. A lost response is decided by re-reading the marker, and is `ambiguous` (`V11020`) only when it cannot be: read `status()`. Stepwise and `CONCURRENTLY` steps, and a destination with a partial index, are refused (`V11021`); `resolve`, `down` and `reanchor` (so the switch to a pruned history) need a session transport (`V8002`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations). |
-| Hyperdrive, a Neon `-pooler` host | Refused with `V8002`, unless you attest `migrationSessionAttestation: "dedicated-session"`. See [migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler). |
+| Hyperdrive, a Neon `-pooler` host | Refused with `V8002` (`change` is `refused` before it publishes anything), unless you attest `migrationSessionAttestation: "dedicated-session"`. See [migrations through a pooler](/docs/drivers/production#migrations-through-a-pooler). |
 | D1 | Effectful migrations refused. See [provider limits](/docs/migration/migrate#provider-limits). |
 
 Application queries may use any of them, including a pooler.

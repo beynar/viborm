@@ -10,6 +10,9 @@
  * - A runner that stops talking while it holds the migration lock (a frozen
  *   process, a half-open socket) is ended by the server within the idle limit,
  *   and the lock with it, instead of blocking every later command.
+ * - A command waiting for the migration lock holds no snapshot, so another
+ *   command's `CREATE INDEX CONCURRENTLY` under that lock is not held up
+ *   until the waiter gives up.
  *
  * Requires the Docker test database:
  *   PG_TEST_CONNECTION_STRING=postgresql://postgres:password@127.0.0.1:5434/<db>
@@ -31,6 +34,9 @@ const describeIfPg = PG_CONNECTION ? describe : describe.skip;
 
 const NAMESPACE = "viborm_session_limits";
 const STEPWISE_NAMESPACE = "viborm_session_limits_stepwise";
+const WAIT_NAMESPACE = "viborm_session_limits_wait";
+const OTHER_NAMESPACE = "viborm_session_limits_other";
+const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d;
 const ROWS = 10_000;
 const LOCK_TIMEOUT_MS = 4000;
 const IDLE_TIMEOUT_MS = 1000;
@@ -78,19 +84,26 @@ async function timed<T>(
   }
 }
 
+const NAMESPACES = [
+  NAMESPACE,
+  STEPWISE_NAMESPACE,
+  WAIT_NAMESPACE,
+  OTHER_NAMESPACE,
+];
+
 describeIfPg("the migration session's limits on a real server", () => {
   const admin = new pg.Client({ connectionString: PG_CONNECTION });
 
   beforeAll(async () => {
     await admin.connect();
-    for (const namespace of [NAMESPACE, STEPWISE_NAMESPACE]) {
+    for (const namespace of NAMESPACES) {
       await admin.query(`DROP SCHEMA IF EXISTS "${namespace}" CASCADE`);
       await admin.query(`CREATE SCHEMA "${namespace}"`);
     }
   });
 
   afterAll(async () => {
-    for (const namespace of [NAMESPACE, STEPWISE_NAMESPACE]) {
+    for (const namespace of NAMESPACES) {
       await admin.query(`DROP SCHEMA IF EXISTS "${namespace}" CASCADE`);
     }
     await admin.end();
@@ -264,6 +277,58 @@ describeIfPg("the migration session's limits on a real server", () => {
       expect(rows[0]?.n).toBe(0);
     } finally {
       await Promise.allSettled([reader.end(), app.end()]);
+      await first.$disconnect();
+      await second.$disconnect();
+    }
+  }, 30_000);
+
+  it("waits for the migration lock holding no snapshot, so a CREATE INDEX CONCURRENTLY under that lock is not held up", async () => {
+    const LOCK_WAIT_MS = 4000;
+    const storage = new MemoryEstateStorage();
+    const client = (schema: typeof v1 | typeof v1Nickname) =>
+      createClient({
+        databaseUrl: PG_CONNECTION,
+        namespace: WAIT_NAMESPACE,
+        schema,
+      });
+    const first = client(v1);
+    const second = client(v1Nickname);
+    // Another command's lowLock step: the session lock held, an index built
+    // concurrently on a table of its own estate.
+    const holder = new pg.Client({ connectionString: PG_CONNECTION });
+    const other = `"${OTHER_NAMESPACE}"."events"`;
+    try {
+      await createMigrationClient(first, { storage }).generate({ name: "v1" });
+      await createMigrationClient(first, { storage }).apply();
+      const migrations = createMigrationClient(second, {
+        storage,
+        limits: { lockWait: LOCK_WAIT_MS },
+      });
+      await migrations.generate({ name: "nickname" });
+      await holder.connect();
+      await holder.query(
+        `CREATE TABLE ${other} AS SELECT g AS id, 'kind-' || (g % 50) AS kind FROM generate_series(1, ${ROWS}) g`
+      );
+      await holder.query(`SELECT pg_advisory_lock(${MIGRATION_LOCK_ID})`);
+
+      const waiting = timed(migrations.apply());
+      await sleep(300);
+      const buildStart = Date.now();
+      await holder.query(
+        `CREATE INDEX CONCURRENTLY "events_kind_idx" ON ${other} ("kind")`
+      );
+      const built = Date.now() - buildStart;
+      await holder.query(`SELECT pg_advisory_unlock(${MIGRATION_LOCK_ID})`);
+      const applied = await waiting;
+
+      // The build waited for no migration snapshot, and the waiter took the
+      // lock once it was free, within its wait.
+      expect(built).toBeLessThan(LOCK_WAIT_MS / 4);
+      expect(applied.failure).toBeUndefined();
+      expect(applied.value).toMatchObject({ outcome: "applied" });
+      expect(await advisoryLocks()).toBe(0);
+    } finally {
+      await holder.end().catch(() => undefined);
       await first.$disconnect();
       await second.$disconnect();
     }

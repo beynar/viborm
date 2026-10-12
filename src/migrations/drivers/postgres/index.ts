@@ -144,6 +144,13 @@ function snapshotUsesGeoPoint(snapshot: SchemaSnapshot): boolean {
 }
 
 const QUOTED_LITERAL = /^'(.*)'$/s;
+const ARRAY_TYPE = /\[\]$/;
+
+/** A name a native rename carries along, and the statement kind that does. */
+interface DerivedRename {
+  readonly kind: "constraint" | "index" | "type";
+  readonly to: string;
+}
 
 const storesEnum = (column: ColumnDef, enumName: string) =>
   column.type === enumName || column.type === `${enumName}[]`;
@@ -974,17 +981,10 @@ export class PostgresMigrationDriver extends MigrationDriver {
     op: RenameTableOperation,
     context: DDLContext
   ): readonly string[] {
-    const statements = [this.generateRenameTable(op, context)];
-    const rename = this.defaultPrimaryKeyRename(
-      op,
-      this.schemaAtOperation(context)
-    );
-    if (rename) {
-      statements.push(
-        `ALTER TABLE ${this.qualify(op.to)} RENAME CONSTRAINT ${this.escapeIdentifier(rename.from)} TO ${this.escapeIdentifier(rename.to)}`
-      );
-    }
-    return this.filterStatements(statements);
+    return this.filterStatements([
+      this.generateRenameTable(op, context),
+      ...this.compileDerivedRenames(op, context),
+    ]);
   }
 
   override projectNativeRename(
@@ -992,30 +992,112 @@ export class PostgresMigrationDriver extends MigrationDriver {
     operation: NativeRenameOperation
   ): SchemaSnapshot {
     const projected = super.projectNativeRename(snapshot, operation);
-    const rename =
-      operation.type === "renameTable"
-        ? this.defaultPrimaryKeyRename(operation, snapshot)
-        : undefined;
-    if (!rename) return projected;
+    const renames = this.derivedRenames(operation, snapshot);
+    if (renames.size === 0) return projected;
+    const name = (from: string) => renames.get(from)?.to ?? from;
+    const renamed = <T extends { readonly name: string }>(
+      items: readonly T[]
+    ) => items.map((item) => ({ ...item, name: name(item.name) }));
+    const owner =
+      operation.type === "renameTable" ? operation.to : operation.tableName;
     return {
       ...projected,
-      tables: projected.tables.map((table) =>
-        table.name === operation.to && table.primaryKey
-          ? { ...table, primaryKey: { ...table.primaryKey, name: rename.to } }
-          : table
-      ),
+      ...(projected.enums ? { enums: renamed(projected.enums) } : {}),
+      tables: projected.tables.map((table) => {
+        if (table.name !== owner) return table;
+        const { primaryKey } = table;
+        return {
+          ...table,
+          columns: table.columns.map((column) => {
+            const element = column.type.replace(ARRAY_TYPE, "");
+            const type = name(element) + column.type.slice(element.length);
+            return { ...column, type };
+          }),
+          ...(primaryKey?.name
+            ? { primaryKey: { ...primaryKey, name: name(primaryKey.name) } }
+            : {}),
+          indexes: renamed(table.indexes),
+          uniqueConstraints: renamed(table.uniqueConstraints),
+          foreignKeys: renamed(table.foreignKeys),
+        };
+      }),
     };
   }
 
-  private defaultPrimaryKeyRename(
-    operation: RenameTableOperation,
+  /**
+   * The names a native rename carries along, each derived from what it
+   * renames: the default primary key's (`<table>_pkey`), a per-column enum
+   * type (`<table>_<column>_enum`), and an index, unique or foreign key named
+   * after its own columns (`<table>_<columns>_idx`, `_key`, `_fkey`). A name
+   * that is not its derivation is custom, and stays.
+   */
+  private derivedRenames(
+    operation: NativeRenameOperation,
     snapshot: SchemaSnapshot | undefined
-  ): { from: string; to: string } | undefined {
-    const name = snapshot?.tables.find((table) => table.name === operation.from)
-      ?.primaryKey?.name;
-    return name === this.generatedPrimaryKeyName(operation.from)
-      ? { from: name, to: this.generatedPrimaryKeyName(operation.to) }
-      : undefined;
+  ): Map<string, DerivedRename> {
+    const [from, to] =
+      operation.type === "renameTable"
+        ? [operation.from, operation.to]
+        : [operation.tableName, operation.tableName];
+    const renamed = (column: string) =>
+      operation.type === "renameColumn" && column === operation.from
+        ? operation.to
+        : column;
+    const renames = new Map<string, DerivedRename>();
+    const follow = (
+      kind: DerivedRename["kind"],
+      name: string | undefined,
+      derive: (table: string, column: (name: string) => string) => string
+    ) => {
+      const next = derive(to, renamed);
+      if (name === derive(from, (column) => column) && next !== name) {
+        renames.set(name, { kind, to: next });
+      }
+    };
+    const named =
+      (columns: readonly string[], suffix: string) =>
+      (owner: string, column: (name: string) => string) =>
+        derivedMigrationName(
+          `${owner}_${columns.map(column).join("_")}_${suffix}`
+        );
+    const table = snapshot?.tables.find((item) => item.name === from);
+    if (!table) return renames;
+    follow("constraint", table.primaryKey?.name, (owner) =>
+      this.generatedPrimaryKeyName(owner)
+    );
+    for (const column of table.columns) {
+      follow("type", column.type.replace(ARRAY_TYPE, ""), (owner, renamedTo) =>
+        this.getEnumColumnType(owner, renamedTo(column.name), [])
+      );
+    }
+    for (const index of table.indexes) {
+      follow("index", index.name, named(index.columns, "idx"));
+    }
+    // A unique constraint's index carries its name: renaming it renames both.
+    for (const unique of table.uniqueConstraints) {
+      follow("index", unique.name, named(unique.columns, "key"));
+    }
+    for (const key of table.foreignKeys) {
+      follow("constraint", key.name, named(key.columns, "fkey"));
+    }
+    return renames;
+  }
+
+  private compileDerivedRenames(
+    operation: NativeRenameOperation,
+    context: DDLContext
+  ): string[] {
+    const owner =
+      operation.type === "renameTable" ? operation.to : operation.tableName;
+    const renames = this.derivedRenames(
+      operation,
+      this.schemaAtOperation(context)
+    );
+    return [...renames].map(([from, { kind, to }]) =>
+      kind === "constraint"
+        ? `ALTER TABLE ${this.qualify(owner)} RENAME CONSTRAINT ${this.escapeIdentifier(from)} TO ${this.escapeIdentifier(to)}`
+        : `ALTER ${kind === "type" ? "TYPE" : "INDEX"} ${this.qualify(from)} RENAME TO ${this.escapeIdentifier(to)}`
+    );
   }
 
   /** Generated keys have an explicit bounded name; catalog omissions stay unknown. */
@@ -1107,6 +1189,16 @@ export class PostgresMigrationDriver extends MigrationDriver {
     _context: DDLContext
   ): string {
     return `ALTER TABLE ${this.qualify(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
+  }
+
+  override compileRenameColumn(
+    op: RenameColumnOperation,
+    context: DDLContext
+  ): readonly string[] {
+    return this.filterStatements([
+      this.generateRenameColumn(op, context),
+      ...this.compileDerivedRenames(op, context),
+    ]);
   }
 
   generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {
@@ -1368,14 +1460,16 @@ export class PostgresMigrationDriver extends MigrationDriver {
   // ===========================================================================
 
   /**
-   * The TRANSACTION lock every migration transaction takes after its limits
-   * (plan D1): it ends with the transaction, so a transaction pooler can hand
-   * the next one to any server session and nothing outlives it. It retries on
-   * the server until the command's `lockWait` (default 10 s) passes; the
-   * transaction's `statement_timeout` is longer by construction
-   * (`resolveMigrationLimits`), so the loop is never cut short. Stepwise
-   * work adds the session lock on top ({@link generateSessionLock}), and
-   * releases that one with {@link generateReleaseLock}.
+   * The TRANSACTION lock a batch request takes after its limits (plans D1,
+   * D7): it ends with the transaction, so nothing outlives the request. One
+   * request cannot loop across requests, so it retries on the server until
+   * the command's `lockWait` (default 10 s) passes, holding its snapshot that
+   * long; the transaction's `statement_timeout` is longer by construction
+   * (`resolveMigrationLimits`), so the loop is never cut short. A session
+   * waits instead with one {@link generateLockFree} try per transaction,
+   * holding no snapshot between them (`pinned-session.ts`). Stepwise work
+   * adds the session lock on top ({@link generateSessionLock}), and releases
+   * that one with {@link generateReleaseLock}.
    */
   generateAcquireLock(lockId: number): string | null {
     const { lockWait } = this.limits ?? DEFAULT_MIGRATION_LIMITS;
@@ -1397,12 +1491,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `SELECT pg_try_advisory_lock(${lockId}) AS acquired`;
   }
 
-  /** Takes the transaction lock and releases it with the statement that asks. */
+  /**
+   * Takes the transaction lock: outside a transaction, it releases with the
+   * statement that asks; inside one, it is that transaction's lock try.
+   */
   override generateLockFree(lockId: number): string {
     return `pg_try_advisory_xact_lock(${lockId})`;
   }
 
-  /** One bounded provider-side retry loop; only boolean true proves ownership. */
+  /** A lock try, or the batch's loop: only boolean true proves ownership. */
   override provesLockAcquired(rows: readonly unknown[]): boolean {
     const row = rows[0];
     return (

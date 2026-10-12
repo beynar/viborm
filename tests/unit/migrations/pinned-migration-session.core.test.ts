@@ -4,6 +4,7 @@ import { VibORMErrorCode } from "@src/errors";
 import { createMigrationClient } from "@src/migrations/client";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { generateV1 } from "@src/migrations/generate-v1";
+import { resolveMigrationLimits } from "@src/migrations/limits";
 import { withLockedMigrationProducer } from "@src/migrations/pinned-session";
 import { MemoryEstateStorage } from "@src/migrations/storage/memory";
 import { describe, expect, test } from "vitest";
@@ -148,7 +149,11 @@ describe("pinned migration session", () => {
     const driver = pgEstateDriver("public");
     driver.respond = answerPublicSchema;
     driver.lockAnswers = { acquire: [] };
-    const bound = getMigrationDriver(driver);
+    const bound = getMigrationDriver(
+      driver,
+      undefined,
+      resolveMigrationLimits({ lockWait: 1 })
+    );
     let ran = false;
     await expect(
       withLockedMigrationProducer(driver, bound, async () => {
