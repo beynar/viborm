@@ -40,11 +40,9 @@ export default defineConfig({
     // then load and block on stdin. See the public-client CLI fixture for the full
     // rationale. It only mocks a module the non-CLI suites never import, so it
     // is inert everywhere else.
-    // Suites import src/migrations modules directly, which register no
-    // migration driver; the `viborm/migrations` entry registers every dialect.
     setupFiles: [
       "tests/contracts/public-client/cli/_clack.ts",
-      "src/migrations/dialects/all.ts",
+      "tests/fixtures/register-migration-drivers.ts",
     ],
     // Database behavior suites provision one schema family and reset its rows.
     // The remaining fresh-database tests inject races or destructive state and
