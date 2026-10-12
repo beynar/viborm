@@ -12,11 +12,13 @@ import {
   stepStatements,
 } from "./compile";
 import {
+  advanceMarker,
   appendLedger,
-  casMarker,
+  attemptIdFor,
   controlTableNames,
   DEFAULT_CONTROL_BASE,
   ensureControlTables,
+  ledgerEvent,
   markerFromPath,
   markerUnmovedCondition,
   markerWrite,
@@ -24,16 +26,12 @@ import {
   readPostgresDecision,
   refuseIncompatibleHistory,
   refusePartialControl,
+  sameMarker,
   unfinishedAttempts,
 } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
 import { postgresCatalogDigestQuery } from "./drivers/postgres/catalog-digest";
-import {
-  checkCondition,
-  evaluateAllChecks,
-  executeOperations,
-} from "./execute-dispatch";
-import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
+import { assertAllChecks, executeOperations } from "./execute-dispatch";
 import {
   loadMigrationGraph,
   type MigrationGraph,
@@ -44,11 +42,10 @@ import {
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
-  MIGRATION_LOCK_FREE,
   type MigrationBatch,
-  mayWrapTransaction,
+  migrationLockFree,
   openMigrationBatch,
-  runSequentialProgram,
+  runProgram,
   runsMigrationBatches,
   withLockedMigrationProducer,
 } from "./pinned-session";
@@ -59,7 +56,6 @@ import {
   markedSnapshotHash,
   markerStanding,
   proveLive,
-  snapshotOf,
 } from "./proof";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintDeparsed, fingerprintSnapshot } from "./push-fingerprint";
@@ -68,22 +64,13 @@ import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
 import { assertEstateTargetMatches } from "./target";
 import type { SchemaSnapshot } from "./types";
-import { eventIdFor } from "./v1-parse";
 import type {
   ApplyV1Options,
   LedgerEventV1,
   MarkerPathEdgeV1,
-  MigrationBooleanCheckV1,
   MigrationMarkerV1,
   MigrationStateManifestV1,
 } from "./v1-types";
-
-// Moved to proof.ts; re-exported for the commands not yet importing from there.
-export {
-  assertLockedSinceDecision,
-  assertNoDrift,
-  markerStanding,
-} from "./proof";
 
 export interface ApplyV1Result {
   readonly outcome: "applied" | "noop" | "preview";
@@ -121,19 +108,12 @@ export async function applyV1(
       { ledger: "open" }
     );
     refusePartialControl(control.presence);
-    const { marker } = control;
-    if (followsAheadPolicy(graph, marker, options)) {
+    const decision = decide(graph, control.marker, target, options);
+    if (!decision || decision.origin === target) {
       return { outcome: "noop", path: [], statements: [] };
     }
-    const origin = marker?.stateId ?? null;
-    if (origin === target) return { outcome: "noop", path: [], statements: [] };
-    const path = selectRoute(graph, origin, target, options.via);
-    assertPathArtifacts(graph, origin, path);
-    return {
-      outcome: "preview",
-      path,
-      statements: previewStatements(graph, origin, path),
-    };
+    const { path, statements } = decision;
+    return { outcome: "preview", path, statements };
   }
 
   // Set once the path committed: a failure after it is the lock's release.
@@ -161,16 +141,9 @@ export async function applyV1(
           VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
         );
       }
-      if (followsAheadPolicy(graph, marker, options)) {
-        return { outcome: "noop", path: [], statements: [] };
-      }
-      const origin = marker?.stateId ?? null;
-      const path =
-        origin === target
-          ? []
-          : selectRoute(graph, origin, target, options.via);
-      assertPathArtifacts(graph, origin, path);
-      const statements = previewStatements(graph, origin, path);
+      const decision = decide(graph, marker, target, options);
+      if (!decision) return { outcome: "noop", path: [], statements: [] };
+      const { origin, path, statements } = decision;
       await command.preflightSchemaRequirements(
         [
           requireStateSnapshot(graph, origin),
@@ -187,8 +160,9 @@ export async function applyV1(
       if (origin === target) {
         return { outcome: "noop", path: [], statements: [] };
       }
-      const run = async (producer: Parameters<typeof appendLedger>[0]) => {
-        await applyPathUnderLock(
+      // On MySQL the whole path is one sequential program.
+      await runProgram(pinned, command, undefined, (producer) =>
+        applyPathUnderLock(
           producer,
           command,
           graph,
@@ -197,13 +171,8 @@ export async function applyV1(
           path,
           client.$schema,
           needsBootstrap
-        );
-      };
-      if (command.target.dialect === "mysql") {
-        await runSequentialProgram(pinned, command, run);
-      } else {
-        await run(pinned);
-      }
+        )
+      );
       committed.result = { outcome: "applied", path, statements };
       return committed.result;
     },
@@ -246,12 +215,12 @@ async function provenNoop(
     return { outcome: "noop", path: [], statements: [] };
   }
   if (marker.stateId !== target || decision.digest === undefined) return;
-  const expected = snapshotOf(graph, markedSnapshotHash(graph, marker));
-  // Partial-index predicates compare as the server deparsed them: the live
-  // ones in the digest, the snapshot's from the record beside the marker.
-  return expected &&
-    decision.digest ===
-      fingerprintDeparsed(expected, decision.predicates, driver)
+  // `markedSnapshotHash` proved the snapshot is in the estate. Partial-index
+  // predicates compare as the server deparsed them: the live ones in the
+  // digest, the snapshot's from the record beside the marker.
+  const expected = graph.snapshots.get(markedSnapshotHash(graph, marker))!;
+  return decision.digest ===
+    fingerprintDeparsed(expected, decision.predicates, driver)
     ? { outcome: "noop", path: [], statements: [] }
     : undefined;
 }
@@ -295,7 +264,28 @@ function followsAheadPolicy(
   );
 }
 
-export async function applyPathUnderLock(
+/**
+ * What apply does from `marker`, shared by the dry run and the locked apply:
+ * its ahead policy, origin, route and authenticated artifacts. `undefined`
+ * when `ifAhead: "noop"` applies.
+ */
+function decide(
+  graph: MigrationGraph,
+  marker: MigrationMarkerV1 | null,
+  target: Sha256,
+  options: ApplyV1Options
+):
+  | { origin: Sha256 | null; path: readonly Sha256[]; statements: string[] }
+  | undefined {
+  if (followsAheadPolicy(graph, marker, options)) return;
+  const origin = marker?.stateId ?? null;
+  const path =
+    origin === target ? [] : selectRoute(graph, origin, target, options.via);
+  assertPathArtifacts(graph, origin, path);
+  return { origin, path, statements: previewStatements(graph, origin, path) };
+}
+
+async function applyPathUnderLock(
   pinned: import("../drivers/driver").AnyDriver,
   command: BoundMigrationDriver,
   graph: MigrationGraph,
@@ -310,57 +300,26 @@ export async function applyPathUnderLock(
     const from = index === 0 ? origin : path[index - 1]!;
     const transition = parentTransition(graph, from, to);
     const state = graph.states.get(to)!;
-    const blob = graph.sql.get(state.sqlHash);
-    if (!blob) {
-      throw new MigrationError(
-        "Selected transition is missing its SQL blob",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
+    // `assertPathArtifacts` proved every blob of the path.
+    const blob = graph.sql.get(state.sqlHash)!;
+    const requested = transition.requestedForwardBoundary;
     assertTransactionalBoundaryHonored(
       pinned.supportsTransactions || batched,
-      transition.requestedForwardBoundary
+      requested
     );
-    // Plan S5: only a transaction holds SQLite's write lock, under which a
-    // transition applies exactly once, and every SQLite statement can run in
-    // one. Refused while the path is prepared, before any of it runs.
-    if (
-      command.target.dialect === "sqlite" &&
-      transition.requestedForwardBoundary === "stepwise"
-    ) {
-      throw new MigrationError(
-        'SQLite applies no stepwise transition: only a transaction holds the write lock under which a migration applies exactly once, and every SQLite statement can run in one. Nothing ran. Apply it with VibORM 1.1.0, or, if no database applied it, remove its state from migration storage and generate it again with `execution: "transactional"`.',
-        VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
-        {
-          meta: {
-            dialect: "sqlite",
-            toState: to,
-            feature: "stepwise execution",
-          },
-        }
-      );
-    }
     const boundary = classifyStoredAtomicity(
       command,
-      transition.requestedForwardBoundary,
+      requested,
       transition.operations,
       blob
     );
-    // Plan D7: a transport with no session runs only transactional groups,
-    // each as one request. Refused while the path is prepared.
-    if (batched && boundary === "stepwise") {
-      throw new MigrationError(
-        `The driver "${pinned.driverName}" sends each transactional group as one request and has no session for a stepwise transition (CONCURRENTLY, or a manual stepwise step). Nothing ran. Apply it over a session driver: viborm/pg, Neon's WebSocket Pool included.`,
-        VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
-        {
-          meta: {
-            dialect: "postgresql",
-            toState: to,
-            feature: "stepwise execution",
-          },
-        }
-      );
-    }
+    refuseStepwise(
+      pinned,
+      command,
+      to,
+      requested === "stepwise",
+      batched && boundary === "stepwise"
+    );
     return { from, to, transition, state, blob, boundary };
   });
 
@@ -387,8 +346,6 @@ export async function applyPathUnderLock(
       );
       continue;
     }
-    const statements = group.items.flatMap(statementsOf);
-    const lifted = liftForeignKeyPragmas(pinned, statements);
     const running: { attempt?: ForwardAttempt } = {};
     const run = async (
       producer: Parameters<typeof appendLedger>[0],
@@ -412,52 +369,163 @@ export async function applyPathUnderLock(
         );
         return;
       }
+      // Edge by edge, each step probed and recorded as it runs.
       for (const item of group.items) {
-        running.attempt = { item, attemptId: forwardAttemptId(graph, item) };
-        current = await executeForwardEdge(
+        const attempt = forwardAttempt(graph, item);
+        await appendLedger(
+          producer,
+          command,
+          DEFAULT_CONTROL_BASE,
+          attempt.event("started", "none")
+        );
+        await runForwardEdge(
           producer,
           command,
           graph,
-          running.attempt,
-          current,
+          attempt,
           nextPath,
-          models
+          models,
+          true
+        );
+        const { snapshotHash } = item.state;
+        current = await advanceMarker(
+          producer,
+          command,
+          graph.estateHash,
+          current,
+          [...nextPath],
+          snapshotHash,
+          1,
+          await proveLive(producer, command, graph, snapshotHash)
+        );
+        await appendLedger(
+          producer,
+          command,
+          DEFAULT_CONTROL_BASE,
+          attempt.event("applied", "committed")
         );
       }
     };
-    if (
-      mayWrapTransaction(
-        pinned,
-        command.target.dialect,
-        group.boundary === "transactional"
-      )
-    ) {
-      let committing = false;
-      let committed = false;
-      try {
-        await withForeignKeysLifted(pinned, lifted.bracket, async (inside) => {
-          await pinned.withTransaction(async (transaction) => {
-            await inside(transaction, (producer) => run(producer, true));
-            committing = true;
-          });
-          committed = true;
-        });
-      } catch (failure) {
-        // Past the commit only the foreign-key restore can fail: it is reported.
-        if (committed) throw failure;
-        if (
-          committing &&
-          (await commitLanded(pinned, command, group.items, current, failure))
-        ) {
-          continue;
-        }
-        await recordFailedAttempt(pinned, command, graph, running, failure);
-        throw failure;
+    const phase = { committing: false, committed: false };
+    const program = {
+      transactional: group.boundary === "transactional",
+      statements: group.items.flatMap(statementsOf),
+      phase,
+    };
+    try {
+      // On MySQL the path already runs as one sequential program (`applyV1`).
+      await (command.target.dialect === "mysql"
+        ? run(pinned, false)
+        : runProgram(pinned, command, program, run));
+    } catch (failure) {
+      // Past the commit only the foreign-key restore can fail: it is reported.
+      if (phase.committed) throw failure;
+      if (
+        phase.committing &&
+        (await commitLanded(pinned, command, group.items, current, failure))
+      ) {
+        continue;
       }
-    } else {
-      await run(pinned, false);
+      await recordFailedAttempt(pinned, command, running, failure);
+      throw failure;
     }
   }
+}
+
+/**
+ * Plans S5 and D7, refused while the path is prepared, before any of it runs:
+ * only a transaction holds SQLite's write lock, under which a transition
+ * applies exactly once, and every SQLite statement can run in one; a
+ * transport with no session runs only transactional groups, each as one
+ * request.
+ */
+function refuseStepwise(
+  pinned: import("../drivers/driver").AnyDriver,
+  command: BoundMigrationDriver,
+  toState: Sha256,
+  requestedStepwise: boolean,
+  batchedStepwise: boolean
+): void {
+  const sqlite = command.target.dialect === "sqlite" && requestedStepwise;
+  if (!(sqlite || batchedStepwise)) return;
+  throw new MigrationError(
+    sqlite
+      ? 'SQLite applies no stepwise transition: only a transaction holds the write lock under which a migration applies exactly once, and every SQLite statement can run in one. Nothing ran. Apply it with VibORM 1.1.0, or, if no database applied it, remove its state from migration storage and generate it again with `execution: "transactional"`.'
+      : `The driver "${pinned.driverName}" sends each transactional group as one request and has no session for a stepwise transition (CONCURRENTLY, or a manual stepwise step). Nothing ran. Apply it over a session driver: viborm/pg, Neon's WebSocket Pool included.`,
+    VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+    {
+      meta: {
+        dialect: sqlite ? "sqlite" : "postgresql",
+        toState,
+        feature: "stepwise execution",
+      },
+    }
+  );
+}
+
+/**
+ * One forward edge, from its origin checks to its destination checks, its
+ * arrival pushed onto `nextPath`; the caller proves the destination, moves
+ * the marker and records the arrival. A `probed` edge runs step by step and
+ * records each confirmed step; otherwise it runs inside a real transaction,
+ * or one request (`batch`), whose rollback is the proof of every step.
+ */
+async function runForwardEdge(
+  producer: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  attempt: ForwardAttempt,
+  nextPath: MarkerPathEdgeV1[],
+  models: MigrationClient["$schema"],
+  probed: boolean,
+  batch?: MigrationBatch
+): Promise<void> {
+  const { from, to, transition, state, blob, boundary } = attempt.item;
+  await assertAllChecks(
+    producer,
+    blob,
+    transition.originChecks,
+    command.namespace,
+    "Origin checks failed before the first dispatch",
+    batch
+  );
+  await executeOperations(
+    producer,
+    blob,
+    transition.operations,
+    probed ? boundary : "atomic",
+    probed
+      ? (progress, effect) =>
+          appendLedger(
+            producer,
+            command,
+            DEFAULT_CONTROL_BASE,
+            attempt.event("step-confirmed", effect, progress)
+          )
+      : undefined,
+    command.namespace,
+    { fromState: from, toState: to }
+  );
+  // Manual SQL may store text typed queries cannot compare (`datetime('now')`).
+  await canonicalizeSqliteStorage(
+    producer,
+    transition.operations,
+    models,
+    requireStateSnapshot(graph, to)
+  );
+  await assertAllChecks(
+    producer,
+    blob,
+    state.destinationChecks,
+    command.namespace,
+    "Destination checks failed before the marker could advance",
+    batch
+  );
+  nextPath.push({
+    stateId: to,
+    transitionHash: transition.transitionHash,
+    baselineBoundary: false,
+  });
 }
 
 /**
@@ -482,84 +550,43 @@ async function executeAtomicGroup(
 ): Promise<MigrationMarkerV1> {
   const arrivals: LedgerEventV1[] = [];
   for (const item of items) {
-    const attemptId = forwardAttemptId(graph, item);
-    running.attempt = { item, attemptId };
-    const { from, to, transition, state, blob } = item;
-    await assertChecks(
+    running.attempt = forwardAttempt(graph, item);
+    await runForwardEdge(
       producer,
       command,
-      blob,
-      transition.originChecks,
-      "origin",
-      batch
-    );
-    await executeOperations(
-      producer,
-      blob,
-      transition.operations,
-      "atomic",
-      undefined,
-      command.namespace,
-      { fromState: from, toState: to }
-    );
-    // Manual SQL may store text typed queries cannot compare (`datetime('now')`).
-    await canonicalizeSqliteStorage(
-      producer,
-      transition.operations,
+      graph,
+      running.attempt,
+      nextPath,
       models,
-      requireStateSnapshot(graph, to)
-    );
-    await assertChecks(
-      producer,
-      command,
-      blob,
-      state.destinationChecks,
-      "destination",
+      false,
       batch
     );
-    nextPath.push({
-      stateId: to,
-      transitionHash: transition.transitionHash,
-      baselineBoundary: false,
-    });
-    arrivals.push(
-      ledgerEvent(
-        graph,
-        attemptId,
-        "applied",
-        from,
-        to,
-        "committed",
-        null,
-        null,
-        transition.transitionHash
-      )
-    );
+    arrivals.push(running.attempt.event("applied", "committed"));
   }
-  const { snapshotHash } = items.at(-1)!.state;
-  const next = markerFromPath(
-    graph.estateHash,
-    snapshotHash,
-    [...nextPath],
-    (current?.revision ?? 0) + items.length
-  );
-  const expected = current
-    ? { revision: current.revision, pathHash: current.pathHash }
-    : null;
+  const last = items.at(-1)!;
+  const { snapshotHash } = last.state;
+  let next: MigrationMarkerV1;
   if (batch) {
-    assertDigest(batch, command, requireStateSnapshot(graph, items.at(-1)!.to));
-    // The request asserted `expected` under its lock first.
-    const write = markerWrite(command, DEFAULT_CONTROL_BASE, expected, next);
+    assertDigest(batch, command, requireStateSnapshot(graph, last.to));
+    next = markerFromPath(
+      graph.estateHash,
+      snapshotHash,
+      [...nextPath],
+      (current?.revision ?? 0) + items.length
+    );
+    // The request asserted `current` under its lock first.
+    const write = markerWrite(command, DEFAULT_CONTROL_BASE, current, next);
     await producer._executeRaw(write.sql, write.params);
   } else {
-    const predicates = await proveLive(producer, command, graph, snapshotHash);
-    await casMarker(
+    next = await advanceMarker(
       producer,
       command,
-      DEFAULT_CONTROL_BASE,
-      expected,
-      next,
-      predicates
+      graph.estateHash,
+      current,
+      [...nextPath],
+      snapshotHash,
+      items.length,
+      await proveLive(producer, command, graph, snapshotHash)
     );
   }
   await appendLedger(producer, command, DEFAULT_CONTROL_BASE, ...arrivals);
@@ -619,7 +646,7 @@ async function applyGroupBatch(
     ) {
       return next;
     }
-    await recordFailedAttempt(driver, command, graph, running, failure);
+    await recordFailedAttempt(driver, command, running, failure);
     throw failure;
   }
   return next;
@@ -657,40 +684,6 @@ function assertDigest(
   );
 }
 
-/** An edge's authored origin or destination checks, which must all hold. */
-async function assertChecks(
-  producer: Parameters<typeof appendLedger>[0],
-  command: BoundMigrationDriver,
-  blob: Uint8Array,
-  checks: readonly MigrationBooleanCheckV1[],
-  side: "origin" | "destination",
-  batch?: MigrationBatch
-): Promise<void> {
-  const refusal = () =>
-    new MigrationError(
-      side === "origin"
-        ? "Origin checks failed before the first dispatch"
-        : "Destination checks failed before the marker could advance",
-      VibORMErrorCode.MIGRATION_DRIFT
-    );
-  if (batch) {
-    for (const check of checks) {
-      const { sql, params } = checkCondition(blob, check, command.namespace);
-      batch.assert(sql, params, refusal());
-    }
-    return;
-  }
-  if (await evaluateAllChecks(producer, blob, checks, command.namespace)) {
-    return;
-  }
-  throw refusal();
-}
-
-interface ForwardAttempt {
-  readonly item: PreparedForwardEdge;
-  readonly attemptId: Sha256;
-}
-
 /**
  * Whether a transaction whose COMMIT was sent, and then failed, committed.
  * The marker it compare-and-swapped answers: it commits with the transition
@@ -712,7 +705,7 @@ async function commitLanded(
         pinned,
         command,
         DEFAULT_CONTROL_BASE,
-        MIGRATION_LOCK_FREE
+        migrationLockFree(command)
       ).then((decision) => decision?.marker)
     : readControlState(pinned, command, DEFAULT_CONTROL_BASE, {
         ledger: "open",
@@ -734,11 +727,7 @@ async function commitLanded(
       }
     );
   }
-  return (
-    marker !== null &&
-    marker.revision === expected?.revision &&
-    marker.pathHash === expected.pathHash
-  );
+  return marker !== null && sameMarker(marker, expected);
 }
 
 /**
@@ -751,24 +740,20 @@ async function commitLanded(
 async function recordFailedAttempt(
   pinned: Parameters<typeof appendLedger>[0],
   command: BoundMigrationDriver,
-  graph: MigrationGraph,
   running: { readonly attempt?: ForwardAttempt },
   failure: unknown
 ): Promise<void> {
   const { attempt } = running;
   if (attempt === undefined) return;
-  const { item, attemptId } = attempt;
   const meta = isVibORMError(failure) ? failure.meta : {};
-  const event = ledgerEvent(
-    graph,
-    attemptId,
+  const event = attempt.event(
     "failed",
-    item.from,
-    item.to,
     "none",
-    typeof meta.operationId === "string" ? meta.operationId : null,
-    typeof meta.dispatchId === "string" ? meta.dispatchId : null,
-    item.transition.transitionHash,
+    {
+      operationId:
+        typeof meta.operationId === "string" ? meta.operationId : null,
+      dispatchId: typeof meta.dispatchId === "string" ? meta.dispatchId : null,
+    },
     describeFailure(failure)
   );
   try {
@@ -800,146 +785,48 @@ interface PreparedForwardEdge {
   readonly boundary: "transactional" | "stepwise";
 }
 
-function forwardAttemptId(
-  graph: MigrationGraph,
-  { from, to, transition, state }: PreparedForwardEdge
-): Sha256 {
-  return eventIdFor({
-    format: "1",
-    attemptId: "0".repeat(64),
-    kind: "started",
-    estateHash: graph.estateHash,
-    snapshotHash: state.snapshotHash,
-    sqlHash: state.sqlHash,
-    fromState: from,
-    toState: to,
-    transitionHash: transition.transitionHash,
-    direction: "forward",
-    operationId: null,
-    dispatchId: null,
-    effectState: "none",
-    startedAt: new Date().toISOString(),
-    finishedAt: null,
-    toolVersion: "v1",
-    failure: null,
-  });
+/** One edge's attempt: the edge, and the builder of its ledger events. */
+interface ForwardAttempt {
+  readonly item: PreparedForwardEdge;
+  event(
+    kind: LedgerEventV1["kind"],
+    effectState: LedgerEventV1["effectState"],
+    step?: {
+      readonly operationId: string | null;
+      readonly dispatchId: string | null;
+    },
+    failure?: string
+  ): LedgerEventV1;
 }
 
-async function executeForwardEdge(
-  producer: Parameters<typeof appendLedger>[0],
-  command: BoundMigrationDriver,
+function forwardAttempt(
   graph: MigrationGraph,
-  { item, attemptId }: ForwardAttempt,
-  current: MigrationMarkerV1 | null,
-  nextPath: MarkerPathEdgeV1[],
-  models: MigrationClient["$schema"]
-): Promise<MigrationMarkerV1> {
-  const { from, to, transition, state, blob, boundary } = item;
-  await appendLedger(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    ledgerEvent(
-      graph,
-      attemptId,
-      "started",
-      from,
-      to,
-      "none",
-      null,
-      null,
-      transition.transitionHash
-    )
-  );
-  await assertChecks(
-    producer,
-    command,
-    blob,
-    transition.originChecks,
-    "origin"
-  );
-  await executeOperations(
-    producer,
-    blob,
-    transition.operations,
-    boundary,
-    async (progress, effect) => {
-      await appendLedger(
-        producer,
-        command,
-        DEFAULT_CONTROL_BASE,
-        ledgerEvent(
-          graph,
-          attemptId,
-          "step-confirmed",
-          from,
-          to,
-          effect,
-          progress.operationId,
-          progress.dispatchId,
-          transition.transitionHash
-        )
-      );
-    },
-    command.namespace,
-    { fromState: from, toState: to }
-  );
-  // Manual SQL may store text typed queries cannot compare (`datetime('now')`).
-  await canonicalizeSqliteStorage(
-    producer,
-    transition.operations,
-    models,
-    requireStateSnapshot(graph, to)
-  );
-  await assertChecks(
-    producer,
-    command,
-    blob,
-    state.destinationChecks,
-    "destination"
-  );
-  const predicates = await proveLive(
-    producer,
-    command,
-    graph,
-    state.snapshotHash
-  );
-  nextPath.push({
-    stateId: to,
-    transitionHash: transition.transitionHash,
-    baselineBoundary: false,
-  });
-  const next = markerFromPath(
-    graph.estateHash,
-    state.snapshotHash,
-    nextPath,
-    (current?.revision ?? 0) + 1
-  );
-  await casMarker(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    current ? { revision: current.revision, pathHash: current.pathHash } : null,
-    next,
-    predicates
-  );
-  await appendLedger(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    ledgerEvent(
-      graph,
-      attemptId,
-      "applied",
-      from,
-      to,
-      "committed",
-      null,
-      null,
-      transition.transitionHash
-    )
-  );
-  return next;
+  item: PreparedForwardEdge
+): ForwardAttempt {
+  const seed = {
+    estateHash: graph.estateHash,
+    snapshotHash: item.state.snapshotHash,
+    sqlHash: item.state.sqlHash,
+    fromState: item.from,
+    toState: item.to,
+    transitionHash: item.transition.transitionHash,
+    direction: "forward" as const,
+  };
+  const attemptId = attemptIdFor(seed);
+  return {
+    item,
+    event: (kind, effectState, step, failure) =>
+      ledgerEvent({
+        ...seed,
+        attemptId,
+        kind,
+        effectState,
+        operationId: step?.operationId ?? null,
+        dispatchId: step?.dispatchId ?? null,
+        failure,
+        open: kind === "started",
+      }),
+  };
 }
 
 function assertPathArtifacts(
@@ -970,43 +857,9 @@ function previewStatements(
   let from = origin;
   for (const to of path) {
     const transition = parentTransition(graph, from, to);
-    const blob = graph.sql.get(graph.states.get(to)!.sqlHash);
-    if (blob) statements.push(...stepStatements(blob, transition.operations));
+    const blob = graph.sql.get(graph.states.get(to)!.sqlHash)!;
+    statements.push(...stepStatements(blob, transition.operations));
     from = to;
   }
   return statements;
-}
-
-function ledgerEvent(
-  graph: MigrationGraph,
-  attemptId: Sha256,
-  kind: LedgerEventV1["kind"],
-  from: Sha256 | null,
-  to: Sha256,
-  effectState: LedgerEventV1["effectState"],
-  operationId: string | null = null,
-  dispatchId: string | null = null,
-  transitionHash: Sha256 | null = null,
-  failure: string | null = null
-): LedgerEventV1 {
-  const event = {
-    format: "1" as const,
-    attemptId,
-    kind,
-    estateHash: graph.estateHash,
-    snapshotHash: graph.states.get(to)!.snapshotHash,
-    sqlHash: graph.states.get(to)!.sqlHash,
-    fromState: from,
-    toState: to,
-    transitionHash,
-    direction: "forward" as const,
-    operationId,
-    dispatchId,
-    effectState,
-    startedAt: new Date().toISOString(),
-    finishedAt: kind === "started" ? null : new Date().toISOString(),
-    toolVersion: "v1",
-    failure,
-  };
-  return { ...event, eventId: eventIdFor(event) };
 }

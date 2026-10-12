@@ -1,6 +1,6 @@
 import { ConnectionError, VibORMErrorCode } from "@errors";
-import { type Clock, type ClockTimer, systemClock } from "../../clock";
 import { errorCause } from "./driver-options";
+import { settleWithin } from "./settle";
 import { withSuppressedFailure } from "./suppressed-failure";
 
 /** The PostgreSQL statement that resets a session's advisory-lock state. */
@@ -21,98 +21,6 @@ const ADVISORY_RESET_FAILED = `could not prove the advisory-lock state of a disc
  * has (plan S2: "bound every cleanup statement").
  */
 export const CLEANUP_BOUND_MS = 5000;
-
-/**
- * The limits of one migration command's pinned session (plan S1), and the
- * table size it may rewrite in-request (plan T5a).
- *
- * Every value but `largeTableRows` is in milliseconds. `lockTimeout`, `statementTimeout` and
- * `idleTimeout` are PostgreSQL server settings, where 0 means "no limit";
- * `lockWait` and `connectionWait` are waits VibORM itself bounds. `lockWait`
- * also bounds SQLite's `BEGIN IMMEDIATE`, and `connectionWait` applies to
- * MySQL as well; the others, `largeTableRows` included, are PostgreSQL-only,
- * and MySQL keeps its fixed named-lock wait.
- */
-export interface MigrationLimits {
-  /**
-   * `lock_timeout`, for the session and, with `SET LOCAL`, every migration
-   * transaction: how long one DDL statement may queue for a table lock.
-   */
-  readonly lockTimeout?: number;
-  /**
-   * `statement_timeout`, for every migration transaction and for the session
-   * around the lock and stepwise programs. 0, or longer than `lockWait`.
-   */
-  readonly statementTimeout?: number;
-  /**
-   * `idle_in_transaction_session_timeout` and, on PostgreSQL 14+,
-   * `idle_session_timeout`: how long the server keeps a migration session
-   * whose client stopped talking — the one that vanished holding the lock.
-   */
-  readonly idleTimeout?: number;
-  /** How long the command waits for the migration lock another one holds. */
-  readonly lockWait?: number;
-  /** How long the command waits for its pinned connection. */
-  readonly connectionWait?: number;
-  /**
-   * A row count, not milliseconds: the planner's estimate above which a
-   * statement that rewrites or scans a table under a lock that blocks it (a
-   * column type change, `SET NOT NULL`, a volatile `ADD COLUMN` default, a
-   * FOREIGN KEY or CHECK added without `NOT VALID`) is refused before any
-   * effect, because it would hold that lock longer than a request should.
-   * 0 admits every size.
-   */
-  readonly largeTableRows?: number;
-}
-
-export type ResolvedMigrationLimits = Readonly<Required<MigrationLimits>>;
-
-export const DEFAULT_MIGRATION_LIMITS: ResolvedMigrationLimits = Object.freeze({
-  lockTimeout: 4000,
-  statementTimeout: 600_000,
-  idleTimeout: 1000,
-  lockWait: 10_000,
-  connectionWait: 10_000,
-  largeTableRows: 1_000_000,
-});
-
-/**
- * `running`, or a rejection built by `expired` once `ms` passed without an
- * answer.
- *
- * The abandoned operation keeps running on the provider. Its rejection is
- * observed here so it never surfaces as unhandled, and a late success is
- * handed to `abandon` — a reservation nobody will use goes back.
- *
- * `clock` is the same internal seam the transaction bounds take.
- */
-export async function settleWithin<T>(
-  running: Promise<T>,
-  ms: number,
-  expired: () => Error,
-  abandon?: (late: T) => void,
-  clock: Clock = systemClock
-): Promise<T> {
-  let timer: ClockTimer | undefined;
-  let late = false;
-  running.then(
-    (value) => {
-      if (late) abandon?.(value);
-    },
-    () => undefined
-  );
-  const expiry = new Promise<never>((_resolve, reject) => {
-    timer = clock.setTimeout(() => {
-      late = true;
-      reject(expired());
-    }, ms);
-  });
-  try {
-    return await Promise.race([running, expiry]);
-  } finally {
-    timer?.cancel();
-  }
-}
 
 /**
  * One reserved physical session, as a provider hands it back.

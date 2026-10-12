@@ -1,9 +1,9 @@
 import { VibORMErrorCode } from "@src/errors";
-import { assertNoDrift } from "@src/migrations/apply-v1";
 import { markerFromPath } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import type { MigrationGraph } from "@src/migrations/graph";
+import { assertNoDrift } from "@src/migrations/proof";
 import type {
   MigrationMarkerV1,
   MigrationParentTransitionV1,

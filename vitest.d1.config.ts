@@ -27,6 +27,8 @@ export default defineWorkersConfig({
     include: ["tests/providers/workers/**/*.test.ts"],
     // Its own project (vitest.tenant-do.config.ts): `pg` needs nodejs_compat.
     exclude: [...configDefaults.exclude, "tests/providers/workers/tenant/**"],
+    // D1 binds the SQLite migration driver, as `viborm/migrations/sqlite` does.
+    setupFiles: ["src/migrations/dialects/sqlite.ts"],
     poolOptions: {
       workers: {
         isolatedStorage: true,

@@ -90,6 +90,11 @@ a storage reader. `log` reads the database ledger and `push` is history-free,
 so neither reads estate storage.
 :::
 
+`viborm/migrations` carries the migration driver of every dialect. To bundle
+only one, import the same API from `viborm/migrations/postgres`,
+`viborm/migrations/sqlite` or `viborm/migrations/mysql`. On Cloudflare Workers
+this keeps the other dialects' migration code out of the Worker.
+
 ### Capability-Typed Clients
 
 The returned client exposes only operations that its storage can support:

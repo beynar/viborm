@@ -39,6 +39,10 @@ const scripts = [
     "./workerd-migrations-smoke.mjs",
   ],
   [
+    "bundles only the dialect a migrations dialect entry registers",
+    "./migration-dialect-entries-smoke.mjs",
+  ],
+  [
     "lets a third party build soft delete from public exports alone",
     "./soft-delete-consumer-smoke.mjs",
   ],

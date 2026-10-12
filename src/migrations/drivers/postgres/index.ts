@@ -17,7 +17,6 @@ import type { Scalar, ScalarState } from "@schema/scalars";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import { hasIdPrefix } from "@validation/primitives/id-formats";
 import { errorCause } from "../../../drivers/shared/driver-options";
-import { DEFAULT_MIGRATION_LIMITS } from "../../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import { type LowLockContext, tableRewrites } from "../../compile";
@@ -30,6 +29,7 @@ import {
   isPostgresTextToUuid,
   postgresTextToUuidGuard,
 } from "../../identifier-conversion";
+import { DEFAULT_MIGRATION_LIMITS } from "../../limits";
 import type { NativeRenameOperation } from "../../native-rename";
 import type {
   ColumnDef,
@@ -1348,7 +1348,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
    * the server until the command's `lockWait` (default 10 s) passes; the
    * transaction's `statement_timeout` is longer by construction
    * (`resolveMigrationLimits`), so the loop is never cut short. Stepwise
-   * work adds the session lock it needs on top (`pinned-session.ts`), and
+   * work adds the session lock on top ({@link generateSessionLock}), and
    * releases that one with {@link generateReleaseLock}.
    */
   generateAcquireLock(lockId: number): string | null {
@@ -1365,6 +1365,15 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   generateReleaseLock(lockId: number): string | null {
     return `SELECT pg_advisory_unlock(${lockId}) AS released`;
+  }
+
+  override generateSessionLock(lockId: number): string {
+    return `SELECT pg_try_advisory_lock(${lockId}) AS acquired`;
+  }
+
+  /** Takes the transaction lock and releases it with the statement that asks. */
+  override generateLockFree(lockId: number): string {
+    return `pg_try_advisory_xact_lock(${lockId})`;
   }
 
   /** One bounded provider-side retry loop; only boolean true proves ownership. */

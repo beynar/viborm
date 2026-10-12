@@ -14,7 +14,9 @@ import {
   VibORMErrorCode,
 } from "../errors";
 import { decodeParameter } from "./compile";
+import type { MigrationBatch } from "./pinned-session";
 import { sliceDispatch } from "./sql-blob";
+import { readFlag } from "./v1-parse-shared";
 import type {
   LedgerEffectStateV1,
   MigrationBooleanCheckV1,
@@ -79,7 +81,14 @@ export async function evaluateCheck(
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
   }
-  return coerceBoolean(values[0], check.id) === check.equals;
+  const flag = readFlag(values[0]);
+  if (flag === undefined) {
+    throw new MigrationError(
+      `Check ${check.id} did not return a boolean`,
+      VibORMErrorCode.MIGRATION_INVALID_STATE
+    );
+  }
+  return flag === check.equals;
 }
 
 const TRAILING_SEMICOLON = /;\s*$/;
@@ -87,7 +96,7 @@ const TRAILING_SEMICOLON = /;\s*$/;
 /**
  * {@link evaluateCheck} as a condition one request asserts (plan D7): the
  * check's one row holds one value, `check.equals` in a spelling
- * `coerceBoolean` reads. No row, more rows, or another value do not hold. A
+ * `readFlag` reads. No row, more rows, or another value do not hold. A
  * check with another number of columns is refused, as `evaluateCheck`
  * refuses it: the `UNION ALL` with one column fails the request, which rolls
  * back. Columns are named, never read as one whole row, which PlanetScale
@@ -104,33 +113,6 @@ export function checkCondition(
     sql: `(SELECT CASE WHEN count(*) = 1 THEN min(one.value::text) END FROM (SELECT * FROM (\n${sql.replace(TRAILING_SEMICOLON, "")}\n) AS checked UNION ALL SELECT NULL WHERE false) AS one(value)) IN (${spellings})`,
     params,
   };
-}
-
-function coerceBoolean(value: unknown, id: string): boolean {
-  if (
-    value === true ||
-    value === 1 ||
-    value === 1n ||
-    value === "1" ||
-    value === "t" ||
-    value === "true"
-  ) {
-    return true;
-  }
-  if (
-    value === false ||
-    value === 0 ||
-    value === 0n ||
-    value === "0" ||
-    value === "f" ||
-    value === "false"
-  ) {
-    return false;
-  }
-  throw new MigrationError(
-    `Check ${id} did not return a boolean`,
-    VibORMErrorCode.MIGRATION_INVALID_STATE
-  );
 }
 
 /**
@@ -348,4 +330,31 @@ export async function evaluateAllChecks(
     }
   }
   return true;
+}
+
+/**
+ * The one owner of "authored checks must hold": every one of `checks` holds,
+ * else `refusal` is the command's MIGRATION_DRIFT. Inside one request (plan
+ * D7) each is asserted there instead, as its {@link checkCondition}.
+ */
+export async function assertAllChecks(
+  producer: AnyDriver,
+  blob: Uint8Array,
+  checks: readonly MigrationBooleanCheckV1[],
+  targetNamespace: string | undefined,
+  refusal: string,
+  batch?: MigrationBatch
+): Promise<void> {
+  const drift = () =>
+    new MigrationError(refusal, VibORMErrorCode.MIGRATION_DRIFT);
+  if (batch) {
+    for (const check of checks) {
+      const { sql, params } = checkCondition(blob, check, targetNamespace);
+      batch.assert(sql, params, drift());
+    }
+    return;
+  }
+  if (!(await evaluateAllChecks(producer, blob, checks, targetNamespace))) {
+    throw drift();
+  }
 }

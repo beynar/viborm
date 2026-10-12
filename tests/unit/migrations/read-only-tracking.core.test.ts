@@ -13,7 +13,12 @@ import type { MigrationClient } from "@migrations/push/planner";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { describe, expect, it } from "vitest";
-import { MemoryStorage, pgEstateDriver, type RecordingDriver } from "./_estate";
+import {
+  MemoryStorage,
+  pgEstateDriver,
+  postgresControlCatalogAnswer,
+  type RecordingDriver,
+} from "./_estate";
 
 const schema = {
   user: s.model({
@@ -32,6 +37,11 @@ describe("status is SELECT-only", () => {
     const storage = new MemoryStorage();
     await generate(clientFor(driver), storage, { name: "init" });
     driver.respond = (sql: string) => {
+      const catalog = postgresControlCatalogAnswer(sql, {
+        state: false,
+        log: false,
+      });
+      if (catalog) return catalog;
       if (sql.includes("pg_namespace") && !sql.includes("pg_class")) {
         return [{ present: 1 }];
       }

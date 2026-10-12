@@ -7,8 +7,9 @@
  * Miniflare's workerd with `compatibilityFlags: []` — no `nodejs_compat`, so
  * every `node:*` import in the entry's graph is refused at load — and a
  * compatibility date well before any Node-compatibility date, so there is no
- * date floor either. The Worker also imports the Durable Object and R2
- * history storage subpaths, so they load under the same rules. It then
+ * date floor either. The Worker also imports the dialect entries, the
+ * Durable Object and R2 history storage subpaths and the tenant migrator, so
+ * they load under the same rules. It then
  * runs the exported storage conformance suite, which hashes with the entry's
  * SHA-256, over both in-memory writers.
  *
@@ -30,7 +31,10 @@ const COMPATIBILITY_DATE = "2024-01-01";
 
 const WORKER_CONDITIONS = ["workerd", "worker", "browser", "import", "default"];
 
-const HISTORY_BINDINGS = {
+const ENTRY_BINDINGS = {
+  "./migrations/postgres": "createMigrationClient",
+  "./migrations/sqlite": "createMigrationClient",
+  "./migrations/mysql": "createMigrationClient",
   "./migrations/storage/durable-object": "createDurableObjectStorageWriter",
   "./migrations/storage/r2": "createR2StorageWriter",
   "./migrations/tenant": "createTenantMigrator",
@@ -38,13 +42,13 @@ const HISTORY_BINDINGS = {
 
 // A named import of a missing export fails when workerd links the Worker.
 const worker = (entry, bindings) => `import * as migrations from "${entry}";
-${bindings.map(([path, name]) => `import { ${name} } from "${path}";`).join("\n")}
+${bindings.map(([path, name], index) => `import { ${name} as binding${index} } from "${path}";`).join("\n")}
 
 export default {
   async fetch() {
-    const bindings = [${bindings.map(([, name]) => name).join(", ")}];
+    const bindings = [${bindings.map((_, index) => `binding${index}`).join(", ")}];
     if (!bindings.every((binding) => typeof binding === "function")) {
-      throw new Error("a history storage binding did not load");
+      throw new Error("a migration entry binding did not load");
     }
     const writers = [
       () => new migrations.MemoryEstateStorage(),
@@ -102,7 +106,7 @@ try {
     scriptPath,
     worker(
       entry("./migrations"),
-      Object.entries(HISTORY_BINDINGS).map(([subpath, name]) => [
+      Object.entries(ENTRY_BINDINGS).map(([subpath, name]) => [
         entry(subpath),
         name,
       ])

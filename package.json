@@ -114,6 +114,21 @@
       "import": "./dist/migrations.mjs",
       "default": "./dist/migrations.mjs"
     },
+    "./migrations/postgres": {
+      "types": "./dist/migrations/postgres.d.mts",
+      "import": "./dist/migrations/postgres.mjs",
+      "default": "./dist/migrations/postgres.mjs"
+    },
+    "./migrations/sqlite": {
+      "types": "./dist/migrations/sqlite.d.mts",
+      "import": "./dist/migrations/sqlite.mjs",
+      "default": "./dist/migrations/sqlite.mjs"
+    },
+    "./migrations/mysql": {
+      "types": "./dist/migrations/mysql.d.mts",
+      "import": "./dist/migrations/mysql.mjs",
+      "default": "./dist/migrations/mysql.mjs"
+    },
     "./migrations/storage/fs": {
       "types": "./dist/migrations/storage/fs.d.mts",
       "import": "./dist/migrations/storage/fs.mjs",
@@ -178,7 +193,12 @@
   "publishConfig": {
     "access": "public"
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "./dist/migrations.mjs",
+    "./dist/migrations/postgres.mjs",
+    "./dist/migrations/sqlite.mjs",
+    "./dist/migrations/mysql.mjs"
+  ],
   "scripts": {
     "build": "node scripts/run-typecheck.mjs",
     "dev": "node node_modules/typescript/bin/tsc --watch",
@@ -365,10 +385,10 @@
       "limit": "170 kB"
     },
     {
-      "name": "pg + migrations Worker (viborm/pg + viborm/migrations)",
+      "name": "pg + migrations Worker (viborm/pg + viborm/migrations/postgres)",
       "path": "node_modules/.cache/viborm-size/pg-migrations-worker.mjs",
       "gzip": true,
-      "limit": "265 kB"
+      "limit": "273 kB"
     },
     {
       "name": "pg application (viborm/pg)",
@@ -380,31 +400,31 @@
       "name": "pg application + soft delete",
       "path": "node_modules/.cache/viborm-size/pg-soft-delete.mjs",
       "gzip": true,
-      "limit": "170 kB"
+      "limit": "173.5 kB"
     },
     {
       "name": "soft-delete extension entry",
       "path": "node_modules/.cache/viborm-size/soft-delete-entry.mjs",
       "gzip": true,
-      "limit": "500 B"
+      "limit": "420 B"
     },
     {
       "name": "identifier generators only",
       "path": "node_modules/.cache/viborm-size/ids-only.mjs",
       "gzip": true,
-      "limit": "30 kB"
+      "limit": "30.8 kB"
     },
     {
       "name": "Decimal only",
       "path": "node_modules/.cache/viborm-size/decimal-only.mjs",
       "gzip": true,
-      "limit": "30 kB"
+      "limit": "30.8 kB"
     },
     {
       "name": "every public entry",
       "path": "node_modules/.cache/viborm-size/full.mjs",
       "gzip": true,
-      "limit": "362 kB"
+      "limit": "394 kB"
     }
   ]
 }

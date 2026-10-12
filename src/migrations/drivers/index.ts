@@ -3,17 +3,20 @@
  *
  * Central registry for migration drivers. Drivers are registered by their
  * driver name and can be looked up by driver name or dialect.
+ *
+ * This module registers nothing: the entry an application imports does
+ * (`dialects/*.ts`), so a bundle carries only the dialects it registers.
  */
 
 import type {
   AnyDriver,
   SqliteMigrationCapability,
 } from "../../drivers/driver";
+import { MigrationError, VibORMErrorCode } from "../../errors";
 import {
   DEFAULT_MIGRATION_LIMITS,
   type ResolvedMigrationLimits,
-} from "../../drivers/shared/pinned-session";
-import { MigrationError, VibORMErrorCode } from "../../errors";
+} from "../limits";
 import { resolveMigrationEstate, selectManagedSnapshot } from "../target";
 import type { MigrationTarget } from "../types";
 import type { MigrationDriver } from "./base";
@@ -226,18 +229,3 @@ export function listMigrationDrivers(): MigrationDriver[] {
 export function hasMigrationDriver(driverName: string): boolean {
   return driverRegistry.has(driverName);
 }
-
-// =============================================================================
-// AUTO-REGISTRATION
-// =============================================================================
-
-// Import and register built-in drivers
-import { libsqlMigrationDriver } from "./libsql";
-import { mysqlMigrationDriver } from "./mysql";
-import { postgresMigrationDriver } from "./postgres";
-import { sqlite3MigrationDriver } from "./sqlite";
-
-registerMigrationDriver(postgresMigrationDriver);
-registerMigrationDriver(sqlite3MigrationDriver);
-registerMigrationDriver(libsqlMigrationDriver);
-registerMigrationDriver(mysqlMigrationDriver);

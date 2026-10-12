@@ -1,6 +1,7 @@
 import { Socket } from "node:net";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import { createClient } from "@src/drivers/pg";
+import "@src/migrations/dialects/postgres";
 import { createDurableObjectStorageWriter } from "@src/migrations/storage/durable-object";
 import {
   createTenantMigrator,

@@ -18,13 +18,9 @@ import {
 import { throwIfCatalogRefusal } from "./drivers/postgres/introspect";
 import type { Sha256 } from "./identity";
 import type { SchemaSnapshot, TableDef } from "./types";
-import {
-  encodePathHash,
-  eventIdFor,
-  parseLedgerEvent,
-  parseMarkerRow,
-} from "./v1-parse";
-import { exactObject, parseRequiredString, refuse } from "./v1-parse-shared";
+import { encodePathHash, eventIdFor, parseLedgerEvent } from "./v1-parse";
+import { parseMarkerPayload } from "./v1-parse-control";
+import { readFlag } from "./v1-parse-shared";
 import type {
   LedgerEventV1,
   MarkerIndexPredicateV1,
@@ -175,14 +171,25 @@ export function refuseIncompatibleHistory(
   );
 }
 
+/**
+ * Which control tables exist. PostgreSQL answers from `catalog`, the one
+ * statement that also authenticates them (plan D5), read here when not given.
+ */
 export async function inspectControlPresence(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string
+  base: string,
+  catalog?: PostgresControlCatalog
 ): Promise<ControlPresence> {
   const names = controlTableNames(base);
-  const stateMissing = await isTableMissing(producer, driver, names.state);
-  const logMissing = await isTableMissing(producer, driver, names.log);
+  const read =
+    catalog ?? (await postgresControlCatalog(producer, driver, base));
+  const stateMissing = read
+    ? !read.state
+    : await isTableMissing(producer, driver, names.state);
+  const logMissing = read
+    ? !read.log
+    : await isTableMissing(producer, driver, names.log);
   if (stateMissing && logMissing)
     return { kind: "missing-table", table: "both" };
   if (stateMissing) return { kind: "missing-table", table: "state" };
@@ -191,7 +198,7 @@ export async function inspectControlPresence(
     // empty state table is the one recognizable partial state that can be
     // completed idempotently. A marker row means this is real history with a
     // missing ledger and must remain a hard refusal.
-    await assertExpectedStateControlTable(producer, driver, names);
+    await assertControlTablesAuthentic(producer, driver, base, "state", read);
     if (await isStateControlEmpty(producer, driver, names.state)) {
       return { kind: "recoverable-state-only" };
     }
@@ -228,45 +235,76 @@ function introspectControlTables(
   );
 }
 
-/** Proves that both reserved control tables still have VibORM's exact shape. */
+/** The refusals of the pair, and of a state table left without its log. */
+const UNAUTHENTIC = {
+  pair: {
+    unreadable: "Migration control tables cannot be authenticated",
+    unexpected: "Migration control tables have an unexpected definition",
+    attached: "Migration control tables have executable attachments",
+  },
+  state: {
+    unreadable:
+      "A partial migration control state table cannot be authenticated",
+    unexpected:
+      "A partial migration control state table has an unexpected definition",
+    attached:
+      "A partial migration control state table has executable attachments",
+  },
+} as const;
+
+/**
+ * Proves that both reserved control tables — or, with `scope` "state", the
+ * state table bootstrap left without its log — still have VibORM's exact
+ * shape. PostgreSQL reads `catalog` when presence already read it.
+ */
 export async function assertControlTablesAuthentic(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
-  base: string
+  base: string,
+  scope: keyof typeof UNAUTHENTIC = "pair",
+  catalog?: PostgresControlCatalog
 ): Promise<void> {
   const names = controlTableNames(base);
   if (driver.target.dialect === "postgresql") {
     assertPostgresControlAuthentic(
-      await readPostgresControlCatalog(producer, driver, names),
-      names
+      catalog ?? (await readPostgresControlCatalog(producer, driver, names)),
+      names,
+      scope
     );
     return;
   }
+  const refusal = UNAUTHENTIC[scope];
+  const unreadable = (failure: unknown) =>
+    new MigrationError(
+      refusal.unreadable,
+      VibORMErrorCode.MIGRATION_INVALID_STATE,
+      { cause: errorCause(failure) }
+    );
   let snapshot: SchemaSnapshot;
   try {
     snapshot = await introspectControlTables(producer, driver, names);
   } catch (failure) {
-    if (failure instanceof MigrationError) throw failure;
-    throw new MigrationError(
-      "Migration control tables cannot be authenticated",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
-    );
+    // The pair keeps introspection's own refusal; the partial state wraps it.
+    if (failure instanceof MigrationError && scope === "pair") throw failure;
+    throw unreadable(failure);
   }
-  const stateMatches = snapshot.tables.filter(
-    (table) => table.name === names.state
-  );
-  const logMatches = snapshot.tables.filter(
-    (table) => table.name === names.log
-  );
+  const matches = (name: string) =>
+    snapshot.tables.filter((table) => table.name === name);
+  const [state, ...otherStates] = matches(names.state);
+  const [log, ...otherLogs] = matches(names.log);
   if (
-    stateMatches.length !== 1 ||
-    logMatches.length !== 1 ||
-    !hasExpectedStateTableShape(stateMatches[0]!, driver, names.state) ||
-    !hasExpectedLogTableShape(logMatches[0]!, driver, names.log)
+    !state ||
+    otherStates.length > 0 ||
+    !hasExpectedStateTableShape(state, driver, names.state) ||
+    (scope === "pair" &&
+      !(
+        log &&
+        otherLogs.length === 0 &&
+        hasExpectedLogTableShape(log, driver, names.log)
+      ))
   ) {
     throw new MigrationError(
-      "Migration control tables have an unexpected definition",
+      refusal.unexpected,
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
   }
@@ -278,15 +316,11 @@ export async function assertControlTablesAuthentic(
       names.state
     );
   } catch (failure) {
-    throw new MigrationError(
-      "Migration control tables cannot be authenticated",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
-    );
+    throw unreadable(failure);
   }
   if (!hasSingletonCheck) {
     throw new MigrationError(
-      "Migration control tables have an unexpected definition",
+      refusal.unexpected,
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
   }
@@ -295,98 +329,11 @@ export async function assertControlTablesAuthentic(
     hasAttachments = await hasControlAttachments(producer, driver, names);
   } catch (failure) {
     if (failure instanceof MigrationError) throw failure;
-    throw new MigrationError(
-      "Migration control tables cannot be authenticated",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
-    );
+    throw unreadable(failure);
   }
   if (hasAttachments) {
     throw new MigrationError(
-      "Migration control tables have executable attachments",
-      VibORMErrorCode.MIGRATION_INVALID_STATE
-    );
-  }
-}
-
-async function assertExpectedStateControlTable(
-  producer: AnyDriver,
-  driver: BoundMigrationDriver,
-  names: { readonly state: string; readonly log: string }
-): Promise<void> {
-  const tableName = names.state;
-  if (driver.target.dialect === "postgresql") {
-    const { state } = await readPostgresControlCatalog(producer, driver, names);
-    if (!(state && hasPostgresStateShape(state, tableName))) {
-      throw new MigrationError(
-        "A partial migration control state table has an unexpected definition",
-        VibORMErrorCode.MIGRATION_INVALID_STATE
-      );
-    }
-    if (!isAbsentCatalogFlag(state.executable)) {
-      throw new MigrationError(
-        "A partial migration control state table has executable attachments",
-        VibORMErrorCode.MIGRATION_INVALID_STATE
-      );
-    }
-    return;
-  }
-  let snapshot: SchemaSnapshot;
-  try {
-    snapshot = await introspectControlTables(producer, driver, names);
-  } catch (failure) {
-    throw new MigrationError(
-      "A partial migration control state table cannot be authenticated",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
-    );
-  }
-  const matches = snapshot.tables.filter((table) => table.name === tableName);
-  const stateTable = matches[0];
-  if (
-    matches.length !== 1 ||
-    !stateTable ||
-    !hasExpectedStateTableShape(stateTable, driver, tableName)
-  ) {
-    throw new MigrationError(
-      "A partial migration control state table has an unexpected definition",
-      VibORMErrorCode.MIGRATION_INVALID_STATE
-    );
-  }
-  let hasSingletonCheck: boolean;
-  try {
-    hasSingletonCheck = await hasExpectedSingletonCheck(
-      producer,
-      driver,
-      tableName
-    );
-  } catch (failure) {
-    throw new MigrationError(
-      "A partial migration control state table cannot be authenticated",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
-    );
-  }
-  if (!hasSingletonCheck) {
-    throw new MigrationError(
-      "A partial migration control state table has an unexpected definition",
-      VibORMErrorCode.MIGRATION_INVALID_STATE
-    );
-  }
-  let hasAttachments: boolean;
-  try {
-    hasAttachments = await hasControlAttachments(producer, driver, names);
-  } catch (failure) {
-    if (failure instanceof MigrationError) throw failure;
-    throw new MigrationError(
-      "A partial migration control state table cannot be authenticated",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
-    );
-  }
-  if (hasAttachments) {
-    throw new MigrationError(
-      "A partial migration control state table has executable attachments",
+      refusal.attached,
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
   }
@@ -543,9 +490,8 @@ async function hasControlAttachments(
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
   }
-  const value = Object.values(result.rows[0]!)[0];
-  if (isPresentCatalogFlag(value)) return true;
-  if (isAbsentCatalogFlag(value)) return false;
+  const attached = readFlag(Object.values(result.rows[0]!)[0]);
+  if (attached !== undefined) return attached;
   throw new MigrationError(
     "Migration control attachment probe returned an invalid flag",
     VibORMErrorCode.MIGRATION_INVALID_STATE
@@ -588,7 +534,7 @@ export async function isTableMissing(
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
   }
-  return !isPresentCatalogFlag(Object.values(result.rows[0]!)[0]);
+  return readFlag(Object.values(result.rows[0]!)[0]) !== true;
 }
 
 function probeParameters(
@@ -603,28 +549,6 @@ function probeParameters(
     }
     return parameter.value;
   });
-}
-
-function isPresentCatalogFlag(value: unknown): boolean {
-  return (
-    value === true ||
-    value === 1 ||
-    value === 1n ||
-    value === "1" ||
-    value === "t" ||
-    value === "true"
-  );
-}
-
-function isAbsentCatalogFlag(value: unknown): boolean {
-  return (
-    value === false ||
-    value === 0 ||
-    value === 0n ||
-    value === "0" ||
-    value === "f" ||
-    value === "false"
-  );
 }
 
 export interface MigrationControlRead {
@@ -666,11 +590,17 @@ export async function readControlState(
   base: string,
   { ledger: scope = "all" }: { readonly ledger?: "open" | "all" } = {}
 ): Promise<MigrationControlRead> {
-  const presence = await inspectControlPresence(producer, driver, base);
+  const catalog = await postgresControlCatalog(producer, driver, base);
+  const presence = await inspectControlPresence(
+    producer,
+    driver,
+    base,
+    catalog
+  );
   if (presence.kind !== "present") {
     return { presence, marker: null, ledger: [] };
   }
-  await assertControlTablesAuthentic(producer, driver, base);
+  await assertControlTablesAuthentic(producer, driver, base, "pair", catalog);
   const names = controlTableNames(base);
   const markerResult = await producer._executeRaw<{ payload: unknown }>(
     `SELECT payload FROM ${qualifyControl(driver, names.state)} WHERE singleton = 1`
@@ -721,31 +651,38 @@ function openAttempt(log: string): string {
 export function markerUnmovedCondition(
   driver: BoundMigrationDriver,
   base: string,
-  expected: { revision: number; pathHash: Sha256 } | null
+  expected: MarkerIdentity | null
 ): { readonly sql: string; readonly params: unknown[] } {
   const names = controlTableNames(base);
   const log = qualifyControl(driver, names.log);
-  const dialect = driver.target.dialect;
-  const marker = `EXISTS (SELECT 1 FROM ${qualifyControl(driver, names.state)}${expected === null ? "" : ` WHERE singleton = 1 AND ${markerAt(dialect, 1)}`})`;
+  const at = expected && markerAt(driver.target.dialect, 1, expected);
+  const marker = `EXISTS (SELECT 1 FROM ${qualifyControl(driver, names.state)}${at ? ` WHERE singleton = 1 AND ${at.sql}` : ""})`;
   return {
-    sql: `(${expected === null ? "NOT " : ""}${marker} AND NOT EXISTS (SELECT 1 FROM ${log} WHERE ${openAttempt(log)}))`,
-    params: expected === null ? [] : [expected.revision, expected.pathHash],
+    sql: `(${at ? "" : "NOT "}${marker} AND NOT EXISTS (SELECT 1 FROM ${log} WHERE ${openAttempt(log)}))`,
+    params: at ? at.params : [],
   };
 }
 
-/** The marker row holds `revision` and `pathHash`, bound from `$first` on. */
+/** What identifies a marker: `markerAt` matches it in SQL, `sameMarker` in JS. */
+export type MarkerIdentity = Pick<MigrationMarkerV1, "revision" | "pathHash">;
+
+/** The marker row is `expected`, bound from `$first` on. */
 function markerAt(
   dialect: BoundMigrationDriver["target"]["dialect"],
-  first: number
-): string {
-  const revision = placeholder(dialect, first);
+  first: number,
+  { revision, pathHash }: MarkerIdentity
+): { readonly sql: string; readonly params: unknown[] } {
+  const slot = placeholder(dialect, first);
   const revisionMatch =
     dialect === "postgresql"
-      ? `(payload::json->>'revision')::bigint = ${revision}`
+      ? `(payload::json->>'revision')::bigint = ${slot}`
       : dialect === "mysql"
-        ? `CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.revision')) AS UNSIGNED) = ${revision}`
-        : `CAST(json_extract(payload, '$.revision') AS INTEGER) = ${revision}`;
-  return `${revisionMatch} AND ${jsonField(dialect, "pathHash")} = ${placeholder(dialect, first + 1)}`;
+        ? `CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.revision')) AS UNSIGNED) = ${slot}`
+        : `CAST(json_extract(payload, '$.revision') AS INTEGER) = ${slot}`;
+  return {
+    sql: `${revisionMatch} AND ${jsonField(dialect, "pathHash")} = ${placeholder(dialect, first + 1)}`,
+    params: [revision, pathHash],
+  };
 }
 
 function decodeControlRows(
@@ -765,35 +702,6 @@ function decodeControlRows(
     ledger: inCausalOrder(
       ledgerRows.map((row) => parseLedgerEvent(parsePayload(row.payload)))
     ),
-  };
-}
-
-const PREDICATE_KEYS = ["deparsed", "index", "table"] as const;
-
-/**
- * The marker row: the marker and, beside it, the partial-index predicates an
- * apply on PostgreSQL recorded as the server deparsed them (`casMarker`).
- */
-function parseMarkerPayload(value: unknown): {
-  readonly marker: MigrationMarkerV1;
-  readonly predicates: readonly MarkerIndexPredicateV1[];
-} {
-  if (!(isRecord(value) && "predicates" in value)) {
-    return { marker: parseMarkerRow(value), predicates: [] };
-  }
-  const { predicates, ...marker } = value;
-  if (!Array.isArray(predicates)) refuse("marker predicates must be an array");
-  return {
-    marker: parseMarkerRow(marker),
-    predicates: predicates.map((item: unknown, position) => {
-      const label = `marker predicates[${position}]`;
-      const record = exactObject(item, PREDICATE_KEYS, PREDICATE_KEYS, label);
-      return {
-        table: parseRequiredString(record.table, `${label}.table`),
-        index: parseRequiredString(record.index, `${label}.index`),
-        deparsed: parseRequiredString(record.deparsed, `${label}.deparsed`),
-      };
-    }),
   };
 }
 
@@ -826,7 +734,7 @@ export async function readPostgresDecision(
   const names = controlTableNames(base);
   const catalog = await readPostgresControlCatalog(producer, driver, names);
   if (!(catalog.state && catalog.log)) return;
-  assertPostgresControlAuthentic(catalog, names);
+  assertPostgresControlAuthentic(catalog, names, "pair");
   const digest = postgresCatalogDigestQuery(driver, names, true);
   const { rows } = await producer._executeRaw<{
     marker: unknown;
@@ -989,6 +897,17 @@ LEFT JOIN pg_catalog.pg_class c ON c.relname = control.name AND c.relkind IN ('r
   AND c.relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = $1::text)
 ORDER BY control.position`;
 
+/** {@link readPostgresControlCatalog} on PostgreSQL; nothing elsewhere. */
+function postgresControlCatalog(
+  producer: AnyDriver,
+  driver: BoundMigrationDriver,
+  base: string
+): Promise<PostgresControlCatalog | undefined> {
+  return driver.target.dialect === "postgresql"
+    ? readPostgresControlCatalog(producer, driver, controlTableNames(base))
+    : Promise.resolve(undefined);
+}
+
 async function readPostgresControlCatalog(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
@@ -1029,29 +948,36 @@ function presentControlTable(row: unknown): PostgresControlTable | undefined {
 
 function assertPostgresControlAuthentic(
   { state, log }: PostgresControlCatalog,
-  names: { readonly state: string; readonly log: string }
+  names: { readonly state: string; readonly log: string },
+  scope: keyof typeof UNAUTHENTIC
 ): void {
+  const pair = scope === "pair";
   if (
     !(
       state &&
-      log &&
       hasPostgresStateShape(state, names.state) &&
-      hasPostgresShape(log, LOG_COLUMNS, `${names.log}_pkey`, "event_id", false)
+      (!pair ||
+        (log &&
+          hasPostgresShape(
+            log,
+            LOG_COLUMNS,
+            `${names.log}_pkey`,
+            "event_id",
+            false
+          )))
     )
   ) {
     throw new MigrationError(
-      "Migration control tables have an unexpected definition",
+      UNAUTHENTIC[scope].unexpected,
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
   }
   if (
-    !(
-      isAbsentCatalogFlag(state.executable) &&
-      isAbsentCatalogFlag(log.executable)
-    )
+    readFlag(state.executable) !== false ||
+    (pair && readFlag(log?.executable) !== false)
   ) {
     throw new MigrationError(
-      "Migration control tables have executable attachments",
+      UNAUTHENTIC[scope].attached,
       VibORMErrorCode.MIGRATION_INVALID_STATE
     );
   }
@@ -1099,7 +1025,7 @@ function hasPostgresShape(
   const keys = constraints.filter((constraint) => constraint[0] === "p");
   return (
     table.kind === "r" &&
-    isAbsentCatalogFlag(table.partition) &&
+    readFlag(table.partition) === false &&
     String(table.indexes) === "1" &&
     canonicalizeJsonText(readCatalogJson(table.columns)) ===
       canonicalizeJsonText(
@@ -1140,43 +1066,31 @@ function readCatalogRows(
   return checked;
 }
 
+/**
+ * Creates the pair, or completes the one a failed bootstrap left, under the
+ * migration lock: no other command bootstraps between the presence read and
+ * the CREATE, so presence is read once.
+ */
 export async function ensureControlTables(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
   base: string
 ): Promise<void> {
-  const presence = await inspectControlPresence(producer, driver, base);
+  const catalog = await postgresControlCatalog(producer, driver, base);
+  const presence = await inspectControlPresence(
+    producer,
+    driver,
+    base,
+    catalog
+  );
   if (presence.kind === "present") {
-    await assertControlTablesAuthentic(producer, driver, base);
+    await assertControlTablesAuthentic(producer, driver, base, "pair", catalog);
     return;
   }
-  if (presence.kind === "missing-table") {
-    refusePartialControl(presence);
-  }
-  const names = controlTableNames(base);
-  const stateMissing = await isTableMissing(producer, driver, names.state);
-  const logMissing = await isTableMissing(producer, driver, names.log);
-  if (!stateMissing && logMissing) {
-    if (presence.kind !== "recoverable-state-only") {
-      throw new MigrationError(
-        "Migration control tables changed during bootstrap",
-        VibORMErrorCode.MIGRATION_INVALID_STATE
-      );
-    }
-    await assertExpectedStateControlTable(producer, driver, names);
-    if (!(await isStateControlEmpty(producer, driver, names.state))) {
-      throw new MigrationError(
-        "Migration control tables are inconsistent: log is missing",
-        VibORMErrorCode.MIGRATION_INVALID_STATE
-      );
-    }
+  if (presence.kind === "missing-table") refusePartialControl(presence);
+  else {
     await producer._executeRaw(
-      `DROP TABLE ${qualifyControl(driver, names.state)}`
-    );
-  } else if (!(stateMissing && logMissing)) {
-    throw new MigrationError(
-      "Migration control tables changed during bootstrap",
-      VibORMErrorCode.MIGRATION_INVALID_STATE
+      `DROP TABLE ${qualifyControl(driver, controlTableNames(base).state)}`
     );
   }
   const sql = createControlTableSQL(driver, base);
@@ -1194,7 +1108,7 @@ export async function casMarker(
   producer: AnyDriver,
   driver: BoundMigrationDriver,
   base: string,
-  expected: { revision: number; pathHash: Sha256 } | null,
+  expected: MarkerIdentity | null,
   next: MigrationMarkerV1,
   predicates: readonly MarkerIndexPredicateV1[] = []
 ): Promise<void> {
@@ -1236,7 +1150,7 @@ export async function casMarker(
 export function markerWrite(
   driver: BoundMigrationDriver,
   base: string,
-  expected: { revision: number; pathHash: Sha256 } | null,
+  expected: MarkerIdentity | null,
   next: MigrationMarkerV1,
   predicates: readonly MarkerIndexPredicateV1[] = []
 ): { readonly sql: string; readonly params: unknown[] } {
@@ -1245,14 +1159,15 @@ export function markerWrite(
     predicates.length > 0 ? { ...next, predicates } : next
   );
   const dialect = driver.target.dialect;
-  return expected === null
+  const at = expected && markerAt(dialect, 2, expected);
+  return at
     ? {
-        sql: `INSERT INTO ${table} (singleton, payload) VALUES (1, ${placeholder(dialect, 1)})`,
-        params: [payload],
+        sql: `UPDATE ${table} SET payload = ${placeholder(dialect, 1)} WHERE singleton = 1 AND ${at.sql}`,
+        params: [payload, ...at.params],
       }
     : {
-        sql: `UPDATE ${table} SET payload = ${placeholder(dialect, 1)} WHERE singleton = 1 AND ${markerAt(dialect, 2)}`,
-        params: [payload, expected.revision, expected.pathHash],
+        sql: `INSERT INTO ${table} (singleton, payload) VALUES (1, ${placeholder(dialect, 1)})`,
+        params: [payload],
       };
 }
 
@@ -1345,8 +1260,8 @@ export function attemptIdFor(
 
 /** Whether a read marker is the one expected; two absent markers are. */
 export function sameMarker(
-  marker: MigrationMarkerV1 | null,
-  expected: { revision: number; pathHash: Sha256 } | null
+  marker: MarkerIdentity | null,
+  expected: MarkerIdentity | null
 ): boolean {
   return (
     marker?.revision === expected?.revision &&

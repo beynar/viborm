@@ -8,7 +8,6 @@ export {
   sqliteCanonicalDateTimeExpression,
   sqliteCanonicalTimeExpression,
 } from "../adapters/databases/sqlite/storage/datetime";
-export type { MigrationLimits } from "../drivers/shared/pinned-session";
 export { isMigrationError, MigrationError } from "../errors";
 export type { InvalidIndex } from "./catalog-probes";
 export type { CheckFinding, CheckResult } from "./check";
@@ -31,6 +30,7 @@ export type {
 export { createMigrationClient } from "./client";
 export type { IdentifierConversionRequest } from "./identifier-conversion";
 export { identifierConversionChecks } from "./identifier-conversion";
+export type { MigrationLimits } from "./limits";
 export type { PruneOptions, PruneResult } from "./operators";
 export type {
   GraphResult,

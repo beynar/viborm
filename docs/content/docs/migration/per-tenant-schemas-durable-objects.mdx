@@ -35,7 +35,7 @@ Migrations of all the schemas in one database then serialize on one lock.
 ```ts
 import { DurableObject } from "cloudflare:workers";
 import { Pool } from "pg";
-import { createMigrationClient, type MigrationDecision } from "viborm/migrations";
+import { createMigrationClient, type MigrationDecision } from "viborm/migrations/postgres";
 import { createDurableObjectStorageWriter } from "viborm/migrations/storage/durable-object";
 import { createTenantMigrator } from "viborm/migrations/tenant";
 import { createClient } from "viborm/pg";

@@ -43,8 +43,12 @@ const runtime = {
     "cache/memory": "./src/cache/drivers/memory.ts",
     "cache/cloudflare-kv": "./src/cache/drivers/cloudflare-kv.ts",
 
-    // Migrations (viborm/migrations)
-    migrations: "./src/migrations/index.ts",
+    // Migrations: viborm/migrations registers every dialect's migration
+    // driver, viborm/migrations/<dialect> only its own.
+    migrations: "./src/migrations/dialects/all.ts",
+    "migrations/postgres": "./src/migrations/dialects/postgres.ts",
+    "migrations/sqlite": "./src/migrations/dialects/sqlite.ts",
+    "migrations/mysql": "./src/migrations/dialects/mysql.ts",
     "migrations/storage/fs": "./src/migrations/storage/fs.ts",
     "migrations/storage/durable-object":
       "./src/migrations/storage/durable-object.ts",

@@ -10,13 +10,13 @@
 
 import { createClient } from "@client/client";
 import type { Schema } from "@client/types";
-import { createMigrationClient } from "@migrations";
 import {
   classifyStoredAtomicity,
   groupContiguousAtomicity,
   lowLockStates,
   stepStatements,
 } from "@migrations/compile";
+import { createMigrationClient } from "@migrations/dialects/all";
 import { emptyManagedSnapshot } from "@migrations/empty-snapshot";
 import { normalizeGenerateOptions } from "@migrations/generate-input";
 import { loadMigrationGraph, parentTransition } from "@migrations/graph";
@@ -25,6 +25,10 @@ import { s } from "@schema";
 import { getPushMigrationDriver } from "@src/migrations/push/planner";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryStorage, pgEstateDriver } from "./_estate";
+
+// The vitest setup file registers every migration driver, which loads the
+// module mocked below first; drop that cache so this file's imports see the mock.
+vi.hoisted(() => vi.resetModules());
 
 // Fails the last state's compile on demand, after the steps before it seal.
 const lastStateCompile = vi.hoisted(() => ({ fails: false }));

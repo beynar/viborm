@@ -8,6 +8,7 @@
 import { createClient } from "@client/client";
 import { s } from "@schema";
 import { VibORMErrorCode } from "@src/errors";
+import "@src/migrations/dialects/all";
 import { generateV1 } from "@src/migrations/generate-v1";
 import { ArtifactCache, loadMigrationGraph } from "@src/migrations/graph";
 import type { Sha256 } from "@src/migrations/identity";
@@ -22,6 +23,9 @@ import { beforeAll, describe, expect, test, vi } from "vitest";
  * SQL blobs are not parsed: re-hashing their bytes is their identity check.
  */
 const parses = vi.hoisted(() => ({ count: 0 }));
+// The vitest setup file registers every migration driver, which loads the
+// module mocked below first; drop that cache so this file's imports see the mock.
+vi.hoisted(() => vi.resetModules());
 
 vi.mock("@src/migrations/v1-parse", async (importOriginal) => {
   const actual = await importOriginal<typeof V1Parse>();

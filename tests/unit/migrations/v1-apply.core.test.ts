@@ -1,4 +1,5 @@
 import { createClient } from "@client/client";
+import { SQLite3Driver } from "@drivers/sqlite3";
 import { s } from "@schema";
 import { sql } from "@sql";
 import { VibORMErrorCode } from "@src/errors";
@@ -6,6 +7,7 @@ import { applyV1 } from "@src/migrations/apply-v1";
 import { canonicalizeJsonText } from "@src/migrations/canonical-json";
 import { createMigrationClient } from "@src/migrations/client";
 import {
+  controlTableNames,
   createControlTableSQL,
   DEFAULT_CONTROL_BASE,
 } from "@src/migrations/control";
@@ -28,6 +30,7 @@ import type {
   MigrationParentTransitionV1,
 } from "@src/migrations/v1-types";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
+import Database from "better-sqlite3";
 import { describe, expect, test } from "vitest";
 import {
   controlCatalogAnswer,
@@ -36,6 +39,10 @@ import {
   sqliteControlDefinitionAnswer,
   sqliteEstateDriver,
 } from "./_estate";
+
+const ROW_WRITE = /^\s*(INSERT|UPDATE)\b/i;
+const BEGIN = /^BEGIN/i;
+const COMMIT = /^COMMIT/i;
 
 const user = s.model({
   id: s.string().id(),
@@ -88,6 +95,92 @@ describe("migration v1 apply", () => {
     const verified = await migrations.verify();
     expect(verified.ok).toBe(true);
     await client.$disconnect();
+  });
+
+  test("a transactional group runs its DDL, then moves the marker once, then records every arrival, before one COMMIT", async () => {
+    const executed: string[] = [];
+    const db = new Database(":memory:", {
+      verbose: (statement) => executed.push(String(statement)),
+    });
+    const storage = new MemoryEstateStorage();
+    const post = s.model({ id: s.string().id(), title: s.string() });
+    const first = createClient({
+      schema: { user },
+      driver: new SQLite3Driver({ client: db }),
+    });
+    await createMigrationClient(first, { storage }).generate({ name: "init" });
+    const second = createClient({
+      schema: { user, post },
+      driver: new SQLite3Driver({ client: db }),
+    });
+    const migrations = createMigrationClient(second, { storage });
+    await migrations.generate({ name: "post" });
+    executed.length = 0;
+
+    const applied = await migrations.apply();
+    expect(applied.path).toHaveLength(2);
+    const { state, log } = controlTableNames(DEFAULT_CONTROL_BASE);
+    const writes = (table: string) =>
+      executed.flatMap((statement, index) =>
+        ROW_WRITE.test(statement) && statement.includes(table) ? [index] : []
+      );
+    const begin = executed.findIndex((statement) => BEGIN.test(statement));
+    const ddl = executed.findIndex((statement) =>
+      statement.includes('CREATE TABLE "post"')
+    );
+    const commit = executed.findIndex((statement) => COMMIT.test(statement));
+    // Bootstrap writes nothing to either table; the group writes each once.
+    expect(writes(state)).toHaveLength(1);
+    expect(writes(log)).toHaveLength(1);
+    expect([
+      begin < ddl,
+      ddl < writes(state)[0]!,
+      writes(state)[0]! < writes(log)[0]!,
+      writes(log)[0]! < commit,
+    ]).toEqual([true, true, true, true]);
+    const events = await migrations.log();
+    expect(events.map((event) => [event.kind, event.toState])).toEqual(
+      applied.path.map((stateId) => ["applied", stateId])
+    );
+    db.close();
+  });
+
+  test("an edge applied without a transaction records its start, each step, the marker move, then its arrival", async () => {
+    const executed: string[] = [];
+    const db = new Database(":memory:", {
+      verbose: (statement) => executed.push(String(statement)),
+    });
+    // A declared custom driver with no transactions runs every edge probed.
+    class Untransacted extends SQLite3Driver {
+      override readonly supportsTransactions = false;
+    }
+    const client = createClient({
+      schema: { user },
+      driver: new Untransacted({ client: db }),
+    });
+    const migrations = createMigrationClient(client, {
+      storage: new MemoryEstateStorage(),
+    });
+    await migrations.generate({ name: "init" });
+    executed.length = 0;
+
+    await expect(migrations.apply()).resolves.toMatchObject({
+      outcome: "applied",
+    });
+    const { state, log } = controlTableNames(DEFAULT_CONTROL_BASE);
+    const order = executed.flatMap((statement) => {
+      if (statement.includes('CREATE TABLE "user"')) return ["ddl"];
+      if (!ROW_WRITE.test(statement)) return [];
+      if (statement.includes(state)) return ["marker"];
+      return statement.includes(log) ? ["event"] : [];
+    });
+    expect(order).toEqual(["event", "ddl", "event", "marker", "event"]);
+    expect((await migrations.log()).map((event) => event.kind)).toEqual([
+      "started",
+      "step-confirmed",
+      "applied",
+    ]);
+    db.close();
   });
 
   test("apply proves drift before returning a same-target no-op", async () => {

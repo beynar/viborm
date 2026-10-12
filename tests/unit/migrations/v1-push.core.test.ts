@@ -41,6 +41,8 @@ import { describe, expect, expectTypeOf, test } from "vitest";
 import { sqliteEstateDriver } from "./_estate";
 
 const EXPECTED_ERROR_PATTERN = /^[a-f0-9]{64}$/;
+const INTROSPECTION = /sqlite_master|table_info|index_list/i;
+const COMMIT = /^COMMIT/i;
 const DROP_FOREIGN_LEDGER_PATTERN = /DROP.*foreign_ledger/;
 const EXPECTED_ERROR_PATTERN_2 = /^\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?$/;
 
@@ -57,6 +59,33 @@ const counter = s.model({
 });
 
 describe("migration v1 authenticated push", () => {
+  test("a transactional push proves its destination before its COMMIT", async () => {
+    const executed: string[] = [];
+    const db = new Database(":memory:", {
+      verbose: (statement) => executed.push(String(statement)),
+    });
+    const client = createClient({
+      schema: { user },
+      driver: new SQLite3Driver({ client: db }),
+    });
+
+    await expect(pushV1(client)).resolves.toMatchObject({
+      outcome: "applied",
+    });
+    const ddl = executed.findIndex((statement) =>
+      statement.includes('CREATE TABLE "user"')
+    );
+    const firstAfterDdl = (pattern: RegExp) =>
+      executed.findIndex(
+        (statement, index) => index > ddl && pattern.test(statement)
+      );
+    // The destination proof introspects the schema it just wrote.
+    const proof = firstAfterDdl(INTROSPECTION);
+    const commit = firstAfterDdl(COMMIT);
+    expect([ddl >= 0, proof > ddl, proof < commit]).toEqual([true, true, true]);
+    db.close();
+  });
+
   test.each([
     "lower(label)",
     "label DESC",

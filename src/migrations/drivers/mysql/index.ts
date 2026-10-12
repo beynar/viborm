@@ -10,6 +10,7 @@ import type { IdDomain } from "@validation/primitives/id-codec";
  */
 
 import type { Scalar, ScalarState } from "@schema/scalars";
+import type { AnyDriver } from "../../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
 import {
@@ -88,12 +89,14 @@ import {
 } from "../type-mapping";
 import type { MigrationCapabilities } from "../types";
 import { type CatalogReader, resolveCatalogNamespace } from "./catalog";
+import { planInterruptedMySQLDecimalRecovery } from "./decimal-recovery";
 import { introspect as introspectMySQL } from "./introspect";
 import {
   mysqlAcquireLockStatement,
   mysqlLockAnswer,
   mysqlReleaseLockStatement,
   mysqlSelectTargetStatement,
+  proveMySQLExactValueSession,
 } from "./pinned-session";
 
 const MYSQL_POINT_ATTRIBUTE_START = MYSQL_TYPE_DEFAULTS.point.indexOf(" ");
@@ -1318,6 +1321,58 @@ export class MySQLMigrationDriver
     }
     return mysqlSelectTargetStatement(this.namespace, (name) =>
       this.escapeIdentifier(name)
+    );
+  }
+
+  /**
+   * Proves the session's strict exact-value mode, then binds the command to
+   * its ONE interrupted decimal-conversion recovery: planned by its first
+   * sequential program (after apply has read its journal), empty for later
+   * ones, and left untaken when the plan's own proof fails.
+   */
+  override async proveSession(read: CatalogRead): Promise<this> {
+    await proveMySQLExactValueSession(
+      read,
+      `database "${this.namespace ?? "(unbound)"}"`
+    );
+    const namespace = this.requireLockScope();
+    let taken = false;
+    let planned: Promise<readonly string[]> | undefined;
+    const command: this = Object.create(this);
+    Object.defineProperty(command, "programPreamble", {
+      value: async (producer: AnyDriver): Promise<readonly string[]> => {
+        if (taken) return [];
+        if (planned !== undefined) {
+          await planned;
+          return [];
+        }
+        planned = planInterruptedMySQLDecimalRecovery(
+          (sql, params) => producer._executeRaw(sql, params),
+          namespace,
+          (name) => this.escapeIdentifier(name)
+        );
+        try {
+          const statements = await planned;
+          taken = true;
+          return statements;
+        } catch (error) {
+          planned = undefined;
+          throw error;
+        }
+      },
+    });
+    Object.freeze(command);
+    return command;
+  }
+
+  /** A program no locked command bound has no recovery scope to run under. */
+  override programPreamble(): Promise<readonly string[]> {
+    return Promise.reject(
+      new MigrationError(
+        "This MySQL sequential migration program is not bound to its locked command's decimal-recovery scope.",
+        VibORMErrorCode.MIGRATION_INVALID_STATE,
+        { meta: { dialect: "mysql", type: "unbound-migration-command" } }
+      )
     );
   }
 

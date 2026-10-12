@@ -6,10 +6,13 @@
  */
 
 import { Command } from "commander";
+import { registerEveryMigrationDriver } from "../migrations/dialects/every";
 import { VIBORM_VERSION } from "../version";
 import { checkCommand } from "./commands/check";
 import { migrateCommand } from "./commands/migrate";
 import { pushCommand } from "./commands/push";
+
+registerEveryMigrationDriver();
 
 const program = new Command();
 

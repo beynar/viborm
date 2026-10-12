@@ -244,8 +244,9 @@ not write, and an expression that is not a string literal at all, keep the
 catalog's own text, read as a difference, and fail the final attestation with
 `MIGRATION_DRIFT` rather than being called equal. The SQL-mode assumption the
 spelling makes is that `NO_BACKSLASH_ESCAPES` is NOT set, and that assumption
-is asserted, not enforced: the session owner (`checkPinnedMySQLSession`,
-`pinned-session.ts`) refuses a session carrying neither `STRICT_TRANS_TABLES`
+is asserted, not enforced: the session owner (`proveMySQLExactValueSession`,
+`drivers/mysql/pinned-session.ts`, run through the MySQL driver's
+`proveSession` hook) refuses a session carrying neither `STRICT_TRANS_TABLES`
 nor `STRICT_ALL_TABLES` and ADMITS a strict session that also carries
 `NO_BACKSLASH_ESCAPES`, and nothing else under `src/migrations/` reads the
 mode. On such a server this repair is a measured REGRESSION rather than a
@@ -692,7 +693,7 @@ and a parameterless DO block raises it; `send` maps that SQLSTATE back to the
 refusal, because the message does not survive diagnostics redaction. A reply
 lost before the commit was acknowledged is decided by `commitLanded`, which on
 this transport reads the marker through `readPostgresDecision(…,
-MIGRATION_LOCK_FREE)`: at the target the outcome is `applied`; a held lock or
+migrationLockFree(command))`: at the target the outcome is `applied`; a held lock or
 an unreadable marker is V11020; otherwise a `failed` event (one INSERT) is
 written and the transport failure returned.
 

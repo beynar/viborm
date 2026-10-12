@@ -20,10 +20,8 @@ import type { PGlite } from "@electric-sql/pglite";
 import { VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations";
 import { getMigrationDriver } from "@migrations/drivers";
-import {
-  resolveMigrationLimits,
-  withLockedMigrationProducer,
-} from "@migrations/pinned-session";
+import { resolveMigrationLimits } from "@migrations/limits";
+import { withLockedMigrationProducer } from "@migrations/pinned-session";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
 import { sql } from "@sql";

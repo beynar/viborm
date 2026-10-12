@@ -22,7 +22,7 @@ import {
 } from "@errors";
 import { isRecord } from "@validation/value-guards";
 import { type Clock, systemClock } from "../../clock";
-import { settleWithin } from "./pinned-session";
+import { settleWithin } from "./settle";
 
 /** Prisma's isolation-level spellings, exactly. */
 export const TRANSACTION_ISOLATION_LEVELS = [

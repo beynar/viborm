@@ -21,6 +21,7 @@ import type {
   LedgerEffectStateV1,
   LedgerEventKindV1,
   LedgerEventV1,
+  MarkerIndexPredicateV1,
   MarkerPathEdgeV1,
   MigrationMarkerV1,
   ResetPlanV1,
@@ -99,6 +100,35 @@ export function parseMarkerRow(value: unknown): MigrationMarkerV1 {
     pathHash,
     revision: parseFiniteInteger(record.revision, "marker.revision"),
     updatedAt: record.updatedAt,
+  };
+}
+
+const PREDICATE_KEYS = ["deparsed", "index", "table"] as const;
+
+/**
+ * The marker row: the marker and, beside it, the partial-index predicates an
+ * apply on PostgreSQL recorded as the server deparsed them (`casMarker`).
+ */
+export function parseMarkerPayload(value: unknown): {
+  readonly marker: MigrationMarkerV1;
+  readonly predicates: readonly MarkerIndexPredicateV1[];
+} {
+  if (!(isRecord(value) && "predicates" in value)) {
+    return { marker: parseMarkerRow(value), predicates: [] };
+  }
+  const { predicates, ...marker } = value;
+  if (!Array.isArray(predicates)) refuse("marker predicates must be an array");
+  return {
+    marker: parseMarkerRow(marker),
+    predicates: predicates.map((item: unknown, position) => {
+      const label = `marker predicates[${position}]`;
+      const record = exactObject(item, PREDICATE_KEYS, PREDICATE_KEYS, label);
+      return {
+        table: parseRequiredString(record.table, `${label}.table`),
+        index: parseRequiredString(record.index, `${label}.index`),
+        deparsed: parseRequiredString(record.deparsed, `${label}.deparsed`),
+      };
+    }),
   };
 }
 

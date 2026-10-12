@@ -1,5 +1,4 @@
 import type { AnyDriver } from "../../drivers/driver";
-import type { ResolvedMigrationLimits } from "../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import type { AnyModel } from "../../schema/model";
 import type { ResolvedRelationIndex } from "../../schema/validation/relation-resolution";
@@ -13,6 +12,7 @@ import {
 import type { BoundMigrationDriver, MigrationDriver } from "../drivers";
 import { getMigrationDriver } from "../drivers";
 import { emptyManagedSnapshot } from "../empty-snapshot";
+import type { ResolvedMigrationLimits } from "../limits";
 import { applyNativeRename } from "../native-rename";
 import {
   alwaysAddDropResolver,

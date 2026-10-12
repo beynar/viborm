@@ -10,7 +10,7 @@
  */
 
 import { createClient } from "@drivers/sqlite3";
-import { createMigrationClient } from "@migrations";
+import { createMigrationClient } from "@migrations/dialects/sqlite";
 import { createFsStorageWriter } from "@migrations/storage/fs";
 import { raceSchema } from "./_sqlite-race-schema";
 

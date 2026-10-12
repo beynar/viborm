@@ -18,7 +18,9 @@ transports, restores), see
 import { DurableObject } from "cloudflare:workers";
 import { Pool } from "pg";
 import { createClient } from "viborm/pg";
-import type { MigrationDecision } from "viborm/migrations";
+// Registers the PostgreSQL migration driver, and only it, for the migrator.
+import "viborm/migrations/postgres";
+import type { MigrationDecision } from "viborm/migrations/postgres";
 import { createDurableObjectStorageWriter } from "viborm/migrations/storage/durable-object";
 import { createTenantMigrator } from "viborm/migrations/tenant";
 import { parseSchema } from "viborm/schema/json";
@@ -53,7 +55,10 @@ object, as a field, so every request shares it. When the tenant's database
 holds tables its document does not own, pass `tables`, the managed tables, as
 to [`createMigrationClient`](/docs/migration/migrate).
 `pg` needs the Worker's `nodejs_compat` compatibility flag; VibORM's migration
-entries load without it.
+entries load without it. `viborm/migrations/tenant` registers no migration
+driver: import your database's entry beside it (`viborm/migrations/postgres`,
+`viborm/migrations/sqlite` or `viborm/migrations/mysql`), so the Worker carries
+only that dialect's migration code.
 
 Call `change` from a request or an alarm. Never call it from the constructor or
 inside `blockConcurrencyWhile`: that gate holds every other request of the

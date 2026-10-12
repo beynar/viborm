@@ -62,3 +62,12 @@ export function parseIdentifierArray(value: unknown, label: string): string[] {
     parseRequiredString(entry, `${label}[${index}]`)
   );
 }
+
+const TRUE_FLAGS: readonly unknown[] = [true, 1, 1n, "1", "t", "true"];
+const FALSE_FLAGS: readonly unknown[] = [false, 0, 0n, "0", "f", "false"];
+
+/** A boolean as any provider spells it in a catalog row, or `undefined`. */
+export function readFlag(value: unknown): boolean | undefined {
+  if (TRUE_FLAGS.includes(value)) return true;
+  return FALSE_FLAGS.includes(value) ? false : undefined;
+}

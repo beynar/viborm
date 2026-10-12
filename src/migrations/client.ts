@@ -1,13 +1,13 @@
 /** One capability-sensitive migration client composition root. */
 
 import { errorCause } from "../drivers/shared/driver-options";
-import type { MigrationLimits } from "../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../errors";
 import { type ApplyV1Result, applyV1 } from "./apply-v1";
 import { type CheckResult, checkEstate } from "./check";
 import { type GenerateV1Result, generateV1 } from "./generate-v1";
 import { loadMigrationGraph, resolveStateSelector } from "./graph";
 import { snapshotExactRecord } from "./input-boundary";
+import { type MigrationLimits, resolveMigrationLimits } from "./limits";
 import {
   baselineV1,
   downV1,
@@ -23,7 +23,6 @@ import {
   type VerifyV1Result,
   verifyV1,
 } from "./operators";
-import { resolveMigrationLimits } from "./pinned-session";
 import {
   type GraphResult,
   type ListResult,

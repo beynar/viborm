@@ -1,11 +1,12 @@
 // Fixture (h) — a Worker that migrates a Postgres estate: `viborm/pg` plus
-// `viborm/migrations` with createMigrationClient over shared object storage,
-// bundled with the Worker options like (g).
+// `viborm/migrations/postgres` (only the PostgreSQL migration driver) with
+// createMigrationClient over shared object storage, bundled with the Worker
+// options like (g).
 
 import {
   createMigrationClient,
   ObjectStoreEstateStorage,
-} from "../../dist/migrations.mjs";
+} from "../../dist/migrations/postgres.mjs";
 import { createClient } from "../../dist/pg.mjs";
 import { s } from "../../dist/schema.mjs";
 

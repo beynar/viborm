@@ -100,7 +100,7 @@ const ENTRIES = {
   client: ["client.mjs", "src/client/exports.ts"],
   config: ["config.mjs", "src/config.ts"],
   driver: ["driver.mjs", "src/drivers/exports.ts"],
-  migrations: ["migrations.mjs", "src/migrations/index.ts"],
+  migrations: ["migrations.mjs", "src/migrations/dialects/all.ts"],
   migrationsFs: ["migrations/storage/fs.mjs", "src/migrations/storage/fs.ts"],
   schemaJson: ["schema/json.mjs", "src/schema/json/index.ts"],
   sql: ["sql.mjs", "src/sql/sql.ts"],

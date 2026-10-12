@@ -11,9 +11,11 @@
 
 import { readArrayLiteralText } from "@adapters/databases/postgres/array-literal";
 import { VibORMErrorCode } from "@errors";
-import type { ResolvedMigrationLimits } from "@src/drivers/shared/pinned-session";
-import { DEFAULT_MIGRATION_LIMITS } from "@src/drivers/shared/pinned-session";
 import { getMigrationDriver } from "@src/migrations/drivers";
+import {
+  DEFAULT_MIGRATION_LIMITS,
+  type ResolvedMigrationLimits,
+} from "@src/migrations/limits";
 import { describe, expect, it } from "vitest";
 import { pgEstateDriver } from "./_estate";
 

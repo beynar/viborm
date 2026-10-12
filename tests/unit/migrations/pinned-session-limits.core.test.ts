@@ -17,7 +17,6 @@ import { BunSQLDriver } from "@drivers/bun-sql";
 import type { PinnedSessionReservation } from "@drivers/shared";
 import {
   CLEANUP_BOUND_MS,
-  DEFAULT_MIGRATION_LIMITS,
   releaseReservedPostgresSession,
 } from "@drivers/shared/pinned-session";
 import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
@@ -25,7 +24,10 @@ import { ConnectionError, VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations/client";
 import { getMigrationDriver } from "@migrations/drivers";
 import {
+  DEFAULT_MIGRATION_LIMITS,
   resolveMigrationLimits,
+} from "@migrations/limits";
+import {
   withLockedMigrationProducer,
   withPinnedSession,
 } from "@migrations/pinned-session";

@@ -12,7 +12,10 @@
  */
 
 import { createClient } from "@drivers/pglite";
-import { createMigrationClient, MemoryEstateStorage } from "@migrations";
+import {
+  createMigrationClient,
+  MemoryEstateStorage,
+} from "@migrations/dialects/all";
 import { postgresCatalogDigest } from "@migrations/drivers/postgres/catalog-digest";
 import { s } from "@schema";
 import { openTestPGlite } from "@tests/fixtures/pglite-lifecycle";
@@ -21,6 +24,10 @@ import {
   catalogDigestCorpus,
   digestAndFingerprint,
 } from "./_catalog-digest-corpus";
+
+// The vitest setup file registers every migration driver, which loads the
+// module mocked below first; drop that cache so this file's imports see the mock.
+vi.hoisted(() => vi.resetModules());
 
 vi.mock(
   "@migrations/drivers/postgres/catalog-digest",
@@ -144,5 +151,26 @@ describe("the catalog digest equals fingerprintLive of an introspection", () => 
       message: expect.stringContaining("catalog digest"),
     });
     expect((await next.apply()).outcome).toBe("applied");
+  });
+
+  it("baseline proves the live schema through the same digest", async () => {
+    await database.exec(`CREATE SCHEMA "digest_baseline"`);
+    const orm = createClient({
+      client: database,
+      schema: { account: s.model({ id: s.string().id() }).map("accounts") },
+      namespace: "digest_baseline",
+    });
+    await createMigrationClient(orm).push();
+    const adopting = createMigrationClient(orm, {
+      storage: new MemoryEstateStorage(),
+    });
+    await adopting.generate({ name: "adopt" });
+
+    vi.mocked(postgresCatalogDigest).mockResolvedValueOnce("0".repeat(64));
+    await expect(
+      adopting.baseline({ to: { name: "adopt" } })
+    ).rejects.toMatchObject({ code: "V9001" });
+    expect(postgresCatalogDigest).toHaveBeenCalled();
+    await adopting.baseline({ to: { name: "adopt" } });
   });
 });

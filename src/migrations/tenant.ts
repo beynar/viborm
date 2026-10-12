@@ -6,7 +6,6 @@
  * migrator, and what they throw comes back as one of five outcomes.
  */
 
-import type { MigrationLimits } from "../drivers/shared/pinned-session";
 import { isRetryableError, isVibORMError, VibORMErrorCode } from "../errors";
 import {
   createMigrationClient,
@@ -15,6 +14,7 @@ import {
 } from "./client";
 import { isDestructiveOperation } from "./differ";
 import type { Sha256 } from "./identity";
+import type { MigrationLimits } from "./limits";
 import type { MigrationClient } from "./push/planner";
 import { createPredefinedResolver } from "./resolver";
 import type {

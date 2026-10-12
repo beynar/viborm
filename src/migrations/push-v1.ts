@@ -27,12 +27,11 @@ import {
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
 import { executeDispatch } from "./execute-dispatch";
-import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
+import { liftForeignKeyPragmas } from "./foreign-keys";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
-  mayWrapTransaction,
   resolveCommandDriver,
-  runSequentialProgram,
+  runProgram,
   withLockedMigrationProducer,
 } from "./pinned-session";
 import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
@@ -259,22 +258,25 @@ async function executeLockedPlan(
     return appliedResult(plan, plan.sourceFingerprint, "noop");
   }
 
-  const execute = (producer: AnyDriver): Promise<Sha256> =>
-    executeAndAttest(producer, command, plan, plan.statements);
-
-  if (
-    mayWrapTransaction(
-      pinned,
-      command.target.dialect,
-      plan.atomicity === "transactional"
-    )
-  ) {
-    const fingerprint = await executeTransactional(pinned, command, plan);
-    return appliedResult(plan, fingerprint, "applied");
-  }
-  if (command.target.dialect === "mysql") {
-    await runSequentialProgram(pinned, command, async (producer) => {
-      for (const statement of plan.statements) {
+  // In a transaction the destination is proven before its COMMIT, and the
+  // lifted foreign-key bracket runs around it; otherwise once the statements
+  // ran — on MySQL after its sequential program.
+  const sql = planSql(plan);
+  const fingerprint = await runProgram(
+    pinned,
+    command,
+    { transactional: plan.atomicity === "transactional", statements: sql },
+    async (producer, atomic) => {
+      const { bracket } = atomic
+        ? liftForeignKeyPragmas(pinned, sql)
+        : { bracket: null };
+      const statements = bracket
+        ? takeStatements(plan, [
+            findStatement(plan, bracket.disable).dispatch.dispatchId,
+            findStatement(plan, bracket.enable).dispatch.dispatchId,
+          ])
+        : plan.statements;
+      for (const statement of statements) {
         await executeDispatch(
           producer,
           plan.sqlBlob,
@@ -282,60 +284,22 @@ async function executeLockedPlan(
           command.namespace
         );
       }
-    });
-    if (plan.statements.length === 0) {
-      return appliedResult(plan, plan.sourceFingerprint, "noop");
+      return atomic ? attestFinalFingerprint(producer, command, plan) : null;
     }
-    const fingerprint = await attestFinalFingerprint(pinned, command, plan);
-    return appliedResult(plan, fingerprint, "applied");
+  );
+  if (plan.statements.length === 0) {
+    return appliedResult(plan, plan.sourceFingerprint, "noop");
   }
-  // A recreation is refused here: without a transaction its lift is unproven.
-  liftForeignKeyPragmas(pinned, planSql(plan));
-  const fingerprint = await execute(pinned);
-  return appliedResult(plan, fingerprint, "applied");
+  return appliedResult(
+    plan,
+    fingerprint ?? (await attestFinalFingerprint(pinned, command, plan)),
+    "applied"
+  );
 }
 
 function planSql(plan: InternalPushPlan): string[] {
   return plan.statements.map((statement) =>
     sliceDispatch(plan.sqlBlob, statement.dispatch)
-  );
-}
-
-async function executeAndAttest(
-  producer: AnyDriver,
-  command: BoundMigrationDriver,
-  plan: InternalPushPlan,
-  statements: readonly PlannedStatement[]
-): Promise<Sha256> {
-  for (const statement of statements) {
-    await executeDispatch(
-      producer,
-      plan.sqlBlob,
-      statement.dispatch,
-      command.namespace
-    );
-  }
-  return attestFinalFingerprint(producer, command, plan);
-}
-
-async function executeTransactional(
-  pinned: AnyDriver,
-  command: BoundMigrationDriver,
-  plan: InternalPushPlan
-): Promise<Sha256> {
-  const { bracket } = liftForeignKeyPragmas(pinned, planSql(plan));
-  const statements = bracket
-    ? takeStatements(plan, [
-        findStatement(plan, bracket.disable).dispatch.dispatchId,
-        findStatement(plan, bracket.enable).dispatch.dispatchId,
-      ])
-    : plan.statements;
-  return withForeignKeysLifted(pinned, bracket, (inside) =>
-    pinned.withTransaction((transaction) =>
-      inside(transaction, (producer) =>
-        executeAndAttest(producer, command, plan, statements)
-      )
-    )
   );
 }
 

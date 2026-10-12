@@ -15,9 +15,9 @@ import {
 } from "@validation/primitives/decimal-codec";
 import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
-import type { ResolvedMigrationLimits } from "../../drivers/shared/pinned-session";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { refuseBinaryReencoding } from "../binary-conversion";
+import type { ResolvedMigrationLimits } from "../limits";
 import {
   applyNativeRename,
   type NativeRenameOperation,
@@ -1022,6 +1022,38 @@ export abstract class MigrationDriver {
    */
   generateSelectTarget(): string | null {
     return null;
+  }
+
+  /**
+   * The session lock PostgreSQL stepwise work keeps (plan D1), taken while
+   * the session holds the transaction lock on the same key; null elsewhere.
+   */
+  generateSessionLock(_lockId: number): string | null {
+    return null;
+  }
+
+  /**
+   * A condition true while no command holds the migration lock (plan D5).
+   * The default never proves it: only PostgreSQL can ask.
+   */
+  generateLockFree(_lockId: number): string {
+    return "false";
+  }
+
+  /**
+   * Proves a locked session may run this command's work, once, after its
+   * target is selected, and returns the driver the command renders from.
+   * Default: nothing to prove.
+   */
+  proveSession(
+    _read: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<this> {
+    return Promise.resolve(this);
+  }
+
+  /** The statements a sequential program runs first, on its producer. */
+  programPreamble(_producer: AnyDriver): Promise<readonly string[]> {
+    return Promise.resolve([]);
   }
 
   // ===========================================================================

@@ -1,30 +1,10 @@
 /**
- * The ONE pinned migration session.
- *
- * PostgreSQL advisory locks and MySQL named locks are SESSION-scoped. The
- * previous owner acquired through one pooled connection, ran the protected work
- * through others, and released through another: that protects nothing, and a
- * release issued on a connection that never held the lock strands it on the one
- * that did. §3.5's requirement is one physical producer across every decision
- * and commit boundary, so this module reserves that producer, proves the lock,
- * hands the callback that exact producer, and proves the unlock — condemning
- * the producer whenever either proof fails.
- *
- * PostgreSQL and SQLite hold the lock in their transactions instead (plans D1,
- * S5): each locked transaction takes it first, so it ends with the
- * transaction — through a transaction pooler too — and only PostgreSQL
- * stepwise work keeps a session lock ({@link withLockedMigrationProducer}).
- *
- * The lock statement and the namespace proof are the only provider operations
- * allowed before the authoritative under-lock marker and ledger read, and both
- * are non-durable: a target mismatch after acquisition unlocks and leaves zero
- * tracking, DDL, artifact or snapshot effects behind.
- *
- * Two facts about that producer live here with it, because both are answers no
- * command may source twice: the driver a command RENDERS from
- * ({@link resolveCommandDriver}, which read-only commands reach without a
- * lock), and the commit boundary a program reached when the dialect commits
- * each statement as it runs ({@link runSequentialProgram}).
+ * The ONE pinned migration session (§3.5): one physical producer reserved for
+ * a command, the lock proven on it, its loss and limits tracked, and the
+ * producer condemned whenever a lock or unlock proof fails. PostgreSQL and
+ * SQLite hold the lock in their transactions instead (plans D1, S5); only
+ * PostgreSQL stepwise work and MySQL keep a session lock. The dialect's lock
+ * and session statements come from the bound migration driver.
  */
 
 import type { AnyDriver } from "../drivers/driver";
@@ -32,14 +12,11 @@ import { normalizeDriverError } from "../drivers/error-mapping";
 import { errorCause } from "../drivers/shared/driver-options";
 import {
   CLEANUP_BOUND_MS,
-  DEFAULT_MIGRATION_LIMITS,
   leasePinnedCommand,
-  type MigrationLimits,
   type PinnedSessionControl,
   type PinnedSessionReservation,
-  type ResolvedMigrationLimits,
-  settleWithin,
 } from "../drivers/shared/pinned-session";
+import { settleWithin } from "../drivers/shared/settle";
 import { withSuppressedFailure } from "../drivers/shared/suppressed-failure";
 import type { TransactionOptionSupport } from "../drivers/shared/transaction-options";
 import { runTransactionLifecycle } from "../drivers/shared/transactions";
@@ -52,70 +29,42 @@ import {
   VibORMErrorCode,
 } from "../errors";
 import type { BoundMigrationDriver } from "./drivers";
-import { planInterruptedMySQLDecimalRecovery } from "./drivers/mysql/decimal-recovery";
 import { providerRefused } from "./execute-dispatch";
 import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
-import { snapshotExactRecord } from "./input-boundary";
+import {
+  DEFAULT_MIGRATION_LIMITS,
+  type ResolvedMigrationLimits,
+} from "./limits";
 import { buildsIndexConcurrently } from "./statement-safety";
 import { type CatalogRead, readsCommandNamespace } from "./target";
 import { createQueryExecutor } from "./utils";
 
 /**
- * Lock ID for PostgreSQL advisory locks.
- * Hash of "viborm_migrations" to avoid collisions.
- *
- * PostgreSQL keeps its DATABASE-wide key: an advisory lock is already scoped to
- * the database the session connected to, and independent schema estates in one
- * database deliberately serialize with each other — they share a catalog.
- * MySQL derives a database-specific name instead, because its named locks are
- * server-wide (`drivers/mysql/pinned-session.ts`).
+ * The migration lock's key, "viborm" in hex. PostgreSQL's advisory lock is
+ * database-wide, so estates in one database serialize with each other; MySQL
+ * names its lock after the database instead (`drivers/mysql/pinned-session.ts`).
  */
-const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d; // "viborm" in hex, truncated
+const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d;
+
 /**
- * True while no command holds the migration lock: taken, and released with
- * the statement that asks (plan D5).
+ * A condition true while no command holds the migration lock (plan D5), for a
+ * decision read before the lock.
  */
-export const MIGRATION_LOCK_FREE = `pg_try_advisory_xact_lock(${MIGRATION_LOCK_ID})`;
-const MYSQL_VERSION = /^(\d+)\.(\d+)\.(\d+)/;
-
-const MYSQL_DECIMAL_RECOVERY = Symbol("mysqlDecimalRecovery");
-
-interface MySQLDecimalRecoveryScope {
-  take(producer: AnyDriver): Promise<readonly string[]>;
-}
-
-function isMySQLDecimalRecoveryScope(
-  value: unknown
-): value is MySQLDecimalRecoveryScope {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof Reflect.get(value, "take") === "function"
-  );
+export function migrationLockFree(command: BoundMigrationDriver): string {
+  return command.generateLockFree(MIGRATION_LOCK_ID);
 }
 
 /**
- * Whether this driver can pin a session, answered without reserving one.
- *
- * The provider's `pinnedSession()` hook is the capability: its PRESENCE is the
- * whole answer. Migration admission asks this BEFORE any provider work, so an
- * effectful command on a transport with no interactive session refuses before
- * it connects.
- *
- * This and {@link withPinnedSession} live here, beside their only callers,
- * rather than on the `Driver` class, so an application bundle that never
- * migrates does not carry them. They reach the driver's protected members by
- * element access, exactly as `TransactionBoundDriver` reaches its base's.
+ * Whether this driver can pin a session: the provider's `pinnedSession()`
+ * hook is the capability, asked by admission before any provider work.
  */
 export function canPinSession(driver: AnyDriver): boolean {
   return driver["pinnedSession"] !== undefined;
 }
 
 /**
- * Whether `driver` runs migration work with no session, as one atomic request
- * per transactional group (plan D7): a PostgreSQL driver that cannot pin a
- * session, whose native batch says when it committed. Neon HTTP is the
- * shipped case.
+ * Whether `driver` runs migration work with no session, one atomic request per
+ * transactional group (plan D7): Neon HTTP is the shipped case.
  */
 export function runsMigrationBatches(driver: AnyDriver): boolean {
   return (
@@ -127,12 +76,10 @@ export function runsMigrationBatches(driver: AnyDriver): boolean {
 }
 
 /**
- * One transactional group as ONE request, on a transport with no session
- * (plan D7). Statements sent to `producer` are recorded, not run. The request
- * opens as a locked transaction does ({@link lockTransactions}): the command's
- * `SET LOCAL` limits, then the bounded transaction lock. What the command
- * would read inside its transaction is asserted there instead: a condition
- * that does not hold raises, and the server rolls the whole request back.
+ * One transactional group as ONE request on a transport with no session
+ * (plan D7). Statements sent to `producer` are recorded, not run; the request
+ * opens with the limits and the bounded transaction lock, and what the command
+ * would read inside its transaction is asserted there instead.
  */
 export interface MigrationBatch {
   readonly producer: AnyDriver;
@@ -143,19 +90,17 @@ export interface MigrationBatch {
     refusal: MigrationError
   ): void;
   /**
-   * Sends the request and resolves once it committed, even when its reply
-   * was then unreadable. It throws a `MigrationError` when the server refused
-   * the request, which rolled back: an asserted refusal, or `MIGRATION_FAILED`
-   * for any other statement. Any other failure is a lost reply, after which
-   * the request may have committed.
+   * Resolves once the request committed, even when its reply was then
+   * unreadable. Throws a `MigrationError` when the server refused (and rolled
+   * back) the request; any other failure is a lost reply, after which the
+   * request may have committed.
    */
   send(): Promise<void>;
 }
 
 /**
- * An assertion leaves its refusal's SQLSTATE in a transaction-local setting,
- * and this DO block — which takes no parameters — raises it. The SQLSTATE is
- * the refusal's position in base 36 after `P0V`, in PL/pgSQL's class, which
+ * An assertion's refusal leaves its SQLSTATE (`P0V` + its position in base 36)
+ * in a transaction-local setting, which this block raises: the SQLSTATE
  * survives diagnostics redaction where the message does not.
  */
 const RAISE_REFUSAL = `DO $viborm$BEGIN IF current_setting('viborm.refusal') <> '' THEN RAISE EXCEPTION 'VibORM migration assertion %', current_setting('viborm.refusal') USING ERRCODE = current_setting('viborm.refusal'); END IF; END$viborm$`;
@@ -221,14 +166,9 @@ export function openMigrationBatch(
 }
 
 /**
- * What a pinned session runs under besides its body (plan S1).
- *
- * `connectionWait` bounds the reservation on every transport. `limits` is the
- * PostgreSQL command's own: set with `SET LOCAL` in each of its transactions,
- * set on the session only once a stepwise program needs the session lock (and
- * reset before it goes back), and lifted around a `CONCURRENTLY` statement.
- * `session` is the reservation of a driver whose one connection IS the
- * session (SQLite): there is nothing to reserve, and nothing to give back.
+ * What a pinned session runs under besides its body (plan S1): the bound on
+ * its reservation, the PostgreSQL command's limits, and, for a driver whose
+ * one connection IS the session (SQLite), that session.
  */
 export interface PinnedSessionScope {
   readonly connectionWait: number;
@@ -250,22 +190,13 @@ const DEFAULT_SCOPE: PinnedSessionScope = {
 };
 
 /**
- * Runs `body` against ONE reserved producer.
- *
- * The view handed to the body is this exact driver with its client pinned to
- * the reservation, so every statement — the lock, the authoritative reads,
- * the DDL, the tracking writes, and the unlock — runs on the same physical
- * session, and a transaction opened inside the body runs on it too instead of
- * acquiring a second pooled connection.
+ * Runs `body` against ONE reserved producer: this driver with its client
+ * pinned to the reservation, so every statement, transactions included, runs
+ * on one physical session (§3.5).
  *
  * The producer is discarded rather than released when the body throws or
- * condemns it: a session whose lock state is unknown must not go back into a
- * pool. A session whose connection was LOST is never written to again — no
- * limits reset, no unlock, no rollback — and its failure surfaces as the
- * retryable connection error it is (plan S2).
- *
- * On a driver whose one connection IS the session, the whole call is one job
- * of the queue that already owns that connection — see the lease below.
+ * condemns it; a LOST session is never written to again, and its failure
+ * surfaces as the retryable connection error it is (plan S2).
  */
 export async function withPinnedSession<D extends AnyDriver, T>(
   driver: D,
@@ -274,13 +205,9 @@ export async function withPinnedSession<D extends AnyDriver, T>(
 ): Promise<T> {
   const reserve = scope.session ?? driver["pinnedSession"];
   if (reserve === undefined) {
-    // Two reachable shapes, one refusal. The shipped migration paths ask
-    // `canPinSession()` at their admission boundary and refuse
-    // `DRIVER_NOT_SUPPORTED` before any provider work, so this arm covers
-    // what admission cannot see: a caller reaching the primitive directly
-    // with a custom driver that implements no hook, and a caller reaching it
-    // on a view that IS an already-reserved session (`createPinnedSessionView`
-    // withdraws the hook).
+    // A custom driver with no hook, or a view that IS a reserved session
+    // (`createPinnedSessionView` withdraws the hook); admission refuses the
+    // shipped paths earlier.
     throw new FeatureNotSupportedError(
       driver.driverName,
       "pinnedSession",
@@ -289,9 +216,7 @@ export async function withPinnedSession<D extends AnyDriver, T>(
   }
 
   const runSession = async (): Promise<T> => {
-    // New defect 5: a server that accepts the socket and never answers left
-    // this await pending for as long as the provider's own connect timeout —
-    // forever on `pg`, whose pool has none by default.
+    // A server that accepts the socket and never answers is bounded here.
     const reservation = await settleWithin(
       reserve.call(driver),
       scope.connectionWait,
@@ -316,10 +241,8 @@ export async function withPinnedSession<D extends AnyDriver, T>(
         ? connectionLostError(driver.driverName, failure)
         : failure;
 
-    // The connection goes back to the application's pool, so the limits a
-    // stepwise program set on the session must not go with it. A session whose
-    // reset failed still carries them and is abandoned like a lost one; the
-    // reset's failure is RETURNED, so the release after it always runs.
+    // Limits a stepwise program set on the session must not go back to the
+    // pool; a failed reset is RETURNED, so the release after it always runs.
     const resetLimits = async (): Promise<unknown> => {
       if (limits === undefined || !control.limited() || control.lost()) {
         return undefined;
@@ -333,12 +256,7 @@ export async function withPinnedSession<D extends AnyDriver, T>(
       }
     };
 
-    // The first failure is what the caller asked for and what the command
-    // has to report. Awaiting the release in a `finally` made a release
-    // rejection REPLACE it — the caller of a reset that dropped half an
-    // estate on a dying socket was told only that the producer would not go
-    // back. The release still runs, and still condemns the producer; every
-    // later failure is recorded beside the first (§3.5).
+    // The first failure stays primary; later ones are recorded beside it.
     const releaseAfter = async (
       surfaced: unknown,
       resetFailure: unknown
@@ -371,30 +289,14 @@ export async function withPinnedSession<D extends AnyDriver, T>(
     return value;
   };
 
-  // A provider that reserves a DEDICATED connection — `pg`, postgres.js, Bun
-  // SQL, MySQL2 — hands back a producer that is already physically apart from
-  // everything else its pool is serving, and there is nothing here to lease:
-  // two migration commands on a pool are arbitrated by the real session lock,
-  // and serializing them on this driver would be a regression.
-  //
-  // A single-connection driver reserves the connection every other caller
-  // shares (plan §3.5: "PGlite — its single client UNDER THE EXISTING DRIVER
-  // QUEUE"), so the whole session — the reservation, the acquisition, the
-  // decisions, the DDL, the unlock and the release — is ONE job of that queue.
-  // Leasing anything narrower lets a second command in between two of this
-  // one's statements, and a PostgreSQL session advisory lock is REENTRANT: on
-  // one session the second command re-acquires the lock the first is holding
-  // instead of waiting for it.
+  // A dedicated connection needs no lease: the real lock arbitrates.
   if (!driver["serializeTransactions"]) {
     return runSession();
   }
-  // Reaching for the originating driver while its one connection is
-  // transaction-bound is the refusal this driver already owns for every other
-  // operation; here it is what stands between that caller and a wait on its
-  // own holder. It is answered BEFORE the lease, not inside it: a driver that
-  // waited for a lease another driver holds — on a client whose provider
-  // serializes a transaction against every other statement — would wait for a
-  // command that cannot finish until this transaction does.
+  // A single-connection driver runs the whole session as ONE job of its queue
+  // (§3.5): a narrower lease lets a second command in, and a PostgreSQL
+  // session advisory lock is reentrant. A transaction-bound caller is refused
+  // before the lease rather than waiting on its own holder.
   driver["assertBaseOperationAllowedDuringTransaction"](
     driver["resolveExecutionContext"](undefined, "pinnedSession")
   );
@@ -403,10 +305,8 @@ export async function withPinnedSession<D extends AnyDriver, T>(
   if (identify === undefined) {
     return queue.enqueue(runSession);
   }
-  // The queue lease stays: it is what keeps this driver's own statements out
-  // of the session. The physical lease is what keeps ANOTHER driver's command
-  // out of it — and what refuses one outright when that session's
-  // advisory-lock state was condemned, through this driver or any other.
+  // The physical lease keeps ANOTHER driver over the same client out, and
+  // refuses one whose advisory-lock state was condemned.
   const session = await identify.call(driver);
   return leasePinnedCommand(driver.driverName, session, () =>
     queue.enqueue(runSession)
@@ -469,11 +369,8 @@ function controlSession(
 
 /**
  * Whether `failure`, or anything it was caused by, is the provider reporting
- * that the connection itself failed.
- *
- * The one classifier is the driver error mapping's: a statement sent through
- * the driver arrives already normalized, and a provider error from the raw
- * transaction statements is normalized here the same way.
+ * that the connection itself failed, by the driver error mapping's one
+ * classifier.
  */
 function reportsLostConnection(driver: AnyDriver, failure: unknown): boolean {
   let link: unknown = failure;
@@ -494,10 +391,8 @@ function reportsLostConnection(driver: AnyDriver, failure: unknown): boolean {
 /**
  * The failure a command on a lost session surfaces: the provider's own report
  * when it already is a connection error or a migration outcome, otherwise a
- * retryable connection error carrying it.
- *
- * pg reports a socket that died mid-statement as an ordinary query failure,
- * and a caller deciding whether to retry needs to know it was the connection.
+ * retryable connection error carrying it (pg reports a dead socket as an
+ * ordinary query failure).
  */
 function connectionLostError(driverName: string, failure: unknown): unknown {
   if (failure instanceof ConnectionError || failure instanceof MigrationError) {
@@ -524,15 +419,9 @@ function connectionWaitError(driverName: string, ms: number): ConnectionError {
 }
 
 /**
- * This driver, viewed with its client pinned to one reserved session.
- *
- * Defined rather than constructed: the view IS the concrete driver for every
- * other purpose — same adapter, same result parser, same capabilities — and
- * only the producer, the queue answer, the transaction owner and the
- * reservation hook differ. The facts it restates are `readonly`, hence
- * `defineProperties`. The transport assertion is forwarded EXACTLY: a pinned
- * session never derives, upgrades, or drops it, exactly as a
- * transaction-bound view does not.
+ * This driver, viewed with its client pinned to one reserved session: the
+ * same driver in every other respect, with the transport assertion forwarded
+ * exactly. Every statement it sends records a lost connection (plan S2).
  */
 function createPinnedSessionView<D extends AnyDriver>(
   driver: D,
@@ -546,27 +435,15 @@ function createPinnedSessionView<D extends AnyDriver>(
   const beforeForeignKeysOff = driver["beforeForeignKeysOff"];
   Object.defineProperties(view, {
     client: { value: session, writable: true },
-    // `getClient()` returns a present client without consulting `initPromise`,
-    // but a pinned view must never be able to start a second connection.
+    // A pinned view must never start a second connection.
     initPromise: { value: null, writable: true },
-    // The lease holds this driver's connection queue for the WHOLE session,
-    // so a statement issued THROUGH this view must not wait on that queue: it
-    // would be waiting for its own holder. The view is not opting out of
-    // serialization — it IS the serialized job, and exclusivity for the whole
-    // session is stronger than exclusivity per statement. On a driver that
-    // took a dedicated connection there was no queueing here to begin with.
+    // The view IS the queue's serialized job: waiting on the queue would wait
+    // for its own holder.
     serializeTransactions: { value: false },
-    // §3.5's "one physical producer" made structural: the view IS the
-    // reservation, so it has no reservation to give. Without this it
-    // inherited the hook and answered `canPinSession() === true`, and a
-    // nested `withLockedMigrationProducer` would have taken a SECOND
-    // connection — one that then waits forever on PostgreSQL for the advisory
-    // lock the first one holds, or times out on MySQL — instead of refusing.
+    // The view is the reservation, so it has none to give (§3.5): a nested
+    // lock refuses instead of taking a second connection.
     pinnedSession: { value: undefined },
-    // The provider's own `transaction()` acquires a connection, which is what
-    // pinning exists to prevent. A descriptor is how a `protected abstract`
-    // member is replaced per-instance; it is also where the transaction
-    // handle widens to the session, which is the honest shape here.
+    // The provider's own `transaction()` acquires a connection.
     transaction: {
       value(
         this: AnyDriver,
@@ -577,11 +454,6 @@ function createPinnedSessionView<D extends AnyDriver>(
         return runPinnedTransaction(this, pinned, fn, context, control, limits);
       },
     },
-    // A `CONCURRENTLY` index statement waits, by design, for every
-    // transaction older than it, without blocking anyone: the session's
-    // limits would cut it short and leave an INVALID index behind (plan S1).
-    // It runs with none, and they are restored once it completes; after a
-    // failure the command is over and its release resets the session anyway.
     executeRaw: {
       async value(
         this: AnyDriver,
@@ -595,43 +467,47 @@ function createPinnedSessionView<D extends AnyDriver>(
           throw connectionLostError(driver.driverName, undefined);
         const locked = LOCKED.get(this);
         await locked?.before(sql);
+        // A `CONCURRENTLY` index statement runs without the session's limits,
+        // which would cut it short and leave an INVALID index (plan S1).
         const run = async () => {
-          if (limits === undefined || !buildsIndexConcurrently(sql)) {
-            return executeRaw.call(this, client, sql, params, context);
+          try {
+            if (limits === undefined || !buildsIndexConcurrently(sql)) {
+              return await executeRaw.call(this, client, sql, params, context);
+            }
+            await executeRaw.call(
+              this,
+              client,
+              limits.unbound,
+              undefined,
+              context
+            );
+            const result = await executeRaw.call(
+              this,
+              client,
+              sql,
+              params,
+              context
+            );
+            await executeRaw.call(
+              this,
+              client,
+              limits.rebound,
+              undefined,
+              context
+            );
+            return result;
+          } catch (failure) {
+            control.lost(failure);
+            throw failure;
           }
-          await executeRaw.call(
-            this,
-            client,
-            limits.unbound,
-            undefined,
-            context
-          );
-          const result = await executeRaw.call(
-            this,
-            client,
-            sql,
-            params,
-            context
-          );
-          await executeRaw.call(
-            this,
-            client,
-            limits.rebound,
-            undefined,
-            context
-          );
-          return result;
         };
         return locked === undefined
           ? run()
           : run().catch((failure: unknown) => locked.failed(failure));
       },
     },
-    // A driver whose `maxWait` bounds its connection-queue wait ("queue")
-    // has nothing left to bound on this view: the lease already holds the
-    // queue for the whole session, so accepting the option here would
-    // accept a bound it cannot apply. Dedicated-connection drivers keep
-    // their own answer.
+    // The lease holds the queue for the whole session, so there is no queue
+    // wait left to bound.
     transactionOptionSupport: {
       value: (): TransactionOptionSupport =>
         support.maxWait === "queue"
@@ -646,8 +522,8 @@ function createPinnedSessionView<D extends AnyDriver>(
     migrationNamespaceAttestation: {
       value: driver.migrationNamespaceAttestation,
     },
-    // The hook runs outside any transaction (`Driver.beforeForeignKeysOff`):
-    // a SQLite command's locked transaction ends before it, not at the switch.
+    // The hook runs outside any transaction: a SQLite command's locked
+    // transaction ends before it.
     beforeForeignKeysOff: {
       async value(this: AnyDriver) {
         await LOCKED.get(this)?.between();
@@ -659,26 +535,10 @@ function createPinnedSessionView<D extends AnyDriver>(
 }
 
 /**
- * One transaction on the already-reserved session, installed as the pinned
- * view's `transaction` member (so `view` is that view).
- *
- * Every provider's own `transaction()` acquires a connection — that is the
- * behaviour a pinned session exists to prevent — and most of them refuse
- * outright when handed a connection instead of a pool. `BEGIN`/`COMMIT`/
- * `ROLLBACK` on the reserved producer is the one form that means the same
- * thing on every transport admitted to pinning, and it keeps the lock and the
- * transaction on one session.
- *
- * A locked PostgreSQL or SQLite command hands it to its locked transactions
- * (plans D1, S5); what reaches the lines below is a transaction under a lock
- * the session already holds: MySQL's, or a PostgreSQL stepwise program's.
- *
- * On PostgreSQL the transaction's first statement is its own `SET LOCAL`
- * limits (plan S1): a DDL statement queued behind a long reader gives up after
- * `lock_timeout` instead of stalling every read queued behind it. After a
- * connection failure no `ROLLBACK` is sent: the server ends the transaction
- * with its session, and a statement written to a dead connection only adds a
- * failure — or, on postgres.js, crashes the process (plan S2).
+ * One transaction on the already-reserved session, as `BEGIN`/`COMMIT`/
+ * `ROLLBACK` on that producer: under a lock the session already holds
+ * (MySQL's, or a PostgreSQL stepwise program's), opening with the PostgreSQL
+ * limits (plan S1), and sending no `ROLLBACK` after a lost connection (S2).
  */
 function runPinnedTransaction<T>(
   view: AnyDriver,
@@ -690,26 +550,14 @@ function runPinnedTransaction<T>(
 ): Promise<T> {
   const locked = LOCKED.get(view)?.group(() => fn(session));
   if (locked !== undefined) return locked;
-  const statement = async (sql: string) => {
-    try {
-      await view["executeRaw"](session, sql, undefined, context);
-    } catch (failure) {
-      control.lost(failure);
-      throw failure;
-    }
-  };
+  const statement = (sql: string) =>
+    view["executeRaw"](session, sql, undefined, context);
   return runTransactionLifecycle({
     begin: () => statement("BEGIN"),
-    // The session IS the transaction here: there is no second handle to hand
-    // out, and a nested `$transaction` on it runs as a SAVEPOINT.
+    // The session IS the transaction: a nested `$transaction` is a SAVEPOINT.
     callback: async () => {
       if (limits !== undefined) await statement(limits.transaction);
-      try {
-        return await fn(session);
-      } catch (failure) {
-        control.lost(failure);
-        throw failure;
-      }
+      return fn(session);
     },
     commit: () => statement("COMMIT"),
     rollback: () =>
@@ -718,35 +566,15 @@ function runPinnedTransaction<T>(
 }
 
 /**
- * Runs `body` on ONE reserved producer holding this estate's migration lock.
+ * Runs `body` on ONE reserved producer holding this estate's migration lock,
+ * with the migration driver THIS command renders from (§5.2).
  *
- * The body receives that producer and the migration driver THIS COMMAND must
- * render from: the same bound driver on every dialect but MySQL, and on MySQL
- * one carrying the spelling of the database the server itself answered with
- * (§5.2). Handing it over is what keeps the resolved spelling command-local —
- * it disappears with the session that resolved it, and nothing stores it.
- *
- * MySQL holds a session lock for the whole command. PostgreSQL and SQLite run
- * the command in locked transactions instead ({@link lockTransactions}): the
- * first opens before the namespace proof, so every decision the body reads is
- * read under the lock, and the body's first transaction continues it. SQLite
- * reserves nothing: its driver's one connection is the session, and the
- * driver's connection queue is the lease that keeps the rest of the process
- * out of it — two commands in one process run one after the other. A SQLite
- * driver without transactions has nothing to lock with and runs the body under
- * that lease alone.
- *
- * This is the primitive both entry points share — estate commands through
- * {@link withLockedMigrationProducer}, and `push()`, which owns no migration
- * storage.
- *
- * `unlocked` (PostgreSQL and SQLite) runs first, on the same reserved session
- * and before any lock: an answer ends the command there. It is for a decision
- * one statement proves while no command holds the lock (plan D5: a no-op
- * `apply`); on PostgreSQL that statement includes `lockFree`, which takes the
- * transaction lock and releases it with the statement, and is false while
- * another session holds it. A failure that is not the lost connection only
- * means it could not decide, and the locked command decides again.
+ * MySQL holds a session lock for the whole command; PostgreSQL and SQLite run
+ * it in locked transactions ({@link lockTransactions}); a batch transport
+ * locks each request (plan D7). `unlocked` (PostgreSQL) runs first, before any
+ * lock, for a decision one statement proves while no command holds the lock
+ * (plan D5); a failure that is not the lost connection only means it could not
+ * decide.
  */
 export function withLockedMigrationProducer<T>(
   driver: AnyDriver,
@@ -756,6 +584,7 @@ export function withLockedMigrationProducer<T>(
 ): Promise<T> {
   const { dialect } = migrationDriver.target;
   const limits = migrationDriver.limits;
+  const lockFree = migrationLockFree(migrationDriver);
   const scope: PinnedSessionScope = {
     connectionWait: limits.connectionWait,
     limits:
@@ -769,13 +598,8 @@ export function withLockedMigrationProducer<T>(
         : undefined,
   };
   if (runsMigrationBatches(driver)) {
-    // No session to lock (plan D7): the command reads without one, and each
-    // transactional group is one request that takes the lock and asserts
-    // what was read (`openMigrationBatch`).
     return (async () => {
-      const answer = await unlocked?.(driver, MIGRATION_LOCK_FREE).catch(
-        () => undefined
-      );
+      const answer = await unlocked?.(driver, lockFree).catch(() => undefined);
       if (answer !== undefined) return answer;
       return body(
         driver,
@@ -787,13 +611,7 @@ export function withLockedMigrationProducer<T>(
     return withPinnedSession(
       driver,
       async (pinned, control) => {
-        // Acquisition stays OUTSIDE the release scope: a lock that was never
-        // proven is not this session's to release, and issuing one anyway
-        // would fail its own release proof and report that instead of the
-        // acquisition failure. Everything after it is inside, because
-        // everything after it happens with the lock HELD — §3.5's "unlocks
-        // through the same producer in `finally`" covers the post-acquisition
-        // proof and target selection too.
+        // A lock never proven is not this session's to release (§3.5).
         await acquireLock(pinned, migrationDriver, control);
         let result: T;
         try {
@@ -801,7 +619,7 @@ export function withLockedMigrationProducer<T>(
             pinned,
             migrationDriver
           );
-          result = await body(pinned, scopeMySQLDecimalRecovery(command));
+          result = await body(pinned, command);
         } catch (error) {
           await releaseAfterFailure(pinned, migrationDriver, control, error);
           throw error;
@@ -816,11 +634,13 @@ export function withLockedMigrationProducer<T>(
     driver,
     async (pinned, control) => {
       try {
-        const answer = await unlocked?.(pinned, MIGRATION_LOCK_FREE);
+        const answer = await unlocked?.(pinned, lockFree);
         if (answer !== undefined) return answer;
       } catch (failure) {
         if (control.lost(failure)) throw failure;
       }
+      // An admitted SQLite driver without transactions runs under the
+      // driver's queue lease alone.
       if (!pinned.supportsTransactions) {
         return body(
           pinned,
@@ -854,35 +674,15 @@ export function withLockedMigrationProducer<T>(
 
 /**
  * The locked transactions one PostgreSQL or SQLite command runs in (plans D1,
- * S5), installed on its pinned view.
+ * S5), opened on demand before each statement: PostgreSQL `BEGIN`, its limits
+ * and the bounded transaction lock; SQLite `BEGIN IMMEDIATE`. The first opens
+ * before the namespace proof, so every decision is read under the lock.
  *
- * Every statement the body sends runs inside a transaction that holds the
- * migration lock, opened on demand: on PostgreSQL `BEGIN`, its `SET LOCAL`
- * limits and a bounded `pg_try_advisory_xact_lock`; on SQLite
- * `BEGIN IMMEDIATE`, whose write lock is the lock. The first one opens before
- * the namespace proof, so the marker, the ledger and the drift check are read
- * under it, and the body's first transactional group continues it and commits
- * it. A later group opens its own. The lock ends with each transaction, so a
- * transaction pooler can hand every one of them to a different server session
- * and nothing outlives it.
- *
- * Three things cannot run inside such a transaction:
- * - PostgreSQL stepwise work (`mayWrapTransaction` arms it) and any index
- *   statement run `CONCURRENTLY` (`buildsIndexConcurrently`, read from the
- *   statement's own words). They need the session lock: it is taken
- *   inside the open locked transaction — at once, since the session already
- *   holds the transaction lock on the same key — before that transaction
- *   commits, so the lock is never let go between the decision and the work.
- *   The session then keeps the command's limits until its release.
- * - SQLite's `PRAGMA foreign_keys` switch, which a transaction ignores: the
- *   open transaction commits first, and the switch runs between two.
- *
- * A commit without the session lock lets the lock go, and so does a statement
- * that fails outside a group: PostgreSQL has already aborted the transaction,
- * which is rolled back at once so a caller that tolerates the failure (push's
- * predicate canonicalizer) goes on in a fresh one. From then on
- * {@link lockedSinceDecision} is false: the next group must re-read the marker
- * under its own lock before it acts on a decision taken under the previous one.
+ * PostgreSQL stepwise work and `CONCURRENTLY` statements take the session lock
+ * inside the open locked transaction, so the lock is never let go between the
+ * decision and the work. SQLite's `PRAGMA foreign_keys` switch runs between
+ * two transactions. A commit without the session lock lets the lock go, and
+ * {@link lockedSinceDecision} is then false.
  */
 interface LockedTransactions {
   /** Readies the session for one statement sent outside a group. */
@@ -905,16 +705,7 @@ interface LockedTransactions {
 
 const LOCKED = new WeakMap<object, LockedTransactions>();
 
-/**
- * The session lock PostgreSQL stepwise work keeps, taken while this session
- * holds the transaction lock on the same key, so it is granted at once.
- */
-const SESSION_LOCK = `SELECT pg_try_advisory_lock(${MIGRATION_LOCK_ID}) AS acquired`;
-
-/**
- * The switch SQLite ignores inside a transaction (`foreign-keys.ts` lifts it
- * out of every table rebuild); its read form, without `=`, runs anywhere.
- */
+/** The switch SQLite ignores inside a transaction; its read form runs anywhere. */
 const FOREIGN_KEYS_SWITCH = /^\s*PRAGMA\s+foreign_keys\s*=/i;
 
 function lockTransactions(
@@ -926,14 +717,8 @@ function lockTransactions(
   const sqlite = migrationDriver.target.dialect === "sqlite";
   // The protocol's own statements, on the same session, past `before`.
   const direct: AnyDriver = Object.create(pinned);
-  const run = async <T = Record<string, unknown>>(sql: string) => {
-    try {
-      return await direct._executeRaw<T>(sql);
-    } catch (failure) {
-      control.lost(failure);
-      throw failure;
-    }
-  };
+  const run = <T = Record<string, unknown>>(sql: string) =>
+    direct._executeRaw<T>(sql);
   let open = false;
   let sessionLocked = false;
   let armed = false;
@@ -952,9 +737,8 @@ function lockTransactions(
     open = false;
     continuous &&= sessionLocked;
   };
-  // SQLite's lock IS its BEGIN IMMEDIATE, and its busy handler is the wait:
-  // `lockWait` for this one statement, as PostgreSQL's bounded lock loop
-  // waits, then the connection's own busy timeout again (plan S5).
+  // SQLite's lock IS its BEGIN IMMEDIATE: `lockWait` bounds that one
+  // statement's busy wait, then the connection's own timeout is restored.
   const beginImmediate = async (): Promise<void> => {
     const [own] = (await run<{ timeout: unknown }>("PRAGMA busy_timeout")).rows;
     await run(`PRAGMA busy_timeout = ${migrationDriver.limits.lockWait}`);
@@ -988,7 +772,12 @@ function lockTransactions(
   };
   const escalate = async (): Promise<void> => {
     if (!open) await begin();
-    await acquireLock(direct, migrationDriver, control, SESSION_LOCK);
+    await acquireLock(
+      direct,
+      migrationDriver,
+      control,
+      migrationDriver.generateSessionLock(MIGRATION_LOCK_ID)
+    );
     sessionLocked = true;
     armed = false;
     if (limits !== undefined) {
@@ -1043,9 +832,6 @@ function lockTransactions(
           grouped = true;
           try {
             return await fn();
-          } catch (failure) {
-            control.lost(failure);
-            throw failure;
           } finally {
             grouped = false;
           }
@@ -1076,10 +862,7 @@ function lockTransactions(
 
 /**
  * Whether `producer`'s command has held its migration lock without a gap since
- * it read its decision. False once a locked transaction committed without the
- * session lock: a group that runs after that re-reads the marker under its own
- * lock before acting on the decision. True on MySQL, which holds its session
- * lock for the whole command.
+ * it read its decision; always true on MySQL, which holds a session lock.
  */
 export function lockedSinceDecision(producer: AnyDriver): boolean {
   return LOCKED.get(producer)?.continuous() ?? true;
@@ -1088,31 +871,11 @@ export function lockedSinceDecision(producer: AnyDriver): boolean {
 /**
  * The PostgreSQL statements behind one command's time limits (plan S1).
  *
- * Every migration transaction opens with its own: `lock_timeout`, so a DDL
- * queued behind a long reader gives up instead of stalling every read queued
- * behind it (the lock statement only polls `pg_try_advisory_xact_lock`, which
- * never waits on a lock); a `statement_timeout` longer than the lock wait (so
- * it never cuts the wait short); and `idle_in_transaction_session_timeout`,
- * which ends a transaction - and its lock - whose client vanished. They are
- * `SET LOCAL`, so they leave with the transaction and a transaction pooler
- * hands no other client a session carrying them (plan D1).
- *
- * The session's own limits are set only when stepwise work takes the session
- * lock: its statements run bare on the session, so the session carries the
- * same limits, and the idle ones for a session whose client vanished while
- * holding that lock.
- *
- * The idle limits are asked of the server rather than assumed: they exist only
- * where `pg_settings` lists them (PostgreSQL 14+ for `idle_session_timeout` and
- * `client_connection_check_interval`), and a server that cannot check a
- * client's socket refuses `client_connection_check_interval`, which is then
- * left alone. They are not set on PGlite (`emscripten` in `version()`): its
- * in-process backend has no client to lose, and arming either idle timer there
- * hangs it — measured on PGlite 0.5.
- *
- * The reset puts back each setting's session default (`reset_val`, which keeps
- * a value the pool set at connect), because on success the connection returns
- * to the application's pool.
+ * Every migration transaction opens with its own `SET LOCAL` limits, which
+ * leave with it (plan D1); the session carries them only while stepwise work
+ * holds the session lock, and is reset to each setting's `reset_val` before it
+ * goes back. The idle limits are set only where `pg_settings` lists them, and
+ * never on PGlite, whose in-process backend hangs on either idle timer.
  */
 function postgresSessionLimits(
   limits: ResolvedMigrationLimits
@@ -1132,92 +895,18 @@ END;
 END IF;
 END$viborm_limits$`,
     exit: "SELECT count(set_config(name, reset_val, false)) AS reset FROM pg_catalog.pg_settings WHERE name IN ('lock_timeout', 'statement_timeout', 'idle_in_transaction_session_timeout', 'idle_session_timeout', 'client_connection_check_interval')",
-    // Also repeated in each transaction under the session lock: a migration's
-    // own SQL may change the session's values (pg_dump output opens with
-    // `SET lock_timeout = 0`), and every later transaction still runs under
-    // the command's limits.
+    // Repeated in each transaction under the session lock too: a migration's
+    // own SQL may change the session's values.
     transaction: `SELECT ${bound(lockTimeout, statementTimeout, true)}, set_config('idle_in_transaction_session_timeout', CASE WHEN pg_catalog.version() LIKE '%emscripten%' THEN pg_catalog.current_setting('idle_in_transaction_session_timeout') ELSE '${limits.idleTimeout}' END, true)`,
     unbound: `SELECT ${bound(0, 0, false)}`,
     rebound: `SELECT ${bound(lockTimeout, statementTimeout, false)}`,
   };
 }
 
-/** The largest PostgreSQL timeout setting, and the largest timer delay. */
-const MAX_TIME_LIMIT_MS = 2_147_483_647;
-
-const LIMIT_KEYS = [
-  "lockTimeout",
-  "statementTimeout",
-  "idleTimeout",
-  "lockWait",
-  "connectionWait",
-  "largeTableRows",
-] as const satisfies readonly (keyof MigrationLimits)[];
-
-/**
- * The limits a migration client was given, settled once: each key a whole
- * number (milliseconds, rows for `largeTableRows`), the defaults filling in
- * the rest.
- *
- * `lockWait` and `connectionWait` are waits VibORM bounds and must be
- * positive; the server settings accept 0 ("no limit"). Every key stops at
- * {@link MAX_TIME_LIMIT_MS}, the most both PostgreSQL's settings and a timer
- * hold. A `statementTimeout` must outlast `lockWait`, which runs as one
- * statement under it.
- */
-export function resolveMigrationLimits(
-  input: unknown
-): ResolvedMigrationLimits {
-  if (input === undefined) return DEFAULT_MIGRATION_LIMITS;
-  const record = snapshotExactRecord(
-    input,
-    LIMIT_KEYS,
-    "migration limits",
-    refuseLimits
-  );
-  const limits: Record<(typeof LIMIT_KEYS)[number], number> = {
-    ...DEFAULT_MIGRATION_LIMITS,
-  };
-  for (const key of LIMIT_KEYS) {
-    const value = record[key];
-    if (value === undefined) continue;
-    const least = key === "lockWait" || key === "connectionWait" ? 1 : 0;
-    if (
-      typeof value !== "number" ||
-      !Number.isInteger(value) ||
-      value < least ||
-      value > MAX_TIME_LIMIT_MS
-    ) {
-      refuseLimits(
-        `migration limit ${key} must be a whole number of ${key === "largeTableRows" ? "rows" : "milliseconds"}, from ${least} to ${MAX_TIME_LIMIT_MS}`
-      );
-    }
-    limits[key] = value;
-  }
-  if (
-    limits.statementTimeout !== 0 &&
-    limits.statementTimeout <= limits.lockWait
-  ) {
-    refuseLimits(
-      `migration limit statementTimeout (${limits.statementTimeout} ms) must be 0 or longer than lockWait (${limits.lockWait} ms): the lock wait runs as one statement under it`
-    );
-  }
-  return Object.freeze(limits);
-}
-
-function refuseLimits(message: string, cause?: Error): never {
-  throw new MigrationError(message, VibORMErrorCode.INVALID_INPUT, { cause });
-}
-
 /**
  * Selects the live migration target on a pinned producer, if this dialect has
- * one to select.
- *
- * The ONE consumer of the dialect's target-selection statement. It runs when
- * the lock is taken and again immediately before every relative artifact —
- * never only once for the session, because a manual artifact is allowed to
- * issue its own `USE` and the next artifact must still land on the configured
- * target (§10).
+ * one: when the lock is taken and again before every relative artifact, since
+ * a manual artifact may issue its own `USE` (§10).
  */
 export async function selectMigrationTarget(
   pinned: AnyDriver,
@@ -1231,21 +920,8 @@ export async function selectMigrationTarget(
 }
 
 /**
- * §5.3's step 2: VALIDATED target selection, once per session.
- *
- * Selecting a database the server does not have is a raw provider failure, and
- * §3.3 requires a configured-but-absent namespace to fail on its own read-only
- * catalog proof instead — before session state changes and before any DDL. The
- * proof therefore runs on this exact producer, immediately after the lock and
- * before the first selection; every later reassertion re-selects a target this
- * session has already validated.
- *
- * It runs on every dialect, not only the one with a target to select. A
- * PostgreSQL command's proof used to be deferred to whichever of its two
- * tracking owners ran first, which meant each of them had to ask again — and
- * meant the fact was re-established once per applied-state read instead of once
- * per command. Proving it HERE is what lets everything below this line render
- * from a driver that has already been proven.
+ * §5.3's step 2, once per locked session: the namespace proof (§3.3), the
+ * target selection, then the dialect's own proof of the session.
  */
 async function validateAndSelectMigrationTarget(
   pinned: AnyDriver,
@@ -1253,129 +929,14 @@ async function validateAndSelectMigrationTarget(
 ): Promise<BoundMigrationDriver> {
   const command = await resolveCommandDriver(pinned, migrationDriver);
   await selectMigrationTarget(pinned, command);
-  await proveExactValueSessionMode(pinned, command);
-  return command;
-}
-
-/**
- * MySQL only: PROVES this session fails on an out-of-range value instead of
- * truncating it (plan 3.3: "Strict exact-value behavior is required; a mode
- * that converts overflow or truncation to warnings is refused for effectful
- * decimal operations").
- *
- * The requirement is not decorative on a fixed-decimal estate. Outside strict
- * mode MySQL answers an overflowing `DECIMAL` assignment with a WARNING and
- * writes the clamped value: measured on 8.4, `UPDATE t SET amount = amount *
- * 100000` on a `DECIMAL(6,2)` column holding `10.00` stores `9999.99` and
- * returns success. Migration work may execute provider-authored DDL and manual
- * artifacts outside the ORM adapter's guarded decimal assignments, so its one
- * pinned producer must prove that an out-of-range exact value is an error.
- * Ordinary ORM increment, decrement, multiply, and divide carry their own
- * same-statement non-strict refusal; this proof owns the migration boundary.
- *
- * ONE proof, HERE: once per pinned migration session, on the producer that runs
- * the DDL, before any statement it protects. Not per operation — a hot-path
- * check would ask the same server the same question on every write, and the
- * session it would be asking about is the one this owner already reserved.
- * PostgreSQL and SQLite have no equivalent mode to prove: neither has a setting
- * that turns an out-of-range numeric into a truncation.
- */
-async function proveExactValueSessionMode(
-  pinned: AnyDriver,
-  migrationDriver: BoundMigrationDriver
-): Promise<void> {
-  if (migrationDriver.target.dialect !== "mysql") {
-    return;
-  }
-  const rows = await createQueryExecutor(pinned)(
-    "SELECT @@SESSION.sql_mode AS sql_mode, VERSION() AS server_version"
-  );
-  const row = rows[0];
-  const mode: unknown =
-    typeof row === "object" && row !== null
-      ? Reflect.get(row, "sql_mode")
-      : undefined;
-  const declared = typeof mode === "string" ? mode : "";
-  const serverVersion: unknown =
-    typeof row === "object" && row !== null
-      ? Reflect.get(row, "server_version")
-      : undefined;
-  const renderedVersion =
-    typeof serverVersion === "string" ? serverVersion : "<unreported>";
-  if (!supportsEnforcedMySQLChecks(renderedVersion)) {
-    throw new MigrationError(
-      `This MySQL migration session reports version "${renderedVersion}". Fixed-decimal conversions require MySQL 8.0.16 or later, where CHECK constraints are enforced; the command is refused before any migration effect.`,
-      VibORMErrorCode.DRIVER_NOT_SUPPORTED,
-      {
-        meta: {
-          dialect: "mysql",
-          type: "unenforced-check-constraints",
-          target: describeEstate(migrationDriver),
-        },
-      }
-    );
-  }
-  const hasStrictMode = declared.split(",").some((mode) => {
-    const token = mode.trim();
-    return token === "STRICT_TRANS_TABLES" || token === "STRICT_ALL_TABLES";
-  });
-  if (hasStrictMode) {
-    return;
-  }
-  throw new MigrationError(
-    `This MySQL session runs in sql_mode "${declared}", which has neither STRICT_TRANS_TABLES nor STRICT_ALL_TABLES. ` +
-      "Effectful migration work is refused: without a strict mode MySQL answers an out-of-range DECIMAL with a warning and stores the clamped value, so an exact fixed-decimal column would silently stop holding what it was given. Enable a strict mode on the server or on this connection and run the command again.",
-    VibORMErrorCode.DRIVER_NOT_SUPPORTED,
-    {
-      meta: {
-        dialect: "mysql",
-        type: "non-strict-sql-mode",
-        target: describeEstate(migrationDriver),
-      },
-    }
-  );
-}
-
-/** MySQL began enforcing CHECK constraints in 8.0.16. */
-function supportsEnforcedMySQLChecks(version: string): boolean {
-  if (version.toLowerCase().includes("mariadb")) {
-    return false;
-  }
-  const match = MYSQL_VERSION.exec(version);
-  if (match === null) {
-    return false;
-  }
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  const patch = Number(match[3]);
-  return major > 8 || (major === 8 && (minor > 0 || patch >= 16));
+  return command.proveSession((sql, params) => pinned._executeRaw(sql, params));
 }
 
 /**
  * The ONE owner of the migration driver a command renders from, after its
- * namespace proof.
- *
- * A dialect that resolves a command-local spelling gets a view carrying it;
- * every other dialect proves and keeps the driver it was given. The view is
- * built the way every other execution view in this layer is — a frozen
- * `Object.create` over the bound driver, restating one readonly fact — so the
- * resolved name is not a second stored namespace: it lives exactly as long as
- * the command that resolved it (§5.2).
- *
- * The proof ANSWERS on the one dialect where the answer can differ from the
- * question: `resolveCommandNamespace` returns the server's own spelling of the
- * configured database. Throwing that spelling away is what made a case-folded
- * MySQL match pass its proof and then die on a raw `Unknown database` from the
- * very `USE` the proof had just admitted — while the reset inventory read a
- * database the server does not have.
- *
- * READ-ONLY commands take no lock — `status()`, `log()` and a dry `push()`
- * are point-in-time reports, not concurrency-stable decisions — and they reach
- * this same owner on their own producer. That is deliberate: the spelling is a
- * fact about the SERVER, not about the lock, so a command that proves it and
- * then renders the configured one is wrong whether or not it locked. There is
- * no second namespace source anywhere; every command's catalog reads and every
- * statement it renders come from the view returned here.
+ * namespace proof (§5.2): on the dialect that resolves a command-local
+ * spelling (MySQL), a frozen view carrying the server's own spelling, which
+ * lives exactly as long as the command. Read-only commands reach it too.
  */
 export async function resolveCommandDriver(
   producer: AnyDriver,
@@ -1399,15 +960,9 @@ export async function resolveCommandDriver(
 
 /**
  * Whether a group of `transactional` work runs in a transaction on this
- * producer: never on MySQL, whose DDL commits as it runs, nor on a producer
- * without transactions.
- *
- * Every command asks it of each group right before that group runs, which
- * makes it the place a PostgreSQL command hears of stepwise work and takes the
- * session lock that work needs (plan D1). On SQLite, `apply` refuses a
- * stepwise transition while it prepares its path (plan S5); the legacy
- * stepwise work `down`, `reset` or `resolve` reach runs inside the open
- * `BEGIN IMMEDIATE` transaction, and arming is ignored there.
+ * producer: never on MySQL, nor without transactions. Asked of each group
+ * right before it runs, which is where a PostgreSQL command hears of stepwise
+ * work and takes the session lock it needs (plan D1).
  */
 export function mayWrapTransaction(
   producer: Pick<AnyDriver, "supportsTransactions">,
@@ -1466,57 +1021,18 @@ export async function runProgram<T>(
 }
 
 /**
- * Runs a MySQL sequential program on `producer` and reports the boundary it
- * reached (§6.2, §6.3).
- *
- * MySQL commits DDL as each statement runs. Two things follow, and this is the
- * ONE owner of both. There is no transaction — the caller has already branched
- * away from its transaction owner, because `BEGIN` → `CREATE TABLE` (which
- * commits, and the `BEGIN` with it) → a tracking write now in autocommit →
- * `COMMIT` with nothing left to commit is the APPEARANCE of atomicity. And a
- * failure part-way through cannot be undone, so it is reported as the partial
- * commit it is.
- *
- * The boundary is recorded by the producer the body runs on, not by the body:
- * apply's artifact and its tracking insert, push's DDL, force-reset's clear and
- * rebuild, down's group, resolve's completion, and reset's replay are six
- * different programs. Each would otherwise have to carry its own bookkeeping
- * and its own error. The view is built the way every other execution view in
- * this layer is — an `Object.create` over the producer restating one member —
- * so the body runs on the SAME physical session, the same reserved client, and
- * the same attestation it was handed.
- *
- * The scope is the whole program the command commits to, deliberately: a report
- * covering only the clear would tell a `reset()` nothing about the replay that
- * followed it.
+ * Runs a MySQL sequential program on `producer`, after the command's
+ * `programPreamble`, and reports the boundary it reached (§6.2, §6.3): MySQL
+ * commits DDL as each statement runs, so a failure part-way through is the
+ * partial commit it is, recorded by the producer the body runs on.
  */
 export async function runSequentialProgram<T>(
   producer: AnyDriver,
   migrationDriver: BoundMigrationDriver,
   body: (recording: AnyDriver) => Promise<T>
 ): Promise<T> {
-  let recoveryStatements: readonly string[] = [];
-  if (migrationDriver.target.dialect === "mysql") {
-    const recovery: unknown = Reflect.get(
-      migrationDriver,
-      MYSQL_DECIMAL_RECOVERY
-    );
-    if (!isMySQLDecimalRecoveryScope(recovery)) {
-      throw new MigrationError(
-        "This MySQL sequential migration program is not bound to its locked command's decimal-recovery scope.",
-        VibORMErrorCode.MIGRATION_INVALID_STATE,
-        { meta: { dialect: "mysql", type: "unbound-migration-command" } }
-      );
-    }
-    recoveryStatements = await recovery.take(producer);
-  }
-
-  /**
-   * The last statement that RAN TO COMPLETION.
-   *
-   * Where nothing rolls back, "completed" IS "committed", and it is the only
-   * honest thing an error can say about a database it did not restore.
-   */
+  const preamble = await migrationDriver.programPreamble(producer);
+  /** The last statement that RAN TO COMPLETION, which here IS committed. */
   let committed: string | undefined;
   const recording: AnyDriver = Object.create(producer);
   Object.defineProperty(recording, "_executeRaw", {
@@ -1528,7 +1044,7 @@ export async function runSequentialProgram<T>(
   });
 
   try {
-    for (const statement of recoveryStatements) {
+    for (const statement of preamble) {
       await recording._executeRaw(statement);
     }
     return await body(recording);
@@ -1538,72 +1054,9 @@ export async function runSequentialProgram<T>(
 }
 
 /**
- * Gives one locked command one recoverable MySQL decimal-cleanup decision.
- *
- * The decision is lazy because apply must read and validate its authoritative
- * journal before recovery may touch the estate. The first sequential program
- * takes it after that preflight; later artifact/program segments in the same
- * command get an empty plan. Proof failures leave the decision untaken and
- * retain their exact migration-state diagnostics.
- */
-function scopeMySQLDecimalRecovery(
-  migrationDriver: BoundMigrationDriver
-): BoundMigrationDriver {
-  if (migrationDriver.target.dialect !== "mysql") {
-    return migrationDriver;
-  }
-  if (migrationDriver.namespace === undefined) {
-    throw new MigrationError(
-      "This MySQL migration command has no resolved database for interrupted decimal-conversion recovery.",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { meta: { dialect: "mysql", type: "unbound-database" } }
-    );
-  }
-  const namespace = migrationDriver.namespace;
-
-  let taken = false;
-  let planned: Promise<readonly string[]> | undefined;
-  const scope: MySQLDecimalRecoveryScope = {
-    async take(producer) {
-      if (taken) return [];
-      if (planned !== undefined) {
-        await planned;
-        return [];
-      }
-      planned = planInterruptedMySQLDecimalRecovery(
-        (sql, params) => producer._executeRaw(sql, params),
-        namespace,
-        (name) => migrationDriver.escapeIdentifier(name)
-      );
-      try {
-        const statements = await planned;
-        taken = true;
-        return statements;
-      } catch (error) {
-        planned = undefined;
-        throw error;
-      }
-    },
-  };
-  const command: BoundMigrationDriver = Object.create(migrationDriver);
-  Object.defineProperty(command, MYSQL_DECIMAL_RECOVERY, { value: scope });
-  Object.freeze(command);
-  return command;
-}
-
-/**
- * The honest report for a program that cannot be undone (§6.2, §6.3).
- *
- * It states the boundary and refuses to characterize anything past it: the
- * statement that FAILED may have taken effect before it errored, so the last
- * statement known to have completed is the strongest true claim available.
- * Nothing here says or implies "rolled back" — the whole reason this error
- * exists is that no rollback happened — and nothing here claims the database
- * was CHANGED either, because a program can fail on the catalog read it opens
- * with.
- *
- * The provider's own failure survives underneath as the cause rather than being
- * replaced by this report.
+ * The honest report for a program that cannot be undone (§6.2, §6.3): the
+ * last statement known to have completed, no claim of a rollback, and the
+ * provider's failure as the cause.
  */
 function partialProgramFailure(
   cause: unknown,
@@ -1621,13 +1074,8 @@ function partialProgramFailure(
 }
 
 /**
- * Acquires the lock and PROVES it.
- *
- * The order is §5.3's: lock first, target selection second, and everything the
- * command decides from live state after both. Selecting the target before the
- * lock would let two commands agree on a database and then race inside it —
- * which is why the selection is the caller's next step rather than this one's
- * tail: it belongs to the scope that releases.
+ * Acquires the lock and PROVES it. The target is selected after the lock
+ * (§5.3), by the caller's scope that releases.
  */
 async function acquireLock(
   pinned: AnyDriver,
@@ -1644,8 +1092,7 @@ async function acquireLock(
   try {
     rows = await executor(statement);
   } catch (error) {
-    // A lost connection is not a lock failure: it is retryable, and the
-    // session surfaces it as such.
+    // A lost connection is retryable, not a lock failure.
     if (control.lost(error)) throw error;
     throw lockStatementFailed(migrationDriver, error);
   }
@@ -1677,22 +1124,9 @@ function lockStatementFailed(
 }
 
 /**
- * Releases the lock after the protected work FAILED, without replacing its
- * error.
- *
- * A `finally` that throws destroys the exception the caller needs: a MySQL
- * reset that cleared tracking and dropped half an estate on a dying connection
- * would report only "the lock could not be released", losing both the statement
- * that failed and the partial-commit reality §3.5 and §6.2 require it to state.
- * So the release still runs — the lock must not outlive the command, and the
- * producer is still condemned — and its own failure is RECORDED on the way out
- * instead of replacing the cause.
- *
- * The recording is {@link withSuppressedFailure}, the one rule both cleanup owners
- * share. Appending the detail to `cause.message` was the same intent written as
- * a WRITE to an error VibORM does not own: it throws outright for a frozen
- * Error or an accessor-backed `message`, and the caller was then told about a
- * `TypeError` from the cleanup rather than about the estate.
+ * Releases the lock after the protected work FAILED: the release still runs
+ * and its own failure is recorded beside `cause` (§3.5), never replacing it.
+ * A lost session holds no lock to release (plan S2).
  */
 async function releaseAfterFailure(
   pinned: AnyDriver,
@@ -1700,34 +1134,18 @@ async function releaseAfterFailure(
   control: PinnedSessionControl,
   cause: unknown
 ): Promise<void> {
-  // A session that lost its connection holds no lock to release: the server
-  // frees it with the session, and an unlock written to that connection only
-  // adds a failure — or, on postgres.js, crashes the process (plan S2).
   if (control.lost(cause)) return;
   try {
     await releaseLock(pinned, migrationDriver, control);
   } catch (releaseFailure) {
-    // For everything a caller can throw and hold, this IS `cause` — carrying
-    // the release failure, unchanged in every other respect. Only a primary
-    // that can carry nothing at all (a thrown string, a thrown number) changes
-    // shape, into the one carrier that keeps both.
     throw withSuppressedFailure(cause, releaseFailure);
   }
 }
 
 /**
- * Releases the lock and PROVES the release.
- *
- * An unproven release condemns the producer: it is a session holding a lock
- * nobody will free, and handing it back to a pool would strand that lock for
- * the life of the connection. The refusal surfaces — cleanup failure is a
- * failure — except when the body itself already threw, in which case the throw
- * propagates and replacing it would hide the cause
- * ({@link releaseAfterFailure}).
- *
- * The lock is released through the driver the command was GIVEN, never through
- * the command-local view a MySQL session resolved: a release has to name the
- * lock this session acquired, and only the acquiring driver can name it.
+ * Releases the lock and PROVES the release, through the driver the command
+ * was GIVEN (only it names the lock acquired); an unproven release condemns
+ * the producer.
  */
 async function releaseLock(
   pinned: AnyDriver,

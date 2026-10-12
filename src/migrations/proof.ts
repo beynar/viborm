@@ -16,7 +16,6 @@ import {
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
 import { postgresCatalogDigest } from "./drivers/postgres/catalog-digest";
-import { emptyManagedSnapshot } from "./empty-snapshot";
 import type { MigrationGraph } from "./graph";
 import type { Sha256 } from "./identity";
 import { lockedSinceDecision } from "./pinned-session";
@@ -182,9 +181,9 @@ export async function proveLive(
   ) => Promise<string> | string = async (differences) =>
     `Live managed schema drifted from the authenticated snapshot. Differences: ${await differences()}`
 ): Promise<readonly MarkerIndexPredicateV1[]> {
-  const expected = snapshotOf(graph, snapshotHash);
-  const fingerprint =
-    expected && (await fingerprintLive(expected, command, producer));
+  // `loadMigrationGraph` loads every state's snapshot and seeds the empty one.
+  const expected = graph.snapshots.get(snapshotHash)!;
+  const fingerprint = await fingerprintLive(expected, command, producer);
   const postgres = command.target.dialect === "postgresql";
   const digest = postgres
     ? await postgresCatalogDigest(
@@ -197,11 +196,7 @@ export async function proveLive(
   const live = await introspectManaged(producer, command);
   if ((await fingerprintLive(live, command, producer)) !== fingerprint) {
     throw new MigrationError(
-      await refusal(async () =>
-        expected
-          ? JSON.stringify(await diff(live, expected))
-          : "authenticated snapshot is missing"
-      ),
+      await refusal(async () => JSON.stringify(await diff(live, expected))),
       VibORMErrorCode.MIGRATION_DRIFT
     );
   }
@@ -218,13 +213,6 @@ export async function proveLive(
         ? [{ table: table.name, index: index.name, deparsed: index.where }]
         : []
     )
-  );
-}
-
-export function snapshotOf(graph: MigrationGraph, snapshotHash: Sha256) {
-  return (
-    graph.snapshots.get(snapshotHash) ??
-    (snapshotHash === graph.emptySnapshotHash ? emptyManagedSnapshot() : null)
   );
 }
 
