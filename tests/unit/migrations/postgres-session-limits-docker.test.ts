@@ -13,6 +13,9 @@
  * - A command waiting for the migration lock holds no snapshot, so another
  *   command's `CREATE INDEX CONCURRENTLY` under that lock is not held up
  *   until the waiter gives up.
+ * - No migration transaction waits on the caller's own work: `down` asks its
+ *   resolver with none open, so a resolver slower than the idle limit is not
+ *   mistaken for a runner that stopped talking.
  *
  * Requires the Docker test database:
  *   PG_TEST_CONNECTION_STRING=postgresql://postgres:password@127.0.0.1:5434/<db>
@@ -36,6 +39,7 @@ const NAMESPACE = "viborm_session_limits";
 const STEPWISE_NAMESPACE = "viborm_session_limits_stepwise";
 const WAIT_NAMESPACE = "viborm_session_limits_wait";
 const OTHER_NAMESPACE = "viborm_session_limits_other";
+const DOWN_NAMESPACE = "viborm_session_limits_down";
 const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d;
 const ROWS = 10_000;
 const LOCK_TIMEOUT_MS = 4000;
@@ -89,6 +93,7 @@ const NAMESPACES = [
   STEPWISE_NAMESPACE,
   WAIT_NAMESPACE,
   OTHER_NAMESPACE,
+  DOWN_NAMESPACE,
 ];
 
 describeIfPg("the migration session's limits on a real server", () => {
@@ -329,6 +334,53 @@ describeIfPg("the migration session's limits on a real server", () => {
       expect(await advisoryLocks()).toBe(0);
     } finally {
       await holder.end().catch(() => undefined);
+      await first.$disconnect();
+      await second.$disconnect();
+    }
+  }, 30_000);
+
+  it("asks down's resolver with no transaction open, so one slower than idleTimeout does not end the session", async () => {
+    const storage = new MemoryEstateStorage();
+    const client = (schema: typeof v1 | typeof v1Nickname) =>
+      createClient({
+        databaseUrl: PG_CONNECTION,
+        namespace: DOWN_NAMESPACE,
+        schema,
+      });
+    const first = client(v1);
+    const second = client(v1Nickname);
+    try {
+      await createMigrationClient(first, { storage }).generate({ name: "v1" });
+      await createMigrationClient(first, { storage }).apply();
+      const migrations = createMigrationClient(second, { storage });
+      await migrations.generate({ name: "nickname" });
+      await migrations.apply();
+      await admin.query(
+        `INSERT INTO "${DOWN_NAMESPACE}"."accounts" ("id", "email", "name", "nickname", "updatedAt")
+         SELECT 'acct-' || g, 'user' || g || '@example.com', 'name-' || g, 'nick-' || g, now()
+         FROM generate_series(1, ${ROWS}) g`
+      );
+
+      // Dropping the filled column asks; the answer comes after the limit.
+      const asked: string[] = [];
+      const down = await migrations.down({
+        resolve: async (change) => {
+          asked.push(change.type);
+          await sleep(IDLE_TIMEOUT_MS + 500);
+          return change.type === "destructive" ? change.proceed() : undefined;
+        },
+      });
+
+      expect(asked).toEqual(["destructive"]);
+      expect(down).toMatchObject({ preview: false });
+      expect(down.path).toHaveLength(1);
+      const { rows } = await admin.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM information_schema.columns
+          WHERE table_schema = '${DOWN_NAMESPACE}' AND column_name = 'nickname'`
+      );
+      expect(rows[0]?.n).toBe(0);
+      expect(await advisoryLocks()).toBe(0);
+    } finally {
       await first.$disconnect();
       await second.$disconnect();
     }

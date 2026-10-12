@@ -50,7 +50,7 @@ const schema = {
 const DECISION = /AS digest WHERE pg_try_advisory_xact_lock\(/;
 const CONTROL_CATALOG = "AS control(position, name)";
 /** The locked path: its first transaction tries the transaction lock. */
-const LOCKED_PATH = /^SELECT pg_try_advisory_xact_lock\(\d+\) AS acquired$/;
+const LOCKED_PATH = /, pg_try_advisory_xact_lock\(\d+\) AS acquired$/;
 const NOOP = { outcome: "noop", path: [], statements: [] };
 /** The catalog digest read on its own, as the locked drift proof sends it. */
 const LOCKED_DIGEST = "END AS digest\nFROM projection";

@@ -30,11 +30,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const ROWS = 10_000;
 /**
- * The lock a command takes and holds: one try per transaction. A PostgreSQL
- * apply's pre-lock no-op proof (plan D5) only tries the lock inside its one
- * read and holds nothing, so it is not this statement.
+ * The lock a command takes and holds: one try per transaction, in the
+ * statement that sets the transaction's limits, so what runs under the lock is
+ * read at the statement after it. A PostgreSQL apply's pre-lock no-op proof
+ * (plan D5) only tries the lock inside its one read and holds nothing, so it
+ * is not this statement.
  */
-const LOCK = /^SELECT pg_try_advisory_xact_lock\(\d+\) AS acquired$/i;
+const LOCK = /, pg_try_advisory_xact_lock\(\d+\) AS acquired$/i;
 const DDL = /^(ALTER TABLE|CREATE (UNIQUE )?INDEX|CREATE TABLE|DROP )/i;
 const CONCURRENTLY = /^CREATE INDEX CONCURRENTLY/i;
 const SETTINGS = ["lock_timeout", "statement_timeout"] as const;
@@ -104,20 +106,22 @@ async function show(
   return { lock_timeout: value(0), statement_timeout: value(1) };
 }
 
-/** Runs `command`, reading the settings at its lock, first DDL and first CONCURRENTLY. */
+/** Runs `command`, reading the settings under its lock, at its first DDL and first CONCURRENTLY. */
 async function observe(
   database: PGlite,
   command: () => Promise<unknown>
 ): Promise<Seen & { after: Settings }> {
   const send = database.execProtocolStream;
   const seen: Seen = {};
+  let locked = false;
   database.execProtocolStream = async (message, options) => {
     if (message[0] === 0x50 || message[0] === 0x51) {
       const start = message[0] === 0x50 ? message.indexOf(0, 5) + 1 : 5;
       const text = decoder
         .decode(message.subarray(start, message.indexOf(0, start)))
         .trim();
-      if (!seen.lock && LOCK.test(text)) seen.lock = await show(send, database);
+      if (!seen.lock && locked) seen.lock = await show(send, database);
+      locked ||= LOCK.test(text);
       if (!seen.ddl && DDL.test(text)) seen.ddl = await show(send, database);
       if (!seen.concurrently && CONCURRENTLY.test(text)) {
         seen.concurrently = await show(send, database);

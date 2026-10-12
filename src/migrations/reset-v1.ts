@@ -41,7 +41,7 @@ import {
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { planLiveNamespaceReset } from "./live-reset";
 import {
-  commitControlBootstrap,
+  commitLockedTransaction,
   mayWrapTransaction,
   resolveCommandDriver,
   runProgram,
@@ -320,7 +320,7 @@ export async function resetV1(
       // Committed before the program, whose first group re-reads the marker.
       if (needsBootstrap) {
         await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
-        await commitControlBootstrap(pinned, command);
+        await commitLockedTransaction(pinned, command);
       }
       await runProgram(pinned, command, undefined, (producer) =>
         executeResetProgram(

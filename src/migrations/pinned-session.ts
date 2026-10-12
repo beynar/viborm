@@ -45,8 +45,13 @@ import { createQueryExecutor } from "./utils";
  * names its lock after the database instead (`drivers/mysql/pinned-session.ts`).
  */
 const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d;
-/** The pause between two PostgreSQL lock tries, as the server-side loop's. */
+/**
+ * The first pause between two PostgreSQL lock tries, doubled up to the cap. A
+ * longer cap sends fewer tries but lets newcomers take a freed lock first: at
+ * 1 s, waits under contention stretched to `lockWait`.
+ */
 const LOCK_RETRY_MS = 50;
+const LOCK_RETRY_CAP_MS = 250;
 
 /**
  * A condition true while no command holds the migration lock (plan D5), for a
@@ -753,14 +758,19 @@ function lockTransactions(
       }
     }
   };
-  // PostgreSQL waits for the lock between transactions, one try each, so a
-  // wait holds no snapshot: another command's `CREATE INDEX CONCURRENTLY`
-  // under the session lock would otherwise wait for this one to give up.
-  const tryLock = sqlite
-    ? null
-    : `SELECT ${migrationLockFree(migrationDriver)} AS acquired`;
+  // A PostgreSQL transaction takes its limits and tries the lock in one
+  // statement. A refused try waits outside any transaction, so the wait holds
+  // no snapshot: another command's `CREATE INDEX CONCURRENTLY` under the
+  // session lock would otherwise wait for this one to give up. Each jittered
+  // pause doubles up to the cap and ends in one autocommit try, which lets go
+  // of what it takes, until the lock is free or `lockWait` is spent.
+  const lockFree = `${migrationLockFree(migrationDriver)} AS acquired`;
+  const tryLock = sqlite ? null : `SELECT ${lockFree}`;
+  const enter =
+    limits === undefined ? tryLock : `${limits.transaction}, ${lockFree}`;
   const begin = async (): Promise<void> => {
     const deadline = Date.now() + migrationDriver.limits.lockWait;
+    let pause = LOCK_RETRY_MS;
     for (;;) {
       try {
         await (sqlite ? beginImmediate() : run("BEGIN"));
@@ -772,8 +782,7 @@ function lockTransactions(
       open = true;
       let held: boolean;
       try {
-        if (limits !== undefined) await run(limits.transaction);
-        held = await lockHeld(direct, migrationDriver, control, tryLock);
+        held = await lockHeld(direct, migrationDriver, control, enter);
       } catch (error) {
         await rollback().catch((cleanup: unknown) => {
           throw withSuppressedFailure(error, cleanup);
@@ -784,8 +793,15 @@ function lockTransactions(
       // Nothing was read under a lock never held: not a gap in `continuous`.
       open = false;
       await control.cleanup(() => run("ROLLBACK"));
-      if (Date.now() >= deadline) throw lockNotConfirmed(migrationDriver);
-      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+      do {
+        const left = deadline - Date.now();
+        if (left <= 0) throw lockNotConfirmed(migrationDriver);
+        const jittered = pause * (0.5 + Math.random() / 2);
+        await new Promise((resolve) =>
+          setTimeout(resolve, Math.min(left, jittered))
+        );
+        pause = Math.min(pause * 2, LOCK_RETRY_CAP_MS);
+      } while (!(await lockHeld(direct, migrationDriver, control, tryLock)));
     }
   };
   const escalate = async (): Promise<void> => {
@@ -879,14 +895,18 @@ function lockTransactions(
 }
 
 /**
- * Commits the control tables a PostgreSQL command has just created, before any
- * statement writes them: PlanetScale's Neki plans a statement against the
- * schema committed before its transaction, so a control table created in the
- * same one is not there for it. The next statement opens another locked
- * transaction, and {@link lockedSinceDecision} is then false. SQLite writes
- * them in the transaction that made them; MySQL commits each DDL as it runs.
+ * Commits a PostgreSQL command's open locked transaction. The next statement
+ * opens another, and {@link lockedSinceDecision} is then false. Called:
+ *
+ * - after a bootstrap, before any statement writes the control tables:
+ *   PlanetScale's Neki plans a statement against the schema committed before
+ *   its transaction, so a control table created in the same one is not there
+ *   for it. SQLite writes them in the transaction that made them; MySQL
+ *   commits each DDL as it runs;
+ * - before the caller's own work, such as a `resolve` callback, which no
+ *   transaction waits on: past `idleTimeout` the server ends the session.
  */
-export async function commitControlBootstrap(
+export async function commitLockedTransaction(
   pinned: AnyDriver,
   command: BoundMigrationDriver
 ): Promise<void> {

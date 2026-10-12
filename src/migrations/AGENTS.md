@@ -611,14 +611,16 @@ the two control tables (columns, constraints, index count, triggers, rules,
 policies, row security), never by introspecting the namespace. Apply,
 baseline, and reset perform a required bootstrap under their lock before their
 first effect or publication (baseline: before its live proof). On PostgreSQL it
-commits on its own (`commitControlBootstrap`): PlanetScale's Neki plans a
+commits on its own (`commitLockedTransaction`): PlanetScale's Neki plans a
 statement against the schema committed before its transaction, so the marker
 and ledger writes could not see tables made in theirs. The lock is let go
 between the two transactions, so what follows re-reads the marker
-(`assertLockedSinceDecision`) and proves the destination as always. On SQLite
-the bootstrap shares the first transaction. A failed first apply leaves only
-the control tables and its `failed` ledger event, written in a transaction of
-its own after the rollback (plan S3). Stepwise providers retain the recoverable
+(`assertLockedSinceDecision`) and proves the destination as always. `down`
+commits the same way before it asks its `resolve` callback: no migration
+transaction waits on the caller's work, which would idle past `idleTimeout`.
+On SQLite the bootstrap shares the first transaction. A failed first apply
+leaves only the control tables and its `failed` ledger event, written in a
+transaction of its own after the rollback (plan S3). Stepwise providers retain the recoverable
 bootstrap protocol.
 
 `apply-v1.ts` owns forward application. Before effects it authenticates the

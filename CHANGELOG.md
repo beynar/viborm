@@ -298,13 +298,23 @@ review's client leftovers.
   with V11021 naming both statements, a transaction that runs a data statement
   after a schema change (Neki plans each statement against the schema committed
   before its transaction).
-- PostgreSQL: a command waiting for the migration lock tries it once per
-  transaction and rolls that transaction back between tries (every 50 ms, up
-  to `lockWait`), instead of one statement looping on the server. The wait
-  holds no snapshot, so another command's `CREATE INDEX CONCURRENTLY` (a
-  `lowLock` step) is no longer held up until the waiter gives up with V11005.
-  Neon HTTP keeps the one-statement wait, since one request cannot loop across
-  requests.
+- PostgreSQL: a command waiting for the migration lock waits outside any
+  transaction, instead of one statement looping on the server. Each locked
+  transaction sets its limits and tries the lock in one statement; a refused
+  try rolls back, then the command tries again with one autocommit statement
+  after each pause (50 ms, doubling to 250 ms, jittered) until the lock is
+  free or `lockWait` is spent (V11005). The wait holds no snapshot, so another
+  command's `CREATE INDEX CONCURRENTLY` (a `lowLock` step) is no longer held
+  up until the waiter gives up, and the seed-2 tenant battle sends about 33
+  statements per change instead of 62. Neon HTTP keeps the one-statement wait,
+  since one request cannot loop across requests.
+- PostgreSQL `down({ resolve })`: the resolver is asked with no transaction
+  open, and the lock is let go while it answers. It was asked inside the
+  locked transaction, so a resolver slower than `idleTimeout` (1 s by default;
+  an interactive prompt) had the server end the session (25P03) and `down`
+  failed with V1001. The rollback then takes the lock again and re-reads the
+  marker: if another command moved it meanwhile, `down` refuses with V11015
+  and runs nothing.
 - PostgreSQL: renaming a column or a table also renames the names derived from
   it: a per-column enum type (`<table>_<column>_enum`, by `ALTER TYPE …
   RENAME`), and an index, unique constraint or foreign key named after its
@@ -339,6 +349,12 @@ review's client leftovers.
   surfaces as an unhandled rejection.
 - A PostgreSQL `apply` no longer reports the large-table preflight as "NaN
   rows" when `EXPLAIN` gives no estimate; it names the plan line.
+- Migration commands: a lost connection, a lock wait that ran out, or another
+  retryable failure while reading the control tables is reported as itself
+  (V1001, V1002, V11005, …), no longer as V11009 "Migration control tables
+  cannot be authenticated". A PostgreSQL command reopens its lock on the read
+  that follows one of its own commits (a stepwise or `lowLock` step), so under
+  contention the tenant migrator refused such a change instead of retrying it.
 
 ### Performance
 
@@ -464,10 +480,15 @@ review's client leftovers.
 - **Types:** fix the misspelled keys `tsc` reports; write out whole nested
   write objects, root operator objects or nested `where`s instead of passing a
   type parameter, and narrow a `groupBy` `orderBy` type to the grouped fields.
-- **Migration lock wait (PostgreSQL):** while a command waits for the lock,
-  logs show `BEGIN`, the limits, `SELECT pg_try_advisory_xact_lock(…) AS
-  acquired` and `ROLLBACK` every 50 ms instead of one `WITH RECURSIVE
-  lock_attempt` statement: update statement counters and log filters.
+- **Migration lock (PostgreSQL):** each locked transaction opens with
+  `BEGIN` and one `SELECT set_config(…), …, pg_try_advisory_xact_lock(…) AS
+  acquired`; while a command waits, logs show `ROLLBACK`, then
+  `SELECT pg_try_advisory_xact_lock(…) AS acquired` every 50 to 250 ms,
+  instead of one `WITH RECURSIVE lock_attempt` statement: update statement
+  counters and log filters.
+- **`down({ resolve })` (PostgreSQL):** a `down` that asks its resolver can
+  now fail with V11015 when another command moved the marker while the
+  resolver answered; run it again.
 - **Renames (PostgreSQL):** a rename refused before can be generated now; its
   SQL carries the derived names' `RENAME` statements. States published earlier
   keep their SQL, and a name you set yourself is not renamed.

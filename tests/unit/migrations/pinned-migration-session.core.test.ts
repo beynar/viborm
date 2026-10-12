@@ -124,7 +124,7 @@ describe("pinned migration session", () => {
     expect(result).toBe("ok");
     const { statements } = driver;
     expect(statements[0]).toBe("BEGIN");
-    expect(statements[2]).toContain("pg_try_advisory_xact_lock");
+    expect(statements[1]).toContain("pg_try_advisory_xact_lock");
     expect(statements.slice(-2)).toEqual(["SELECT 1", "COMMIT"]);
     expect(statements.join("\n")).not.toMatch(SESSION_LOCK);
     expect(new Set(driver.producers).size).toBe(1);

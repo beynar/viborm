@@ -143,9 +143,9 @@ function readProtocol(statements: readonly string[]) {
     if (BEGIN.test(q)) {
       open = true;
       locked = false;
-      const limits = statements[i + 1] ?? "";
-      const lock = statements[i + 2] ?? "";
-      if (!(SET_LOCAL.test(limits) && XACT_LOCK.test(lock))) {
+      // One statement sets the transaction's limits and tries the lock.
+      const enter = statements[i + 1] ?? "";
+      if (!(SET_LOCAL.test(enter) && XACT_LOCK.test(enter))) {
         unlockedBegins.push(i);
       }
     } else if (XACT_LOCK.test(q)) {

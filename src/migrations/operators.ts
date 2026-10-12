@@ -51,7 +51,7 @@ import {
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
-  commitControlBootstrap,
+  commitLockedTransaction,
   resolveCommandDriver,
   runProgram,
   withLockedMigrationProducer,
@@ -267,7 +267,7 @@ export async function baselineV1(
       // again, as does the marker it publishes.
       if (control.presence.kind !== "present") {
         await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
-        await commitControlBootstrap(pinned, command);
+        await commitLockedTransaction(pinned, command);
         await assertLockedSinceDecision(pinned, pinned, command, null);
       }
       await proveLive(
@@ -1542,6 +1542,11 @@ async function approveRollbackLosses(
         losses.push(change);
       }
     }
+  }
+  // The callback is the caller's work: no locked transaction waits on it.
+  // Each group of `down` re-reads the marker under the lock it takes again.
+  if (losses.length > 0 && resolve) {
+    await commitLockedTransaction(producer, command);
   }
   await approveDestructiveOperations(losses, resolve, false);
 }

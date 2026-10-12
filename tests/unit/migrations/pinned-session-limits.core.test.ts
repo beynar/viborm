@@ -22,6 +22,7 @@ import {
 import { readSuppressedFailures } from "@drivers/shared/suppressed-failure";
 import { ConnectionError, VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations/client";
+import { DEFAULT_CONTROL_BASE, readControlState } from "@migrations/control";
 import { getMigrationDriver } from "@migrations/drivers";
 import {
   DEFAULT_MIGRATION_LIMITS,
@@ -133,6 +134,8 @@ function lockedStepwiseDdl(
 
 /** The limits every migration transaction opens with, at the defaults. */
 const TRANSACTION_LIMITS = `SELECT set_config('lock_timeout', '${DEFAULT_MIGRATION_LIMITS.lockTimeout}', true), set_config('statement_timeout', '${DEFAULT_MIGRATION_LIMITS.statementTimeout}', true), set_config('idle_in_transaction_session_timeout', CASE WHEN pg_catalog.version() LIKE '%emscripten%' THEN pg_catalog.current_setting('idle_in_transaction_session_timeout') ELSE '${DEFAULT_MIGRATION_LIMITS.idleTimeout}' END, true)`;
+/** What opens each transaction: those limits and the lock's try, in one statement. */
+const TRANSACTION_ENTER = `${TRANSACTION_LIMITS}, pg_try_advisory_xact_lock(130194995114605) AS acquired`;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -146,8 +149,7 @@ describe("the session's time limits", () => {
     await expect(lockedDdl(driver)).resolves.toBe("applied");
 
     const { statements } = driver;
-    expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_LIMITS]);
-    expect(statements[2]).toMatch(LOCK_TRY);
+    expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_ENTER]);
     expect(statements.slice(-2)).toEqual(["ALTER TABLE t ADD c int", "COMMIT"]);
     // One transaction: the body's continues the one that took the lock.
     expect(statements.filter((sql) => sql === "BEGIN")).toHaveLength(1);
@@ -227,14 +229,14 @@ describe("the session's time limits", () => {
     expect(enter).toContain("set_config(name, '2500', false)");
   });
 
-  test("the command's lockWait bounds its lock tries, each in a transaction it rolls back, so no wait holds a snapshot", async () => {
+  test("the command's lockWait bounds its lock tries, which wait outside any transaction with a growing pause", async () => {
     const driver = pgEstateDriver("public");
     driver.respond = answerPublicSchema;
     driver.lockAnswers.acquire = [{ acquired: false }];
     const bound = getMigrationDriver(
       driver,
       undefined,
-      resolveMigrationLimits({ lockWait: 300 })
+      resolveMigrationLimits({ lockWait: 1000 })
     );
     let ran = false;
     const started = Date.now();
@@ -246,14 +248,49 @@ describe("the session's time limits", () => {
     ).rejects.toMatchObject({ code: VibORMErrorCode.MIGRATION_LOCK_FAILED });
 
     expect(ran).toBe(false);
-    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
-    const tries = driver.statements.filter((sql) => LOCK_TRY.test(sql));
+    expect(Date.now() - started).toBeGreaterThanOrEqual(1000);
+    // One transaction takes its limits and tries the lock in one statement,
+    // and rolls back; every later try is one autocommit statement, so no
+    // wait holds a snapshot. Pauses from 50 ms doubling to 250 ms, jittered
+    // down to half: about ten tries, not 20 transactions of four statements.
+    const [begin, enter, rollback, ...tries] = driver.statements;
+    expect([begin, enter, rollback]).toEqual([
+      "BEGIN",
+      TRANSACTION_ENTER,
+      "ROLLBACK",
+    ]);
     expect(tries.length).toBeGreaterThan(1);
-    // Every try is BEGIN, the limits, the try and its ROLLBACK: no
-    // transaction outlives a refused try.
-    expect(driver.statements).toEqual(
-      tries.flatMap(() => ["BEGIN", TRANSACTION_LIMITS, tries[0], "ROLLBACK"])
+    expect(tries.length).toBeLessThanOrEqual(11);
+    for (const sql of tries) expect(sql).toMatch(LOCK_TRY);
+  });
+
+  test("a lock wait that runs out on the control read reopening the lock is the lock's failure, not an unauthentic control plane", async () => {
+    const driver = pgEstateDriver("public");
+    driver.respond = answerPublicSchema;
+    const bound = getMigrationDriver(
+      driver,
+      undefined,
+      resolveMigrationLimits({ lockWait: 1 })
     );
+
+    const failure = await withLockedMigrationProducer(
+      driver,
+      bound,
+      async (pinned, command) => {
+        // A group commits, and the transaction lock goes with it...
+        await pinned._transaction(() =>
+          pinned._executeRaw("ALTER TABLE t ADD c int")
+        );
+        // ...which another command takes before the next read asks again.
+        driver.lockAnswers.acquire = [{ acquired: false }];
+        await readControlState(pinned, command, DEFAULT_CONTROL_BASE);
+      }
+    ).catch((error: unknown) => error);
+
+    // Retryable as what it is, rather than V11009 wrapping it.
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_LOCK_FAILED,
+    });
   });
 
   test("a CONCURRENTLY index statement runs with no limits, which are restored after it", async () => {
@@ -305,7 +342,7 @@ describe("the session's time limits", () => {
     const { statements } = driver;
     expect(statements.filter((sql) => sql === lift)).toHaveLength(1);
     expect(statements[statements.indexOf(noted) - 1]).toBe(lift);
-    expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_LIMITS]);
+    expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_ENTER]);
     expect(statements.indexOf(annotated)).toBeLessThan(
       statements.indexOf("COMMIT")
     );
@@ -653,9 +690,8 @@ describe("a lock protocol statement that fails", () => {
       driver.statements.indexOf("COMMIT") + 1
     );
     expect(afterCommit[0]).toBe("BEGIN");
-    expect(afterCommit[1]).toBe(TRANSACTION_LIMITS);
-    expect(afterCommit[2]).toMatch(XACT_LOCK);
-    expect(afterCommit[3]).toMatch(LOCK);
+    expect(afterCommit[1]).toBe(TRANSACTION_ENTER);
+    expect(afterCommit[2]).toMatch(LOCK);
     expect(afterCommit).toContain(CONCURRENT_BUILD);
     expect(driver.releases).toEqual([{ discard: false, lost: false }]);
   });

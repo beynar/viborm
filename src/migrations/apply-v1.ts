@@ -42,7 +42,7 @@ import {
 } from "./graph";
 import type { Sha256 } from "./identity";
 import {
-  commitControlBootstrap,
+  commitLockedTransaction,
   type MigrationBatch,
   migrationLockFree,
   openMigrationBatch,
@@ -330,7 +330,7 @@ async function applyPathUnderLock(
   // what the bootstrap reads (plan D7), and a PostgreSQL bootstrap commits.
   if (needsBootstrap) {
     await ensureControlTables(pinned, command, DEFAULT_CONTROL_BASE);
-    await commitControlBootstrap(pinned, command);
+    await commitLockedTransaction(pinned, command);
   }
   const statementsOf = ({ transition, blob }: PreparedForwardEdge) =>
     stepStatements(blob, transition.operations);

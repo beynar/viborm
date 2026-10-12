@@ -6,7 +6,7 @@ import { normalizeType } from "./push-fingerprint";
 
 import type { AnyDriver } from "../drivers/driver";
 import { errorCause } from "../drivers/shared/driver-options";
-import { MigrationError, VibORMErrorCode } from "../errors";
+import { isRetryableError, MigrationError, VibORMErrorCode } from "../errors";
 import { isRecord } from "../validation/value-guards";
 import { canonicalizeJsonText } from "./canonical-json";
 import { boundNamespace, tableExistsProbe } from "./catalog-probes";
@@ -274,19 +274,13 @@ export async function assertControlTablesAuthentic(
     return;
   }
   const refusal = UNAUTHENTIC[scope];
-  const unreadable = (failure: unknown) =>
-    new MigrationError(
-      refusal.unreadable,
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
-    );
   let snapshot: SchemaSnapshot;
   try {
     snapshot = await introspectControlTables(producer, driver, names);
   } catch (failure) {
     // The pair keeps introspection's own refusal; the partial state wraps it.
     if (failure instanceof MigrationError && scope === "pair") throw failure;
-    throw unreadable(failure);
+    throw unreadable(refusal.unreadable, failure);
   }
   const matches = (name: string) =>
     snapshot.tables.filter((table) => table.name === name);
@@ -316,7 +310,7 @@ export async function assertControlTablesAuthentic(
       names.state
     );
   } catch (failure) {
-    throw unreadable(failure);
+    throw unreadable(refusal.unreadable, failure);
   }
   if (!hasSingletonCheck) {
     throw new MigrationError(
@@ -329,7 +323,7 @@ export async function assertControlTablesAuthentic(
     hasAttachments = await hasControlAttachments(producer, driver, names);
   } catch (failure) {
     if (failure instanceof MigrationError) throw failure;
-    throw unreadable(failure);
+    throw unreadable(refusal.unreadable, failure);
   }
   if (hasAttachments) {
     throw new MigrationError(
@@ -510,12 +504,30 @@ async function isStateControlEmpty(
     );
     return result.rows.length === 0;
   } catch (failure) {
-    throw new MigrationError(
+    throw unreadable(
       "A partial migration control state table cannot be proven empty",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
+      failure
     );
   }
+}
+
+/**
+ * The refusal `message` for a control-table read that failed, or the failure
+ * itself when it says nothing about the tables: the migration lock not taken
+ * (the read may be the statement that reopens a command's locked transaction,
+ * after a commit let the lock go), a lost connection or another retryable
+ * failure, which the caller retries.
+ */
+function unreadable(message: string, failure: unknown): unknown {
+  const transient =
+    isRetryableError(failure) ||
+    (failure instanceof MigrationError &&
+      failure.code === VibORMErrorCode.MIGRATION_LOCK_FAILED);
+  return transient
+    ? failure
+    : new MigrationError(message, VibORMErrorCode.MIGRATION_INVALID_STATE, {
+        cause: errorCause(failure),
+      });
 }
 
 export async function isTableMissing(
@@ -921,11 +933,7 @@ async function readPostgresControlCatalog(
     ));
   } catch (failure) {
     throwIfCatalogRefusal("control catalog", failure);
-    throw new MigrationError(
-      "Migration control tables cannot be authenticated",
-      VibORMErrorCode.MIGRATION_INVALID_STATE,
-      { cause: errorCause(failure) }
-    );
+    throw unreadable(UNAUTHENTIC.pair.unreadable, failure);
   }
   if (rows.length !== 2) {
     throw new MigrationError(
