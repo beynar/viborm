@@ -258,6 +258,13 @@ const PARAMETER = ["", ""];
 const COEFFICIENT = ["CAST(", " AS INTEGER)"];
 const LONE_SURROGATE = /\p{Cs}/u;
 const PARENTHESIZED_LIST = createStandardLiterals().list;
+/**
+ * The longest list kept parenthesized. Without `sqlite_stat1` SQLite sizes an
+ * `IN (SELECT …)` at 25 rows and a list at its length, so up to 25 members the
+ * list is planned no worse: a key list beside another indexed equality still
+ * seeks the key. It is also a quarter of D1's 100-value bind budget.
+ */
+const PLANNED_LIST = 25;
 
 /**
  * One member as JSON text that `json_each` reads back as the value its own
@@ -278,13 +285,15 @@ function jsonMember(value: unknown): string | undefined {
 }
 
 /**
- * engine-09: a list whose members are each one parameter under one spelling —
- * bare, or a decimal's coefficient cast — as ONE parameter, a JSON array
- * `json_each` reads back and spells per element as each member was, so `IN`
- * and `NOT IN` keep their answers, NULLs included. Blobs travel as hex, read
- * through `unhex`. Any other list keeps a parameter per member.
+ * engine-09: a list longer than {@link PLANNED_LIST} whose members are each one
+ * parameter under one spelling — bare, or a decimal's coefficient cast — as
+ * ONE parameter, a JSON array `json_each` reads back and spells per element as
+ * each member was, so `IN` and `NOT IN` keep their answers, NULLs included.
+ * Blobs travel as hex, read through `unhex` (SQLite 3.41). Any other list
+ * keeps a parameter per member.
  */
 function sqliteList(members: Sql[]): Sql {
+  if (members.length <= PLANNED_LIST) return PARENTHESIZED_LIST(members);
   const [first] = members;
   const spelling =
     first?.strings[0] === COEFFICIENT[0] ? COEFFICIENT : PARAMETER;
@@ -304,8 +313,8 @@ function sqliteList(members: Sql[]): Sql {
     if (value instanceof Uint8Array) blobs++;
     elements.push(element);
   }
-  // No member, or blobs beside other values: nothing one spelling reads.
-  if (first === undefined || (blobs !== 0 && blobs !== members.length))
+  // Blobs beside other values: nothing one spelling reads.
+  if (blobs !== 0 && blobs !== members.length)
     return PARENTHESIZED_LIST(members);
   const read = new Sql(spelling, [
     sql.raw(blobs === 0 ? "value" : "unhex(value)"),

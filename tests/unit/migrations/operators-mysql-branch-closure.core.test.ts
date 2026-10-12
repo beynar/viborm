@@ -1,10 +1,14 @@
 import { s } from "@schema";
 import { VibORMErrorCode } from "@src/errors";
-import { canonicalizeJsonText } from "@src/migrations/canonical-json";
+import {
+  canonicalizeJson,
+  canonicalizeJsonText,
+} from "@src/migrations/canonical-json";
 import { markerFromPath } from "@src/migrations/control";
 import { getMigrationDriver } from "@src/migrations/drivers";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import { generateV1 } from "@src/migrations/generate-v1";
+import { domainHash, HASH_DOMAIN } from "@src/migrations/identity";
 import { planLiveNamespaceReset } from "@src/migrations/live-reset";
 import { baselineV1, downV1, resolveV1 } from "@src/migrations/operators";
 import { resetV1 } from "@src/migrations/reset-v1";
@@ -303,9 +307,12 @@ interface MysqlStateSpec {
 interface PublishedMysqlState {
   readonly name: string;
   readonly stateId: string;
+  readonly fromState: string | null;
   readonly transitionHash: string;
   readonly sqlHash: string;
   readonly edge: MarkerPathEdgeV1;
+  /** Forward dispatches, then rollback dispatches, as the blob holds them. */
+  readonly dispatches: readonly MigrationDispatchV1[];
 }
 
 interface PublishedMysqlChain {
@@ -374,8 +381,10 @@ async function publishMysqlChain(
     states.push({
       name: spec.name,
       stateId: encoded.stateId,
+      fromState,
       transitionHash,
       sqlHash: blob.sqlHash,
+      dispatches: blob.ranges.map((_range, index) => dispatchAt(blob, index)),
       edge: {
         stateId: encoded.stateId,
         transitionHash,
@@ -456,6 +465,291 @@ function forwardStarted(
   };
   return { ...event, eventId: eventIdFor(event) };
 }
+
+/** A step event of `started`'s attempt, as a crashed command left it. */
+function stepEvent(
+  started: LedgerEventV1,
+  state: PublishedMysqlState,
+  operationId: string,
+  dispatch: MigrationDispatchV1,
+  effectState: "none" | "committed"
+): LedgerEventV1 {
+  const { eventId: _eventId, resetPlan: _plan, ...body } = started;
+  const event = {
+    ...body,
+    ...(started.direction === "reset"
+      ? {
+          kind: "reset-step-confirmed" as const,
+          sqlHash: state.sqlHash,
+          fromState: state.fromState,
+          toState: state.stateId,
+          transitionHash: state.transitionHash,
+        }
+      : { kind: "step-confirmed" as const }),
+    operationId,
+    dispatchId: dispatch.dispatchId,
+    effectState,
+    finishedAt: "2026-08-30T10:00:01.000Z",
+  };
+  return { ...event, eventId: eventIdFor(event) };
+}
+
+function resetStarted(
+  chain: PublishedMysqlChain,
+  clearDispatches: readonly MigrationDispatchV1[] = []
+): LedgerEventV1 {
+  const path = chain.states.map((state) => state.stateId);
+  const planBody = {
+    estateHash: chain.estateHash,
+    targetIdentity: "mysql:alpha",
+    sourceRevision: 0,
+    sourceFingerprint: chain.snapshotHash,
+    replayPath: path,
+    clearDispatches,
+    referencedStates: path,
+  };
+  const resetPlanHash = domainHash(
+    HASH_DOMAIN.resetPlan,
+    canonicalizeJson(planBody)
+  );
+  const event = {
+    format: "1" as const,
+    attemptId: resetPlanHash,
+    kind: "reset-started" as const,
+    estateHash: chain.estateHash,
+    snapshotHash: chain.snapshotHash,
+    sqlHash: null,
+    fromState: null,
+    toState: path.at(-1)!,
+    transitionHash: null,
+    direction: "reset" as const,
+    operationId: null,
+    dispatchId: null,
+    effectState: "none" as const,
+    startedAt: "2026-08-30T10:00:00.000Z",
+    finishedAt: null,
+    toolVersion: "v1",
+    resetPlan: { ...planBody, resetPlanHash },
+    failure: null,
+  };
+  return { ...event, eventId: eventIdFor(event) };
+}
+
+/**
+ * What a crashed stepwise `down` or `reset` left, read back step by step. Only
+ * MySQL and PostgreSQL run stepwise programs: SQLite refuses them (plan S5).
+ */
+describe("stepwise progress a crashed command left", () => {
+  const rollbackChain = () =>
+    publishMysqlChain([
+      {
+        name: "root",
+        forward: ["SELECT 'root-forward'"],
+        rollback: ["SELECT 'undo-first'", "SELECT 'undo-second'"],
+      },
+    ]);
+
+  test("down resumes after the last committed rollback dispatch", async () => {
+    const chain = await rollbackChain();
+    const root = chain.states[0]!;
+    const started = rollbackStarted(chain, root, null);
+    const driver = mysqlEstate({
+      tables: [...CONTROL_TABLES],
+      marker: markerAt(chain, 1),
+      ledger: [
+        started,
+        stepEvent(
+          started,
+          root,
+          "root:rollback:0",
+          root.dispatches[1]!,
+          "committed"
+        ),
+      ],
+    });
+
+    await expect(
+      downV1(clientFor(driver), chain.storage, { steps: 1 })
+    ).resolves.toEqual({ path: [root.stateId], preview: false });
+    expect(driver.statements).not.toContain("SELECT 'undo-first'");
+    expect(driver.statements).toContain("SELECT 'undo-second'");
+  });
+
+  test("down closes the marker-CAS crash window without replaying rollback", async () => {
+    const chain = await rollbackChain();
+    const root = chain.states[0]!;
+    const started = rollbackStarted(chain, root, null);
+    const driver = mysqlEstate({
+      tables: [...CONTROL_TABLES],
+      marker: markerFromPath(chain.estateHash, chain.snapshotHash, [], 2),
+      ledger: [
+        started,
+        stepEvent(
+          started,
+          root,
+          "root:rollback:0",
+          root.dispatches[1]!,
+          "committed"
+        ),
+        stepEvent(
+          started,
+          root,
+          "root:rollback:1",
+          root.dispatches[2]!,
+          "committed"
+        ),
+      ],
+    });
+
+    await expect(
+      downV1(clientFor(driver), chain.storage, { steps: 1 })
+    ).resolves.toEqual({ path: [root.stateId], preview: false });
+    expect(driver.statements).not.toContain("SELECT 'undo-first'");
+    expect(driver.statements).not.toContain("SELECT 'undo-second'");
+  });
+
+  test("down refuses an opaque dispatch whose durable outcome is ambiguous", async () => {
+    const chain = await rollbackChain();
+    const root = chain.states[0]!;
+    const started = rollbackStarted(chain, root, null);
+    const driver = mysqlEstate({
+      tables: [...CONTROL_TABLES],
+      marker: markerAt(chain, 1),
+      ledger: [
+        started,
+        stepEvent(
+          started,
+          root,
+          "root:rollback:0",
+          root.dispatches[1]!,
+          "none"
+        ),
+      ],
+    });
+
+    await expect(
+      downV1(clientFor(driver), chain.storage, { steps: 1 })
+    ).rejects.toMatchObject({
+      // Read inside the sequential program, which reports what it ran.
+      code: VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
+      cause: { code: VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT },
+    });
+    expect(driver.statements).not.toContain("SELECT 'undo-first'");
+  });
+
+  test("reset resumes after the last committed replay dispatch", async () => {
+    const chain = await publishMysqlChain([
+      { name: "root", forward: ["SELECT 'root-forward'"] },
+    ]);
+    const root = chain.states[0]!;
+    const started = resetStarted(chain);
+    const driver = mysqlEstate({
+      tables: [...CONTROL_TABLES],
+      ledger: [
+        started,
+        stepEvent(started, root, "root:forward:0", root.dispatches[0]!, "none"),
+        stepEvent(
+          started,
+          root,
+          "root:forward:0",
+          root.dispatches[0]!,
+          "committed"
+        ),
+      ],
+    });
+
+    await expect(resetV1(clientFor(driver), chain.storage)).resolves.toEqual({
+      preview: false,
+      path: [root.stateId],
+    });
+    expect(driver.statements).not.toContain("SELECT 'root-forward'");
+  });
+
+  test("reset refuses noncontiguous replay evidence before dispatch", async () => {
+    const chain = await publishMysqlChain([
+      { name: "root", forward: ["SELECT 'root-forward'"] },
+      { name: "child", forward: ["SELECT 'child-forward'"] },
+      { name: "leaf", forward: ["SELECT 'leaf-forward'"] },
+    ]);
+    const child = chain.states[1]!;
+    const started = resetStarted(chain);
+    const driver = mysqlEstate({
+      tables: [...CONTROL_TABLES],
+      ledger: [
+        started,
+        stepEvent(
+          started,
+          child,
+          "child:forward:0",
+          child.dispatches[0]!,
+          "committed"
+        ),
+      ],
+    });
+
+    await expect(
+      resetV1(clientFor(driver), chain.storage)
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_CORRUPTION,
+      message: expect.stringContaining("contiguous dispatch prefix"),
+    });
+    expect(driver.statements.some((sql) => sql.includes("-forward"))).toBe(
+      false
+    );
+  });
+
+  test("reset refuses replay evidence before the stored clear prefix completes", async () => {
+    const chain = await publishMysqlChain([
+      { name: "root", forward: ["SELECT 'root-forward'"] },
+    ]);
+    const root = chain.states[0]!;
+    const clear = composeSqlBlob(["DROP TABLE `leftover`"]);
+    const started = resetStarted(chain, [dispatchAt(clear, 0)]);
+    const driver = mysqlEstate({
+      tables: [...CONTROL_TABLES],
+      ledger: [
+        started,
+        stepEvent(
+          started,
+          root,
+          "root:forward:0",
+          root.dispatches[0]!,
+          "committed"
+        ),
+      ],
+    });
+
+    await expect(
+      resetV1(clientFor(driver), chain.storage)
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_CORRUPTION,
+      message: expect.stringContaining("clear prefix"),
+    });
+    expect(driver.statements).not.toContain("SELECT 'root-forward'");
+  });
+
+  test("reset refuses an announced opaque replay dispatch as ambiguous", async () => {
+    const chain = await publishMysqlChain([
+      { name: "root", forward: ["SELECT 'root-forward'"] },
+    ]);
+    const root = chain.states[0]!;
+    const started = resetStarted(chain);
+    const driver = mysqlEstate({
+      tables: [...CONTROL_TABLES],
+      ledger: [
+        started,
+        stepEvent(started, root, "root:forward:0", root.dispatches[0]!, "none"),
+      ],
+    });
+
+    await expect(
+      resetV1(clientFor(driver), chain.storage)
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
+    });
+    expect(driver.statements).not.toContain("SELECT 'root-forward'");
+  });
+});
 
 describe("down through the MySQL sequential program", () => {
   test("reverses an edge and moves the marker without opening a transaction", async () => {

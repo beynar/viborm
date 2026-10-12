@@ -918,17 +918,23 @@ export function rowsAfterSchemaChange(program: readonly string[]):
 }
 
 /**
- * Whether `sql` holds a PostgreSQL index statement run `CONCURRENTLY`:
- * `CREATE [UNIQUE] INDEX CONCURRENTLY`, `DROP INDEX CONCURRENTLY` or a
- * `REINDEX … CONCURRENTLY`. Only these wait, by design, for every older
+ * Whether `sql` holds a PostgreSQL statement run `CONCURRENTLY` that refuses
+ * a transaction block: `CREATE [UNIQUE] INDEX CONCURRENTLY`, `DROP INDEX
+ * CONCURRENTLY`, a `REINDEX … CONCURRENTLY` or `ALTER TABLE … DETACH
+ * PARTITION … CONCURRENTLY`. Only these wait, by design, for every older
  * transaction without blocking anyone (plan S1). Read from each statement's
  * executable words, so the words in a comment or a literal are not one, and
  * neither is `REFRESH MATERIALIZED VIEW CONCURRENTLY`.
  */
-export function buildsIndexConcurrently(sql: string): boolean {
+export function runsConcurrently(sql: string): boolean {
   return readExecutableStatements(sql, "postgresql").some((words) => {
     const [verb] = words;
     if (verb === "REINDEX") return words.includes("CONCURRENTLY");
+    if (verb === "ALTER") {
+      return ["DETACH", "PARTITION", "CONCURRENTLY"].every((word) =>
+        words.includes(word)
+      );
+    }
     const index = verb === "CREATE" && words[1] === "UNIQUE" ? 2 : 1;
     return (
       (verb === "CREATE" || verb === "DROP") &&

@@ -26,5 +26,7 @@ runBoundMemberListBehavior({
     `CREATE TABLE "bml_orders" ("id" INTEGER NOT NULL PRIMARY KEY, "reference" TEXT NOT NULL UNIQUE, "note" TEXT, "priority" INTEGER NOT NULL DEFAULT 0)`,
     `CREATE TABLE "bml_codecs" ("id" BLOB NOT NULL PRIMARY KEY, "ref" BLOB NOT NULL UNIQUE, "big" INTEGER NOT NULL, "amount" INTEGER NOT NULL, "at" TEXT NOT NULL)`,
     `CREATE TABLE "bml_epochs" ("id" INTEGER NOT NULL PRIMARY KEY, "at" INTEGER NOT NULL)`,
+    `CREATE TABLE "bml_tenant_items" ("id" TEXT NOT NULL PRIMARY KEY, "tenant" TEXT NOT NULL)`,
+    `CREATE INDEX "bml_tenant_items_tenant_idx" ON "bml_tenant_items" ("tenant")`,
   ],
 });

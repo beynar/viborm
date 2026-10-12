@@ -91,9 +91,9 @@ const dialects = [
     dialect: "sqlite" as Dialect,
     adapter: () => new SQLiteAdapter(),
     bound: ["500"],
-    // One JSON parameter, each coefficient cast as it is read back.
-    boundList: ['["500","600"]'],
-    listCasts: 1,
+    // Two members: a parameter each, as SQLite keeps a list of 25 or fewer.
+    boundList: ["500", "600"],
+    listCasts: 2,
     listProjection: 'CAST("t0"."amounts" AS TEXT) AS "amounts"',
     groupedList: '"t0"."amounts"',
   },

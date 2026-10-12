@@ -26,6 +26,7 @@ import {
 import type {
   ColumnDef,
   DiffOperation,
+  ForeignKeyDef,
   SchemaSnapshot,
   TableDef,
 } from "../../types";
@@ -70,6 +71,7 @@ import {
   type CreateIndexOperation,
   type CreateTableOperation,
   type DDLContext,
+  type DerivedRename,
   type DropColumnOperation,
   type DropEnumOperation,
   type DropForeignKeyOperation,
@@ -668,20 +670,7 @@ export class MySQLMigrationDriver
 
     // Foreign keys (inline in CREATE TABLE for MySQL)
     for (const fk of table.foreignKeys) {
-      const fkCols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
-      const refCols = fk.referencedColumns
-        .map((c) => this.escapeIdentifier(c))
-        .join(", ");
-      let fkDef = `CONSTRAINT ${this.escapeIdentifier(fk.name)} `;
-      fkDef += `FOREIGN KEY (${fkCols}) `;
-      fkDef += `REFERENCES ${this.tableRef(fk.referencedTable, context.destination)} (${refCols})`;
-      if (fk.onDelete && fk.onDelete !== "noAction") {
-        fkDef += ` ON DELETE ${this.formatReferentialAction(fk.onDelete)}`;
-      }
-      if (fk.onUpdate && fk.onUpdate !== "noAction") {
-        fkDef += ` ON UPDATE ${this.formatReferentialAction(fk.onUpdate)}`;
-      }
-      columnDefs.push(fkDef);
+      columnDefs.push(this.foreignKeyClause(fk, context));
     }
 
     const sql = `CREATE TABLE ${this.tableRef(table.name, context.destination)} (\n  ${columnDefs.join(",\n  ")}\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin`;
@@ -717,6 +706,26 @@ export class MySQLMigrationDriver
     // independent tables, and an unqualified destination would move the table
     // into the connection's default database instead of renaming it in place.
     return `RENAME TABLE ${this.tableRef(op.from, context.destination)} TO ${this.tableRef(op.to, context.destination)}`;
+  }
+
+  // An index or unique (one object here) is renamed in place. A foreign key
+  // cannot be: it is dropped and added under its new name in the same
+  // statement, so the key is never absent.
+  protected override renameDerivedNames(
+    owner: string,
+    renames: ReadonlyMap<string, DerivedRename>,
+    table: TableDef,
+    context: DDLContext
+  ): string[] {
+    const clauses = [...renames].map(([from, { to }]) => {
+      const key = table.foreignKeys.find((item) => item.name === from);
+      return key
+        ? `DROP FOREIGN KEY ${this.escapeIdentifier(from)}, ADD ${this.foreignKeyClause({ ...key, name: to }, context)}`
+        : `RENAME INDEX ${this.escapeIdentifier(from)} TO ${this.escapeIdentifier(to)}`;
+    });
+    return [
+      `ALTER TABLE ${this.tableRef(owner, context.destination)} ${clauses.join(", ")}`,
+    ];
   }
 
   // ===========================================================================
@@ -1022,24 +1031,23 @@ export class MySQLMigrationDriver
     op: AddForeignKeyOperation,
     context: DDLContext
   ): string {
-    const { tableName, fk } = op;
+    return `ALTER TABLE ${this.tableRef(op.tableName, context.destination)} ADD ${this.foreignKeyClause(op.fk, context)}`;
+  }
+
+  private foreignKeyClause(fk: ForeignKeyDef, context: DDLContext): string {
     const cols = fk.columns.map((c) => this.escapeIdentifier(c)).join(", ");
     const refCols = fk.referencedColumns
       .map((c) => this.escapeIdentifier(c))
       .join(", ");
-
-    let sql = `ALTER TABLE ${this.tableRef(tableName, context.destination)} `;
-    sql += `ADD CONSTRAINT ${this.escapeIdentifier(fk.name)} `;
+    let sql = `CONSTRAINT ${this.escapeIdentifier(fk.name)} `;
     sql += `FOREIGN KEY (${cols}) `;
     sql += `REFERENCES ${this.tableRef(fk.referencedTable, context.destination)} (${refCols})`;
-
     if (fk.onDelete && fk.onDelete !== "noAction") {
       sql += ` ON DELETE ${this.formatReferentialAction(fk.onDelete)}`;
     }
     if (fk.onUpdate && fk.onUpdate !== "noAction") {
       sql += ` ON UPDATE ${this.formatReferentialAction(fk.onUpdate)}`;
     }
-
     return sql;
   }
 

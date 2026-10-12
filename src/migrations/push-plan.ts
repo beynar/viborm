@@ -119,8 +119,10 @@ export async function buildPushPlan(
     planningDriver,
     relations
   );
-  await command.preflightSchemaRequirements([desired], (sql, params) =>
-    producer._executeRaw(sql, params)
+  await command.preflightSchemaRequirements(
+    [desired],
+    (sql, params) => producer._executeRaw(sql, params),
+    []
   );
   const mode: PushConsent["mode"] = options.forceReset ? "force-reset" : "diff";
 

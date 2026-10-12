@@ -292,11 +292,13 @@ describe("apply over a sessionless batch transport (plan D7)", () => {
     ).toBe(true);
   });
 
+  // Refused for the lock or a moved marker, the request ran none of the
+  // group: as on a session, no `failed` event names an attempt that never ran.
   it.each([
-    ["P0V00", VibORMErrorCode.MIGRATION_LOCK_FAILED],
-    ["P0V01", VibORMErrorCode.MIGRATION_MARKER_CONFLICT],
-    ["42601", VibORMErrorCode.MIGRATION_FAILED],
-  ])("maps a request the server refused with %s to its refusal", async (sqlState, code) => {
+    ["P0V00", VibORMErrorCode.MIGRATION_LOCK_FAILED, false],
+    ["P0V01", VibORMErrorCode.MIGRATION_MARKER_CONFLICT, false],
+    ["42601", VibORMErrorCode.MIGRATION_FAILED, true],
+  ])("maps a request the server refused with %s to its refusal", async (sqlState, code, recorded) => {
     const { storage, target, atRoot, digest } = await estate();
     const driver = driverOver({ marker: atRoot, digest });
     driver.reply = { sqlState };
@@ -304,6 +306,11 @@ describe("apply over a sessionless batch transport (plan D7)", () => {
     await expect(
       migrationsOver(driver, storage).apply({ to: { id: target } })
     ).rejects.toMatchObject({ code });
+    expect(
+      driver.statements.some((text) =>
+        text.startsWith('INSERT INTO "public"."_viborm_migration_log"')
+      )
+    ).toBe(recorded);
   });
 
   it("reports applied when the reply is lost after the commit was acknowledged", async () => {

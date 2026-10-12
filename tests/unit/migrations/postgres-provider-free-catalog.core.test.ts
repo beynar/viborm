@@ -318,7 +318,8 @@ describe("provider-free PostgreSQL catalog reconstruction", () => {
             ],
           },
         ],
-        (sql, params) => execution._executeRaw(sql, params)
+        (sql, params) => execution._executeRaw(sql, params),
+        []
       )
     ).rejects.toMatchObject({
       code: VibORMErrorCode.MIGRATION_INVALID_STATE,

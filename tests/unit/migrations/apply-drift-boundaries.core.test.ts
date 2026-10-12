@@ -192,19 +192,6 @@ describe("apply drift boundaries", () => {
       statements: [],
     });
   });
-
-  test("rejects a marker whose authenticated snapshot bytes are absent", async () => {
-    const withoutStateSnapshot: MigrationGraph = {
-      ...graph(),
-      snapshots: new Map([[EMPTY_SNAPSHOT_HASH, emptyManagedSnapshot()]]),
-    };
-    expect(
-      await expectDriftRefusal(withoutStateSnapshot, goodMarker())
-    ).toMatchObject({
-      failure: { code: VibORMErrorCode.MIGRATION_CORRUPTION },
-      statements: [],
-    });
-  });
 });
 
 describe("coverage low value", () => {

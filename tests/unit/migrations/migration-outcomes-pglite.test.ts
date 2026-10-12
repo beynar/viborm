@@ -10,8 +10,8 @@
  * And a stepwise V11020 names the edge and the dispatch it lost.
  *
  * S4: `resolve('rolled-back')` refuses an attempt whose opaque step committed
- * (no double credit), and `apply` starts again after a first attempt closed as
- * rolled back.
+ * (no double credit) and closes one whose step the server refused whole, and
+ * `apply` starts again after a first attempt closed as rolled back.
  */
 
 import { createClient } from "@drivers/pglite";
@@ -162,7 +162,10 @@ async function addReference(fault: Fault) {
   return { outcome, status, target, fired: run.state.fired };
 }
 
-/** A stepwise late fee whose second statement fails on a missing table. */
+/**
+ * A stepwise late fee whose second statement, a `DO` block, fails on a missing
+ * table: a `DO` block may COMMIT before it fails, so its outcome is ambiguous.
+ */
 async function stepwiseLateFee(run: Awaited<ReturnType<typeof invoices>>) {
   return (
     await run.first.generate({
@@ -177,7 +180,9 @@ async function stepwiseLateFee(run: Awaited<ReturnType<typeof invoices>>) {
               sql.raw(
                 `UPDATE "invoice" SET "balanceCents" = "balanceCents" + 500`
               ),
-              sql.raw(`INSERT INTO "fee_audit" ("id") VALUES ('late-fee')`),
+              sql.raw(
+                `DO $$ BEGIN INSERT INTO "fee_audit" ("id") VALUES ('late-fee'); END $$`
+              ),
             ],
             rollback: { kind: "irreversible", reason: "late fees stay" },
           },
@@ -305,6 +310,59 @@ describe("S4 on PostgreSQL: honest recovery", () => {
     });
     expect(await totalBalance(run.database)).toBe(credited);
     expect((await run.first.status()).unfinished).toBe(true);
+    await run.close();
+  });
+
+  it("a stepwise statement the server refused committed nothing: V11001, and resolve('rolled-back') closes its attempt", async () => {
+    const run = await invoices("none", "");
+    const renumber = (
+      await run.first.generate({
+        name: "renumber",
+        manualMigration: {
+          transitions: [
+            {
+              from: run.init,
+              execution: "stepwise",
+              originChecks: [populated],
+              // Every invoice to one number: the unique index refuses it whole.
+              up: [sql.raw(`UPDATE "invoice" SET "number" = 'N-0'`)],
+              rollback: { kind: "irreversible", reason: "numbers stay" },
+            },
+          ],
+          destinationChecks: [populated],
+        },
+      })
+    ).stateId;
+    const distinctNumbers = async () =>
+      (
+        await run.database.query<{ n: number }>(
+          `SELECT count(DISTINCT "number")::int AS n FROM "invoice"`
+        )
+      ).rows[0]?.n;
+
+    await expect(run.first.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_FAILED,
+      meta: {
+        effectState: "none",
+        providerSqlState: "23505",
+        toState: renumber,
+        statementIndex: 0,
+      },
+    });
+    expect((await run.first.status()).unfinished).toBe(true);
+
+    await expect(
+      run.first.resolve({ outcome: "rolled-back" })
+    ).resolves.toEqual({ outcome: "rolled-back" });
+    const status = await run.first.status();
+    expect(status.unfinished).toBe(false);
+    expect(status.marker?.stateId).toBe(run.init);
+    expect(await distinctNumbers()).toBe(ROWS);
+    // Closed, the attempt blocks nothing: apply runs the statement again.
+    await expect(run.first.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_FAILED,
+    });
+    expect(await distinctNumbers()).toBe(ROWS);
     await run.close();
   });
 

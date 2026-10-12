@@ -13,7 +13,15 @@ import { createClient } from "@client/client";
 import { VibORMErrorCode } from "@errors";
 import { isMigrationError, lenientResolver } from "@migrations";
 import { createMigrationClient } from "@migrations/client";
+import {
+  appendLedger,
+  attemptIdFor,
+  DEFAULT_CONTROL_BASE,
+  ledgerEvent,
+} from "@migrations/control";
+import { getMigrationDriver } from "@migrations/drivers";
 import { SQLite3MigrationDriver } from "@migrations/drivers/sqlite";
+import { loadMigrationGraph, parentTransition } from "@migrations/graph";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
@@ -125,7 +133,14 @@ async function populated(
         `SELECT "notnull" FROM pragma_table_info('${table}') WHERE name = 'label'`
       )
     ).rows[0]?.notnull === 1;
-  return { driver, migrations, catalog, storageClasses, labelRequired };
+  return {
+    driver,
+    storage,
+    migrations,
+    catalog,
+    storageClasses,
+    labelRequired,
+  };
 }
 
 /** The forward program `apply` would run, read without effects. */
@@ -271,6 +286,52 @@ describe("SQLite recreation preflight", () => {
       ]
     );
     await expect(refusal).rejects.toThrow(NAMES_RENAMED_VIEW);
+  });
+
+  test("resolve({ outcome: 'retry' }) refuses the rebuild apply refuses, by name, before effects", async () => {
+    const { driver, storage, migrations, catalog, labelRequired } =
+      await populated("nullable");
+    // What VibORM 1.1.0 left when a runner died after recording `started`:
+    // an open v1 -> v2 attempt, nothing of it run. A trigger came after.
+    const graph = await loadMigrationGraph(storage);
+    const from = (await migrations.status()).marker!.stateId!;
+    const to = [...graph.states.keys()].find((id) => id !== from)!;
+    const state = graph.states.get(to)!;
+    const seed = {
+      estateHash: graph.estateHash,
+      snapshotHash: state.snapshotHash,
+      sqlHash: state.sqlHash,
+      fromState: from,
+      toState: to,
+      transitionHash: parentTransition(graph, from, to).transitionHash,
+      direction: "forward" as const,
+    };
+    await appendLedger(
+      driver,
+      getMigrationDriver(driver),
+      DEFAULT_CONTROL_BASE,
+      ledgerEvent({
+        ...seed,
+        attemptId: attemptIdFor(seed),
+        kind: "started",
+        operationId: null,
+        dispatchId: null,
+        effectState: "none",
+        open: true,
+      })
+    );
+    await driver._executeRaw(ITEM_AUDIT);
+    const before = await catalog();
+
+    const retry = migrations.resolve({ outcome: "retry" });
+
+    await expect(retry).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+      message: expect.stringMatching(NAMES_ITEM_AUDIT),
+    });
+    expect(await catalog()).toEqual(before);
+    expect(await labelRequired()).toBe(true);
+    expect((await migrations.status()).unfinished).toBe(true);
   });
 });
 

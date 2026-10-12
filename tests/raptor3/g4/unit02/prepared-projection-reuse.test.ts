@@ -228,7 +228,8 @@ describe("G4 perf pass 2 item 4 — one freeze per predicate, not per member", (
   it("freezes the predicate and its operand list, and binds every member once", () => {
     const schema = reuseSchema();
     const queries = new Queries(new EngineSchema(schema), new SQLiteAdapter());
-    const ids = Array.from({ length: 8 }, (_, index) => index + 1);
+    // Past 25 members: SQLite's one-parameter list (engine-09).
+    const ids = Array.from({ length: 30 }, (_, index) => index + 1);
     const selector = queries.prepareSelector(schema.author, {
       id: { in: ids },
     });

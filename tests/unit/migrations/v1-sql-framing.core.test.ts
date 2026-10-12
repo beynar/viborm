@@ -165,7 +165,7 @@ describe("migration v1 SQL framing", () => {
     const compiled = compileManualTransition(
       [sql`SELECT 1; SELECT 2; SELECT 3`],
       { kind: "irreversible", reason: "manual multi-statement" },
-      "sqlite",
+      "postgresql",
       "stepwise",
       undefined,
       assembly

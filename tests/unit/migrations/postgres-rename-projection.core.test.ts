@@ -302,15 +302,17 @@ test.each([
   ]);
 });
 
+// MySQL's primary key is always PRIMARY, a name no rename moves.
 test.each([
-  sqlite3MigrationDriver,
-  mysqlMigrationDriver,
-])("$dialect table projection retains native definitions and their physical PK name", (driver) => {
+  [sqlite3MigrationDriver, "old_pkey"],
+  [mysqlMigrationDriver, "PRIMARY"],
+] as const)("%o table projection retains native definitions and their physical PK name", (driver, primaryKey) => {
   const current = snapshot();
+  current.tables[0]!.primaryKey!.name = primaryKey;
   const before = structuredClone(current);
   const projected = driver.projectNativeRename(current, rename);
   expect(projected.tables[0]).toEqual({ ...current.tables[0], name: "new" });
-  expect(projected.tables[0]?.primaryKey?.name).toBe("old_pkey");
+  expect(projected.tables[0]?.primaryKey?.name).toBe(primaryKey);
   expect(projected.tables[1]?.foreignKeys[0]?.referencedTable).toBe("new");
   expect(current).toEqual(before);
 });

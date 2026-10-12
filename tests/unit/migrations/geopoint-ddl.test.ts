@@ -80,8 +80,10 @@ describe("PostGIS live migration preflight", () => {
 
       const command = getMigrationDriver(driver);
       await expect(
-        command.preflightSchemaRequirements([pointSnapshot], (sql, params) =>
-          driver._executeRaw(sql, params)
+        command.preflightSchemaRequirements(
+          [pointSnapshot],
+          (sql, params) => driver._executeRaw(sql, params),
+          []
         )
       ).rejects.toMatchObject({
         code: VibORMErrorCode.MIGRATION_INVALID_STATE,

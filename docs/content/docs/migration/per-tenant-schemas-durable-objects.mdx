@@ -72,16 +72,29 @@ export class Tenant extends DurableObject<Env> {
     limits: { statementTimeout: 15_000 },
   });
 
-  /** The API call that changes the tenant's schema. */
-  async changeSchema(text: string, decisions: MigrationDecision[]) {
-    const result = await this.migrator.change(await parseCached(this.tenant, text), {
-      decisions,
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (result.kind === "applied" || result.kind === "noop") {
-      await this.ctx.storage.put("document", text);
-    }
+  /**
+   * Migrations run one at a time. The migrator queues its own calls, but the
+   * alarm's client is another one, so both go through this queue.
+   */
+  queue: Promise<unknown> = Promise.resolve();
+  serial<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.queue.then(run);
+    this.queue = result.catch(() => undefined);
     return result;
+  }
+
+  /** The API call that changes the tenant's schema. */
+  changeSchema(text: string, decisions: MigrationDecision[]) {
+    return this.serial(async () => {
+      const result = await this.migrator.change(await parseCached(this.tenant, text), {
+        decisions,
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (result.kind === "applied" || result.kind === "noop") {
+        await this.ctx.storage.put("document", text);
+      }
+      return result;
+    });
   }
 
   /** A client per request is cheap: it reuses the parsed schema's caches. */
@@ -101,7 +114,7 @@ export class Tenant extends DurableObject<Env> {
       storage: this.history,
       limits: { largeTableRows: 0, statementTimeout: 0 },
     });
-    await migrations.apply();
+    await this.serial(() => migrations.apply());
   }
 }
 ```
@@ -163,8 +176,11 @@ refused before any statement, with `V11009` naming the operation and the table
 stays published. Run it from the object's alarm, as `alarm()` above does, with
 the limit lifted and no statement timeout: `ctx.storage.setAlarm(Date.now())`
 from the request that got the refusal. The alarm only applies published states
-and generates none, but it does not share the migrator's queue, so send no
-`change` until it has run. A throwing alarm is retried by the platform.
+and generates none. Its client does not share the migrator's queue, so the
+example puts both on the object's own `serial` queue: a `change` sent while the
+alarm runs waits for it, and its 20 s signal starts only when its turn comes.
+Send any `down` or `resolve` through `serial` too. A throwing alarm is retried
+by the platform.
 
 ## Transports
 

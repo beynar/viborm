@@ -10,6 +10,7 @@ import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
   groupContiguousAtomicity,
+  refuseSqliteStepwise,
   stepStatements,
 } from "./compile";
 import {
@@ -42,7 +43,6 @@ import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import { planLiveNamespaceReset } from "./live-reset";
 import {
   commitLockedTransaction,
-  mayWrapTransaction,
   resolveCommandDriver,
   runProgram,
   withLockedMigrationProducer,
@@ -94,16 +94,25 @@ export async function resetV1(
   );
   if (dryRun) {
     const command = await resolveCommandDriver(client.$driver, driver);
-    await command.preflightSchemaRequirements(
-      path.map((stateId) => requireStateSnapshot(graph, stateId)),
-      (sql, params) => client.$driver._executeRaw(sql, params)
-    );
     const names = controlTableNames(DEFAULT_CONTROL_BASE);
     const plan = await planLiveNamespaceReset(client.$driver, command, {
       trackingTable: "preserve",
       trackingTableName: names.state,
       preserveTables: [names.log],
     });
+    await command.preflightSchemaRequirements(
+      path.map((stateId) => requireStateSnapshot(graph, stateId)),
+      (sql, params) => client.$driver._executeRaw(sql, params),
+      resetProgram(
+        plan,
+        prepareResetReplay(
+          client.$driver.supportsTransactions,
+          command,
+          graph,
+          path
+        )
+      )
+    );
     return {
       preview: true,
       path,
@@ -138,13 +147,6 @@ export async function resetV1(
       }
       const targetSnapshot = requireStateSnapshot(graph, target);
       const targetSnapshotHash = graph.states.get(target)!.snapshotHash;
-      await command.preflightSchemaRequirements(
-        [
-          requireStateSnapshot(graph, marker?.stateId ?? null),
-          ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
-        ],
-        (sql, params) => pinned._executeRaw(sql, params)
-      );
       const edges: MarkerPathEdgeV1[] = path.map((stateId, index) => ({
         stateId,
         transitionHash: parentTransition(
@@ -229,14 +231,9 @@ export async function resetV1(
             trackingTableName: names.state,
             preserveTables: [names.log],
           });
-      const clearSql = livePlan
-        ? [
-            ...livePlan.dropForeignKeys,
-            ...livePlan.dropTables.map((table) => table.sql),
-            ...livePlan.dropEnums,
-          ]
-        : [];
-      const clearDispatches = clearSql.map((sql) => dispatchForClearSql(sql));
+      const clearDispatches = resetProgram(livePlan, []).map((sql) =>
+        dispatchForClearSql(sql)
+      );
       if (
         livePlan &&
         command.target.dialect === "mysql" &&
@@ -273,6 +270,16 @@ export async function resetV1(
       const remaining = resetAttempt
         ? remainingResetReplay(graph, prepared, resetAttempt, plan, ledger)
         : prepared;
+      // The statements this command runs, as apply hands its path over: the
+      // dialect refuses what they would lose (S11, T5a, Neki) before effects.
+      await command.preflightSchemaRequirements(
+        [
+          requireStateSnapshot(graph, marker?.stateId ?? null),
+          ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
+        ],
+        (sql, params) => pinned._executeRaw(sql, params),
+        resetProgram(livePlan, remaining)
+      );
       const begin = resetAttempt
         ? undefined
         : (producer: Parameters<typeof appendLedger>[0]) =>
@@ -462,6 +469,21 @@ function sameIds(left: readonly Sha256[], right: readonly Sha256[]): boolean {
   return left.every((id, index) => id === right[index]);
 }
 
+/** The clear, in the order it runs, then the replay's statements. */
+function resetProgram(
+  livePlan: Awaited<ReturnType<typeof planLiveNamespaceReset>> | undefined,
+  replay: readonly Pick<PreparedResetReplayEdge, "blob" | "operations">[]
+): string[] {
+  return [
+    ...(livePlan?.dropForeignKeys ?? []),
+    ...(livePlan?.dropTables.map((table) => table.sql) ?? []),
+    ...(livePlan?.dropEnums ?? []),
+    ...replay.flatMap(({ blob, operations }) =>
+      stepStatements(blob, operations)
+    ),
+  ];
+}
+
 function dispatchForClearSql(sql: string): MigrationDispatchV1 {
   const bytes = encodeSqlText(sql);
   const sqlHash = encodeSqlBlob(bytes);
@@ -587,30 +609,18 @@ function prepareResetReplay(
   return path.map((to, index) => {
     const from = index === 0 ? null : path[index - 1]!;
     const transition = parentTransition(graph, from, to);
-    const state = graph.states.get(to);
-    if (!state) {
-      throw new MigrationError(
-        "Reset replay target is missing",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-    const blob = graph.sql.get(state.sqlHash);
-    if (!blob) {
-      throw new MigrationError(
-        "Reset replay SQL blob is missing",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
+    // The graph holds every state and blob its transitions name.
+    const state = graph.states.get(to)!;
+    const blob = graph.sql.get(state.sqlHash)!;
+    const requested = transition.requestedForwardBoundary;
     const boundary = classifyStoredAtomicity(
       command,
-      transition.requestedForwardBoundary,
+      requested,
       transition.operations,
       blob
     );
-    assertTransactionalBoundaryHonored(
-      supportsTransactions,
-      transition.requestedForwardBoundary
-    );
+    assertTransactionalBoundaryHonored(supportsTransactions, requested);
+    refuseSqliteStepwise(command, requested, to);
     return {
       from,
       to,
@@ -779,46 +789,44 @@ async function executeResetProgram(
   finish: (producer: Parameters<typeof appendLedger>[0]) => Promise<void>,
   models: MigrationClient["$schema"]
 ): Promise<void> {
-  const groups = groupContiguousAtomicity(replay, ({ blob, operations }) =>
-    stepStatements(blob, operations)
+  const groups = groupContiguousAtomicity(replay, (edge) =>
+    resetProgram(undefined, [edge])
   );
+  const liveClear = resetProgram(livePlan, []);
   const liveClearDispatches = new Set(
-    livePlan
-      ? [
-          ...livePlan.dropForeignKeys,
-          ...livePlan.dropTables.map((table) => table.sql),
-          ...livePlan.dropEnums,
-        ].map((sql) => dispatchForClearSql(sql).dispatchId)
-      : []
+    liveClear.map((sql) => dispatchForClearSql(sql).dispatchId)
   );
-  let clearPending =
-    livePlan &&
-    (livePlan.dropForeignKeys.length > 0 ||
-      livePlan.dropTables.length > 0 ||
-      livePlan.dropEnums.length > 0)
-      ? livePlan
-      : undefined;
+  let clearPending = liveClear.length > 0 ? livePlan : undefined;
   let clearEvidencePending = livePlan !== undefined;
   let admissionPending = beforeFirstEffect;
+  // `statements` are the ones the boundary runs: apply's program, so SQLite's
+  // foreign keys are lifted (and proven) around a replayed recreation.
   const runBoundary = async (
     boundary: "transactional" | "stepwise",
+    statements: string[],
     body: (target: Parameters<typeof appendLedger>[0]) => Promise<void>
   ) => {
     const guarded = async (target: Parameters<typeof appendLedger>[0]) => {
-      await assertLockedSinceDecision(pinned, target, command, marker, true);
+      // The reset's own attempt is open once admitted (or resumed): before
+      // that, an open one was opened while the lock was let go.
+      await assertLockedSinceDecision(
+        pinned,
+        target,
+        command,
+        marker,
+        admissionPending === undefined
+      );
       await body(target);
     };
-    if (
-      mayWrapTransaction(
-        pinned,
-        command.target.dialect,
-        boundary === "transactional"
-      )
-    ) {
-      await pinned.withTransaction(guarded);
-    } else {
-      await guarded(producer);
-    }
+    // On MySQL the reset already runs as one sequential program (`resetV1`).
+    await (command.target.dialect === "mysql"
+      ? guarded(producer)
+      : runProgram(
+          pinned,
+          command,
+          { transactional: boundary === "transactional", statements },
+          guarded
+        ));
   };
   const completeClearEvidence = async (
     target: Parameters<typeof appendLedger>[0]
@@ -838,18 +846,23 @@ async function executeResetProgram(
   if (clearPending && groups[0]?.boundary === "stepwise") {
     const clear = clearPending;
     clearPending = undefined;
-    await runBoundary("transactional", async (target) => {
-      await admit(target);
-      await executeResetClear(target, command, clear, attemptId, graph);
-      await completeClearEvidence(target);
-      clearEvidencePending = false;
-    });
+    await runBoundary(
+      "transactional",
+      resetProgram(clear, []),
+      async (target) => {
+        await admit(target);
+        await executeResetClear(target, command, clear, attemptId, graph);
+        await completeClearEvidence(target);
+        clearEvidencePending = false;
+      }
+    );
   }
   if (!clearPending && groups[0]?.boundary === "stepwise" && admissionPending) {
-    await runBoundary("transactional", admit);
+    await runBoundary("transactional", [], admit);
   }
   if (groups.length === 0) {
-    await runBoundary("transactional", async (target) => {
+    const statements = resetProgram(clearPending, []);
+    await runBoundary("transactional", statements, async (target) => {
       await admit(target);
       if (clearPending) {
         await executeResetClear(
@@ -869,7 +882,8 @@ async function executeResetProgram(
     return;
   }
   for (const [index, group] of groups.entries()) {
-    await runBoundary(group.boundary, async (target) => {
+    const statements = resetProgram(clearPending, group.items);
+    await runBoundary(group.boundary, statements, async (target) => {
       await admit(target);
       if (clearPending) {
         await executeResetClear(
@@ -914,7 +928,7 @@ async function executeResetReplayEdge(
     blob,
     operations,
     boundary,
-    (progress, effect) =>
+    (progress, effect, failure) =>
       appendLedger(
         pinned,
         command,
@@ -932,6 +946,7 @@ async function executeResetReplayEdge(
           operationId: progress.operationId,
           dispatchId: progress.dispatchId,
           effectState: effect,
+          failure,
         })
       ),
     command.namespace

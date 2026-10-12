@@ -1,6 +1,7 @@
 /**
  * The Durable Object and R2 history bindings over Node stand-ins: the
- * Durable Object SQL API over a Map, and an R2 bucket whose put
+ * Durable Object SQL API over an in-memory SQLite database, so the binding's
+ * own statements run with SQLite's semantics, and an R2 bucket whose put
  * checks its condition and writes in one step and whose list pages at two
  * keys. The real bindings run the same suite in Miniflare (provider-d1).
  *
@@ -21,6 +22,7 @@ import {
 } from "@src/migrations/storage/object-store";
 import { createR2StorageWriter } from "@src/migrations/storage/r2";
 import { encodeSqlBlob } from "@src/migrations/v1-parse";
+import Database from "better-sqlite3";
 import { expect, test } from "vitest";
 
 const R2_PAGE = 2;
@@ -29,31 +31,31 @@ const R2_CONTENTION = new Error(
 );
 
 /**
- * The binding's four statements over a Map. `exec` is synchronous, as the
- * Durable Object SQL API is, so the conditional insert checks and writes in
- * one step.
+ * The Durable Object SQL API over SQLite: `exec` is synchronous, as the
+ * binding's is, and blobs cross as `ArrayBuffer`s.
  */
 function durableObjectStorage(
-  rows = new Map<string, ArrayBuffer>()
+  db = new Database(":memory:")
 ): DurableObjectStorage {
   const exec = (query: string, ...bindings: unknown[]) => {
-    const statement = query.split(" ", 1)[0];
-    if (statement === "INSERT") {
-      const [key, bytes] = bindings as [string, ArrayBuffer];
-      if (rows.has(key)) return { toArray: () => [] };
-      rows.set(key, bytes);
-      return { toArray: () => [{ key }] };
+    const statement = db.prepare(query);
+    const values = bindings.map((value) =>
+      value instanceof ArrayBuffer ? Buffer.from(value) : value
+    );
+    if (!statement.reader) {
+      statement.run(...values);
+      return { toArray: () => [] };
     }
-    if (statement === "SELECT" && query.includes("bytes")) {
-      const bytes = rows.get(bindings[0] as string);
-      return { toArray: () => (bytes ? [{ bytes: bytes.slice(0) }] : []) };
-    }
-    if (statement === "SELECT") {
-      const prefix = bindings[1] as string;
-      const keys = [...rows.keys()].filter((key) => key.startsWith(prefix));
-      return { toArray: () => keys.sort().map((key) => ({ key })) };
-    }
-    return { toArray: () => [] };
+    const rows = statement.all(...values) as Record<string, unknown>[];
+    const decoded = rows.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).map(([column, value]) => [
+          column,
+          Buffer.isBuffer(value) ? new Uint8Array(value).buffer : value,
+        ])
+      )
+    );
+    return { toArray: () => decoded };
   };
   return { sql: { exec } } as unknown as DurableObjectStorage;
 }
@@ -137,9 +139,9 @@ test("Durable Object histories under different prefixes share one object's stora
       })
     )
   ).toEqual([]);
-  const rows = new Map<string, ArrayBuffer>();
-  const current = createDurableObjectStorageWriter(durableObjectStorage(rows));
-  const pruned = createDurableObjectStorageWriter(durableObjectStorage(rows), {
+  const db = new Database(":memory:");
+  const current = createDurableObjectStorageWriter(durableObjectStorage(db));
+  const pruned = createDurableObjectStorageWriter(durableObjectStorage(db), {
     prefix: "h2/",
   });
   const ids = ["one", "two", "three"].map((label) => {
@@ -152,9 +154,22 @@ test("Durable Object histories under different prefixes share one object's stora
   expect(await current.listStates()).toEqual(ids.map(({ id }) => id).sort());
   expect(await pruned.listStates()).toEqual([ids[0]!.id]);
   expect(await pruned.readState(ids[1]!.id)).toBeNull();
-  expect([...rows.keys()].filter((key) => key.startsWith("h2/"))).toEqual([
-    `h2/states/${ids[0]!.id}.json`,
-  ]);
+  expect(
+    db
+      .prepare("SELECT key FROM viborm_migration_estate WHERE key LIKE 'h2/%'")
+      .pluck()
+      .all()
+  ).toEqual([`h2/states/${ids[0]!.id}.json`]);
+});
+
+test("a Durable Object history under a prefix with an astral character lists its keys", async () => {
+  expect(
+    await failingCases(() =>
+      createDurableObjectStorageWriter(durableObjectStorage(), {
+        prefix: "tenant-\u{1F642}/",
+      })
+    )
+  ).toEqual([]);
 });
 
 test("the R2 binding passes the conformance suite across listing pages", async () => {

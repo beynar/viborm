@@ -820,6 +820,41 @@ export function wholeValue(
   return Object.hasOwn(value, "set") ? { value: record(value).set } : undefined;
 }
 
+/**
+ * The ONE interpreter of an admitted scalar update payload.
+ *
+ * It answers WHICH operator the caller spelled and WHAT its operand is, and
+ * nothing about SQL. Two lowerings consume that one answer — the provider's
+ * own `SET` assignment ({@link Queries.updateAssignment}) and the same
+ * operator named over an already-known value ({@link Queries.updateValue}) —
+ * so an operator can never be admitted in one spelling and refused in the
+ * other.
+ */
+function readUpdate(value: unknown): PreparedUpdate {
+  const whole = wholeValue(value);
+  if (whole) return { kind: "value", value: whole.value };
+  const operation = record(value);
+  for (const operator of ARITHMETIC_UPDATES)
+    if (Object.hasOwn(operation, operator))
+      return { kind: "arithmetic", operator, by: operation[operator] };
+  for (const operator of LIST_UPDATES)
+    if (Object.hasOwn(operation, operator)) {
+      const members = operation[operator];
+      return {
+        kind: "list",
+        operator,
+        members: Array.isArray(members) ? members : [members],
+      };
+    }
+  // The shipped engine's own last word on an admitted payload that names no
+  // operator (`builders/set-builder.ts:217-219`), identity included: the one
+  // reachable shape is an empty record, and it is refused here, before any
+  // statement of the update is built.
+  throw new QueryEngineError(
+    `Unknown update operation: ${Object.keys(operation).join(", ")}`
+  );
+}
+
 /** Query scopes and output shapes share no record-identity requirement. */
 /**
  * A temporal operand's WIRE form: what the ADMISSION boundary makes of it.
@@ -1514,57 +1549,53 @@ export class Queries {
       shape: { kind: "object", fields },
     };
   }
-  /**
-   * The ONE interpreter of an admitted scalar update payload.
-   *
-   * It answers WHICH operator the caller spelled and WHAT its operand is, and
-   * nothing about SQL. Two lowerings consume that one answer — the provider's
-   * own `SET` assignment ({@link updateAssignment}) and the same operator named
-   * over an already-known value ({@link updateValue}) — so an operator can
-   * never be admitted in one spelling and refused in the other.
-   */
+  /** The payload {@link readUpdate} reads, refused where it cannot run. */
   #prepareUpdate(
     model: AnyModel,
     field: string,
     value: unknown
   ): PreparedUpdate {
-    const whole = wholeValue(value);
-    if (whole) return { kind: "value", value: whole.value };
-    const operation = record(value);
-    for (const operator of ARITHMETIC_UPDATES)
-      if (Object.hasOwn(operation, operator)) {
-        const by = operation[operator];
-        // An exact decimal divided by zero fails HERE, before any statement is
-        // issued: the operand's value is knowable and every dialect answers it
-        // differently otherwise (SQLite NULL, MySQL NULL or an error,
-        // PostgreSQL raises). The shipped refusal, verbatim.
-        if (
-          operator === "divide" &&
-          exactDecimalDomain(
-            physicalField(this.schema, model, field).scalar["~"].state
-          ) &&
-          dividesByZero(by)
-        )
-          throw new QueryEngineError(
-            `Cannot divide decimal field '${field}' by zero.`
-          );
-        return { kind: "arithmetic", operator, by };
-      }
-    for (const operator of LIST_UPDATES)
-      if (Object.hasOwn(operation, operator)) {
-        const members = operation[operator];
-        return {
-          kind: "list",
-          operator,
-          members: Array.isArray(members) ? members : [members],
-        };
-      }
-    // The shipped engine's own last word on an admitted payload that names no
-    // operator (`builders/set-builder.ts:217-219`), identity included: the one
-    // reachable shape is an empty record, and it is refused here, before any
-    // statement of the update is built.
-    throw new QueryEngineError(
-      `Unknown update operation: ${Object.keys(operation).join(", ")}`
+    const update = readUpdate(value);
+    // An exact decimal divided by zero fails HERE, before any statement is
+    // issued: the operand's value is knowable and every dialect answers it
+    // differently otherwise (SQLite NULL, MySQL NULL or an error,
+    // PostgreSQL raises). The shipped refusal, verbatim.
+    if (
+      update.kind === "arithmetic" &&
+      update.operator === "divide" &&
+      exactDecimalDomain(
+        physicalField(this.schema, model, field).scalar["~"].state
+      ) &&
+      dividesByZero(update.by)
+    )
+      throw new QueryEngineError(
+        `Cannot divide decimal field '${field}' by zero.`
+      );
+    return update;
+  }
+  /**
+   * Whether {@link updateValue} names this payload over a known prior value:
+   * the answer a counter `upsert` folds on (engine-08). Read before the
+   * divide-by-zero refusal, which belongs to an assignment that runs.
+   */
+  namesUpdate(model: AnyModel, field: string, value: unknown): boolean {
+    return this.#named(model, field, readUpdate(value));
+  }
+  /**
+   * A list operator, and an exact decimal's `multiply` or `divide`, have no
+   * expression form: the provider's assignment decides the stored result.
+   */
+  #named(
+    model: AnyModel,
+    field: string,
+    update: PreparedUpdate
+  ): update is Exclude<PreparedUpdate, { kind: "list" }> {
+    if (update.kind !== "arithmetic") return update.kind === "value";
+    return !(
+      (update.operator === "multiply" || update.operator === "divide") &&
+      exactDecimalDomain(
+        physicalField(this.schema, model, field).scalar["~"].state
+      ) !== undefined
     );
   }
   /**
@@ -1648,16 +1679,13 @@ export class Queries {
   ): Sql {
     const a = this.adapter;
     const update = this.#prepareUpdate(model, field, value);
-    if (update.kind === "value")
-      return this.fieldValue(model, field, update.value);
-    const state = physicalField(this.schema, model, field).scalar["~"].state;
-    const rounds =
-      exactDecimalDomain(state) !== undefined &&
-      (update.operator === "multiply" || update.operator === "divide");
-    if (update.kind === "list" || rounds)
+    if (!this.#named(model, field, update))
       throw new QueryEngineError(
         `Cannot determine the updated value of '${model["~"].names.ts ?? "unknown"}.${field}' before '${update.operator}' executes: the database determines the stored result.`
       );
+    if (update.kind === "value")
+      return this.fieldValue(model, field, update.value);
+    const state = physicalField(this.schema, model, field).scalar["~"].state;
     const base =
       state.type === "int" ? a.expressions.cast(before, "integer") : before;
     const operand = this.fieldValue(model, field, update.by);
@@ -4429,20 +4457,13 @@ export class Queries {
   #aggregateLeaf(model: AnyModel, aggregate: Aggregate, field: string): Leaf {
     if (aggregate === "_count") return COUNT_LEAF;
     const leaf = this.scalarShape(model, field);
-    const decimal = leaf.type === "decimal";
-    if (aggregate === "_avg" && !decimal)
+    if (aggregate === "_avg" && leaf.type !== "decimal")
       return freeze({ kind: "scalar", type: "number", nullable: true });
+    // Admission admits `_sum` only on the summable types, every one widened.
     return freeze({
       ...leaf,
       nullable: true,
-      widened:
-        aggregate === "_sum" &&
-        (decimal ||
-          leaf.type === "number" ||
-          leaf.type === "bigint" ||
-          leaf.type === "int")
-          ? true
-          : undefined,
+      widened: aggregate === "_sum" ? true : undefined,
     });
   }
   /**

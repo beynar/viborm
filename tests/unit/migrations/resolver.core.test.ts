@@ -449,7 +449,7 @@ describe("createPredefinedResolver", () => {
           column: null,
         },
       ],
-      "operation must be one of",
+      "is not a destructive operation",
     ],
     [
       "a mapping that is not an object",

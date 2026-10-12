@@ -16,7 +16,10 @@ import type { DDLContext, MigrationDriver } from "./drivers";
 import { invertOperations } from "./invert";
 import type { SqlAssembly } from "./sql-assembly";
 import { sliceDispatch } from "./sql-blob";
-import { needsEnumAdditionCommitBoundary } from "./statement-safety";
+import {
+  needsEnumAdditionCommitBoundary,
+  runsConcurrently,
+} from "./statement-safety";
 import type { DiffOperation, SchemaSnapshot } from "./types";
 import { encodeTransitionHash } from "./v1-parse";
 import type {
@@ -467,6 +470,15 @@ function compileManualOperations(
       VibORMErrorCode.MIGRATION_INVALID_ESTATE
     );
   }
+  // Plan S5, refused before the state is published: apply refuses it, so no
+  // SQLite database could ever reach the state.
+  if (execution === "stepwise" && dialect === "sqlite") {
+    throw new MigrationError(
+      `SQLite runs no stepwise manual ${prefix} program: only a transaction holds the write lock under which a migration runs exactly once, and every SQLite statement can run in one. Declare execution: "transactional" for it.`,
+      VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+      { meta: { dialect, feature: "stepwise execution" } }
+    );
+  }
   return fragments.map((fragment, index) => {
     const text = fragment.toStatement(dialect === "postgresql" ? "$n" : "?");
     if (text.trim().length === 0) {
@@ -477,7 +489,11 @@ function compileManualOperations(
     }
     // Refused before the state is published: sent after BEGIN, PostgreSQL
     // rejects it (25001), so the transition could never apply.
-    if (execution === "transactional" && CONCURRENTLY.test(text)) {
+    if (
+      execution === "transactional" &&
+      dialect === "postgresql" &&
+      runsConcurrently(text)
+    ) {
       throw new MigrationError(
         `Manual ${prefix} SQL dispatch ${index} runs CONCURRENTLY, which PostgreSQL refuses inside a transaction. Declare execution: "stepwise" for it.`,
         VibORMErrorCode.MIGRATION_INVALID_ESTATE
@@ -631,17 +647,6 @@ export function rebindRollback(
 const IDENTIFIER = String.raw`(?:"(?:[^"]|"")+"|[A-Za-z_][\w$]*)`;
 const QUALIFIED = String.raw`${IDENTIFIER}(?:\.${IDENTIFIER})?`;
 
-/**
- * A statement PostgreSQL refuses inside a transaction block (25001):
- * `CREATE [UNIQUE] INDEX`, `DROP INDEX`, `REINDEX INDEX|TABLE|SCHEMA|DATABASE`
- * and `REINDEX (…, CONCURRENTLY)` with `CONCURRENTLY`, and `DETACH PARTITION
- * … CONCURRENTLY`. `REFRESH MATERIALIZED VIEW CONCURRENTLY` runs in a
- * transaction and is not one.
- */
-const CONCURRENTLY = new RegExp(
-  String.raw`\b(?:INDEX|TABLE|SCHEMA|DATABASE|PARTITION\s+${QUALIFIED})\s+CONCURRENTLY\b|\bREINDEX\s*\([^)]*\bCONCURRENTLY\b`,
-  "i"
-);
 const ALTER_TYPE_ADD_VALUE = /ALTER\s+TYPE\s+\S+\s+ADD\s+VALUE/i;
 
 /** `CREATE TABLE <name>` (group 1), or `ALTER TABLE <name>` (2) and its actions (3). */
@@ -649,6 +654,12 @@ const TABLE_STATEMENT = new RegExp(
   String.raw`\bCREATE\s+(?:(?:GLOBAL|LOCAL|TEMP|TEMPORARY|UNLOGGED)\s+)*TABLE\s+(?!IF\s+NOT\s+EXISTS\b)(${QUALIFIED})|\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${QUALIFIED})([^;]*)`,
   "gi"
 );
+/** `RENAME TO <name>`, the whole action of an `ALTER TABLE`. */
+const RENAME_TO = new RegExp(
+  String.raw`^\s*RENAME\s+TO\s+(${IDENTIFIER})\s*$`,
+  "i"
+);
+const LAST_IDENTIFIER = new RegExp(`${IDENTIFIER}$`);
 /** Each action that rewrites or scans the table, and how a refusal names it. */
 const TABLE_REWRITES: readonly (readonly [RegExp, (name: string) => string])[] =
   [
@@ -689,23 +700,38 @@ const TABLE_REWRITES: readonly (readonly [RegExp, (name: string) => string])[] =
  * enum replacement and a decimal descriptor change are ones), `SET NOT NULL`,
  * a new column whose default is volatile, and a FOREIGN KEY or CHECK added
  * without `NOT VALID`. One entry per `ALTER TABLE`, naming its table as the
- * statement spells it and its first such action. A table the program has
+ * statement spells it and its first such action; a table an earlier
+ * `RENAME TO` of the program renamed is named by its spelling before the
+ * program ran, the one the live catalog holds. A table the program has
  * already created by that spelling is empty, so it is left out (a force
- * reset, a drop and recreate). A plain `CREATE INDEX` (writes blocked, reads
- * not) is not one.
+ * reset, a drop and recreate), as it is once renamed. A plain `CREATE INDEX`
+ * (writes blocked, reads not) is not one.
  */
 export function tableRewrites(
   program: readonly string[]
 ): { readonly table: string; readonly operation: string }[] {
   const created = new Set<string>();
+  const before = new Map<string, string>();
   return program.flatMap((statement) =>
     [...statement.matchAll(TABLE_STATEMENT)].flatMap(
       ([, made, table, clause]) => {
         if (made) created.add(made);
-        if (!table || created.has(table)) return [];
+        if (!table) return [];
+        const renamedTo = RENAME_TO.exec(clause ?? "")?.[1];
+        if (renamedTo) {
+          const next = table.replace(LAST_IDENTIFIER, renamedTo);
+          if (created.has(table)) created.add(next);
+          else before.set(next, before.get(table) ?? table);
+          return [];
+        }
+        if (created.has(table)) return [];
         for (const [pattern, name] of TABLE_REWRITES) {
           const action = pattern.exec(clause ?? "")?.[1];
-          if (action) return [{ table, operation: name(action) }];
+          if (action) {
+            return [
+              { table: before.get(table) ?? table, operation: name(action) },
+            ];
+          }
         }
         return [];
       }
@@ -714,7 +740,7 @@ export function tableRewrites(
 }
 
 function isNonTransactionalSql(driver: MigrationDriver, sql: string): boolean {
-  if (CONCURRENTLY.test(sql)) return true;
+  if (runsConcurrently(sql)) return true;
   return (
     ALTER_TYPE_ADD_VALUE.test(sql) &&
     !driver.capabilities.supportsAddEnumValueInTransaction
@@ -749,6 +775,27 @@ export function assertTransactionalBoundaryHonored(
       VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
     );
   }
+}
+
+/**
+ * Plan S5, refused while a stored path is prepared, before any of it runs:
+ * only a transaction holds SQLite's write lock, under which a migration runs
+ * exactly once, and every SQLite statement can run in one. Generate refuses
+ * such a program since 1.2.0; this refuses one 1.1.0 published, whichever
+ * command would run it. Resolve's retry does not ask: it finishes an attempt
+ * 1.1.0 left open.
+ */
+export function refuseSqliteStepwise(
+  driver: MigrationDriver,
+  requested: "transactional" | "stepwise" | null,
+  toState: string
+): void {
+  if (requested !== "stepwise" || driver.dialect !== "sqlite") return;
+  throw new MigrationError(
+    'SQLite runs no stepwise program: only a transaction holds the write lock under which a migration runs exactly once, and every SQLite statement can run in one. Nothing ran. Run it with VibORM 1.1.0, or, if no database applied it, remove its state from migration storage and generate it again with `execution: "transactional"`.',
+    VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+    { meta: { dialect: "sqlite", toState, feature: "stepwise execution" } }
+  );
 }
 
 export function classifyStoredAtomicity(

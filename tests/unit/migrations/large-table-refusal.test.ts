@@ -17,6 +17,7 @@ import { PGliteDriver } from "@drivers/pglite";
 import { VibORMErrorCode } from "@errors";
 import {
   createMigrationClient,
+  createPredefinedResolver,
   type MigrationLimits,
   type ResolveCallback,
 } from "@migrations";
@@ -236,6 +237,56 @@ describe("a change that rewrites or scans a 10,000-row PostgreSQL table", () => 
     });
     expect((await back.log()).length).toBe(ledger);
     expect(await liveShape(driver)).toEqual(before);
+  });
+});
+
+describe("a rewrite of a big table the same program renames first", () => {
+  it("is refused on the table the rename starts from, before any effect", async () => {
+    const driver = new PGliteDriver();
+    const storage = new MemoryStorage();
+    const migrationsAt = (table: string, changes: ModelShape = {}) =>
+      createMigrationClient(
+        createClient({
+          driver,
+          schema: { account: s.model({ ...fields(), ...changes }).map(table) },
+        }),
+        { storage, limits: { largeTableRows: LIMIT } }
+      );
+    const rename = createPredefinedResolver([
+      {
+        type: "table",
+        from: "accounts",
+        to: "customers",
+        resolution: "rename",
+      },
+    ]);
+    try {
+      const first = migrationsAt("accounts");
+      await first.generate({ name: "v1" });
+      await first.apply();
+      await driver._executeRaw(seed);
+      await driver._executeRaw(`ANALYZE ${TABLE}`);
+      const before = await liveShape(driver);
+
+      const renamed = migrationsAt("customers", { age: s.bigInt().nullable() });
+      await renamed.generate({
+        name: "renamed",
+        resolve: (change) =>
+          change.type === "destructive" ? change.proceed() : rename(change),
+      });
+      const ledger = (await renamed.log()).length;
+      await expect(renamed.apply()).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_INVALID_STATE,
+        message: expect.stringContaining(
+          `which the planner estimates at ${ROWS} rows, above limits.largeTableRows (${LIMIT})`
+        ),
+        meta: { operation: 'column type change of "age"' },
+      });
+      expect((await renamed.log()).length).toBe(ledger);
+      expect(await liveShape(driver)).toEqual(before);
+    } finally {
+      await driver.disconnect();
+    }
   });
 });
 

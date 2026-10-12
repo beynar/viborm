@@ -630,6 +630,64 @@ describe("S4 honest recovery", () => {
     await v2.$disconnect();
   });
 
+  it("down asks its resolver holding no write lock: the app writes while it answers", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "viborm-s4-ask-"));
+    const file = join(dir, "estate.db");
+    const db = new Database(file);
+    // The app's own connection, with a short busy timeout.
+    const app = new Database(file, { timeout: 200 });
+    const storage = new MemoryEstateStorage();
+    const v1 = createSQLite3Client({ client: db, schema: { invoice } });
+    const v2 = createSQLite3Client({
+      client: db,
+      schema: { invoice, lineItem },
+    });
+    await createMigrationClient(v1, { storage }).generate({ name: "invoices" });
+    await createMigrationClient(v1, { storage }).apply();
+    const migrations = createMigrationClient(v2, { storage });
+    await migrations.generate({ name: "line-items" });
+    await migrations.apply();
+    await seedInvoices(v2);
+    await v2.lineItem.create({
+      data: {
+        id: "li-0",
+        invoiceId: "inv-0",
+        sku: "SKU-0",
+        description: "consulting",
+        quantity: 1,
+        unitCents: 1250,
+      },
+    });
+    const remind = app.prepare(
+      `UPDATE "invoice" SET "reminderCount" = "reminderCount" + 1 WHERE "id" = 'inv-0'`
+    );
+
+    const asked: string[] = [];
+    await expect(
+      migrations.down({
+        to: { name: "invoices" },
+        resolve: (change) => {
+          // An operator reads the prompt; the app keeps writing.
+          remind.run();
+          asked.push(change.type);
+          return change.type === "destructive" ? change.proceed() : undefined;
+        },
+      })
+    ).resolves.toMatchObject({ preview: false });
+    expect(asked).toEqual(["destructive"]);
+    expect(
+      db
+        .prepare(`SELECT "reminderCount" FROM "invoice" WHERE "id" = 'inv-0'`)
+        .get()
+    ).toEqual({ reminderCount: 1 });
+    expect((await migrations.status()).pending).toHaveLength(1);
+    await v1.$disconnect().catch(() => undefined);
+    await v2.$disconnect().catch(() => undefined);
+    app.close();
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it("a multi-edge rollback over a table a later state dropped needs no answer", async () => {
     const driver = createInMemorySQLite3Driver();
     const storage = new MemoryEstateStorage();

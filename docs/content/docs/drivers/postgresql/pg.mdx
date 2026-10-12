@@ -80,6 +80,8 @@ const client = createClient({
   to `sslmode=verify-full`.
 - A password callback (node-postgres's function form) cannot be merged into a
   URL: pass it with `host`, `user` and `database` in `options`, without a URL.
+  Beside a URL (`databaseUrl` or `options.connectionString`) it is refused at
+  construction with `ClientInitializationError` (`V1004`).
 - To merge, VibORM reads the URL with the WHATWG `URL` parser. A form it cannot
   read, such as libpq's `/var/run/postgresql mydb`, combined with connection
   options fails at construction with `ClientInitializationError`.

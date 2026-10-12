@@ -15,7 +15,6 @@ import {
 } from "./control";
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
-import { postgresCatalogDigest } from "./drivers/postgres/catalog-digest";
 import type { MigrationGraph } from "./graph";
 import type { Sha256 } from "./identity";
 import { lockedSinceDecision } from "./pinned-session";
@@ -48,8 +47,9 @@ export function markerStanding(
  * decision's transaction to switch foreign keys. Read as the group's first
  * statements, under its own lock: if another command moved the marker in
  * between, nothing of this group runs. Apply never leaves an attempt of its own
- * open between two groups, so an unfinished one is another command's; `down`
- * and `reset` carry theirs across groups and pass `ownAttempt`.
+ * open between two groups, so an unfinished one is another command's. `down`
+ * passes `ownAttempt` only for the attempt it resumes, and `reset` once its own
+ * attempt is open: while it is, no other command opens one.
  */
 export async function assertLockedSinceDecision(
   pinned: Parameters<typeof appendLedger>[0],
@@ -149,21 +149,13 @@ export function markedSnapshotHash(
       from = edge.stateId;
     }
   }
-  const snapshotHash = marker.stateId
-    ? graph.states.get(marker.stateId)!.snapshotHash
-    : graph.emptySnapshotHash;
-  if (!graph.snapshots.get(snapshotHash)) {
-    throw new MigrationError(
-      "Marker snapshot is missing from the estate",
-      VibORMErrorCode.MIGRATION_CORRUPTION
-    );
-  }
-  return snapshotHash;
+  // Proven above to be the marked state's, which the graph holds.
+  return marker.snapshotHash;
 }
 
 /**
  * Proves the live managed schema is the snapshot: on PostgreSQL in one
- * statement (plan D5, `catalog-digest.ts`), else, and where that digest
+ * statement (plan D5, the driver's `catalogDigest`), else, and where that digest
  * abstains, through an introspection, read once. On PostgreSQL it returns each
  * partial-index predicate that introspection read, the server's own deparse
  * (`pg_get_expr`), which a forward apply records beside the marker
@@ -184,14 +176,10 @@ export async function proveLive(
   // `loadMigrationGraph` loads every state's snapshot and seeds the empty one.
   const expected = graph.snapshots.get(snapshotHash)!;
   const fingerprint = await fingerprintLive(expected, command, producer);
-  const postgres = command.target.dialect === "postgresql";
-  const digest = postgres
-    ? await postgresCatalogDigest(
-        producer,
-        command,
-        controlTableNames(DEFAULT_CONTROL_BASE)
-      )
-    : undefined;
+  const digest = await command.catalogDigest?.(
+    producer,
+    controlTableNames(DEFAULT_CONTROL_BASE)
+  );
   if (digest !== undefined && digest === fingerprint) return [];
   const live = await introspectManaged(producer, command);
   if ((await fingerprintLive(live, command, producer)) !== fingerprint) {
@@ -206,7 +194,7 @@ export async function proveLive(
       VibORMErrorCode.INTERNAL_ERROR
     );
   }
-  if (!postgres) return [];
+  if (command.target.dialect !== "postgresql") return [];
   return live.tables.flatMap((table) =>
     table.indexes.flatMap((index) =>
       index.where

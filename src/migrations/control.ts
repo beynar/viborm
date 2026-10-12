@@ -11,12 +11,8 @@ import { isRecord } from "../validation/value-guards";
 import { canonicalizeJsonText } from "./canonical-json";
 import { boundNamespace, tableExistsProbe } from "./catalog-probes";
 import type { BoundMigrationDriver } from "./drivers";
-import {
-  postgresCatalogDigestQuery,
-  readDigest,
-} from "./drivers/postgres/catalog-digest";
-import { throwIfCatalogRefusal } from "./drivers/postgres/introspect";
-import type { Sha256 } from "./identity";
+import { throwIfCatalogRefusal } from "./drivers/postgres/catalog-refusal";
+import { isSha256, type Sha256 } from "./identity";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodePathHash, eventIdFor, parseLedgerEvent } from "./v1-parse";
 import { parseMarkerPayload } from "./v1-parse-control";
@@ -747,7 +743,8 @@ export async function readPostgresDecision(
   const catalog = await readPostgresControlCatalog(producer, driver, names);
   if (!(catalog.state && catalog.log)) return;
   assertPostgresControlAuthentic(catalog, names, "pair");
-  const digest = postgresCatalogDigestQuery(driver, names, true);
+  // Only PostgreSQL reads a decision in one statement: its driver owns this.
+  const digest = driver.catalogDigestQuery!(names, true);
   const { rows } = await producer._executeRaw<{
     marker: unknown;
     ledger: unknown;
@@ -764,7 +761,7 @@ export async function readPostgresDecision(
       readPayloadRows(rows[0]?.marker),
       readPayloadRows(rows[0]?.ledger)
     ),
-    digest: readDigest(rows[0]?.digest),
+    digest: isSha256(rows[0]?.digest) ? rows[0].digest : undefined,
   };
 }
 

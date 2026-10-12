@@ -7,14 +7,12 @@ import {
 import type { AnyModel } from "@schema/model";
 import { createFailureError } from "../../batch-error-attribution";
 import type { PreparedGuardFailure } from "../../types";
-import { exactDecimalDomain } from "../shared/decimal";
 import type { OperationContext } from "../shared/operation-context";
 import {
   InvalidScalarResult,
   type PreparedSelector,
   returningSafeProjection,
   type SelectorFacts,
-  wholeValue,
 } from "../shared/query";
 import type { ModelStamps, RowPurpose } from "../shared/row-scope";
 import { type Arguments, entries, type Input, record } from "../shared/schema";
@@ -1898,29 +1896,14 @@ export class Commands {
     // probe does not lock the absence it may find (`Selection.insertsWhenAbsent`).
     lookup.insertsWhenAbsent = true;
     const key = lookup.selector.uniqueKey;
-    // A counter folds too (engine-08): `upsertOne` names each value over the
-    // conflicting row through `Queries.updateValue`, which has no form for a
-    // list operator or an exact decimal's rounding multiply/divide.
-    const folds = (field: string): boolean => {
-      const value = updates[field];
-      if (wholeValue(value)) return true;
-      const state = physicalField(ctx.schema, model, field).scalar["~"].state;
-      const operation = record(value);
-      return !(
-        state.array ||
-        (exactDecimalDomain(state) &&
-          (Object.hasOwn(operation, "multiply") ||
-            Object.hasOwn(operation, "divide")))
-      );
-    };
     // The targeted fold evaluates no selector: under a domain its conflict
-    // could be a hidden row, which it would update.
+    // could be a hidden row, which it would update. A counter folds too
+    // (engine-08): `upsertOne` names each value over the conflicting row.
     const spelled =
       capabilities.supportsTargetedUpsert &&
       lookup.selector.scoped === undefined &&
       key !== undefined &&
       lookup.selector.uniqueValues !== undefined &&
-      fields.every(folds) &&
       key.fields.every((field) => {
         const value = values[field];
         return (
@@ -1928,7 +1911,10 @@ export class Commands {
             (typeof value !== "object" && typeof value !== "function")) &&
           Object.is(value, lookup.selector.uniqueValues!.get(field))
         );
-      });
+      }) &&
+      fields.every((field) =>
+        ctx.queries.namesUpdate(model, field, updates[field])
+      );
     if (spelled)
       return {
         single: true,

@@ -59,14 +59,16 @@ const COMPLEMENT_GUARD =
   /NOT EXISTS[\s\S]*"u65_cards"[\s\S]*"board_card"[\s\S]*NOT \(/i;
 /**
  * Only the captured id list, not the connected-membership subquery or filter:
- * ONE bound JSON array, read by `json_each` (engine-09).
+ * a parameter per key, or past 25 keys ONE bound JSON array, read by
+ * `json_each` (engine-09).
  */
 const EXCLUDED_KEYS =
-  /NOT \(\s*"q\d+"\."id" IN \(SELECT value FROM json_each\(\?\)\)\s*\)/i;
+  /NOT \(\s*"q\d+"\."id" IN \((?:SELECT value FROM json_each\(\?\)|(\?(?:, \?)*))\)\s*\)/i;
 
 function excludedKeyCount({ sql, parameters }: Statement): number {
   const list = sql.match(EXCLUDED_KEYS);
   if (!list) throw new Error("the complement omitted its captured id list");
+  if (list[1] !== undefined) return list[1].split("?").length - 1;
   const position = sql.slice(0, list.index).split("?").length - 1;
   const keys: unknown[] = JSON.parse(String(parameters[position]));
   return keys.length;

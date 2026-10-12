@@ -57,10 +57,22 @@ const epoch = s
   .map("bml_epochs");
 
 /**
+ * A text key beside another indexed equality: the tenancy and foreign-key
+ * shape, where SQLite without `ANALYZE` must still seek the key.
+ */
+const tenantItem = s
+  .model({
+    id: s.string().id(),
+    tenant: s.string(),
+  })
+  .index(["tenant"])
+  .map("bml_tenant_items");
+
+/**
  * Every model on every dialect: a SQLite native type declares nothing on
  * PostgreSQL, where `epoch.at` is an ordinary instant the tests leave empty.
  */
-const schema = { order, codec, epoch };
+const schema = { order, codec, epoch, tenantItem };
 const open = (driver: AnyDriver) => createClient({ schema, driver });
 
 export interface BoundMemberListOptions {
@@ -85,6 +97,8 @@ const PG_LIST = /= ANY\(/;
 const SQLITE_NOT_IN = /NOT IN \(SELECT/;
 const PG_NOT_IN = /<> ALL\(/;
 const KEY_SEARCH = /SEARCH .*INTEGER PRIMARY KEY/;
+const TEXT_KEY_SEARCH =
+  /SEARCH \S+ USING INDEX sqlite_autoindex_bml_tenant_items_1 \(id=\?\)/;
 const INDEX_SEARCH = /SEARCH .*USING (COVERING )?INDEX/;
 const TABLE_SCAN = /SCAN q0/;
 const LIST = 40_000;
@@ -173,7 +187,7 @@ export function runBoundMemberListBehavior(
     // A shared server database holds other suites' tables: manage only ours.
     if (options.tables === undefined)
       await syncLiveSchema(base, {
-        tables: ["bml_orders", "bml_codecs", "bml_epochs"],
+        tables: ["bml_orders", "bml_codecs", "bml_epochs", "bml_tenant_items"],
       });
     else
       for (const statement of options.tables)
@@ -328,9 +342,10 @@ export function runBoundMemberListBehavior(
     if (sqlite)
       test("the bound list still searches the index on SQLite", async () => {
         const plans: string[] = [];
+        const keys = padding(40, (index) => 3 * index + 2);
         for (const where of [
-          { id: { in: [3, 5, 8] } },
-          { reference: { in: ["R3", "R5", "R8"] } },
+          { id: { in: keys } },
+          { reference: { in: keys.map((key) => `R${key}`) } },
         ]) {
           const statement = await widest(() =>
             client.order.findMany({ where, select: { id: true } })
@@ -347,6 +362,71 @@ export function runBoundMemberListBehavior(
         for (const plan of plans) expect(plan).not.toMatch(TABLE_SCAN);
       });
   });
+
+  describe.runIf(sqlite)(
+    `${options.name}: a short list keeps the key search beside another index`,
+    () => {
+      const TENANTS = 4;
+      const ITEMS = 2 * rows;
+      const key = (index: number) => `item-${String(index).padStart(6, "0")}`;
+      beforeAll(async () => {
+        await base.tenantItem.deleteMany();
+        for (let start = 0; start < ITEMS; start += 2000)
+          await base.tenantItem.createMany({
+            data: padding(Math.min(2000, ITEMS - start), (offset) => ({
+              id: key(start + offset),
+              tenant: `t${(start + offset) % TENANTS}`,
+            })),
+          });
+      });
+
+      /** The plan SQLite runs the call's widest statement under. */
+      const planOf = async (run: () => Promise<unknown>) => {
+        const statement = await widest(run);
+        const plan = await base.$queryRawUnsafe<{ detail: string }>(
+          `EXPLAIN QUERY PLAN ${statement?.sql}`,
+          ...(statement?.params ?? [])
+        );
+        return plan.map((step) => step.detail).join(" | ");
+      };
+
+      // Without `sqlite_stat1` SQLite sizes an `IN (SELECT …)` at 25 rows and
+      // a non-unique equality at 10, so a one-member list read through
+      // `json_each` searched the tenant index and filtered a quarter of the
+      // table per call, where the parenthesized list seeks the key.
+      test("findMany, updateMany and an OR of keys seek the primary key", async () => {
+        const tenant = "t1";
+        const one = key(1);
+        const two = [key(5), key(9)];
+        const plans = [
+          await planOf(async () => {
+            expect(
+              await client.tenantItem.findMany({
+                where: { tenant, id: { in: [one] } },
+                select: { id: true },
+              })
+            ).toEqual([{ id: one }]);
+          }),
+          await planOf(async () => {
+            expect(
+              await client.tenantItem.updateMany({
+                where: { tenant, id: { in: two } },
+                data: { tenant },
+              })
+            ).toEqual({ count: 2 });
+          }),
+          await planOf(async () => {
+            expect(
+              await client.tenantItem.count({
+                where: { tenant, OR: two.map((id) => ({ id })) },
+              })
+            ).toBe(2);
+          }),
+        ];
+        for (const plan of plans) expect(plan).toMatch(TEXT_KEY_SEARCH);
+      });
+    }
+  );
 
   describe(`${options.name}: every field codec crosses the one bound list`, () => {
     beforeAll(async () => {

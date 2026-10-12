@@ -628,6 +628,13 @@ twice. The refusal names the `dispatchId`; finish the transition by hand and
 below): `resolve` repairs the index it names first, and the origin fingerprint
 then proves it undone.
 
+A manual step the database refused whole — one statement, such as a unique-key
+violation or a `lock_timeout` — committed nothing. It fails with `V11001`
+(`MIGRATION_FAILED`, `meta.partial: true`), its refusal is recorded in the
+ledger, and `--rolled-back` closes its attempt once the origin checks hold. A
+`CALL`, `DO`, `EXECUTE` or `CONCURRENTLY` step can commit part of its work
+before it fails, so its failure stays `V11020`.
+
 An attempt closed as rolled back, resolved or failed no longer blocks anything:
 `apply` starts again, even when the failed attempt was the first one and no
 marker exists yet.
@@ -848,7 +855,7 @@ No provider inherits a guarantee from its dialect name. Effectful work requires 
 | Provider | Effectful migrate / push | Notes |
 |----------|--------------------------|--------|
 | PGlite, `pg`, postgres.js, Bun SQL | Yes, when lock/CAS is proven | Transactional when every statement permits it. Each transaction takes the lock and the marker is read under it, so a transaction pooler (PgBouncer in transaction mode) works; stepwise work keeps a session lock and needs a direct session. See [PostgreSQL](/docs/migration/drivers/postgresql#guarantees-and-limits). |
-| SQLite3, Bun SQLite | Yes; stepwise refused | The write lock of `BEGIN IMMEDIATE` is the migration lock: each command reads the marker and the unfinished attempts as the first statements of the transaction that runs its first group, so a second `apply` of the same state, from any process, reports `noop` or refuses with `V11015`. Applying a transition declared `execution: "stepwise"` is refused (`V11021`). See [SQLite](/docs/migration/drivers/sqlite#concurrent-commands). |
+| SQLite3, Bun SQLite | Yes; stepwise refused | The write lock of `BEGIN IMMEDIATE` is the migration lock: each command reads the marker and the unfinished attempts as the first statements of the transaction that runs its first group, so a second `apply` of the same state, from any process, reports `noop` or refuses with `V11015`. `generate` refuses a manual transition or rollback declared `execution: "stepwise"` (`V11021`), and `apply`, `down` and `reset` refuse one 1.1.0 published. See [SQLite](/docs/migration/drivers/sqlite#concurrent-commands). |
 | MySQL2 | Stepwise | DDL implicitly commits. Nominal transactions do not create rollback. Progress is recorded per dispatch. |
 | Neon HTTP | `apply` only | No interactive session: each transactional group is one request, a non-interactive transaction that takes the lock and asserts the marker, the checks and the destination's catalog digest in SQL. Stepwise transitions and a destination the digest cannot prove (a partial index) refuse with `V11021`; a lost reply is decided by the marker, else `V11020`. down/reset/verify/push refuse (`V8002`). See [Neon HTTP](/docs/drivers/postgresql/neon-http#migrations). |
 | PlanetScale | Read-only / offline | VTGate routing does not prove containment. Same offline/read-only split. |

@@ -53,8 +53,8 @@ export function createDurableObjectStorageWriter(
     list: async (keyPrefix) =>
       sql
         .exec<{ key: string }>(
-          `SELECT key FROM ${TABLE} WHERE substr(key, 1, ?) = ? ORDER BY key`,
-          prefix.length + keyPrefix.length,
+          `SELECT key FROM ${TABLE} WHERE substr(key, 1, length(?)) = ? ORDER BY key`,
+          `${prefix}${keyPrefix}`,
           `${prefix}${keyPrefix}`
         )
         .toArray()

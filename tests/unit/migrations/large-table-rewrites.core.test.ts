@@ -71,6 +71,19 @@ describe("tableRewrites", () => {
     ]);
   });
 
+  it("names a renamed table by its spelling before the program ran", () => {
+    expect(
+      tableRewrites([
+        `ALTER TABLE ${T} RENAME TO "members"`,
+        'ALTER TABLE "public"."members" RENAME TO "people"',
+        'ALTER TABLE "public"."people" ALTER COLUMN "age" TYPE bigint',
+        'CREATE TABLE "public"."drafts" ("id" text)',
+        'ALTER TABLE "public"."drafts" RENAME TO "notes"',
+        'ALTER TABLE "public"."notes" ALTER COLUMN "id" SET NOT NULL',
+      ])
+    ).toEqual([{ table: T, operation: 'column type change of "age"' }]);
+  });
+
   it("leaves what rewrites nothing and scans nothing under a blocking lock", () => {
     expect(
       tableRewrites([

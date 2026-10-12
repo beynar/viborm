@@ -336,22 +336,33 @@ function parseApprovals(
   }
   return value.map((entry, index) => {
     const at = `${label}[${index}]`;
-    const { column, operation, table } = exactObject(
-      entry,
-      APPROVAL_KEYS,
-      APPROVAL_KEYS,
+    return parseApproval(
+      exactObject(entry, APPROVAL_KEYS, APPROVAL_KEYS, at),
       at
     );
-    const known = APPROVAL_OPERATIONS.find((name) => name === operation);
-    if (!known) refuse(`${at}.operation is not a destructive operation`);
-    if (!isString(table) || table.length === 0) {
-      refuse(`${at}.table must be a non-empty string`);
-    }
-    if (column !== null && !(isString(column) && column.length > 0)) {
-      refuse(`${at}.column must be a non-empty string or null`);
-    }
-    return { operation: known, table, column };
   });
+}
+
+/**
+ * One approval's fields, wherever an approval is spelled: a stored
+ * transition's, or a predefined resolver's `destructive` decision, which
+ * refuses as its own input (`refuseWith`).
+ */
+export function parseApproval(
+  fields: Readonly<Record<string, unknown>>,
+  at: string,
+  refuseWith: (message: string) => never = refuse
+): MigrationApprovalV1 {
+  const { column, operation, table } = fields;
+  const known = APPROVAL_OPERATIONS.find((name) => name === operation);
+  if (!known) refuseWith(`${at}.operation is not a destructive operation`);
+  if (!isString(table) || table.length === 0) {
+    refuseWith(`${at}.table must be a non-empty string`);
+  }
+  if (column !== null && !(isString(column) && column.length > 0)) {
+    refuseWith(`${at}.column must be a non-empty string or null`);
+  }
+  return { operation: known, table, column };
 }
 
 export function encodeTransitionHash(

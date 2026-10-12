@@ -87,10 +87,13 @@ const complementOf = (guard: string) => guard.slice(guard.indexOf("NOT ("));
 const excluded = (column: string) =>
   new RegExp(`"q\\d+"\\."${column}"(?: COLLATE \\w+)? = \\?`, "g");
 
-/** A single-key capture's list: ONE bound JSON array, read by `json_each`. */
+/**
+ * A single-key capture's list: a parameter per member, or past 25 members ONE
+ * bound JSON array, read by `json_each`.
+ */
 const membership = (column: string) =>
   new RegExp(
-    `"q\\d+"\\."${column}"(?: COLLATE \\w+)? IN \\(SELECT value FROM json_each\\(\\?\\)\\)`,
+    `"q\\d+"\\."${column}"(?: COLLATE \\w+)? IN \\((?:SELECT value FROM json_each\\(\\?\\)|(\\?(?:, \\?)*))\\)`,
     "g"
   );
 
@@ -99,7 +102,11 @@ const excludedCount = ({ sql, parameters }: Statement, column: string) => {
   const guard = complementOf(sql);
   const offset = sql.length - guard.length;
   let count = (guard.match(excluded(column)) ?? []).length;
-  for (const { index } of guard.matchAll(membership(column))) {
+  for (const { index, 1: listed } of guard.matchAll(membership(column))) {
+    if (listed !== undefined) {
+      count += listed.split("?").length - 1;
+      continue;
+    }
     const position = sql.slice(0, offset + index).split("?").length - 1;
     const members: unknown[] = JSON.parse(String(parameters[position]));
     count += members.length;

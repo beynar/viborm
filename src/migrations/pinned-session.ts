@@ -35,7 +35,7 @@ import {
   DEFAULT_MIGRATION_LIMITS,
   type ResolvedMigrationLimits,
 } from "./limits";
-import { buildsIndexConcurrently } from "./statement-safety";
+import { runsConcurrently } from "./statement-safety";
 import { type CatalogRead, readsCommandNamespace } from "./target";
 import { createQueryExecutor } from "./utils";
 
@@ -474,11 +474,11 @@ function createPinnedSessionView<D extends AnyDriver>(
           throw connectionLostError(driver.driverName, undefined);
         const locked = LOCKED.get(this);
         await locked?.before(sql);
-        // A `CONCURRENTLY` index statement runs without the session's limits,
-        // which would cut it short and leave an INVALID index (plan S1).
+        // A `CONCURRENTLY` statement runs without the session's limits, which
+        // would cut it short: an INVALID index, a pending detach (plan S1).
         const run = async () => {
           try {
-            if (limits === undefined || !buildsIndexConcurrently(sql)) {
+            if (limits === undefined || !runsConcurrently(sql)) {
               return await executeRaw.call(this, client, sql, params, context);
             }
             await executeRaw.call(
@@ -852,7 +852,7 @@ function lockTransactions(
         await between();
         return;
       }
-      if (!sqlite && (armed || buildsIndexConcurrently(sql))) {
+      if (!sqlite && (armed || runsConcurrently(sql))) {
         await escalate();
         return;
       }
@@ -895,16 +895,12 @@ function lockTransactions(
 }
 
 /**
- * Commits a PostgreSQL command's open locked transaction. The next statement
- * opens another, and {@link lockedSinceDecision} is then false. Called:
- *
- * - after a bootstrap, before any statement writes the control tables:
- *   PlanetScale's Neki plans a statement against the schema committed before
- *   its transaction, so a control table created in the same one is not there
- *   for it. SQLite writes them in the transaction that made them; MySQL
- *   commits each DDL as it runs;
- * - before the caller's own work, such as a `resolve` callback, which no
- *   transaction waits on: past `idleTimeout` the server ends the session.
+ * Commits a PostgreSQL command's open locked transaction after a bootstrap,
+ * before any statement writes the control tables: PlanetScale's Neki plans a
+ * statement against the schema committed before its transaction, so a control
+ * table created in the same one is not there for it. SQLite writes them in the
+ * transaction that made them; MySQL commits each DDL as it runs. The next
+ * statement opens another, and {@link lockedSinceDecision} is then false.
  */
 export async function commitLockedTransaction(
   pinned: AnyDriver,
@@ -913,6 +909,17 @@ export async function commitLockedTransaction(
   if (command.target.dialect === "postgresql") {
     await LOCKED.get(pinned)?.between();
   }
+}
+
+/**
+ * Ends the command's open locked transaction before the caller's own work,
+ * such as a `resolve` callback, which no transaction waits on: past
+ * `idleTimeout` PostgreSQL ends the session, and SQLite's `BEGIN IMMEDIATE`
+ * holds every other writer. The next statement takes the lock again, and
+ * {@link lockedSinceDecision} is then false.
+ */
+export async function letLockGo(pinned: AnyDriver): Promise<void> {
+  await LOCKED.get(pinned)?.between();
 }
 
 /**

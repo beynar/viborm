@@ -155,17 +155,19 @@ queue runs one migration command at a time.
 A table rebuild commits that transaction to switch `PRAGMA foreign_keys`
 between two; its group then locks again and re-reads the marker before it acts.
 
-Applying a transition declared `execution: "stepwise"` is refused (`V11021`)
-before any of the path runs: every SQLite statement can run in a transaction,
-and only a transaction holds the lock. Declare manual transitions
+A manual transition or rollback declared `execution: "stepwise"` is refused
+(`V11021`, `meta.feature: "stepwise execution"`): by `generate`, before it is
+published, and by `apply`, `down` and `reset`, before any of the path runs,
+for one 1.1.0 published. Every SQLite statement can run in a transaction, and
+only a transaction holds the lock. Declare manual transitions
 `execution: "transactional"`. A stepwise transition published with 1.1.0 that
 some database still needs is applied with 1.1.0 before upgrading. One that no
 database has applied can instead be removed from migration storage (its
 `states/<id>.json` file) and generated again, from the same parent with the
 same SQL, as `"transactional"`. Generating it again without removing it would
 leave two children of one state, and the next `generate` refuses to merge them.
-Legacy stepwise work that `down`, `reset` or `resolve` reaches still runs, inside
-the locked transaction.
+An attempt 1.1.0 left unfinished on such a transition is still settled by
+`resolve`, whose retry runs inside the locked transaction.
 
 ## Driver admission
 

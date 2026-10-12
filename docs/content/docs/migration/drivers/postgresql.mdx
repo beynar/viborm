@@ -164,9 +164,12 @@ so a statement whose client disconnected stops within a second.
 
 A command reads and decides inside its first migration transaction, so
 `idleTimeout` also bounds the client's own pauses between two of those
-statements, such as a `down` loss-approval callback. On PostgreSQL 14+ 1.1.0
-bounded them too (`idle_session_timeout`); on PostgreSQL 12 and 13 this is
-new. A callback that waits longer needs a larger `idleTimeout`.
+statements. On PostgreSQL 14+ 1.1.0 bounded them too (`idle_session_timeout`);
+on PostgreSQL 12 and 13 this is new. A `down` loss-approval callback is not
+such a pause: `down` asks it with no transaction open and the lock let go, so
+no limit bounds it. The rollback then takes the lock again and re-reads the
+marker; if another command moved it meanwhile, `down` refuses with `V11015`
+and runs nothing.
 
 A limit that fires surfaces as a retryable error: `V5006` for `lock_timeout`,
 `V2002` for `statement_timeout`, and `V1001` or `V1002` for a lost or

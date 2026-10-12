@@ -7,11 +7,13 @@
  * form) must survive the package's `sideEffects`, and a bundle that imports
  * `createMigrationClient` from the PostgreSQL entry must plan a PostgreSQL
  * push and refuse a SQLite client: the SQLite migration driver is not there.
+ * The SQLite and MySQL entries carry none of PostgreSQL's catalog reads: the
+ * PostgreSQL driver owns its introspection and its catalog digest.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { repositoryRoot } from "./packed-consumer.mjs";
 
@@ -40,6 +42,42 @@ if (bare.outputFiles[0].contents.length === 0) {
   throw new Error(
     "a bundler dropped a bare import of viborm/migrations/postgres"
   );
+}
+
+// Catalog SQL only PostgreSQL's introspection and digest spell, looked for in
+// every built chunk an entry reaches, lazy ones included: what a bundler can
+// keep, before tree-shaking, without another bundle in this process.
+const POSTGRES_CATALOG = ["confdeltype", "indnullsnotdistinct"];
+const CHUNK_IMPORT =
+  /\bfrom\s*["'](\.[^"']+)["']|\bimport\s*\(?\s*["'](\.[^"']+)["']/g;
+const reachedChunks = (entry) => {
+  const reached = new Set();
+  const pending = [entry];
+  while (pending.length > 0) {
+    const file = pending.pop();
+    if (reached.has(file)) continue;
+    reached.add(file);
+    for (const [, from, imported] of readFileSync(file, "utf8").matchAll(
+      CHUNK_IMPORT
+    )) {
+      pending.push(resolve(dirname(file), from ?? imported));
+    }
+  }
+  return reached;
+};
+const { exports } = JSON.parse(
+  readFileSync(join(repositoryRoot, "package.json"), "utf8")
+);
+for (const entry of ["./migrations/sqlite", "./migrations/mysql"]) {
+  const chunks = reachedChunks(join(repositoryRoot, exports[entry].import));
+  const carried = POSTGRES_CATALOG.filter((marker) =>
+    [...chunks].some((chunk) => readFileSync(chunk, "utf8").includes(marker))
+  );
+  if (carried.length > 0) {
+    throw new Error(
+      `viborm${entry.slice(1)} carries PostgreSQL catalog code (${carried.join(", ")})`
+    );
+  }
 }
 
 const outDirectory = join(

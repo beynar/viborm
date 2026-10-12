@@ -17,17 +17,10 @@ import {
 } from "../schema/validation/validator";
 import { admitLiveMigrationCapability } from "./admission";
 import { canonicalizeJson } from "./canonical-json";
-import {
-  DEFAULT_CONTROL_BASE,
-  readControlState,
-  refuseIncompatibleHistory,
-  refusePartialControl,
-  unfinishedAttempts,
-} from "./control";
+import { refuseIncompatibleHistory, unfinishedAttempts } from "./control";
 import { diff } from "./differ";
 import type { BoundMigrationDriver } from "./drivers";
 import { executeDispatch } from "./execute-dispatch";
-import { liftForeignKeyPragmas } from "./foreign-keys";
 import { domainHash, HASH_DOMAIN, type Sha256 } from "./identity";
 import {
   resolveCommandDriver,
@@ -49,8 +42,8 @@ import {
   buildPushPlan,
   type InternalPushPlan,
   introspectManaged,
-  type PlannedStatement,
 } from "./push-plan";
+import { readCommandControl } from "./resume";
 import { assertMigrationDecimalDomainsFitProvider } from "./serializer";
 import { sliceDispatch } from "./sql-blob";
 import type {
@@ -259,24 +252,20 @@ async function executeLockedPlan(
   }
 
   // In a transaction the destination is proven before its COMMIT, and the
-  // lifted foreign-key bracket runs around it; otherwise once the statements
-  // ran — on MySQL after its sequential program.
-  const sql = planSql(plan);
+  // lifted foreign-key bracket runs around it (its pragmas, sent again
+  // inside, are no-ops there); otherwise once the statements ran — on MySQL
+  // after its sequential program.
   const fingerprint = await runProgram(
     pinned,
     command,
-    { transactional: plan.atomicity === "transactional", statements: sql },
+    {
+      transactional: plan.atomicity === "transactional",
+      statements: plan.statements.map((statement) =>
+        sliceDispatch(plan.sqlBlob, statement.dispatch)
+      ),
+    },
     async (producer, atomic) => {
-      const { bracket } = atomic
-        ? liftForeignKeyPragmas(pinned, sql)
-        : { bracket: null };
-      const statements = bracket
-        ? takeStatements(plan, [
-            findStatement(plan, bracket.disable).dispatch.dispatchId,
-            findStatement(plan, bracket.enable).dispatch.dispatchId,
-          ])
-        : plan.statements;
-      for (const statement of statements) {
+      for (const statement of plan.statements) {
         await executeDispatch(
           producer,
           plan.sqlBlob,
@@ -294,12 +283,6 @@ async function executeLockedPlan(
     plan,
     fingerprint ?? (await attestFinalFingerprint(pinned, command, plan)),
     "applied"
-  );
-}
-
-function planSql(plan: InternalPushPlan): string[] {
-  return plan.statements.map((statement) =>
-    sliceDispatch(plan.sqlBlob, statement.dispatch)
   );
 }
 
@@ -325,30 +308,6 @@ async function attestFinalFingerprint(
     );
   }
   return fingerprint;
-}
-
-function findStatement(plan: InternalPushPlan, sql: string): PlannedStatement {
-  const found = plan.statements.find(
-    (statement) =>
-      sliceDispatch(plan.sqlBlob, statement.dispatch).trim() === sql.trim()
-  );
-  if (!found) {
-    throw new MigrationError(
-      "The compiled SQLite foreign-key bracket is missing from the authenticated push plan",
-      VibORMErrorCode.INTERNAL_ERROR
-    );
-  }
-  return found;
-}
-
-function takeStatements(
-  plan: InternalPushPlan,
-  excludedDispatchIds: readonly string[]
-): readonly PlannedStatement[] {
-  const excluded = new Set(excludedDispatchIds);
-  return plan.statements.filter(
-    (statement) => !excluded.has(statement.dispatch.dispatchId)
-  );
 }
 
 function appliedResult(
@@ -386,16 +345,8 @@ async function assertPushControlInterlock(
   command: BoundMigrationDriver,
   plan: InternalPushPlan
 ): Promise<void> {
-  const control = await readControlState(
-    producer,
-    command,
-    DEFAULT_CONTROL_BASE,
-    { ledger: "open" }
-  );
-  if (control.presence.kind !== "present") {
-    refusePartialControl(control.presence);
-    return;
-  }
+  const control = await readCommandControl(producer, command);
+  if (control.presence.kind !== "present") return;
   const { marker, ledger } = control;
   if (unfinishedAttempts(ledger).length > 0) {
     throw new MigrationError(

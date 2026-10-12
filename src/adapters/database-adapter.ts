@@ -137,8 +137,8 @@ export interface DatabaseAdapter {
     false: () => Sql;
     /**
      * Returns the dialect's membership operand, valid only as `operators.in` /
-     * `notIn` input: a parenthesized list, a PostgreSQL array parameter, or a
-     * SQLite `json_each` subquery.
+     * `notIn` input: a parenthesized list, a PostgreSQL array parameter, or,
+     * past 25 members, a SQLite `json_each` subquery.
      */
     list: (values: Sql[]) => Sql;
     /** JSON value (PG: native, MySQL/SQLite: JSON.stringify) */
@@ -377,7 +377,8 @@ export interface DatabaseAdapter {
      * would bind the hex text's own bytes, so the binary arm decodes it
      * (`decode(…, 'hex')`, `UNHEX`, `unhex`). SQLite's `unhex()` arrived in
      * 3.41, above this adapter's 3.35 floor: a compact identifier on SQLite
-     * needs 3.41, and nothing else here does.
+     * needs 3.41, and so does a bytes list longer than `literals.list` keeps
+     * parenthesized; nothing else here does.
      */
     idCast: (expr: Sql, representation: IdRepresentation) => Sql;
 

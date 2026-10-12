@@ -179,6 +179,20 @@ function counterCells(substrate: () => Client) {
     expect(listed.statements.length).toBeGreaterThan(1);
     expect(listed.result.tags).toEqual(["a", "b"]);
   });
+
+  test("deciding the route refuses nothing: a decimal divided by zero inserts, and refuses only when it runs", async () => {
+    const { client } = recorded(substrate());
+    const upsert = () =>
+      client.counter.upsert({
+        where: { email: "z@x.io" },
+        create: create(1, "z@x.io"),
+        update: { credit: { divide: "0" } },
+      });
+    expect(String((await upsert()).credit)).toBe("10.5");
+    await expect(upsert()).rejects.toThrow(
+      "Cannot divide decimal field 'credit' by zero."
+    );
+  });
 }
 
 describe("engine-08 counter upsert — SQLite", () => {

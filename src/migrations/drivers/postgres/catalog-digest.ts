@@ -45,6 +45,7 @@ import type { AnyDriver } from "../../../drivers/driver";
 import { boundNamespace } from "../../catalog-probes";
 import { HASH_DOMAIN, isSha256, type Sha256 } from "../../identity";
 import type { BoundMigrationDriver } from "..";
+import type { ControlTableNames } from "../base";
 import {
   admittedExtensionTypes,
   COLUMNS_SOURCE,
@@ -329,12 +330,6 @@ function referentialAction(rule: string): string {
   return `CASE ${rule} WHEN 'CASCADE' THEN 'cascade' WHEN 'SET NULL' THEN 'setNull' WHEN 'RESTRICT' THEN 'restrict' WHEN 'SET DEFAULT' THEN 'setDefault' ELSE 'noAction' END`;
 }
 
-/** The two control tables the fingerprint leaves out. */
-export interface ControlTableNames {
-  readonly state: string;
-  readonly log: string;
-}
-
 /**
  * The statement and its parameters, for a caller that embeds it in a
  * statement of its own: `$1` is the namespace and `$2`, `$3` the state and log
@@ -382,6 +377,6 @@ export async function postgresCatalogDigest(
 }
 
 /** A digest the statement answered, or `undefined` for an abstention. */
-export function readDigest(value: unknown): Sha256 | undefined {
+function readDigest(value: unknown): Sha256 | undefined {
   return isSha256(value) ? value : undefined;
 }

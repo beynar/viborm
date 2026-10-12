@@ -826,22 +826,28 @@ describe("adversarial migration regressions", () => {
     const driver = pgEstateDriver("public");
     const migrations = getMigrationDriver(driver);
     await expect(
-      migrations.preflightSchemaRequirements([desired], (query, params) =>
-        driver._executeRaw(query, params)
+      migrations.preflightSchemaRequirements(
+        [desired],
+        (query, params) => driver._executeRaw(query, params),
+        []
       )
     ).rejects.toThrow("pgvector: true");
     expect(driver.statements).toEqual([]);
     driver.adapter.capabilities.supportsVector = true;
     driver.respond = () => [{ ready: false }];
     await expect(
-      migrations.preflightSchemaRequirements([desired], (query, params) =>
-        driver._executeRaw(query, params)
+      migrations.preflightSchemaRequirements(
+        [desired],
+        (query, params) => driver._executeRaw(query, params),
+        []
       )
     ).rejects.toThrow("extension-owned vector type");
     driver.respond = () => [{ ready: true }];
     await expect(
-      migrations.preflightSchemaRequirements([desired], (query, params) =>
-        driver._executeRaw(query, params)
+      migrations.preflightSchemaRequirements(
+        [desired],
+        (query, params) => driver._executeRaw(query, params),
+        []
       )
     ).resolves.toBeUndefined();
     expect(

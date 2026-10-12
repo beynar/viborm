@@ -10,6 +10,7 @@ import {
   rebindChecks,
 } from "@src/migrations/compile";
 import { mysqlMigrationDriver } from "@src/migrations/drivers/mysql";
+import { postgresMigrationDriver } from "@src/migrations/drivers/postgres";
 import { sqlite3MigrationDriver } from "@src/migrations/drivers/sqlite";
 import { emptyManagedSnapshot } from "@src/migrations/empty-snapshot";
 import { evaluateCheck } from "@src/migrations/execute-dispatch";
@@ -24,7 +25,7 @@ describe("migration v1 checks", () => {
     const compiled = compileManualTransition(
       [sql`SELECT 1`],
       { kind: "irreversible", reason: "none" },
-      "sqlite",
+      "postgresql",
       "stepwise",
       undefined,
       assembly
@@ -46,7 +47,7 @@ describe("migration v1 checks", () => {
     const compiled = compileManualTransition(
       [sql`SELECT 1`],
       { kind: "irreversible", reason: "none" },
-      "sqlite",
+      "postgresql",
       "stepwise",
       [{ kind: "trusted-read", query: sql`SELECT 1`, equals: true }],
       assembly
@@ -54,7 +55,7 @@ describe("migration v1 checks", () => {
     const destination = [
       compileTrustedCheck(
         { kind: "trusted-read", query: sql`SELECT 1`, equals: true },
-        "sqlite",
+        "postgresql",
         assembly,
         "destination:0"
       ),
@@ -167,7 +168,7 @@ describe("migration v1 checks", () => {
         execution: "stepwise",
         sql: [sql`SELECT 2`],
       },
-      "sqlite",
+      "postgresql",
       "transactional",
       [{ kind: "trusted-read", query: sql`SELECT 1`, equals: true }],
       assembly
@@ -178,14 +179,14 @@ describe("migration v1 checks", () => {
     }
     expect(
       classifyStoredAtomicity(
-        sqlite3MigrationDriver,
+        postgresMigrationDriver,
         compiled.requestedForwardBoundary,
         compiled.operations
       )
     ).toBe("transactional");
     expect(
       classifyStoredAtomicity(
-        sqlite3MigrationDriver,
+        postgresMigrationDriver,
         compiled.rollback.kind === "manual"
           ? compiled.rollback.requestedBoundary
           : null,
@@ -203,7 +204,7 @@ describe("migration v1 checks", () => {
         execution: "transactional",
         sql: [sql`SELECT 2`],
       },
-      "sqlite",
+      "postgresql",
       "stepwise",
       [{ kind: "trusted-read", query: sql`SELECT 1`, equals: true }],
       assembly
@@ -214,14 +215,14 @@ describe("migration v1 checks", () => {
     }
     expect(
       classifyStoredAtomicity(
-        sqlite3MigrationDriver,
+        postgresMigrationDriver,
         "stepwise",
         compiled.operations
       )
     ).toBe("stepwise");
     expect(
       classifyStoredAtomicity(
-        sqlite3MigrationDriver,
+        postgresMigrationDriver,
         "transactional",
         compiled.rollback.kind === "manual" ? compiled.rollback.operations : []
       )

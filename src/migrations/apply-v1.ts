@@ -4,11 +4,11 @@
  */
 
 import { isVibORMError, MigrationError, VibORMErrorCode } from "../errors";
-import { admitLiveMigrationCapability } from "./admission";
 import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
   groupContiguousAtomicity,
+  refuseSqliteStepwise,
   stepStatements,
 } from "./compile";
 import {
@@ -25,12 +25,10 @@ import {
   readControlState,
   readPostgresDecision,
   refuseIncompatibleHistory,
-  refusePartialControl,
   sameMarker,
   unfinishedAttempts,
 } from "./control";
 import type { BoundMigrationDriver } from "./drivers";
-import { postgresCatalogDigestQuery } from "./drivers/postgres/catalog-digest";
 import { assertAllChecks, executeOperations } from "./execute-dispatch";
 import {
   loadMigrationGraph,
@@ -58,12 +56,12 @@ import {
   markerStanding,
   proveLive,
 } from "./proof";
-import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
+import type { MigrationClient } from "./push/planner";
 import { fingerprintDeparsed, fingerprintSnapshot } from "./push-fingerprint";
 import type { introspectManaged } from "./push-plan";
+import { openCommand, readCommandControl } from "./resume";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type { MigrationStorageReader } from "./storage/contract";
-import { assertEstateTargetMatches } from "./target";
 import type { SchemaSnapshot } from "./types";
 import type {
   ApplyV1Options,
@@ -91,24 +89,17 @@ export async function applyV1(
   options: ApplyV1Options = {}
 ): Promise<ApplyV1Result> {
   const graph = await loadMigrationGraph(storage);
-  const driver = getPushMigrationDriver(client);
-  assertEstateTargetMatches(graph.descriptor.target, driver.target);
-  const target = resolveStateSelector(graph, options.to);
   const dryRun = options.dryRun === true;
-  admitLiveMigrationCapability(
-    driver,
+  const driver = openCommand(
+    client,
+    graph,
     dryRun ? "read-only" : "batch",
     dryRun ? "apply({ dryRun: true })" : "apply()"
   );
+  const target = resolveStateSelector(graph, options.to);
 
   if (dryRun) {
-    const control = await readControlState(
-      client.$driver,
-      driver,
-      DEFAULT_CONTROL_BASE,
-      { ledger: "open" }
-    );
-    refusePartialControl(control.presence);
+    const control = await readCommandControl(client.$driver, driver);
     const decision = decide(graph, control.marker, target, options);
     if (!decision || decision.origin === target) {
       return { outcome: "noop", path: [], statements: [] };
@@ -123,15 +114,7 @@ export async function applyV1(
     client.$driver,
     driver,
     async (pinned, command) => {
-      const control = await readControlState(
-        pinned,
-        command,
-        DEFAULT_CONTROL_BASE,
-        { ledger: "open" }
-      );
-      if (control.presence.kind === "missing-table") {
-        refusePartialControl(control.presence);
-      }
+      const control = await readCommandControl(pinned, command, true);
       const { marker, ledger } = control;
       const needsBootstrap = control.presence.kind !== "present";
       refuseIncompatibleHistory(marker, ledger);
@@ -282,7 +265,6 @@ function decide(
   const origin = marker?.stateId ?? null;
   const path =
     origin === target ? [] : selectRoute(graph, origin, target, options.via);
-  assertPathArtifacts(graph, origin, path);
   return { origin, path, statements: previewStatements(graph, origin, path) };
 }
 
@@ -301,7 +283,6 @@ async function applyPathUnderLock(
     const from = index === 0 ? origin : path[index - 1]!;
     const transition = parentTransition(graph, from, to);
     const state = graph.states.get(to)!;
-    // `assertPathArtifacts` proved every blob of the path.
     const blob = graph.sql.get(state.sqlHash)!;
     const requested = transition.requestedForwardBoundary;
     assertTransactionalBoundaryHonored(
@@ -314,13 +295,8 @@ async function applyPathUnderLock(
       transition.operations,
       blob
     );
-    refuseStepwise(
-      pinned,
-      command,
-      to,
-      requested === "stepwise",
-      batched && boundary === "stepwise"
-    );
+    refuseSqliteStepwise(command, requested, to);
+    if (batched && boundary === "stepwise") refuseBatchedStepwise(pinned, to);
     return { from, to, transition, state, blob, boundary };
   });
 
@@ -430,33 +406,18 @@ async function applyPathUnderLock(
 }
 
 /**
- * Plans S5 and D7, refused while the path is prepared, before any of it runs:
- * only a transaction holds SQLite's write lock, under which a transition
- * applies exactly once, and every SQLite statement can run in one; a
+ * Plan D7, refused while the path is prepared, before any of it runs: a
  * transport with no session runs only transactional groups, each as one
  * request.
  */
-function refuseStepwise(
+function refuseBatchedStepwise(
   pinned: import("../drivers/driver").AnyDriver,
-  command: BoundMigrationDriver,
-  toState: Sha256,
-  requestedStepwise: boolean,
-  batchedStepwise: boolean
-): void {
-  const sqlite = command.target.dialect === "sqlite" && requestedStepwise;
-  if (!(sqlite || batchedStepwise)) return;
+  toState: Sha256
+): never {
   throw new MigrationError(
-    sqlite
-      ? 'SQLite applies no stepwise transition: only a transaction holds the write lock under which a migration applies exactly once, and every SQLite statement can run in one. Nothing ran. Apply it with VibORM 1.1.0, or, if no database applied it, remove its state from migration storage and generate it again with `execution: "transactional"`.'
-      : `The driver "${pinned.driverName}" sends each transactional group as one request and has no session for a stepwise transition (CONCURRENTLY, or a manual stepwise step). Nothing ran. Apply it over a session driver: viborm/pg, Neon's WebSocket Pool included.`,
+    `The driver "${pinned.driverName}" sends each transactional group as one request and has no session for a stepwise transition (CONCURRENTLY, or a manual stepwise step). Nothing ran. Apply it over a session driver: viborm/pg, Neon's WebSocket Pool included.`,
     VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
-    {
-      meta: {
-        dialect: sqlite ? "sqlite" : "postgresql",
-        toState,
-        feature: "stepwise execution",
-      },
-    }
+    { meta: { dialect: "postgresql", toState, feature: "stepwise execution" } }
   );
 }
 
@@ -492,12 +453,12 @@ async function runForwardEdge(
     transition.operations,
     probed ? boundary : "atomic",
     probed
-      ? (progress, effect) =>
+      ? (progress, effect, failure) =>
           appendLedger(
             producer,
             command,
             DEFAULT_CONTROL_BASE,
-            attempt.event("step-confirmed", effect, progress)
+            attempt.event("step-confirmed", effect, progress, failure)
           )
       : undefined,
     command.namespace,
@@ -643,7 +604,15 @@ async function applyGroupBatch(
     ) {
       return next;
     }
-    await recordFailedAttempt(driver, command, running, failure);
+    // Refused for the lock or a moved marker, the request ran none of the
+    // group: a session refuses both before the attempt, recording nothing.
+    const refusedBeforeGroup =
+      failure instanceof MigrationError &&
+      (failure.code === VibORMErrorCode.MIGRATION_LOCK_FAILED ||
+        failure.code === VibORMErrorCode.MIGRATION_MARKER_CONFLICT);
+    if (!refusedBeforeGroup) {
+      await recordFailedAttempt(driver, command, running, failure);
+    }
     throw failure;
   }
   return next;
@@ -659,8 +628,8 @@ function assertDigest(
   command: BoundMigrationDriver,
   snapshot: SchemaSnapshot
 ): void {
-  const digest = postgresCatalogDigestQuery(
-    command,
+  // A batch runs only on PostgreSQL, whose driver owns the digest.
+  const digest = command.catalogDigestQuery!(
     controlTableNames(DEFAULT_CONTROL_BASE)
   );
   batch.assert(
@@ -824,25 +793,6 @@ function forwardAttempt(
         open: kind === "started",
       }),
   };
-}
-
-function assertPathArtifacts(
-  graph: MigrationGraph,
-  origin: Sha256 | null,
-  path: readonly Sha256[]
-): void {
-  let from = origin;
-  for (const to of path) {
-    parentTransition(graph, from, to);
-    const state = graph.states.get(to);
-    if (!(state && graph.sql.has(state.sqlHash))) {
-      throw new MigrationError(
-        "Selected path references a state or SQL blob that is not authenticated",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-    from = to;
-  }
 }
 
 function previewStatements(

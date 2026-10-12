@@ -3,7 +3,6 @@ import type {
   InferInputShape,
   InferOutputShape,
   ThunkCast,
-  ValidationFailure,
   ValidationIssue,
   ValidationResult,
   VibSchema,
@@ -609,7 +608,7 @@ function createObjectValidator(
       ? (
           input: Record<string, unknown>,
           inputValueScratch: unknown[] | undefined
-        ): ValidationFailure | undefined => {
+        ): ValidationIssue[] | undefined => {
           if (nonEmpty === true) {
             // Check if object has any keys at all (including unknown keys when strict: false)
             let hasAnyKey = false;
@@ -617,11 +616,7 @@ function createObjectValidator(
               hasAnyKey = true;
               break;
             }
-            if (!hasAnyKey) {
-              return {
-                issues: [{ message: "Object cannot be empty" }],
-              };
-            }
+            if (!hasAnyKey) return [{ message: "Object cannot be empty" }];
           }
 
           if (activeRequiresOneOf) {
@@ -636,13 +631,11 @@ function createObjectValidator(
                   ) !== undefined
               );
               if (!hasOne) {
-                return {
-                  issues: [
-                    {
-                      message: `Missing required field: one of ${group.join(", ")}`,
-                    },
-                  ],
-                };
+                return [
+                  {
+                    message: `Missing required field: one of ${group.join(", ")}`,
+                  },
+                ];
               }
             }
           }
@@ -664,19 +657,31 @@ function createObjectValidator(
                 const alternatives = group
                   .map((keySet) => keySet.join(", "))
                   .join(" or ");
-                return {
-                  issues: [
-                    {
-                      message: `Missing required fields: one of ${alternatives}`,
-                    },
-                  ],
-                };
+                return [
+                  {
+                    message: `Missing required fields: one of ${alternatives}`,
+                  },
+                ];
               }
             }
           }
           return undefined;
         }
       : undefined;
+
+  /**
+   * Both parsers' prologue — strict keys, then requirements: the first issue,
+   * or every one when collecting.
+   */
+  const precheck = (
+    input: Record<string, unknown>,
+    inputValueScratch: unknown[] | undefined
+  ): ValidationIssue[] | undefined => {
+    const issues = strict ? unknownKeyIssues(input, keyIndex) : undefined;
+    if (issues && !collectingAllIssues()) return issues;
+    const unmet = checkRequirements?.(input, inputValueScratch);
+    return unmet ? gathered(issues, unmet) : issues;
+  };
 
   // Fast path for fully-partial objects (where/select/orderBy args):
   // iterate input keys instead of all schema keys, and don't materialize
@@ -688,14 +693,8 @@ function createObjectValidator(
     const input = value as Record<string, unknown>;
     if (resolve) resolve();
     const inputValueScratch = inputValueScratchTemplate?.slice();
-    // Strict mode: check for extra keys first (fail-fast, unless collecting)
-    let issues = strict ? unknownKeyIssues(input, keyIndex) : undefined;
+    let issues = precheck(input, inputValueScratch);
     if (issues && !collectingAllIssues()) return { issues };
-    const unmet = checkRequirements?.(input, inputValueScratch);
-    if (unmet) {
-      if (!collectingAllIssues()) return unmet;
-      (issues ??= []).push(...unmet.issues);
-    }
     const output: Record<string, unknown> = {};
     for (const key in input) {
       const i = keyIndex.get(key);
@@ -721,9 +720,8 @@ function createObjectValidator(
 
       const result = validates[i]!(inputValue);
       if (result.issues) {
-        const rooted = issuesUnder(key, result.issues);
-        if (!collectingAllIssues()) return { issues: rooted };
-        (issues ??= []).push(...rooted);
+        issues = gathered(issues, issuesUnder(key, result.issues));
+        if (!collectingAllIssues()) return { issues };
         continue;
       }
       if (result.value !== undefined) {
@@ -747,9 +745,8 @@ function createObjectValidator(
       }
       const result = validates[i]!(undefined);
       if (result.issues) {
-        const rooted = issuesUnder(key, result.issues);
-        if (!collectingAllIssues()) return { issues: rooted };
-        (issues ??= []).push(...rooted);
+        issues = gathered(issues, issuesUnder(key, result.issues));
+        if (!collectingAllIssues()) return { issues };
         continue;
       }
       if (result.value !== undefined) {
@@ -773,14 +770,8 @@ function createObjectValidator(
     const input = value as Record<string, unknown>;
     if (resolve) resolve();
     const inputValueScratch = inputValueScratchTemplate?.slice();
-    // Strict mode: check for extra keys first (fail-fast, unless collecting)
-    let issues = strict ? unknownKeyIssues(input, keyIndex) : undefined;
+    let issues = precheck(input, inputValueScratch);
     if (issues && !collectingAllIssues()) return { issues };
-    const unmet = checkRequirements?.(input, inputValueScratch);
-    if (unmet) {
-      if (!collectingAllIssues()) return unmet;
-      (issues ??= []).push(...unmet.issues);
-    }
     const output: Record<string, unknown> = {};
     // Validate each field - direct array access, no object property lookup
     for (let i = 0; i < keys.length; i++) {
@@ -811,12 +802,10 @@ function createObjectValidator(
           !acceptsUndefined[i] &&
           !isProvided(provides, key)
         ) {
-          const missing = {
-            message: `Missing required field: ${key}`,
-            path: [key],
-          };
-          if (!collectingAllIssues()) return { issues: [missing] };
-          (issues ??= []).push(missing);
+          issues = gathered(issues, [
+            { message: `Missing required field: ${key}`, path: [key] },
+          ]);
+          if (!collectingAllIssues()) return { issues };
           continue;
         }
 
@@ -824,9 +813,8 @@ function createObjectValidator(
         if (acceptsUndefined[i]) {
           const result = validates[i]!(undefined);
           if (result.issues) {
-            const rooted = issuesUnder(key, result.issues);
-            if (!collectingAllIssues()) return { issues: rooted };
-            (issues ??= []).push(...rooted);
+            issues = gathered(issues, issuesUnder(key, result.issues));
+            if (!collectingAllIssues()) return { issues };
             continue;
           }
           output[key] = result.value;
@@ -843,9 +831,8 @@ function createObjectValidator(
 
       // Handle validation error (most common unhappy path)
       if (result.issues) {
-        const rooted = issuesUnder(key, result.issues);
-        if (!collectingAllIssues()) return { issues: rooted };
-        (issues ??= []).push(...rooted);
+        issues = gathered(issues, issuesUnder(key, result.issues));
+        if (!collectingAllIssues()) return { issues };
         continue;
       }
 
@@ -858,6 +845,16 @@ function createObjectValidator(
   };
 
   return partial && !atLeast ? parsePartial : parseDense;
+}
+
+/** `found` after the issues a parse has already gathered, if any. */
+function gathered(
+  issues: ValidationIssue[] | undefined,
+  found: ValidationIssue[]
+): ValidationIssue[] {
+  if (!issues) return found;
+  issues.push(...found);
+  return issues;
 }
 
 /** The unknown keys of a strict object: the first, or every one when collecting. */

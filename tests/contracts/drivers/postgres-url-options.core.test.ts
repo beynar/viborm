@@ -130,6 +130,31 @@ describe("platform-08: the URL fills only its keys and explicit options win", ()
     expect(target).toMatchObject({ password: SECRET, port: 6543 });
   });
 
+  test("pg: a password callback beside a URL is refused, not sent as null", () => {
+    // node-postgres reads the password from the URL over the option beside
+    // it, so the callback never runs and every connection fails to sign in.
+    const password = async () => SECRET;
+    for (const build of [
+      () => new PgDriver({ databaseUrl: TENANT_URL, options: { password } }),
+      () =>
+        createPgClient({
+          schema,
+          options: { connectionString: TENANT_URL, password },
+        }),
+    ]) {
+      const refusal = refusalFrom(build);
+      expect(refusal.code).toBe(VibORMErrorCode.CLIENT_INITIALIZATION);
+      expect(refusal.message).toContain("password callback");
+    }
+    // Without a URL the callback is node-postgres's to call.
+    expect(
+      () =>
+        new PgDriver({
+          options: { host: "db.internal", user: "tenant_7", password },
+        })
+    ).not.toThrow();
+  });
+
   test("postgres.js: a per-tenant URL plus a password from a secret", async () => {
     const target = await postgresTarget(
       driverFromWrapper(() =>

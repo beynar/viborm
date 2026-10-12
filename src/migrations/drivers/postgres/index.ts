@@ -16,6 +16,7 @@ import {
 import type { Scalar, ScalarState } from "@schema/scalars";
 import { encodePostgresTemporal } from "@validation/primitives/datetime-physical-codec";
 import { hasIdPrefix } from "@validation/primitives/id-formats";
+import type { AnyDriver } from "../../../drivers/driver";
 import { errorCause } from "../../../drivers/shared/driver-options";
 import { MigrationError, VibORMErrorCode } from "../../../errors";
 import { renderQualifiedIdentifier } from "../../../sql/identifiers";
@@ -29,8 +30,8 @@ import {
   isPostgresTextToUuid,
   postgresTextToUuidGuard,
 } from "../../identifier-conversion";
+import type { Sha256 } from "../../identity";
 import { DEFAULT_MIGRATION_LIMITS } from "../../limits";
-import type { NativeRenameOperation } from "../../native-rename";
 import { rowsAfterSchemaChange } from "../../statement-safety";
 import type {
   ColumnDef,
@@ -40,6 +41,7 @@ import type {
   TableDef,
 } from "../../types";
 import { derivedMigrationName } from "../../utils";
+import type { BoundMigrationDriver } from "..";
 import {
   type AddColumnOperation,
   type AddForeignKeyOperation,
@@ -47,10 +49,12 @@ import {
   type AddUniqueConstraintOperation,
   type AlterColumnOperation,
   type AlterEnumOperation,
+  type ControlTableNames,
   type CreateEnumOperation,
   type CreateIndexOperation,
   type CreateTableOperation,
   type DDLContext,
+  type DerivedRename,
   type DropColumnOperation,
   type DropEnumOperation,
   type DropForeignKeyOperation,
@@ -68,6 +72,10 @@ import {
   type BatchExecutor,
   canonicalizeIndexPredicates,
 } from "./canonicalize-index-predicate";
+import {
+  postgresCatalogDigest,
+  postgresCatalogDigestQuery,
+} from "./catalog-digest";
 import {
   admittedExtensionTypes,
   introspectPostgresSchema,
@@ -144,13 +152,6 @@ function snapshotUsesGeoPoint(snapshot: SchemaSnapshot): boolean {
 }
 
 const QUOTED_LITERAL = /^'(.*)'$/s;
-const ARRAY_TYPE = /\[\]$/;
-
-/** A name a native rename carries along, and the statement kind that does. */
-interface DerivedRename {
-  readonly kind: "constraint" | "index" | "type";
-  readonly to: string;
-}
 
 const storesEnum = (column: ColumnDef, enumName: string) =>
   column.type === enumName || column.type === `${enumName}[]`;
@@ -407,10 +408,26 @@ export class PostgresMigrationDriver extends MigrationDriver {
     });
   }
 
+  override catalogDigestQuery(
+    this: BoundMigrationDriver,
+    control: ControlTableNames,
+    deparsedPredicates = false
+  ) {
+    return postgresCatalogDigestQuery(this, control, deparsedPredicates);
+  }
+
+  override catalogDigest(
+    this: BoundMigrationDriver,
+    producer: AnyDriver,
+    control: ControlTableNames
+  ): Promise<Sha256 | undefined> {
+    return postgresCatalogDigest(producer, this, control);
+  }
+
   override async preflightSchemaRequirements(
     snapshots: readonly SchemaSnapshot[],
     executeRaw: RawExecutor,
-    program: readonly string[] = []
+    program: readonly string[]
   ): Promise<void> {
     try {
       // PlanetScale's Neki plans a row statement against the schema committed
@@ -977,122 +994,10 @@ export class PostgresMigrationDriver extends MigrationDriver {
     return `ALTER TABLE ${this.qualify(op.from)} RENAME TO ${this.escapeIdentifier(op.to)}`;
   }
 
-  override compileRenameTable(
-    op: RenameTableOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([
-      this.generateRenameTable(op, context),
-      ...this.compileDerivedRenames(op, context),
-    ]);
-  }
-
-  override projectNativeRename(
-    snapshot: SchemaSnapshot,
-    operation: NativeRenameOperation
-  ): SchemaSnapshot {
-    const projected = super.projectNativeRename(snapshot, operation);
-    const renames = this.derivedRenames(operation, snapshot);
-    if (renames.size === 0) return projected;
-    const name = (from: string) => renames.get(from)?.to ?? from;
-    const renamed = <T extends { readonly name: string }>(
-      items: readonly T[]
-    ) => items.map((item) => ({ ...item, name: name(item.name) }));
-    const owner =
-      operation.type === "renameTable" ? operation.to : operation.tableName;
-    return {
-      ...projected,
-      ...(projected.enums ? { enums: renamed(projected.enums) } : {}),
-      tables: projected.tables.map((table) => {
-        if (table.name !== owner) return table;
-        const { primaryKey } = table;
-        return {
-          ...table,
-          columns: table.columns.map((column) => {
-            const element = column.type.replace(ARRAY_TYPE, "");
-            const type = name(element) + column.type.slice(element.length);
-            return { ...column, type };
-          }),
-          ...(primaryKey?.name
-            ? { primaryKey: { ...primaryKey, name: name(primaryKey.name) } }
-            : {}),
-          indexes: renamed(table.indexes),
-          uniqueConstraints: renamed(table.uniqueConstraints),
-          foreignKeys: renamed(table.foreignKeys),
-        };
-      }),
-    };
-  }
-
-  /**
-   * The names a native rename carries along, each derived from what it
-   * renames: the default primary key's (`<table>_pkey`), a per-column enum
-   * type (`<table>_<column>_enum`), and an index, unique or foreign key named
-   * after its own columns (`<table>_<columns>_idx`, `_key`, `_fkey`). A name
-   * that is not its derivation is custom, and stays.
-   */
-  private derivedRenames(
-    operation: NativeRenameOperation,
-    snapshot: SchemaSnapshot | undefined
-  ): Map<string, DerivedRename> {
-    const [from, to] =
-      operation.type === "renameTable"
-        ? [operation.from, operation.to]
-        : [operation.tableName, operation.tableName];
-    const renamed = (column: string) =>
-      operation.type === "renameColumn" && column === operation.from
-        ? operation.to
-        : column;
-    const renames = new Map<string, DerivedRename>();
-    const follow = (
-      kind: DerivedRename["kind"],
-      name: string | undefined,
-      derive: (table: string, column: (name: string) => string) => string
-    ) => {
-      const next = derive(to, renamed);
-      if (name === derive(from, (column) => column) && next !== name) {
-        renames.set(name, { kind, to: next });
-      }
-    };
-    const named =
-      (columns: readonly string[], suffix: string) =>
-      (owner: string, column: (name: string) => string) =>
-        derivedMigrationName(
-          `${owner}_${columns.map(column).join("_")}_${suffix}`
-        );
-    const table = snapshot?.tables.find((item) => item.name === from);
-    if (!table) return renames;
-    follow("constraint", table.primaryKey?.name, (owner) =>
-      this.generatedPrimaryKeyName(owner)
-    );
-    for (const column of table.columns) {
-      follow("type", column.type.replace(ARRAY_TYPE, ""), (owner, renamedTo) =>
-        this.getEnumColumnType(owner, renamedTo(column.name), [])
-      );
-    }
-    for (const index of table.indexes) {
-      follow("index", index.name, named(index.columns, "idx"));
-    }
-    // A unique constraint's index carries its name: renaming it renames both.
-    for (const unique of table.uniqueConstraints) {
-      follow("index", unique.name, named(unique.columns, "key"));
-    }
-    for (const key of table.foreignKeys) {
-      follow("constraint", key.name, named(key.columns, "fkey"));
-    }
-    return renames;
-  }
-
-  private compileDerivedRenames(
-    operation: NativeRenameOperation,
-    context: DDLContext
+  protected override renameDerivedNames(
+    owner: string,
+    renames: ReadonlyMap<string, DerivedRename>
   ): string[] {
-    const owner =
-      operation.type === "renameTable" ? operation.to : operation.tableName;
-    const renames = this.derivedRenames(
-      operation,
-      this.schemaAtOperation(context)
-    );
     return [...renames].map(([from, { kind, to }]) =>
       kind === "constraint"
         ? `ALTER TABLE ${this.qualify(owner)} RENAME CONSTRAINT ${this.escapeIdentifier(from)} TO ${this.escapeIdentifier(to)}`
@@ -1103,72 +1008,6 @@ export class PostgresMigrationDriver extends MigrationDriver {
   /** Generated keys have an explicit bounded name; catalog omissions stay unknown. */
   override generatedPrimaryKeyName(tableName: string, name?: string): string {
     return name || derivedMigrationName(`${tableName}_pkey`);
-  }
-
-  /** Native identity and PK effects needed by rename and enum DDL at this prefix. */
-  private schemaAtOperation(context: DDLContext): SchemaSnapshot | undefined {
-    let snapshot = context.currentSchema;
-    if (!snapshot) return undefined;
-    for (const operation of context.precedingOperations ?? []) {
-      if (
-        operation.type === "renameTable" ||
-        operation.type === "renameColumn"
-      ) {
-        snapshot = this.projectNativeRename(snapshot, operation);
-      } else if (operation.type === "createTable") {
-        const table = operation.table;
-        snapshot = {
-          ...snapshot,
-          tables: [
-            ...snapshot.tables,
-            table.primaryKey
-              ? {
-                  ...table,
-                  primaryKey: {
-                    ...table.primaryKey,
-                    name: this.generatedPrimaryKeyName(
-                      table.name,
-                      table.primaryKey.name
-                    ),
-                  },
-                }
-              : table,
-          ],
-        };
-      } else if (operation.type === "dropTable") {
-        snapshot = {
-          ...snapshot,
-          tables: snapshot.tables.filter(
-            (table) => table.name !== operation.tableName
-          ),
-        };
-      } else if (
-        operation.type === "addPrimaryKey" ||
-        operation.type === "dropPrimaryKey"
-      ) {
-        snapshot = {
-          ...snapshot,
-          tables: snapshot.tables.map((table) =>
-            table.name === operation.tableName
-              ? {
-                  ...table,
-                  primaryKey:
-                    operation.type === "addPrimaryKey"
-                      ? {
-                          ...operation.primaryKey,
-                          name: this.generatedPrimaryKeyName(
-                            operation.tableName,
-                            operation.primaryKey.name
-                          ),
-                        }
-                      : undefined,
-                }
-              : table
-          ),
-        };
-      }
-    }
-    return snapshot;
   }
 
   // ===========================================================================
@@ -1189,16 +1028,6 @@ export class PostgresMigrationDriver extends MigrationDriver {
     _context: DDLContext
   ): string {
     return `ALTER TABLE ${this.qualify(op.tableName)} RENAME COLUMN ${this.escapeIdentifier(op.from)} TO ${this.escapeIdentifier(op.to)}`;
-  }
-
-  override compileRenameColumn(
-    op: RenameColumnOperation,
-    context: DDLContext
-  ): readonly string[] {
-    return this.filterStatements([
-      this.generateRenameColumn(op, context),
-      ...this.compileDerivedRenames(op, context),
-    ]);
   }
 
   generateAlterColumn(op: AlterColumnOperation, context: DDLContext): string {

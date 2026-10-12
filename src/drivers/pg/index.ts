@@ -148,7 +148,8 @@ const URL_SSL_KEYS = ["sslmode", "sslcert", "sslkey", "sslrootcert"];
  * and `port` from the query and reads the database from the path, so an
  * explicit key is written there; any other option the query also names is
  * dropped from it, and an explicit `ssl` drops the parameters that derive one.
- * A password callback cannot be written into a URL and is not kept beside one.
+ * A password callback cannot be written into a URL, and node-postgres would
+ * replace it with the URL's password, so one beside a URL is refused.
  */
 function connectionRecord(
   options: PoolConfig,
@@ -156,6 +157,12 @@ function connectionRecord(
 ): PoolConfig {
   const given = options.connectionString ?? databaseUrl;
   if (!given) return options;
+  if (typeof options.password === "function") {
+    throw new ClientInitializationError(
+      'Driver "pg" cannot keep a password callback beside a connection URL: node-postgres reads the password from the URL. Pass `host`, `user` and `database` in `options` instead.',
+      { meta: { driver: "pg", operation: "configuration" } }
+    );
+  }
   const connectionString = systemRootAsVerifyFull(given);
   let url: URL | undefined;
   try {

@@ -6,8 +6,12 @@
 // 1.1.0 reads every row on every command and sorts by (startedAt, eventId), so
 // same-millisecond events come back in hash order.
 //
-// The clock is pinned to one instant per attempt (Date#toISOString), which is
-// what a fast machine produces for the events of one attempt.
+// The clock is pinned to one instant for all three attempts
+// (Date#toISOString), which is what a fast machine produces for one attempt's
+// events and for one attempt's close and the next one's start. One instant for
+// all of them makes log() order attempts within a millisecond, not only the
+// events of one attempt: 1.2.0 writes one ledger event per transactional
+// group, so an instant per attempt would leave nothing to order.
 import { PGlite } from "@electric-sql/pglite";
 import { s } from "viborm";
 import { createMigrationClient, MemoryEstateStorage } from "viborm/migrations";
@@ -130,8 +134,8 @@ export default async function probe() {
     for (const [i, client] of clients.entries()) {
       states.push((await client.generate({ name: `v${i + 1}` })).stateId);
     }
+    Date.prototype.toISOString = () => "2026-10-10T12:00:00.000Z";
     for (const [i, client] of clients.entries()) {
-      Date.prototype.toISOString = () => `2026-10-10T12:00:0${i}.000Z`;
       await client.apply({ to: { id: states[i] } });
     }
     Date.prototype.toISOString = toISOString;

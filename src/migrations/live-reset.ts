@@ -90,7 +90,10 @@ export interface LiveNamespaceResetPlan {
   readonly tables: string[];
   /** The tracking-row clear, or `null` when this estate holds no such table. */
   readonly clearTracking: string | null;
-  /** Every foreign key the estate owns, as an explicit drop. */
+  /**
+   * Every foreign key the estate owns, as an explicit drop, or SQLite's one
+   * deferral of them all ({@link clearForeignKeys}).
+   */
   readonly dropForeignKeys: string[];
   /** The tables this policy drops, in the order they will be dropped. */
   readonly dropTables: readonly PlannedTableDrop[];
@@ -200,15 +203,10 @@ export async function planLiveNamespaceReset(
   // cycles and mutually-dropped tables are handled, and a dependency this
   // inventory does NOT represent aborts the operation instead of being
   // deleted with it.
-  const dropForeignKeys: string[] = [];
-  for (const { table, foreignKey } of ownedForeignKeys(snapshot, tables)) {
-    dropForeignKeys.push(
-      migrationDriver.generateDDL(
-        { type: "dropForeignKey", tableName: table, fkName: foreignKey.name },
-        { destination: "live" }
-      )
-    );
-  }
+  const dropForeignKeys = clearForeignKeys(
+    migrationDriver,
+    ownedForeignKeys(snapshot, tables)
+  );
 
   const preserved = new Set<string>(policy.preserveTables ?? []);
   if (policy.trackingTable === "preserve") {
@@ -290,6 +288,34 @@ export async function executeLiveNamespaceReset(
   }
 
   return { dropped };
+}
+
+/**
+ * The statements that take the owned keys out of the way of the table drops.
+ *
+ * A dialect that keeps keys inline in `CREATE TABLE` (SQLite) cannot drop one
+ * short of rebuilding its table, and its `DROP TABLE` checks the keys of every
+ * row it removes, which a cycle or a self-referencing `RESTRICT` fails in any
+ * order. There one statement defers every key to the COMMIT, by which point
+ * each table holding one is gone.
+ */
+function clearForeignKeys(
+  migrationDriver: BoundMigrationDriver,
+  owned: Iterable<{ table: string; foreignKey: ForeignKeyDef }>
+): string[] {
+  const statements: string[] = [];
+  for (const { table, foreignKey } of owned) {
+    if (!migrationDriver.capabilities.supportsAddForeignKeyViaAlter) {
+      return ["PRAGMA defer_foreign_keys = ON"];
+    }
+    statements.push(
+      migrationDriver.generateDDL(
+        { type: "dropForeignKey", tableName: table, fkName: foreignKey.name },
+        { destination: "live" }
+      )
+    );
+  }
+  return statements;
 }
 
 /** Every foreign key owned by a table this reset is about to drop. */

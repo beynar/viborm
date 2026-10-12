@@ -22,10 +22,10 @@ import { formatMigrationTarget, readNamespaceAttestation } from "./target";
  *   also on a PostgreSQL transport with no session that runs such a request
  *   (plan D7), where that work refuses any step needing a session itself.
  * - `read-only` — a point-in-time read that changes nothing (status, log,
- *   push dry-run introspection).
+ *   apply dry-run, push dry-run introspection).
  *
- * Offline and storage-only work — generate, check, apply dry-run — never
- * reaches this owner at all.
+ * Offline and storage-only work — generate, check — never reaches this owner
+ * at all.
  */
 export type MigrationLiveRequirement = "effectful" | "batch" | "read-only";
 

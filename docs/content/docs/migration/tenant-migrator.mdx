@@ -102,7 +102,10 @@ of a statement that carried data is added.
   V5003, V5004, V5006, or V11001 caused by one), the signal's reason, or an
   unexpected error.
 - **ambiguous:** V11020 (a COMMIT whose reply was lost), V11019 (some steps of a
-  stepwise change committed), V11016 (an earlier attempt is unfinished).
+  stepwise change committed), V11016 (an earlier attempt is unfinished), and a
+  V11001 whose `meta.partial` is `true` (a stepwise step the database refused
+  whole: nothing of it committed, but its attempt stays open until
+  `resolve({ outcome: "rolled-back" })` closes it).
 
 After `failed`, `marker` is `status().marker` read again: a change can commit in
 steps (an enum-adding change commits its enum first), so the database may sit
@@ -112,7 +115,8 @@ change published stays in the history, and the next `change` applies it first,
 whatever document it carries. So remove the cause first: repair the drift, or
 apply a V11009 rewrite outside the request, as its message says, with
 `limits.largeTableRows` higher or `0` (from an alarm, while no `change` is in
-flight: another client does not share the migrator's queue). Until then
+flight: another client does not share the migrator's queue; see
+[large changes](/docs/migration/per-tenant-schemas-durable-objects#large-changes)). Until then
 `change` returns the same code: `refused` for the same document, `failed` for
 a new one, whose state is published after the pending one.
 

@@ -325,7 +325,8 @@ describe("dialect physical SQL vocabulary", () => {
     expectSql(postgres.literals.null(), "NULL");
     expectSql(postgres.literals.list([]), "()");
     // A list of parameters is ONE parameter (engine-09): PostgreSQL's array
-    // text, SQLite's JSON array; anything else keeps a parameter per member.
+    // text, SQLite's JSON array past 25 members; anything else keeps a
+    // parameter per member.
     expectSql(postgres.literals.list([sql`${1}`, sql`${2}`]), "?", [
       '{"1","2"}',
     ]);
@@ -334,11 +335,10 @@ describe("dialect physical SQL vocabulary", () => {
       "(?, NULL)",
       [1]
     );
-    expectSql(
-      sqlite.literals.list([sql`${1}`, sql`${"a"}`]),
-      "(SELECT value FROM json_each(?))",
-      ['[1,"a"]']
-    );
+    expectSql(sqlite.literals.list([sql`${1}`, sql`${"a"}`]), "(?, ?)", [
+      1,
+      "a",
+    ]);
     expectSql(mysql.literals.list([sql`${1}`, sql`${2}`]), "(?, ?)", [1, 2]);
     expectSql(postgres.literals.value("x"), "?", ["x"]);
     expect(postgres.literals.json({ a: 1 }).values).toHaveLength(1);
@@ -406,30 +406,39 @@ describe("dialect physical SQL vocabulary", () => {
       '{"1","2"}',
     ]);
 
+    // SQLite: past 25 members, the length its planner gives a subquery.
+    const past = (...cycle: Sql[]) =>
+      Array.from({ length: 26 }, (_, index) => cycle[index % cycle.length]!);
     expectSql(
-      sqlite.literals.list([sql`${9n}`, sql`${false}`]),
+      sqlite.literals.list(past(sql`${9n}`, sql`${false}`)),
       "(SELECT value FROM json_each(?))",
-      ["[9,false]"]
+      [`[${past(sql.raw("9"), sql.raw("false")).map((m) => m.toStatement())}]`]
     );
     expectSql(
-      sqlite.literals.list([sql`${bytes}`]),
+      sqlite.literals.list(past(sql`${bytes}`)),
       "(SELECT unhex(value) FROM json_each(?))",
-      ['["00ff"]']
+      [`[${past(sql.raw('"00ff"')).map((m) => m.toStatement())}]`]
     );
     expectSql(
-      sqlite.literals.list([
-        sqlite.literals.decimal("12.30", decimal),
-        sqlite.literals.decimal("1.00", decimal),
-      ]),
+      sqlite.literals.list(
+        past(
+          sqlite.literals.decimal("12.30", decimal),
+          sqlite.literals.decimal("1.00", decimal)
+        )
+      ),
       "(SELECT CAST(value AS INTEGER) FROM json_each(?))",
-      ['["1230","100"]']
+      [
+        `[${past(sql.raw('"1230"'), sql.raw('"100"')).map((m) => m.toStatement())}]`,
+      ]
     );
     expectSql(sqlite.literals.list([]), "()");
     for (const members of [
-      [sql`${bytes}`, sql`${1}`],
-      [sql`${1.5}`],
-      [sql`${"\ud800"}`],
-      [sql`${1}`, sqlite.literals.decimal("1.00", decimal)],
+      past(sql`${bytes}`, sql`${1}`),
+      past(sql`${1.5}`),
+      past(sql`${"\ud800"}`),
+      past(sql`${1}`, sqlite.literals.decimal("1.00", decimal)),
+      // NM-03: up to 25 members, bytes bind as bytes — no `unhex` (3.41).
+      Array.from({ length: 25 }, () => sql`${bytes}`),
     ]) {
       expect(sqlite.literals.list(members).toStatement()).toBe(
         `(${members.map((member) => member.toStatement()).join(", ")})`

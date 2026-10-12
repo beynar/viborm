@@ -16,6 +16,7 @@ import {
 import { decodeParameter } from "./compile";
 import type { MigrationBatch } from "./pinned-session";
 import { sliceDispatch } from "./sql-blob";
+import { readExecutableStatements } from "./statement-safety";
 import { readFlag } from "./v1-parse-shared";
 import type {
   LedgerEffectStateV1,
@@ -134,6 +135,18 @@ export interface StepProgress {
   readonly skipped: boolean;
 }
 
+/**
+ * Records one step's progress. An opaque stepwise step is announced (`none`)
+ * before it runs, then answered: `committed`, or — refused whole, nothing of
+ * it committed — `none` again with the refusal as `failure`. An announcement
+ * never answered may have committed.
+ */
+type OnProgress = (
+  progress: StepProgress,
+  effect: LedgerEffectStateV1,
+  failure?: string
+) => Promise<void>;
+
 /** The edge a program runs: every dispatch failure names it. */
 export interface DispatchEdge {
   readonly fromState: string | null;
@@ -157,10 +170,7 @@ export async function executeOperations(
   blob: Uint8Array,
   operations: readonly MigrationOperationV1[],
   boundary: "transactional" | "stepwise" | "atomic",
-  onProgress?: (
-    progress: StepProgress,
-    effect: LedgerEffectStateV1
-  ) => Promise<void>,
+  onProgress?: OnProgress,
   targetNamespace?: string,
   edge?: DispatchEdge
 ): Promise<void> {
@@ -210,19 +220,57 @@ async function runDispatch(
     await executeDispatch(producer, blob, dispatch, targetNamespace);
   } catch (error) {
     if (!providerRefused(error)) throw error;
-    throw new MigrationError(
-      `Migration statement ${site.statementIndex} of operation ${site.operationId} failed`,
-      VibORMErrorCode.MIGRATION_FAILED,
-      {
-        cause: error,
-        meta: {
-          ...siteMeta(site, dispatch.dispatchId),
-          providerCode: error.meta.providerCode,
-          providerSqlState: error.meta.providerSqlState,
-        },
-      }
-    );
+    throw refusal(site, dispatch.dispatchId, error);
   }
+}
+
+function refusal(
+  site: DispatchSite,
+  dispatchId: string,
+  error: VibORMError,
+  meta?: MigrationErrorMeta
+): MigrationError {
+  return new MigrationError(
+    `Migration statement ${site.statementIndex} of operation ${site.operationId} failed`,
+    VibORMErrorCode.MIGRATION_FAILED,
+    {
+      cause: error,
+      meta: {
+        ...siteMeta(site, dispatchId),
+        providerCode: error.meta.providerCode,
+        providerSqlState: error.meta.providerSqlState,
+        ...meta,
+      },
+    }
+  );
+}
+
+/**
+ * Leaders of a statement that may COMMIT part of its work before it fails: a
+ * procedure, a PostgreSQL `DO` block, a statement prepared earlier.
+ */
+const COMMITS_INSIDE = new Set(["CALL", "DO", "EXECUTE"]);
+
+/**
+ * Whether the provider's refusal of `sql` proves none of it committed: one
+ * statement, run bare as a transaction of its own, which the server undoes
+ * whole when it refuses it (VibORM's MySQL tables are InnoDB). Not one led by
+ * {@link COMMITS_INSIDE}, nor a `CONCURRENTLY` statement, which commits in
+ * phases.
+ */
+function refusedWhole(
+  error: unknown,
+  sql: string,
+  dialect: AnyDriver["dialect"]
+): error is VibORMError {
+  if (!providerRefused(error)) return false;
+  const statements = readExecutableStatements(sql, dialect);
+  const [leader = "", ...rest] = statements[0] ?? [];
+  return (
+    statements.length === 1 &&
+    !COMMITS_INSIDE.has(leader) &&
+    !rest.includes("CONCURRENTLY")
+  );
 }
 
 async function executeStep(
@@ -231,10 +279,7 @@ async function executeStep(
   site: DispatchSite,
   step: MigrationStepV1,
   boundary: "transactional" | "stepwise" | "atomic",
-  onProgress?: (
-    progress: StepProgress,
-    effect: LedgerEffectStateV1
-  ) => Promise<void>,
+  onProgress?: OnProgress,
   targetNamespace?: string
 ): Promise<void> {
   const { operationId } = site;
@@ -283,13 +328,29 @@ async function executeStep(
   }
 
   if (boundary === "stepwise") {
-    await onProgress?.(
-      { operationId, dispatchId: step.execute.dispatchId, skipped: false },
-      "none"
-    );
+    const progress = {
+      operationId,
+      dispatchId: step.execute.dispatchId,
+      skipped: false,
+    };
+    await onProgress?.(progress, "none");
     try {
       await executeDispatch(producer, blob, step.execute, targetNamespace);
     } catch (error) {
+      const sql = sliceDispatch(blob, step.execute);
+      if (refusedWhole(error, sql, producer.dialect)) {
+        const refused = refusal(site, step.execute.dispatchId, error, {
+          effectState: "none",
+          partial: true,
+        });
+        // Unrecorded, the announcement stands: it may have committed.
+        await onProgress?.(
+          progress,
+          "none",
+          `${refused.code}: ${refused.message}`
+        )?.catch(() => undefined);
+        throw refused;
+      }
       throw new MigrationError(
         `Opaque stepwise dispatch ${step.execute.dispatchId} failed with an ambiguous outcome`,
         VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
@@ -304,10 +365,7 @@ async function executeStep(
         }
       );
     }
-    await onProgress?.(
-      { operationId, dispatchId: step.execute.dispatchId, skipped: false },
-      "committed"
-    );
+    await onProgress?.(progress, "committed");
     return;
   }
 

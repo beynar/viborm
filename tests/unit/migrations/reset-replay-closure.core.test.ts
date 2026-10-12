@@ -782,7 +782,7 @@ describe("reset live clear", () => {
     expect(driver.statements).not.toContain("SELECT 'root-forward-0'");
   });
 
-  test("clears inside its own transaction before a stepwise replay group", async () => {
+  test("refuses a stepwise replay 1.1.0 published before its clear", async () => {
     const chain = await publishResetChain([
       {
         name: "root",
@@ -809,25 +809,15 @@ describe("reset live clear", () => {
       liveTables: () => (present ? [LEFTOVER_TABLE] : []),
     });
 
-    await expect(resetV1(clientFor(driver), chain.storage)).resolves.toEqual({
-      preview: false,
-      path: [chain.states[0]!.stateId],
+    // SQLite runs no stepwise program (plan S5): nothing is cleared either.
+    await expect(
+      resetV1(clientFor(driver), chain.storage)
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+      meta: { dialect: "sqlite", feature: "stepwise execution" },
     });
-    const dropIndex = driver.statements.findIndex((statement) =>
-      statement.startsWith("DROP TABLE")
-    );
-    const replayIndex = driver.statements.indexOf("SELECT 'root-forward-0'");
-    expect(dropIndex).toBeGreaterThanOrEqual(0);
-    expect(replayIndex).toBeGreaterThan(dropIndex);
-    // The clear commits in the transaction that read the decision; the
-    // stepwise replay then runs in a locked transaction of its own (plan S5).
-    const begins = driver.statements.flatMap((sql, index) =>
-      sql === "BEGIN IMMEDIATE" ? [index] : []
-    );
-    expect(begins).toHaveLength(2);
-    const clearCommit = driver.statements.indexOf("COMMIT", dropIndex);
-    expect(clearCommit).toBeLessThan(begins[1]!);
-    expect(replayIndex).toBeGreaterThan(begins[1]!);
+    expect(present).toBe(true);
+    expect(driver.statements).not.toContain("SELECT 'root-forward-0'");
   });
 });
 

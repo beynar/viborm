@@ -269,11 +269,15 @@ function retryable(failure: unknown): boolean {
 
 /**
  * VibORM's refusals are `refused`; anything else unexpected is `failed`. A
- * possible commit stays `ambiguous` whatever caused it: it is never retried.
+ * possible commit stays `ambiguous` whatever caused it, as does a stepwise
+ * step the database refused (`partial`), whose attempt stays open for
+ * `resolve`: neither is retried.
  */
 function classify(failure: unknown): "refused" | "failed" | "ambiguous" {
   if (!isVibORMError(failure)) return "failed";
-  if (AMBIGUOUS.has(failure.code)) return "ambiguous";
+  if (AMBIGUOUS.has(failure.code) || failure.meta.partial === true) {
+    return "ambiguous";
+  }
   return FAILED.has(failure.code) || retryable(failure) ? "failed" : "refused";
 }
 

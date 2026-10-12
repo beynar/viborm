@@ -86,6 +86,7 @@ const RENAME_TO = /^\s+RENAME\s+TO\s+/i;
 const CREATE_DEPENDENT =
   /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?(TRIGGER|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?/i;
 const DROP_DEPENDENT = /^DROP\s+(?:TRIGGER|VIEW)\s+(?:IF\s+EXISTS\s+)?/i;
+const DROP_TABLE = /^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?/i;
 const IDENTIFIER_OPENERS = '"`[';
 const QUALIFIER_DOT = /^\s*\./;
 /**
@@ -101,11 +102,15 @@ const COLUMN_CHECK = /\s+CHECK\s*\(/;
 const TEXT_AFFINITY = /CHAR|CLOB|TEXT/;
 const REAL_AFFINITY = /REAL|FLOA|DOUB/;
 
-/** A trigger or view as `sqlite_master` stores it. */
+/**
+ * A trigger or view as `sqlite_master` stores it; `table` is the lower-cased
+ * `tbl_name`, a trigger's own table, unknown for one the program creates.
+ */
 interface SqliteDependent {
   readonly type: string;
   readonly name: string;
   readonly sql: string | null;
+  readonly table?: string;
 }
 
 /**
@@ -115,7 +120,8 @@ interface SqliteDependent {
  * The program is walked in order from the catalog as it stands before it
  * runs, past leading comments and a `schema.` qualifier: a
  * `CREATE TRIGGER|VIEW` adds a dependent, a `DROP TRIGGER|VIEW` releases one,
- * and each recreation — read from the one spelling
+ * a `DROP TABLE` releases the catalog's triggers on that table, which SQLite
+ * drops with it, and each recreation — read from the one spelling
  * `compileTableRecreation` writes, `CREATE TABLE "__new_<t>"`, as the
  * foreign-key bracket is read from its pragmas — loses the dependents that
  * name the table at that point. A native `ALTER TABLE … RENAME TO` earlier in
@@ -143,7 +149,8 @@ function lostDependents(
     const alter = ALTER_TABLE.exec(text);
     const created = CREATE_DEPENDENT.exec(text);
     const drop = DROP_DEPENDENT.exec(text);
-    const head = create ?? alter ?? created ?? drop;
+    const dropTable = DROP_TABLE.exec(text);
+    const head = create ?? alter ?? created ?? drop ?? dropTable;
     const name = head && readObjectName(text, head[0].length);
     if (!name) continue;
     const key = name.value.toLowerCase();
@@ -152,6 +159,13 @@ function lostDependents(
       dependents.set(key, { type, name: name.value, sql: text });
     } else if (drop) {
       dependents.delete(key);
+    } else if (dropTable) {
+      const live = (formerNames.get(key) ?? name.value).toLowerCase();
+      for (const [dependentKey, dependent] of dependents) {
+        if (dependent.type === "trigger" && dependent.table === live) {
+          dependents.delete(dependentKey);
+        }
+      }
     } else if (create && key.startsWith(RECREATION_PREFIX)) {
       const rebuilt = name.value.slice(RECREATION_PREFIX.length);
       const table = formerNames.get(rebuilt.toLowerCase()) ?? rebuilt;
@@ -446,7 +460,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
   override async preflightSchemaRequirements(
     snapshots: readonly SchemaSnapshot[],
     executeRaw: Parameters<typeof introspect>[0],
-    program: readonly string[] = []
+    program: readonly string[]
   ): Promise<void> {
     const names = [
       ...new Set(
@@ -457,7 +471,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     ];
     if (names.length === 0 && program.length === 0) return;
     const objects = await executeRaw<SqliteDependent>(
-      "SELECT type, name, sql FROM sqlite_master WHERE type IN ('view', 'trigger')"
+      "SELECT type, name, sql, lower(tbl_name) AS \"table\" FROM sqlite_master WHERE type IN ('view', 'trigger')"
     );
     const collision = objects.rows.find(
       (row) => row.type === "view" && names.includes(row.name)

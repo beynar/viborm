@@ -300,7 +300,7 @@ describe("provider migration-driver public entrypoints", () => {
       .preflightSchemaRequirements([pointSnapshot], () => {
         providerCalls += 1;
         return Promise.reject(providerFailure);
-      })
+      }, [])
       .then(
         () => undefined,
         (error: unknown) => error

@@ -205,8 +205,7 @@ export async function loadMigrationGraph(
   }
 
   for (const manifest of states.values()) {
-    const blob = sql.get(manifest.sqlHash);
-    if (!blob) continue;
+    const blob = sql.get(manifest.sqlHash)!;
     const dispatches: MigrationDispatchV1[] = [];
     for (const parent of manifest.parents) {
       collectDispatches(parent, dispatches);

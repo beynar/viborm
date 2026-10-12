@@ -26,10 +26,12 @@ import { fileURLToPath } from "node:url";
 import { createClient } from "@drivers/sqlite3";
 import { VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations";
+import type { Sha256 } from "@migrations/identity";
 import { createFsStorageWriter } from "@migrations/storage/fs";
 import { sql } from "@sql";
 import Database from "better-sqlite3";
 import { afterAll, describe, expect, it } from "vitest";
+import { publishLegacyStepwise } from "./_legacy-stepwise";
 import { type RaceVersion, raceSchema } from "./_sqlite-race-schema";
 
 const ROWS = 10_000;
@@ -211,8 +213,27 @@ async function prepare(
     }
     const head = await migrations.generate({
       name: `credit-${kind}`,
-      manualMigration: credit(init.stateId, kind),
+      manualMigration: credit(init.stateId, "transactional"),
     });
+    if (kind === "stepwise") {
+      // Generate refuses it since 1.2.0 (plan S5): the head is 1.1.0's.
+      const legacy = `${estate}-1.1.0`;
+      cpSync(estate, legacy, {
+        recursive: true,
+        filter: (path) => basename(path) !== `${head.stateId}.json`,
+      });
+      return {
+        template,
+        estate: legacy,
+        version: "v1",
+        init: init.stateId,
+        head: await publishLegacyStepwise(
+          storage,
+          createFsStorageWriter(legacy),
+          head.stateId as Sha256
+        ),
+      };
+    }
     return {
       template,
       estate,
@@ -345,7 +366,53 @@ describe("one process (S5)", () => {
     }
   }, 120_000);
 
-  it("a manual stepwise transition is refused on SQLite before any effect, and the upgrade step applies it as transactional", async () => {
+  it("generate refuses a manual stepwise transition or rollback on SQLite before publishing it", async () => {
+    const prepared = await prepare("transactional");
+    const client = createClient({
+      schema: raceSchema("v1"),
+      dataDir: prepared.template,
+    });
+    try {
+      const storage = createFsStorageWriter(prepared.estate);
+      const states = await storage.listStates();
+      const migrations = createMigrationClient(client, { storage });
+      const forward = credit(prepared.init, "stepwise");
+      const [transactional] = credit(
+        prepared.init,
+        "transactional"
+      ).transitions;
+      const rollback = {
+        ...forward,
+        transitions: [
+          {
+            ...transactional!,
+            rollback: {
+              kind: "manual" as const,
+              execution: "stepwise" as const,
+              sql: [
+                sql.raw(
+                  `UPDATE "account" SET "balance" = "balance" - ${CREDIT}`
+                ),
+              ],
+            },
+          },
+        ],
+      };
+      for (const manualMigration of [forward, rollback]) {
+        await expect(
+          migrations.generate({ name: "credit-stepwise", manualMigration })
+        ).rejects.toMatchObject({
+          code: VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+          meta: { dialect: "sqlite", feature: "stepwise execution" },
+        });
+      }
+      expect(await storage.listStates()).toEqual(states);
+    } finally {
+      await client.$disconnect();
+    }
+  }, 120_000);
+
+  it("a manual stepwise transition 1.1.0 published is refused on SQLite before any effect, and the upgrade step applies it as transactional", async () => {
     const prepared = await prepare("stepwise");
     const file = join(scratch, "stepwise.sqlite");
     copyFileSync(prepared.template, file);

@@ -164,9 +164,15 @@ referenced unique index).
 
 `MigrationDriver.projectNativeRename` owns the physical rename projection used
 by resolution, enum retargeting, generation, and inverse snapshots. Its default
-retains the shared native table/column replay. PostgreSQL additionally moves only
-the exact derived default primary-key name, through the same rule its rename DDL
-compiles; custom names remain untouched. `generatedPrimaryKeyName` supplies the
+retains the shared native table/column replay. The base driver owns the
+derived-rename rule, for a dialect that opts in by implementing
+`renameDerivedNames`: names derived from columns (indexes, uniques, foreign keys,
+the default primary key, per-column enums) and, on a table rename, the
+table-prefix tail of an index, unique or foreign key named `<table>_…_idx`,
+`_key` or `_fkey` (both names unhashed). PostgreSQL and MySQL render it through
+their rename DDL (MySQL as `RENAME INDEX` plus a dropped and re-added foreign
+key in one `ALTER TABLE`); SQLite does not opt in. A name without the derived
+shape stays untouched. `generatedPrimaryKeyName` supplies the
 exact CREATE/ADD spelling and automatic inverse name. Rename compilation reads preceding
 table and primary-key operations so its source key is the one present at that
 step. Serializer `finalizeTable` is not a rename projection: its type, index,

@@ -35,6 +35,7 @@ import {
   readEnumResolutionDecision,
 } from "./types";
 import { sortOperations } from "./utils";
+import { parseApproval } from "./v1-parse";
 import type { MigrationApprovalV1, MigrationDecisionV1 } from "./v1-types";
 
 export function validateResolveResult(
@@ -563,20 +564,11 @@ const DECISION_KEYS = {
   enumValueRemoval: ["type", "tableName", "columnName", "mapValues"],
   destructive: ["type", "operation", "table", "column"],
 } as const satisfies Record<MigrationDecisionV1["type"], readonly string[]>;
-const DECISION_TYPES = [
-  "column",
-  "table",
-  "enumValueRemoval",
-  "destructive",
-] as const;
+const DECISION_TYPES = Object.keys(
+  DECISION_KEYS
+) as readonly (keyof typeof DECISION_KEYS)[];
 const ALL_DECISION_KEYS = [...new Set(Object.values(DECISION_KEYS).flat())];
 const RESOLUTIONS = ["rename", "addAndDrop"] as const;
-const APPROVAL_OPERATIONS = [
-  "dropTable",
-  "dropColumn",
-  "addColumn",
-  "alterColumn",
-] as const;
 
 /** Each predefined resolver's decisions, and those a plan used since the last check. */
 const decisionUse = new WeakMap<
@@ -721,13 +713,7 @@ function parseDecision(entry: unknown, index: number): MigrationDecisionV1 {
     default:
       return {
         type,
-        operation:
-          APPROVAL_OPERATIONS.find((name) => name === record.operation) ??
-          refuseDecision(
-            `${label}.operation must be one of ${APPROVAL_OPERATIONS.join(", ")}`
-          ),
-        table: text("table"),
-        column: record.column === null ? null : text("column"),
+        ...parseApproval(record, label, refuseDecision),
       };
   }
 }

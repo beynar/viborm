@@ -20,10 +20,10 @@ export type AggregateLeaf =
  * The one semantic classification of an aggregate result leaf. Provider
  * parsing and detached cache encoding must agree on widening and nullability.
  *
- * A decimal, bigint, number or int `_sum` is its OWN leaf kind because it
- * answers outside the column's declared domain: a number sum may be
- * `±Infinity`, an int sum may pass 2^53 (read as the nearest double), a
- * bigint sum may leave the int64 range, and summing
+ * A `_sum` — admitted only on a decimal, bigint, number or int — is its OWN
+ * leaf kind because it answers outside the column's declared domain: a number
+ * sum may be `±Infinity`, an int sum may pass 2^53 (read as the nearest
+ * double), a bigint sum may leave the int64 range, and summing
  * a million `precision: 10` rows is exact arithmetic whose result no single
  * column could store, so it keeps the field's scale and drops the field's
  * precision. Every other decimal aggregate stays in the field domain — `_min`
@@ -46,16 +46,9 @@ export function classifyAggregateLeaf(
       : { kind: "unknown" };
   }
   if (!scalar) return { kind: "unknown" };
-  const { type } = scalar["~"].state;
-  const isDecimal = type === "decimal";
-  if (name === "_avg" && !isDecimal) {
+  if (name === "_avg" && scalar["~"].state.type !== "decimal") {
     return { kind: "number", nullable: true };
   }
-  if (
-    name === "_sum" &&
-    (isDecimal || type === "number" || type === "bigint" || type === "int")
-  ) {
-    return { kind: "widenedSum", nullable: true, scalar };
-  }
+  if (name === "_sum") return { kind: "widenedSum", nullable: true, scalar };
   return { kind: "scalar", nullable: true, scalar };
 }

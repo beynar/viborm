@@ -18,6 +18,7 @@ import {
 } from "@migrations";
 import { appendLedger, DEFAULT_CONTROL_BASE } from "@migrations/control";
 import { loadMigrationGraph, parentTransition } from "@migrations/graph";
+import type { Sha256 } from "@migrations/identity";
 import { getPushMigrationDriver } from "@migrations/push/planner";
 import { eventIdFor } from "@migrations/v1-parse";
 import { s, TYPES } from "@schema";
@@ -26,6 +27,7 @@ import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { syncLiveSchema as push } from "@tests/fixtures/sync-schema";
 import { afterEach, describe, expect, it } from "vitest";
 import { MemoryStorage, pgEstateDriver } from "./_estate";
+import { publishLegacyStepwise } from "./_legacy-stepwise";
 
 const ROWS = 10_000;
 const CANONICAL_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -105,7 +107,7 @@ async function withManualTransition(
       transitions: [
         {
           from: v1.stateId,
-          execution: options.execution ?? "transactional",
+          execution: "transactional",
           originChecks: [populated()],
           up: up.map((text) => sql.raw(text)),
           rollback: options.rollback
@@ -127,7 +129,11 @@ async function withManualTransition(
     storage,
     migrations,
     v1: v1.stateId!,
-    v2: v2.stateId!,
+    // Generate refuses stepwise on SQLite since 1.2.0: this is 1.1.0's state.
+    v2:
+      options.execution === "stepwise"
+        ? await publishLegacyStepwise(storage, storage, v2.stateId as Sha256)
+        : v2.stateId!,
   };
 }
 

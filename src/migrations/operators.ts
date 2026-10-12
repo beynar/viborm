@@ -17,6 +17,7 @@ import {
   assertTransactionalBoundaryHonored,
   classifyStoredAtomicity,
   groupContiguousAtomicity,
+  refuseSqliteStepwise,
   stepStatements,
 } from "./compile";
 import {
@@ -52,6 +53,7 @@ import {
 import type { Sha256 } from "./identity";
 import {
   commitLockedTransaction,
+  letLockGo,
   resolveCommandDriver,
   runProgram,
   withLockedMigrationProducer,
@@ -129,16 +131,10 @@ export async function statusV1(
   const graph = await loadMigrationGraph(storage);
   const driver = openCommand(client, graph, "read-only", "status()");
   const command = await resolveCommandDriver(client.$driver, driver);
-  const control = await readControlState(
-    client.$driver,
-    command,
-    DEFAULT_CONTROL_BASE,
-    { ledger: "open" }
-  );
+  const control = await readCommandControl(client.$driver, command);
   const invalidIndexes = await readInvalidIndexes(client.$driver, command);
   const listed = invalidIndexes.length === 0 ? {} : { invalidIndexes };
   if (control.presence.kind !== "present") {
-    refusePartialControl(control.presence);
     return {
       control: "absent",
       marker: null,
@@ -207,7 +203,8 @@ export async function verifyV1(
       const markedSnapshot = requireStateSnapshot(graph, marker.stateId);
       await command.preflightSchemaRequirements(
         [markedSnapshot],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        []
       );
       await assertNoDrift(pinned, command, graph, marker);
       return { ok: true };
@@ -261,7 +258,8 @@ export async function baselineV1(
       assertStructuralRoute(graph, path, "baseline");
       await command.preflightSchemaRequirements(
         [requireStateSnapshot(graph, target)],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        []
       );
       // Committed before the proof, which then runs under the lock taken
       // again, as does the marker it publishes.
@@ -352,7 +350,8 @@ export async function reanchorV1(
       assertStructuralRoute(graph, path, "reanchor");
       await command.preflightSchemaRequirements(
         [requireStateSnapshot(graph, target)],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        []
       );
       await adoptRoute(pinned, command, graph, path, marker);
       return { stateId: target };
@@ -553,7 +552,8 @@ export async function downV1(
       if (close) {
         await command.preflightSchemaRequirements(
           [requireStateSnapshot(graph, close.item.nextState)],
-          (sql, params) => pinned._executeRaw(sql, params)
+          (sql, params) => pinned._executeRaw(sql, params),
+          []
         );
         await runProgram(pinned, command, undefined, (producer) =>
           closeCompletedRollback(
@@ -572,20 +572,28 @@ export async function downV1(
       const { prepared, attempt } = run;
       const statementsOf = (item: PreparedRollback) =>
         stepStatements(item.blob, item.rollback.operations);
-      await runProgram(pinned, command, undefined, async (producer) => {
-        let current = run.marker;
-        for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
-          const executeGroup = async (groupProducer: AnyDriver) => {
+      let current = run.marker;
+      for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
+        await runProgram(
+          pinned,
+          command,
+          {
+            transactional: group.boundary === "transactional",
+            statements: group.items.flatMap(statementsOf),
+          },
+          async (producer) => {
+            // Only the attempt `down` resumes is its own: any other one open
+            // now was opened while the lock was let go.
             await assertLockedSinceDecision(
               pinned,
-              groupProducer,
+              producer,
               command,
               current,
-              true
+              group.items[0] === prepared[0] && attempt !== undefined
             );
             for (const item of group.items) {
               current = await executeRollbackEdge(
-                groupProducer,
+                producer,
                 command,
                 graph,
                 item,
@@ -595,21 +603,9 @@ export async function downV1(
                 client.$schema
               );
             }
-          };
-          // MySQL runs the whole rollback as one sequential program.
-          await (command.target.dialect === "mysql"
-            ? executeGroup(producer)
-            : runProgram(
-                pinned,
-                command,
-                {
-                  transactional: group.boundary === "transactional",
-                  statements: group.items.flatMap(statementsOf),
-                },
-                executeGroup
-              ));
-        }
-      });
+          }
+        );
+      }
       return { path: removed.map((edge) => edge.stateId), preview: false };
     }
   );
@@ -769,25 +765,22 @@ export async function resolveV1(
           VibORMErrorCode.MIGRATION_CORRUPTION
         );
       }
-      const blob = graph.sql.get(state.sqlHash);
-      if (!blob) {
-        throw new MigrationError(
-          "SQL blob is missing",
-          VibORMErrorCode.MIGRATION_CORRUPTION
-        );
-      }
+      const blob = graph.sql.get(state.sqlHash)!;
       const transition = parentTransition(graph, from, to);
       const destSnapshot = requireStateSnapshot(graph, to);
       const originSnapshot = requireStateSnapshot(graph, from);
+      const statements = stepStatements(blob, transition.operations);
+      // Only a retry runs the transition: its program is refused as apply's.
       await command.preflightSchemaRequirements(
         [originSnapshot, destSnapshot],
-        (sql, params) => pinned._executeRaw(sql, params)
+        (sql, params) => pinned._executeRaw(sql, params),
+        options.outcome === "retry" ? statements : []
       );
       if (options.outcome !== "retry") {
         await repairInvalidIndexes(
           pinned,
           command,
-          stepStatements(blob, transition.operations),
+          statements,
           options.outcome === "complete" ? destSnapshot : originSnapshot
         );
       }
@@ -888,10 +881,7 @@ export async function resolveV1(
       await runProgram(
         pinned,
         command,
-        {
-          transactional: boundary === "transactional",
-          statements: stepStatements(blob, transition.operations),
-        },
+        { transactional: boundary === "transactional", statements },
         async (producer) => {
           await executeOperations(
             producer,
@@ -1075,6 +1065,7 @@ function prepareRollbackEdge(
   const requested =
     rollback.kind === "manual" ? rollback.requestedBoundary : null;
   assertTransactionalBoundaryHonored(supportsTransactions, requested);
+  refuseSqliteStepwise(command, requested, edge.stateId);
   return {
     edge,
     state,
@@ -1267,7 +1258,7 @@ async function executeRollbackEdge(
       ? remainingRollbackOperations(graph, item, resume, ledger)
       : rollback.operations,
     boundary,
-    (progress, effect) =>
+    (progress, effect, failure) =>
       appendLedger(
         producer,
         command,
@@ -1279,6 +1270,7 @@ async function executeRollbackEdge(
           operationId: progress.operationId,
           dispatchId: progress.dispatchId,
           effectState: effect,
+          failure,
         })
       ),
     command.namespace,
@@ -1483,12 +1475,6 @@ function assertReversibleEdge(
       VibORMErrorCode.MIGRATION_DESTRUCTIVE_REJECTED
     );
   }
-  if (!graph.sql.get(state.sqlHash)) {
-    throw new MigrationError(
-      "Rollback SQL blob is missing",
-      VibORMErrorCode.MIGRATION_CORRUPTION
-    );
-  }
 }
 
 /** `down({ expectRevision })`: the marker must still be the one the caller read. */
@@ -1545,9 +1531,7 @@ async function approveRollbackLosses(
   }
   // The callback is the caller's work: no locked transaction waits on it.
   // Each group of `down` re-reads the marker under the lock it takes again.
-  if (losses.length > 0 && resolve) {
-    await commitLockedTransaction(producer, command);
-  }
+  if (losses.length > 0 && resolve) await letLockGo(producer);
   await approveDestructiveOperations(losses, resolve, false);
 }
 
@@ -1584,12 +1568,14 @@ async function holdsRows(
 
 /**
  * A rolled-back attempt must have left nothing behind. A manual opaque step of
- * it that committed, or was announced and never confirmed (it may have
+ * it that committed, or was announced and never answered (it may have
  * committed), is an effect no fingerprint shows and that no rollback undid: a
  * forward attempt runs none. Marking it rolled back would let `apply` run the
- * step again — the double credit (plan S4). Generated steps are structural,
- * and so is a CONCURRENTLY index statement, whose index resolve repairs before
- * the origin proof (plan S7): the fingerprint proves those undone.
+ * step again — the double credit (plan S4). A step the server refused whole is
+ * answered with its `failure`: nothing of it committed. Generated steps are
+ * structural, and so is a CONCURRENTLY index statement, whose index resolve
+ * repairs before the origin proof (plan S7): the fingerprint proves those
+ * undone.
  */
 function refuseOpaqueEffect(
   transition: ReturnType<typeof parentTransition>,
@@ -1614,8 +1600,12 @@ function refuseOpaqueEffect(
       event.kind === "step-confirmed" &&
       opaque.has(event.dispatchId ?? "")
   );
+  const refused = new Set(
+    effects.flatMap((event) => (event.failure ? [event.dispatchId] : []))
+  );
   const effect =
-    effects.find((event) => event.effectState === "committed") ?? effects[0];
+    effects.find((event) => event.effectState === "committed") ??
+    effects.find((event) => !refused.has(event.dispatchId));
   if (effect === undefined) return;
   const committed = effect.effectState === "committed";
   throw new MigrationError(

@@ -63,7 +63,7 @@ describe("migration v1 compiler", () => {
     const compiled = compileManualTransition(
       [sql`SELECT 1; SELECT 2`],
       { kind: "irreversible", reason: "demo" },
-      "sqlite",
+      "postgresql",
       "stepwise",
       undefined,
       assembly
@@ -185,7 +185,7 @@ describe("migration v1 compiler", () => {
       compileManualTransition(
         [],
         { kind: "irreversible", reason: "test" },
-        "sqlite",
+        "postgresql",
         "stepwise",
         undefined,
         new SqlAssembly()
@@ -197,7 +197,7 @@ describe("migration v1 compiler", () => {
       compileManualTransition(
         [sql.raw("   ")],
         { kind: "irreversible", reason: "test" },
-        "sqlite",
+        "postgresql",
         "stepwise",
         undefined,
         new SqlAssembly()
@@ -211,7 +211,7 @@ describe("migration v1 compiler", () => {
       compileManualTransition(
         [sql`SELECT 1`],
         { kind: "manual", execution: "stepwise", sql: [] },
-        "sqlite",
+        "postgresql",
         "transactional",
         undefined,
         new SqlAssembly()
@@ -362,12 +362,55 @@ describe("migration v1 compiler", () => {
     ).not.toThrow();
   });
 
+  // T5a: one recognizer (statement-safety's executable words) decides what
+  // runs CONCURRENTLY, and only PostgreSQL has such a statement.
+  test("a CONCURRENTLY in a comment, a literal or another dialect's SQL is not a CONCURRENTLY statement", () => {
+    const postgres = getMigrationDriver(pgEstateDriver("public"));
+    const compile = (
+      statement: string,
+      dialect: "postgresql" | "sqlite" = "postgresql"
+    ) => {
+      const assembly = new SqlAssembly();
+      const compiled = compileManualTransition(
+        [sql.raw(statement)],
+        { kind: "irreversible", reason: "test" },
+        dialect,
+        "transactional",
+        undefined,
+        assembly
+      );
+      const sealed = assembly.seal();
+      return classifyStoredAtomicity(
+        postgres,
+        null,
+        rebindDispatches(compiled.operations, sealed.dispatches),
+        sealed.bytes
+      );
+    };
+    const literal = `UPDATE "account" SET "note" = 'rebuild with CREATE INDEX CONCURRENTLY later'`;
+    expect(compile(literal)).toBe("transactional");
+    expect(compile(`-- REINDEX TABLE CONCURRENTLY nightly\n${literal}`)).toBe(
+      "transactional"
+    );
+    expect(
+      compile(`/* DROP INDEX CONCURRENTLY ix */ ${literal}`, "sqlite")
+    ).toBe("transactional");
+    for (const statement of [
+      "REINDEX TABLE CONCURRENTLY account",
+      "REINDEX (VERBOSE, CONCURRENTLY) INDEX ix_account_email",
+      "DROP INDEX CONCURRENTLY ix_account_email",
+      'ALTER TABLE "events" DETACH PARTITION "events_2026" CONCURRENTLY',
+    ]) {
+      expect(() => compile(statement)).toThrow("runs CONCURRENTLY");
+    }
+  });
+
   test("stepwise manual proof requires both origin and destination checks", () => {
     const assembly = new SqlAssembly();
     const compiled = compileManualTransition(
       [sql`SELECT 1`],
       { kind: "irreversible", reason: "test" },
-      "sqlite",
+      "postgresql",
       "stepwise",
       undefined,
       assembly

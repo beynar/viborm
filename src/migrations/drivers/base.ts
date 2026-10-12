@@ -17,6 +17,7 @@ import type { IdDomain } from "@validation/primitives/id-codec";
 import type { AnyDriver } from "../../drivers/driver";
 import { MigrationError, VibORMErrorCode } from "../../errors";
 import { refuseBinaryReencoding } from "../binary-conversion";
+import type { Sha256 } from "../identity";
 import type { ResolvedMigrationLimits } from "../limits";
 import {
   applyNativeRename,
@@ -30,8 +31,26 @@ import type {
   SchemaSnapshot,
   TableDef,
 } from "../types";
-import { defaultGeneratedPrimaryKeyName } from "../utils";
+import { defaultGeneratedPrimaryKeyName, derivedMigrationName } from "../utils";
+import type { BoundMigrationDriver } from ".";
 import type { Dialect, MigrationCapabilities } from "./types";
+
+const ARRAY_TYPE = /\[\]$/;
+
+/** How the serializer ends an index, unique or foreign key name it derives. */
+const DERIVED_TAIL = /_(?:idx|f?key)$/;
+
+/** A name a native rename carries along, and the statement kind that does. */
+export interface DerivedRename {
+  readonly kind: "constraint" | "index" | "type";
+  readonly to: string;
+}
+
+/** The two control tables the fingerprint leaves out. */
+export interface ControlTableNames {
+  readonly state: string;
+  readonly log: string;
+}
 
 /**
  * Context passed to DDL generation methods.
@@ -216,14 +235,15 @@ export abstract class MigrationDriver {
    * Proves external physical requirements encoded by authenticated snapshots.
    * Dialects with no such requirement keep the no-op owner here.
    *
-   * `program` is the statement list the command is about to run, when it has
-   * one, so a dialect can refuse what that program would destroy (SQLite: a
-   * recreation's dependent triggers and views).
+   * `program` is the statement list the command is about to run (empty when
+   * it runs none), so a dialect can refuse what that program would destroy
+   * (SQLite: a recreation's dependent triggers and views). Required: a caller
+   * cannot skip these refusals by leaving it out.
    */
   async preflightSchemaRequirements(
     _snapshots: readonly SchemaSnapshot[],
     _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
-    _program: readonly string[] = []
+    _program: readonly string[]
   ): Promise<void> {
     // Most dialects have no external schema requirement to prove.
   }
@@ -255,6 +275,24 @@ export abstract class MigrationDriver {
       statements: readonly string[]
     ) => Promise<ReadonlyArray<{ rows: T[] }>>
   ): Promise<ReadonlyArray<string | undefined>>;
+
+  /**
+   * The live managed schema's fingerprint in one statement, where this
+   * dialect can compute it (PostgreSQL, `postgres/catalog-digest.ts`): the
+   * statement for a caller that embeds it, and the digest read, `undefined`
+   * where it abstains. Absent elsewhere, and the caller introspects. The bound
+   * driver owns it, so another dialect's bundle never carries it.
+   */
+  catalogDigestQuery?(
+    this: BoundMigrationDriver,
+    control: ControlTableNames,
+    deparsedPredicates?: boolean
+  ): { readonly sql: string; readonly parameters: unknown[] };
+  catalogDigest?(
+    this: BoundMigrationDriver,
+    producer: AnyDriver,
+    control: ControlTableNames
+  ): Promise<Sha256 | undefined>;
 
   /**
    * Explains why one inverted operation cannot be rendered as an automatic
@@ -309,7 +347,204 @@ export abstract class MigrationDriver {
     snapshot: SchemaSnapshot,
     operation: NativeRenameOperation
   ): SchemaSnapshot {
-    return applyNativeRename(snapshot, operation);
+    const projected = applyNativeRename(snapshot, operation);
+    const renames = this.derivedRenames(operation, snapshot);
+    if (renames.size === 0) return projected;
+    const name = (from: string) => renames.get(from)?.to ?? from;
+    const renamed = <T extends { readonly name: string }>(
+      items: readonly T[]
+    ) => items.map((item) => ({ ...item, name: name(item.name) }));
+    const owner =
+      operation.type === "renameTable" ? operation.to : operation.tableName;
+    return {
+      ...projected,
+      ...(projected.enums ? { enums: renamed(projected.enums) } : {}),
+      tables: projected.tables.map((table) => {
+        if (table.name !== owner) return table;
+        const { primaryKey } = table;
+        return {
+          ...table,
+          columns: table.columns.map((column) => {
+            const element = column.type.replace(ARRAY_TYPE, "");
+            const type = name(element) + column.type.slice(element.length);
+            return { ...column, type };
+          }),
+          ...(primaryKey?.name
+            ? { primaryKey: { ...primaryKey, name: name(primaryKey.name) } }
+            : {}),
+          indexes: renamed(table.indexes),
+          uniqueConstraints: renamed(table.uniqueConstraints),
+          foreignKeys: renamed(table.foreignKeys),
+        };
+      }),
+    };
+  }
+
+  /**
+   * The statements that move `renames`, the names a native rename of `owner`
+   * carries along, on a dialect whose renames carry them (PostgreSQL,
+   * MySQL). `table` is the owner as the rename leaves it, still holding the
+   * old names. Absent where a rename leaves every name as it is (SQLite).
+   */
+  protected renameDerivedNames?(
+    owner: string,
+    renames: ReadonlyMap<string, DerivedRename>,
+    table: TableDef,
+    context: DDLContext
+  ): string[];
+
+  /**
+   * The names a native rename carries along, each derived from what it
+   * renames: the default primary key's (`<table>_pkey`), a per-column enum
+   * type (`<table>_<column>_enum`), and an index, unique or foreign key named
+   * after its own columns (`<table>_<columns>_idx`, `_key`, `_fkey`). A table
+   * rename also moves an index, unique or foreign key named `<table>_<rest>`
+   * that ends as the serializer ends them (`_idx`, `_key`, `_fkey`), whatever
+   * the rest is: field names, a compound key's name. Both spellings must fit
+   * unbounded (63 bytes) so the inverse rename reads the rest back. Any other
+   * name is custom, and stays; a self-set index name of that derived shape
+   * cannot be told apart, and moves.
+   */
+  private derivedRenames(
+    operation: NativeRenameOperation,
+    snapshot: SchemaSnapshot | undefined
+  ): Map<string, DerivedRename> {
+    const [from, to] =
+      operation.type === "renameTable"
+        ? [operation.from, operation.to]
+        : [operation.tableName, operation.tableName];
+    const renamed = (column: string) =>
+      operation.type === "renameColumn" && column === operation.from
+        ? operation.to
+        : column;
+    const renames = new Map<string, DerivedRename>();
+    const follow = (
+      kind: DerivedRename["kind"],
+      name: string | undefined,
+      derive: (table: string, column: (name: string) => string) => string,
+      tailed = false
+    ) => {
+      if (name === undefined) return;
+      const tail = name.slice(from.length);
+      const next =
+        name === derive(from, (column) => column)
+          ? derive(to, renamed)
+          : tailed &&
+              name.startsWith(`${from}_`) &&
+              DERIVED_TAIL.test(tail) &&
+              derivedMigrationName(to + tail) === to + tail
+            ? to + tail
+            : name;
+      if (next !== name) renames.set(name, { kind, to: next });
+    };
+    const named =
+      (columns: readonly string[], suffix: string) =>
+      (owner: string, column: (name: string) => string) =>
+        derivedMigrationName(
+          `${owner}_${columns.map(column).join("_")}_${suffix}`
+        );
+    const table = snapshot?.tables.find((item) => item.name === from);
+    if (!(table && this.renameDerivedNames)) return renames;
+    follow("constraint", table.primaryKey?.name, (owner) =>
+      this.generatedPrimaryKeyName(owner)
+    );
+    for (const column of table.columns) {
+      follow("type", column.type.replace(ARRAY_TYPE, ""), (owner, renamedTo) =>
+        this.getEnumColumnType(owner, renamedTo(column.name), [])
+      );
+    }
+    for (const index of table.indexes) {
+      follow("index", index.name, named(index.columns, "idx"), true);
+    }
+    // A unique constraint's index carries its name: renaming it renames both.
+    for (const unique of table.uniqueConstraints) {
+      follow("index", unique.name, named(unique.columns, "key"), true);
+    }
+    for (const key of table.foreignKeys) {
+      follow("constraint", key.name, named(key.columns, "fkey"), true);
+    }
+    return renames;
+  }
+
+  private compileDerivedRenames(
+    operation: NativeRenameOperation,
+    context: DDLContext
+  ): string[] {
+    const snapshot = this.schemaAtOperation(context);
+    const renames = this.derivedRenames(operation, snapshot);
+    if (renames.size === 0) return [];
+    const owner =
+      operation.type === "renameTable" ? operation.to : operation.tableName;
+    const table = applyNativeRename(snapshot!, operation).tables.find(
+      (item) => item.name === owner
+    )!;
+    return this.renameDerivedNames!(owner, renames, table, context);
+  }
+
+  /** Native identity and PK effects needed by rename and enum DDL at this prefix. */
+  protected schemaAtOperation(context: DDLContext): SchemaSnapshot | undefined {
+    let snapshot = context.currentSchema;
+    if (!snapshot) return undefined;
+    for (const operation of context.precedingOperations ?? []) {
+      if (
+        operation.type === "renameTable" ||
+        operation.type === "renameColumn"
+      ) {
+        snapshot = this.projectNativeRename(snapshot, operation);
+      } else if (operation.type === "createTable") {
+        const table = operation.table;
+        snapshot = {
+          ...snapshot,
+          tables: [
+            ...snapshot.tables,
+            table.primaryKey
+              ? {
+                  ...table,
+                  primaryKey: {
+                    ...table.primaryKey,
+                    name: this.generatedPrimaryKeyName(
+                      table.name,
+                      table.primaryKey.name
+                    ),
+                  },
+                }
+              : table,
+          ],
+        };
+      } else if (operation.type === "dropTable") {
+        snapshot = {
+          ...snapshot,
+          tables: snapshot.tables.filter(
+            (table) => table.name !== operation.tableName
+          ),
+        };
+      } else if (
+        operation.type === "addPrimaryKey" ||
+        operation.type === "dropPrimaryKey"
+      ) {
+        snapshot = {
+          ...snapshot,
+          tables: snapshot.tables.map((table) =>
+            table.name === operation.tableName
+              ? {
+                  ...table,
+                  primaryKey:
+                    operation.type === "addPrimaryKey"
+                      ? {
+                          ...operation.primaryKey,
+                          name: this.generatedPrimaryKeyName(
+                            operation.tableName,
+                            operation.primaryKey.name
+                          ),
+                        }
+                      : undefined,
+                }
+              : table
+          ),
+        };
+      }
+    }
+    return snapshot;
   }
 
   // Note: getDefaultExpression is implemented below as a common method
@@ -466,7 +701,10 @@ export abstract class MigrationDriver {
     op: RenameTableOperation,
     context: DDLContext
   ): readonly string[] {
-    return this.filterStatements([this.generateRenameTable(op, context)]);
+    return this.filterStatements([
+      this.generateRenameTable(op, context),
+      ...this.compileDerivedRenames(op, context),
+    ]);
   }
 
   compileAddColumn(
@@ -487,7 +725,10 @@ export abstract class MigrationDriver {
     op: RenameColumnOperation,
     context: DDLContext
   ): readonly string[] {
-    return this.filterStatements([this.generateRenameColumn(op, context)]);
+    return this.filterStatements([
+      this.generateRenameColumn(op, context),
+      ...this.compileDerivedRenames(op, context),
+    ]);
   }
 
   compileAlterColumn(
