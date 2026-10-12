@@ -33,15 +33,6 @@ type InferJsonInput<
   Key extends keyof GetScalarSchemas<State>,
 > = InferScalarInput<State, Key>;
 
-// JSON value type
-type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | JsonValue[]
-  | { [key: string]: JsonValue };
-
 // =============================================================================
 // RAW JSON SCALAR (required, no modifiers)
 // =============================================================================

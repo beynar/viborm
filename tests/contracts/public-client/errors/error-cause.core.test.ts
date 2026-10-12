@@ -8,10 +8,11 @@
  * rather than the value — inside the very `catch` that was building the typed
  * error. The typed boundary is then replaced by the trap's own error.
  *
- * `errorCause` is that test done once, for every consumer: `src/drivers/shared`
- * owns it, the option boundary and the pinned session read it here, and the
- * migration reset half consumes this exact export. One owner, one spelling —
- * a second predicate is a second thing to get wrong.
+ * `errorCause` is that test done once, for every consumer:
+ * `src/errors/diagnostic-safety.ts` owns it, and the driver options, the pinned
+ * session, migrations, extensions, the cache and validation all import this
+ * exact export. One owner, one spelling — a second predicate is a second thing
+ * to get wrong.
  */
 
 import { errorCause } from "@src/errors/diagnostic-safety";

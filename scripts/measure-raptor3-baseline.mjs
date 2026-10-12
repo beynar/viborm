@@ -255,6 +255,9 @@ const manifest = JSON.parse(
 const categories = [...new Set(files.map((file) => file.classification))];
 const require = createRequire(import.meta.url);
 const tsdownRequire = createRequire(require.resolve("tsdown"));
+const RAPTOR3_SCRIPT = /raptor3/;
+const MJS_EXTENSION = /\.mjs$/;
+
 const externalByFixture = {
   engine: [
     ...Object.keys(manifest.dependencies),
@@ -444,7 +447,7 @@ const report = {
       file.includes("operation-pipeline-")
     ),
     ...list(resolve(root, "scripts"), ".mjs").filter((file) =>
-      /raptor3/.test(file)
+      RAPTOR3_SCRIPT.test(file)
     ),
   ].map((absolute) => {
     const source = readFileSync(absolute, "utf8");
@@ -551,7 +554,7 @@ if (bundle) {
             : undefined;
       if (module && ts.isStringLiteral(module) && module.text.startsWith(".")) {
         visitDeclaration(
-          resolve(file, "..", module.text.replace(/\.mjs$/, ".d.mts"))
+          resolve(file, "..", module.text.replace(MJS_EXTENSION, ".d.mts"))
         );
       }
       ts.forEachChild(node, visit);
