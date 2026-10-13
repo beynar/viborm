@@ -109,6 +109,14 @@ const scripts = [
         ] as const
     )
   ),
+  ...(["tsc5", "tsc6", "tsc7"] as const).map(
+    (checker) =>
+      [
+        `type-checks held nested where types at 50 models with ${checker} within budget`,
+        "./type-recursive-where-smoke.mjs",
+        { VIBORM_RECURSIVE_WHERE_CHECKERS: checker },
+      ] as const
+  ),
   [
     "retains TS5.9 public query inference for extends10",
     "./declaration-consumer-smoke.mjs",

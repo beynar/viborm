@@ -3,6 +3,58 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.2.1 — 2026-10-13
+
+Fixes a type-checking regression of 1.2.0 on queries whose nested
+`select`/`include` `where` is typed by a held `where` type.
+
+### Fixed
+
+- **TS2589 and `any` results on a nested `where` typed by a held `where`
+  type.** 1.2.0's misspelled-key check on a nested `select`/`include` `where`
+  (and, as in 1.1.0, on a root relation filter) followed every optional
+  relation key of a value typed as the client's own `where` payload, such as a
+  helper's `{ where: GrantWhere, select }` with `GrantWhere` read through
+  `Parameters<…>`, and enumerated the paths through the model graph. On
+  hub-shaped schemas the checker gave up with `TS2589: Type instantiation is
+  excessively deep and possibly infinite`, the affected results became `any`
+  (an exported query emitted `Promise<any>`), and wrong-type errors followed.
+  The check now descends only the keys a value's type requires. On a 50-model
+  schema with two hub models, recursive relation filters, helper-built queries
+  and a client union, instantiations for 1.1.0 / 1.2.0 / 1.2.1:
+  - TypeScript 5.9.3: 6.36M / 16.88M / 1.17M;
+  - TypeScript 6.0.3: 6.54M / 17.05M / 1.34M;
+  - TypeScript 7.0.2 (single-threaded): 9.05M / 17.45M / 1.71M;
+  - `bun check` (Bun 1.4.3) wall time: 2.2 s / 3.3 s / 0.5 s.
+
+  1.2.0 reported three TS2589 on each TypeScript (plus 22 follow-on errors on
+  5.9 and 6) and nine under `bun check`, with `any` results; 1.2.1 reports
+  none and infers every result. The TS2589 1.1.0 already had there, on a
+  payload-typed `where` spread into a root relation filter, is gone too. The
+  package tests now type-check that schema on all four checkers, the three
+  TypeScripts within instantiation budgets.
+
+### Changed
+
+- A misspelled key below a key that is OPTIONAL in a `where` value's type is
+  no longer a type error, at the root or in a nested `select`/`include`
+  `where`. That covers a held value (with
+  `filter: { writer?: { email: string; emial: string } }`,
+  `findMany({ where: filter })` compiles) and a conditional spread inside a
+  literal, which makes its keys optional the same way
+  (`{ title, ...(ok ? { writer: { email, emial } } : {}) }`). 1.1.0 reported
+  both at the root and 1.2.0 in nested `where`s too. A key the value's type
+  requires, which includes every key written out in a literal, is checked as
+  before, and runtime validation still refuses the unknown key.
+
+### Upgrading from 1.2.0
+
+- No source, schema or database change is required. Workarounds for 1.2.0's
+  TS2589, such as typing a held filter `{}` or casting it, can be removed. To
+  keep a type error on a misspelling inside a held `where` value, give the
+  value a type that requires its keys, or write the filter inline without a
+  conditional spread.
+
 ## 1.2.0 — 2026-10-12
 
 Makes migrations safe to run unattended, from a deploy step or from a tenant's

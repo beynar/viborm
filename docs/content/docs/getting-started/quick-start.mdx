@@ -240,6 +240,10 @@ Some misuse still type-checks:
 
 - an operator typo below a top-level `where` field: inside a relation filter,
   an `AND` / `OR` / `NOT` group, or a nested `include` / `select` `where`;
+- a misspelled key below a `where` key that is optional in the value's type:
+  below a relation key of a filter held in a variable typed as the `where`
+  payload, or inside a conditional spread
+  (`...(ok ? { author: { email, emial } } : {})`);
 - a misspelled relation operation (`conect`), or a misspelled key in a nested
   selector (`connect`, or the `where` of a nested `update`, `delete` or
   `upsert`), in `cursor` or in `having`;

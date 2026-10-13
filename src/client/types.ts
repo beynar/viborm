@@ -895,10 +895,13 @@ type NoExtraClauseKeys<
  * The root-reported walks (WHERE model keys, nested write data) follow the
  * LITERAL the caller wrote, key each spelled object against a key set read
  * from the model's state, and report what is left as ONE `UnknownClauseKey` on
- * the root clause. Neither maps over a payload's own keys, which is what
- * expands the recursive payloads (see above). Cycle detection uses the exact
- * spelled-value/model pair, never a numeric depth cap, so a held value typed
- * as a recursive payload stops at its first repeat. `NoInfer` keeps that
+ * the root clause. Both descend only REQUIRED keys (`RequiredSpelledKeys`),
+ * never a payload's own optional ones, which is what expands the recursive
+ * payloads (see above): a held value typed as the payload spells none, and
+ * following its optional relation keys enumerated every path through the
+ * model graph (TS2589 in 1.2.0). Cycle detection uses the exact
+ * spelled-value/model pair, never a numeric depth cap, so a value whose type
+ * requires a recursive key stops at its first repeat. `NoInfer` keeps that
  * comparison from inferring through a relinked model (a mapped type), which
  * would walk its whole relation graph.
  */
@@ -980,7 +983,7 @@ type WhereUnknownKeys<
               ? never
               : {
                   [K in Extract<
-                    keyof Given,
+                    RequiredSpelledKeys<Given>,
                     WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
                   >]: K extends WhereLogicalKeys<M>
                     ? WhereUnknownKeys<
@@ -996,7 +999,7 @@ type WhereUnknownKeys<
                         >
                       : never;
                 }[Extract<
-                  keyof Given,
+                  RequiredSpelledKeys<Given>,
                   WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
                 >])
     : never;
@@ -1093,9 +1096,11 @@ type SpelledClause<Arg, Clause extends PropertyKey> = [Arg] extends [
  * `where` walks model field names through relation and logical filters,
  * `data` / `create` / `update` walk nested write data. A clause spelling no
  * relation or logical group has nothing below its root to walk. A `where`
- * that IS the payload type is not walked either (the WHERE walk follows
- * optional keys); the write walk needs no such check, because it descends
- * only spelled keys.
+ * that IS the payload type is not walked either. `Parameters<…>` instantiates
+ * this guard with the payload as the argument, where a unique `where` is
+ * required and is a union of arms that each require their key; walking them
+ * costs one `Parameters<…>` read of a `findUnique` about 12k instantiations at
+ * 50 models (measured for 1.2.1).
  */
 type NestedClauseGuard<
   Arg,

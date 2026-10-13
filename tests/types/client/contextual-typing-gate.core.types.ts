@@ -1109,7 +1109,9 @@ describe("the array spelling of orderBy is keyed at its elements", () => {
  *  - ordinary relation/logical WHERE model field keys, nested write data,
  *    nested `select` / `include` / `where` and root operator bags are keyed
  *    by walking the caller's literal (types-10, 1.2.0); operator bags below
- *    the root WHERE remain pinned.
+ *    the root WHERE, and what sits below a key that is optional in a `where`
+ *    value's type (a held value's, or a conditional spread's; 1.2.1), remain
+ *    pinned.
  *
  * These are refused at RUNTIME: validation is the single home for payload
  * normalization, and an unknown key fails the parse. What is missing is only the
@@ -1208,7 +1210,33 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
       select: { id: true, books: { select: { title: true, ttitle: true } } },
     });
 
+  // A held value's OPTIONAL key is how a payload type spells everything, so
+  // the WHERE walk does not descend it (following those keys through a hub
+  // model was TS2589 in 1.2.0); a key the value's type requires is walked.
+  const _heldOptionalRelationTypoCompiles = (where: {
+    writer?: { email: string; emial: string };
+  }) => client.book.findMany({ where });
+
+  // A conditional spread gives a literal the same type: `writer` is optional
+  // there too, so the walk cannot tell it from a held payload value.
+  const _spreadOptionalRelationTypoCompiles = (ok: boolean) =>
+    client.book.findMany({
+      where: {
+        title: "x",
+        ...(ok ? { writer: { email: "a", emial: "b" } } : {}),
+      },
+    });
+
+  const _heldRequiredRelationTypoRefused = (where: {
+    writer: { email: string; emial: string };
+  }) =>
+    // @ts-expect-error a required key of a held value is walked as a literal's is
+    client.book.findMany({ where });
+
   test("the probes above compile, which is the pin", () => {
+    expectTypeOf(_heldOptionalRelationTypoCompiles).toBeFunction();
+    expectTypeOf(_spreadOptionalRelationTypoCompiles).toBeFunction();
+    expectTypeOf(_heldRequiredRelationTypoRefused).toBeFunction();
     expectTypeOf(_writeClauseTypoCompiles).toBeFunction();
     expectTypeOf(_updateClauseTypoCompiles).toBeFunction();
     expectTypeOf(_cursorTypoCompiles).toBeFunction();

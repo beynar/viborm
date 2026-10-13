@@ -1,0 +1,17 @@
+{
+  "headroom": 0.1,
+  "checkers": {
+    "tsc5": {
+      "typescript": "5.9.3",
+      "instantiations": 1167122
+    },
+    "tsc6": {
+      "typescript": "6.0.3",
+      "instantiations": 1340686
+    },
+    "tsc7": {
+      "typescript": "7.0.2",
+      "instantiations": 1710882
+    }
+  }
+}
