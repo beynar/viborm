@@ -1108,10 +1108,11 @@ describe("the array spelling of orderBy is keyed at its elements", () => {
  *    clause is guarded without resolving a model or relation payload;
  *  - ordinary relation/logical WHERE model field keys, nested write data,
  *    nested `select` / `include` / `where` and root operator bags are keyed
- *    by walking the caller's literal (types-10, 1.2.0); operator bags below
- *    the root WHERE, and what sits below a key that is optional in a `where`
- *    value's type or a nested `select` / `include` value's type (a held
- *    value's, or a conditional spread's; 1.2.1), remain pinned.
+ *    by walking the caller's literal (types-10, 1.2.0), optional keys of a
+ *    held value or a conditional spread included (1.2.2); operator bags below
+ *    the root WHERE, and what sits below an optional key of a `where` object
+ *    whose type states every key of its model's WHERE (a payload-typed value
+ *    spread beside it), remain pinned.
  *
  * These are refused at RUNTIME: validation is the single home for payload
  * normalization, and an unknown key fails the parse. What is missing is only the
@@ -1210,17 +1211,19 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
       select: { id: true, books: { select: { title: true, ttitle: true } } },
     });
 
-  // A held value's OPTIONAL key is how a payload type spells everything, so
-  // the WHERE walk does not descend it (following those keys through a hub
-  // model was TS2589 in 1.2.0); a key the value's type requires is walked.
-  const _heldOptionalRelationTypoCompiles = (where: {
+  // A held value's and a conditional spread's OPTIONAL keys are walked (1.1.0
+  // walked them at the root, 1.2.0 in nested `where`s too, 1.2.1 did not); a
+  // `where` object whose type states every key of its model's WHERE is the
+  // client's own payload, and below it only required keys are walked.
+  const _heldOptionalRelationTypoRefused = (where: {
     writer?: { email: string; emial: string };
-  }) => client.book.findMany({ where });
+  }) =>
+    // @ts-expect-error an optional key of a held value is walked
+    client.book.findMany({ where });
 
-  // A conditional spread gives a literal the same type: `writer` is optional
-  // there too, so the walk cannot tell it from a held payload value.
-  const _spreadOptionalRelationTypoCompiles = (ok: boolean) =>
+  const _spreadOptionalRelationTypoRefused = (ok: boolean) =>
     client.book.findMany({
+      // @ts-expect-error a conditional spread's optional key is walked
       where: {
         title: "x",
         ...(ok ? { writer: { email: "a", emial: "b" } } : {}),
@@ -1233,27 +1236,117 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
     // @ts-expect-error a required key of a held value is walked as a literal's is
     client.book.findMany({ where });
 
-  // A nested `select` / `include` is sealed on the same rule: a held node read
-  // through `Parameters<…>` is a union whose recursive arm carries the asking
-  // key as an optional member, which 1.2.0 refused as unknown (TS2322).
-  const _heldOptionalProjectionTypoCompiles = (books: {
-    select?: { title?: true; ttitle?: true };
-  }) => client.author.findMany({ select: { id: true, books } });
+  const _nestedHeldOptionalRelationTypoRefused = (where: {
+    writer?: { email: string; emial: string };
+  }) =>
+    client.author.findMany({
+      // @ts-expect-error a nested where's held optional key is walked
+      select: { id: true, books: { where, select: { title: true } } },
+    });
 
-  const _spreadOptionalProjectionTypoCompiles = (ok: boolean) =>
+  const _nestedSpreadOptionalRelationTypoRefused = (ok: boolean) =>
+    client.author.findMany({
+      select: {
+        books: {
+          // @ts-expect-error a nested where's conditional spread is walked
+          where: {
+            title: "x",
+            ...(ok ? { writer: { email: "a", emial: "b" } } : {}),
+          },
+        },
+      },
+    });
+
+  type BookWhere = NonNullable<
+    NonNullable<Parameters<typeof client.book.findMany>[0]>["where"]
+  >;
+  type WriterFilter = NonNullable<BookWhere["writer"]>;
+  const _heldOptionalPayloadFilterCompiles = (where: {
+    writer?: WriterFilter;
+  }) => client.book.findMany({ where });
+
+  // Beside a payload-typed spread the object states every WHERE key, which is
+  // how the walk recognizes the client's own payload under any spelling; an
+  // optional key there is the payload's, so a typo below it is not reached.
+  const _besidePayloadOptionalRelationTypoCompiles = (
+    held: BookWhere,
+    ok: boolean
+  ) =>
+    client.book.findMany({
+      where: { ...held, ...(ok ? { writer: { email: "a", emial: "b" } } : {}) },
+    });
+
+  // An `any` filter states no key and is not walked, wherever it sits: an
+  // optional key (a conditional spread), a required one, a logical group or a
+  // nested `where`. 1.2.1 reported TS2589 on the last three.
+  const _anyFilterCompiles = (filter: any, ok: boolean) => {
+    client.book.findMany({ where: { ...(ok ? { writer: filter } : {}) } });
+    client.book.findMany({ where: { writer: { is: filter } } });
+    client.book.findMany({ where: { title: "x", AND: filter } });
+    return client.author.findMany({ select: { books: { where: filter } } });
+  };
+
+  // A nested `select` / `include` is sealed on the keys its value STATES: a
+  // held node read through `Parameters<…>` is a union whose recursive arm
+  // carries the asking key as a refused `?: undefined` member nobody wrote.
+  const _heldOptionalProjectionTypoRefused = (books: {
+    select?: { title?: true; ttitle?: true };
+  }) =>
+    // @ts-expect-error an optional key of a held node's select is sealed
+    client.author.findMany({ select: { id: true, books } });
+
+  const _spreadOptionalProjectionTypoRefused = (ok: boolean) =>
     client.author.findMany({
       select: {
         id: true,
+        // @ts-expect-error a conditional spread in a nested select is sealed
         books: { select: { title: true, ...(ok ? { ttitle: true } : {}) } },
       },
     });
 
+  const _heldOptionalIncludeTypoRefused = (books: {
+    include?: { writer?: true; wirter?: true };
+  }) =>
+    // @ts-expect-error an optional key of a held node's include is sealed
+    client.author.findMany({ include: { books } });
+
+  const _heldNodeOptionalWhereTypoRefused = (books: {
+    where?: { writer?: { email: string; emial: string } };
+  }) =>
+    // @ts-expect-error a held node's optional where is walked
+    client.author.findMany({ select: { id: true, books } });
+
+  const _heldNodeSpreadWhereTypoRefused = (
+    books: {
+      select?: { title?: true };
+    },
+    ok: boolean
+  ) =>
+    client.author.findMany({
+      select: {
+        id: true,
+        books: {
+          ...books,
+          // @ts-expect-error a conditional spread in a held node's where is walked
+          where: { ...(ok ? { writer: { email: "a", emial: "b" } } : {}) },
+        },
+      },
+    });
+
   test("the probes above compile, which is the pin", () => {
-    expectTypeOf(_heldOptionalRelationTypoCompiles).toBeFunction();
-    expectTypeOf(_spreadOptionalRelationTypoCompiles).toBeFunction();
+    expectTypeOf(_heldOptionalRelationTypoRefused).toBeFunction();
+    expectTypeOf(_spreadOptionalRelationTypoRefused).toBeFunction();
     expectTypeOf(_heldRequiredRelationTypoRefused).toBeFunction();
-    expectTypeOf(_heldOptionalProjectionTypoCompiles).toBeFunction();
-    expectTypeOf(_spreadOptionalProjectionTypoCompiles).toBeFunction();
+    expectTypeOf(_nestedHeldOptionalRelationTypoRefused).toBeFunction();
+    expectTypeOf(_nestedSpreadOptionalRelationTypoRefused).toBeFunction();
+    expectTypeOf(_heldOptionalPayloadFilterCompiles).toBeFunction();
+    expectTypeOf(_besidePayloadOptionalRelationTypoCompiles).toBeFunction();
+    expectTypeOf(_anyFilterCompiles).toBeFunction();
+    expectTypeOf(_heldOptionalProjectionTypoRefused).toBeFunction();
+    expectTypeOf(_spreadOptionalProjectionTypoRefused).toBeFunction();
+    expectTypeOf(_heldOptionalIncludeTypoRefused).toBeFunction();
+    expectTypeOf(_heldNodeOptionalWhereTypoRefused).toBeFunction();
+    expectTypeOf(_heldNodeSpreadWhereTypoRefused).toBeFunction();
     expectTypeOf(_writeClauseTypoCompiles).toBeFunction();
     expectTypeOf(_updateClauseTypoCompiles).toBeFunction();
     expectTypeOf(_cursorTypoCompiles).toBeFunction();

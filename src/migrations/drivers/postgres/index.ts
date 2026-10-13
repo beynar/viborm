@@ -32,7 +32,10 @@ import {
 } from "../../identifier-conversion";
 import type { Sha256 } from "../../identity";
 import { DEFAULT_MIGRATION_LIMITS } from "../../limits";
-import { rowsAfterSchemaChange } from "../../statement-safety";
+import {
+  type CatalogHazard,
+  catalogCommitBoundaries,
+} from "../../statement-safety";
 import type {
   ColumnDef,
   DiffOperation,
@@ -141,6 +144,40 @@ SELECT (
   )
 ) AS ready
 `;
+
+/**
+ * The refusal of a program PlanetScale's Neki cannot run (V11021), before any
+ * effect: one entry whose own statements need a commit between them
+ * (`inside`), where no commit can be placed, or, for a command that runs its
+ * program in one transaction, the first statement that needs one.
+ */
+function nekiRefusal(
+  dialect: string,
+  { kind, change, statement }: CatalogHazard,
+  inside: boolean
+): MigrationError {
+  const reason =
+    kind === "rows"
+      ? "a statement does not see a schema change made earlier in its own transaction"
+      : "a statement cannot retype, rename or drop a column of a table created or renamed earlier in its own transaction (NK316)";
+  const where = inside
+    ? `statement ${statement.position + 1} of this migration runs ${statement.words} after ${change.words} in one dispatch, which no commit can divide. Nothing ran. Put them in separate statements of the migration (one sql fragment each), or in states of their own.`
+    : `this migration runs statement ${statement.position + 1} (${statement.words}) after statement ${change.position + 1} (${change.words}). Nothing ran. apply() commits between them; this command runs them in one transaction. Put the later statement in a state of its own after the earlier one, and apply up to the earlier one first (apply({ to })).`;
+  return new MigrationError(
+    `On PlanetScale's Neki, ${reason}, and ${where}`,
+    VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
+    {
+      meta: {
+        dialect,
+        feature: inside
+          ? "dependent statements in one dispatch"
+          : kind === "rows"
+            ? "data after schema change in one transaction"
+            : "column change of a new relation in one transaction",
+      },
+    }
+  );
+}
 
 function snapshotUsesGeoPoint(snapshot: SchemaSnapshot): boolean {
   const physicalType = PG_TYPE_DEFAULTS.point.toLowerCase().replace(/\s+/g, "");
@@ -432,33 +469,25 @@ export class PostgresMigrationDriver extends MigrationDriver {
   override async preflightSchemaRequirements(
     snapshots: readonly SchemaSnapshot[],
     executeRaw: RawExecutor,
-    program: readonly string[]
-  ): Promise<void> {
+    program: readonly string[],
+    splits = false
+  ): Promise<boolean> {
     try {
-      // PlanetScale's Neki plans a row statement against the schema committed
-      // before its transaction, so one that follows a schema change in it
-      // fails (42P01, 42703). Asked of the server only for such a program.
-      const late = rowsAfterSchemaChange(program);
-      if (
-        late &&
+      // PlanetScale's Neki plans a statement against the schema committed
+      // before its transaction (`catalogCommitBoundaries`). Asked of the
+      // server only for a program that would need a commit there.
+      const { boundaries, first, inside } = catalogCommitBoundaries(program);
+      const neki =
+        boundaries.length > 0 &&
         (
           await executeRaw<{ neki: boolean }>(
             "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki"
           )
-        ).rows[0]?.neki === true
-      ) {
-        const { change, rows } = late;
-        throw new MigrationError(
-          `On PlanetScale's Neki, a statement does not see a schema change made earlier in its own transaction, and this migration runs statement ${rows.position + 1} (${rows.words}) after statement ${change.position + 1} (${change.words}). Nothing ran. Put the data change in a state of its own after the schema change, and apply up to the schema change first (apply({ to })).`,
-          VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER,
-          {
-            meta: {
-              dialect: this.dialect,
-              feature: "data after schema change in one transaction",
-            },
-          }
-        );
-      }
+        ).rows[0]?.neki === true;
+      const refused = neki
+        ? (inside ?? (splits ? undefined : first))
+        : undefined;
+      if (refused) throw nekiRefusal(this.dialect, refused, refused === inside);
       // T5a: a statement that rewrites or scans a table holds a lock that
       // blocks it for as long as that takes, so above `largeTableRows` (the
       // planner's estimate, as EXPLAIN reports it) it is refused here, before
@@ -584,7 +613,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
             VibORMErrorCode.MIGRATION_UNSUPPORTED_PROVIDER
           );
       }
-      if (!snapshots.some(snapshotUsesGeoPoint)) return;
+      if (!snapshots.some(snapshotUsesGeoPoint)) return neki;
       let rows: readonly { ready?: unknown }[];
       try {
         rows = (await executeRaw<{ ready?: unknown }>(POSTGIS_PREFLIGHT_QUERY))
@@ -606,6 +635,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
           { meta: { dialect: this.dialect, feature: "GeoPoint" } }
         );
       }
+      return neki;
     } catch (failure) {
       if (failure instanceof MigrationError) throw failure;
       throw new MigrationError(

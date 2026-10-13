@@ -7,9 +7,10 @@
  * and the recursive node's projection carries the asking key (`books` below)
  * as an optional refused member nobody wrote. 1.2.0 sealed a nested
  * projection against every key of every arm, so it refused that key as
- * unknown (TS2322) on every such node. The seal keys what the value requires,
- * as the WHERE walk does: a misspelling a caller writes out is still refused,
- * and one below an optional key is pinned in contextual-typing-gate.
+ * unknown (TS2322) on every such node; 1.2.1 sealed only the keys a value
+ * requires. The seal refuses every unknown key as `?: undefined`, which that
+ * member is: a misspelling a caller writes out is refused, and so is one under
+ * an optional key (contextual-typing-gate).
  */
 
 import { PGliteDriver } from "@drivers/pglite";

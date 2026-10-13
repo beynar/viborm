@@ -211,7 +211,7 @@ describe("SQLite recreation preflight", () => {
       '-- released for v2\nDROP TRIGGER main."item_audit"',
       "/* v2 */ DROP TRIGGER [main] . item_audit",
     ]) {
-      await expect(preflight([drop, ...statements])).resolves.toBeUndefined();
+      await expect(preflight([drop, ...statements])).resolves.toBe(false);
     }
   });
 

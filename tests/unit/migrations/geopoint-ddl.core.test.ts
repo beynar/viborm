@@ -216,7 +216,7 @@ describe("PostGIS migration preflight", () => {
         (sql, params) => execution._executeRaw(sql, params),
         []
       )
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(execution.statements.some((sql) => sql.startsWith("ALTER"))).toBe(
       false
     );

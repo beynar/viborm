@@ -246,13 +246,19 @@ export abstract class MigrationDriver {
    * it runs none), so a dialect can refuse what that program would destroy
    * (SQLite: a recreation's dependent triggers and views). Required: a caller
    * cannot skip these refusals by leaving it out.
+   *
+   * Answers whether the program must commit where `catalogCommitBoundaries`
+   * names (PlanetScale's Neki). A caller that `splits` commits there itself
+   * and is told so; any other is refused such a program before effects.
    */
   async preflightSchemaRequirements(
     _snapshots: readonly SchemaSnapshot[],
     _executeRaw: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>,
-    _program: readonly string[]
-  ): Promise<void> {
+    _program: readonly string[],
+    _splits?: boolean
+  ): Promise<boolean> {
     // Most dialects have no external schema requirement to prove.
+    return false;
   }
 
   /**

@@ -621,5 +621,5 @@ it("refuses only desired view collisions using the catalog-proven MySQL namespac
       reader.read,
       []
     )
-  ).resolves.toBeUndefined();
+  ).resolves.toBe(false);
 });

@@ -129,8 +129,13 @@ fields; declared model fields shadow `AND`, `OR` and `NOT`, matching
 `WhereSchema`. `RecursiveProjectionRootGuard` keys a nested `select` (fields), `include`
 (relations) and `where` at the key. `OperatorBagGuard` seals root WHERE operator
 bags. `GroupByOrderGuard` keeps groupBy `orderBy` inside `by` and the aggregates.
-Only required (spelled) keys are walked, so payload types and union-normalised
-`?: undefined` members are never expanded. A guard that inspects a type
+The WHERE walk descends every key of a finite value, optional ones included (a
+held filter, a conditional spread), and stops at a `where` object whose type
+states every key of its model's WHERE: that is the payload under any spelling,
+and only its required keys are walked; an `any` value is not walked. Write
+data descends required keys only.
+Projection seals refuse unknown keys as `?: undefined`, the type of the refused
+member a held node's recursive arm carries. A guard that inspects a type
 parameter refuses it, so projection and operator guards keep each leaf's own arm
 in a union, and generic leaves stay assignable. Cycle detection uses the exact
 caller-value/model pair, never a numeric depth cap. Not claimed: operator bags

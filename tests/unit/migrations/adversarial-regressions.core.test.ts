@@ -849,7 +849,7 @@ describe("adversarial migration regressions", () => {
         (query, params) => driver._executeRaw(query, params),
         []
       )
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
     expect(
       driver.statements.every(
         (statement) =>

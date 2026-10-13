@@ -203,6 +203,7 @@ const extendedLocalExclusions = new Set([
   "tests/unit/migrations/pinned-session-docker.test.ts",
   "tests/unit/migrations/postgres-catalog-digest-docker.test.ts",
   "tests/unit/migrations/postgres-namespace-docker.test.ts",
+  "tests/unit/migrations/postgres-neki-boundaries-docker.test.ts",
   "tests/unit/migrations/postgres-recoverable-steps-docker.test.ts",
   "tests/unit/migrations/postgres-session-limits-docker.test.ts",
   "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",

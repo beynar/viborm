@@ -162,14 +162,14 @@ describe("what the preflight admits", () => {
   it("admits a rewrite at or below the limit", async () => {
     const { run, asked } = preflight([TYPE_CHANGE], { [ACCOUNTS]: 1_000_000 });
 
-    await expect(run).resolves.toBeUndefined();
+    await expect(run).resolves.toBe(false);
     expect(asked).toContain(`EXPLAIN SELECT 1 FROM ${ACCOUNTS}`);
   });
 
   it("admits a table that does not exist yet without estimating it", async () => {
     const { run, asked } = preflight([TYPE_CHANGE], {});
 
-    await expect(run).resolves.toBeUndefined();
+    await expect(run).resolves.toBe(false);
     expect(asked.some((sql) => sql.startsWith("EXPLAIN"))).toBe(false);
   });
 
@@ -179,7 +179,7 @@ describe("what the preflight admits", () => {
       { [ACCOUNTS]: 2_000_000 }
     );
 
-    await expect(run).resolves.toBeUndefined();
+    await expect(run).resolves.toBe(false);
     expect(asked).toEqual([]);
   });
 
@@ -190,7 +190,7 @@ describe("what the preflight admits", () => {
       { largeTableRows: 0 }
     );
 
-    await expect(run).resolves.toBeUndefined();
+    await expect(run).resolves.toBe(false);
     expect(asked).toEqual([]);
   });
 });

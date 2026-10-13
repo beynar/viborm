@@ -3,6 +3,133 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.2.2 — 2026-10-13
+
+Restores the misspelled-key type errors 1.2.1 gave up, at 1.2.1's
+type-checking cost, and applies migration states that mix schema and data
+changes on PlanetScale's Postgres (Neki).
+
+### Fixed
+
+- **A misspelled key below an optional key is a type error again.** 1.2.1
+  checked only the keys a value's type requires, so these compiled; each is
+  refused again, and runtime validation refused them all along:
+  - below an optional key of a held `where` value, at the root and in a
+    nested `select`/`include` `where`: with
+    `filter: { writer?: { email: string; emial: string } }`,
+    `findMany({ where: filter })` and
+    `select: { books: { where: filter } }` (1.1.0 caught the root case, 1.2.0
+    both);
+  - inside a conditional spread in a `where` literal, at the root and in a
+    nested `where`:
+    `{ title, ...(ok ? { writer: { email, emial } } : {}) }` (same history);
+  - the keys of a nested `select`/`include`, in a held relation node
+    (`books: { select?: { title?: true; ttitle?: true } }`, or the same with
+    `include`) or in a conditional spread
+    (`books: { select: { title: true, ...(ok ? { ttitle: true } : {}) } }`)
+    (1.2.0 caught these; 1.1.0 did not check nested `select`/`include`
+    keys);
+  - the `where` of a held relation node, when that `where` is optional in the
+    node's type (`books: { where?: { writer?: { emial: string } } }`), or a
+    conditional spread in it. No earlier release checked this.
+
+  The check now walks every key of a held or spread `where` object, and stops
+  at any `where` object whose type names every key of its model's `where`:
+  the client's own payload, however it is spelled (`Parameters<…>`,
+  `ModelCoreInput<…, "where">`, `InferDatabase`'s `Where`, an `AND` element).
+  Following the optional keys of that type is what produced 1.2.0's TS2589.
+  A nested `select`/`include` refuses every unknown key it names, typed
+  `?: undefined`, so the relation's own name, which a held node's recursive
+  arm carries as an optional `undefined` member, is still accepted. On the
+  50-model package fixture, which now includes held filters with payloads
+  under optional keys, instantiations for 1.2.1 / 1.2.2: TypeScript 5.9.3
+  1,268,876 / 1,268,196; TypeScript 6.0.3 1,442,440 / 1,441,760; TypeScript
+  7.0.2 (single-threaded) 1,813,234 / 1,816,278. Without the stop at the
+  payload, the same fixture reaches 27.5M on TypeScript 7 with five TS2589.
+- **TS2589 on an `any` value inside a `where`.** The misspelled-key check
+  unwrapped an `any` filter into itself until the checker gave up: on 1.2.1
+  under a required relation key (`writer: value`), a to-one `is` / `isNot`, a
+  `some` / `every` / `none`, an `AND` / `OR` / `NOT` group and a nested
+  `select`/`include` `where: value`. An `any` value states no key and is no
+  longer walked, so these compile, as do the optional-key spellings the check
+  now reaches (`...(ok ? { writer: value } : {})`, `{ OR?: any[] }`).
+- **Neki: a pending path that mixes schema and data states applies.** 1.2.1
+  refused any `apply()` whose statements ran a data statement after a schema
+  change, across every state the run applied (`V11021`, before effects), so
+  an estate already applied elsewhere could not be deployed to Neki at all.
+  Neki plans a statement against the schema committed before its
+  transaction (measured on Neki's PostgreSQL 18.6), so on Neki `apply()` now
+  commits exactly where that matters, and nowhere on PostgreSQL:
+  - consecutive states share a transaction until a state's statements or
+    checks would read a change an earlier one made; that state starts a new
+    transaction, after the earlier states committed and the marker moved;
+  - a state whose own statements need a commit inside it (an `ALTER TABLE …
+    ADD COLUMN` then an `UPDATE` of that column) runs as successive committed
+    parts: the first runs its origin checks and opens its ledger attempt,
+    each records its steps in the transaction they ran in, the last runs its
+    destination checks, proves the state and moves the marker. A failure in
+    a later part leaves the marker on the previous state and the attempt open
+    (`status()` reports `unfinished: true`); the next `apply()` resumes it,
+    running only the parts that did not commit. A failure in the first part
+    leaves nothing, as before;
+  - a change Neki's planner does not need committed — defaults, NOT NULL,
+    CHECK and foreign keys, a validated constraint, a comment — commits
+    nothing. A created or dropped table, index or constraint does: a literal
+    naming it (`to_regclass('…')`, `'…'::regclass`) is resolved against the
+    committed schema there and silently answers for the old one.
+  It is still refused before effects (`V11021`, naming both statements)
+  where no commit can be placed: two statements of one dispatch (one `sql`
+  fragment holding `ALTER …; UPDATE …`) that need one between them.
+- **Neki: a column change of a table created or renamed in the same
+  transaction** (`ALTER COLUMN … TYPE`, `RENAME COLUMN`, `DROP COLUMN`,
+  `SET SCHEMA`) failed mid-transaction there (`NK316`); `apply()` commits
+  before it, and the other commands refuse it before effects (`V11021`).
+
+### Changed
+
+- **Neki: `apply()` resumes an open attempt it left.** Only the attempt of a
+  state split at Neki's commit boundaries is resumed, from its confirmed
+  steps; any other unfinished attempt still blocks `apply()`
+  (`V11016`). Such a state's ledger now holds `started` and `step-confirmed`
+  events, which a transactional state never wrote before; on PostgreSQL the
+  groups, statements and ledger events are unchanged.
+  `apply({ dryRun: true })` previews only the statements left to run of
+  such an attempt.
+- **Neki: what `down()`, `reset()`, `resolve({ outcome: "retry" })` and
+  `push()` refuse.** They run their program in one transaction and refuse a
+  program that would need a commit on Neki (`V11021`), now by the same
+  measured rule: a data statement after a change Neki's planner sees (a
+  default, NOT NULL, a CHECK or foreign key) is no longer refused, and a
+  column change of a table created in the same transaction is. Whether the
+  server is Neki is asked only of a program that would need a commit there;
+  `apply()` reads its states' checks with their statements, the other
+  commands their statements.
+- A relation filter typed by a type parameter under an optional key, such as
+  `<W extends UserWhere>(author: W, ok: boolean) => post.findMany({ where: {
+  ...(ok ? { author } : {}) } })` or a held `{ author?: W }`, is refused, as
+  1.2.0 refused it and as every release refuses it under a required key: its
+  keys cannot be checked. Type the value as the payload (`author: UserWhere`)
+  or write the filter out. Generic scalar values and generic `select` maps
+  still compile.
+
+### Not checked
+
+- A misspelled key below an optional key of a `where` object that also
+  spreads a value typed as the full `where` payload
+  (`{ ...filter, ...(ok ? { writer: { emial } } : {}) }`). That object names
+  every key of its model's `where`, so the check treats it as the payload.
+
+### Upgrading from 1.2.1
+
+- No schema or database change is required. A query that compiled on 1.2.1
+  can now report a misspelled key below an optional key, which runtime
+  validation already refused, or refuse a relation filter typed by a type
+  parameter under an optional key (see Changed).
+- On Neki, re-run `apply()` on the path 1.2.1 refused: no estate change is
+  needed. A state it splits commits its schema part first; plan for that
+  intermediate schema to be visible to the application while its data part
+  runs.
+
 ## 1.2.1 — 2026-10-13
 
 Fixes two type-checking regressions of 1.2.0: on queries whose nested

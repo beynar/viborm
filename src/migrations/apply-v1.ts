@@ -59,15 +59,19 @@ import {
 import type { MigrationClient } from "./push/planner";
 import { fingerprintDeparsed, fingerprintSnapshot } from "./push-fingerprint";
 import type { introspectManaged } from "./push-plan";
-import { openCommand, readCommandControl } from "./resume";
+import { openCommand, readCommandControl, remainingSteps } from "./resume";
+import { sliceDispatch } from "./sql-blob";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
+import { catalogCommitBoundaries, UNCHANGED_CATALOG } from "./statement-safety";
 import type { MigrationStorageReader } from "./storage/contract";
 import type { SchemaSnapshot } from "./types";
 import type {
   ApplyV1Options,
   LedgerEventV1,
   MarkerPathEdgeV1,
+  MigrationBooleanCheckV1,
   MigrationMarkerV1,
+  MigrationOperationV1,
 } from "./v1-types";
 
 export interface ApplyV1Result {
@@ -103,8 +107,25 @@ export async function applyV1(
     if (!decision || decision.origin === target) {
       return { outcome: "noop", path: [], statements: [] };
     }
-    const { path, statements } = decision;
-    return { outcome: "preview", path, statements };
+    const { origin, path, statements } = decision;
+    // An edge split at Neki's commit boundaries previews what is left of it.
+    const unfinished = unfinishedAttempts(control.ledger);
+    const resume = mayResume(unfinished, control.marker)
+      ? resumableAttempt(
+          driver,
+          graph,
+          decision,
+          unfinished[0]!,
+          control.ledger
+        )
+      : undefined;
+    return {
+      outcome: "preview",
+      path,
+      statements: resume
+        ? routeSql(graph, origin, path, resume).statements
+        : statements,
+    };
   }
 
   // Set once the path committed: a failure after it is the lock's release.
@@ -118,26 +139,34 @@ export async function applyV1(
       const needsBootstrap = control.presence.kind !== "present";
       refuseIncompatibleHistory(marker, ledger);
       const unfinished = unfinishedAttempts(ledger);
-      if (unfinished.length > 0) {
-        throw new MigrationError(
-          "An unfinished migration attempt is blocking ordinary work",
-          VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
-        );
+      if (unfinished.length > 0 && !mayResume(unfinished, marker)) {
+        throw unfinishedAttemptBlocks();
       }
       const decision = decide(graph, marker, target, options);
+      // A transport with no session runs no edge as committed parts.
+      const resume =
+        unfinished.length === 0 || runsMigrationBatches(pinned)
+          ? undefined
+          : resumableAttempt(command, graph, decision, unfinished[0]!, ledger);
+      if (unfinished.length > 0 && !resume) throw unfinishedAttemptBlocks();
       if (!decision) return { outcome: "noop", path: [], statements: [] };
-      const { origin, path, statements } = decision;
-      await command.preflightSchemaRequirements(
+      const { origin, path } = decision;
+      const route = routeSql(graph, origin, path, resume);
+      const splits = await command.preflightSchemaRequirements(
         [
           requireStateSnapshot(graph, origin),
           ...path.map((stateId) => requireStateSnapshot(graph, stateId)),
         ],
         (sql, params) => pinned._executeRaw(sql, params),
-        statements
+        route.chunks,
+        // One request per group holds no part's progress: refused instead.
+        !runsMigrationBatches(pinned)
       );
-      if (marker) {
+      // A resumed edge's committed parts are already past the marker's
+      // snapshot: the destination proof of its last part proves the rest.
+      if (resume === undefined && marker) {
         await assertNoDrift(pinned, command, graph, marker);
-      } else {
+      } else if (resume === undefined) {
         await assertEmptyManaged(pinned, command);
       }
       if (origin === target) {
@@ -153,10 +182,15 @@ export async function applyV1(
           origin,
           path,
           client.$schema,
-          needsBootstrap
+          needsBootstrap,
+          { splits, resume }
         )
       );
-      committed.result = { outcome: "applied", path, statements };
+      committed.result = {
+        outcome: "applied",
+        path,
+        statements: resume ? route.statements : decision.statements,
+      };
       return committed.result;
     },
     driver.target.dialect === "postgresql"
@@ -270,7 +304,8 @@ async function applyPathUnderLock(
   origin: Sha256 | null,
   path: readonly Sha256[],
   models: MigrationClient["$schema"],
-  needsBootstrap = false
+  needsBootstrap: boolean,
+  { splits, resume }: { readonly splits: boolean; readonly resume?: Resume }
 ): Promise<void> {
   const batched = runsMigrationBatches(pinned);
   const prepared = routeEdges(graph, origin, path).map((edge) => {
@@ -302,7 +337,22 @@ async function applyPathUnderLock(
   }
   const statementsOf = ({ transition, blob }: PreparedForwardEdge) =>
     stepStatements(blob, transition.operations);
-  for (const group of groupContiguousAtomicity(prepared, statementsOf)) {
+  const groups = groupContiguousAtomicity(prepared, statementsOf);
+  for (const group of splits || resume
+    ? splitAtCatalogBoundaries(graph, groups, splits, resume)
+    : groups) {
+    if ("split" in group) {
+      current = await applySplitEdge(
+        pinned,
+        command,
+        graph,
+        group.split,
+        current,
+        nextPath,
+        models
+      );
+      continue;
+    }
     if (batched) {
       current = await applyGroupBatch(
         pinned,
@@ -407,12 +457,21 @@ function refuseBatchedStepwise(
   );
 }
 
+/** One committed part of a forward edge: its steps, and which checks it runs. */
+interface ForwardPart {
+  readonly operations: readonly MigrationOperationV1[];
+  readonly origin: boolean;
+  readonly destination: boolean;
+}
+
 /**
  * One forward edge, from its origin checks to its destination checks, its
  * arrival pushed onto `nextPath`; the caller proves the destination, moves
  * the marker and records the arrival. A `probed` edge runs step by step and
  * records each confirmed step; otherwise it runs inside a real transaction,
- * or one request (`batch`), whose rollback is the proof of every step.
+ * or one request (`batch`), whose rollback is the proof of every step. A
+ * `part` of an edge split at Neki's commit boundaries runs only its steps,
+ * each recorded in the part's transaction, and the checks it holds.
  */
 async function runForwardEdge(
   producer: Parameters<typeof appendLedger>[0],
@@ -422,23 +481,26 @@ async function runForwardEdge(
   nextPath: MarkerPathEdgeV1[],
   models: MigrationClient["$schema"],
   probed: boolean,
-  batch?: MigrationBatch
+  batch?: MigrationBatch,
+  part?: ForwardPart
 ): Promise<void> {
   const { from, to, transition, state, blob, boundary } = attempt.item;
-  await assertAllChecks(
-    producer,
-    blob,
-    transition.originChecks,
-    command.namespace,
-    "Origin checks failed before the first dispatch",
-    batch
-  );
+  if (part?.origin ?? true) {
+    await assertAllChecks(
+      producer,
+      blob,
+      transition.originChecks,
+      command.namespace,
+      "Origin checks failed before the first dispatch",
+      batch
+    );
+  }
   await executeOperations(
     producer,
     blob,
-    transition.operations,
+    part?.operations ?? transition.operations,
     probed ? boundary : "atomic",
-    probed
+    probed || part
       ? (progress, effect, failure) =>
           appendLedger(
             producer,
@@ -449,6 +511,7 @@ async function runForwardEdge(
     command.namespace,
     { fromState: from, toState: to }
   );
+  if (!(part?.destination ?? true)) return;
   // Manual SQL may store text typed queries cannot compare (`datetime('now')`).
   await canonicalizeSqliteStorage(
     producer,
@@ -729,19 +792,23 @@ interface ForwardAttempt extends AttemptEvents {
 
 function forwardAttempt(
   graph: MigrationGraph,
-  item: PreparedForwardEdge
+  item: PreparedForwardEdge,
+  attemptId?: Sha256
 ): ForwardAttempt {
   return {
     item,
-    ...attemptEvents({
-      estateHash: graph.estateHash,
-      snapshotHash: item.state.snapshotHash,
-      sqlHash: item.state.sqlHash,
-      fromState: item.from,
-      toState: item.to,
-      transitionHash: item.transition.transitionHash,
-      direction: "forward",
-    }),
+    ...attemptEvents(
+      {
+        estateHash: graph.estateHash,
+        snapshotHash: item.state.snapshotHash,
+        sqlHash: item.state.sqlHash,
+        fromState: item.from,
+        toState: item.to,
+        transitionHash: item.transition.transitionHash,
+        direction: "forward",
+      },
+      attemptId
+    ),
   };
 }
 
@@ -752,5 +819,399 @@ function previewStatements(
 ): string[] {
   return routeEdges(graph, origin, path).flatMap(({ blob, transition }) =>
     stepStatements(blob, transition.operations)
+  );
+}
+
+function unfinishedAttemptBlocks(): MigrationError {
+  return new MigrationError(
+    "An unfinished migration attempt is blocking ordinary work",
+    VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT
+  );
+}
+
+/**
+ * Whether the open attempts may be one apply resumes: one forward attempt,
+ * opened from the marker. Read before the route, so any other open attempt
+ * blocks as it always has.
+ */
+function mayResume(
+  unfinished: readonly LedgerEventV1[],
+  marker: MigrationMarkerV1 | null
+): boolean {
+  const [attempt] = unfinished;
+  return (
+    unfinished.length === 1 &&
+    attempt?.kind === "started" &&
+    attempt.direction === "forward" &&
+    attempt.fromState === (marker?.stateId ?? null)
+  );
+}
+
+/** An edge split at Neki's commit boundaries whose first parts committed. */
+interface Resume {
+  readonly attempt: LedgerEventV1;
+  /** The steps its committed parts confirmed. */
+  readonly completed: number;
+  /** The operations past them. */
+  readonly operations: readonly MigrationOperationV1[];
+}
+
+/**
+ * What apply resumes of `attempt`, which {@link mayResume} admitted, or
+ * `undefined`: the attempt of a transactional PostgreSQL edge split at Neki's
+ * commit boundaries, on the first edge of the route apply selected. Only such
+ * an edge leaves an attempt open past a commit on PostgreSQL (SQLite without
+ * transactions leaves one edge by edge), and each of its committed parts
+ * recorded its steps in its own transaction, so their prefix is exact.
+ */
+function resumableAttempt(
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  decision: ReturnType<typeof decide>,
+  attempt: LedgerEventV1,
+  ledger: readonly LedgerEventV1[]
+): Resume | undefined {
+  if (!decision?.path.length || command.target.dialect !== "postgresql") {
+    return;
+  }
+  const [edge] = routeEdges(graph, decision.origin, decision.path);
+  const { from, to, transition, state, blob } = edge!;
+  // Its progress events are matched to this edge by `remainingSteps`.
+  if (
+    attempt.toState !== to ||
+    attempt.transitionHash !== transition.transitionHash ||
+    classifyStoredAtomicity(
+      command,
+      transition.requestedForwardBoundary,
+      transition.operations,
+      blob
+    ) !== "transactional"
+  ) {
+    return;
+  }
+  return {
+    attempt,
+    ...remainingSteps(
+      ledger,
+      attempt,
+      {
+        direction: "forward",
+        estateHash: graph.estateHash,
+        fromState: from,
+        toState: to,
+        transitionHash: transition.transitionHash,
+        sqlHash: state.sqlHash,
+        operations: transition.operations,
+        boundary: "transactional",
+      },
+      "Forward"
+    ),
+  };
+}
+
+/**
+ * The SQL one transaction runs for an edge, in its order: the origin checks
+ * (unless `origin` is false: a resumed edge ran them), `operations`' steps
+ * and the destination checks. `before` counts the origin checks.
+ */
+function edgeSql(
+  { transition, state, blob }: RouteEdge,
+  operations: readonly MigrationOperationV1[],
+  origin: boolean
+): {
+  readonly chunks: string[];
+  readonly steps: string[];
+  readonly before: number;
+} {
+  const checks = (list: readonly MigrationBooleanCheckV1[]) =>
+    list.map((check) => sliceDispatch(blob, check.query));
+  const before = origin ? checks(transition.originChecks) : [];
+  const steps = stepStatements(blob, operations);
+  return {
+    chunks: [...before, ...steps, ...checks(state.destinationChecks)],
+    steps,
+    before: before.length,
+  };
+}
+
+/**
+ * What apply runs along `path`, a resumed first edge from its remaining
+ * steps: every edge's checks and steps (`chunks`, which PlanetScale's Neki
+ * reads for commit boundaries) and the steps alone (`statements`).
+ */
+function routeSql(
+  graph: MigrationGraph,
+  origin: Sha256 | null,
+  path: readonly Sha256[],
+  resume: Resume | undefined
+): { readonly chunks: string[]; readonly statements: string[] } {
+  const chunks: string[] = [];
+  const statements: string[] = [];
+  for (const [index, edge] of routeEdges(graph, origin, path).entries()) {
+    const resumed = index === 0 ? resume : undefined;
+    const sql = edgeSql(
+      edge,
+      resumed?.operations ?? edge.transition.operations,
+      resumed === undefined
+    );
+    chunks.push(...sql.chunks);
+    statements.push(...sql.steps);
+  }
+  return { chunks, statements };
+}
+
+/** One edge apply runs as committed parts, alone in its group. */
+interface SplitEdge {
+  readonly attempt: ForwardAttempt;
+  /** Whether its attempt is open already: its first parts committed earlier. */
+  readonly resumed: boolean;
+  /** The steps confirmed before this command. */
+  readonly completed: number;
+  /**
+   * Each part's operations, in order. The origin checks run with the first,
+   * the destination checks and the marker with the last, which holds no step
+   * when the checks themselves need a commit.
+   */
+  readonly parts: readonly (readonly MigrationOperationV1[])[];
+}
+
+type PlannedGroup =
+  | ReturnType<typeof groupContiguousAtomicity<PreparedForwardEdge>>[number]
+  | { readonly split: SplitEdge };
+
+/** The steps `from` (inclusive) to `to` (exclusive) of `operations`. */
+function stepRange(
+  operations: readonly MigrationOperationV1[],
+  from: number,
+  to: number
+): MigrationOperationV1[] {
+  let index = 0;
+  return operations.flatMap((operation) => {
+    const first = index;
+    index += operation.steps.length;
+    const steps = operation.steps.filter(
+      (_, position) => first + position >= from && first + position < to
+    );
+    return steps.length === 0 ? [] : [{ ...operation, steps }];
+  });
+}
+
+/**
+ * Plan D5's groups, on PlanetScale's Neki (`splits`), cut where its planner
+ * needs a commit (`catalogCommitBoundaries`): an edge joins the group before
+ * it while none of its statements needs one; one that needs one only because
+ * of that group starts a group of its own; one that needs one because of its
+ * own changes runs alone, as committed parts. A resumed first edge runs alone
+ * from its remaining steps, on any PostgreSQL. A stepwise group commits each
+ * statement already.
+ */
+function splitAtCatalogBoundaries(
+  graph: MigrationGraph,
+  groups: ReturnType<typeof groupContiguousAtomicity<PreparedForwardEdge>>,
+  splits: boolean,
+  resume: Resume | undefined
+): PlannedGroup[] {
+  const planned: PlannedGroup[] = [];
+  const first = groups[0]?.items[0];
+  for (const group of groups) {
+    if (group.boundary !== "transactional") {
+      planned.push(group);
+      continue;
+    }
+    let items: PreparedForwardEdge[] = [];
+    let changes = UNCHANGED_CATALOG;
+    const flush = () => {
+      if (items.length > 0) planned.push({ boundary: group.boundary, items });
+      items = [];
+      changes = UNCHANGED_CATALOG;
+    };
+    const read = (chunks: readonly string[], since = UNCHANGED_CATALOG) =>
+      splits
+        ? catalogCommitBoundaries(chunks, since)
+        : { boundaries: [], changes: UNCHANGED_CATALOG };
+    for (const item of group.items) {
+      const resumed = item === first ? resume : undefined;
+      const operations = resumed?.operations ?? item.transition.operations;
+      const sql = edgeSql(item, operations, resumed === undefined);
+      const joined = read(sql.chunks, changes);
+      if (resumed === undefined && joined.boundaries.length === 0) {
+        items.push(item);
+        changes = joined.changes;
+        continue;
+      }
+      flush();
+      const alone = read(sql.chunks);
+      if (resumed === undefined && alone.boundaries.length === 0) {
+        items = [item];
+        changes = alone.changes;
+        continue;
+      }
+      // A commit before an origin check or the first step divides nothing.
+      const cuts = [
+        ...new Set(
+          alone.boundaries
+            .map((position) =>
+              Math.min(position - sql.before, sql.steps.length)
+            )
+            .filter((cut) => cut > 0)
+        ),
+      ];
+      const ends = [0, ...cuts, sql.steps.length];
+      planned.push({
+        split: {
+          attempt: forwardAttempt(graph, item, resumed?.attempt.attemptId),
+          resumed: resumed !== undefined,
+          completed: resumed?.completed ?? 0,
+          parts: ends
+            .slice(1)
+            .map((end, index) => stepRange(operations, ends[index]!, end)),
+        },
+      });
+    }
+    flush();
+  }
+  return planned;
+}
+
+/**
+ * One edge as successive committed parts (PlanetScale's Neki), each in its
+ * own locked transaction: the first runs the origin checks and opens the
+ * attempt (`started`), each records its steps (`step-confirmed`) in the
+ * transaction they ran in, and the last runs the destination checks, proves
+ * the destination, moves the marker and closes the attempt (`applied`).
+ *
+ * Between two parts the lock is let go, so each part first proves the marker
+ * unmoved and the attempt as far as this command left it. A first part that
+ * fails leaves nothing, recorded as one `failed` event, as an atomic group
+ * does. A later failure leaves the attempt open at its last committed part,
+ * the marker on the edge's origin: `status()` reports it unfinished, and the
+ * next `apply()` resumes the remaining parts ({@link resumableAttempt}).
+ */
+async function applySplitEdge(
+  pinned: import("../drivers/driver").AnyDriver,
+  command: BoundMigrationDriver,
+  graph: MigrationGraph,
+  { attempt, resumed, completed, parts }: SplitEdge,
+  current: MigrationMarkerV1 | null,
+  nextPath: MarkerPathEdgeV1[],
+  models: MigrationClient["$schema"]
+): Promise<MigrationMarkerV1 | null> {
+  const { item } = attempt;
+  let confirmed = completed;
+  let next = current;
+  for (const [index, operations] of parts.entries()) {
+    const opens = index === 0 && !resumed;
+    const closes = index === parts.length - 1;
+    const phase = { committing: false, committed: false };
+    // Set once the part holds the lock as this command left it: a failure
+    // before that is another command's doing, and records nothing.
+    let admitted = false;
+    try {
+      await runProgram(
+        pinned,
+        command,
+        {
+          transactional: true,
+          statements: stepStatements(item.blob, operations),
+          phase,
+        },
+        async (producer) => {
+          await assertLockedSinceDecision(
+            pinned,
+            producer,
+            command,
+            current,
+            opens ? false : { attemptId: attempt.attemptId, steps: confirmed }
+          );
+          admitted = true;
+          if (opens) {
+            await assertAllChecks(
+              producer,
+              item.blob,
+              item.transition.originChecks,
+              command.namespace,
+              "Origin checks failed before the first dispatch"
+            );
+            await appendLedger(
+              producer,
+              command,
+              attempt.event("started", "none")
+            );
+          }
+          await runForwardEdge(
+            producer,
+            command,
+            graph,
+            attempt,
+            nextPath,
+            models,
+            false,
+            undefined,
+            { operations, origin: false, destination: closes }
+          );
+          if (!closes) return;
+          const { snapshotHash } = item.state;
+          next = await advanceMarker(
+            producer,
+            command,
+            graph.estateHash,
+            current,
+            [...nextPath],
+            snapshotHash,
+            1,
+            await proveLive(producer, command, graph, snapshotHash)
+          );
+          await appendLedger(
+            producer,
+            command,
+            attempt.event("applied", "committed")
+          );
+        }
+      );
+    } catch (failure) {
+      if (phase.committed) throw failure;
+      if (
+        closes &&
+        phase.committing &&
+        (await commitLanded(pinned, command, [item], next, failure))
+      ) {
+        return next;
+      }
+      // Only a first part that rolled back left nothing open to resume: one
+      // whose COMMIT failed did when its attempt is open, or unreadable.
+      if (
+        opens &&
+        admitted &&
+        !(
+          phase.committing &&
+          (await attemptOpened(pinned, command, attempt.attemptId))
+        )
+      ) {
+        await recordFailedAttempt(pinned, command, { attempt }, failure);
+      }
+      throw failure;
+    }
+    confirmed += operations.reduce(
+      (count, operation) => count + operation.steps.length,
+      0
+    );
+  }
+  return next;
+}
+
+/**
+ * Whether the attempt `attemptId` is open, read after its first part's
+ * COMMIT failed: `true` too when the ledger cannot be read, so a `failed`
+ * event never closes an attempt whose part may have committed.
+ */
+function attemptOpened(
+  pinned: Parameters<typeof appendLedger>[0],
+  command: BoundMigrationDriver,
+  attemptId: Sha256
+): Promise<boolean> {
+  return readControlState(pinned, command, { ledger: "open" }).then(
+    ({ ledger }) =>
+      unfinishedAttempts(ledger).some((event) => event.attemptId === attemptId),
+    () => true
   );
 }
