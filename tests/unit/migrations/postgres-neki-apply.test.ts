@@ -21,6 +21,7 @@
  */
 
 import { createClient } from "@drivers/pglite";
+import { CLEANUP_BOUND_MS } from "@drivers/shared/pinned-session";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { VibORMErrorCode } from "@errors";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
@@ -124,6 +125,10 @@ function asNeki(database: PGlite): {
   refusals: string[];
   log: string[];
   fail?: string;
+  /** A statement containing this text is never answered (once). */
+  hang?: string;
+  /** Every statement containing `text` answers only after `ms`. */
+  slow?: { readonly text: string; readonly ms: number };
   skip: number;
   before?: { readonly text: string; skip: number; readonly sql: string };
 } {
@@ -132,6 +137,10 @@ function asNeki(database: PGlite): {
     refusals: [] as string[],
     log: [] as string[],
     fail: undefined as string | undefined,
+    hang: undefined as string | undefined,
+    slow: undefined as
+      | { readonly text: string; readonly ms: number }
+      | undefined,
     skip: 0,
     before: undefined as
       | { readonly text: string; skip: number; readonly sql: string }
@@ -213,6 +222,14 @@ function asNeki(database: PGlite): {
   const transaction = database.transaction.bind(database);
   Object.defineProperty(database, "query", {
     value: async (text: string, params?: unknown[], options?: object) => {
+      if (simulation.hang && text.includes(simulation.hang)) {
+        simulation.hang = undefined;
+        return new Promise(() => undefined);
+      }
+      if (simulation.slow && text.includes(simulation.slow.text)) {
+        const { ms } = simulation.slow;
+        await new Promise((resolve) => setTimeout(resolve, ms));
+      }
       const { before } = simulation;
       if (before && text === before.text && before.skip-- === 0) {
         simulation.before = undefined;
@@ -699,6 +716,132 @@ describe.each([
     expect((await migrations(true).status()).marker?.stateId).toBe(
       schema.stateId
     );
+    expect(refusals).toEqual([]);
+  });
+
+  /** v1, 2,000 accounts, then v2's generated `nickname` column, applied. */
+  const nicknameApplied = async (namespace: string) => {
+    const migrations = await estate(namespace);
+    const v1 = await migrations().generate({ name: "v1" });
+    await migrations().apply();
+    await seedAccounts(namespace);
+    await migrations(true).generate({ name: "nickname" });
+    await migrations(true).apply();
+    return { migrations, v1: v1.stateId };
+  };
+  const advisoryLocks = async () =>
+    (
+      await database.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM pg_catalog.pg_locks WHERE locktype = 'advisory'"
+      )
+    ).rows[0]?.n;
+  const lockTimeout = async () =>
+    (
+      await database.query<{ value: string }>(
+        "SELECT current_setting('lock_timeout') AS value"
+      )
+    ).rows[0]?.value;
+
+  it("lets the lock and the session's limits go while down's resolver answers, then takes them again", async () => {
+    const namespace = `neki_resolver_gap_${neki}`;
+    const { migrations, v1 } = await nicknameApplied(namespace);
+    const clean = await lockTimeout();
+    const seen: unknown[] = [];
+    await expect(
+      migrations(false).down({
+        resolve: async (change) => {
+          // An operator reading the prompt: no lock held, no idle limit.
+          seen.push({
+            locks: await advisoryLocks(),
+            lock: await lockTimeout(),
+          });
+          return change.type === "destructive" ? change.proceed() : undefined;
+        },
+      })
+    ).resolves.toMatchObject({ preview: false });
+    expect(seen).toEqual([{ locks: 0, lock: clean }]);
+    expect(await columns(namespace)).not.toContain("nickname");
+    expect((await migrations(false).status()).marker?.stateId).toBe(v1);
+    expect(await advisoryLocks()).toBe(0);
+    expect(await lockTimeout()).toBe(clean);
+    expect(refusals).toEqual([]);
+  });
+
+  it("loses the session within the cleanup bound when the reset before down's resolver is never answered", async () => {
+    const namespace = `neki_resolver_hang_${neki}`;
+    const { migrations } = await nicknameApplied(namespace);
+    let asked = false;
+    simulation.hang = neki ? "RESET" : undefined;
+    const started = performance.now();
+    const outcome = migrations(false)
+      .down({
+        resolve: async (change) => {
+          asked = true;
+          return change.type === "destructive" ? change.proceed() : undefined;
+        },
+      })
+      .then(
+        () => "resolved",
+        () => "rejected"
+      );
+    try {
+      if (!neki) {
+        await expect(outcome).resolves.toBe("resolved");
+        return;
+      }
+      // Unbounded, the reset waits forever holding the lock (Devin, #100).
+      await expect(outcome).resolves.toBe("rejected");
+      expect(performance.now() - started).toBeLessThan(CLEANUP_BOUND_MS + 5000);
+      expect(asked).toBe(false);
+    } finally {
+      simulation.hang = undefined;
+      // One PGlite backend serves every session: free what the lost one held.
+      await database.query("SELECT pg_catalog.pg_advisory_unlock_all()");
+      await database.query("RESET ALL");
+    }
+  }, 30_000);
+
+  it("bounds each reset before down's resolver on its own: slow but answered resets still reach it", async () => {
+    const namespace = `neki_resolver_slow_${neki}`;
+    const { migrations, v1 } = await nicknameApplied(namespace);
+    let asked = false;
+    // Each reset answers within the bound; together they would exceed it.
+    simulation.slow = neki
+      ? { text: "RESET", ms: CLEANUP_BOUND_MS * 0.6 }
+      : undefined;
+    try {
+      await expect(
+        migrations(false).down({
+          resolve: async (change) => {
+            asked = true;
+            return change.type === "destructive" ? change.proceed() : undefined;
+          },
+        })
+      ).resolves.toMatchObject({ preview: false });
+    } finally {
+      simulation.slow = undefined;
+    }
+    expect(asked).toBe(true);
+    expect((await migrations(false).status()).marker?.stateId).toBe(v1);
+  }, 60_000);
+
+  it("refuses down when the marker moved while its resolver answered, and runs nothing", async () => {
+    const namespace = `neki_resolver_moved_${neki}`;
+    const { migrations } = await nicknameApplied(namespace);
+    await expect(
+      migrations(false).down({
+        resolve: async (change) => {
+          await database.query(
+            `UPDATE "${namespace}"."_viborm_migration_state" SET payload = replace(payload::text, '"revision":2', '"revision":9')::json`
+          );
+          return change.type === "destructive" ? change.proceed() : undefined;
+        },
+      })
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_MARKER_CONFLICT,
+    });
+    expect(await columns(namespace)).toContain("nickname");
+    expect(await advisoryLocks()).toBe(0);
     expect(refusals).toEqual([]);
   });
 

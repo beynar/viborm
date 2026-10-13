@@ -68,7 +68,12 @@ import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
 import { approveDestructiveOperations } from "./resolver";
-import { openCommand, readCommandControl, remainingSteps } from "./resume";
+import {
+  countUnanswered,
+  openCommand,
+  readCommandControl,
+  remainingSteps,
+} from "./resume";
 import { sliceDispatch } from "./sql-blob";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type {
@@ -1482,10 +1487,12 @@ async function holdsRows(
  * committed), is an effect no fingerprint shows and that no rollback undid: a
  * forward attempt runs none. Marking it rolled back would let `apply` run the
  * step again — the double credit (plan S4). A step the server refused whole is
- * answered with its `failure`: nothing of it committed. Generated steps are
- * structural, and so is a CONCURRENTLY index statement, whose index resolve
- * repairs before the origin proof (plan S7): the fingerprint proves those
- * undone.
+ * answered with its `failure`: nothing of it committed. Each announcement is
+ * answered on its own (`countUnanswered`, as resume counts them): a resumed
+ * retry of a refused step whose reply was lost may have committed. Generated
+ * steps are structural, and so is a CONCURRENTLY index statement, whose index
+ * resolve repairs before the origin proof (plan S7): the fingerprint proves
+ * those undone.
  */
 function refuseOpaqueEffect(
   transition: ReturnType<typeof parentTransition>,
@@ -1510,12 +1517,13 @@ function refuseOpaqueEffect(
       event.kind === "step-confirmed" &&
       opaque.has(event.dispatchId ?? "")
   );
-  const refused = new Set(
-    effects.flatMap((event) => (event.failure ? [event.dispatchId] : []))
-  );
+  const unanswered = new Map<LedgerEventV1["dispatchId"], number>();
+  for (const event of effects) {
+    countUnanswered(unanswered, event.dispatchId, event);
+  }
   const effect =
     effects.find((event) => event.effectState === "committed") ??
-    effects.find((event) => !refused.has(event.dispatchId));
+    effects.find((event) => (unanswered.get(event.dispatchId) ?? 0) > 0);
   if (effect === undefined) return;
   const committed = effect.effectState === "committed";
   throw new MigrationError(

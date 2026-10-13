@@ -58,8 +58,9 @@ it.each(CASES)("R2: %s", (name) =>
   ));
 
 /** Publishes in concurrent batches: the ids are distinct, and one at a time
- * the 1,001 puts outlast the default test timeout on a CI runner. */
-const PUBLISH_BATCH = 100;
+ * the 1,001 puts outlast the default test timeout on a CI runner. Batches of
+ * 100 lost Miniflare's R2 connection on CI; 20 keep it. */
+const PUBLISH_BATCH = 20;
 
 async function publishStates(
   storage: MigrationStorageWriter,

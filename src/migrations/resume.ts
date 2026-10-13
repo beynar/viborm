@@ -97,6 +97,21 @@ export function refuseAmbiguousNext(
   );
 }
 
+/**
+ * Counts one step's `step-confirmed` event into `unanswered`, per `key`: each
+ * announcement (effect `none`) counts one, and each recorded refusal (`none`
+ * with its `failure`: the server refused the statement whole) answers one. A
+ * positive count is a dispatch occurrence that may have committed.
+ */
+export function countUnanswered<K>(
+  unanswered: Map<K, number>,
+  key: K,
+  event: LedgerEventV1
+): void {
+  if (event.effectState !== "none") return;
+  unanswered.set(key, (unanswered.get(key) ?? 0) + (event.failure ? -1 : 1));
+}
+
 /** `operations` without their first `skip` steps. */
 export function sliceOperations(
   operations: readonly MigrationOperationV1[],
@@ -181,12 +196,7 @@ export function remainingSteps(
       );
     }
     if (event.effectState === "committed") committed.add(index);
-    if (event.effectState === "none") {
-      unanswered.set(
-        index,
-        (unanswered.get(index) ?? 0) + (event.failure ? -1 : 1)
-      );
-    }
+    countUnanswered(unanswered, index, event);
   }
   const completed = confirmedPrefix(
     committed,

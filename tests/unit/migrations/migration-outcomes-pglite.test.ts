@@ -63,11 +63,18 @@ type Fault =
   | "none";
 
 /**
- * A PGlite whose `query`/`exec` fail as `fault` says once `armedBy` ran.
- * Every other statement reaches the database; `sent` records each one.
+ * A PGlite whose `query`/`exec` fail as `fault` says once `armedBy` ran
+ * (`state.armedBy`, which a test may set later). Every other statement
+ * reaches the database; `sent` records each one.
  */
 function faulty(database: PGlite, fault: Fault, armedBy: string) {
-  const state = { armed: false, dead: false, fired: 0, sent: [] as string[] };
+  const state = {
+    armedBy,
+    armed: false,
+    dead: false,
+    fired: 0,
+    sent: [] as string[],
+  };
   const proxy = new Proxy(database, {
     get(target, property) {
       const value = Reflect.get(target, property, target);
@@ -78,7 +85,7 @@ function faulty(database: PGlite, fault: Fault, armedBy: string) {
       return async (text: string, ...rest: unknown[]) => {
         if (state.dead) throw new Error("connection is gone");
         state.sent.push(text);
-        if (text.includes(armedBy)) state.armed = true;
+        if (text.includes(state.armedBy)) state.armed = true;
         if (
           state.armed &&
           fault === "fail-unlock" &&
@@ -370,6 +377,66 @@ describe("S4 on PostgreSQL: honest recovery", () => {
       code: VibORMErrorCode.MIGRATION_FAILED,
     });
     expect(await distinctNumbers()).toBe(ROWS);
+    await run.close();
+  });
+
+  it("resolve('rolled-back') refuses a refused step whose resumed retry lost its reply", async () => {
+    const NOTE = `SET "notes" = (100 / "amountCents")::text`;
+    // Armed later: the first run's refusal must not arm the lost reply.
+    const run = await invoices("lose-statement-reply", "\0unarmed");
+    await run.database.exec(
+      `UPDATE "invoice" SET "amountCents" = 0 WHERE "id" = 'inv-1234'`
+    );
+    const noted = (
+      await run.first.generate({
+        name: "note-ratio",
+        manualMigration: {
+          transitions: [
+            {
+              from: run.init,
+              execution: "stepwise",
+              originChecks: [populated],
+              up: [sql.raw(`UPDATE "invoice" ${NOTE}`)],
+              rollback: { kind: "irreversible", reason: "notes stay" },
+            },
+          ],
+          destinationChecks: [populated],
+        },
+      })
+    ).stateId;
+    const notesWritten = async () =>
+      (
+        await run.database.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM "invoice" WHERE "notes" IS NOT NULL`
+        )
+      ).rows[0]?.n;
+
+    await expect(run.first.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_FAILED,
+      meta: { effectState: "none", providerSqlState: "22012" },
+    });
+    await run.database.exec(
+      `UPDATE "invoice" SET "amountCents" = 1000 WHERE "amountCents" = 0`
+    );
+    run.state.armedBy = NOTE;
+    // The resumed retry of the refused step commits, and its reply is lost.
+    await expect(run.first.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
+    });
+    expect(run.state.fired).toBe(1);
+    expect(await notesWritten()).toBe(ROWS);
+
+    await expect(
+      run.first.resolve({ outcome: "rolled-back" })
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
+      meta: {
+        effectState: "may-have-committed",
+        toState: noted,
+        partial: true,
+      },
+    });
+    expect((await run.first.status()).unfinished).toBe(true);
     await run.close();
   });
 

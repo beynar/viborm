@@ -37,15 +37,45 @@ function workflowRun(overrides = {}) {
   };
 }
 
+/**
+ * One record of `/runs/{id}/jobs?filter=all`: a job as one attempt ran it,
+ * its id distinct per run, attempt and job.
+ */
 function workflowJob(name, overrides = {}) {
-  return {
+  const job = {
     conclusion: "success",
     head_sha: sha,
     name,
     run_attempt: 2,
+    run_id: 200,
     status: "completed",
     ...overrides,
   };
+  return {
+    id:
+      job.run_id * 1000 + job.run_attempt * 100 + RELEASE_CI_JOBS.indexOf(name),
+    ...job,
+  };
+}
+
+const RERUN_JOB = "Package contract (Node 24)";
+
+/**
+ * "Re-run failed jobs" as `filter=all` lists it: every job's attempt-1
+ * record, `RERUN_JOB` failed there, then attempt 2's record of that job alone.
+ */
+function rerunJobs(rerun = {}) {
+  return [
+    {
+      jobs: RELEASE_CI_JOBS.map((name) =>
+        workflowJob(name, {
+          run_attempt: 1,
+          ...(name === RERUN_JOB ? { conclusion: "failure" } : {}),
+        })
+      ),
+    },
+    { jobs: [workflowJob(RERUN_JOB, rerun)] },
+  ];
 }
 
 function pullRun(overrides = {}) {
@@ -67,6 +97,7 @@ function pullJobs(overrides = () => ({})) {
         workflowJob(name, {
           head_sha: headSha,
           run_attempt: 1,
+          run_id: 190,
           ...overrides(index),
         })
       ),
@@ -96,10 +127,7 @@ function fixture(overrides = {}) {
     pullJobsPages: pullJobs(),
     pullRunsPages: [{ workflow_runs: [pullRun()] }],
     observedPullRun: pullRun(),
-    jobsPages: [
-      { jobs: RELEASE_CI_JOBS.slice(0, 3).map(workflowJob) },
-      { jobs: RELEASE_CI_JOBS.slice(3).map(workflowJob) },
-    ],
+    jobsPages: rerunJobs(),
     main: { commit: { sha }, name: "main", protected: true },
     observedRun: workflowRun(),
     repositoryState: { default_branch: "main", full_name: repository },
@@ -179,10 +207,17 @@ function apiFor(state, reads = []) {
         }
         return state.runsPages;
       }
-      if (endpoint.includes("/runs/190/attempts/")) {
+      // Every attempt's records: a later attempt lists only what it re-ran.
+      if (
+        endpoint === `${repo}/actions/runs/190/jobs?filter=all&per_page=100`
+      ) {
         return state.pullJobsPages;
       }
-      if (endpoint.includes("/attempts/2/jobs?")) return state.jobsPages;
+      if (
+        endpoint === `${repo}/actions/runs/200/jobs?filter=all&per_page=100`
+      ) {
+        return state.jobsPages;
+      }
       throw new Error(`Unexpected paginated endpoint ${endpoint}`);
     },
   };
@@ -466,20 +501,59 @@ test("release CI accepts only current complete exact-main proof", async () => {
     );
   }
 
-  // "Re-run failed jobs": attempt 2 keeps the jobs attempt 1 passed.
+  // A full re-run: attempt 2 ran every job again, over attempt 1's records.
   await verifyReleaseCi(
     verification(
       fixture({
         jobsPages: [
-          {
-            jobs: RELEASE_CI_JOBS.map((name, index) =>
-              workflowJob(name, index === 0 ? { run_attempt: 1 } : {})
-            ),
-          },
+          rerunJobs()[0],
+          { jobs: RELEASE_CI_JOBS.map((name) => workflowJob(name)) },
         ],
       })
     )
   );
+
+  for (const [name, jobsPages, message] of [
+    [
+      "re-run job that failed again",
+      rerunJobs({ conclusion: "failure" }),
+      `${JSON.stringify(RERUN_JOB)} is "completed" with conclusion "failure" in attempt 2`,
+    ],
+    [
+      "attempt-1 failure no attempt re-ran",
+      [rerunJobs()[0]],
+      `${JSON.stringify(RERUN_JOB)} is "completed" with conclusion "failure" in attempt 1`,
+    ],
+    [
+      "attempt-1 pass the re-run overturned",
+      [
+        {
+          jobs: RELEASE_CI_JOBS.map((name) =>
+            workflowJob(name, { run_attempt: 1 })
+          ),
+        },
+        { jobs: [workflowJob(RERUN_JOB, { conclusion: "cancelled" })] },
+      ],
+      "cancelled",
+    ],
+    [
+      "two records of one job in one attempt",
+      [...rerunJobs(), { jobs: [workflowJob(RERUN_JOB, { id: 7 })] }],
+      `attempt 2 contains duplicate job ${JSON.stringify(RERUN_JOB)}`,
+    ],
+    [
+      "job of another run",
+      rerunJobs({ run_id: 201 }),
+      `${JSON.stringify(RERUN_JOB)} belongs to run 201, not 200`,
+    ],
+  ]) {
+    await expectRefusal(
+      name,
+      () => verifyReleaseCi(verification(fixture({ jobsPages }))),
+      ReleaseCiError,
+      message
+    );
+  }
 
   await expectRefusal(
     "job from an attempt after the run's latest",
@@ -645,6 +719,33 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
   assert.deepEqual(
     await verifyReleaseCi(verification(pullFixture())),
     pullProof
+  );
+  // A pull-request run whose attempt 2 re-ran one failed job.
+  const rerunPull = pullRun({ run_attempt: 2 });
+  assert.deepEqual(
+    await verifyReleaseCi(
+      verification(
+        pullFixture({
+          pullRunsPages: [{ workflow_runs: [rerunPull] }],
+          observedPullRun: rerunPull,
+          pullJobsPages: [
+            ...pullJobs((index) =>
+              index === 0 ? { conclusion: "failure" } : {}
+            ),
+            {
+              jobs: [
+                workflowJob(RELEASE_CI_JOBS[0], {
+                  head_sha: headSha,
+                  run_id: 190,
+                }),
+              ],
+            },
+          ],
+        })
+      )
+    ),
+    { ...pullProof, attempt: 2 },
+    "A pull-request run's retained jobs prove what they proved"
   );
   for (const runsPages of [
     [{ workflow_runs: [] }],

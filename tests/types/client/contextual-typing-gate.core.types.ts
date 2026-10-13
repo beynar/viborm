@@ -1221,6 +1221,14 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
     // @ts-expect-error an optional key of a held value is walked
     client.book.findMany({ where });
 
+  // An `is` whose only value is `undefined` selects nothing: beside a field
+  // the runtime reads the shorthand filter, so its typo is walked.
+  const _heldUndefinedIsTypoRefused = (where: {
+    writer?: { is?: undefined; email: string; emial: string };
+  }) =>
+    // @ts-expect-error an undefined-only is beside a field is the shorthand
+    client.book.findMany({ where });
+
   const _spreadOptionalRelationTypoRefused = (ok: boolean) =>
     client.book.findMany({
       // @ts-expect-error a conditional spread's optional key is walked
@@ -1335,6 +1343,7 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
 
   test("the probes above compile, which is the pin", () => {
     expectTypeOf(_heldOptionalRelationTypoRefused).toBeFunction();
+    expectTypeOf(_heldUndefinedIsTypoRefused).toBeFunction();
     expectTypeOf(_spreadOptionalRelationTypoRefused).toBeFunction();
     expectTypeOf(_heldRequiredRelationTypoRefused).toBeFunction();
     expectTypeOf(_nestedHeldOptionalRelationTypoRefused).toBeFunction();

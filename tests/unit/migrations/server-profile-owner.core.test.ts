@@ -17,7 +17,9 @@ import { expect, it } from "vitest";
 
 const SRC = join(import.meta.dirname, "../../../src");
 const OWNER = "migrations/drivers/postgres/index.ts";
-const DETECTION = /\(Neki\)/;
+/** The server-identity test itself (`version()` matched against Neki's tag),
+ * not a comment that names Neki. */
+const DETECTION = /%\(Neki\)%|includes\(["'`]\(Neki\)/;
 const CAPABILITY_CALL = /\.holdsSessionLock\(/;
 
 function sourceFiles(directory: string): string[] {

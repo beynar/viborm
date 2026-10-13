@@ -736,8 +736,13 @@ The pre-lock no-op proof (plan D5) is not asked, its condition being the
 transaction lock. Each committed group still ends `continuous`, so every
 later group re-reads the marker (`assertLockedSinceDecision`) and a split
 state's parts prove their attempt exactly as under transaction locks. The
-lock is released at the end and on every failure, as MySQL's. Standard
-PostgreSQL and PGlite are unchanged.
+lock is released at the end and on every failure, as MySQL's, and before the
+caller's own work (`letLockGo`: `down`'s loss-approval callback): the session
+limits are reset first, so no idle limit ends the session while the callback
+runs, then the lock is released; the next statement takes both again (`hold`,
+bounded by `lockWait`), and the lock is no longer continuous, so the next
+group re-reads the marker (V11015 if it moved). Standard PostgreSQL and PGlite
+are unchanged.
 
 **Session limits (plan S1, amended 1.2.3).** Every setting the limits touch is
 named by a constant: Neki refuses `set_config` with a computed name in a
@@ -797,7 +802,9 @@ stepwise edge stopped at a step the server refused whole, which `apply`
 resumes. `resolve` accepts only outcomes established by origin/destination
 proof; generated structural opacity may complete from a fingerprint, while
 manual opaque work still needs state checks. `resolve('rolled-back')` refuses
-while a manual opaque step of the attempt committed or may have committed;
+while a manual opaque step of the attempt committed or may have committed
+(each announcement answered only by its own refusal, `countUnanswered`, the
+count resume reads: a resumed retry whose reply was lost may have committed);
 `apply` starts again when no marker exists and every attempt is closed by
 failed, rolled-back or resolved. `down` asks before a generated destructive
 rollback touches a table that holds rows (an absent table holds none); manual

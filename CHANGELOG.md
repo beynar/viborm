@@ -3,6 +3,69 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.2.4 — 2026-10-13
+
+Fixes from a third-party review of 1.2.2 and 1.2.3: an ambiguous retry no
+longer lets `resolve` close its attempt as rolled back, `down()` on Neki
+survives a slow `resolve` callback, and a held relation filter whose `is` or
+`recurse` can only be `undefined` is type-checked in the form the runtime
+reads.
+
+### Fixed
+
+- **Neki: a `RESET` that is never answered no longer holds the migration
+  lock forever.** The reset `down()` runs before asking its resolver on Neki
+  is bounded like every cleanup statement, each `RESET` on its own: one
+  unanswered past `CLEANUP_BOUND_MS` (5 s) loses and discards the session, so
+  its lock is freed, instead of waiting forever while other migration
+  commands block on the lock. Slow but answered resets still reach the
+  resolver. The command-end reset bounds each statement the same way.
+- **`resolve({ outcome: "rolled-back" })` after a resumed retry that lost its
+  reply.** A stepwise step the server refused whole is resumed by `apply()`
+  under its original attempt (1.2.3). If that retry's reply was lost, it may
+  have committed, but `resolve('rolled-back')` ignored every announcement of
+  a dispatch that had any recorded refusal, so it could close an attempt
+  whose manual step committed, and the next `apply()` would run it again.
+  Each announcement is now answered only by its own refusal, the count
+  `apply()` already used to resume: the retry's open announcement refuses
+  `resolve('rolled-back')` with `V11020` (`effectState:
+  "may-have-committed"`).
+- **Neki: `down()` with a slow `resolve` callback.** On Neki the command holds
+  the session lock, with `idle_session_timeout` set to `idleTimeout`, for the
+  whole command, and `down()`'s loss-approval callback ran under both: a
+  callback longer than `idleTimeout` (30 s by default) ended the session, and
+  `down()` failed with `V1001` after the approval. Before the callback the
+  command now resets its session limits and releases the lock; before the
+  rollback it takes both again (within `lockWait`) and re-reads the marker,
+  refusing with `V11015` if another command moved it, as on PostgreSQL.
+  Standard PostgreSQL, which runs the callback outside its locked
+  transactions, is unchanged.
+- **A held relation filter whose `is` or `recurse` can only be `undefined`.**
+  `where: { writer?: { is?: undefined; email: string; emial: string } }`
+  compiled: the misspelled-key check read the `is` key as the explicit
+  `{ is, isNot }` filter and never looked at `emial`, and a `recurse?:
+  undefined` was read as the recursive filter. The runtime treats such a
+  selector as absent (the shorthand filter, or the ordinary one), and so does
+  the check now: the typo is a type error, and `recurse` / `self` spelled
+  `undefined` beside a field still compile. Type-checking cost on the
+  recursive-where fixture: +582 instantiations on TypeScript 7 (1,816,860).
+
+### Release tooling
+
+- `scripts/release-ci.mjs` reads the CI run's jobs through
+  `/actions/runs/{id}/jobs?filter=all` and proves each required job by its
+  record from the latest attempt that ran it, so a run finished by "re-run
+  failed jobs" is accepted on the push and pull-request paths alike without
+  depending on whether a later attempt's listing repeats the jobs it did not
+  re-run. Each record must belong to the run, its attempts and the SHA.
+
+### Upgrading from 1.2.3
+
+`npm install viborm@1.2.4`. No code change is needed. An attempt that
+`resolve({ outcome: "rolled-back" })` closed under 1.2.3 is not reopened; if a
+resumed manual step of it lost its reply, check its effect by hand before
+running `apply()` again.
+
 ## 1.2.3 — 2026-10-13
 
 Migrations on PlanetScale's Postgres (Neki) hold one session lock for the
