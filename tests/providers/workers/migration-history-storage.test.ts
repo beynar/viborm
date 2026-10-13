@@ -85,21 +85,29 @@ async function publishStates(
 /** Both paging cases write past one R2 page, so they get room beyond 5 s. */
 const PAGING_TIMEOUT_MS = 30_000;
 
-it("lists every state past one R2 page", async () => {
-  const storage = createR2StorageWriter(env.HISTORY, { prefix: "paged/" });
-  const ids = await publishStates(storage, PAST_ONE_R2_PAGE);
-  const listed = await createR2StorageWriter(env.HISTORY, {
-    prefix: "paged/",
-  }).listStates();
-  expect(listed).toEqual(ids);
-}, PAGING_TIMEOUT_MS);
-
-it("lists every state past one R2 page from Durable Object storage too", async () => {
-  await inDurableObject(async (storage) => {
+it(
+  "lists every state past one R2 page",
+  async () => {
+    const storage = createR2StorageWriter(env.HISTORY, { prefix: "paged/" });
     const ids = await publishStates(storage, PAST_ONE_R2_PAGE);
-    expect(await storage.listStates()).toEqual(ids);
-  });
-}, PAGING_TIMEOUT_MS);
+    const listed = await createR2StorageWriter(env.HISTORY, {
+      prefix: "paged/",
+    }).listStates();
+    expect(listed).toEqual(ids);
+  },
+  PAGING_TIMEOUT_MS
+);
+
+it(
+  "lists every state past one R2 page from Durable Object storage too",
+  async () => {
+    await inDurableObject(async (storage) => {
+      const ids = await publishStates(storage, PAST_ONE_R2_PAGE);
+      expect(await storage.listStates()).toEqual(ids);
+    });
+  },
+  PAGING_TIMEOUT_MS
+);
 
 function schemaClient(withTitle: boolean) {
   const post = withTitle
