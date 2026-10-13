@@ -41,7 +41,20 @@ import {
 } from "./_estate";
 
 const LIMITS_ENTER = /^DO \$viborm_limits\$/;
-const LIMITS_RESET = /set_config\(name, reset_val, false\)/;
+const LIMITS_RESET = /^RESET \w+$/;
+const COMPUTED_SETTING = /set_config\(name/;
+/** What the command asks first: whether the server is PlanetScale's Neki. */
+const NEKI_PROBE = "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki";
+/** The optional settings a PostgreSQL 16 server lists, which the limits name. */
+const OPTIONAL_SETTINGS = [
+  "client_connection_check_interval",
+  "idle_in_transaction_session_timeout",
+  "idle_session_timeout",
+];
+/** One RESET per setting the session's limits set. */
+const RESETS = ["lock_timeout", "statement_timeout", ...OPTIONAL_SETTINGS].map(
+  (name) => `RESET ${name}`
+);
 const LOCK = /pg_try_advisory_lock/;
 const XACT_LOCK = /pg_try_advisory_xact_lock/;
 /** One try for the transaction lock: a session waits with these, no loop. */
@@ -49,9 +62,23 @@ const LOCK_TRY = /^SELECT pg_try_advisory_xact_lock\(\d+\) AS acquired$/;
 const UNLOCK = /pg_advisory_unlock\(/;
 const POSTGRES_LIMITS = /set_config|DO \$/;
 
-/** The namespace proof every PostgreSQL locked command runs. */
+/** The namespace proof every PostgreSQL locked command runs, and the settings PostgreSQL 16 lists. */
 function answerPublicSchema(sql: string): unknown[] {
+  if (sql.includes("FROM pg_catalog.pg_settings")) {
+    return OPTIONAL_SETTINGS.map((name) => ({ name }));
+  }
   return sql.includes("pg_namespace") ? [{ present: 1 }] : [];
+}
+
+/** The statements after the once-per-command Neki probe, which comes first. */
+function protocol(driver: RecordingDriver): string[] {
+  const [probe, ...rest] = driver.statements;
+  if (probe !== NEKI_PROBE) {
+    throw new Error(
+      `The command did not ask first whether the server is Neki: ${probe}`
+    );
+  }
+  return rest;
 }
 
 /**
@@ -148,7 +175,7 @@ describe("the session's time limits", () => {
 
     await expect(lockedDdl(driver)).resolves.toBe("applied");
 
-    const { statements } = driver;
+    const statements = protocol(driver);
     expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_ENTER]);
     expect(statements.slice(-2)).toEqual(["ALTER TABLE t ADD c int", "COMMIT"]);
     // One transaction: the body's continues the one that took the lock.
@@ -170,7 +197,7 @@ describe("the session's time limits", () => {
 
     await expect(lockedStepwiseDdl(driver)).resolves.toBe("applied");
 
-    const { statements } = driver;
+    const statements = protocol(driver);
     const lock = statements.findIndex((sql) => LOCK.test(sql));
     const enter = statements.findIndex((sql) => LIMITS_ENTER.test(sql));
     const firstCommit = statements.indexOf("COMMIT");
@@ -182,20 +209,27 @@ describe("the session's time limits", () => {
     expect(statements.slice(0, lock).some((sql) => XACT_LOCK.test(sql))).toBe(
       true
     );
-    expect(enter).toBe(lock + 1);
+    // Which optional settings the server has is read first; every name the
+    // limits set is a constant (PlanetScale's Neki refuses a computed one).
+    expect(statements[lock + 1]).toContain("FROM pg_catalog.pg_settings");
+    expect(enter).toBe(lock + 2);
     expect(firstCommit).toBe(enter + 1);
     expect(build).toBeGreaterThan(firstCommit);
     // A later transaction under the session lock still opens with its limits.
     expect(statements[begin + 1]).toBe(TRANSACTION_LIMITS);
     expect(statements[begin + 2]).toBe("ALTER TABLE t ADD c int");
-    expect(reset).toBe(statements.length - 1);
+    expect(statements.slice(reset)).toEqual(RESETS);
     expect(unlock).toBe(reset - 1);
     expect(statements[enter]).toContain(
       `set_config('lock_timeout', '${DEFAULT_MIGRATION_LIMITS.lockTimeout}', false), set_config('statement_timeout', '${DEFAULT_MIGRATION_LIMITS.statementTimeout}', false)`
     );
-    expect(statements[enter]).toContain("idle_session_timeout");
-    expect(statements[enter]).toContain("idle_in_transaction_session_timeout");
-    expect(statements[reset]).toContain("'lock_timeout', 'statement_timeout'");
+    expect(statements[enter]).toContain(
+      `set_config('idle_session_timeout', '${DEFAULT_MIGRATION_LIMITS.idleTimeout}', false)`
+    );
+    expect(statements[enter]).toContain(
+      `set_config('idle_in_transaction_session_timeout', '${DEFAULT_MIGRATION_LIMITS.idleTimeout}', false)`
+    );
+    expect(statements[enter]).not.toMatch(COMPUTED_SETTING);
     expect(driver.sessions).toEqual(["reserve", "release"]);
   });
 
@@ -217,7 +251,7 @@ describe("the session's time limits", () => {
       );
     });
 
-    const [, transaction] = driver.statements;
+    const [, transaction] = protocol(driver);
     expect(transaction).toContain(
       "set_config('lock_timeout', '1500', true), set_config('statement_timeout', '90000', true)"
     );
@@ -226,7 +260,9 @@ describe("the session's time limits", () => {
     expect(enter).toContain(
       "set_config('lock_timeout', '1500', false), set_config('statement_timeout', '90000', false)"
     );
-    expect(enter).toContain("set_config(name, '2500', false)");
+    expect(enter).toContain(
+      "set_config('idle_session_timeout', '2500', false)"
+    );
   });
 
   test("the command's lockWait bounds its lock tries, which wait outside any transaction with a growing pause", async () => {
@@ -253,7 +289,7 @@ describe("the session's time limits", () => {
     // and rolls back; every later try is one autocommit statement, so no
     // wait holds a snapshot. Pauses from 50 ms doubling to 250 ms, jittered
     // down to half: about ten tries, not 20 transactions of four statements.
-    const [begin, enter, rollback, ...tries] = driver.statements;
+    const [begin, enter, rollback, ...tries] = protocol(driver);
     expect([begin, enter, rollback]).toEqual([
       "BEGIN",
       TRANSACTION_ENTER,
@@ -339,7 +375,7 @@ describe("the session's time limits", () => {
       }
     );
 
-    const { statements } = driver;
+    const statements = protocol(driver);
     expect(statements.filter((sql) => sql === lift)).toHaveLength(1);
     expect(statements[statements.indexOf(noted) - 1]).toBe(lift);
     expect(statements.slice(0, 2)).toEqual(["BEGIN", TRANSACTION_ENTER]);
@@ -484,10 +520,10 @@ describe("a session whose connection was lost is never written to again", () => 
     );
 
     expect(failure).not.toBeInstanceOf(ConnectionError);
-    const tail = driver.statements.slice(-3);
+    const tail = driver.statements.slice(-(2 + RESETS.length));
     expect(tail[0]).toBe("ROLLBACK");
     expect(tail[1]).toMatch(UNLOCK);
-    expect(tail[2]).toMatch(LIMITS_RESET);
+    expect(tail.slice(2)).toEqual(RESETS);
     expect(driver.releases).toEqual([{ discard: true, lost: false }]);
   });
 
@@ -734,8 +770,8 @@ describe("a lock protocol statement that fails", () => {
     });
     // The connection is alive, so its limits are still reset before it is
     // discarded.
-    expect(driver.statements.at(-2)).toMatch(UNLOCK);
-    expect(driver.statements.at(-1)).toMatch(LIMITS_RESET);
+    expect(driver.statements.at(-1 - RESETS.length)).toMatch(UNLOCK);
+    expect(driver.statements.slice(-RESETS.length)).toEqual(RESETS);
     expect(driver.releases).toEqual([{ discard: true, lost: false }]);
   });
 });
@@ -751,7 +787,7 @@ describe("a session whose limits could not be reset is never handed back", () =>
         return Object.assign(new Error("column exists"), { code: "42701" });
       }
       return LIMITS_RESET.test(sql)
-        ? new Error("reset refused")
+        ? Object.assign(new Error("reset refused"), { code: "NK013" })
         : answerPublicSchema(sql);
     };
   }
@@ -764,10 +800,12 @@ describe("a session whose limits could not be reset is never handed back", () =>
       (error: unknown) => error
     );
 
-    // Both arrive as the driver's query failure; the ALTER's stays primary.
+    // The ALTER's failure stays primary; the refused reset is named as itself.
     const [resetFailure] = readSuppressedFailures(failure);
     expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_FAILED });
-    expect(resetFailure).toMatchObject({ code: VibORMErrorCode.QUERY_FAILED });
+    expect(resetFailure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_LOCK_FAILED,
+    });
     expect(resetFailure).not.toBe(failure);
     expect(readSuppressedFailures(failure)).toHaveLength(1);
     expect(driver.releases).toEqual([{ discard: true, lost: true }]);
@@ -804,14 +842,20 @@ describe("a session whose limits could not be reset is never handed back", () =>
     const driver = observedPg();
     driver.respond = (sql) =>
       LIMITS_RESET.test(sql)
-        ? new Error("reset refused")
+        ? Object.assign(new Error("reset refused"), { code: "42501" })
         : answerPublicSchema(sql);
 
     const failure = await lockedStepwiseDdl(driver).catch(
       (error: unknown) => error
     );
 
-    expect(failure).toMatchObject({ code: VibORMErrorCode.QUERY_FAILED });
+    // The reset's refusal, named as such with its SQLSTATE: the connection
+    // is closed rather than handed back carrying the migration's limits.
+    expect(failure).toMatchObject({
+      code: VibORMErrorCode.MIGRATION_LOCK_FAILED,
+      message: expect.stringContaining("refused to reset"),
+      meta: { providerSqlState: "42501" },
+    });
     expect(driver.statements.at(-1)).toMatch(LIMITS_RESET);
     expect(driver.releases).toEqual([{ discard: true, lost: true }]);
   });

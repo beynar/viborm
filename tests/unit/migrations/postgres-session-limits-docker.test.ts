@@ -25,6 +25,7 @@ import { createClient, PgDriver } from "@drivers/pg";
 import { ConnectionError, VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations";
 import { getMigrationDriver } from "@migrations/drivers";
+import { resolveMigrationLimits } from "@migrations/limits";
 import { withLockedMigrationProducer } from "@migrations/pinned-session";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
@@ -43,6 +44,7 @@ const DOWN_NAMESPACE = "viborm_session_limits_down";
 const MIGRATION_LOCK_ID = 0x76_69_62_6f_72_6d;
 const ROWS = 10_000;
 const LOCK_TIMEOUT_MS = 4000;
+/** Below the 30 s default, so the server's idle limit is observed quickly. */
 const IDLE_TIMEOUT_MS = 1000;
 
 const fields = () => ({
@@ -352,7 +354,10 @@ describeIfPg("the migration session's limits on a real server", () => {
     try {
       await createMigrationClient(first, { storage }).generate({ name: "v1" });
       await createMigrationClient(first, { storage }).apply();
-      const migrations = createMigrationClient(second, { storage });
+      const migrations = createMigrationClient(second, {
+        storage,
+        limits: { idleTimeout: IDLE_TIMEOUT_MS },
+      });
       await migrations.generate({ name: "nickname" });
       await migrations.apply();
       await admin.query(
@@ -410,7 +415,11 @@ describeIfPg("the migration session's limits on a real server", () => {
         };
         const failure = await withLockedMigrationProducer(
           driver,
-          getMigrationDriver(driver),
+          getMigrationDriver(
+            driver,
+            undefined,
+            resolveMigrationLimits({ idleTimeout: IDLE_TIMEOUT_MS })
+          ),
           async (pinned) => {
             expect(await advisoryLocks()).toBe(1);
             if (inTransaction) {

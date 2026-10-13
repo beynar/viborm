@@ -129,6 +129,24 @@ export function providerRefused(error: unknown): error is VibORMError {
   );
 }
 
+/**
+ * The provider's SQLSTATE and code of a refusal, for the meta of the
+ * migration error that wraps it (both are on the error-metadata allow-list;
+ * the provider's text stays in the cause, disclosed as the driver's
+ * diagnostics allow). Nothing for a transport failure.
+ */
+export function providerFacts(error: unknown): {
+  readonly providerCode?: unknown;
+  readonly providerSqlState?: unknown;
+} {
+  if (!providerRefused(error)) return {};
+  const { providerCode, providerSqlState } = error.meta;
+  return {
+    ...(providerCode === undefined ? {} : { providerCode }),
+    ...(providerSqlState === undefined ? {} : { providerSqlState }),
+  };
+}
+
 export interface StepProgress {
   readonly operationId: string;
   readonly dispatchId: string;

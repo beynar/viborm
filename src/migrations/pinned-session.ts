@@ -3,8 +3,9 @@
  * a command, the lock proven on it, its loss and limits tracked, and the
  * producer condemned whenever a lock or unlock proof fails. PostgreSQL and
  * SQLite hold the lock in their transactions instead (plans D1, S5); only
- * PostgreSQL stepwise work and MySQL keep a session lock. The dialect's lock
- * and session statements come from the bound migration driver.
+ * PostgreSQL stepwise work, PlanetScale's Neki (the whole command) and MySQL
+ * keep a session lock. The dialect's lock and session statements come from
+ * the bound migration driver.
  */
 
 import type { AnyDriver } from "../drivers/driver";
@@ -29,7 +30,7 @@ import {
 } from "../errors";
 import { errorCause } from "../errors/diagnostic-safety";
 import type { BoundMigrationDriver } from "./drivers";
-import { providerRefused } from "./execute-dispatch";
+import { providerFacts, providerRefused } from "./execute-dispatch";
 import { liftForeignKeyPragmas, withForeignKeysLifted } from "./foreign-keys";
 import {
   DEFAULT_MIGRATION_LIMITS,
@@ -185,8 +186,12 @@ export interface PinnedSessionScope {
 
 /** The statements that impose, lift and reset one PostgreSQL session's limits. */
 interface PostgresSessionLimits {
-  readonly enter: string;
-  readonly exit: string;
+  /** Which of the optional settings this server has, read before `enter`. */
+  readonly settings: string;
+  /** Imposes the limits on the session, naming only `present` settings. */
+  enter(present: readonly string[]): string;
+  /** Resets what `enter(present)` set, one constant `RESET` each. */
+  exit(present: readonly string[]): readonly string[];
   readonly transaction: string;
   readonly unbound: string;
   readonly rebound: string;
@@ -250,16 +255,26 @@ export async function withPinnedSession<D extends AnyDriver, T>(
 
     // Limits a stepwise program set on the session must not go back to the
     // pool; a failed reset is RETURNED, so the release after it always runs.
+    // A session whose reset failed still carries them: it is abandoned
+    // (destroyed, never released to the pool) and the failure surfaces.
     const resetLimits = async (): Promise<unknown> => {
-      if (limits === undefined || !control.limited() || control.lost()) {
+      const present = control.limited();
+      if (limits === undefined || present === undefined || control.lost()) {
         return undefined;
       }
       try {
-        await control.cleanup(() => view._executeRaw(limits.exit));
+        await control.cleanup(async () => {
+          for (const statement of limits.exit(present)) {
+            await view._executeRaw(statement);
+          }
+        });
         return undefined;
       } catch (resetFailure) {
+        const lostConnection = control.lost(resetFailure, true);
         control.abandon();
-        return resetFailure;
+        return lostConnection
+          ? resetFailure
+          : limitsRefused(driver.driverName, "reset", resetFailure);
       }
     };
 
@@ -326,10 +341,10 @@ interface SessionControl extends PinnedSessionControl {
   lost(failure?: unknown, reported?: boolean): boolean;
   /** Sends nothing more on this session, whose state can no longer be made clean. */
   abandon(): void;
-  /** Records that the session itself now carries the command's limits. */
-  limit(): void;
-  /** Whether the session carries them, and so must be reset before it goes back. */
-  limited(): boolean;
+  /** Records that the session itself now carries the command's limits, with the optional settings `present`. */
+  limit(present: readonly string[]): void;
+  /** The optional settings it carries when it does, and so must be reset before it goes back. */
+  limited(): readonly string[] | undefined;
 }
 
 function controlSession(
@@ -338,7 +353,7 @@ function controlSession(
 ): SessionControl {
   let discarded = false;
   let lost = false;
-  let limited = false;
+  let limited: readonly string[] | undefined;
   const control = {
     discard: () => {
       discarded = true;
@@ -347,8 +362,8 @@ function controlSession(
     abandon: () => {
       lost = true;
     },
-    limit: () => {
-      limited = true;
+    limit: (present: readonly string[]) => {
+      limited = present;
     },
     limited: () => limited,
     /** With `reported`, whether `failure` itself reports the loss. */
@@ -560,12 +575,15 @@ function runPinnedTransaction<T>(
  * Runs `body` on ONE reserved producer holding this estate's migration lock,
  * with the migration driver THIS command renders from (§5.2).
  *
- * MySQL holds a session lock for the whole command; PostgreSQL and SQLite run
- * it in locked transactions ({@link lockTransactions}); a batch transport
+ * MySQL holds a session lock for the whole command, and so does PostgreSQL
+ * where the server mixes no session and transaction advisory locks
+ * (`holdsSessionLock`, PlanetScale's Neki); PostgreSQL and SQLite otherwise
+ * run it in locked transactions ({@link lockTransactions}); a batch transport
  * locks each request (plan D7). `unlocked` (PostgreSQL) runs first, before any
  * lock, for a decision one statement proves while no command holds the lock
  * (plan D5); a failure that is not the lost connection only means it could not
- * decide.
+ * decide. It is not asked where the session lock is held alone: its proof
+ * takes the transaction lock.
  */
 export function withLockedMigrationProducer<T>(
   driver: AnyDriver,
@@ -622,8 +640,17 @@ export function withLockedMigrationProducer<T>(
   return withPinnedSession(
     driver,
     async (pinned, control) => {
+      // PlanetScale's Neki holds the session lock alone, for the whole
+      // command; its decision is read under that lock, never before it.
+      const holdsSession =
+        dialect === "postgresql" &&
+        (await migrationDriver.holdsSessionLock((sql, params) =>
+          pinned._executeRaw(sql, params)
+        ));
       try {
-        const answer = await unlocked?.(pinned, lockFree);
+        const answer = holdsSession
+          ? undefined
+          : await unlocked?.(pinned, lockFree);
         if (answer !== undefined) return answer;
       } catch (failure) {
         if (control.lost(failure)) throw failure;
@@ -640,6 +667,7 @@ export function withLockedMigrationProducer<T>(
       LOCKED.set(pinned, locked);
       let result: T;
       try {
+        if (holdsSession) await locked.hold();
         result = await run(pinned);
       } catch (error) {
         await locked.abort(error);
@@ -660,7 +688,8 @@ export function withLockedMigrationProducer<T>(
  *
  * PostgreSQL stepwise work and `CONCURRENTLY` statements take the session lock
  * inside the open locked transaction, so the lock is never let go between the
- * decision and the work. SQLite's `PRAGMA foreign_keys` switch runs between
+ * decision and the work; where the command holds the session lock from its
+ * start (`hold`, PlanetScale's Neki), no transaction lock is taken at all. SQLite's `PRAGMA foreign_keys` switch runs between
  * two transactions. A commit without the session lock lets the lock go, and
  * {@link lockedSinceDecision} is then false.
  */
@@ -669,10 +698,16 @@ interface LockedTransactions {
   before(sql: string): Promise<void>;
   /** Ends what one statement's failure ended, then rethrows it. */
   failed(failure: unknown): Promise<never>;
-  /** Runs one transactional group, or `undefined` once the session lock holds. */
+  /** Runs one transactional group, or `undefined` once stepwise work took the session lock. */
   group<T>(fn: () => Promise<T>): Promise<T> | undefined;
   /** Marks the work about to run as stepwise (PostgreSQL). */
   stepwise(): void;
+  /**
+   * Takes the session lock alone, in autocommit, before the command's first
+   * statement, waiting as `begin` does; the session's limits follow it
+   * (PlanetScale's Neki). Every transaction after it is a plain one.
+   */
+  hold(): Promise<void>;
   /** Ends the open locked transaction: SQLite's pragma, a PostgreSQL bootstrap. */
   between(): Promise<void>;
   /** Whether the lock has been held without a gap since the first read. */
@@ -701,6 +736,10 @@ function lockTransactions(
     direct._executeRaw<T>(sql);
   let open = false;
   let sessionLocked = false;
+  // Held from the command's start (`hold`): each committed group still ends
+  // `continuous`, so every group re-reads the marker as one under
+  // transaction locks does, and Neki's split parts prove their attempt.
+  let heldAlone = false;
   let armed = false;
   let continuous = true;
   let grouped = false;
@@ -708,14 +747,14 @@ function lockTransactions(
   const rollback = async (): Promise<void> => {
     if (!open) return;
     open = false;
-    continuous &&= sessionLocked;
+    continuous &&= sessionLocked && !heldAlone;
     if (control.lost()) return;
     await control.cleanup(() => run("ROLLBACK"));
   };
   const commit = async (): Promise<void> => {
     await run("COMMIT");
     open = false;
-    continuous &&= sessionLocked;
+    continuous &&= sessionLocked && !heldAlone;
   };
   // SQLite's lock IS its BEGIN IMMEDIATE: `lockWait` bounds that one
   // statement's busy wait, then the connection's own timeout is restored.
@@ -741,9 +780,23 @@ function lockTransactions(
   const tryLock = sqlite ? null : `SELECT ${lockFree}`;
   const enter =
     limits === undefined ? tryLock : `${limits.transaction}, ${lockFree}`;
-  const begin = async (): Promise<void> => {
+  // Each jittered pause doubles up to the cap; past `lockWait` the lock is
+  // not held.
+  const waiting = () => {
     const deadline = Date.now() + migrationDriver.limits.lockWait;
     let pause = LOCK_RETRY_MS;
+    return async (): Promise<void> => {
+      const left = deadline - Date.now();
+      if (left <= 0) throw lockNotConfirmed(migrationDriver);
+      const jittered = pause * (0.5 + Math.random() / 2);
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(left, jittered))
+      );
+      pause = Math.min(pause * 2, LOCK_RETRY_CAP_MS);
+    };
+  };
+  const begin = async (): Promise<void> => {
+    const wait = waiting();
     for (;;) {
       try {
         await (sqlite ? beginImmediate() : run("BEGIN"));
@@ -767,30 +820,46 @@ function lockTransactions(
       open = false;
       await control.cleanup(() => run("ROLLBACK"));
       do {
-        const left = deadline - Date.now();
-        if (left <= 0) throw lockNotConfirmed(migrationDriver);
-        const jittered = pause * (0.5 + Math.random() / 2);
-        await new Promise((resolve) =>
-          setTimeout(resolve, Math.min(left, jittered))
-        );
-        pause = Math.min(pause * 2, LOCK_RETRY_CAP_MS);
+        await wait();
       } while (!(await lockHeld(direct, migrationDriver, control, tryLock)));
     }
   };
+  const sessionLock = migrationDriver.generateSessionLock(MIGRATION_LOCK_ID);
+  const imposeLimits = async (): Promise<void> => {
+    if (limits === undefined) return;
+    try {
+      const { rows } = await run<{ name: unknown }>(limits.settings);
+      const present = rows.flatMap(({ name }) =>
+        typeof name === "string" ? [name] : []
+      );
+      await run(limits.enter(present));
+      control.limit(present);
+    } catch (failure) {
+      if (control.lost(failure)) throw failure;
+      throw limitsRefused(pinned.driverName, "enter", failure);
+    }
+  };
+  // A transaction under the session lock held alone: its limits, no lock.
+  const beginUnderSessionLock = async (): Promise<void> => {
+    await run("BEGIN");
+    open = true;
+    if (limits !== undefined) await run(limits.transaction);
+  };
+  const hold = async (): Promise<void> => {
+    const wait = waiting();
+    while (!(await lockHeld(direct, migrationDriver, control, sessionLock))) {
+      await wait();
+    }
+    sessionLocked = true;
+    heldAlone = true;
+    await imposeLimits();
+  };
   const escalate = async (): Promise<void> => {
     if (!open) await begin();
-    await acquireLock(
-      direct,
-      migrationDriver,
-      control,
-      migrationDriver.generateSessionLock(MIGRATION_LOCK_ID)
-    );
+    await acquireLock(direct, migrationDriver, control, sessionLock);
     sessionLocked = true;
     armed = false;
-    if (limits !== undefined) {
-      await run(limits.enter);
-      control.limit();
-    }
+    await imposeLimits();
     await commit();
   };
 
@@ -832,9 +901,12 @@ function lockTransactions(
       if (!open) await begin();
     },
     group(fn) {
-      if (sessionLocked) return undefined;
+      if (sessionLocked && !heldAlone) return undefined;
       return runTransactionLifecycle({
-        begin: () => (open ? undefined : begin()),
+        begin: () => {
+          if (open) return undefined;
+          return heldAlone ? beginUnderSessionLock() : begin();
+        },
         callback: async () => {
           grouped = true;
           try {
@@ -850,6 +922,7 @@ function lockTransactions(
     stepwise() {
       armed = true;
     },
+    hold,
     between,
     continuous: () => continuous,
     async finish() {
@@ -903,39 +976,92 @@ export function lockedSinceDecision(producer: AnyDriver): boolean {
   return LOCKED.get(producer)?.continuous() ?? true;
 }
 
+/** The settings a session's limits set only where the server has them. */
+const OPTIONAL_SESSION_SETTINGS = [
+  "idle_in_transaction_session_timeout",
+  "idle_session_timeout",
+  "client_connection_check_interval",
+] as const;
+
 /**
  * The PostgreSQL statements behind one command's time limits (plan S1).
  *
  * Every migration transaction opens with its own `SET LOCAL` limits, which
- * leave with it (plan D1); the session carries them only while stepwise work
- * holds the session lock, and is reset to each setting's `reset_val` before it
- * goes back. The idle limits are set only where `pg_settings` lists them, and
- * never on PGlite, whose in-process backend hangs on either idle timer.
+ * leave with it (plan D1); the session carries them only while it holds the
+ * session lock (stepwise work, or PlanetScale's Neki for the whole command),
+ * and is `RESET` before it goes back. Every setting is named by a constant:
+ * Neki refuses `set_config` with a computed name in a routine body (`42501`)
+ * and a `set_config` over `pg_settings` rows (`NK013`). Which optional
+ * settings the server has is read first (`settings`); the idle limits are
+ * never set on PGlite, whose in-process backend hangs on either idle timer.
  */
 function postgresSessionLimits(
   limits: ResolvedMigrationLimits
 ): PostgresSessionLimits {
   const bound = (lock: number, statement: number, local: boolean) =>
     `set_config('lock_timeout', '${lock}', ${local}), set_config('statement_timeout', '${statement}', ${local})`;
-  const { lockTimeout, statementTimeout } = limits;
+  const { lockTimeout, statementTimeout, idleTimeout } = limits;
+  const set = (name: string, value: number) =>
+    `, set_config('${name}', '${value}', false)`;
   return {
-    enter: `DO $viborm_limits$BEGIN
-PERFORM ${bound(lockTimeout, statementTimeout, false)};
-IF pg_catalog.version() NOT LIKE '%emscripten%' THEN
-PERFORM set_config(name, '${limits.idleTimeout}', false) FROM pg_catalog.pg_settings WHERE name IN ('idle_in_transaction_session_timeout', 'idle_session_timeout');
+    settings: `SELECT name FROM pg_catalog.pg_settings WHERE name IN (${OPTIONAL_SESSION_SETTINGS.map((name) => `'${name}'`).join(", ")}) AND pg_catalog.version() NOT LIKE '%emscripten%' ORDER BY name`,
+    enter: (present) => {
+      const idle = OPTIONAL_SESSION_SETTINGS.slice(0, 2)
+        .filter((name) => present.includes(name))
+        .map((name) => set(name, idleTimeout))
+        .join("");
+      // Refused where the platform cannot check the socket, which is no
+      // reason to refuse the command.
+      const check = present.includes("client_connection_check_interval")
+        ? `
 BEGIN
-PERFORM set_config(name, '1000', false) FROM pg_catalog.pg_settings WHERE name = 'client_connection_check_interval';
+PERFORM set_config('client_connection_check_interval', '1000', false);
 EXCEPTION WHEN invalid_parameter_value THEN NULL;
-END;
-END IF;
-END$viborm_limits$`,
-    exit: "SELECT count(set_config(name, reset_val, false)) AS reset FROM pg_catalog.pg_settings WHERE name IN ('lock_timeout', 'statement_timeout', 'idle_in_transaction_session_timeout', 'idle_session_timeout', 'client_connection_check_interval')",
+END;`
+        : "";
+      return `DO $viborm_limits$BEGIN
+PERFORM ${bound(lockTimeout, statementTimeout, false)}${idle};${check}
+END$viborm_limits$`;
+    },
+    exit: (present) =>
+      ["lock_timeout", "statement_timeout", ...present].map(
+        (name) => `RESET ${name}`
+      ),
     // Repeated in each transaction under the session lock too: a migration's
     // own SQL may change the session's values.
-    transaction: `SELECT ${bound(lockTimeout, statementTimeout, true)}, set_config('idle_in_transaction_session_timeout', CASE WHEN pg_catalog.version() LIKE '%emscripten%' THEN pg_catalog.current_setting('idle_in_transaction_session_timeout') ELSE '${limits.idleTimeout}' END, true)`,
+    transaction: `SELECT ${bound(lockTimeout, statementTimeout, true)}, set_config('idle_in_transaction_session_timeout', CASE WHEN pg_catalog.version() LIKE '%emscripten%' THEN pg_catalog.current_setting('idle_in_transaction_session_timeout') ELSE '${idleTimeout}' END, true)`,
     unbound: `SELECT ${bound(0, 0, false)}`,
     rebound: `SELECT ${bound(lockTimeout, statementTimeout, false)}`,
   };
+}
+
+/**
+ * The server refused to impose (`enter`) or reset (`reset`) the migration
+ * session's limits: part of holding the session lock, so a lock failure
+ * (V11005), named as itself rather than as the statement it preceded. A
+ * session whose reset was refused is never returned to the pool.
+ */
+function limitsRefused(
+  driverName: string,
+  step: "enter" | "reset",
+  failure: unknown
+): MigrationError {
+  const what =
+    step === "enter"
+      ? "refused the migration session's time limits, so the command stopped there and its session lock was let go"
+      : "refused to reset the migration session's time limits; the connection was closed rather than returned to the pool";
+  return new MigrationError(
+    `Driver "${driverName}": the server ${what}.`,
+    VibORMErrorCode.MIGRATION_LOCK_FAILED,
+    {
+      cause: errorCause(failure),
+      meta: {
+        driver: driverName,
+        operation: "pinnedSession",
+        ...providerFacts(failure),
+      },
+    }
+  );
 }
 
 /**
@@ -1104,7 +1230,7 @@ function partialProgramFailure(
       `The last statement that completed was: ${boundary}. ` +
       "Estate artifacts and the control plane were not rewritten as a successful apply — fix the cause and re-run.",
     VibORMErrorCode.MIGRATION_PARTIAL_EFFECT,
-    { cause: errorCause(cause) }
+    { cause: errorCause(cause), meta: providerFacts(cause) }
   );
 }
 
@@ -1163,7 +1289,7 @@ function lockStatementFailed(
   return new MigrationError(
     `Failed to acquire the migration lock for ${describeEstate(migrationDriver)}: the lock statement itself failed.`,
     VibORMErrorCode.MIGRATION_LOCK_FAILED,
-    { cause: errorCause(error) }
+    { cause: errorCause(error), meta: providerFacts(error) }
   );
 }
 
@@ -1211,7 +1337,7 @@ async function releaseLock(
     throw new MigrationError(
       `Failed to release the migration lock for ${describeEstate(migrationDriver)}. The pinned session was discarded rather than returned to the pool.`,
       VibORMErrorCode.MIGRATION_LOCK_FAILED,
-      { cause: errorCause(error) }
+      { cause: errorCause(error), meta: providerFacts(error) }
     );
   }
 

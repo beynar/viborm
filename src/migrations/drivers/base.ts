@@ -1171,8 +1171,21 @@ export abstract class MigrationDriver {
   }
 
   /**
+   * Whether this server holds one command's migration lock as the session
+   * lock alone, taken once before its first transaction and never mixed with
+   * the transaction lock (PlanetScale's Neki). Asked once per command, on its
+   * pinned session, before any lock. Default: no.
+   */
+  holdsSessionLock(
+    _read: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>
+  ): Promise<boolean> {
+    return Promise.resolve(false);
+  }
+
+  /**
    * The session lock PostgreSQL stepwise work keeps (plan D1), taken while
-   * the session holds the transaction lock on the same key; null elsewhere.
+   * the session holds the transaction lock on the same key (or alone, where
+   * {@link holdsSessionLock}); null elsewhere.
    */
   generateSessionLock(_lockId: number): string | null {
     return null;

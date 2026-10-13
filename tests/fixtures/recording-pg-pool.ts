@@ -1,7 +1,9 @@
 /**
  * A node-postgres pool that records the text of every statement its clients
  * send, and can make the next statement containing `fail` fail as a provider
- * refusal would (SQLSTATE `XX000`), before the server sees it.
+ * refusal would (SQLSTATE `XX000`), before the server sees it, and can
+ * hold the statement that is `pause.text`, past `pause.skip` of them, for
+ * `pause.ms` before sending it, as a loaded client pauses.
  */
 
 import pg from "pg";
@@ -10,6 +12,7 @@ export interface RecordingPool {
   readonly pool: pg.Pool;
   readonly log: string[];
   fail?: string;
+  pause?: { readonly text: string; skip: number; readonly ms: number };
 }
 
 type Callback = (...args: unknown[]) => void;
@@ -30,6 +33,13 @@ export function recordingPgPool(config: pg.PoolConfig): RecordingPool {
             ? first
             : String((first as { text?: unknown } | undefined)?.text ?? "");
         recording.log.push(text);
+        const { pause } = recording;
+        if (pause && text === pause.text && pause.skip-- === 0) {
+          recording.pause = undefined;
+          return new Promise((resolve) => setTimeout(resolve, pause.ms)).then(
+            () => query(...args)
+          );
+        }
         if (recording.fail && text.includes(recording.fail)) {
           recording.fail = undefined;
           const failure = Object.assign(new Error("injected failure"), {

@@ -10,7 +10,12 @@
  *   it changed: Neki plans it against the committed schema. Schema
  *   statements and catalog reads see the transaction's changes;
  * - a column type change, rename or drop of a relation created or renamed
- *   earlier in the same transaction (`NK316`).
+ *   earlier in the same transaction (`NK316`);
+ * - a session advisory lock and a transaction one in the same session
+ *   (`NK013`, "Mixing session and transaction advisory locks is
+ *   unavailable"): either kind while the other is held;
+ * - `set_config` with a computed setting name: in a routine body (`42501`),
+ *   or over `pg_settings` rows in a query (`NK013`).
  * The same flows run on plain PGlite, where apply keeps one transaction per
  * group and opens no attempt it leaves open.
  */
@@ -48,6 +53,12 @@ const RETYPED =
   /\bALTER\s+(?:COLUMN\s+)?("[^"]+")\s+(?:SET\s+DATA\s+)?TYPE\b/gi;
 const DROPPED = /\bDROP\s+(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?("[^"]+")/gi;
 const ROWS = /^(?:INSERT|UPDATE|DELETE|MERGE|SELECT|WITH|DO)\b/i;
+const SESSION_LOCK = /\bpg_try_advisory_lock\(/;
+const XACT_LOCK = /\bpg_try_advisory_xact_lock\(/;
+const UNLOCK = /\bpg_advisory_unlock\(/;
+const UNLOCK_ALL = /\bpg_advisory_unlock_all\(/;
+const COMPUTED_SETTING = /\bset_config\(\s*name\b/i;
+const ROUTINE = /^\s*DO\b/i;
 const VERB = /^\s*(\w+)/;
 
 /** What one transaction changed that Neki's planner does not see. */
@@ -106,7 +117,7 @@ function track(text: string, unseen: Unseen, refuse: (code: string) => never) {
  * the refusals it made, and logs every statement it is sent. `fail` makes
  * the next statement that includes it, past `skip` of them, fail as a
  * provider would; `before.sql` runs once, before the session's statement
- * that includes `before.text` past `before.skip` of them.
+ * that is `before.text` past `before.skip` of them.
  */
 function asNeki(database: PGlite): {
   enabled: boolean;
@@ -128,6 +139,10 @@ function asNeki(database: PGlite): {
   };
   const { refusals, log } = simulation;
   let unseen = nothingUnseen();
+  // The session's advisory locks: session ones held, and whether the open
+  // transaction took a transaction one.
+  let sessionLocks = 0;
+  let transactionLock = false;
   const refuse = (code: string, message = code): never => {
     refusals.push(code);
     throw Object.assign(new Error(message), { code });
@@ -141,9 +156,36 @@ function asNeki(database: PGlite): {
       }
       simulation.skip -= 1;
     }
-    if (!simulation.enabled) return;
-    if (TEMPORARY.test(text)) refuse("NK013", "temporary relations");
     const verb = VERB.exec(text)?.[1]?.toUpperCase();
+    if (verb === "BEGIN" || verb === "COMMIT" || verb === "ROLLBACK") {
+      transactionLock = false;
+    }
+    if (UNLOCK_ALL.test(text)) sessionLocks = 0;
+    else if (UNLOCK.test(text)) sessionLocks = Math.max(0, sessionLocks - 1);
+    if (!simulation.enabled) {
+      if (SESSION_LOCK.test(text)) sessionLocks += 1;
+      return;
+    }
+    if (TEMPORARY.test(text)) refuse("NK013", "temporary relations");
+    if (COMPUTED_SETTING.test(text)) {
+      if (ROUTINE.test(text)) {
+        refuse(
+          "42501",
+          "set_config with a non-constant setting name is not allowed in a routine body"
+        );
+      }
+      refuse("NK013", "not implemented: [101]");
+    }
+    const mixed =
+      "not implemented: [61] Mixing session and transaction advisory locks is unavailable.";
+    if (XACT_LOCK.test(text)) {
+      if (sessionLocks > 0) refuse("NK013", mixed);
+      if (inTransaction) transactionLock = true;
+    }
+    if (SESSION_LOCK.test(text)) {
+      if (transactionLock) refuse("NK013", mixed);
+      sessionLocks += 1;
+    }
     if (verb === "BEGIN" || verb === "COMMIT" || verb === "ROLLBACK") {
       unseen = nothingUnseen();
       return;
@@ -172,7 +214,7 @@ function asNeki(database: PGlite): {
   Object.defineProperty(database, "query", {
     value: async (text: string, params?: unknown[], options?: object) => {
       const { before } = simulation;
-      if (before && text.includes(before.text) && before.skip-- === 0) {
+      if (before && text === before.text && before.skip-- === 0) {
         simulation.before = undefined;
         await query(before.sql);
       }
@@ -209,6 +251,16 @@ const BACKFILL = (namespace: string) =>
     `UPDATE "${namespace}"."accounts" SET "nickname" = "email" WHERE "nickname" IS NULL`
   );
 const ROW_COUNT = 2000;
+/** Whether every account's nickname is filled, or not one is. */
+const filled = (namespace: string, all: boolean) => ({
+  kind: "trusted-read" as const,
+  query: sql.raw(
+    all
+      ? `SELECT NOT EXISTS (SELECT 1 FROM "${namespace}"."accounts" WHERE "nickname" IS NULL) AS ok`
+      : `SELECT NOT EXISTS (SELECT 1 FROM "${namespace}"."accounts" WHERE "nickname" IS NOT NULL) AS ok`
+  ),
+  equals: true,
+});
 /** The transactions one command committed, as its log shows them. */
 const commitsIn = (log: readonly string[]) =>
   log.filter((text) => text === "COMMIT").length;
@@ -311,6 +363,84 @@ describe.each([
     );
     expect(rows).toEqual([]);
     expect(refusals).toEqual([]);
+  });
+
+  it("applies a transactional state then a stepwise one in one apply, under one session lock on Neki and transaction locks on PostgreSQL", async () => {
+    const namespace = `neki_stepwise_${neki}`;
+    const migrations = await estate(namespace);
+    await migrations().generate({ name: "v1" });
+    await migrations().apply();
+    await seedAccounts(namespace);
+    const v2 = await migrations(true).generate({ name: "nickname" });
+    const v3 = await migrations(true).generate({
+      name: "stepwise-backfill",
+      manualMigration: {
+        transitions: [
+          {
+            from: v2.stateId,
+            execution: "stepwise",
+            originChecks: [filled(namespace, false)],
+            up: [BACKFILL(namespace)],
+            rollback: { kind: "irreversible", reason: "test" },
+          },
+        ],
+        destinationChecks: [filled(namespace, true)],
+      },
+    });
+
+    log.length = 0;
+    await expect(migrations(true).apply()).resolves.toMatchObject({
+      outcome: "applied",
+      path: [v2.stateId, v3.stateId],
+    });
+    expect(await backfilled(namespace)).toBe(ROW_COUNT);
+    const xact = log.filter((text) => XACT_LOCK.test(text));
+    const session = log.filter((text) => SESSION_LOCK.test(text));
+    // One session lock either way: Neki holds it from the start and takes no
+    // transaction lock; PostgreSQL escalates to it from a locked transaction.
+    expect(session).toHaveLength(1);
+    expect(xact.length === 0).toBe(neki);
+    expect(refusals).toEqual([]);
+    await expect(migrations(true).verify()).resolves.toEqual({ ok: true });
+  });
+
+  it("returns the session clean after a command that held the session lock and its limits", async () => {
+    const namespace = `neki_limits_${neki}`;
+    const migrations = await estate(namespace);
+    await migrations().generate({ name: "v1" });
+    const show = async () =>
+      (
+        await database.query<{ lock: string; statement: string }>(
+          "SELECT current_setting('lock_timeout') AS lock, current_setting('statement_timeout') AS statement"
+        )
+      ).rows[0];
+    const clean = await show();
+    log.length = 0;
+    await migrations().apply();
+    await migrations().status();
+    await migrations().verify();
+    // Constant names only: the limits Neki refuses computed are never sent.
+    expect(log.some((text) => COMPUTED_SETTING.test(text))).toBe(false);
+    if (neki) expect(log).toContain("RESET lock_timeout");
+    expect(await show()).toEqual(clean);
+    expect(refusals).toEqual([]);
+  });
+
+  it("names the provider's SQLSTATE on a refused lock statement (V11005)", async () => {
+    const migrations = await estate(`neki_lock_refused_${neki}`);
+    await migrations().generate({ name: "v1" });
+    simulation.fail = neki
+      ? "pg_try_advisory_lock("
+      : "pg_try_advisory_xact_lock(";
+    simulation.skip = 0;
+    try {
+      await expect(migrations().apply()).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_LOCK_FAILED,
+        meta: { providerSqlState: "XX000" },
+      });
+    } finally {
+      simulation.fail = undefined;
+    }
   });
 
   it("applies a state that adds a column and backfills it, committing between the two on Neki only", async () => {

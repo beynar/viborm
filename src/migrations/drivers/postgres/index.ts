@@ -26,6 +26,7 @@ import {
   decimalConversionRequired,
   postgresDecimalFitsCheck,
 } from "../../decimal";
+import { providerFacts } from "../../execute-dispatch";
 import {
   isPostgresTextToUuid,
   postgresTextToUuidGuard,
@@ -144,6 +145,30 @@ SELECT (
   )
 ) AS ready
 `;
+
+/** The Neki fact a bound migration driver's lock protocol already read. */
+const NEKI = new WeakMap<object, boolean>();
+
+/**
+ * Whether the server is PlanetScale's Neki (its `version()` names it): the
+ * one read of that fact, asked once per command by the lock protocol
+ * ({@link PostgresMigrationDriver.holdsSessionLock}), whose answer the
+ * preflight of a program that would need a commit there reuses; a command
+ * outside the lock protocol asks it there.
+ */
+async function serverIsNeki(
+  driver: object,
+  executeRaw: RawExecutor
+): Promise<boolean> {
+  const known = NEKI.get(driver);
+  if (known !== undefined) return known;
+  const { rows } = await executeRaw<{ neki: boolean }>(
+    "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki"
+  );
+  const neki = rows[0]?.neki === true;
+  NEKI.set(driver, neki);
+  return neki;
+}
 
 /**
  * The refusal of a program PlanetScale's Neki cannot run (V11021), before any
@@ -478,12 +503,7 @@ export class PostgresMigrationDriver extends MigrationDriver {
       // server only for a program that would need a commit there.
       const { boundaries, first, inside } = catalogCommitBoundaries(program);
       const neki =
-        boundaries.length > 0 &&
-        (
-          await executeRaw<{ neki: boolean }>(
-            "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki"
-          )
-        ).rows[0]?.neki === true;
+        boundaries.length > 0 && (await serverIsNeki(this, executeRaw));
       const refused = neki
         ? (inside ?? (splits ? undefined : first))
         : undefined;
@@ -624,7 +644,11 @@ export class PostgresMigrationDriver extends MigrationDriver {
           VibORMErrorCode.MIGRATION_INVALID_STATE,
           {
             cause: errorCause(failure),
-            meta: { dialect: this.dialect, feature: "GeoPoint" },
+            meta: {
+              dialect: this.dialect,
+              feature: "GeoPoint",
+              ...providerFacts(failure),
+            },
           }
         );
       }
@@ -643,7 +667,11 @@ export class PostgresMigrationDriver extends MigrationDriver {
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         {
           cause: errorCause(failure),
-          meta: { dialect: this.dialect, feature: "schema catalog" },
+          meta: {
+            dialect: this.dialect,
+            feature: "schema catalog",
+            ...providerFacts(failure),
+          },
         }
       );
     }
@@ -1337,6 +1365,17 @@ export class PostgresMigrationDriver extends MigrationDriver {
 
   generateReleaseLock(lockId: number): string | null {
     return `SELECT pg_advisory_unlock(${lockId}) AS released`;
+  }
+
+  /**
+   * PlanetScale's Neki refuses a session advisory lock and a transaction one
+   * in the same session (`NK013`, "Mixing session and transaction advisory
+   * locks is unavailable"), so a command there holds only the session lock.
+   */
+  override holdsSessionLock(read: RawExecutor): Promise<boolean> {
+    // Read afresh for each command: its answer is then the command's.
+    NEKI.delete(this);
+    return serverIsNeki(this, read);
   }
 
   override generateSessionLock(lockId: number): string {

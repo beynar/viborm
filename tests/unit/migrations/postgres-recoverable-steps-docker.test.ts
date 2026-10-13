@@ -5,6 +5,11 @@
  * half-way leaves one unfinished attempt that `resolve` settles before `apply`
  * resumes.
  *
+ * A manual stepwise state whose backfill the server refused whole stops with
+ * its column committed; once the data is fixed, `apply` resumes it from the
+ * refused backfill, never re-running the column, and an ambiguous `DO` block
+ * still blocks.
+ *
  * Realistic scale: an `accounts` table of fifteen fields holding 200,000 rows.
  * The waits are made deterministic by an application transaction left open
  * on the table: a plain `CREATE INDEX` queues behind it and every later write
@@ -18,9 +23,11 @@
 
 import type { Schema } from "@client/types";
 import { createClient } from "@drivers/pg";
+import { VibORMErrorCode } from "@errors";
 import { createMigrationClient } from "@migrations";
 import { MemoryEstateStorage } from "@migrations/storage/memory";
 import { s } from "@schema";
+import { sql } from "@sql";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -273,3 +280,168 @@ describeIfPg("low-lock steps on a real server, 200,000 rows", () => {
     }
   }, 60_000);
 });
+
+describeIfPg(
+  "a stepwise state resumes after a refused statement, 2,000 rows",
+  () => {
+    const NAMESPACE = "viborm_stepwise_resume";
+    const table = `"${NAMESPACE}"."accounts"`;
+    const ADD_COLUMN = `ADD COLUMN "share"`;
+    const BACKFILL = `SET "share" =`;
+    const admin = new pg.Client({ connectionString: PG_CONNECTION });
+    const clients: { $disconnect(): Promise<void> }[] = [];
+    const populated = {
+      kind: "trusted-read",
+      query: sql.raw(`SELECT EXISTS (SELECT 1 FROM ${table}) AS ok`),
+      equals: true,
+    } as const;
+    const fieldsWith = (share: boolean) => ({
+      account: s
+        .model({
+          ...fields(),
+          ...(share ? { share: s.int().nullable() } : {}),
+        })
+        .map("accounts"),
+    });
+
+    beforeAll(async () => {
+      await admin.connect();
+    });
+
+    afterAll(async () => {
+      await Promise.allSettled(clients.map((client) => client.$disconnect()));
+      await admin.query(`DROP SCHEMA IF EXISTS "${NAMESPACE}" CASCADE`);
+      await admin.end();
+    });
+
+    /**
+     * `v1` over 2,000 accounts, one of them of age 0, then a stepwise state:
+     * a column, and a backfill dividing by each age that `backfill` wraps.
+     */
+    async function stopped(backfill: (update: string) => string) {
+      await admin.query(`DROP SCHEMA IF EXISTS "${NAMESPACE}" CASCADE`);
+      await admin.query(`CREATE SCHEMA "${NAMESPACE}"`);
+      const storage = new MemoryEstateStorage();
+      const migrationsFor = (share: boolean) => {
+        const client = createClient({
+          databaseUrl: PG_CONNECTION,
+          namespace: NAMESPACE,
+          schema: fieldsWith(share),
+        });
+        clients.push(client);
+        return createMigrationClient(client, { storage });
+      };
+      const first = migrationsFor(false);
+      const origin = (await first.generate({ name: "v1" })).stateId;
+      await first.apply();
+      await admin.query(
+        `INSERT INTO ${table} ("id", "email", "name", "age", "updatedAt")
+       SELECT 'acct-' || g, 'user' || g || '@example.com', 'name-' || g, CASE WHEN g = 1234 THEN 0 ELSE 40 END, now()
+       FROM generate_series(1, 2000) g`
+      );
+      const migrations = migrationsFor(true);
+      const target = (
+        await migrations.generate({
+          name: "share",
+          manualMigration: {
+            transitions: [
+              {
+                from: origin,
+                execution: "stepwise",
+                originChecks: [populated],
+                up: [
+                  sql.raw(`ALTER TABLE ${table} ${ADD_COLUMN} integer`),
+                  sql.raw(backfill(`UPDATE ${table} ${BACKFILL} 4000 / "age"`)),
+                ],
+                rollback: { kind: "irreversible", reason: "shares stay" },
+              },
+            ],
+            destinationChecks: [populated],
+          },
+        })
+      ).stateId;
+      const fix = () =>
+        admin.query(`UPDATE ${table} SET "age" = 40 WHERE "age" = 0`);
+      return { migrations, origin, target, fix };
+    }
+
+    /** The text of every statement a `pg` client sends while `work` runs. */
+    async function sentDuring(work: () => Promise<unknown>) {
+      const sent: string[] = [];
+      const query = pg.Client.prototype.query;
+      pg.Client.prototype.query = function (
+        this: pg.Client,
+        ...args: unknown[]
+      ) {
+        const [text] = args;
+        sent.push(
+          typeof text === "string"
+            ? text
+            : String((text as { text?: string })?.text)
+        );
+        return (query as (...rest: unknown[]) => unknown).apply(this, args);
+      } as typeof query;
+      try {
+        return { result: await work(), sent };
+      } finally {
+        pg.Client.prototype.query = query;
+      }
+    }
+
+    it("apply resumes from the refused backfill, without re-running the column", async () => {
+      const { migrations, origin, target, fix } = await stopped(
+        (update) => update
+      );
+      await expect(migrations.apply()).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_FAILED,
+        meta: {
+          effectState: "none",
+          partial: true,
+          providerSqlState: "22012",
+          toState: target,
+          statementIndex: 1,
+        },
+      });
+      expect(await migrations.status()).toMatchObject({
+        unfinished: true,
+        marker: { stateId: origin },
+      });
+      await fix();
+      const { result, sent } = await sentDuring(() => migrations.apply());
+      expect(result).toMatchObject({ outcome: "applied", path: [target] });
+      expect(sent.filter((text) => text.includes(ADD_COLUMN))).toEqual([]);
+      expect(sent.filter((text) => text.includes(BACKFILL))).toHaveLength(1);
+      expect(await migrations.status()).toMatchObject({
+        unfinished: false,
+        marker: { stateId: target },
+      });
+      await expect(migrations.verify()).resolves.toEqual({ ok: true });
+      const { rows } = await admin.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM ${table} WHERE "share" = 100`
+      );
+      expect(rows[0]?.n).toBe(2000);
+    }, 60_000);
+
+    it("a backfill in a DO block may have committed: apply still refuses", async () => {
+      const { migrations, origin, fix } = await stopped(
+        (update) => `DO $$ BEGIN ${update}; END $$`
+      );
+      await expect(migrations.apply()).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
+        meta: { effectState: "may-have-committed", partial: true },
+      });
+      await fix();
+      const { result, sent } = await sentDuring(() =>
+        migrations.apply().catch((error: unknown) => error)
+      );
+      expect(result).toMatchObject({
+        code: VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT,
+      });
+      expect(sent.filter((text) => text.includes(BACKFILL))).toEqual([]);
+      expect(await migrations.status()).toMatchObject({
+        unfinished: true,
+        marker: { stateId: origin },
+      });
+    }, 60_000);
+  }
+);

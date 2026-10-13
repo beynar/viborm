@@ -141,7 +141,7 @@ Every locked command (`apply`, `down`, `reset`, `baseline`, `resolve`,
 | --- | --- | --- |
 | `lockTimeout` | 4 s | `lock_timeout`, with `SET LOCAL` in every migration transaction (and on the session during stepwise work): a DDL statement waiting for a table lock gives up instead of stalling every query queued behind it. |
 | `statementTimeout` | 10 min | `statement_timeout`, likewise; the lock wait runs under it. A longer statement, such as a large table rewrite, fails with `V11001` whose `cause` is `V2002`: raise it for such migrations. Must be 0 or longer than `lockWait`. |
-| `idleTimeout` | 1 s | `idle_in_transaction_session_timeout` in every migration transaction, and during stepwise work `idle_session_timeout` on PostgreSQL 14+: the server ends a migration whose client stopped talking, and frees its migration lock with it. |
+| `idleTimeout` | 30 s | `idle_in_transaction_session_timeout` in every migration transaction, and while the session holds the session lock (stepwise work; on Neki the whole command) `idle_session_timeout` on PostgreSQL 14+: the server ends a migration whose client stopped talking, and frees its migration lock with it. It also bounds the client's own pauses between two statements, so it stays well above them (1 s before 1.2.3). |
 | `lockWait` | 10 s | How long the command retries for the migration lock another command holds. |
 | `connectionWait` | 10 s | How long the command waits for its connection. Applies to MySQL too. |
 | `largeTableRows` | 1,000,000 | A row count, not milliseconds: the planner's estimate above which a change that rewrites or scans a table under a lock that blocks it (a column type change, `SET NOT NULL`, a volatile `ADD COLUMN` default, a validated `FOREIGN KEY`/`CHECK`) is refused before any effect with `V11009`. See [Large tables](/docs/migration/migrate#large-tables). 0 admits every size. |
@@ -160,7 +160,10 @@ const migrations = createMigrationClient(client, {
 `0` turns a server limit, or `largeTableRows`, off. `lockWait` and `connectionWait` must be at least
 1, and no value may exceed 2147483647. On PostgreSQL 14+ stepwise work also
 sets `client_connection_check_interval` to 1 s where the server supports it,
-so a statement whose client disconnected stops within a second.
+so a statement whose client disconnected stops within a second. Every setting
+is named by a constant, and the command ends with one `RESET` for each setting
+it set; a connection whose reset the server refuses is closed, never handed
+back to the pool (`V11005`).
 
 A command reads and decides inside its first migration transaction, so
 `idleTimeout` also bounds the client's own pauses between two of those
@@ -318,9 +321,17 @@ that needs a commit after a statement fails inside the transaction, which
 rolls back. A `DO` block's own schema changes cannot be read from its text
 either: a column change of a table one created fails the same way (`NK316`).
 
-Stepwise transitions, including `generate({ lowLock: true })`'s
-`CONCURRENTLY` steps, do not run on Neki: they take the session lock and
-session limits, which Neki refuses (`V11005`, before any effect).
+Neki refuses a session advisory lock and a transaction advisory lock in the
+same session (`NK013`, "Mixing session and transaction advisory locks is
+unavailable"). Since 1.2.3 a command on Neki (it asks `version()` once) takes
+the session lock once, outside any transaction, before its first read, waits
+for it within `lockWait` as elsewhere, holds it to the end and never takes the
+transaction lock; each transaction opens with its `SET LOCAL` limits only, and
+the session carries `limits` until the command resets them. Every group
+still re-reads the marker. Stepwise transitions, including
+`generate({ lowLock: true })`'s `CONCURRENTLY` steps, therefore run on Neki,
+in the same `apply()` as transactional ones. 1.2.2 refused them with
+`V11005` (`NK013`), and its session limits with `42501`.
 
 A catalog read the server refuses fails with `V11001` and names itself and its
 SQLSTATE, for example `PostgreSQL catalog query "indexes" failed with SQLSTATE

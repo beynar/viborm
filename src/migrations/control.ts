@@ -16,6 +16,7 @@ import {
 } from "./catalog-probes";
 import type { BoundMigrationDriver } from "./drivers";
 import { throwIfCatalogRefusal } from "./drivers/postgres/catalog-refusal";
+import { providerFacts } from "./execute-dispatch";
 import { isSha256, type Sha256 } from "./identity";
 import type { SchemaSnapshot, TableDef } from "./types";
 import { encodePathHash, eventIdFor, parseLedgerEvent } from "./v1-parse";
@@ -447,6 +448,7 @@ function unreadable(message: string, failure: unknown): unknown {
     ? failure
     : new MigrationError(message, VibORMErrorCode.MIGRATION_INVALID_STATE, {
         cause: errorCause(failure),
+        meta: providerFacts(failure),
       });
 }
 

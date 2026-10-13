@@ -58,15 +58,16 @@ const populated = {
 type Fault =
   | "lose-commit-reply"
   | "lose-connection-at-commit"
+  | "lose-statement-reply"
   | "fail-unlock"
   | "none";
 
 /**
  * A PGlite whose `query`/`exec` fail as `fault` says once `armedBy` ran.
- * Every other statement reaches the database.
+ * Every other statement reaches the database; `sent` records each one.
  */
 function faulty(database: PGlite, fault: Fault, armedBy: string) {
-  const state = { armed: false, dead: false, fired: 0 };
+  const state = { armed: false, dead: false, fired: 0, sent: [] as string[] };
   const proxy = new Proxy(database, {
     get(target, property) {
       const value = Reflect.get(target, property, target);
@@ -76,6 +77,7 @@ function faulty(database: PGlite, fault: Fault, armedBy: string) {
       }
       return async (text: string, ...rest: unknown[]) => {
         if (state.dead) throw new Error("connection is gone");
+        state.sent.push(text);
         if (text.includes(armedBy)) state.armed = true;
         if (
           state.armed &&
@@ -87,6 +89,11 @@ function faulty(database: PGlite, fault: Fault, armedBy: string) {
           throw new Error("unlock reply lost");
         }
         const result = await value.call(target, text, ...rest);
+        if (state.armed && fault === "lose-statement-reply") {
+          state.armed = false;
+          state.fired += 1;
+          throw new Error("statement reply lost");
+        }
         if (
           state.armed &&
           (fault === "lose-commit-reply" ||
@@ -427,5 +434,137 @@ describe("S4 on PostgreSQL: honest recovery", () => {
     expect(rows[0]?.n).toBe(ROWS);
     await client.$disconnect();
     await closeTestPGlite(database);
+  });
+});
+
+describe("a stepwise state resumes after a statement the server refused whole", () => {
+  const ADD_COLUMN = `ADD COLUMN "paidPercent"`;
+  const BACKFILL = `SET "paidPercent" =`;
+
+  /**
+   * `paid-percent`: a column, then a backfill dividing by each invoice's
+   * amount, which one stray invoice of amount 0 refuses (22012).
+   */
+  async function paidPercent(fault: Fault, armedBy = "") {
+    const run = await invoices(fault, armedBy);
+    await run.database.exec(
+      `UPDATE "invoice" SET "amountCents" = 0 WHERE "id" = 'inv-1234'`
+    );
+    const v2 = createClient({
+      client: run.proxy,
+      schema: {
+        invoice: s.model({ ...fields, paidPercent: s.int().nullable() }),
+      },
+    });
+    const migrations = createMigrationClient(v2, {
+      storage: run.storage,
+      tables: ["invoice"],
+    });
+    const target = (
+      await migrations.generate({
+        name: "paid-percent",
+        manualMigration: {
+          transitions: [
+            {
+              from: run.init,
+              execution: "stepwise",
+              originChecks: [populated],
+              up: [
+                sql.raw(`ALTER TABLE "invoice" ${ADD_COLUMN} INTEGER`),
+                sql.raw(
+                  `UPDATE "invoice" ${BACKFILL} 100 - "balanceCents" * 100 / "amountCents"`
+                ),
+              ],
+              rollback: { kind: "irreversible", reason: "percentages stay" },
+            },
+          ],
+          destinationChecks: [populated],
+        },
+      })
+    ).stateId;
+    const fix = () =>
+      run.database.exec(
+        `UPDATE "invoice" SET "amountCents" = 1000 WHERE "amountCents" = 0`
+      );
+    const close = async () => {
+      await v2.$disconnect();
+      await run.close();
+    };
+    return { run, migrations, target, fix, close };
+  }
+
+  it("apply re-runs only the refused step and the rest, then moves the marker", async () => {
+    const { run, migrations, target, fix, close } = await paidPercent("none");
+    await expect(migrations.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_FAILED,
+      meta: {
+        effectState: "none",
+        partial: true,
+        providerSqlState: "22012",
+        toState: target,
+        statementIndex: 1,
+      },
+    });
+    const stopped = await migrations.status();
+    expect(stopped.unfinished).toBe(true);
+    expect(stopped.marker?.stateId).toBe(run.init);
+
+    await fix();
+    const before = run.state.sent.length;
+    await expect(migrations.apply()).resolves.toMatchObject({
+      outcome: "applied",
+      path: [target],
+      statements: [expect.stringContaining(BACKFILL)],
+    });
+    const resumed = run.state.sent.slice(before);
+    expect(resumed.filter((text) => text.includes(ADD_COLUMN))).toEqual([]);
+    expect(resumed.filter((text) => text.includes(BACKFILL))).toHaveLength(1);
+    const status = await migrations.status();
+    expect(status.unfinished).toBe(false);
+    expect(status.marker?.stateId).toBe(target);
+    await expect(migrations.verify()).resolves.toEqual({ ok: true });
+    const { rows } = await run.database.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM "invoice" WHERE "paidPercent" = 0`
+    );
+    expect(rows[0]?.n).toBe(ROWS);
+    await close();
+  });
+
+  it("a step refused again stays resumable, and resumes once fixed", async () => {
+    const { migrations, target, fix, close } = await paidPercent("none");
+    for (const _ of [1, 2]) {
+      await expect(migrations.apply()).rejects.toMatchObject({
+        code: VibORMErrorCode.MIGRATION_FAILED,
+        meta: { effectState: "none", providerSqlState: "22012" },
+      });
+    }
+    await fix();
+    await expect(migrations.apply()).resolves.toMatchObject({
+      outcome: "applied",
+      path: [target],
+    });
+    await close();
+  });
+
+  it("a step whose reply was lost may have committed: apply still refuses", async () => {
+    const { run, migrations, fix, close } = await paidPercent(
+      "lose-statement-reply",
+      BACKFILL
+    );
+    await fix();
+    await expect(migrations.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_AMBIGUOUS_COMMIT,
+      meta: { effectState: "may-have-committed", partial: true },
+    });
+    expect(run.state.fired).toBe(1);
+    const before = run.state.sent.length;
+    await expect(migrations.apply()).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_UNFINISHED_ATTEMPT,
+    });
+    expect(
+      run.state.sent.slice(before).filter((text) => text.includes(BACKFILL))
+    ).toEqual([]);
+    expect((await migrations.status()).unfinished).toBe(true);
+    await close();
   });
 });

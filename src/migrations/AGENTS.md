@@ -686,9 +686,10 @@ renamed in it admits no column type change, rename, drop or schema move
 (`NK316`).
 `statement-safety.ts` `catalogCommitBoundaries` is the one rule for where a
 commit must come, read from each statement's structure over the dispatches
-and the authored checks in run order; the PostgreSQL driver's preflight is the
-one owner of the Neki fact (`version()` names Neki), asked once per command
-and only of a program that would need a commit. With `splits` (only `apply`, over a session)
+and the authored checks in run order; the PostgreSQL driver's `serverIsNeki`
+is the one owner of the Neki fact (`version()` names Neki), read once per
+command by the lock protocol (`holdsSessionLock`, 1.2.3) and reused by the
+preflight, which asks it only of a program that would need a commit. With `splits` (only `apply`, over a session)
 it answers that fact and refuses only two statements of one dispatch that
 need a commit between them; every other command is refused any such program
 before effects (V11021). On Neki, `apply` refines plan D5's groups: an edge
@@ -706,13 +707,51 @@ the attempt open at its last committed part. `apply` resumes exactly that
 attempt: one forward `started` attempt from the marker, on the first edge of
 its route, of a transactional PostgreSQL transition, from its confirmed
 prefix (`resume.ts` `remainingSteps`, shared with `down`), without the drift
-proof its committed parts already moved past; any other open attempt still
-blocks. On PostgreSQL, groups, statements and ledger events are unchanged. Stepwise and MySQL work keeps per-step
+proof its committed parts already moved past. On any PostgreSQL `apply` also
+resumes, the same way, the attempt of a stepwise edge whose next step the
+server refused whole (its announcement answered `none` with the refusal,
+`execute-dispatch.ts`): it re-runs that step and the rest, never a confirmed
+one, after the same marker and attempt-ownership proof, without the origin
+checks (they passed against the origin before the first step; the confirmed
+prefix has moved past them), and closes with the destination checks, the
+destination proof and the marker. A stepwise attempt that recorded no such
+refusal for its next step (a lost connection, `CALL`/`DO`/`EXECUTE`/
+`CONCURRENTLY`, a failed check or proven step) still blocks (V11016), and an
+announcement never answered is V11020; any other open attempt still blocks. On PostgreSQL, groups, statements and ledger events are unchanged. Stepwise and MySQL work keeps per-step
 probes and progress rows. Stepwise
 providers record durable progress and honest `partial` or
 `may-have-committed` outcomes. An ambiguous opaque dispatch blocks later work;
 the system never claims rollback merely because code opened a nominal
 transaction.
+
+**Neki's lock (1.2.3, amends plan D1 on Neki).** Neki refuses a session
+advisory lock and a transaction advisory lock in one session, in either
+order (`NK013 [61]`). On Neki (`holdsSessionLock`, asked on the pinned
+session before anything else) a command takes the session lock once, in
+autocommit, before its first read (`LockedTransactions.hold`, bounded by
+`lockWait` with the same backoff), imposes the session limits after it, and
+never takes the transaction lock: each group is a plain `BEGIN`, its `SET
+LOCAL` limits and its work; `escalate` and `CONCURRENTLY` find the lock held.
+The pre-lock no-op proof (plan D5) is not asked, its condition being the
+transaction lock. Each committed group still ends `continuous`, so every
+later group re-reads the marker (`assertLockedSinceDecision`) and a split
+state's parts prove their attempt exactly as under transaction locks. The
+lock is released at the end and on every failure, as MySQL's. Standard
+PostgreSQL and PGlite are unchanged.
+
+**Session limits (plan S1, amended 1.2.3).** Every setting the limits touch is
+named by a constant: Neki refuses `set_config` with a computed name in a
+routine body (`42501`) and over `pg_settings` rows (`NK013 [101]`). Which
+optional settings the server has (`idle_in_transaction_session_timeout`,
+`idle_session_timeout`, `client_connection_check_interval`; none on PGlite)
+is read first; the session is reset with one `RESET` per setting set. A
+refused enter or reset is `V11005` carrying the provider's SQLSTATE, never
+the catalog read it preceded (`throwIfCatalogRefusal` passes a migration
+error through); a session whose reset failed is abandoned, never released
+to the pool. `idleTimeout` defaults to 30 s: it bounds the client's own
+pauses between statements as well as a dead client's hold on the lock.
+Migration errors that wrap a provider refusal carry `providerSqlState` and
+`providerCode` (`providerFacts`, `execute-dispatch.ts`).
 
 **Neon HTTP (plan D7).** A PostgreSQL driver that cannot pin a session, but
 whose native batch acknowledges its commit (`runsMigrationBatches`,
@@ -753,7 +792,8 @@ fresh storage and touches no database. `down` preflights every reverse program, 
 `started` before the first rollback dispatch, records step progress, and uses
 the same transaction wrap as apply. An unfinished rollback can only be resumed
 by `down()`; an unfinished forward attempt only by `resolve`, except the
-attempt of an edge `apply` split at Neki's commit boundaries, which `apply`
+attempt of an edge `apply` split at Neki's commit boundaries and that of a
+stepwise edge stopped at a step the server refused whole, which `apply`
 resumes. `resolve` accepts only outcomes established by origin/destination
 proof; generated structural opacity may complete from a fingerprint, while
 manual opaque work still needs state checks. `resolve('rolled-back')` refuses
@@ -767,7 +807,8 @@ replay transition before clearing, and executes contiguous transactional replay
 groups in real transactions without letting one stepwise edge flatten the whole
 path. Resume accepts only an exact contiguous confirmed-dispatch prefix. It
 never replays a committed opaque dispatch, and an announced stepwise opaque
-dispatch without committed evidence is an ambiguous outcome. If the marker
+dispatch without committed evidence is an ambiguous outcome, unless each of
+its announcements was answered by its recorded refusal (it left nothing). If the marker
 already names the target after a crashed CAS, reset closes the exact sole reset
 attempt only when the marker revision and arrival path prove that reset's CAS
 advanced. An unchanged same-target source marker is not success and still runs
