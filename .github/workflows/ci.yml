@@ -464,8 +464,9 @@ jobs:
     runs-on: ubuntu-latest
     # Three Vitest runs at run-vitest-safe.mjs's 300000 ms default ceiling, so
     # at most 15 min of test time, + 5 min setup, + the Bun install and the
-    # PostgreSQL service's health check.
-    timeout-minutes: 25
+    # PostgreSQL service's health check; the package build and `bun check`
+    # leg add 7 min at their own ceilings.
+    timeout-minutes: 32
     services:
       postgres:
         image: postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932 # 16-3.5
@@ -506,10 +507,21 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: 1.4.0
+          # 1.4.3 is the first Bun with `bun check`.
+          bun-version: 1.4.3
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The package job type-checks this consumer with TypeScript 5.9, 6 and 7;
+      # Bun's own checker runs here, where Bun is installed.
+      - name: Build the package
+        run: pnpm package:build
+
+      - name: Type-check held nested where types with bun check
+        env:
+          VIBORM_RECURSIVE_WHERE_CHECKERS: bun
+        run: node scripts/run-node-safe.mjs 768 120000 tests/package/type-recursive-where-smoke.mjs
 
       - name: Run Bun contracts
         run: >-

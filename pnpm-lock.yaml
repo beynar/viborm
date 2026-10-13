@@ -157,6 +157,9 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      typescript-6:
+        specifier: npm:typescript@6.0.3
+        version: typescript@6.0.3
       typescript-native:
         specifier: npm:typescript@7.0.2
         version: typescript@7.0.2
