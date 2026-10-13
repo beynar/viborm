@@ -57,19 +57,33 @@ it.each(CASES)("R2: %s", (name) =>
     createR2StorageWriter(env.HISTORY, { prefix: `${encodeURI(name)}/` })
   ));
 
+/** Publishes in concurrent batches: the ids are distinct, and one at a time
+ * the 1,001 puts outlast the default test timeout on a CI runner. */
+const PUBLISH_BATCH = 100;
+
 async function publishStates(
   storage: MigrationStorageWriter,
   count: number
 ): Promise<string[]> {
   const ids: string[] = [];
-  for (let n = 0; n < count; n += 1) {
-    const bytes = utf8Bytes(`{"state":${n}}`);
-    const id = encodeSqlBlob(bytes);
-    await storage.publishState(id, bytes);
-    ids.push(id);
+  for (let start = 0; start < count; start += PUBLISH_BATCH) {
+    const batch = Array.from(
+      { length: Math.min(PUBLISH_BATCH, count - start) },
+      (_, offset) => utf8Bytes(`{"state":${start + offset}}`)
+    );
+    await Promise.all(
+      batch.map((bytes) => {
+        const id = encodeSqlBlob(bytes);
+        ids.push(id);
+        return storage.publishState(id, bytes);
+      })
+    );
   }
   return ids.sort();
 }
+
+/** Both paging cases write past one R2 page, so they get room beyond 5 s. */
+const PAGING_TIMEOUT_MS = 30_000;
 
 it("lists every state past one R2 page", async () => {
   const storage = createR2StorageWriter(env.HISTORY, { prefix: "paged/" });
@@ -78,14 +92,14 @@ it("lists every state past one R2 page", async () => {
     prefix: "paged/",
   }).listStates();
   expect(listed).toEqual(ids);
-});
+}, PAGING_TIMEOUT_MS);
 
 it("lists every state past one R2 page from Durable Object storage too", async () => {
   await inDurableObject(async (storage) => {
     const ids = await publishStates(storage, PAST_ONE_R2_PAGE);
     expect(await storage.listStates()).toEqual(ids);
   });
-});
+}, PAGING_TIMEOUT_MS);
 
 function schemaClient(withTitle: boolean) {
   const post = withTitle
