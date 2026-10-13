@@ -223,7 +223,7 @@ test("release CI accepts only current complete exact-main proof", async () => {
   });
   assert.deepEqual(proof, {
     attempt: 2,
-    jobs: 8,
+    jobs: 15,
     proof: "push",
     runId: 200,
     sha,
@@ -412,6 +412,33 @@ test("release CI accepts only current complete exact-main proof", async () => {
     "missing required jobs: Types, format, and docs"
   );
 
+  // Every Local providers matrix leg is its own required job.
+  await expectRefusal(
+    "missing local-provider shard",
+    () =>
+      verifyReleaseCi(
+        verification(
+          fixture({
+            jobsPages: [
+              {
+                jobs: RELEASE_CI_JOBS.filter(
+                  (name) => name !== "Local providers (shard 8/8)"
+                ).map(workflowJob),
+              },
+            ],
+          })
+        )
+      ),
+    ReleaseCiError,
+    "missing required jobs: Local providers (shard 8/8)"
+  );
+
+  // Coverage runs after merge in its own workflow; the release never waits.
+  assert.equal(
+    RELEASE_CI_JOBS.some((name) => name.startsWith("Coverage")),
+    false
+  );
+
   for (const [name, overrides, message] of [
     ["pending job", { conclusion: null, status: "in_progress" }, "in_progress"],
     ["failed job", { conclusion: "failure" }, "failure"],
@@ -439,8 +466,23 @@ test("release CI accepts only current complete exact-main proof", async () => {
     );
   }
 
+  // "Re-run failed jobs": attempt 2 keeps the jobs attempt 1 passed.
+  await verifyReleaseCi(
+    verification(
+      fixture({
+        jobsPages: [
+          {
+            jobs: RELEASE_CI_JOBS.map((name, index) =>
+              workflowJob(name, index === 0 ? { run_attempt: 1 } : {})
+            ),
+          },
+        ],
+      })
+    )
+  );
+
   await expectRefusal(
-    "stale job attempt",
+    "job from an attempt after the run's latest",
     () =>
       verifyReleaseCi(
         verification(
@@ -448,7 +490,7 @@ test("release CI accepts only current complete exact-main proof", async () => {
             jobsPages: [
               {
                 jobs: RELEASE_CI_JOBS.map((name, index) =>
-                  workflowJob(name, index === 0 ? { run_attempt: 1 } : {})
+                  workflowJob(name, index === 0 ? { run_attempt: 3 } : {})
                 ),
               },
             ],
@@ -456,7 +498,7 @@ test("release CI accepts only current complete exact-main proof", async () => {
         )
       ),
     ReleaseCiError,
-    "stale attempt 1, not 2"
+    "outside run 200's attempts 1-2"
   );
 
   await expectRefusal(
@@ -593,7 +635,7 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
   const pullProof = {
     attempt: 1,
     headSha,
-    jobs: 8,
+    jobs: 15,
     proof: "pull-request-tree",
     pullRequest: 90,
     runId: 190,
@@ -737,18 +779,19 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
       "PR run failed job",
       {
         pullJobsPages: pullJobs((index) =>
-          index === 7 ? { conclusion: "failure" } : {}
+          index === RELEASE_CI_JOBS.length - 1 ? { conclusion: "failure" } : {}
         ),
       },
       "Bun and D1 providers",
     ],
     [
-      "PR run stale job attempt",
+      "PR job from an attempt after the run's latest",
       {
-        pullRunsPages: [{ workflow_runs: [pullRun({ run_attempt: 2 })] }],
-        observedPullRun: pullRun({ run_attempt: 2 }),
+        pullJobsPages: pullJobs((index) =>
+          index === 0 ? { run_attempt: 2 } : {}
+        ),
       },
-      "stale attempt 1, not 2",
+      "attempts 1-1",
     ],
     [
       "PR job for another commit",

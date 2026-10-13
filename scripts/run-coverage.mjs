@@ -15,13 +15,34 @@ import {
 } from "./merge-coverage.mjs";
 import { acquireTestRunLock } from "./test-run-lock.mjs";
 
-const requested = process.argv[2];
-if (!requested) {
-  process.stderr.write("Usage: run-coverage.mjs <all|subsystem>\n");
+const USAGE =
+  "Usage: run-coverage.mjs <all|merge|subsystem|shard <subsystem,...>>\n";
+const [requested, shardList, ...extra] = process.argv.slice(2);
+if (
+  !requested ||
+  extra.length > 0 ||
+  (requested === "shard") !== (shardList !== undefined)
+) {
+  process.stderr.write(USAGE);
   process.exit(2);
 }
-const selected =
-  requested === "all" ? coverageSubsystems : [coverageSubsystem(requested)];
+/**
+ * `all` runs every subsystem as a shard, then merges them: the local
+ * `pnpm test:coverage`. CI splits that same work across runners: `shard a,b`
+ * runs only the named subsystems in shard mode (each still enforcing its own
+ * thresholds) and leaves coverage/.shards/<id>/coverage-final.json behind;
+ * `merge` runs nothing and applies the global merge and its checks to the
+ * shards collected there, failing when any subsystem's shard is missing.
+ */
+function selectSubsystems() {
+  if (requested === "all") return coverageSubsystems;
+  if (requested === "merge") return [];
+  if (requested !== "shard") return [coverageSubsystem(requested)];
+  return shardList.split(",").map((id) => coverageSubsystem(id));
+}
+const selected = selectSubsystems();
+const mode = requested === "all" || requested === "shard" ? "shard" : "focused";
+const merges = requested === "all" || requested === "merge";
 const shardRoot = resolve(COVERAGE_PROJECT_ROOT, "coverage/.shards");
 const vitestRunner = fileURLToPath(
   new URL("./run-vitest-safe.mjs", import.meta.url)
@@ -143,7 +164,11 @@ function runSubsystem(subsystem, mode) {
 
 let releaseTestRunLock;
 try {
-  releaseTestRunLock = acquireTestRunLock(`coverage-${requested}`);
+  releaseTestRunLock = acquireTestRunLock(
+    requested === "shard"
+      ? `coverage-shard-${shardList}`
+      : `coverage-${requested}`
+  );
 } catch (error) {
   process.stderr.write(
     `${error instanceof Error ? error.message : String(error)}\n`
@@ -171,17 +196,14 @@ try {
       failed = true;
       break;
     }
-    const exitCode = await runSubsystem(
-      subsystem,
-      requested === "all" ? "shard" : "focused"
-    );
+    const exitCode = await runSubsystem(subsystem, mode);
     if (exitCode !== 0) {
       failed = true;
       break;
     }
   }
 
-  if (requested === "all" && !failed && !interrupted) {
+  if (merges && !failed && !interrupted) {
     const reportDirectory = resolve(COVERAGE_PROJECT_ROOT, "coverage");
     const { commit, dirty } = mergeCoverageShards({
       projectRoot: COVERAGE_PROJECT_ROOT,

@@ -100,7 +100,8 @@ the one PR merged into `main` as the release commit, whose latest
 `pull_request` run on its head branch and SHA passed, where the release commit's
 first parent is an ancestor of the head and both commits share one Git tree.
 Main only fast-forwards, so the PR run tested that tree. Either proof requires
-all eight jobs to succeed in the run's latest attempt; the output's `proof`
+all fifteen CI jobs to succeed in the run's latest attempt (`RELEASE_CI_JOBS`:
+the nine `Local providers` matrix legs count separately); the output's `proof`
 field (`push` or `pull-request-tree`, with the PR number and head SHA) names the
 one used. A skipped job, an older green attempt, or a green run on another tree
 is not sufficient. The release waits for pending CI for up to 120 minutes and
@@ -109,6 +110,10 @@ or was cancelled stops it even when a PR proof holds. Recheck the same evidence
 after human approval, before publication.
 
 Release does not rerun the source test estate, coverage, or provider jobs.
+Coverage is not release evidence: the `Coverage` workflow runs it after merge
+(every push to `main`, nightly, and on demand), and absolute timing budgets run
+nightly in `Performance timings`. Neither blocks a release; a red run there is
+fixed forward like any other defect on `main`.
 The tarball build and documentation build run in parallel with CI verification;
 publication requires all three plus the Node 22.0.0 exact-artifact consumer.
 The registry consumer, provenance checks, protected environment, and immutable
@@ -140,8 +145,8 @@ non-blocking. Its job must still report that it did not execute and the public
 support table must state the same limitation. Database-family equivalence is
 not proof that a concrete provider ran.
 
-The publication gate requires CI proof of public types, core behavior and
-coverage, plus release proof of package exports, documentation examples,
+The publication gate requires CI proof of public types and core behavior,
+plus release proof of package exports, documentation examples,
 CLI execution, the exact Node 22.0.0
 and TypeScript 5.9 floors, the tarball allowlist, and the bundle-size budgets
 (`pnpm size`: gzip limits on real consumer fixtures, including a D1 Worker and

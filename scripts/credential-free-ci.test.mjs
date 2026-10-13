@@ -1,25 +1,51 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: Workflow-shape helpers are invoked only from registered tests.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { coverageSubsystems } from "./coverage-policy.mjs";
 import {
   CI_LOCAL_SERIAL_STAGE_LABEL,
   shardCredentialFreeCIStages,
 } from "./credential-free-test-manifest.mjs";
+import { RAPTOR3_DETERMINISTIC_TESTS } from "./raptor3-manifest.mjs";
+import { RELEASE_CI_JOBS } from "./release-ci.mjs";
 
 const runner = new URL("./run-credential-free-tests.mjs", import.meta.url);
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const selectionError = /needs a substring|matched no stage/;
 const shardError = /--shard/;
 const jobBoundary = /^ {2}[\w-]+:\n/m;
-const localParallelGroup = /^ {6}- parallel:\s*$/gm;
+const jobHeading = /^ {2}([\w-]+):\n/gm;
+const triggerHeading = /^ {2}([a-z_]+):/gm;
+const localLane = /^ {10}- lane: (.+)\n {12}select: (.+)$/gm;
+const coverageGroup = /^ {10}- group: (.+)\n {12}subsystems: (.+)$/gm;
+const packageNodes = /^ {8}node:\n((?: {10}- .+\n)+)/m;
+const listEntry = /^ {10}- "?([^"\n]+)"?$/gm;
+const shardSelect = /^--shard=([1-9]\d*)\/([1-9]\d*)$/;
 const localRunCommand = /^\s+run: (pnpm test:all --ci-local(?: .*)?)$/gm;
-const conditionalChild = /^\s+(?:if|continue-on-error):/m;
-const checkoutPath = /^\s+path: (\S+)$/m;
-const checkoutRef = /^\s+ref: \$\{\{ github\.sha \}\}$/m;
-const workingDirectory = /^\s+working-directory: (.+)$/m;
-const temporaryDirectory = /^\s+TMPDIR: (.+)$/m;
-const serialCommand = "pnpm test:all --ci-local --only 'Raptor 3 fixed'";
+const conditional = /^\s+(?:if|continue-on-error):/m;
+const perfTimingsImport = /from "@tests\/fixtures\/perf-timings"/;
+const testFile = /\.test\.ts$/;
+const LOCAL_SHARDS = 8;
+/** A GitHub Actions expression, spelled as the workflow spells it. */
+const expression = (body) => `\${{ ${body} }}`;
+const MATRIX_LANE = expression("matrix.lane");
+const MATRIX_NODE = expression("matrix.node");
+const MATRIX_SELECT = expression("matrix.select");
+const MATRIX_SUBSYSTEMS = expression("matrix.subsystems");
+const MATRIX_GROUP = expression("matrix.group");
+const parallelGroup = /- parallel:/;
+const jobName = /^ {4}name: (.+)$/m;
+const unexpandedExpression = /\$\{\{/;
+const pullRequestPathCoverage = /run-coverage\.mjs|test:coverage(?!:policy)/;
+const perfTimingsVariable = /VIBORM_PERF_TIMINGS/;
+const pushToMain = /\non:\n {2}push:\n {4}branches:\n {6}- main\n/;
+const namedTestFile = /^ {10}(tests\/\S+\.test\.ts)$/gm;
+const serialSelect = "--only 'Raptor 3 fixed'";
+const localCommand = `run: pnpm test:all --ci-local ${MATRIX_SELECT}`;
 const duplicatedStages = new Set([
   "pnpm test:types",
   "pnpm test:core",
@@ -28,82 +54,143 @@ const duplicatedStages = new Set([
   "pnpm test:package",
 ]);
 
-test("workflow keeps every delegated check and shallow sparse checkout", () => {
-  function assertLocalProviderCommands(localJob) {
-    const parallelGroups = [...localJob.matchAll(localParallelGroup)];
-    assert.equal(parallelGroups.length, 1);
-    const group = localJob
-      .slice(parallelGroups[0].index + parallelGroups[0][0].length)
-      .split("\n      - ")[0];
-    const commands = (source) =>
-      [...source.matchAll(localRunCommand)].map((match) => match[1]);
-    const expected = [1, 2, 3, 4].map(
-      (index) => `pnpm test:all --ci-local --shard=${index}/4`
-    );
-    assert.deepEqual(
-      commands(localJob).toSorted(),
-      [serialCommand, ...expected].toSorted()
-    );
-    const serial = [...localJob.matchAll(localRunCommand)].find(
-      (match) => match[1] === serialCommand
-    );
-    assert(serial.index < parallelGroups[0].index);
-    assert.deepEqual(commands(group).toSorted(), expected);
-    assert.equal(new Set(commands(group)).size, 4);
-    assert.doesNotMatch(group, conditionalChild);
-    const checkouts = localJob
-      .split("\n      - ")
-      .filter((step) => step.includes("uses: actions/checkout@"));
-    assert.equal(checkouts.length, 4);
-    assert.deepEqual(
-      checkouts.map((step) => step.match(checkoutPath)?.[1]).toSorted(),
-      ["shard-2", "shard-3", "shard-4", "source"]
-    );
-    for (const checkout of checkouts) {
-      assert(
-        checkout.includes(
-          "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
-        )
-      );
-      assert.match(checkout, checkoutRef);
-      assert(checkout.includes("fetch-depth: 1"));
-      assert(checkout.includes("sparse-checkout-cone-mode: false"));
-      assert(checkout.includes("!/docs/architecture/raptor3-evidence/"));
-    }
-    assert(
-      localJob.includes(
-        "defaults:\n      run:\n        working-directory: source"
-      )
-    );
-    const lanes = group.split("\n          - ").slice(1);
-    assert.equal(lanes.length, 4);
-    assert.equal(lanes[0].match(workingDirectory), null);
-    for (const [index, lane] of lanes.entries()) {
-      if (index > 0) {
-        assert.equal(
-          lane.match(workingDirectory)?.[1],
-          `\${{ github.workspace }}/shard-${index + 1}`
-        );
-      }
-      assert.equal(
-        lane.match(temporaryDirectory)?.[1],
-        `\${{ runner.temp }}/viborm-ci-local/tmp-${index + 1}`
-      );
-    }
-  }
-
-  const workflow = readFileSync(
-    new URL("../.github/workflows/ci.yml", import.meta.url),
+function readWorkflow(file) {
+  return readFileSync(
+    new URL(`../.github/workflows/${file}`, import.meta.url),
     "utf8"
   );
-  const jobs = workflow.split("\njobs:\n")[1].split(jobBoundary).slice(1);
-  assert.equal(jobs.length, 7); // Package matrix supplies the eighth check.
-  for (const job of jobs) {
-    assert(job.includes("fetch-depth: 1"));
-    assert(job.includes("!/docs/architecture/raptor3-evidence/"));
+}
+
+function workflowJobs(workflow) {
+  const body = workflow.split("\njobs:\n")[1];
+  const ids = [...body.matchAll(jobHeading)].map((match) => match[1]);
+  const bodies = body.split(jobBoundary).slice(1);
+  assert.equal(ids.length, bodies.length);
+  return new Map(ids.map((id, index) => [id, bodies[index]]));
+}
+
+function workflowTriggers(workflow) {
+  const block = workflow.split("\non:\n")[1].split("\n\n")[0];
+  return [...block.matchAll(triggerHeading)].map((match) => match[1]).sort();
+}
+
+const unquote = (value) =>
+  value.startsWith('"') && value.endsWith('"') ? value.slice(1, -1) : value;
+
+function assertShallowSparseCheckouts(jobs) {
+  for (const [id, job] of jobs) {
+    assert(
+      job.includes(
+        "uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+      ),
+      `${id} must use the pinned checkout`
+    );
+    assert(job.includes("fetch-depth: 1"), `${id} must check out shallow`);
+    assert(
+      job.includes("sparse-checkout-cone-mode: false"),
+      `${id} must use a non-cone sparse checkout`
+    );
+    assert(
+      job.includes("!/docs/architecture/raptor3-evidence/"),
+      `${id} must exclude the receipt archive`
+    );
   }
+}
+
+/** Returns the lane names of a valid Local providers matrix. */
+function assertLocalProviderMatrix(localJob) {
+  const lanes = [...localJob.matchAll(localLane)].map((match) => ({
+    lane: match[1],
+    select: unquote(match[2]),
+  }));
+  assert.deepEqual(
+    lanes.map(({ select }) => select),
+    [
+      serialSelect,
+      ...Array.from(
+        { length: LOCAL_SHARDS },
+        (_unused, index) => `--shard=${index + 1}/${LOCAL_SHARDS}`
+      ),
+    ]
+  );
+  assert.equal(lanes[0].lane, "Raptor 3 fixed");
+  for (const { lane, select } of lanes.slice(1)) {
+    const [, index, count] = select.match(shardSelect);
+    assert.equal(lane, `shard ${index}/${count}`);
+  }
+  // One command per leg; every leg runs, on its own runner, to completion.
+  assert.deepEqual(
+    [...localJob.matchAll(localRunCommand)].map((match) => match[1]),
+    [localCommand.slice("run: ".length)]
+  );
+  assert(localJob.includes(`    name: Local providers (${MATRIX_LANE})\n`));
+  assert(localJob.includes("      fail-fast: false\n"));
+  assert.doesNotMatch(localJob, conditional);
+  assert.doesNotMatch(localJob, parallelGroup);
+  return lanes.map(({ lane }) => lane);
+}
+
+function expandedJobNames(jobs) {
+  const names = [];
+  for (const [id, job] of jobs) {
+    const name = job.match(jobName)[1];
+    if (id === "local-providers") {
+      for (const lane of assertLocalProviderMatrix(job)) {
+        names.push(name.replace(MATRIX_LANE, lane));
+      }
+    } else if (name.includes(MATRIX_NODE)) {
+      const nodes = [...job.match(packageNodes)[1].matchAll(listEntry)];
+      for (const [, node] of nodes) {
+        names.push(name.replace(MATRIX_NODE, node));
+      }
+    } else {
+      assert.doesNotMatch(
+        name,
+        unexpandedExpression,
+        `${id} has an unexpanded name`
+      );
+      names.push(name);
+    }
+  }
+  return names;
+}
+
+function testFilesImportingPerfTimings() {
+  const files = [];
+  for (const entry of readdirSync(join(repositoryRoot, "tests"), {
+    recursive: true,
+    withFileTypes: true,
+  })) {
+    if (!(entry.isFile() && testFile.test(entry.name))) continue;
+    if (entry.parentPath.includes("node_modules")) continue;
+    const path = join(entry.parentPath, entry.name);
+    if (perfTimingsImport.test(readFileSync(path, "utf8"))) {
+      files.push(relative(repositoryRoot, path));
+    }
+  }
+  return files.sort();
+}
+
+test("CI keeps every delegated check and shallow sparse checkout", () => {
+  const workflow = readWorkflow("ci.yml");
+  const jobs = workflowJobs(workflow);
+  assert.deepEqual(
+    [...jobs.keys()],
+    [
+      "quality",
+      "core",
+      "package",
+      "local-providers",
+      "docker-providers",
+      "platform-providers",
+    ]
+  );
+  assert.deepEqual(workflowTriggers(workflow), ["pull_request", "push"]);
+  assertShallowSparseCheckouts(jobs);
   for (const [job, command] of [
     ["quality", "run: pnpm test:types"],
+    ["quality", "run: pnpm test:coverage:policy"],
+    ["quality", "scripts/credential-free-ci.test.mjs"],
     ["core", "run: pnpm test:core"],
     ["package", "run: pnpm test:package"],
     ["docker-providers", "--project=provider-pg\n"],
@@ -112,24 +199,96 @@ test("workflow keeps every delegated check and shallow sparse checkout", () => {
     ["platform-providers", "VIBORM_RECURSIVE_WHERE_CHECKERS: bun"],
     ["platform-providers", "--project=provider-d1"],
     ["platform-providers", "--project=provider-tenant-do"],
-    ["local-providers", "run: pnpm test:all --ci-local"],
+    ["local-providers", localCommand],
   ]) {
-    const body = workflow.split(`  ${job}:\n`)[1]?.split(jobBoundary)[0];
-    assert(body?.includes(command), `${job} must execute ${command}`);
+    assert(jobs.get(job).includes(command), `${job} must execute ${command}`);
   }
   assert(workflow.includes("git fetch --no-tags --depth=1 --filter=blob:none"));
   assert(workflow.includes("git checkout --ignore-skip-worktree-bits HEAD --"));
-  const localJob = workflow
-    .split("  local-providers:\n")[1]
-    .split(jobBoundary)[0];
-  assertLocalProviderCommands(localJob);
+  // Coverage and absolute timing budgets are off the pull-request path.
+  assert.doesNotMatch(workflow, pullRequestPathCoverage);
+  assert.doesNotMatch(workflow, perfTimingsVariable);
+  // The release proof is exactly the set of jobs this workflow runs.
+  assert.deepEqual(expandedJobNames(jobs), RELEASE_CI_JOBS);
+
+  const localJob = jobs.get("local-providers");
   for (const broken of [
-    localJob.replace(serialCommand, "pnpm test:all --ci-local --only wrong"),
-    localJob.replace(serialCommand, "echo omitted"),
-    `        run: ${serialCommand}\n${localJob}`,
+    localJob.replace(serialSelect, "--only wrong"),
+    localJob.replace("select: --shard=8/8", "select: --shard=7/8"),
+    localJob.replace("lane: shard 3/8", "lane: shard 4/8"),
+    localJob.replace(localCommand, "run: echo omitted"),
+    localJob.replace("fail-fast: false", "fail-fast: true"),
+    `${localJob}        continue-on-error: true\n`,
   ]) {
-    assert.throws(() => assertLocalProviderCommands(broken));
+    assert.throws(() => assertLocalProviderMatrix(broken));
   }
+});
+
+test("coverage runs after merge, split by subsystem, merged by one gate", () => {
+  const workflow = readWorkflow("coverage.yml");
+  const jobs = workflowJobs(workflow);
+  assert.deepEqual([...jobs.keys()], ["coverage", "merge"]);
+  assert.deepEqual(workflowTriggers(workflow), [
+    "push",
+    "schedule",
+    "workflow_dispatch",
+  ]);
+  assert.match(workflow, pushToMain);
+  assertShallowSparseCheckouts(jobs);
+
+  const legs = jobs.get("coverage");
+  const groups = [...legs.matchAll(coverageGroup)].map((match) => ({
+    group: match[1],
+    subsystems: match[2].split(","),
+  }));
+  assert.equal(new Set(groups.map(({ group }) => group)).size, groups.length);
+  // Every subsystem runs exactly once, with its own unchanged thresholds.
+  const assigned = groups.flatMap(({ subsystems }) => subsystems);
+  assert.equal(new Set(assigned).size, assigned.length);
+  assert.deepEqual(
+    assigned.toSorted(),
+    coverageSubsystems.map(({ id }) => id).toSorted()
+  );
+  assert(legs.includes("    timeout-minutes: 40\n"));
+  assert(legs.includes("      fail-fast: false\n"));
+  assert(
+    legs.includes(
+      `run: node --max-old-space-size=768 scripts/run-coverage.mjs shard ${MATRIX_SUBSYSTEMS}\n`
+    )
+  );
+  assert(legs.includes(`name: coverage-shards-${MATRIX_GROUP}\n`));
+  assert(legs.includes("path: coverage/.shards/\n"));
+  assert.doesNotMatch(legs, conditional);
+
+  const merge = jobs.get("merge");
+  assert(merge.includes("    name: Coverage gates\n"));
+  assert(merge.includes("    needs: coverage\n"));
+  assert(merge.includes("pattern: coverage-shards-*\n"));
+  assert(merge.includes("merge-multiple: true\n"));
+  assert(
+    merge.includes(
+      "run: node --max-old-space-size=768 scripts/run-coverage.mjs merge\n"
+    )
+  );
+  assert.doesNotMatch(merge, conditional);
+});
+
+test("absolute timing budgets are asserted only in the nightly timing run", () => {
+  const workflow = readWorkflow("perf-timings.yml");
+  const jobs = workflowJobs(workflow);
+  assert.deepEqual([...jobs.keys()], ["timings"]);
+  assert.deepEqual(workflowTriggers(workflow), [
+    "schedule",
+    "workflow_dispatch",
+  ]);
+  assertShallowSparseCheckouts(jobs);
+  const timings = jobs.get("timings");
+  assert(timings.includes('      VIBORM_PERF_TIMINGS: "1"\n'));
+  // Every test file whose millisecond bounds are gated runs here.
+  const gated = testFilesImportingPerfTimings();
+  assert(gated.length > 0);
+  const named = [...timings.matchAll(namedTestFile)].map((match) => match[1]);
+  assert.deepEqual(named.toSorted(), gated);
 });
 
 function listStages(...arguments_) {
@@ -186,6 +345,18 @@ test("CI local selection removes only the five separately owned stages", () => {
   }
   assert(local.some((stage) => stage.label.startsWith("raptor3-provider:")));
   assert(local.some((stage) => stage.label.startsWith("Raptor 3 fixed")));
+  // Coverage left the pull-request path, and with it the only pull-request
+  // execution of part of the deterministic Raptor 3 tree; every file of that
+  // tree must still be named by a stage the Local providers legs run.
+  const named = new Set(
+    local.flatMap((stage) =>
+      stage.arguments.filter((argument) => testFile.test(argument))
+    )
+  );
+  assert.deepEqual(
+    RAPTOR3_DETERMINISTIC_TESTS.filter((file) => !named.has(file)),
+    []
+  );
 });
 
 test("the exhaustive default and focused --only interface remain available", () => {
@@ -230,7 +401,7 @@ test("serial stage and CI shards partition every unchanged stage exactly once", 
   const parallel = local.filter(
     (stage) => stage.label !== CI_LOCAL_SERIAL_STAGE_LABEL
   );
-  for (const count of [1, 2, 4, 7, parallel.length]) {
+  for (const count of [1, 2, 4, 7, LOCAL_SHARDS, parallel.length]) {
     const shards = Array.from({ length: count }, (_unused, index) =>
       shardCredentialFreeCIStages(local, index + 1, count)
     );
@@ -262,10 +433,10 @@ test("serial stage and CI shards partition every unchanged stage exactly once", 
     assert.deepEqual(stagePlan("--ci-local", `--shard=1/${count}`), shards[0]);
   }
   assert.equal(JSON.stringify(local), original);
-  for (const index of [2, 3, 4]) {
+  for (let index = 2; index <= LOCAL_SHARDS; index += 1) {
     assert.deepEqual(
-      stagePlan("--ci-local", `--shard=${index}/4`),
-      shardCredentialFreeCIStages(local, index, 4)
+      stagePlan("--ci-local", `--shard=${index}/${LOCAL_SHARDS}`),
+      shardCredentialFreeCIStages(local, index, LOCAL_SHARDS)
     );
   }
 });

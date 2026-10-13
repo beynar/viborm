@@ -83,6 +83,7 @@ import {
   POST_G3_ROW_SCOPE_TESTS,
   POST_G3_SCHEMA_VIEW_TESTS,
   POST_G3_SELECTOR_PREPARATION_TESTS,
+  RAPTOR3_DETERMINISTIC_TESTS,
   RAPTOR3_TESTS,
   RESULT_DECODER_TESTS,
   RQ01_PGLITE_TESTS,
@@ -304,6 +305,24 @@ export const EXTENDED_LOCAL_TESTS = Object.freeze(
         )
     )
     .sort()
+);
+
+/**
+ * The deterministic Raptor 3 tree (`coverage-raptor3`) that neither the fixed
+ * stage nor the extended-local walk runs. Pull-request CI used to execute these
+ * files only inside the instrumented `Coverage gates` job; coverage now runs
+ * after merge, so this uninstrumented stage keeps every one of them in the
+ * pull-request gate. Derived, never enumerated: a file added to the
+ * deterministic tree joins this stage unless another stage already owns it.
+ */
+export const RAPTOR3_DETERMINISTIC_REMAINDER_TESTS = Object.freeze(
+  [...new Set(RAPTOR3_DETERMINISTIC_TESTS)].filter(
+    (file) =>
+      !(
+        RAPTOR3_FIXED_LOCAL_TESTS.includes(file) ||
+        EXTENDED_LOCAL_TESTS.includes(file)
+      )
+  )
 );
 
 /**
@@ -558,8 +577,9 @@ export const CI_LOCAL_SERIAL_STAGE_LABEL =
 
 /**
  * Only sharded CI excludes the serial-owned Raptor stage. The exhaustive plans
- * keep it; CI runs it once before the parallel group. Every remaining whole
- * stage retains its original order and execution bounds within its shard.
+ * keep it; CI runs it once, as its own Local providers matrix leg. Every
+ * remaining whole stage retains its original order and execution bounds within
+ * its shard.
  */
 export function shardCredentialFreeCIStages(stages, index, count) {
   const parallelStages = stages.filter(

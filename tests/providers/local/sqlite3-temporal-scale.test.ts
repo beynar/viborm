@@ -1,5 +1,6 @@
 import { createClient } from "@drivers/sqlite3";
 import { s } from "@schema";
+import { expectWithinTimingBudget } from "@tests/fixtures/perf-timings";
 import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import Database from "better-sqlite3";
 import { expect, test, vi } from "vitest";
@@ -11,7 +12,9 @@ import { expect, test, vi } from "vitest";
  * so point operations grew linearly with the table; and a decimal column
  * wrapped every statement, reads included, in a catalog read plus
  * BEGIN IMMEDIATE, a storage assertion and COMMIT. Medians are bounded well
- * above an index lookup and far below one scan of 100k rows.
+ * above an index lookup and far below one scan of 100k rows. The medians are
+ * asserted only in the nightly Performance timings run (VIBORM_PERF_TIMINGS=1);
+ * the one-statement, no-exec and statement-size assertions hold everywhere.
  */
 const post = s
   .model({
@@ -113,8 +116,10 @@ test.each([
         expect(statements[0]?.length, name).toBeLessThan(MAX_STATEMENT_CHARS);
         expect(statements[0], name).not.toContain("sqlite_schema");
       }
-      expect(median(timings), name).toBeLessThan(
-        SCANS.has(name) ? SCAN_MEDIAN_MS : MEDIAN_MS
+      expectWithinTimingBudget(
+        median(timings),
+        SCANS.has(name) ? SCAN_MEDIAN_MS : MEDIAN_MS,
+        name
       );
     }
     expect(

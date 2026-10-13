@@ -19,13 +19,29 @@ const PENDING_STATUSES = new Set([
   "waiting",
 ]);
 
+/**
+ * Every job of the CI workflow, each of which must have passed in the proof
+ * run's latest attempt (a job "re-run failed jobs" did not re-run keeps the
+ * earlier attempt that passed it). Local providers is a matrix: its fixed Raptor leg plus one
+ * leg per round-robin shard. Coverage is deliberately absent: it runs in the
+ * separate Coverage workflow after merge, and a release never waits for it.
+ * scripts/credential-free-ci.test.mjs pins this list to the jobs ci.yml
+ * declares, matrix legs expanded.
+ */
 export const RELEASE_CI_JOBS = Object.freeze([
   "Types, format, and docs",
   "Core tests",
-  "Coverage gates",
   "Package contract (Node 22.12.0)",
   "Package contract (Node 24)",
-  "Local providers",
+  "Local providers (Raptor 3 fixed)",
+  "Local providers (shard 1/8)",
+  "Local providers (shard 2/8)",
+  "Local providers (shard 3/8)",
+  "Local providers (shard 4/8)",
+  "Local providers (shard 5/8)",
+  "Local providers (shard 6/8)",
+  "Local providers (shard 7/8)",
+  "Local providers (shard 8/8)",
   "PostgreSQL and MySQL providers",
   "Bun and D1 providers",
 ]);
@@ -184,15 +200,23 @@ function requireSuccessfulJobs(jobs, runId, attempt, sha) {
   const missing = RELEASE_CI_JOBS.filter((name) => !jobsByName.has(name));
   if (missing.length > 0) {
     refuse(
-      `CI run ${runId} attempt ${attempt} is missing required jobs: ${missing.join(", ")}. Re-run all jobs so the latest attempt contains the complete release proof`
+      `CI run ${runId} attempt ${attempt} is missing required jobs: ${missing.join(", ")}. Re-run the missing jobs so the latest attempt contains the complete release proof`
     );
   }
 
   for (const name of RELEASE_CI_JOBS) {
     const job = jobsByName.get(name);
-    if (job.run_attempt !== attempt) {
+    // "Re-run failed jobs" makes a new attempt whose passing jobs stay those
+    // of the attempt that ran them: the same run, the same SHA, a finished
+    // success, so they prove what they proved. Only a job claiming an
+    // attempt after the run's latest is impossible, and refused.
+    if (
+      !Number.isSafeInteger(job.run_attempt) ||
+      job.run_attempt < 1 ||
+      job.run_attempt > attempt
+    ) {
       refuse(
-        `CI job ${JSON.stringify(name)} belongs to stale attempt ${JSON.stringify(job.run_attempt)}, not ${attempt}`
+        `CI job ${JSON.stringify(name)} reports attempt ${JSON.stringify(job.run_attempt)}, outside run ${runId}'s attempts 1-${attempt}`
       );
     }
     if (job.head_sha !== sha) {
