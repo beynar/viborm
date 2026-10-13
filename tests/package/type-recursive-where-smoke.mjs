@@ -29,7 +29,10 @@
  * The table predates `queries/held-nodes.ts`: whole relation nodes read
  * through `Parameters<…>` and passed back, which 1.2.0 and the first 1.2.1
  * fix refused (TS2322 on every checker; 1.1.0 compiled them). It adds about
- * 80k instantiations on each TypeScript (TS 7: 1,793,624).
+ * 80k instantiations on each TypeScript (TS 7: 1,793,624). 1.2.2 walks the
+ * optional keys of a finite held `where` again and stops at each payload;
+ * `queries/held-optional.ts` holds payloads under such keys, about 20k more
+ * (TS 7: 1,816,278). Without the stop it is TS2589 again (TS 7: 27.5M).
  *
  * `VIBORM_RECURSIVE_WHERE_CHECKERS` picks the checkers (comma separated;
  * default `tsc5,tsc6,tsc7`): the repository's `typescript` (5.9.3),

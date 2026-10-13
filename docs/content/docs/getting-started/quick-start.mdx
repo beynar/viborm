@@ -240,10 +240,9 @@ Some misuse still type-checks:
 
 - an operator typo below a top-level `where` field: inside a relation filter,
   an `AND` / `OR` / `NOT` group, or a nested `include` / `select` `where`;
-- a misspelled key below a `where` key that is optional in the value's type:
-  below a relation key of a filter held in a variable typed as the `where`
-  payload, or inside a conditional spread
-  (`...(ok ? { author: { email, emial } } : {})`);
+- a misspelled key below a `where` key that is optional in the value's type,
+  in a `where` object that also spreads a value typed as the full `where`
+  payload (`{ ...filter, ...(ok ? { author: { email, emial } } : {}) }`);
 - a misspelled relation operation (`conect`), or a misspelled key in a nested
   selector (`connect`, or the `where` of a nested `update`, `delete` or
   `upsert`), in `cursor` or in `having`;
@@ -253,11 +252,11 @@ Some misuse still type-checks:
 - `groupBy` with an empty `by`, and `select: {}` on a bulk write.
 
 A type parameter that stands for a whole nested write object, a whole operator
-object or a nested `include` / `select` `where` is rejected, because its keys
-cannot be checked. Write the object out at the call site, or give it the
-payload type. A `groupBy` `orderBy` value whose type names a field outside `by`
-is rejected even when that key is optional: narrow its type to the grouped
-fields and aggregates.
+object, a relation filter or a nested `include` / `select` `where` is rejected,
+because its keys cannot be checked. Write the object out at the call site, or
+give it the payload type. A `groupBy` `orderBy` value whose type names a field
+outside `by` is rejected even when that key is optional: narrow its type to the
+grouped fields and aggregates.
 
 VibORM also validates every call at runtime, before any SQL runs. Input that the
 types let through but the schema does not admit is rejected with a

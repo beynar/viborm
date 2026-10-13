@@ -271,9 +271,10 @@ describe("groupBy orders only by what it grouped", () => {
 /**
  * A type parameter cannot be keyed, so these guards keep a generic LEAF
  * assignable (a scalar value, a boolean projection flag, a node whose
- * constraint spells only real keys) and refuse a generic nested write object,
- * whose keys no guard can check — the convention a generic `recurse` bag
- * already follows. Spelling the object, or typing it as the payload, compiles.
+ * constraint spells only real keys) and refuse a generic nested write object
+ * or relation filter, whose keys no guard can check — the convention a
+ * generic `recurse` bag already follows. Spelling the object, or typing it as
+ * the payload, compiles.
  */
 describe("generic wrappers", () => {
   const _leaves = <T extends string, B extends boolean>(title: T, flag: B) => {
@@ -292,9 +293,25 @@ describe("generic wrappers", () => {
     // @ts-expect-error a generic nested create cannot be proven free of typos
     return orm.user.update({ where: { id: "1" }, data: { posts } });
   };
+  type UserWhere = NonNullable<
+    NonNullable<Parameters<typeof orm.user.findMany>[0]>["where"]
+  >;
+  const _selectMap = <S extends { title?: boolean }>(select: S) =>
+    orm.user.findMany({ select: { posts: { select } } });
+  const _optionalLeaf = <T extends string>(email: T, ok: boolean) =>
+    orm.post.findMany({ where: { ...(ok ? { author: { email } } : {}) } });
+  const _optionalFilter = <W extends UserWhere>(author: W, ok: boolean) =>
+    // @ts-expect-error a generic relation filter cannot be proven free of typos
+    orm.post.findMany({ where: { ...(ok ? { author } : {}) } });
+  const _optionalPayloadFilter = (author: UserWhere, ok: boolean) =>
+    orm.post.findMany({ where: { ...(ok ? { author } : {}) } });
   test("probes", () => {
     expectTypeOf(_leaves).toBeFunction();
     expectTypeOf(_node).toBeFunction();
     expectTypeOf(_nestedData).toBeFunction();
+    expectTypeOf(_selectMap).toBeFunction();
+    expectTypeOf(_optionalLeaf).toBeFunction();
+    expectTypeOf(_optionalFilter).toBeFunction();
+    expectTypeOf(_optionalPayloadFilter).toBeFunction();
   });
 });

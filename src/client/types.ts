@@ -895,15 +895,16 @@ type NoExtraClauseKeys<
  * The root-reported walks (WHERE model keys, nested write data) follow the
  * LITERAL the caller wrote, key each spelled object against a key set read
  * from the model's state, and report what is left as ONE `UnknownClauseKey` on
- * the root clause. Both descend only REQUIRED keys (`RequiredSpelledKeys`),
- * never a payload's own optional ones, which is what expands the recursive
- * payloads (see above): a held value typed as the payload spells none, and
- * following its optional relation keys enumerated every path through the
- * model graph (TS2589 in 1.2.0). Cycle detection uses the exact
- * spelled-value/model pair, never a numeric depth cap, so a value whose type
- * requires a recursive key stops at its first repeat. `NoInfer` keeps that
- * comparison from inferring through a relinked model (a mapped type), which
- * would walk its whole relation graph.
+ * the root clause. Neither follows a payload's own optional keys, which is
+ * what expands the recursive payloads (see above): following them through a
+ * held value typed as the payload enumerated every path through the model
+ * graph (TS2589 in 1.2.0). The write walk descends only REQUIRED keys
+ * (`RequiredSpelledKeys`); the WHERE walk descends every key of a finite
+ * value and stops at the payload (`WhereWalkKeys`). Cycle detection uses the
+ * exact spelled-value/model pair, never a numeric depth cap, so a held
+ * recursive type stops at its first repeat. `NoInfer` keeps that comparison
+ * from inferring through a relinked model (a mapped type), which would walk
+ * its whole relation graph.
  */
 type SameValue<A, B> =
   (<T>() => T extends NoInfer<A> ? 1 : 2) extends <T>() => T extends NoInfer<B>
@@ -967,42 +968,67 @@ type RelationWhereUnknownKeys<
       : QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
   : never; // Variant tagged filters require their existing entry discrimination.
 
+/**
+ * The misspelled model keys of one WHERE value, at every depth it names. An
+ * `any` value states no key and is not walked: its array arm would unwrap it
+ * to itself until TS2589.
+ */
 type WhereUnknownKeys<
   Given,
   M extends Model<any>,
   Seen = never,
   Allowed extends PropertyKey = WhereModelKeys<M>,
-> = Given extends readonly unknown[]
-  ? WhereUnknownKeys<Given[number], M, Seen, Allowed>
-  : Given extends object
-    ? string extends keyof Given
-      ? never
-      :
-          | Exclude<keyof Given, Allowed>
-          | (SeenValue<Given, M, Seen> extends true
-              ? never
-              : {
-                  [K in Extract<
-                    RequiredSpelledKeys<Given>,
-                    WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
-                  >]: K extends WhereLogicalKeys<M>
-                    ? WhereUnknownKeys<
-                        NonNullable<Given[K]>,
-                        M,
-                        Seen | readonly [Given, M]
-                      >
-                    : K extends keyof M["~"]["state"]["relations"]
-                      ? RelationWhereUnknownKeys<
+> = 0 extends 1 & Given
+  ? never
+  : Given extends readonly unknown[]
+    ? WhereUnknownKeys<Given[number], M, Seen, Allowed>
+    : Given extends object
+      ? string extends keyof Given
+        ? never
+        :
+            | Exclude<keyof Given, Allowed>
+            | (SeenValue<Given, M, Seen> extends true
+                ? never
+                : {
+                    [K in Extract<
+                      WhereWalkKeys<Given, M>,
+                      WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
+                    >]: K extends WhereLogicalKeys<M>
+                      ? WhereUnknownKeys<
                           NonNullable<Given[K]>,
-                          M["~"]["state"]["relations"][K],
+                          M,
                           Seen | readonly [Given, M]
                         >
-                      : never;
-                }[Extract<
-                  RequiredSpelledKeys<Given>,
-                  WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
-                >])
-    : never;
+                      : K extends keyof M["~"]["state"]["relations"]
+                        ? RelationWhereUnknownKeys<
+                            NonNullable<Given[K]>,
+                            M["~"]["state"]["relations"][K],
+                            Seen | readonly [Given, M]
+                          >
+                        : never;
+                  }[Extract<
+                    WhereWalkKeys<Given, M>,
+                    WhereLogicalKeys<M> | keyof M["~"]["state"]["relations"]
+                  >])
+      : never;
+
+/**
+ * The keys of one WHERE object the walk descends. A value whose type states
+ * every key of the model's WHERE is the client's own payload, under any of its
+ * spellings (`Parameters<…>`, `ModelCoreInput<…, "where">`, `InferDatabase`'s
+ * `Where`, an `AND` element, a quantifier's target) or spread into a literal:
+ * only what its type requires was written, and following its optional
+ * relation keys would enumerate every path through the model graph (TS2589 in
+ * 1.2.0). Any other value is finite, so every key it names is walked,
+ * optional ones included: a held filter's and a conditional spread's. A
+ * relation filter typed by a type parameter is refused there, as under a
+ * required key: its keys cannot be read.
+ */
+type WhereWalkKeys<Given, M extends Model<any>> = [
+  Exclude<WhereModelKeys<M>, keyof Given>,
+] extends [never]
+  ? RequiredSpelledKeys<Given>
+  : keyof Given;
 
 /**
  * The data objects one relation's write verbs carry: `create`,
@@ -1045,6 +1071,15 @@ type RequiredSpelledKeys<Given> = Given extends object
         ? never
         : K]: 0;
     }
+  : never;
+
+/**
+ * Every key an object names beside an index signature, optional ones
+ * included, in the key-remapped form that resolves a generic node through its
+ * constraint.
+ */
+type WrittenKeys<Given> = Given extends object
+  ? keyof { [K in keyof Given as string extends K ? never : K]: 0 }
   : never;
 
 /**
@@ -1099,11 +1134,10 @@ type SpelledClause<Arg, Clause extends PropertyKey> = [Arg] extends [
  * `where` walks model field names through relation and logical filters,
  * `data` / `create` / `update` walk nested write data. A clause spelling no
  * relation or logical group has nothing below its root to walk. A `where`
- * that IS the payload type is not walked either. `Parameters<…>` instantiates
- * this guard with the payload as the argument, where a unique `where` is
- * required and is a union of arms that each require their key; walking them
- * costs one `Parameters<…>` read of a `findUnique` about 12k instantiations at
- * 50 models (measured for 1.2.1).
+ * typed as the payload stops at its root (`WhereWalkKeys`), which is what
+ * `Parameters<…>` hands this guard: it instantiates the argument with the
+ * payload, where a unique `where` is required and is a union of arms that
+ * each require their key.
  */
 type NestedClauseGuard<
   Arg,
@@ -1122,17 +1156,12 @@ type NestedClauseGuard<
         ? unknown
         : (
               Clause extends "where"
-                ? SameValue<
+                ? WhereUnknownKeys<
                     NonNullable<Arg[Clause]>,
-                    NonNullable<Payload[Clause]>
-                  > extends true
-                  ? never
-                  : WhereUnknownKeys<
-                      NonNullable<Arg[Clause]>,
-                      M,
-                      never,
-                      ClauseKeys<NonNullable<Payload[Clause]>>
-                    >
+                    M,
+                    never,
+                    ClauseKeys<NonNullable<Payload[Clause]>>
+                  >
                 : NestedWriteUnknownKeys<NonNullable<Arg[Clause]>, M>
             ) extends infer Extra
           ? [Extra] extends [never]
@@ -1428,9 +1457,7 @@ type RecursiveNodeObjectGuard<Node, T> = ExclusiveSelection<Node> &
           ProjectionKeySeal<Node["include"], T, "include">;
       }
     : unknown) &
-  // A spelled `where` is a required key; an optional one is a payload type
-  // (a held or erased argument), whose recursive filter is not walked.
-  ([Node] extends [{ where: unknown }]
+  ("where" extends keyof Node
     ? { where?: NodeWhereSeal<Node["where"], T> }
     : unknown) &
   ("variants" extends keyof Node
@@ -1458,25 +1485,25 @@ type RecursiveProjectionGuard<
 };
 
 /**
- * A model-target node's `select` / `include` keys, beside `_count`. Only the
- * keys the value requires are spelled: a held node (typed as the payload, as
- * `Parameters<…>` reads it) is a union of the ordinary and the recursive
- * node, and the recursive arm's projection carries the asking key as an
- * optional refused member nobody wrote.
+ * A model-target node's `select` / `include` keys, beside `_count`: every
+ * key the value names, optional ones included, is refused as `?: undefined`.
+ * That is the type of the one unknown key nobody wrote: a held node (typed as
+ * the payload, as `Parameters<…>` reads it) is a union of the ordinary and the
+ * recursive node, and the recursive arm's projection carries the asking key as
+ * a refused `?: undefined` member.
  */
 type ProjectionKeySeal<Clause, T, Kind extends "select" | "include"> = [
   T,
 ] extends [never]
   ? unknown
   : T extends Model<any>
-    ? Record<
-        Exclude<
-          RequiredSpelledKeys<NonNullable<Clause>>,
+    ? {
+        [Key in Exclude<
+          WrittenKeys<NonNullable<Clause>>,
           | "_count"
           | keyof T["~"]["state"][Kind extends "select" ? "shape" : "relations"]
-        >,
-        never
-      >
+        >]?: undefined;
+      }
     : unknown;
 
 /** A model-target node's `where`, walked as the root WHERE is. */
