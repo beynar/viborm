@@ -226,13 +226,19 @@ const definitions = [
   {
     id: "migrations",
     label: "migrations",
-    // Statements, lines and functions hold the full 98/100. Branches stop at
-    // 97.35: the residual arms are unreachable defensive guards, each with a
-    // recorded upstream invariant - all 18 in serializer.ts (hydration always
-    // assigns names.sql; EnumScalar.enumValues returns [] not undefined) and
-    // all 12 in graph.ts (a cycle would need a SHA-256 preimage cycle).
+    // Functions hold the full 98. Branches stop at 97.35: the residual arms
+    // are unreachable defensive guards, each with a recorded upstream
+    // invariant - all 18 in serializer.ts (hydration always assigns
+    // names.sql; EnumScalar.enumValues returns [] not undefined) and all 12 in
+    // graph.ts (a cycle would need a SHA-256 preimage cycle). Statements and
+    // lines stop at 97 (Arnaud, 2026-10-13): 1.2.2's Neki commit boundaries
+    // (apply-v1.ts split parts and resume) run only on PostgreSQL, and are
+    // proven by tests/unit/migrations/postgres-neki-apply.test.ts (PGlite)
+    // and tests/providers/hosted/neki-migrations.test.ts (real Neki), which
+    // this lane cannot host: a coverage process is capped at 1536 MiB and a
+    // live PGlite database needs more.
     target: 98,
-    metricTargets: { branches: 97.3 },
+    metricTargets: { branches: 97.3, statements: 97, lines: 97 },
     root: "src/migrations/",
     projects: ["coverage-migrations"],
     tests: migrationCoverageTests,
