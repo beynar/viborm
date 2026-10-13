@@ -6,7 +6,8 @@ Versioning.
 ## 1.2.2 — 2026-10-13
 
 Restores the misspelled-key type errors 1.2.1 gave up, at 1.2.1's
-type-checking cost.
+type-checking cost, and applies migration states that mix schema and data
+changes on PlanetScale's Postgres (Neki).
 
 ### Fixed
 
@@ -52,9 +53,57 @@ type-checking cost.
   `select`/`include` `where: value`. An `any` value states no key and is no
   longer walked, so these compile, as do the optional-key spellings the check
   now reaches (`...(ok ? { writer: value } : {})`, `{ OR?: any[] }`).
+- **Neki: a pending path that mixes schema and data states applies.** 1.2.1
+  refused any `apply()` whose statements ran a data statement after a schema
+  change, across every state the run applied (`V11021`, before effects), so
+  an estate already applied elsewhere could not be deployed to Neki at all.
+  Neki plans a statement against the schema committed before its
+  transaction (measured on Neki's PostgreSQL 18.6), so on Neki `apply()` now
+  commits exactly where that matters, and nowhere on PostgreSQL:
+  - consecutive states share a transaction until a state's statements or
+    checks would read a change an earlier one made; that state starts a new
+    transaction, after the earlier states committed and the marker moved;
+  - a state whose own statements need a commit inside it (an `ALTER TABLE …
+    ADD COLUMN` then an `UPDATE` of that column) runs as successive committed
+    parts: the first runs its origin checks and opens its ledger attempt,
+    each records its steps in the transaction they ran in, the last runs its
+    destination checks, proves the state and moves the marker. A failure in
+    a later part leaves the marker on the previous state and the attempt open
+    (`status()` reports `unfinished: true`); the next `apply()` resumes it,
+    running only the parts that did not commit. A failure in the first part
+    leaves nothing, as before;
+  - a change Neki's planner does not need committed — defaults, NOT NULL,
+    CHECK and foreign keys, a validated constraint, a comment — commits
+    nothing. A created or dropped table, index or constraint does: a literal
+    naming it (`to_regclass('…')`, `'…'::regclass`) is resolved against the
+    committed schema there and silently answers for the old one.
+  It is still refused before effects (`V11021`, naming both statements)
+  where no commit can be placed: two statements of one dispatch (one `sql`
+  fragment holding `ALTER …; UPDATE …`) that need one between them.
+- **Neki: a column change of a table created or renamed in the same
+  transaction** (`ALTER COLUMN … TYPE`, `RENAME COLUMN`, `DROP COLUMN`,
+  `SET SCHEMA`) failed mid-transaction there (`NK316`); `apply()` commits
+  before it, and the other commands refuse it before effects (`V11021`).
 
 ### Changed
 
+- **Neki: `apply()` resumes an open attempt it left.** Only the attempt of a
+  state split at Neki's commit boundaries is resumed, from its confirmed
+  steps; any other unfinished attempt still blocks `apply()`
+  (`V11016`). Such a state's ledger now holds `started` and `step-confirmed`
+  events, which a transactional state never wrote before; on PostgreSQL the
+  groups, statements and ledger events are unchanged.
+  `apply({ dryRun: true })` previews only the statements left to run of
+  such an attempt.
+- **Neki: what `down()`, `reset()`, `resolve({ outcome: "retry" })` and
+  `push()` refuse.** They run their program in one transaction and refuse a
+  program that would need a commit on Neki (`V11021`), now by the same
+  measured rule: a data statement after a change Neki's planner sees (a
+  default, NOT NULL, a CHECK or foreign key) is no longer refused, and a
+  column change of a table created in the same transaction is. Whether the
+  server is Neki is asked only of a program that would need a commit there;
+  `apply()` reads its states' checks with their statements, the other
+  commands their statements.
 - A relation filter typed by a type parameter under an optional key, such as
   `<W extends UserWhere>(author: W, ok: boolean) => post.findMany({ where: {
   ...(ok ? { author } : {}) } })` or a held `{ author?: W }`, is refused, as
@@ -76,6 +125,10 @@ type-checking cost.
   can now report a misspelled key below an optional key, which runtime
   validation already refused, or refuse a relation filter typed by a type
   parameter under an optional key (see Changed).
+- On Neki, re-run `apply()` on the path 1.2.1 refused: no estate change is
+  needed. A state it splits commits its schema part first; plan for that
+  intermediate schema to be visible to the application while its data part
+  runs.
 
 ## 1.2.1 — 2026-10-13
 

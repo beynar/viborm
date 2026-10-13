@@ -461,7 +461,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
     snapshots: readonly SchemaSnapshot[],
     executeRaw: Parameters<typeof introspect>[0],
     program: readonly string[]
-  ): Promise<void> {
+  ): Promise<boolean> {
     const names = [
       ...new Set(
         snapshots.flatMap((snapshot) =>
@@ -469,7 +469,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
         )
       ),
     ];
-    if (names.length === 0 && program.length === 0) return;
+    if (names.length === 0 && program.length === 0) return false;
     const objects = await executeRaw<SqliteDependent>(
       "SELECT type, name, sql, lower(tbl_name) AS \"table\" FROM sqlite_master WHERE type IN ('view', 'trigger')"
     );
@@ -499,6 +499,7 @@ export class SQLite3MigrationDriver extends MigrationDriver {
           },
         }
       );
+    return false;
   }
 
   introspect(

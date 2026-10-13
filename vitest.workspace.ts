@@ -252,6 +252,7 @@ export default defineWorkspace([
     "tests/unit/migrations/pinned-session-docker.test.ts",
     "tests/unit/migrations/postgres-catalog-digest-docker.test.ts",
     "tests/unit/migrations/postgres-namespace-docker.test.ts",
+    "tests/unit/migrations/postgres-neki-boundaries-docker.test.ts",
     "tests/unit/migrations/postgres-recoverable-steps-docker.test.ts",
     "tests/unit/migrations/postgres-session-limits-docker.test.ts",
     "tests/unit/migrations/postgres-transaction-pooler-docker.test.ts",
@@ -291,6 +292,8 @@ export default defineWorkspace([
   providerProject("planetscale", [
     "tests/providers/hosted/planetscale.test.ts",
   ]),
+  // A Neki development branch: NEKI_DEV_CONNECTION_STRING unset, it skips.
+  providerProject("neki", ["tests/providers/hosted/neki*.test.ts"]),
   providerProject("bun", ["tests/providers/platform/*.test.ts"]),
   {
     extends: "./vitest.config.ts",

@@ -873,48 +873,276 @@ export function needsEnumAdditionCommitBoundary(
 
 /** A PostgreSQL statement that changes the schema. */
 const SCHEMA_CHANGES = new Set(["ALTER", "COMMENT", "CREATE", "DROP"]);
-/** A PostgreSQL statement that reads or writes rows, or may (a routine). */
-const ROW_STATEMENTS = new Set([
-  "CALL",
-  "COPY",
-  "DELETE",
-  "DO",
-  "INSERT",
-  "MERGE",
-  "SELECT",
-  "TABLE",
-  "UPDATE",
-  "VALUES",
-  "WITH",
-]);
+/**
+ * Statements that are neither schema changes nor planned against the
+ * committed schema on Neki: each ran there as on PostgreSQL after any schema
+ * change of its own transaction (measured: see {@link catalogCommitBoundaries}).
+ */
+const UNPLANNED = new Set(["GRANT", "SET", "TRUNCATE"]);
+/** A block, a procedure or a prepared statement: what it changes is not in its text. */
+const OPAQUE = new Set(["CALL", "DO", "EXECUTE"]);
+
+const NAME_START = /[A-Za-z_]/;
+const NAME_PART = /[A-Za-z0-9_$]/;
+const NAME_UNSAFE = /[^A-Za-z0-9_$]/g;
+const LEADING_WORDS = /^([A-Za-z_]+)(?:\s+([A-Za-z_]+))?/;
+const NAME = String.raw`(?:"[^"]*"|[A-Za-z_][\w$]*)`;
+const QUALIFIED = String.raw`${NAME}(?:\s*\.\s*${NAME}){0,2}`;
+/** A parenthesized run, three levels deep; the structural text has no literal. */
+const GROUP = String.raw`\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)`;
+const LAST_NAME = new RegExp(`${NAME}$`);
+const ALTER_TABLE = new RegExp(
+  String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${QUALIFIED})\s*\*?\s*([\s\S]*)$`,
+  "i"
+);
+const TABLE_PREFIX = String.raw`^CREATE\s+(?:(?:GLOBAL|LOCAL|TEMP|TEMPORARY|UNLOGGED)\s+)*`;
+const CREATE_TABLE = new RegExp(
+  String.raw`${TABLE_PREFIX}TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(${QUALIFIED})`,
+  "i"
+);
+/** `CREATE TABLE … AS` and `CREATE MATERIALIZED VIEW … AS` plan a query. */
+const CREATE_AS = new RegExp(
+  String.raw`${TABLE_PREFIX}(?:TABLE|MATERIALIZED\s+VIEW)\b[\s\S]*\bAS\s+(?:SELECT|WITH|TABLE|VALUES|EXECUTE)\b`,
+  "i"
+);
+const RENAME_TO = new RegExp(String.raw`^RENAME\s+TO\s+(${NAME})\s*$`, "i");
+/**
+ * The unregistered-relation refusal's actions (NK316): a type change, a
+ * column rename, a column drop, a move to another schema.
+ */
+const UNREGISTERED_ACTION = new RegExp(
+  String.raw`(?:^|,)\s*(?:ALTER\s+(?:COLUMN\s+)?${NAME}\s+(?:SET\s+DATA\s+)?TYPE\b|RENAME\s+(?:COLUMN\s+)?(?!(?:TO|CONSTRAINT)\b)${NAME}\s+TO\b|DROP\s+(?:COLUMN\s+)?(?!(?:CONSTRAINT|DEFAULT|NOT|IDENTITY|EXPRESSION)\b)(?:IF\s+EXISTS\s+)?${NAME}|SET\s+SCHEMA\b)`,
+  "i"
+);
+/**
+ * The `ALTER TABLE` actions Neki's planner needs no commit for: what they
+ * change is enforced where the row is written, never resolved where the
+ * statement is planned (defaults, NOT NULL, CHECK and foreign keys, a
+ * validated constraint). A relation created or dropped, an index or a
+ * constraint's own included, is not one: a literal naming it resolves
+ * against the committed schema (`to_regclass`, `::regclass`, measured stale).
+ */
+const SEEN_ACTION = String.raw`(?:ALTER\s+(?:COLUMN\s+)?${NAME}\s+(?:SET\s+DEFAULT\s+(?:[^,()]|${GROUP})+|DROP\s+DEFAULT|(?:SET|DROP)\s+NOT\s+NULL)|ADD\s+(?:CONSTRAINT\s+${NAME}\s+)?(?:CHECK\s*${GROUP}|FOREIGN\s+KEY\s*${GROUP}\s*REFERENCES\s+${QUALIFIED}(?:\s*${GROUP})?)(?:\s+[A-Za-z]+|\s*${GROUP})*|VALIDATE\s+CONSTRAINT\s+${NAME})`;
+const SEEN_ALTERATION = new RegExp(
+  String.raw`^${SEEN_ACTION}(?:\s*,\s*${SEEN_ACTION})*\s*$`,
+  "i"
+);
+const SEEN_STATEMENT = /^COMMENT\b/i;
 
 /**
- * The first statement of a PostgreSQL `program` that reads or writes rows after
- * one that changed the schema, and that change, as their positions in
- * `program` and their leading words; `undefined` when no such pair exists.
- * PlanetScale's Neki plans a row statement against the schema committed before
- * its transaction (`42P01`, `42703`). Which relation an opaque statement reads
- * cannot be told from its text, so any row statement after any change counts.
+ * The PostgreSQL statements of `sql` as their structure alone: comments
+ * dropped, every literal, dollar-quoted body and `BEGIN ATOMIC … END` body
+ * emptied (`''`), and every quoted identifier spelled with characters that
+ * open or close nothing, so a pattern over what is left reads clauses, never
+ * data. Its only readers are {@link catalogCommitBoundaries}' patterns.
  */
-export function rowsAfterSchemaChange(program: readonly string[]):
-  | {
-      readonly change: { readonly position: number; readonly words: string };
-      readonly rows: { readonly position: number; readonly words: string };
-    }
-  | undefined {
-  let change: { position: number; words: string } | undefined;
-  for (const [position, chunk] of program.entries()) {
-    for (const words of readExecutableStatements(chunk, "postgresql")) {
-      const [verb = ""] = words;
-      if (change && ROW_STATEMENTS.has(verb)) {
-        return { change, rows: { position, words: verb } };
+function structuralStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let text = "";
+  let index = 0;
+  let previous = "";
+  // The CASE … END depth inside an open `BEGIN ATOMIC` body, whose `;` end
+  // its own statements, not this one.
+  let body = 0;
+  const emit = (part: string) => {
+    if (body === 0) text += part;
+  };
+  const end = () => {
+    if (text.trim() !== "") statements.push(text.trim());
+    text = "";
+  };
+  while (index < sql.length) {
+    const char = sql.charAt(index);
+    const next = sql.charAt(index + 1);
+    if (char === "-" && next === "-") {
+      index = skipLine(sql, index);
+      emit(" ");
+    } else if (char === "/" && next === "*") {
+      index = skipBlockComment(sql, index, "postgresql");
+      emit(" ");
+    } else if (char === "'") {
+      index = skipQuoted(sql, index, "'", false);
+      emit("''");
+    } else if (char === '"') {
+      const close = skipQuoted(sql, index, '"', false);
+      const name = sql.slice(index + 1, close - 1).replaceAll('""', '"');
+      emit(
+        `"${name.replace(NAME_UNSAFE, (unsafe) => `_${unsafe.charCodeAt(0).toString(16)}_`)}"`
+      );
+      index = close;
+    } else if (char === "$" && skipDollarQuoted(sql, index) !== null) {
+      index = skipDollarQuoted(sql, index)!;
+      emit("''");
+    } else if (char === ";") {
+      if (body === 0) end();
+      index += 1;
+    } else if (NAME_START.test(char)) {
+      const start = index;
+      index += 1;
+      while (index < sql.length && NAME_PART.test(sql.charAt(index))) {
+        index += 1;
       }
-      if (!change && SCHEMA_CHANGES.has(verb)) {
-        change = { position, words: words.slice(0, 2).join(" ") };
+      const word = sql.slice(start, index);
+      const upper = word.toUpperCase();
+      // `E'…'`, the one PostgreSQL string a backslash escapes in.
+      if (upper === "E" && sql[index] === "'") {
+        index = skipQuoted(sql, index, "'", true);
+        emit("''");
+      } else if (body > 0) {
+        if (upper === "CASE") body += 1;
+        if (upper === "END") body -= 1;
+        if (body === 0) text += "'' END";
+      } else {
+        text += word;
+        if (upper === "ATOMIC" && previous === "BEGIN") body = 1;
       }
+      previous = upper;
+    } else {
+      emit(char);
+      index += 1;
     }
   }
-  return;
+  end();
+  return statements;
+}
+
+/** A relation as {@link structuralStatements} spells it, schema dropped: quoted as written, bare folded. */
+function relationName(qualified: string): string {
+  const last = LAST_NAME.exec(qualified)?.[0] ?? qualified;
+  return last.startsWith('"') ? last.slice(1, -1) : last.toLowerCase();
+}
+
+/** One statement of a program: its position there and its leading words. */
+export interface CatalogStatement {
+  readonly position: number;
+  readonly words: string;
+}
+
+/** What one Neki transaction changed since it began that a later statement may not see. */
+export interface CatalogChanges {
+  /** Its first change Neki plans later row statements without. */
+  readonly unseen?: CatalogStatement;
+  /** The relations it created or renamed, by name: Neki has not registered them (NK316). */
+  readonly unregistered: ReadonlyMap<string, CatalogStatement>;
+}
+
+/** A statement that needs `change` committed before it runs on Neki. */
+export interface CatalogHazard {
+  /**
+   * `rows`: a statement planned against the committed schema after a change
+   * its planner does not see (`42P01`, `42703`, `42704`, `42883`, `22P02`, or
+   * a silently stale `*` or column type); `columns`: a column type change,
+   * rename or drop of a relation created or renamed in the same transaction
+   * (`NK316`).
+   */
+  readonly kind: "rows" | "columns";
+  readonly change: CatalogStatement;
+  readonly statement: CatalogStatement;
+}
+
+export const UNCHANGED_CATALOG: CatalogChanges = { unregistered: new Map() };
+
+/** One program entry read against `since`: its first hazard, and the changes after it. */
+function readCatalogChunk(
+  chunk: string,
+  position: number,
+  since: CatalogChanges
+): { readonly hazard?: CatalogHazard; readonly changes: CatalogChanges } {
+  let { unseen } = since;
+  const unregistered = new Map(since.unregistered);
+  let hazard: CatalogHazard | undefined;
+  for (const text of structuralStatements(chunk)) {
+    const [, first = "", second] = LEADING_WORDS.exec(text) ?? [];
+    const leader = first.toUpperCase();
+    const site = {
+      position,
+      words: [leader, second?.toUpperCase()].filter(Boolean).join(" "),
+    };
+    const schema = SCHEMA_CHANGES.has(leader);
+    const plans = !(schema || UNPLANNED.has(leader)) || CREATE_AS.test(text);
+    const table = leader === "ALTER" ? ALTER_TABLE.exec(text) : null;
+    const created = table ? undefined : CREATE_TABLE.exec(text)?.[1];
+    const relation = table ? relationName(table[1]!) : undefined;
+    const clause = table?.[2] ?? "";
+    const registering = relation && unregistered.get(relation);
+    if (hazard === undefined && plans && unseen) {
+      hazard = {
+        kind: "rows",
+        change: unseen,
+        statement: { position, words: leader },
+      };
+    } else if (
+      hazard === undefined &&
+      registering &&
+      UNREGISTERED_ACTION.test(clause)
+    ) {
+      hazard = { kind: "columns", change: registering, statement: site };
+    }
+    const seen =
+      SEEN_STATEMENT.test(text) ||
+      (table !== null && SEEN_ALTERATION.test(clause));
+    if (unseen === undefined && (schema ? !seen : OPAQUE.has(leader))) {
+      unseen = site;
+    }
+    const renamed = RENAME_TO.exec(clause)?.[1];
+    if (created) unregistered.set(relationName(created), site);
+    if (renamed) unregistered.set(relationName(renamed), site);
+  }
+  return { hazard, changes: { unseen, unregistered } };
+}
+
+/**
+ * Where PlanetScale's Neki needs a commit inside a PostgreSQL transaction
+ * that runs `chunks` in order, its changes since its last commit `since`.
+ *
+ * Neki's router plans a statement against the schema committed before its
+ * transaction, and only the server it routes to sees the transaction's own
+ * changes. Measured on Neki's PostgreSQL 18.6 (2026-10-13), and held by
+ * `tests/providers/hosted/neki-migrations.test.ts` and the simulation in
+ * `tests/unit/migrations/postgres-neki-apply.test.ts`: a statement that
+ * resolves a name, a `*`, a column's type, an enum label or an ON CONFLICT
+ * target the transaction changed fails there, or reads the old schema without
+ * an error; a schema statement sees the transaction, except that a relation it
+ * created or renamed has no column it can retype, rename or drop, and cannot
+ * move to another schema (`NK316`). Defaults, NOT NULL, CHECK and foreign
+ * keys, validated constraints and comments change nothing a statement is
+ * planned by. A routine, a view's body or a literal (`nextval('…')`,
+ * `to_regclass('…')`, stale for a created or dropped table, index or
+ * constraint) can reach any relation, so a row statement after any other
+ * schema change needs the commit, whichever relation it names; a `DO` block,
+ * a `CALL` or an `EXECUTE` may change the schema itself (what it creates is
+ * not read for `NK316`).
+ *
+ * `boundaries` are the entries a commit must precede, each counted with the
+ * changes since the previous one; `first` is the first hazard as `since`
+ * leaves it; `inside` is the first entry whose own statements need a commit
+ * between them, where none can be placed; `changes` are what the last
+ * boundary leaves for whatever follows.
+ */
+export function catalogCommitBoundaries(
+  chunks: readonly string[],
+  since: CatalogChanges = UNCHANGED_CATALOG
+): {
+  readonly boundaries: readonly number[];
+  readonly first?: CatalogHazard;
+  readonly inside?: CatalogHazard;
+  readonly changes: CatalogChanges;
+} {
+  let changes = since;
+  const boundaries: number[] = [];
+  let first: CatalogHazard | undefined;
+  let inside: CatalogHazard | undefined;
+  for (const [position, chunk] of chunks.entries()) {
+    let read = readCatalogChunk(chunk, position, changes);
+    if (read.hazard) {
+      first ??= read.hazard;
+      read = readCatalogChunk(chunk, position, UNCHANGED_CATALOG);
+      inside ??= read.hazard;
+      boundaries.push(position);
+    }
+    changes = read.changes;
+  }
+  return { boundaries, first, inside, changes };
 }
 
 /**

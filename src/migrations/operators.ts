@@ -68,13 +68,7 @@ import { getPushMigrationDriver, type MigrationClient } from "./push/planner";
 import { fingerprintLive } from "./push-fingerprint";
 import { introspectManaged } from "./push-plan";
 import { approveDestructiveOperations } from "./resolver";
-import {
-  confirmedPrefix,
-  openCommand,
-  readCommandControl,
-  refuseAmbiguousNext,
-  sliceOperations,
-} from "./resume";
+import { openCommand, readCommandControl, remainingSteps } from "./resume";
 import { sliceDispatch } from "./sql-blob";
 import { canonicalizeSqliteStorage } from "./sqlite-storage-audit";
 import type {
@@ -1353,58 +1347,21 @@ function remainingRollbackOperations(
   attempt: LedgerEventV1,
   ledger: readonly LedgerEventV1[]
 ): PreparedRollback["rollback"]["operations"] {
-  const steps = item.rollback.operations.flatMap((operation) =>
-    operation.steps.map((step) => ({ operation, step }))
-  );
-  const byDispatch = new Map(
-    steps.map(({ step }, index) => [step.execute.dispatchId, index])
-  );
-  const committed = new Set<number>();
-  const announced = new Set<number>();
-  for (const event of ledger) {
-    if (
-      event.attemptId !== attempt.attemptId ||
-      event.kind !== "step-confirmed"
-    )
-      continue;
-    if (
-      event.direction !== "rollback" ||
-      event.estateHash !== graph.estateHash ||
-      event.fromState !== item.edge.stateId ||
-      event.toState !== item.nextState ||
-      event.transitionHash !== item.edge.transitionHash ||
-      event.sqlHash !== item.state.sqlHash ||
-      !event.dispatchId
-    ) {
-      throw new MigrationError(
-        "Rollback progress does not match its authenticated edge",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-    const index = byDispatch.get(event.dispatchId);
-    if (
-      index === undefined ||
-      steps[index]!.operation.id !== event.operationId
-    ) {
-      throw new MigrationError(
-        "Rollback progress names an unknown dispatch",
-        VibORMErrorCode.MIGRATION_CORRUPTION
-      );
-    }
-    if (event.effectState === "committed") committed.add(index);
-    if (event.effectState === "none") announced.add(index);
-  }
-  const completed = confirmedPrefix(
-    committed,
-    "Rollback progress is not a contiguous dispatch prefix"
-  );
-  refuseAmbiguousNext(
-    steps[completed]?.step,
-    item.boundary,
-    announced.has(completed),
-    "The next rollback dispatch has an ambiguous commit outcome"
-  );
-  return sliceOperations(item.rollback.operations, completed);
+  return remainingSteps(
+    ledger,
+    attempt,
+    {
+      direction: "rollback",
+      estateHash: graph.estateHash,
+      fromState: item.edge.stateId,
+      toState: item.nextState,
+      transitionHash: item.edge.transitionHash,
+      sqlHash: item.state.sqlHash,
+      operations: item.rollback.operations,
+      boundary: item.boundary,
+    },
+    "Rollback"
+  ).operations;
 }
 
 function assertReversibleEdge(

@@ -46,26 +46,40 @@ export function markerStanding(
  * let go (plans D1, S5): an earlier group committed, or SQLite committed the
  * decision's transaction to switch foreign keys. Read as the group's first
  * statements, under its own lock: if another command moved the marker in
- * between, nothing of this group runs. Apply never leaves an attempt of its own
- * open between two groups, so an unfinished one is another command's. `down`
- * passes `ownAttempt` only for the attempt it resumes, and `reset` once its own
- * attempt is open: while it is, no other command opens one.
+ * between, nothing of this group runs. Apply leaves an attempt of its own open
+ * between two groups only inside an edge split at Neki's commit boundaries,
+ * and passes it with the steps it has confirmed: the attempt must be the only
+ * one open, as far as this command left it, or another command resumed it.
+ * Any other unfinished one is another command's. `down` passes `ownAttempt`
+ * only for the attempt it resumes, and `reset` once its own attempt is open:
+ * while it is, no other command opens one.
  */
 export async function assertLockedSinceDecision(
   pinned: Parameters<typeof appendLedger>[0],
   producer: Parameters<typeof appendLedger>[0],
   command: BoundMigrationDriver,
   expected: MigrationMarkerV1 | null,
-  ownAttempt = false
+  ownAttempt:
+    | boolean
+    | { readonly attemptId: Sha256; readonly steps: number } = false
 ): Promise<void> {
   if (lockedSinceDecision(pinned)) return;
   const { marker, ledger } = await readControlState(producer, command, {
     ledger: "open",
   });
-  if (
-    sameMarker(marker, expected) &&
-    (ownAttempt || unfinishedAttempts(ledger).length === 0)
-  ) {
+  const open = unfinishedAttempts(ledger);
+  const own =
+    typeof ownAttempt === "boolean"
+      ? ownAttempt || open.length === 0
+      : open.length === 1 &&
+        open[0]!.attemptId === ownAttempt.attemptId &&
+        ledger.filter(
+          (event) =>
+            event.attemptId === ownAttempt.attemptId &&
+            event.kind === "step-confirmed" &&
+            event.effectState === "committed"
+        ).length === ownAttempt.steps;
+  if (sameMarker(marker, expected) && own) {
     return;
   }
   throw new MigrationError(

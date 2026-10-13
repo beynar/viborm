@@ -248,13 +248,13 @@ export class MySQLMigrationDriver
   override async preflightSchemaRequirements(
     snapshots: readonly SchemaSnapshot[],
     executeRaw: CatalogReader
-  ): Promise<void> {
+  ): Promise<boolean> {
     const names = new Set(
       snapshots.flatMap((snapshot) =>
         snapshot.tables.map((table) => table.name)
       )
     );
-    if (names.size === 0) return;
+    if (names.size === 0) return false;
     const namespace = await resolveCatalogNamespace(executeRaw, this.namespace);
     const views = await executeRaw<{ TABLE_NAME: string }>(
       "SELECT TABLE_NAME FROM information_schema.VIEWS WHERE TABLE_SCHEMA = ?",
@@ -267,6 +267,7 @@ export class MySQLMigrationDriver
         VibORMErrorCode.MIGRATION_INVALID_STATE,
         { meta: { table: collision.TABLE_NAME, feature: "view", namespace } }
       );
+    return false;
   }
 
   introspect(executeRaw: CatalogReader): Promise<SchemaSnapshot> {

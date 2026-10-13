@@ -677,7 +677,37 @@ real transaction a group runs its dispatches unprobed and writes no `started`
 or `step-confirmed` rows; its rollback is the proof. Its last state is proven
 once, the marker moves once (one revision per edge), and one statement appends
 every edge's `applied` event. A failure is recorded as one `failed` event
-against the edge that was running. Stepwise and MySQL work keeps per-step
+against the edge that was running.
+
+**PlanetScale's Neki (1.2.2).** Neki plans a statement against the schema
+committed before its transaction, so a statement that resolves something the
+transaction changed fails or reads the old schema, and a relation created or
+renamed in it admits no column type change, rename, drop or schema move
+(`NK316`).
+`statement-safety.ts` `catalogCommitBoundaries` is the one rule for where a
+commit must come, read from each statement's structure over the dispatches
+and the authored checks in run order; the PostgreSQL driver's preflight is the
+one owner of the Neki fact (`version()` names Neki), asked once per command
+and only of a program that would need a commit. With `splits` (only `apply`, over a session)
+it answers that fact and refuses only two statements of one dispatch that
+need a commit between them; every other command is refused any such program
+before effects (V11021). On Neki, `apply` refines plan D5's groups: an edge
+joins its group while none of its statements needs a commit; one that needs
+one because of the group starts the next group; one that needs one because
+of its own changes runs alone as committed parts, each a locked transaction.
+The first part runs the origin checks and appends `started`; every part
+records its steps as `step-confirmed` in the transaction they ran in (the
+`atomic` executor reports progress only when asked); the last runs the
+destination checks, proves, moves the marker and appends `applied`. Each part
+after the first proves the marker unmoved and the attempt the only one open
+with exactly the steps this command confirmed. A failure in the first part
+is the atomic group's (one `failed` event, nothing open); a later one leaves
+the attempt open at its last committed part. `apply` resumes exactly that
+attempt: one forward `started` attempt from the marker, on the first edge of
+its route, of a transactional PostgreSQL transition, from its confirmed
+prefix (`resume.ts` `remainingSteps`, shared with `down`), without the drift
+proof its committed parts already moved past; any other open attempt still
+blocks. On PostgreSQL, groups, statements and ledger events are unchanged. Stepwise and MySQL work keeps per-step
 probes and progress rows. Stepwise
 providers record durable progress and honest `partial` or
 `may-have-committed` outcomes. An ambiguous opaque dispatch blocks later work;
@@ -722,7 +752,9 @@ moved data). `prune` is offline: it copies a checkpoint's kept states into
 fresh storage and touches no database. `down` preflights every reverse program, appends
 `started` before the first rollback dispatch, records step progress, and uses
 the same transaction wrap as apply. An unfinished rollback can only be resumed
-by `down()`. `resolve` accepts only outcomes established by origin/destination
+by `down()`; an unfinished forward attempt only by `resolve`, except the
+attempt of an edge `apply` split at Neki's commit boundaries, which `apply`
+resumes. `resolve` accepts only outcomes established by origin/destination
 proof; generated structural opacity may complete from a fingerprint, while
 manual opaque work still needs state checks. `resolve('rolled-back')` refuses
 while a manual opaque step of the attempt committed or may have committed;
@@ -812,6 +844,7 @@ dependency-safe clear are compiled before anything is dropped.
 | --- | --- |
 | Domain-separated SHA-256 identity | `identity.ts` |
 | Live physical fingerprint | `push-fingerprint.ts` `fingerprintLive`; on PostgreSQL `drivers/postgres/catalog-digest.ts` computes the same hash in one statement from introspection's own catalog sources and abstains where SQL cannot reproduce a fact exactly (some literal defaults, and partial-index predicates unless asked for them as deparsed, `$6`; only the pre-lock no-op asks, and compares with `fingerprintDeparsed`). A change to `fingerprintSnapshot`, `normalizeType`, `normalizeDefault`, `cleanDefault`, `selectManagedSnapshot` or the introspection sources must change the digest with it; `postgres-catalog-digest*.test.ts` prove equality, and a live divergence surfaces as V9001 from `assertFingerprint`. |
+| Where PlanetScale's Neki needs a commit inside a PostgreSQL transaction | `statement-safety.ts` `catalogCommitBoundaries`; whether the server is Neki: the PostgreSQL driver's `preflightSchemaRequirements` |
 | Operation execution order | `utils.ts` `sortOperations` |
 | Generated schema compile order | `utils.ts` `prepareSchemaProgram` |
 | Table drop order, its delete-action rule and the refusal of drops no order satisfies | `drop-order.ts` `orderTableDrops`; namespace reset shares only its `childrenBeforeParents` rule |

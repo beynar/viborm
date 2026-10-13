@@ -162,8 +162,11 @@ interface DispatchSite {
 
 /**
  * `atomic` is a program inside a real transaction (plan D5): its rollback
- * undoes whatever a failure leaves half done, so no step is probed and no
- * progress is reported, and the caller proves the destination once.
+ * undoes whatever a failure leaves half done, so no step is probed, and the
+ * caller proves the destination once. Its progress is reported only when
+ * asked (one part of an edge split at Neki's commit boundaries,
+ * `apply-v1.ts`): each report lands in the step's own transaction, so it
+ * commits with the step or not at all.
  */
 export async function executeOperations(
   producer: AnyDriver,
@@ -285,6 +288,11 @@ async function executeStep(
   const { operationId } = site;
   if (boundary === "atomic") {
     await runDispatch(producer, blob, site, step.execute, targetNamespace);
+    // Recorded, when asked, in the transaction the step ran in: with it.
+    await onProgress?.(
+      { operationId, dispatchId: step.execute.dispatchId, skipped: false },
+      "committed"
+    );
     return;
   }
   if (step.retry === "proven") {

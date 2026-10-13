@@ -65,6 +65,7 @@ const CREDENTIAL_ENVIRONMENT = {
   "provider-transaction-options": "PG_TEST_CONNECTION_STRING",
   "provider-neon-http": "NEON_TEST_CONNECTION_STRING",
   "provider-planetscale": "PLANETSCALE_TEST_CONNECTION_STRING",
+  "provider-neki": "NEKI_DEV_CONNECTION_STRING",
 };
 
 /* ------------------------------------------------------------------ parsing */

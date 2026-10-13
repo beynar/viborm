@@ -249,44 +249,78 @@ Neki differences shape how:
   predicate back through a scratch view in the estate's schema, created, read
   and dropped in one transaction. The migration role therefore needs `CREATE`
   on that schema, which it already has to change the schema.
-- A row statement plans against the schema committed before its transaction:
-  after `ALTER TABLE … ADD COLUMN z`, an `UPDATE` naming `z` in the same
-  transaction fails (`42703`). Schema statements and catalog reads see the
-  transaction's own changes. VibORM commits the control tables before the
-  first marker on every PostgreSQL server. On Neki it refuses a migration that
-  runs a data statement after a schema change in one transaction, before any
-  effect (`V11021`, naming both statements). Which table an authored
-  statement reads cannot be told from its text, so any data statement after
-  any schema change on the path one command runs counts. Put the data change
-  in a state of its own, then apply in two runs: `apply({ to })` stops at the
-  schema change, and a second `apply` runs the data change.
+- A statement is planned against the schema committed before its
+  transaction, and only the server it reaches sees the transaction's own
+  changes. After `ALTER TABLE … ADD COLUMN z`, an `UPDATE` naming `z` in the
+  same transaction fails (`42703`), a `SELECT *` silently leaves `z` out, and
+  a column whose type changed is still planned with its old type. Schema
+  statements and catalog reads see the transaction's changes, except that a
+  table created or renamed in it cannot have a column retyped, renamed or
+  dropped, nor be moved to another schema (`NK316`). Defaults, NOT NULL,
+  CHECK and foreign keys, validated constraints and comments are enforced
+  where the row is written and need nothing. A table, index or constraint
+  created or dropped in the transaction does: a literal naming it, as in
+  `to_regclass('…')` or `'…'::regclass`, still answers for the committed
+  schema.
+
+`apply()` commits where Neki needs it, and only there:
+
+- States that follow each other share a transaction until one would read a
+  change an earlier one made (a data state after a schema state, a check
+  that reads a new column). That state starts the next transaction, after
+  the earlier ones committed and the marker moved.
+- A state whose own statements need a commit inside it, such as a manual
+  transition that adds a column and then fills it, runs as committed parts.
+  Its first part runs the origin checks and opens the state's ledger
+  attempt; each part records its steps (`step-confirmed`) in the
+  transaction they ran in; its last part runs the destination checks, proves
+  the state and moves the marker. Between two parts the application can see
+  the intermediate schema.
+- If a later part fails, the marker stays on the previous state and the
+  attempt stays open: `status()` reports `unfinished: true`, other commands
+  refuse to start (`V11016`), and the next `apply()` resumes it, running only
+  the parts that did not commit. `apply({ dryRun: true })` previews those.
+  A failure in the first part leaves nothing behind, as on PostgreSQL.
+- Two statements of one dispatch (one `sql` fragment such as
+  `ALTER TABLE …; UPDATE …`) cannot be divided: a migration that needs a
+  commit between them is refused before any effect (`V11021`, naming both).
+  Write them as two `sql` fragments.
 
 ```ts
-const schema = await migrations.generate({ name: "nickname" });
 await migrations.generate({
-  name: "backfill-nickname",
+  name: "nickname",
   manualMigration: {
     transitions: [
       {
-        from: schema.stateId,
+        from: previous.stateId,
         execution: "transactional",
-        up: [sql`UPDATE "accounts" SET "nickname" = "email"`],
+        up: [
+          sql`ALTER TABLE "accounts" ADD COLUMN "nickname" text`,
+          sql`UPDATE "accounts" SET "nickname" = "email"`,
+        ],
         rollback: { kind: "irreversible", reason: "derived data" },
       },
     ],
   },
 });
-await migrations.apply({ to: { id: schema.stateId! } });
-await migrations.apply();
+await migrations.apply(); // two committed parts on Neki, one transaction elsewhere
 ```
+
+Which relation a data statement reads cannot be told from its text (a
+function, a view, a literal such as `nextval('…')` can reach any), so on Neki
+any data statement after a change it needs committed gets the commit. A
+statement position in a refusal counts the transitions' checks with their
+statements. `down`, `reset`, `resolve({ outcome: "retry" })` and `push` run
+their program in one transaction: on Neki they refuse a program whose
+statements would need a commit (`V11021`) before any effect; apply its states
+with `apply()` instead. They read their statements, not their checks: a check
+that needs a commit after a statement fails inside the transaction, which
+rolls back. A `DO` block's own schema changes cannot be read from its text
+either: a column change of a table one created fails the same way (`NK316`).
 
 Stepwise transitions, including `generate({ lowLock: true })`'s
 `CONCURRENTLY` steps, do not run on Neki: they take the session lock and
-session limits, which Neki refuses (`V11005`, before any effect). The
-refusal reads statements, not a manual transition's checks: a check that reads
-a table its own transaction created, like a `RENAME COLUMN` or column type
-change of such a table, fails inside the transaction, which rolls back. Apply
-such a path one state at a time.
+session limits, which Neki refuses (`V11005`, before any effect).
 
 A catalog read the server refuses fails with `V11001` and names itself and its
 SQLSTATE, for example `PostgreSQL catalog query "indexes" failed with SQLSTATE
