@@ -21,6 +21,7 @@
  */
 
 import { createClient } from "@drivers/pglite";
+import { CLEANUP_BOUND_MS } from "@drivers/shared/pinned-session";
 import type { PGlite, Transaction } from "@electric-sql/pglite";
 import { VibORMErrorCode } from "@errors";
 import { createMigrationClient, MemoryEstateStorage } from "@migrations";
@@ -124,6 +125,8 @@ function asNeki(database: PGlite): {
   refusals: string[];
   log: string[];
   fail?: string;
+  /** A statement containing this text is never answered (once). */
+  hang?: string;
   skip: number;
   before?: { readonly text: string; skip: number; readonly sql: string };
 } {
@@ -132,6 +135,7 @@ function asNeki(database: PGlite): {
     refusals: [] as string[],
     log: [] as string[],
     fail: undefined as string | undefined,
+    hang: undefined as string | undefined,
     skip: 0,
     before: undefined as
       | { readonly text: string; skip: number; readonly sql: string }
@@ -213,6 +217,10 @@ function asNeki(database: PGlite): {
   const transaction = database.transaction.bind(database);
   Object.defineProperty(database, "query", {
     value: async (text: string, params?: unknown[], options?: object) => {
+      if (simulation.hang && text.includes(simulation.hang)) {
+        simulation.hang = undefined;
+        return new Promise(() => undefined);
+      }
       const { before } = simulation;
       if (before && text === before.text && before.skip-- === 0) {
         simulation.before = undefined;
@@ -749,6 +757,40 @@ describe.each([
     expect(await lockTimeout()).toBe(clean);
     expect(refusals).toEqual([]);
   });
+
+  it("loses the session within the cleanup bound when the reset before down's resolver is never answered", async () => {
+    const namespace = `neki_resolver_hang_${neki}`;
+    const { migrations } = await nicknameApplied(namespace);
+    let asked = false;
+    simulation.hang = neki ? "RESET" : undefined;
+    const started = performance.now();
+    const outcome = migrations(false)
+      .down({
+        resolve: async (change) => {
+          asked = true;
+          return change.type === "destructive" ? change.proceed() : undefined;
+        },
+      })
+      .then(
+        () => "resolved",
+        () => "rejected"
+      );
+    try {
+      if (!neki) {
+        await expect(outcome).resolves.toBe("resolved");
+        return;
+      }
+      // Unbounded, the reset waits forever holding the lock (Devin, #100).
+      await expect(outcome).resolves.toBe("rejected");
+      expect(performance.now() - started).toBeLessThan(CLEANUP_BOUND_MS + 5000);
+      expect(asked).toBe(false);
+    } finally {
+      simulation.hang = undefined;
+      // One PGlite backend serves every session: free what the lost one held.
+      await database.query("SELECT pg_catalog.pg_advisory_unlock_all()");
+      await database.query("RESET ALL");
+    }
+  }, 30_000);
 
   it("refuses down when the marker moved while its resolver answered, and runs nothing", async () => {
     const namespace = `neki_resolver_moved_${neki}`;

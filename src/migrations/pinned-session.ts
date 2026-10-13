@@ -881,11 +881,17 @@ function lockTransactions(
     if (!(heldAlone && sessionLocked)) return;
     const present = control.limited();
     if (limits !== undefined && present !== undefined) {
+      // Bounded like every cleanup statement (plan S2): a reset no one
+      // answers loses the session, and its lock with it, within
+      // CLEANUP_BOUND_MS instead of holding both while other commands wait.
       try {
-        for (const statement of limits.exit(present)) await run(statement);
+        await control.cleanup(async () => {
+          for (const statement of limits.exit(present)) await run(statement);
+        });
       } catch (failure) {
-        if (control.lost(failure)) throw failure;
+        const lostConnection = control.lost(failure, true);
         control.abandon();
+        if (lostConnection) throw failure;
         throw limitsRefused(pinned.driverName, "reset", failure);
       }
     }
