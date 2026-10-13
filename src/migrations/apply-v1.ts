@@ -338,6 +338,7 @@ async function applyPathUnderLock(
   const statementsOf = ({ transition, blob }: PreparedForwardEdge) =>
     stepStatements(blob, transition.operations);
   const groups = groupContiguousAtomicity(prepared, statementsOf);
+  const first = groups[0]?.items[0];
   for (const group of splits || resume
     ? splitAtCatalogBoundaries(graph, groups, splits, resume)
     : groups) {
@@ -366,11 +367,22 @@ async function applyPathUnderLock(
       continue;
     }
     const running: { attempt?: ForwardAttempt } = {};
+    // A resumed stepwise edge: its attempt stays open, as apply left it.
+    const resumed = group.items[0] === first ? resume : undefined;
     const run = async (
       producer: Parameters<typeof appendLedger>[0],
       atomic: boolean
     ) => {
-      await assertLockedSinceDecision(pinned, producer, command, current);
+      await assertLockedSinceDecision(
+        pinned,
+        producer,
+        command,
+        current,
+        resumed && {
+          attemptId: resumed.attempt.attemptId,
+          steps: resumed.completed,
+        }
+      );
       if (atomic) {
         current = await executeAtomicGroup(
           producer,
@@ -385,9 +397,16 @@ async function applyPathUnderLock(
         return;
       }
       // Edge by edge, each step probed and recorded as it runs.
-      for (const item of group.items) {
-        const attempt = forwardAttempt(graph, item);
-        await appendLedger(producer, command, attempt.event("started", "none"));
+      for (const [index, item] of group.items.entries()) {
+        const own = index === 0 ? resumed : undefined;
+        const attempt = forwardAttempt(graph, item, own?.attempt.attemptId);
+        if (own === undefined) {
+          await appendLedger(
+            producer,
+            command,
+            attempt.event("started", "none")
+          );
+        }
         await runForwardEdge(
           producer,
           command,
@@ -395,7 +414,13 @@ async function applyPathUnderLock(
           attempt,
           nextPath,
           models,
-          true
+          true,
+          undefined,
+          own && {
+            operations: own.operations,
+            origin: false,
+            destination: true,
+          }
         );
         const { snapshotHash } = item.state;
         current = await advanceMarker(
@@ -847,7 +872,11 @@ function mayResume(
   );
 }
 
-/** An edge split at Neki's commit boundaries whose first parts committed. */
+/**
+ * An unfinished edge apply resumes: one split at Neki's commit boundaries
+ * whose first parts committed, or a stepwise one stopped at a step the server
+ * refused whole.
+ */
 interface Resume {
   readonly attempt: LedgerEventV1;
   /** The steps its committed parts confirmed. */
@@ -858,11 +887,17 @@ interface Resume {
 
 /**
  * What apply resumes of `attempt`, which {@link mayResume} admitted, or
- * `undefined`: the attempt of a transactional PostgreSQL edge split at Neki's
- * commit boundaries, on the first edge of the route apply selected. Only such
- * an edge leaves an attempt open past a commit on PostgreSQL (SQLite without
- * transactions leaves one edge by edge), and each of its committed parts
- * recorded its steps in its own transaction, so their prefix is exact.
+ * `undefined`, on the first edge of the route apply selected, on PostgreSQL:
+ * - a transactional edge split at Neki's commit boundaries: each committed
+ *   part recorded its steps in its own transaction, so their prefix is exact;
+ * - a stepwise edge whose next step the server refused whole, recorded as
+ *   such (`execute-dispatch.ts`): that step left nothing, and the steps
+ *   before it each recorded their commit. Any other stepwise stop — a lost
+ *   connection, an outcome the server could not prove, a failed check —
+ *   still blocks.
+ * Either way the origin checks ran before the first step, against the
+ * origin; the resumed steps run without them, against the confirmed prefix,
+ * and the destination checks and proof close the edge.
  */
 function resumableAttempt(
   command: BoundMigrationDriver,
@@ -876,37 +911,48 @@ function resumableAttempt(
   }
   const [edge] = routeEdges(graph, decision.origin, decision.path);
   const { from, to, transition, state, blob } = edge!;
-  // Its progress events are matched to this edge by `remainingSteps`.
+  const boundary = classifyStoredAtomicity(
+    command,
+    transition.requestedForwardBoundary,
+    transition.operations,
+    blob
+  );
+  const refused = new Set(
+    ledger.flatMap((event) =>
+      event.attemptId === attempt.attemptId &&
+      event.kind === "step-confirmed" &&
+      event.failure
+        ? [event.dispatchId]
+        : []
+    )
+  );
+  // Its progress events are matched to this edge by `remainingSteps`; a
+  // stepwise attempt that recorded no refusal blocks before they are read.
   if (
     attempt.toState !== to ||
     attempt.transitionHash !== transition.transitionHash ||
-    classifyStoredAtomicity(
-      command,
-      transition.requestedForwardBoundary,
-      transition.operations,
-      blob
-    ) !== "transactional"
+    (boundary === "stepwise" && refused.size === 0)
   ) {
     return;
   }
-  return {
+  const remaining = remainingSteps(
+    ledger,
     attempt,
-    ...remainingSteps(
-      ledger,
-      attempt,
-      {
-        direction: "forward",
-        estateHash: graph.estateHash,
-        fromState: from,
-        toState: to,
-        transitionHash: transition.transitionHash,
-        sqlHash: state.sqlHash,
-        operations: transition.operations,
-        boundary: "transactional",
-      },
-      "Forward"
-    ),
-  };
+    {
+      direction: "forward",
+      estateHash: graph.estateHash,
+      fromState: from,
+      toState: to,
+      transitionHash: transition.transitionHash,
+      sqlHash: state.sqlHash,
+      operations: transition.operations,
+      boundary,
+    },
+    "Forward"
+  );
+  const next = remaining.operations[0]?.steps[0]?.execute.dispatchId;
+  if (boundary === "stepwise" && !(next && refused.has(next))) return;
+  return { attempt, ...remaining };
 }
 
 /**

@@ -33,6 +33,10 @@ export interface MigrationLimits {
    * `idle_in_transaction_session_timeout` and, on PostgreSQL 14+,
    * `idle_session_timeout`: how long the server keeps a migration session
    * whose client stopped talking — the one that vanished holding the lock.
+   * It also bounds the client's own pauses between two statements of a
+   * command, so the default (30 s) frees a dead client's lock within half a
+   * minute while a loaded client's pause between parts never ends the
+   * session (1 s did, before 1.2.3).
    */
   readonly idleTimeout?: number;
   /** How long the command waits for the migration lock another one holds. */
@@ -55,7 +59,7 @@ export type ResolvedMigrationLimits = Readonly<Required<MigrationLimits>>;
 export const DEFAULT_MIGRATION_LIMITS: ResolvedMigrationLimits = Object.freeze({
   lockTimeout: 4000,
   statementTimeout: 600_000,
-  idleTimeout: 1000,
+  idleTimeout: 30_000,
   lockWait: 10_000,
   connectionWait: 10_000,
   largeTableRows: 1_000_000,

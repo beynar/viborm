@@ -3,6 +3,89 @@
 All notable changes to VibORM are recorded here. Releases follow Semantic
 Versioning.
 
+## 1.2.3 — 2026-10-13
+
+Migrations on PlanetScale's Postgres (Neki) hold one session lock for the
+whole command, so stepwise and transactional states apply together there, and
+every PostgreSQL command resets its session limits by name. Measured on a Neki
+branch (PostgreSQL 18.6).
+
+### Fixed
+
+- **Neki: a stepwise state, or a `CONCURRENTLY` step, after a transactional
+  one.** Each migration transaction took `pg_try_advisory_xact_lock`, and
+  stepwise work then took `pg_try_advisory_lock` inside it. Neki refuses to
+  mix the two (`NK013 not implemented: [61] Mixing session and transaction
+  advisory locks is unavailable`), so `apply()` failed with `V11005` ("the
+  lock statement itself failed"). On Neki (`version()` names it, asked once
+  per command) the command now takes the session lock once, in autocommit,
+  before its first read, and never the transaction lock; it waits within
+  `lockWait` with the same backoff, releases at the end and on every failure,
+  and every group still re-reads the marker under it. The pre-lock no-op
+  read of `apply()` is not asked on Neki: its proof takes the transaction
+  lock. Standard PostgreSQL and PGlite keep the transaction lock per group.
+- **Neki: the session limits.** Under the session lock the limits were set by
+  a `DO` block that called `set_config(name, …)` over `pg_settings` rows;
+  Neki refuses a computed setting name in a routine body (`42501`). The
+  optional settings the server has are now read first, and the block names
+  each setting by a constant.
+- **Neki: the limits reset.** The command reset them with
+  `SELECT count(set_config(name, reset_val, false)) FROM pg_settings …`,
+  which Neki refuses (`NK013 [101]`). It now sends one `RESET` per setting
+  it set. A refused reset fails the command with `V11005` (beside the
+  command's own failure, if any) and the connection is closed, never handed
+  back to the pool carrying the migration's timeouts.
+- **The error names what the server refused.** A refused limits statement
+  surfaced as `V11001 PostgreSQL catalog query "control catalog" failed`,
+  the read it preceded; it is now its own `V11005`. `V11005` and the
+  migration errors that wrap a provider refusal (a refused unlock, the
+  schema preflight, an unreadable control table, a MySQL partial program)
+  carry `meta.providerSqlState` and `meta.providerCode`, as `V11001` did.
+  The provider's message stays in the cause, disclosed as the driver's
+  diagnostics allow.
+
+- **A stepwise state resumes after a statement the server refused whole.**
+  A stepwise state (`execution: "stepwise"`) whose statement PostgreSQL
+  refused whole (V11001 with `effectState: "none"`, for example a timeout or a
+  constraint violation in a backfill) no longer blocks every later `apply()`
+  with V11016 until `resolve` runs. Once the cause is fixed, `apply()` resumes
+  the attempt: it re-runs the refused statement and the ones after it, never
+  a statement already confirmed, under the same marker and attempt checks as a
+  resumed Neki state, then runs the destination checks and moves the marker.
+  A statement refused again leaves the attempt resumable. On Neki, a manual
+  `execution: "transactional"` state that mixes schema and data changes is
+  split at commit boundaries and resumed like a generated one.
+
+### Changed
+
+- **`limits.idleTimeout` defaults to 30 s (was 1 s).** It sets
+  `idle_in_transaction_session_timeout` in every migration transaction and
+  `idle_session_timeout` while a session holds the session lock, so it also
+  bounds the client's own pauses between two statements: at 1 s a loaded
+  client's pause between two parts of a split state ended the session
+  (`08006` on the next `BEGIN`). 30 s still frees a dead client's migration
+  lock within half a minute.
+- **On Neki a command holds the session lock from its start.** Another
+  command waiting for it sees `pg_try_advisory_lock` held rather than the
+  transaction lock, and the session carries the command's limits until its
+  last `RESET`.
+
+- An unfinished stepwise attempt left by 1.2.x after a statement the server
+  refused whole is now resumed by the next `apply()` instead of refused.
+  `down()` likewise resumes a rollback stopped at such a statement. A stepwise
+  stop whose outcome is not known (lost connection, `DO`/`CALL`/`EXECUTE`/
+  `CONCURRENTLY`, V11020) still blocks with V11016 and still needs `resolve`.
+
+### Upgrading from 1.2.2
+
+`npm install viborm@1.2.3`. No code change is needed. A client that relied on the
+1 s idle limit to end a stalled migration quickly passes
+`limits: { idleTimeout: 1000 }`. On Neki, an `apply()` that 1.2.2 refused
+with `V11005` (`NK013`) for a stepwise state applies now; a split state 1.2.2
+left unfinished resumes as before. If an unfinished stepwise attempt's
+refused statement must not run again, run `resolve` before deploying 1.2.3:
+its next `apply()` resumes it.
+
 ## 1.2.2 — 2026-10-13
 
 Restores the misspelled-key type errors 1.2.1 gave up, at 1.2.1's

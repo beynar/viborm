@@ -207,12 +207,14 @@ function startedAttempt(marker: MigrationMarkerV1): LedgerEventV1 {
   return { ...event, eventId: eventIdFor(event) };
 }
 
-/** Statements after the reserved connection's version probe. */
+/** Statements after the reserved connection's version and Neki probes. */
 function sent(driver: RecordingDriver): string[] {
   return driver.statements.filter(
     (sql) =>
       sql !== "<connect>" &&
-      sql !== "SELECT current_setting('server_version_num') AS version"
+      sql !== "SELECT current_setting('server_version_num') AS version" &&
+      // The once-per-command question whether the server is Neki.
+      sql !== "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki"
   );
 }
 

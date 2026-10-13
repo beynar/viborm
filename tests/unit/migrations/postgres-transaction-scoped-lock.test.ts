@@ -93,6 +93,8 @@ let namespaces = 0;
 beforeAll(() => database.waitReady);
 
 /** Every statement `command` sends, whitespace-collapsed, in order. */
+const NEKI_QUESTION = "SELECT pg_catalog.version() LIKE '%(Neki)%' AS neki";
+
 async function record(command: () => Promise<unknown>) {
   const send = database.execProtocolStream;
   const statements: string[] = [];
@@ -114,7 +116,15 @@ async function record(command: () => Promise<unknown>) {
   } finally {
     database.execProtocolStream = send;
   }
-  return { statements, failure };
+  // Every locked command first asks, once, whether the server is Neki, which
+  // holds the session lock alone; standard PostgreSQL keeps the protocol
+  // below.
+  const asked = statements.filter((text) => text === NEKI_QUESTION).length;
+  if (asked > 1) throw new Error(`The Neki question was asked ${asked} times`);
+  return {
+    statements: statements.filter((text) => text !== NEKI_QUESTION),
+    failure,
+  };
 }
 
 async function namespace(): Promise<string> {

@@ -4,8 +4,12 @@
  * (`.probes/hosted/neki-boundaries-1.2.2.md`): a state that adds a column and
  * fills it applies as two committed parts, a failure between them leaves the
  * attempt open and the next apply runs only the rest, a history of schema,
- * data and mixed states applies in one run, and a dispatch that no commit can
- * divide is refused before effects.
+ * data and mixed states applies in one run, a dispatch that no commit can
+ * divide is refused before effects, and (1.2.3) a command holds the session
+ * lock alone, Neki refusing to mix it with a transaction lock (`NK013`): a
+ * transactional then a stepwise state apply in one run, every command hands
+ * its connection back with its limits reset, and a client pause between two
+ * parts of a split state is within the default idle limit.
  *
  * Runs only with NEKI_DEV_CONNECTION_STRING (a Neki development branch); each
  * run creates its own `viborm_neki_<random>` schemas and drops them.
@@ -189,6 +193,130 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
         "step-confirmed",
         "applied",
       ]);
+    },
+    TIMEOUT
+  );
+
+  /** The session settings the migration limits touch, on every pooled connection. */
+  const pooledSettings = async () => {
+    const held = await Promise.all(
+      Array.from({ length: 4 }, () => recording.pool.connect())
+    );
+    try {
+      return await Promise.all(
+        held.map(async (client) => {
+          const { rows } = await client.query<Record<string, string>>(
+            "SELECT current_setting('lock_timeout') AS lock, current_setting('statement_timeout') AS statement, current_setting('idle_in_transaction_session_timeout') AS idle_in_transaction, current_setting('idle_session_timeout') AS idle_session"
+          );
+          return rows[0];
+        })
+      );
+    } finally {
+      for (const client of held) client.release();
+    }
+  };
+
+  it(
+    "applies a transactional state then a stepwise one in one apply, and hands every connection back clean",
+    async () => {
+      const namespace = await schema("stepwise");
+      const storage = new MemoryEstateStorage();
+      const at = (nickname: boolean) =>
+        migrationsFor(namespace, storage, accounts(nickname));
+      await at(false).generate({ name: "accounts" });
+      await at(false).apply();
+      await admin.query(
+        `INSERT INTO "${namespace}"."accounts" ("id", "email") SELECT 'a' || g, 'a' || g || '@example.com' FROM generate_series(1, ${ROWS}) g`
+      );
+      const clean = await pooledSettings();
+      const v2 = await at(true).generate({ name: "nickname" });
+      const filled = (all: boolean) => ({
+        kind: "trusted-read" as const,
+        query: sql.raw(
+          `SELECT NOT EXISTS (SELECT 1 FROM "${namespace}"."accounts" WHERE "nickname" IS ${all ? "" : "NOT "}NULL) AS ok`
+        ),
+        equals: true,
+      });
+      const v3 = await at(true).generate({
+        name: "stepwise-backfill",
+        manualMigration: {
+          transitions: [
+            {
+              from: v2.stateId,
+              execution: "stepwise",
+              originChecks: [filled(false)],
+              up: [
+                sql.raw(
+                  `UPDATE "${namespace}"."accounts" SET "nickname" = "email" WHERE "nickname" IS NULL`
+                ),
+              ],
+              rollback: { kind: "irreversible", reason: "test" },
+            },
+          ],
+          destinationChecks: [filled(true)],
+        },
+      });
+
+      recording.log.length = 0;
+      await expect(at(true).apply()).resolves.toMatchObject({
+        outcome: "applied",
+        path: [v2.stateId, v3.stateId],
+      });
+      // The session lock alone, once; never the transaction lock.
+      expect(
+        recording.log.filter((text) => text.includes("pg_try_advisory_lock("))
+      ).toHaveLength(1);
+      expect(
+        recording.log.some((text) => text.includes("pg_try_advisory_xact_lock"))
+      ).toBe(false);
+      expect(recording.log).toContain("RESET idle_session_timeout");
+      await expect(at(true).status()).resolves.toMatchObject({
+        unfinished: false,
+      });
+      await expect(at(true).verify()).resolves.toEqual({ ok: true });
+      // Every pooled connection is back as it was: no migration limit left.
+      expect(await pooledSettings()).toEqual(clean);
+      const { rows } = await admin.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM pg_catalog.pg_locks WHERE locktype = 'advisory'"
+      );
+      expect(rows[0]?.n).toBe(0);
+    },
+    TIMEOUT
+  );
+
+  it(
+    "finishes a split state whose client pauses 2 s between its parts, within the default idle limit",
+    async () => {
+      const namespace = await schema("pause");
+      const storage = new MemoryEstateStorage();
+      const at = (nickname: boolean) =>
+        migrationsFor(namespace, storage, accounts(nickname));
+      const v1 = await at(false).generate({ name: "accounts" });
+      await at(false).apply();
+      const add = `ALTER TABLE "${namespace}"."accounts" ADD COLUMN "nickname" text`;
+      const backfill = `UPDATE "${namespace}"."accounts" SET "nickname" = "email" WHERE "nickname" IS NULL`;
+      const v2 = await at(true).generate({
+        name: "nickname-and-backfill",
+        manualMigration: {
+          transitions: [
+            {
+              from: v1.stateId,
+              execution: "transactional",
+              up: [sql.raw(add), sql.raw(backfill)],
+              rollback: { kind: "irreversible", reason: "test" },
+            },
+          ],
+        },
+      });
+      recording.log.length = 0;
+      // The second part's BEGIN: the session idles, holding the lock.
+      recording.pause = { text: "BEGIN", skip: 1, ms: 2000 };
+      await expect(at(true).apply()).resolves.toMatchObject({
+        outcome: "applied",
+        path: [v2.stateId],
+      });
+      expect(recording.pause).toBeUndefined();
+      expect(commitsIn(recording.log)).toBe(2);
     },
     TIMEOUT
   );

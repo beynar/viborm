@@ -72,7 +72,8 @@ export function confirmedPrefix(
 
 /**
  * Refuses to resume at an opaque stepwise dispatch announced and never
- * confirmed: it may have committed, and running it again could repeat it.
+ * answered (confirmed, or its refusal recorded): it may have committed, and
+ * running it again could repeat it.
  */
 export function refuseAmbiguousNext(
   next: MigrationStepV1 | undefined,
@@ -129,8 +130,10 @@ export interface AttemptEdge {
  * What an unfinished attempt left to run of `edge`: its confirmed prefix of
  * steps, read from the attempt's own `step-confirmed` events, and the
  * operations past it. Progress naming another edge or an unknown dispatch, a
- * confirmed step past a gap, and an announced opaque stepwise step never
- * confirmed are refused. `noun` names the direction in each refusal.
+ * confirmed step past a gap, and an announced opaque stepwise step neither
+ * confirmed nor answered by its recorded refusal (the server refused it
+ * whole: it left nothing) are refused. `noun` names the direction in each
+ * refusal.
  */
 export function remainingSteps(
   ledger: readonly LedgerEventV1[],
@@ -145,7 +148,8 @@ export function remainingSteps(
     steps.map(({ step }, index) => [step.execute.dispatchId, index])
   );
   const committed = new Set<number>();
-  const announced = new Set<number>();
+  // Announcements not answered by a recorded refusal, per step.
+  const unanswered = new Map<number, number>();
   for (const event of ledger) {
     if (
       event.attemptId !== attempt.attemptId ||
@@ -177,7 +181,12 @@ export function remainingSteps(
       );
     }
     if (event.effectState === "committed") committed.add(index);
-    if (event.effectState === "none") announced.add(index);
+    if (event.effectState === "none") {
+      unanswered.set(
+        index,
+        (unanswered.get(index) ?? 0) + (event.failure ? -1 : 1)
+      );
+    }
   }
   const completed = confirmedPrefix(
     committed,
@@ -186,7 +195,7 @@ export function remainingSteps(
   refuseAmbiguousNext(
     steps[completed]?.step,
     edge.boundary,
-    announced.has(completed),
+    (unanswered.get(completed) ?? 0) > 0,
     `The next ${noun.toLowerCase()} dispatch has an ambiguous commit outcome`
   );
   return { completed, operations: sliceOperations(edge.operations, completed) };
