@@ -1,3 +1,4 @@
+import { expectWithinTimingBudget } from "@tests/fixtures/perf-timings";
 import { type GeoPoint, parse } from "@validation";
 import {
   GEO_POINT_EARTH_RADIUS_METERS,
@@ -1236,7 +1237,7 @@ describe("GeoArea validation boundary", () => {
     const result = validateGeoPolygon({ outer, holes });
     const elapsed = performance.now() - started;
     expect(result.issues).toBeUndefined();
-    expect(elapsed).toBeLessThan(2000);
+    expectWithinTimingBudget(elapsed, 2000);
   });
 
   test("admits 10,000 holes in near-linear time", () => {
@@ -1260,7 +1261,7 @@ describe("GeoArea validation boundary", () => {
     const result = validateGeoPolygon({ outer, holes });
     const elapsed = performance.now() - started;
     expect(result.issues).toBeUndefined();
-    expect(elapsed).toBeLessThan(2000);
+    expectWithinTimingBudget(elapsed, 2000);
   });
 
   test("admits 130,000 holes that reach the sweep on one meridian", () => {
@@ -1320,7 +1321,7 @@ describe("GeoArea validation boundary", () => {
     const result = validateGeoPolygon({ outer, holes });
     const elapsed = performance.now() - started;
     expect(result.issues).toBeUndefined();
-    expect(elapsed).toBeLessThan(2000);
+    expectWithinTimingBudget(elapsed, 2000);
   });
 
   test("contains hostile ring and property access", () => {

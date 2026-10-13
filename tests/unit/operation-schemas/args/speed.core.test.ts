@@ -14,6 +14,7 @@
  */
 
 import { s } from "@schema";
+import { expectWithinTimingBudget } from "@tests/fixtures/perf-timings";
 import { createSchemaRegistry, parse } from "@validation";
 import { beforeAll, describe, expect, test } from "vitest";
 
@@ -136,7 +137,7 @@ function benchmark(
     totalMs: total,
     avgMs: total / iterations,
     minMs: times[0]!,
-    maxMs: times[times.length - 1]!,
+    maxMs: times.at(-1)!,
     p95Ms: times[p95Index]!,
   };
 }
@@ -161,7 +162,7 @@ describe("Schema Creation Speed", () => {
     });
 
     logResult(result);
-    expect(result.avgMs).toBeLessThan(50); // Should be fast
+    expectWithinTimingBudget(result.avgMs, 50); // Should be fast
   });
 
   test("medium model schema creation", () => {
@@ -170,7 +171,7 @@ describe("Schema Creation Speed", () => {
     });
 
     logResult(result);
-    expect(result.avgMs).toBeLessThan(100);
+    expectWithinTimingBudget(result.avgMs, 100);
   });
 
   test("complex model with relations schema creation", () => {
@@ -179,7 +180,7 @@ describe("Schema Creation Speed", () => {
     });
 
     logResult(result);
-    expect(result.avgMs).toBeLessThan(200);
+    expectWithinTimingBudget(result.avgMs, 200);
   });
 
   test("model with deep relations schema creation", () => {
@@ -188,7 +189,7 @@ describe("Schema Creation Speed", () => {
     });
 
     logResult(result);
-    expect(result.avgMs).toBeLessThan(200);
+    expectWithinTimingBudget(result.avgMs, 200);
   });
 });
 
@@ -215,7 +216,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(5);
+      expectWithinTimingBudget(result.avgMs, 5);
     });
 
     test("findFirst - with simple filter", () => {
@@ -226,7 +227,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(5);
+      expectWithinTimingBudget(result.avgMs, 5);
     });
   });
 
@@ -249,7 +250,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(10);
+      expectWithinTimingBudget(result.avgMs, 10);
     });
 
     test("findMany - with OR/AND filters", () => {
@@ -266,7 +267,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(10);
+      expectWithinTimingBudget(result.avgMs, 10);
     });
   });
 
@@ -280,7 +281,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(5);
+      expectWithinTimingBudget(result.avgMs, 5);
     });
 
     test("2-level include", () => {
@@ -296,7 +297,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(10);
+      expectWithinTimingBudget(result.avgMs, 10);
     });
 
     test("3-level include with filters", () => {
@@ -325,7 +326,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       );
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(15);
+      expectWithinTimingBudget(result.avgMs, 15);
     });
   });
 
@@ -342,7 +343,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(5);
+      expectWithinTimingBudget(result.avgMs, 5);
     });
 
     test("create with nested relation", () => {
@@ -370,7 +371,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(15);
+      expectWithinTimingBudget(result.avgMs, 15);
     });
   });
 
@@ -384,7 +385,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(5);
+      expectWithinTimingBudget(result.avgMs, 5);
     });
 
     test("update with nested operations", () => {
@@ -413,7 +414,7 @@ describe("Validation Speed (Pre-built Schema)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(15);
+      expectWithinTimingBudget(result.avgMs, 15);
     });
   });
 });
@@ -434,7 +435,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(100);
+      expectWithinTimingBudget(result.avgMs, 100);
     });
 
     test("findMany with filters - full request", () => {
@@ -448,7 +449,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(100);
+      expectWithinTimingBudget(result.avgMs, 100);
     });
 
     test("findMany with nested include - full request", () => {
@@ -468,7 +469,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(150);
+      expectWithinTimingBudget(result.avgMs, 150);
     });
 
     test("create with nested - full request", () => {
@@ -490,7 +491,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(150);
+      expectWithinTimingBudget(result.avgMs, 150);
     });
 
     test("update with complex operations - full request", () => {
@@ -512,7 +513,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
       });
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(150);
+      expectWithinTimingBudget(result.avgMs, 150);
     });
   });
 
@@ -545,7 +546,7 @@ describe("Serverless Request Simulation (Schema Build + Validate)", () => {
       );
 
       logResult(result);
-      expect(result.avgMs).toBeLessThan(200);
+      expectWithinTimingBudget(result.avgMs, 200);
     });
   });
 });

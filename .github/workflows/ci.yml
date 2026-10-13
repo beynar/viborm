@@ -20,7 +20,9 @@ env:
 
 # Checkouts retain source, tests, live docs and architecture plans, but not the
 # 3.69 GB historical Raptor receipt archive. No archive is deleted from Git.
-# Required job names and launcher resource ceilings remain unchanged.
+# Launcher resource ceilings remain unchanged. Coverage runs in coverage.yml
+# (push to main, nightly, manual) and absolute timing budgets in
+# perf-timings.yml (nightly, manual); neither gates a pull request or release.
 
 jobs:
   quality:
@@ -71,6 +73,22 @@ jobs:
 
       - name: Verify patched dependency behavior
         run: node scripts/run-node-safe.mjs 512 60000 tests/package/security-dependencies-smoke.mjs
+
+      # scripts/coverage-policy.test.mjs, scripts/bounded-process.test.mjs,
+      # scripts/test-run-lock.test.mjs and scripts/raptor3-refusal-census.test.mjs
+      # are the regression tests behind manifest completeness, the hard heap and
+      # RSS ceilings, verified teardown, the workspace lock, and the refusal
+      # census reading the sentences a site builds and throws through the
+      # engine's failure owner. The coverage gates themselves run in the
+      # Coverage workflow on main, but these static policy tests stay on every
+      # pull request so none of that can regress while the rest of CI stays
+      # green. Each one runs bounded through scripts/run-node-safe.mjs with a
+      # 512 MB heap and a 60 s wall.
+      - name: Run runner and coverage policy gates
+        run: pnpm test:coverage:policy
+
+      - name: Check CI stage ownership
+        run: node scripts/run-node-safe.mjs 512 60000 scripts/credential-free-ci.test.mjs
 
       - name: Check changed formatting and lint rules
         run: |
@@ -145,58 +163,6 @@ jobs:
       - name: Run core tests
         run: pnpm test:core
 
-  coverage:
-    name: Coverage gates
-    runs-on: ubuntu-latest
-    # CI12's 14 projects / 86 bounded parts took 17.5 minutes under a 25-minute
-    # ceiling. 1.2.0's realistic-scale migration and driver suites (10,000-row
-    # estates, run instrumented) brought the job to 20-26 minutes, so the
-    # ceiling is 40. Each coverage part still has its own unchanged 600000 ms
-    # ceiling, so a hung part fails there, not here.
-    timeout-minutes: 40
-    steps:
-      - name: Check out the exact revision
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 1
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /*
-            !/docs/architecture/raptor3-evidence/
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
-
-      - name: Install Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # scripts/coverage-policy.test.mjs, scripts/bounded-process.test.mjs,
-      # scripts/test-run-lock.test.mjs and scripts/raptor3-refusal-census.test.mjs
-      # are the regression tests behind manifest completeness, the hard heap and
-      # RSS ceilings, verified teardown, the workspace lock, and the refusal
-      # census reading the sentences a site builds and throws through the
-      # engine's failure owner. They run first and on every pull request so none
-      # of that can regress while the rest of CI stays green. Each one runs
-      # bounded through scripts/run-node-safe.mjs with a 512 MB heap and a 60 s
-      # wall.
-      - name: Run runner and coverage policy gates
-        run: pnpm test:coverage:policy
-
-      - name: Check CI stage ownership
-        run: node scripts/run-node-safe.mjs 512 60000 scripts/credential-free-ci.test.mjs
-
-      - name: Run coverage gates
-        run: pnpm test:coverage
-
   package:
     name: Package contract (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
@@ -247,53 +213,40 @@ jobs:
         run: pnpm size
 
   local-providers:
-    name: Local providers
+    name: Local providers (${{ matrix.lane }})
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: source
-    # Retain the existing aggregate ceiling. Only unique bounded local stages
-    # run here; other required jobs own the five removed duplicate stages.
+    # Each leg is its own runner, so no stage shares CPU with a sibling shard:
+    # the fixed Raptor stage runs alone, and every other bounded local stage
+    # runs serially in exactly one of eight round-robin shards. The former
+    # 125-minute aggregate ceiling is retained per leg; every stage keeps its
+    # own heap, RSS and wall bounds.
     timeout-minutes: 125
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: Raptor 3 fixed
+            select: "--only 'Raptor 3 fixed'"
+          - lane: shard 1/8
+            select: --shard=1/8
+          - lane: shard 2/8
+            select: --shard=2/8
+          - lane: shard 3/8
+            select: --shard=3/8
+          - lane: shard 4/8
+            select: --shard=4/8
+          - lane: shard 5/8
+            select: --shard=5/8
+          - lane: shard 6/8
+            select: --shard=6/8
+          - lane: shard 7/8
+            select: --shard=7/8
+          - lane: shard 8/8
+            select: --shard=8/8
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: source
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /*
-            !/docs/architecture/raptor3-evidence/
-
-      - name: Check out local-provider shard 2
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: shard-2
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /*
-            !/docs/architecture/raptor3-evidence/
-
-      - name: Check out local-provider shard 3
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: shard-3
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /*
-            !/docs/architecture/raptor3-evidence/
-
-      - name: Check out local-provider shard 4
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: shard-4
-          ref: ${{ github.sha }}
           fetch-depth: 1
           sparse-checkout-cone-mode: false
           sparse-checkout: |
@@ -311,57 +264,14 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-          cache-dependency-path: source/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Four sibling repositories keep workspace locks, dependency caches and
-      # outputs private. Each lane runs the existing bounded stages serially.
-      # At most four 2560 MiB PGlite groups fit this public 4-core/16 GiB runner;
-      # ordinary groups retain 1536 MiB. No native typecheck or package build
-      # runs alongside these lanes.
-      - name: Prepare private shard dependencies and temporary directories
-        timeout-minutes: 5
-        run: |
-          mkdir "${RUNNER_TEMP}/viborm-ci-local"
-          for lane in 1 2 3 4; do
-            mkdir "${RUNNER_TEMP}/viborm-ci-local/tmp-${lane}"
-          done
-          for lane in 2 3 4; do
-            pnpm --dir "${GITHUB_WORKSPACE}/shard-${lane}" install --offline --frozen-lockfile
-          done
-
-      # This stage uses about 100 of its 120 seconds. Keep it free of sibling
-      # CPU contention; the four shards partition the remaining 96 stages.
-      - name: Run the fixed Raptor contracts
-        run: pnpm test:all --ci-local --only 'Raptor 3 fixed'
-
-      # The implicit wait fails the job if any lane fails. Including the serial
-      # stage above, all 97 unique stages run exactly once with the same limits.
-      - parallel:
-          - name: Run local-provider shard 1/4
-            env:
-              TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-1
-            run: pnpm test:all --ci-local --shard=1/4
-
-          - name: Run local-provider shard 2/4
-            working-directory: ${{ github.workspace }}/shard-2
-            env:
-              TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-2
-            run: pnpm test:all --ci-local --shard=2/4
-
-          - name: Run local-provider shard 3/4
-            working-directory: ${{ github.workspace }}/shard-3
-            env:
-              TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-3
-            run: pnpm test:all --ci-local --shard=3/4
-
-          - name: Run local-provider shard 4/4
-            working-directory: ${{ github.workspace }}/shard-4
-            env:
-              TMPDIR: ${{ runner.temp }}/viborm-ci-local/tmp-4
-            run: pnpm test:all --ci-local --shard=4/4
+      # All nine legs together run the 134 unique --ci-local stages exactly
+      # once with unchanged limits; no package build or typecheck runs here.
+      - name: Run local-provider ${{ matrix.lane }}
+        run: pnpm test:all --ci-local ${{ matrix.select }}
 
   docker-providers:
     name: PostgreSQL and MySQL providers

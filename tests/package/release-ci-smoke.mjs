@@ -223,7 +223,7 @@ test("release CI accepts only current complete exact-main proof", async () => {
   });
   assert.deepEqual(proof, {
     attempt: 2,
-    jobs: 8,
+    jobs: 15,
     proof: "push",
     runId: 200,
     sha,
@@ -412,6 +412,33 @@ test("release CI accepts only current complete exact-main proof", async () => {
     "missing required jobs: Types, format, and docs"
   );
 
+  // Every Local providers matrix leg is its own required job.
+  await expectRefusal(
+    "missing local-provider shard",
+    () =>
+      verifyReleaseCi(
+        verification(
+          fixture({
+            jobsPages: [
+              {
+                jobs: RELEASE_CI_JOBS.filter(
+                  (name) => name !== "Local providers (shard 8/8)"
+                ).map(workflowJob),
+              },
+            ],
+          })
+        )
+      ),
+    ReleaseCiError,
+    "missing required jobs: Local providers (shard 8/8)"
+  );
+
+  // Coverage runs after merge in its own workflow; the release never waits.
+  assert.equal(
+    RELEASE_CI_JOBS.some((name) => name.startsWith("Coverage")),
+    false
+  );
+
   for (const [name, overrides, message] of [
     ["pending job", { conclusion: null, status: "in_progress" }, "in_progress"],
     ["failed job", { conclusion: "failure" }, "failure"],
@@ -593,7 +620,7 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
   const pullProof = {
     attempt: 1,
     headSha,
-    jobs: 8,
+    jobs: 15,
     proof: "pull-request-tree",
     pullRequest: 90,
     runId: 190,
@@ -737,7 +764,7 @@ test("release CI accepts a tree-equivalent pull-request proof", async () => {
       "PR run failed job",
       {
         pullJobsPages: pullJobs((index) =>
-          index === 7 ? { conclusion: "failure" } : {}
+          index === RELEASE_CI_JOBS.length - 1 ? { conclusion: "failure" } : {}
         ),
       },
       "Bun and D1 providers",

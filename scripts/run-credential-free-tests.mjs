@@ -17,6 +17,7 @@ import {
   EXTENDED_LOCAL_TESTS,
   LIBSQL_PROVIDER_TESTS,
   PGLITE_PROVIDER_TESTS,
+  RAPTOR3_DETERMINISTIC_REMAINDER_TESTS,
   RAPTOR3_FIXED_LOCAL_TESTS,
   SQLITE3_PROVIDER_TESTS,
   shardCredentialFreeCIStages,
@@ -237,6 +238,25 @@ const stages = [
   ...LIBSQL_PROVIDER_TESTS.map((file) =>
     vitestStage(`provider-libsql: ${file}`, 300_000, "provider-libsql", [file])
   ),
+  // The rest of the deterministic Raptor 3 tree, uninstrumented. Until
+  // coverage left the pull-request path these files ran there only inside the
+  // instrumented coverage-raptor3 part; measured at 25-36 s and 912 MiB
+  // locally. Last of the CI-local stages, so adding it moved no earlier stage
+  // to another round-robin shard.
+  {
+    ...vitestStage(
+      `Raptor 3 deterministic remainder (${RAPTOR3_DETERMINISTIC_REMAINDER_TESTS.length} files)`,
+      300_000,
+      "raptor3",
+      RAPTOR3_DETERMINISTIC_REMAINDER_TESTS
+    ),
+    env: {
+      ...process.env,
+      VIBORM_RAPTOR3_REPLAY_PATH: "",
+      VIBORM_RAPTOR3_SPECIMEN: "",
+      VIBORM_RAPTOR3_EVIDENCE_DIRECTORY: "",
+    },
+  },
   vitestStage(
     "provider-bun (visible skips when Bun is absent)",
     300_000,
@@ -282,8 +302,9 @@ if (onlyFilter && ciStages.length === 0) {
   process.stderr.write(`[test:all] --only ${onlyFilter} matched no stage\n`);
   process.exit(2);
 }
-// Parallel CI steps use independent physical checkouts; each shard still takes
-// the ordinary workspace lock. No execution or resource ownership is bypassed.
+// Each CI shard is its own Local providers matrix leg on its own runner and
+// still takes the ordinary workspace lock. No execution or resource ownership
+// is bypassed.
 const shardArguments = process.argv
   .slice(2)
   .filter((arg) => arg.startsWith("--shard"));

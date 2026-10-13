@@ -28,6 +28,11 @@ Container, Bun, Workers and hosted checks are separate provider evidence; a skip
 provider has not passed. Project `.env` files are ignored. Never commit credentials
 or run destructive fixtures against shared databases.
 
+Pull requests run the `CI` workflow only. Coverage (`pnpm test:coverage`) runs
+after merge and nightly, and absolute millisecond budgets run nightly with
+`VIBORM_PERF_TIMINGS=1`; run either locally when a change touches what they
+measure. AGENTS.md ("Release Ownership") describes the full CI shape.
+
 ## Changes
 
 Keep SQL syntax in adapters, transport and lifecycle behavior in drivers, and

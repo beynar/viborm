@@ -19,13 +19,28 @@ const PENDING_STATUSES = new Set([
   "waiting",
 ]);
 
+/**
+ * Every job of the CI workflow, each of which must pass in the proof run's
+ * latest attempt. Local providers is a matrix: its fixed Raptor leg plus one
+ * leg per round-robin shard. Coverage is deliberately absent: it runs in the
+ * separate Coverage workflow after merge, and a release never waits for it.
+ * scripts/credential-free-ci.test.mjs pins this list to the jobs ci.yml
+ * declares, matrix legs expanded.
+ */
 export const RELEASE_CI_JOBS = Object.freeze([
   "Types, format, and docs",
   "Core tests",
-  "Coverage gates",
   "Package contract (Node 22.12.0)",
   "Package contract (Node 24)",
-  "Local providers",
+  "Local providers (Raptor 3 fixed)",
+  "Local providers (shard 1/8)",
+  "Local providers (shard 2/8)",
+  "Local providers (shard 3/8)",
+  "Local providers (shard 4/8)",
+  "Local providers (shard 5/8)",
+  "Local providers (shard 6/8)",
+  "Local providers (shard 7/8)",
+  "Local providers (shard 8/8)",
   "PostgreSQL and MySQL providers",
   "Bun and D1 providers",
 ]);

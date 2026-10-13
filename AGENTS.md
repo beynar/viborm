@@ -663,6 +663,7 @@ pnpm test:core           # All core runtime projects
 pnpm test:all            # Core, extended-local, local providers, optional Bun, local D1, and package checks
 pnpm test:all --ci-local # CI partition: extended-local and local providers; sibling CI jobs own types/core/package/Bun/D1
 pnpm test:coverage       # Sequential subsystem shards, merged global report, and working-tree metadata
+# CI splits the same work: run-coverage.mjs shard <id,...> per runner, then run-coverage.mjs merge
 
 # Nine subsystems hold 100% statements, branches, functions and lines.
 pnpm test:coverage:public # Public root surface; 100% in all four metrics
@@ -893,31 +894,54 @@ publication. The `Release` workflow on protected `main` is the sole publication
 owner: it builds one tarball, tests those exact bytes, publishes them through
 npm OIDC with automatic provenance, verifies registry integrity and that
 provenance, and only then creates the matching immutable GitHub tag and release.
-Source tests, coverage and providers are qualified once by the latest successful
+Source tests and providers are qualified once by the latest successful
 `CI` push run on the exact release main SHA or, while that run is absent or
 pending, by the latest successful `pull_request` run of the single PR merged as
 that commit when its head has the same Git tree and descends from the commit's
-first parent. `scripts/release-ci.mjs` verifies all eight jobs in the latest
-attempt, refuses a push run whose latest attempt failed, and rechecks before npm
-publication; release jobs must not duplicate that estate or accept any other
-proof.
+first parent. `scripts/release-ci.mjs` verifies all fifteen CI jobs (matrix
+legs counted) in the latest attempt, refuses a push run whose latest attempt
+failed, and rechecks before npm publication; release jobs must not duplicate
+that estate or accept any other proof. Coverage is not part of that proof: it
+runs after merge in its own workflow and a release never waits for it.
 Release-specific documentation and exact-tarball checks remain mandatory.
 Release and CI checkouts are shallow and sparse. CI excludes only the historical
 `docs/architecture/raptor3-evidence/` receipt archive, not live docs or architecture
 plans. The relation-language census uses the same archival boundary. Quality
 checks fetch only their comparison commit and materialize all changed files,
-including changed receipts, before linting. The eight required CI jobs still
+including changed receipts, before linting. The required CI jobs still
 own the complete live test estate; `test:all --ci-local` removes only the five
 stages already owned by sibling jobs. Default local `test:all` stays exhaustive.
-The local-provider job uses four GitHub parallel steps with
-`test:all --ci-local --shard=N/4`, after running the fixed Raptor stage once
-without sibling CPU contention. Shards exclude that serial-owned stage;
-round-robin selection preserves every remaining stage and its resource bounds.
-Pinned Actions checkouts create sibling repositories at the same exact SHA;
-frozen offline installs give each checkout private dependency/cache directories
-through the normal pnpm store. Temporary directories are private too. Linked worktrees
-share the verification lock and cannot substitute for these isolated checkouts.
-Each lane remains sequential and must prove process-group teardown.
+
+CI shape (`.github/workflows/`):
+
+- `ci.yml` (pull requests and pushes to `main`; required, and the release
+  proof): `Types, format, and docs` (which also runs `test:coverage:policy`
+  and the CI stage-ownership test), `Core tests`, `Package contract (Node
+  22.12.0)` and `(Node 24)`, `PostgreSQL and MySQL providers`, `Bun and D1
+  providers`, and the Local providers matrix: `Local providers (Raptor 3
+  fixed)` runs the fixed Raptor stage alone, and `Local providers (shard N/8)`
+  runs `test:all --ci-local --shard=N/8` for N = 1..8. Every leg is its own
+  runner, so no stage shares CPU with a sibling; shards exclude the
+  serial-owned stage, and round-robin selection preserves every remaining stage
+  and its resource bounds. Each leg remains sequential and must prove
+  process-group teardown. The deterministic Raptor 3 tree that neither the
+  fixed stage nor extended-local runs (`RAPTOR3_DETERMINISTIC_REMAINDER_TESTS`,
+  derived) is its own uninstrumented stage, because pull requests used to
+  execute it only inside coverage.
+- `coverage.yml` (pushes to `main`, nightly, manual; never on a pull request,
+  never awaited by a release): `Coverage (<group>)` legs run
+  `scripts/run-coverage.mjs shard <subsystem,...>` with each subsystem's own
+  thresholds, and `Coverage gates` merges the uploaded shards with
+  `scripts/run-coverage.mjs merge`, re-checking every subsystem and failing on
+  a missing shard. Locally, `pnpm test:coverage` still does both in one run.
+- `perf-timings.yml` (nightly, manual; non-blocking): absolute wall-clock
+  budgets. Tests import `expectWithinTimingBudget` from
+  `tests/fixtures/perf-timings.ts`, which asserts only under
+  `VIBORM_PERF_TIMINGS=1`; everywhere else the measured operations and their
+  behaviour and statement-count assertions still run. Deadline contracts (an
+  operation that must end within its configured wait) are behaviour, not
+  timings, and stay in the PR gate. `scripts/credential-free-ci.test.mjs`
+  requires every file importing the helper to run in this workflow.
 Never publish from a worktree, use an
 `NPM_TOKEN`, rebuild between testing and publication, or create the version tag
 by hand.

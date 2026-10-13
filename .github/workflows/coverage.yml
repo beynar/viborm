@@ -1,0 +1,140 @@
+name: Coverage
+
+# Coverage is qualified after merge, never on the pull-request path: it runs on
+# every push to main, nightly, and on demand. Neither branch protection nor
+# scripts/release-ci.mjs waits for this workflow. Thresholds, waivers and the
+# per-part 600000 ms ceiling are unchanged from scripts/coverage-policy.mjs and
+# scripts/run-coverage.mjs; only the subsystems run on parallel runners.
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "10.11.0"
+
+jobs:
+  coverage:
+    name: Coverage (${{ matrix.group }})
+    runs-on: ubuntu-latest
+    # The single sequential job held every subsystem under a 40-minute
+    # ceiling; each group keeps that ceiling. Each coverage part still has its
+    # own unchanged 600000 ms ceiling, so a hung part fails there, not here.
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # Balanced on the 1.2.2 sequential timings: drivers ~11 min,
+        # migrations ~5, query-engine core + validation + CLI ~5.5, the other
+        # nine ~4. Every subsystem appears in exactly one group.
+        include:
+          - group: drivers
+            subsystems: drivers
+          - group: migrations
+            subsystems: migrations
+          - group: engine
+            subsystems: query-engine-core,validation,cli
+          - group: surface
+            subsystems: public,schema,sql,instrumentation,extensions,errors,adapters,client,cache
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Each subsystem enforces its own thresholds here, exactly as in
+      # `pnpm test:coverage`, and leaves its shard for the merged gate.
+      - name: Run coverage subsystems
+        run: node --max-old-space-size=768 scripts/run-coverage.mjs shard ${{ matrix.subsystems }}
+
+      - name: Preserve the coverage shards
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-shards-${{ matrix.group }}
+          path: coverage/.shards/
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 7
+
+  merge:
+    name: Coverage gates
+    needs: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/docs/architecture/raptor3-evidence/
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download the coverage shards
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: coverage-shards-*
+          path: coverage/.shards
+          merge-multiple: true
+
+      # The merged view re-checks every subsystem's sources and floors and
+      # fails on any missing shard, as `pnpm test:coverage` does locally.
+      - name: Merge and check global coverage
+        run: node --max-old-space-size=768 scripts/run-coverage.mjs merge
+
+      - name: Preserve the merged coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-report-${{ github.sha }}
+          path: |
+            coverage/
+            !coverage/.shards/
+          if-no-files-found: error
+          retention-days: 14
