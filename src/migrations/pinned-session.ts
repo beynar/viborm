@@ -263,11 +263,10 @@ export async function withPinnedSession<D extends AnyDriver, T>(
         return undefined;
       }
       try {
-        await control.cleanup(async () => {
-          for (const statement of limits.exit(present)) {
-            await view._executeRaw(statement);
-          }
-        });
+        // Each reset is one cleanup statement, bounded on its own.
+        for (const statement of limits.exit(present)) {
+          await control.cleanup(() => view._executeRaw(statement));
+        }
         return undefined;
       } catch (resetFailure) {
         const lostConnection = control.lost(resetFailure, true);
@@ -881,13 +880,13 @@ function lockTransactions(
     if (!(heldAlone && sessionLocked)) return;
     const present = control.limited();
     if (limits !== undefined && present !== undefined) {
-      // Bounded like every cleanup statement (plan S2): a reset no one
-      // answers loses the session, and its lock with it, within
+      // Each reset is bounded like every cleanup statement (plan S2): one no
+      // one answers loses the session, and its lock with it, within
       // CLEANUP_BOUND_MS instead of holding both while other commands wait.
       try {
-        await control.cleanup(async () => {
-          for (const statement of limits.exit(present)) await run(statement);
-        });
+        for (const statement of limits.exit(present)) {
+          await control.cleanup(() => run(statement));
+        }
       } catch (failure) {
         const lostConnection = control.lost(failure, true);
         control.abandon();

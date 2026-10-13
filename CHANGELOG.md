@@ -15,9 +15,11 @@ reads.
 
 - **Neki: a `RESET` that is never answered no longer holds the migration
   lock forever.** The reset `down()` runs before asking its resolver on Neki
-  is bounded like every cleanup statement: past `CLEANUP_BOUND_MS` (5 s) the
-  session is lost and discarded, so its lock is freed, instead of waiting
-  forever while other migration commands block on the lock.
+  is bounded like every cleanup statement, each `RESET` on its own: one
+  unanswered past `CLEANUP_BOUND_MS` (5 s) loses and discards the session, so
+  its lock is freed, instead of waiting forever while other migration
+  commands block on the lock. Slow but answered resets still reach the
+  resolver. The command-end reset bounds each statement the same way.
 - **`resolve({ outcome: "rolled-back" })` after a resumed retry that lost its
   reply.** A stepwise step the server refused whole is resumed by `apply()`
   under its original attempt (1.2.3). If that retry's reply was lost, it may

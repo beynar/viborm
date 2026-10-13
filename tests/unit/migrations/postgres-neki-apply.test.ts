@@ -127,6 +127,8 @@ function asNeki(database: PGlite): {
   fail?: string;
   /** A statement containing this text is never answered (once). */
   hang?: string;
+  /** Every statement containing `text` answers only after `ms`. */
+  slow?: { readonly text: string; readonly ms: number };
   skip: number;
   before?: { readonly text: string; skip: number; readonly sql: string };
 } {
@@ -136,6 +138,9 @@ function asNeki(database: PGlite): {
     log: [] as string[],
     fail: undefined as string | undefined,
     hang: undefined as string | undefined,
+    slow: undefined as
+      | { readonly text: string; readonly ms: number }
+      | undefined,
     skip: 0,
     before: undefined as
       | { readonly text: string; skip: number; readonly sql: string }
@@ -220,6 +225,10 @@ function asNeki(database: PGlite): {
       if (simulation.hang && text.includes(simulation.hang)) {
         simulation.hang = undefined;
         return new Promise(() => undefined);
+      }
+      if (simulation.slow && text.includes(simulation.slow.text)) {
+        const { ms } = simulation.slow;
+        await new Promise((resolve) => setTimeout(resolve, ms));
       }
       const { before } = simulation;
       if (before && text === before.text && before.skip-- === 0) {
@@ -791,6 +800,30 @@ describe.each([
       await database.query("RESET ALL");
     }
   }, 30_000);
+
+  it("bounds each reset before down's resolver on its own: slow but answered resets still reach it", async () => {
+    const namespace = `neki_resolver_slow_${neki}`;
+    const { migrations, v1 } = await nicknameApplied(namespace);
+    let asked = false;
+    // Each reset answers within the bound; together they would exceed it.
+    simulation.slow = neki
+      ? { text: "RESET", ms: CLEANUP_BOUND_MS * 0.6 }
+      : undefined;
+    try {
+      await expect(
+        migrations(false).down({
+          resolve: async (change) => {
+            asked = true;
+            return change.type === "destructive" ? change.proceed() : undefined;
+          },
+        })
+      ).resolves.toMatchObject({ preview: false });
+    } finally {
+      simulation.slow = undefined;
+    }
+    expect(asked).toBe(true);
+    expect((await migrations(false).status()).marker?.stateId).toBe(v1);
+  }, 60_000);
 
   it("refuses down when the marker moved while its resolver answered, and runs nothing", async () => {
     const namespace = `neki_resolver_moved_${neki}`;
