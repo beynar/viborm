@@ -928,7 +928,7 @@ CI shape (`.github/workflows/`):
   fixed stage nor extended-local runs (`RAPTOR3_DETERMINISTIC_REMAINDER_TESTS`,
   derived) is its own uninstrumented stage, because pull requests used to
   execute it only inside coverage.
-- `coverage.yml` (pushes to `main`, nightly, manual; never on a pull request,
+- `coverage.yml` (nightly and manual only; never on a pull request or a push,
   never awaited by a release): `Coverage (<group>)` legs run
   `scripts/run-coverage.mjs shard <subsystem,...>` with each subsystem's own
   thresholds, and `Coverage gates` merges the uploaded shards with

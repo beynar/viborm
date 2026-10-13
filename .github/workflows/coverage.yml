@@ -1,15 +1,12 @@
 name: Coverage
 
-# Coverage is qualified after merge, never on the pull-request path: it runs on
-# every push to main, nightly, and on demand. Neither branch protection nor
-# scripts/release-ci.mjs waits for this workflow. Thresholds, waivers and the
+# Coverage never runs on the pull-request or merge path: it runs nightly and
+# on demand (Actions -> Coverage -> Run workflow). Neither branch protection
+# nor scripts/release-ci.mjs waits for this workflow. Thresholds, waivers and the
 # per-part 600000 ms ceiling are unchanged from scripts/coverage-policy.mjs and
 # scripts/run-coverage.mjs; only the subsystems run on parallel runners.
 
 on:
-  push:
-    branches:
-      - main
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:

@@ -42,7 +42,6 @@ const jobName = /^ {4}name: (.+)$/m;
 const unexpandedExpression = /\$\{\{/;
 const pullRequestPathCoverage = /run-coverage\.mjs|test:coverage(?!:policy)/;
 const perfTimingsVariable = /VIBORM_PERF_TIMINGS/;
-const pushToMain = /\non:\n {2}push:\n {4}branches:\n {6}- main\n/;
 const namedTestFile = /^ {10}(tests\/\S+\.test\.ts)$/gm;
 const serialSelect = "--only 'Raptor 3 fixed'";
 const localCommand = `run: pnpm test:all --ci-local ${MATRIX_SELECT}`;
@@ -224,16 +223,14 @@ test("CI keeps every delegated check and shallow sparse checkout", () => {
   }
 });
 
-test("coverage runs after merge, split by subsystem, merged by one gate", () => {
+test("coverage runs nightly and on demand, split by subsystem, merged by one gate", () => {
   const workflow = readWorkflow("coverage.yml");
   const jobs = workflowJobs(workflow);
   assert.deepEqual([...jobs.keys()], ["coverage", "merge"]);
   assert.deepEqual(workflowTriggers(workflow), [
-    "push",
     "schedule",
     "workflow_dispatch",
   ]);
-  assert.match(workflow, pushToMain);
   assertShallowSparseCheckouts(jobs);
 
   const legs = jobs.get("coverage");

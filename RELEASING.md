@@ -110,8 +110,8 @@ or was cancelled stops it even when a PR proof holds. Recheck the same evidence
 after human approval, before publication.
 
 Release does not rerun the source test estate, coverage, or provider jobs.
-Coverage is not release evidence: the `Coverage` workflow runs it after merge
-(every push to `main`, nightly, and on demand), and absolute timing budgets run
+Coverage is not release evidence: the `Coverage` workflow runs it nightly and
+on demand, never on a pull request or a merge, and absolute timing budgets run
 nightly in `Performance timings`. Neither blocks a release; a red run there is
 fixed forward like any other defect on `main`.
 The tarball build and documentation build run in parallel with CI verification;
