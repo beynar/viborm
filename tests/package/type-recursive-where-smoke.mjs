@@ -26,6 +26,11 @@
  * root relation filter (`queries/held-where.ts`). The type-floor-scale
  * budgets never saw any of it: none of their queries has a nested `where`.
  *
+ * The table predates `queries/held-nodes.ts`: whole relation nodes read
+ * through `Parameters<…>` and passed back, which 1.2.0 and the first 1.2.1
+ * fix refused (TS2322 on every checker; 1.1.0 compiled them). It adds about
+ * 80k instantiations on each TypeScript (TS 7: 1,793,624).
+ *
  * `VIBORM_RECURSIVE_WHERE_CHECKERS` picks the checkers (comma separated;
  * default `tsc5,tsc6,tsc7`): the repository's `typescript` (5.9.3),
  * `typescript-6` and `typescript-native` (7.0.2) packages, and `bun` for

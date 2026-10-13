@@ -1034,14 +1034,17 @@ type UpdateFormData<Update, TargetKeys> = Update extends {
  * The keys an object SPELLED: its required ones. A union of literals (a
  * ternary between two payload forms) carries each arm's missing keys as
  * optional `?: undefined` members nobody wrote, and a held value typed as the
- * payload carries every key as optional and has nothing misspelled.
+ * payload carries every key as optional and has nothing misspelled. Written
+ * as a key-remapped `keyof` so a generic node resolves through its
+ * constraint: the indexed `{ … }[keyof Given]` form leaves `{ posts }` with
+ * `N extends { select?: { title?: true } }` unprovable.
  */
 type RequiredSpelledKeys<Given> = Given extends object
-  ? {
-      [K in keyof Given]-?: Record<never, never> extends Pick<Given, K>
+  ? keyof {
+      [K in keyof Given as Record<never, never> extends Pick<Given, K>
         ? never
-        : K;
-    }[keyof Given]
+        : K]: 0;
+    }
   : never;
 
 /**
@@ -1454,7 +1457,13 @@ type RecursiveProjectionGuard<
       >;
 };
 
-/** A model-target node's `select` / `include` keys, beside `_count`. */
+/**
+ * A model-target node's `select` / `include` keys, beside `_count`. Only the
+ * keys the value requires are spelled: a held node (typed as the payload, as
+ * `Parameters<…>` reads it) is a union of the ordinary and the recursive
+ * node, and the recursive arm's projection carries the asking key as an
+ * optional refused member nobody wrote.
+ */
 type ProjectionKeySeal<Clause, T, Kind extends "select" | "include"> = [
   T,
 ] extends [never]
@@ -1462,7 +1471,7 @@ type ProjectionKeySeal<Clause, T, Kind extends "select" | "include"> = [
   : T extends Model<any>
     ? Record<
         Exclude<
-          SpelledClauseKeys<NonNullable<Clause>>,
+          RequiredSpelledKeys<NonNullable<Clause>>,
           | "_count"
           | keyof T["~"]["state"][Kind extends "select" ? "shape" : "relations"]
         >,

@@ -5,8 +5,9 @@ Versioning.
 
 ## 1.2.1 — 2026-10-13
 
-Fixes a type-checking regression of 1.2.0 on queries whose nested
-`select`/`include` `where` is typed by a held `where` type.
+Fixes two type-checking regressions of 1.2.0: on queries whose nested
+`select`/`include` `where` is typed by a held `where` type, and on a relation
+node typed as the client's own payload and passed back.
 
 ### Fixed
 
@@ -33,6 +34,18 @@ Fixes a type-checking regression of 1.2.0 on queries whose nested
   payload-typed `where` spread into a root relation filter, is gone too. The
   package tests now type-check that schema on all four checkers, the three
   TypeScripts within instantiation budgets.
+- **TS2322 on a relation node typed as the client's own payload.** A nested
+  node read through `Parameters<…>` and passed back, such as
+  `select: { id: true, grants: grantNode }` with `grantNode` typed
+  `Exclude<NonNullable<TeamSelect["grants"]>, boolean>`, or a held `include`
+  node, was refused with `Property 'grants' is missing … but required in type
+  'Record<"grants", never>'`. A to-many node's payload type is the union of
+  the ordinary and the recursive node, and the recursive node's projection
+  carries the relation's own name as an optional member that refuses it.
+  1.2.0's misspelled-key check on a nested `select`/`include` counted that
+  member as a key the caller wrote and refused it as unknown. The check now
+  reads only the keys a value's type requires, as the `where` check does.
+  1.1.0 compiled these queries, and 1.2.1 infers the same results.
 
 ### Changed
 
@@ -46,6 +59,13 @@ Fixes a type-checking regression of 1.2.0 on queries whose nested
   both at the root and 1.2.0 in nested `where`s too. A key the value's type
   requires, which includes every key written out in a literal, is checked as
   before, and runtime validation still refuses the unknown key.
+- The same holds one level up, for the keys of a nested `select` or
+  `include`: a misspelled key that is OPTIONAL in the value's type is no
+  longer a type error (`books: { select: { title: true, ...(ok ? { ttitle:
+  true } : {}) } }`, or a held `{ select?: { title?: true; ttitle?: true } }`
+  node). 1.1.0 did not check nested `select`/`include` keys at all. Keys
+  written out in a literal are checked as in 1.2.0, and runtime validation
+  still refuses the unknown key.
 
 ### Upgrading from 1.2.0
 

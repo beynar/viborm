@@ -1110,8 +1110,8 @@ describe("the array spelling of orderBy is keyed at its elements", () => {
  *    nested `select` / `include` / `where` and root operator bags are keyed
  *    by walking the caller's literal (types-10, 1.2.0); operator bags below
  *    the root WHERE, and what sits below a key that is optional in a `where`
- *    value's type (a held value's, or a conditional spread's; 1.2.1), remain
- *    pinned.
+ *    value's type or a nested `select` / `include` value's type (a held
+ *    value's, or a conditional spread's; 1.2.1), remain pinned.
  *
  * These are refused at RUNTIME: validation is the single home for payload
  * normalization, and an unknown key fails the parse. What is missing is only the
@@ -1233,10 +1233,27 @@ describe("direct write keys are guarded; deeper query levels remain pinned", () 
     // @ts-expect-error a required key of a held value is walked as a literal's is
     client.book.findMany({ where });
 
+  // A nested `select` / `include` is sealed on the same rule: a held node read
+  // through `Parameters<…>` is a union whose recursive arm carries the asking
+  // key as an optional member, which 1.2.0 refused as unknown (TS2322).
+  const _heldOptionalProjectionTypoCompiles = (books: {
+    select?: { title?: true; ttitle?: true };
+  }) => client.author.findMany({ select: { id: true, books } });
+
+  const _spreadOptionalProjectionTypoCompiles = (ok: boolean) =>
+    client.author.findMany({
+      select: {
+        id: true,
+        books: { select: { title: true, ...(ok ? { ttitle: true } : {}) } },
+      },
+    });
+
   test("the probes above compile, which is the pin", () => {
     expectTypeOf(_heldOptionalRelationTypoCompiles).toBeFunction();
     expectTypeOf(_spreadOptionalRelationTypoCompiles).toBeFunction();
     expectTypeOf(_heldRequiredRelationTypoRefused).toBeFunction();
+    expectTypeOf(_heldOptionalProjectionTypoCompiles).toBeFunction();
+    expectTypeOf(_spreadOptionalProjectionTypoCompiles).toBeFunction();
     expectTypeOf(_writeClauseTypoCompiles).toBeFunction();
     expectTypeOf(_updateClauseTypoCompiles).toBeFunction();
     expectTypeOf(_cursorTypoCompiles).toBeFunction();
