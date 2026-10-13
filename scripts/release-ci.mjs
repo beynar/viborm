@@ -20,8 +20,9 @@ const PENDING_STATUSES = new Set([
 ]);
 
 /**
- * Every job of the CI workflow, each of which must pass in the proof run's
- * latest attempt. Local providers is a matrix: its fixed Raptor leg plus one
+ * Every job of the CI workflow, each of which must have passed in the proof
+ * run's latest attempt (a job "re-run failed jobs" did not re-run keeps the
+ * earlier attempt that passed it). Local providers is a matrix: its fixed Raptor leg plus one
  * leg per round-robin shard. Coverage is deliberately absent: it runs in the
  * separate Coverage workflow after merge, and a release never waits for it.
  * scripts/credential-free-ci.test.mjs pins this list to the jobs ci.yml
@@ -199,15 +200,23 @@ function requireSuccessfulJobs(jobs, runId, attempt, sha) {
   const missing = RELEASE_CI_JOBS.filter((name) => !jobsByName.has(name));
   if (missing.length > 0) {
     refuse(
-      `CI run ${runId} attempt ${attempt} is missing required jobs: ${missing.join(", ")}. Re-run all jobs so the latest attempt contains the complete release proof`
+      `CI run ${runId} attempt ${attempt} is missing required jobs: ${missing.join(", ")}. Re-run the missing jobs so the latest attempt contains the complete release proof`
     );
   }
 
   for (const name of RELEASE_CI_JOBS) {
     const job = jobsByName.get(name);
-    if (job.run_attempt !== attempt) {
+    // "Re-run failed jobs" makes a new attempt whose passing jobs stay those
+    // of the attempt that ran them: the same run, the same SHA, a finished
+    // success, so they prove what they proved. Only a job claiming an
+    // attempt after the run's latest is impossible, and refused.
+    if (
+      !Number.isSafeInteger(job.run_attempt) ||
+      job.run_attempt < 1 ||
+      job.run_attempt > attempt
+    ) {
       refuse(
-        `CI job ${JSON.stringify(name)} belongs to stale attempt ${JSON.stringify(job.run_attempt)}, not ${attempt}`
+        `CI job ${JSON.stringify(name)} reports attempt ${JSON.stringify(job.run_attempt)}, outside run ${runId}'s attempts 1-${attempt}`
       );
     }
     if (job.head_sha !== sha) {
