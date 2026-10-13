@@ -327,8 +327,11 @@ unavailable"). Since 1.2.3 a command on Neki (it asks `version()` once) takes
 the session lock once, outside any transaction, before its first read, waits
 for it within `lockWait` as elsewhere, holds it to the end and never takes the
 transaction lock; each transaction opens with its `SET LOCAL` limits only, and
-the session carries `limits` until the command resets them. Every group
-still re-reads the marker. Stepwise transitions, including
+the session carries `limits` until the command resets them. While `down()`'s
+`resolve` callback answers, the command resets its limits and releases the
+lock (since 1.2.4), so a callback longer than `idleTimeout` no longer ends the
+session; it takes both again, within `lockWait`, before the rollback. Every
+group still re-reads the marker. Stepwise transitions, including
 `generate({ lowLock: true })`'s `CONCURRENTLY` steps, therefore run on Neki,
 in the same `apply()` as transactional ones. 1.2.2 refused them with
 `V11005` (`NK013`), and its session limits with `42501`.

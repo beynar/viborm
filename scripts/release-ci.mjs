@@ -20,9 +20,10 @@ const PENDING_STATUSES = new Set([
 ]);
 
 /**
- * Every job of the CI workflow, each of which must have passed in the proof
- * run's latest attempt (a job "re-run failed jobs" did not re-run keeps the
- * earlier attempt that passed it). Local providers is a matrix: its fixed Raptor leg plus one
+ * Every job of the CI workflow, each of which must have passed in the latest
+ * attempt of the proof run that ran it (a job "re-run failed jobs" did not
+ * re-run is proven by the earlier attempt that passed it). Local providers is
+ * a matrix: its fixed Raptor leg plus one
  * leg per round-robin shard. Coverage is deliberately absent: it runs in the
  * separate Coverage workflow after merge, and a release never waits for it.
  * scripts/credential-free-ci.test.mjs pins this list to the jobs ci.yml
@@ -185,19 +186,49 @@ function requireWorkflowRun(run, workflow, { branch, event, sha }) {
   return { attempt, runId };
 }
 
+/**
+ * `jobs` lists one record per job and attempt that ran it (`filter=all`):
+ * "re-run failed jobs" makes an attempt that runs only some jobs again, so a
+ * job's proof is its record from the latest attempt that ran it. Every record
+ * must belong to this run, within its attempts; two records of one job in one
+ * attempt are refused.
+ */
 function requireSuccessfulJobs(jobs, runId, attempt, sha) {
-  const jobsByName = new Map();
+  const latest = new Map();
+  // Each job's record id per attempt; a page read twice repeats one.
+  const recorded = new Map();
   for (const job of jobs) {
     if (!RELEASE_CI_JOBS.includes(job.name)) continue;
-    if (jobsByName.has(job.name)) {
+    const name = JSON.stringify(job.name);
+    if (job.run_id !== runId) {
       refuse(
-        `CI run ${runId} attempt ${attempt} contains duplicate job ${JSON.stringify(job.name)}`
+        `CI job ${name} belongs to run ${JSON.stringify(job.run_id)}, not ${runId}`
       );
     }
-    jobsByName.set(job.name, job);
+    if (
+      !Number.isSafeInteger(job.run_attempt) ||
+      job.run_attempt < 1 ||
+      job.run_attempt > attempt
+    ) {
+      refuse(
+        `CI job ${name} reports attempt ${JSON.stringify(job.run_attempt)}, outside run ${runId}'s attempts 1-${attempt}`
+      );
+    }
+    const occurrence = `${job.run_attempt} ${job.name}`;
+    if (recorded.has(occurrence)) {
+      if (recorded.get(occurrence) === job.id) continue;
+      refuse(
+        `CI run ${runId} attempt ${job.run_attempt} contains duplicate job ${name}`
+      );
+    }
+    recorded.set(occurrence, job.id);
+    const held = latest.get(job.name);
+    if (held === undefined || job.run_attempt > held.run_attempt) {
+      latest.set(job.name, job);
+    }
   }
 
-  const missing = RELEASE_CI_JOBS.filter((name) => !jobsByName.has(name));
+  const missing = RELEASE_CI_JOBS.filter((name) => !latest.has(name));
   if (missing.length > 0) {
     refuse(
       `CI run ${runId} attempt ${attempt} is missing required jobs: ${missing.join(", ")}. Re-run the missing jobs so the latest attempt contains the complete release proof`
@@ -205,20 +236,7 @@ function requireSuccessfulJobs(jobs, runId, attempt, sha) {
   }
 
   for (const name of RELEASE_CI_JOBS) {
-    const job = jobsByName.get(name);
-    // "Re-run failed jobs" makes a new attempt whose passing jobs stay those
-    // of the attempt that ran them: the same run, the same SHA, a finished
-    // success, so they prove what they proved. Only a job claiming an
-    // attempt after the run's latest is impossible, and refused.
-    if (
-      !Number.isSafeInteger(job.run_attempt) ||
-      job.run_attempt < 1 ||
-      job.run_attempt > attempt
-    ) {
-      refuse(
-        `CI job ${JSON.stringify(name)} reports attempt ${JSON.stringify(job.run_attempt)}, outside run ${runId}'s attempts 1-${attempt}`
-      );
-    }
+    const job = latest.get(name);
     if (job.head_sha !== sha) {
       refuse(
         `CI job ${JSON.stringify(name)} used SHA ${JSON.stringify(job.head_sha)}, not ${sha}`
@@ -226,7 +244,7 @@ function requireSuccessfulJobs(jobs, runId, attempt, sha) {
     }
     if (job.status !== "completed" || job.conclusion !== "success") {
       refuse(
-        `CI job ${JSON.stringify(name)} is ${JSON.stringify(job.status)} with conclusion ${JSON.stringify(job.conclusion)}, not completed success. Inspect https://github.com/${CANONICAL_REPOSITORY}/actions/runs/${runId}`
+        `CI job ${JSON.stringify(name)} is ${JSON.stringify(job.status)} with conclusion ${JSON.stringify(job.conclusion)} in attempt ${job.run_attempt}, not completed success. Inspect https://github.com/${CANONICAL_REPOSITORY}/actions/runs/${runId}`
       );
     }
   }
@@ -248,7 +266,7 @@ async function readRunProof(api, workflow, expected) {
   const { attempt, runId } = requireWorkflowRun(run, workflow, expected);
   const jobs = requirePages(
     await api.readPages(
-      `/repos/${CANONICAL_REPOSITORY}/actions/runs/${runId}/attempts/${attempt}/jobs?per_page=100`
+      `/repos/${CANONICAL_REPOSITORY}/actions/runs/${runId}/jobs?filter=all&per_page=100`
     ),
     "jobs",
     "GitHub CI jobs"

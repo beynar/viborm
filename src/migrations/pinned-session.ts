@@ -710,6 +710,12 @@ interface LockedTransactions {
   hold(): Promise<void>;
   /** Ends the open locked transaction: SQLite's pragma, a PostgreSQL bootstrap. */
   between(): Promise<void>;
+  /**
+   * Ends it before the caller's own work. A session lock held alone (Neki) is
+   * released too, the session's limits reset first, and both are taken again
+   * before the next statement: the lock is then not continuous.
+   */
+  letGo(): Promise<void>;
   /** Whether the lock has been held without a gap since the first read. */
   continuous(): boolean;
   /** Ends a command that succeeded: commits, then releases the session lock. */
@@ -841,6 +847,7 @@ function lockTransactions(
   };
   // A transaction under the session lock held alone: its limits, no lock.
   const beginUnderSessionLock = async (): Promise<void> => {
+    if (!sessionLocked) await hold();
     await run("BEGIN");
     open = true;
     if (limits !== undefined) await run(limits.transaction);
@@ -866,6 +873,26 @@ function lockTransactions(
   const between = async (): Promise<void> => {
     if (open) await commit();
   };
+  // No idle limit cuts the session, and no other command waits, while the
+  // caller works; a refused reset leaves the limits on a session no one can
+  // clean, which is abandoned.
+  const letGo = async (): Promise<void> => {
+    await between();
+    if (!(heldAlone && sessionLocked)) return;
+    const present = control.limited();
+    if (limits !== undefined && present !== undefined) {
+      try {
+        for (const statement of limits.exit(present)) await run(statement);
+      } catch (failure) {
+        if (control.lost(failure)) throw failure;
+        control.abandon();
+        throw limitsRefused(pinned.driverName, "reset", failure);
+      }
+    }
+    await releaseLock(direct, migrationDriver, control);
+    sessionLocked = false;
+    continuous = false;
+  };
   const abort = async (cause: unknown): Promise<void> => {
     // A failure that IS the lost connection: nothing more is sent (plan S2).
     control.lost(cause);
@@ -889,6 +916,7 @@ function lockTransactions(
       throw failure;
     },
     async before(sql) {
+      if (heldAlone && !sessionLocked) await hold();
       if (grouped || sessionLocked) return;
       if (sqlite && FOREIGN_KEYS_SWITCH.test(sql)) {
         await between();
@@ -924,6 +952,7 @@ function lockTransactions(
     },
     hold,
     between,
+    letGo,
     continuous: () => continuous,
     async finish() {
       if (open) {
@@ -958,14 +987,15 @@ export async function commitLockedTransaction(
 }
 
 /**
- * Ends the command's open locked transaction before the caller's own work,
- * such as a `resolve` callback, which no transaction waits on: past
- * `idleTimeout` PostgreSQL ends the session, and SQLite's `BEGIN IMMEDIATE`
- * holds every other writer. The next statement takes the lock again, and
+ * Lets the command's lock go before the caller's own work, such as a
+ * `resolve` callback, which no lock waits on: past `idleTimeout` PostgreSQL
+ * ends the session, and SQLite's `BEGIN IMMEDIATE` holds every other writer.
+ * The open locked transaction ends; on Neki the session lock held alone is
+ * released, its limits reset. The next statement takes the lock again, and
  * {@link lockedSinceDecision} is then false.
  */
 export async function letLockGo(pinned: AnyDriver): Promise<void> {
-  await LOCKED.get(pinned)?.between();
+  await LOCKED.get(pinned)?.letGo();
 }
 
 /**

@@ -8,8 +8,9 @@
  * divide is refused before effects, and (1.2.3) a command holds the session
  * lock alone, Neki refusing to mix it with a transaction lock (`NK013`): a
  * transactional then a stepwise state apply in one run, every command hands
- * its connection back with its limits reset, and a client pause between two
- * parts of a split state is within the default idle limit.
+ * its connection back with its limits reset, a client pause between two
+ * parts of a split state is within the default idle limit, and `down` lets
+ * the lock and the idle limit go while its resolver answers.
  *
  * Runs only with NEKI_DEV_CONNECTION_STRING (a Neki development branch); each
  * run creates its own `viborm_neki_<random>` schemas and drops them.
@@ -95,7 +96,8 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
   function migrationsFor(
     namespace: string,
     storage: MemoryEstateStorage,
-    models: ReturnType<typeof accounts> | ReturnType<typeof reportSchema>
+    models: ReturnType<typeof accounts> | ReturnType<typeof reportSchema>,
+    limits?: { readonly idleTimeout: number }
   ) {
     const client = createClient({
       pool: recording.pool,
@@ -103,7 +105,7 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
       schema: models,
     });
     clients.push(client);
-    return createMigrationClient(client, { storage });
+    return createMigrationClient(client, { storage, limits });
   }
 
   const forwardKinds = async (
@@ -317,6 +319,43 @@ describe.skipIf(!NEKI_URL)("migrations on PlanetScale's Neki", () => {
       });
       expect(recording.pause).toBeUndefined();
       expect(commitsIn(recording.log)).toBe(2);
+    },
+    TIMEOUT
+  );
+
+  it(
+    "rolls back after down's resolver answers past the idle limit, the lock and limits let go meanwhile",
+    async () => {
+      const namespace = await schema("resolver");
+      const storage = new MemoryEstateStorage();
+      const idle = { idleTimeout: 1000 };
+      const at = (nickname: boolean) =>
+        migrationsFor(namespace, storage, accounts(nickname), idle);
+      const v1 = await at(false).generate({ name: "accounts" });
+      await at(false).apply();
+      await admin.query(
+        `INSERT INTO "${namespace}"."accounts" ("id", "email") SELECT 'a' || g, 'a' || g || '@example.com' FROM generate_series(1, ${ROWS}) g`
+      );
+      await at(true).generate({ name: "nickname" });
+      await at(true).apply();
+      const locks: unknown[] = [];
+      await expect(
+        at(false).down({
+          resolve: async (change) => {
+            // An operator reading the prompt for three idle limits.
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            const { rows } = await admin.query<{ n: number }>(
+              "SELECT count(*)::int AS n FROM pg_catalog.pg_locks WHERE locktype = 'advisory'"
+            );
+            locks.push(rows[0]?.n);
+            return change.type === "destructive" ? change.proceed() : undefined;
+          },
+        })
+      ).resolves.toMatchObject({ preview: false });
+      expect(locks).toEqual([0]);
+      const status = await at(false).status();
+      expect(status.marker?.stateId).toBe(v1.stateId);
+      expect(status.unfinished).toBe(false);
     },
     TIMEOUT
   );

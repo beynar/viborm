@@ -205,6 +205,20 @@ const findTree = (deep: boolean) =>
   });
 findTree(false);
 
+// A held to-one filter whose `recurse` may only be `undefined` is the
+// shorthand, as the runtime reads it: its typo beside a real field is
+// refused, and the correct spelling compiles.
+const heldUndefinedRecurseTypo = (where: {
+  parent?: { recurse?: undefined; personal: boolean; personl: boolean };
+}) =>
+  // @ts-expect-error - "personl" is not a field of document
+  client.document.findMany({ where });
+const heldUndefinedRecurse = (where: {
+  parent?: { recurse?: undefined; self?: undefined; personal: boolean };
+}) => client.document.findMany({ where });
+heldUndefinedRecurseTypo({});
+heldUndefinedRecurse({});
+
 // =============================================================================
 // CONTEXTUAL TYPING — the quantifier is the target model's full `where`
 // =============================================================================

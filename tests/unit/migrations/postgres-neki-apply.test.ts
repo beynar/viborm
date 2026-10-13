@@ -702,6 +702,74 @@ describe.each([
     expect(refusals).toEqual([]);
   });
 
+  /** v1, 2,000 accounts, then v2's generated `nickname` column, applied. */
+  const nicknameApplied = async (namespace: string) => {
+    const migrations = await estate(namespace);
+    const v1 = await migrations().generate({ name: "v1" });
+    await migrations().apply();
+    await seedAccounts(namespace);
+    await migrations(true).generate({ name: "nickname" });
+    await migrations(true).apply();
+    return { migrations, v1: v1.stateId };
+  };
+  const advisoryLocks = async () =>
+    (
+      await database.query<{ n: number }>(
+        "SELECT count(*)::int AS n FROM pg_catalog.pg_locks WHERE locktype = 'advisory'"
+      )
+    ).rows[0]?.n;
+  const lockTimeout = async () =>
+    (
+      await database.query<{ value: string }>(
+        "SELECT current_setting('lock_timeout') AS value"
+      )
+    ).rows[0]?.value;
+
+  it("lets the lock and the session's limits go while down's resolver answers, then takes them again", async () => {
+    const namespace = `neki_resolver_gap_${neki}`;
+    const { migrations, v1 } = await nicknameApplied(namespace);
+    const clean = await lockTimeout();
+    const seen: unknown[] = [];
+    await expect(
+      migrations(false).down({
+        resolve: async (change) => {
+          // An operator reading the prompt: no lock held, no idle limit.
+          seen.push({
+            locks: await advisoryLocks(),
+            lock: await lockTimeout(),
+          });
+          return change.type === "destructive" ? change.proceed() : undefined;
+        },
+      })
+    ).resolves.toMatchObject({ preview: false });
+    expect(seen).toEqual([{ locks: 0, lock: clean }]);
+    expect(await columns(namespace)).not.toContain("nickname");
+    expect((await migrations(false).status()).marker?.stateId).toBe(v1);
+    expect(await advisoryLocks()).toBe(0);
+    expect(await lockTimeout()).toBe(clean);
+    expect(refusals).toEqual([]);
+  });
+
+  it("refuses down when the marker moved while its resolver answered, and runs nothing", async () => {
+    const namespace = `neki_resolver_moved_${neki}`;
+    const { migrations } = await nicknameApplied(namespace);
+    await expect(
+      migrations(false).down({
+        resolve: async (change) => {
+          await database.query(
+            `UPDATE "${namespace}"."_viborm_migration_state" SET payload = replace(payload::text, '"revision":2', '"revision":9')::json`
+          );
+          return change.type === "destructive" ? change.proceed() : undefined;
+        },
+      })
+    ).rejects.toMatchObject({
+      code: VibORMErrorCode.MIGRATION_MARKER_CONFLICT,
+    });
+    expect(await columns(namespace)).toContain("nickname");
+    expect(await advisoryLocks()).toBe(0);
+    expect(refusals).toEqual([]);
+  });
+
   it("baselines a pushed schema with partial indexes in a fresh namespace", async () => {
     const namespace = `neki_baseline_${neki}`;
     const migrations = await estate(namespace);

@@ -948,24 +948,42 @@ type QuantifiedWhereUnknownKeys<
 }[Extract<SpelledClauseKeys<Given>, Q>];
 
 /**
- * A spelled `recurse` selects the recursive filter on either cardinality (the
- * runtime dispatcher's rule), so its quantifiers are walked and its option bag
- * is sealed exactly as on the select side.
+ * The selectors among `Q` that `Given` spells with a value. The runtime reads
+ * one whose only value is `undefined` as absent (`withRecursiveNode` drops an
+ * undefined `recurse` and `self`; `isExplicitToOneFilter` reads `is` beside a
+ * field as the shorthand), so such a key selects no form.
+ */
+type DefinedSelectors<Given, Q extends PropertyKey> = {
+  [K in Q]: [Exclude<ValueAt<Given, K>, undefined>] extends [never] ? never : K;
+}[Q];
+
+/**
+ * A `recurse` with a value selects the recursive filter on either cardinality
+ * (the runtime dispatcher's rule), so its quantifiers are walked and its
+ * option bag is sealed exactly as on the select side. Otherwise a to-one
+ * filter with a defined `is` / `isNot` is the explicit form, and any other is
+ * the shorthand, beside which an undefined `recurse` / `self` is absent.
  */
 type RelationWhereUnknownKeys<
   Given,
   R extends AnyRelation,
   Seen,
 > = TargetKind<R> extends "model"
-  ? "recurse" extends SpelledClauseKeys<Given>
-    ?
-        | QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
-        | MisspelledRecurrenceKeys<ValueAt<Given, "recurse">>
-    : Cardinality<R> extends "one"
-      ? [Extract<SpelledClauseKeys<Given>, "is" | "isNot">] extends [never]
-        ? WhereUnknownKeys<Given, GetTargetModel<R>, Seen>
+  ? [DefinedSelectors<Given, "recurse">] extends [never]
+    ? Cardinality<R> extends "one"
+      ? [DefinedSelectors<Given, "is" | "isNot">] extends [never]
+        ? WhereUnknownKeys<
+            Given,
+            GetTargetModel<R>,
+            Seen,
+            | WhereModelKeys<GetTargetModel<R>>
+            | Exclude<"recurse" | "self", DefinedSelectors<Given, "self">>
+          >
         : QuantifiedWhereUnknownKeys<Given, R, Seen, "is" | "isNot">
       : QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
+    :
+        | QuantifiedWhereUnknownKeys<Given, R, Seen, "some" | "every" | "none">
+        | MisspelledRecurrenceKeys<ValueAt<Given, "recurse">>
   : never; // Variant tagged filters require their existing entry discrimination.
 
 /**
