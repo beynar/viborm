@@ -146,7 +146,10 @@ const ADMITTED_LIVE_EXECUTION_OWNERS = [
   // Consolidation (1.2.0): MySQL's strict-mode proof moved into the dialect's
   // `proveSession`, which reads through the catalog reader this owner hands
   // it, so one query executor left this file.
-  "src/migrations/pinned-session.ts executeRaw 7",
+  // 1.2.3: on PlanetScale's Neki the command takes its session lock once, in
+  // autocommit on the pinned session, before its first transaction (Neki
+  // refuses mixing it with a transaction lock).
+  "src/migrations/pinned-session.ts executeRaw 8",
   "src/migrations/pinned-session.ts queryExecutorFactory 2",
   "src/migrations/push-fingerprint.ts executeRaw 2",
   // Selected-table population proof uses the handed producer and its adapter's
