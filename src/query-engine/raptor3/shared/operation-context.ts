@@ -36,6 +36,7 @@ import {
 } from "@errors";
 import type { AnyModel } from "@schema/model";
 import { type Sql, sql } from "@sql";
+import { createFailureError } from "../../batch-error-attribution";
 import {
   compileBindBudgetChunks,
   normalizedBindParameterLimit,
@@ -46,6 +47,7 @@ import type {
   PreparedGuardFailure,
 } from "../../types";
 import {
+  GatedFieldRefusal,
   InvalidScalarResult,
   type PreparedProjection,
   type PreparedSelector,
@@ -57,7 +59,7 @@ import {
   returningSafeProjection,
   wholeValue,
 } from "./query";
-import type { CallScope } from "./row-scope";
+import type { CallScope, RowJudgement } from "./row-scope";
 import {
   type EngineSchema,
   type Input,
@@ -220,6 +222,26 @@ export interface ObservationPremise {
   readonly query: Query;
   readonly present: boolean;
   readonly failure: () => Error;
+}
+/** A nested write's refusal of the row it produces (§5.3, R4). */
+export function nestedRefusal(
+  verb: string,
+  relation: string
+): PreparedGuardFailure {
+  return {
+    kind: "nestedWrite",
+    relation,
+    message: `Cannot ${verb} relation '${relation}': the record it writes is not permitted.`,
+    raceable: false,
+  };
+}
+/**
+ * A write whose statement judges the row it produces (R4): its model, and
+ * what it reports when its assertion fails, before it writes.
+ */
+interface JudgedWrite {
+  readonly model: AnyModel;
+  readonly refusal: PreparedGuardFailure;
 }
 export class OperationContext {
   readonly queries: Queries;
@@ -664,7 +686,10 @@ export class OperationContext {
         }
       );
     }
-    if (error instanceof RecursiveOutputOverBudget)
+    if (
+      error instanceof RecursiveOutputOverBudget ||
+      error instanceof GatedFieldRefusal
+    )
       failure = error.refusal(this.operation, this.modelName);
     const attribution = member
       ? this.#memberAttributionMap?.get(member)
@@ -874,7 +899,8 @@ export class OperationContext {
     // UPDATE must retain only acknowledged progress").
     const decoding =
       error instanceof InvalidScalarResult ||
-      error instanceof RecursiveOutputOverBudget;
+      error instanceof RecursiveOutputOverBudget ||
+      error instanceof GatedFieldRefusal;
     if (decoding || (this.usesBatch && this.#committedSegments > 0))
       return this.failure(error, decoding ? "result" : "member");
     return error;
@@ -1425,6 +1451,7 @@ export class OperationContext {
     ];
     const insertProducers = attempt.drainInsertProducers();
     const assertionFailures = attempt.drainAssertedPremises();
+    const judgedWrites = attempt.drainJudgedWrites();
     for (const { statement, premise } of guards)
       assertionFailures.set(statement, premise);
     const members = attempt.drainMembers();
@@ -1516,7 +1543,10 @@ export class OperationContext {
       if (error instanceof NestedWriteAssertionError) {
         const statementIndex = error.meta.statementIndex;
         if (typeof statementIndex === "number") {
-          failure = assertionFailures.get(statements[statementIndex]!)?.failure;
+          const statement = statements[statementIndex]!;
+          failure =
+            assertionFailures.get(statement)?.failure ??
+            judgedWrites.get(statement)?.refusal;
           attributedIndex = statementIndex;
         } else {
           // Fresh-state diagnostics after rollback refine the error, not its
@@ -1530,7 +1560,9 @@ export class OperationContext {
             statements,
             this.driver.dialect
           );
-          const soleGuard = assertionFailures.size === 1 && !mayCollide;
+          const soleGuard =
+            assertionFailures.size + judgedWrites.size === 1 && !mayCollide;
+
           // A premise about a value this unit PRODUCED is not re-probable at
           // all (the guide, "At the ladder, a premise stated BEHIND the unit's
           // own writes … is not re-probable after the rollback"): it reads the
@@ -1544,7 +1576,8 @@ export class OperationContext {
           // `g4/parity/ordered-observation.test.ts`).
           for (const [index, statement] of statements.entries()) {
             const assertion = assertionFailures.get(statement);
-            if (!assertion || assertion.readsBatchReference) continue;
+            if (failure || !assertion || assertion.readsBatchReference)
+              continue;
             const present = (await this.read(assertion.query, true)).length > 0;
             if (present !== assertion.present || soleGuard) {
               failure = assertion.failure;
@@ -1575,6 +1608,33 @@ export class OperationContext {
               attributedIndex = index;
             }
           }
+          // Every premise holds now: a write that judged the row it
+          // produces failed on its own assertion, before it wrote. The one
+          // such write is it; of several, the first whose rows, read again
+          // from the values it wrote, are refused now (the batch ran them in
+          // order and stopped at the refusal). A write reading this unit's
+          // scratch is not asked again: the rollback took the scratch.
+          if (failure === undefined && !mayCollide) {
+            if (judgedWrites.size === 1)
+              for (const [statement, judged] of judgedWrites) {
+                failure = judged.refusal;
+                attributedIndex = statements.indexOf(statement);
+              }
+            else
+              for (const [index, statement] of statements.entries()) {
+                const probe = judgedWrites.get(statement)?.probe;
+                if (probe === undefined) continue;
+                try {
+                  await this.#transport._execute(probe, this.attribution);
+                } catch (refused) {
+                  if (!(refused instanceof NestedWriteAssertionError))
+                    throw refused;
+                  failure = judgedWrites.get(statement)!.refusal;
+                  attributedIndex = index;
+                  break;
+                }
+              }
+          }
         }
       }
       const providerIndex =
@@ -1596,7 +1656,8 @@ export class OperationContext {
       if (providerIndex === undefined && typeof attributedIndex === "number") {
         let last = -1;
         for (const [index, statement] of statements.entries())
-          if (assertionFailures.has(statement)) last = index;
+          if (assertionFailures.has(statement) || judgedWrites.has(statement))
+            last = index;
         positionBound = last;
       }
       const rejectedBeforeAnyWrite =
@@ -1605,7 +1666,9 @@ export class OperationContext {
         this.#committedSegments === 0 &&
         statements.every(
           (statement, index) =>
-            index > positionBound || assertionFailures.has(statement)
+            index > positionBound ||
+            assertionFailures.has(statement) ||
+            (index === rejectedIndex && judgedWrites.has(statement))
         );
       if (
         members.length > 0 &&
@@ -1987,29 +2050,35 @@ export class OperationContext {
   async #setMutation(
     statement: Sql,
     context: QueryExecutionContext,
-    parse: (result: QueryResult<unknown>) => unknown
+    parse: (result: QueryResult<unknown>) => unknown,
+    judged?: JudgedWrite
   ): Promise<unknown> {
-    return this.setMutations([{ sql: statement, context }], (results) => {
-      const result = results[0];
-      if (!result)
-        throw new TransactionError(
-          `Driver '${this.driver.driverName}' omitted the result for operation '${this.operation}'.`,
-          { meta: this.#errorMeta }
-        );
-      return parse(result);
-    });
+    return this.setMutations(
+      [{ sql: statement, context }],
+      (results) => {
+        const result = results[0];
+        if (!result)
+          throw new TransactionError(
+            `Driver '${this.driver.driverName}' omitted the result for operation '${this.operation}'.`,
+            { meta: this.#errorMeta }
+          );
+        return parse(result);
+      },
+      judged
+    );
   }
   private async setMutations(
     statements: readonly {
       readonly sql: Sql;
       readonly context: QueryExecutionContext;
     }[],
-    parse: (results: readonly QueryResult<unknown>[]) => unknown
+    parse: (results: readonly QueryResult<unknown>[]) => unknown,
+    judged?: JudgedWrite
   ): Promise<unknown> {
     if (this.#ownership === "batch-preparation") {
       const firstResult = this.queued.length;
       for (const statement of statements)
-        this.#queue(statement.sql, statement.context);
+        this.#queueJudged(statement.sql, statement.context, undefined, judged);
       this.#preparedParser = (results) => {
         const window = results.slice(
           firstResult,
@@ -2057,7 +2126,12 @@ export class OperationContext {
       // window is these statements' own positions.
       const first = this.queued.length;
       for (const statement of statements)
-        this.#queue(statement.sql, statement.context, windowMember);
+        this.#queueJudged(
+          statement.sql,
+          statement.context,
+          windowMember,
+          judged
+        );
       const results = await this.submit(true, windowMember);
       return this.settleSubmitted(() => {
         try {
@@ -2067,7 +2141,7 @@ export class OperationContext {
         }
       });
     }
-    return this.dispatchSetMutations(statements, parse);
+    return this.dispatchSetMutations(statements, parse, judged);
   }
   /**
    * The operation's own set-oriented statements on the plain execute path, and
@@ -2089,7 +2163,8 @@ export class OperationContext {
       readonly sql: Sql;
       readonly context: QueryExecutionContext;
     }[],
-    parse: (results: readonly QueryResult<unknown>[]) => unknown
+    parse: (results: readonly QueryResult<unknown>[]) => unknown,
+    judged?: JudgedWrite
   ): Promise<unknown> {
     return this.dispatch(statements.length, true, async () => {
       const owned = this.#ownership === "standalone" && !this.#ownRegionOpen;
@@ -2097,7 +2172,9 @@ export class OperationContext {
       try {
         for (const statement of statements)
           results.push(
-            await this.#transport._execute(statement.sql, statement.context)
+            await this.#judging(judged, () =>
+              this.#transport._execute(statement.sql, statement.context)
+            )
           );
       } catch (error) {
         // The same sentence {@link submit}'s catch states about its batch: a
@@ -2170,25 +2247,40 @@ export class OperationContext {
       (this.#answeredFailureSet ??= new WeakSet()).add(failure);
     return failure;
   }
-  /** Lower one INSERT shape; callers own grouping, chunking, and output. */
+  /**
+   * Lower one INSERT shape; callers own grouping, chunking, and output. A
+   * `judged` create reads its rows from their own values under their
+   * placement (R4, {@link Queries.producedSource}), in the same statement.
+   */
   #insertStatement(
     model: AnyModel,
     columns: readonly string[],
     rows: readonly Input[],
-    skipDuplicates = false
+    skipDuplicates = false,
+    judged?: PreparedSelector
   ): Sql {
     const q = this.queries;
     const mutations = this.driver.adapter.mutations;
-    if (columns.length === 0) return mutations.insertDefault(q.table(model));
+    if (columns.length === 0) {
+      // A row of defaults only has no value to judge before it is written.
+      if (judged)
+        throw new UnsupportedOperationError(
+          `Cannot create a '${model["~"].names.ts!}' row that writes no field: its placement is judged on the values it writes.`
+        );
+      return mutations.insertDefault(q.table(model));
+    }
     const duplicate = skipDuplicates
       ? mutations.skipDuplicates(q.columnName(model, columns[0]!))
       : undefined;
+    const select = judged && q.producedSource(model, columns, rows, judged);
     const statement = mutations.insert(
       q.table(model),
       columns.map((field) => q.columnName(model, field)),
-      rows.map((row) =>
-        columns.map((field) => q.fieldValue(model, field, row[field]))
-      ),
+      select
+        ? { select }
+        : rows.map((row) =>
+            columns.map((field) => q.fieldValue(model, field, row[field]))
+          ),
       duplicate?.prefix
     );
     return duplicate?.suffix
@@ -2200,7 +2292,8 @@ export class OperationContext {
     model: AnyModel,
     statement: Sql,
     projection?: PreparedProjection,
-    single?: () => Error
+    single?: () => Error,
+    judged?: JudgedWrite
   ): Promise<unknown> {
     const q = this.queries;
     const output = projection
@@ -2220,37 +2313,55 @@ export class OperationContext {
               ),
               single
             )
-          : { count: result.rowCount }
+          : { count: result.rowCount },
+      judged
     );
   }
   /** Child-free inserts may share a statement inside this operation's own region. */
   async insertMany(
     model: AnyModel,
-    rows: () => Input[]
+    rows: () => Input[],
+    refusal?: PreparedGuardFailure
   ): Promise<number | undefined> {
     if (!this.#ownRegionOpen || this.usesBatch) return undefined;
-    return (await this.createMany(model, rows())).count;
+    return (
+      (await this.createMany(
+        model,
+        rows(),
+        undefined,
+        false,
+        undefined,
+        refusal
+      )) as { count: number }
+    ).count;
   }
   createMany(
     model: AnyModel,
     rows: Input[],
     projection?: undefined,
     skipDuplicates?: boolean,
-    single?: () => Error
+    single?: () => Error,
+    refusal?: PreparedGuardFailure
   ): Promise<{ count: number }>;
   createMany(
     model: AnyModel,
     rows: Input[],
     projection?: PreparedProjection,
     skipDuplicates?: boolean,
-    single?: () => Error
+    single?: () => Error,
+    refusal?: PreparedGuardFailure
   ): Promise<unknown>;
+  /**
+   * `refusal`: what a refused row reports (R4); a root write's
+   * {@link forbidden} by default.
+   */
   async createMany(
     model: AnyModel,
     rows: Input[],
     projection?: PreparedProjection,
     skipDuplicates = false,
-    single?: () => Error
+    single?: () => Error,
+    refusal?: PreparedGuardFailure
   ): Promise<unknown> {
     // A DIRECT empty `createMany` is Prisma's documented `{ count: 0 }` no-op.
     // A batch-PREPARED one is a different question, and the shipped engine
@@ -2266,6 +2377,8 @@ export class OperationContext {
     }
     const q = this.queries;
     const adapter = this.driver.adapter;
+    const placed = this.#produced(model);
+    const judged = placed && { model, refusal: refusal ?? this.#forbidden };
     const recoverableSkip =
       skipDuplicates &&
       adapter.mutations.skipDuplicatesStrategy === "recoverableUniqueError";
@@ -2296,7 +2409,13 @@ export class OperationContext {
       let count = 0;
       for (const [index, row] of members.entries()) {
         const columns = Object.keys(row);
-        const statement = this.#insertStatement(model, columns, [row]);
+        const statement = this.#insertStatement(
+          model,
+          columns,
+          [row],
+          false,
+          placed
+        );
         const context = this.statementContext(model, this.operation);
         let response: QueryResult<unknown> | undefined;
         if (suppress) {
@@ -2304,7 +2423,9 @@ export class OperationContext {
             try {
               return await this.dispatch(1, false, () =>
                 this.#withMemberRollback((driver) =>
-                  driver._execute(statement, context)
+                  this.#judging(judged, () =>
+                    driver._execute(statement, context)
+                  )
                 )
               );
             } catch (error) {
@@ -2316,7 +2437,9 @@ export class OperationContext {
           response = await this.executeMember(
             () =>
               this.dispatch(1, false, () =>
-                this.#transport._execute(statement, context)
+                this.#judging(judged, () =>
+                  this.#transport._execute(statement, context)
+                )
               ),
             row
           );
@@ -2367,7 +2490,13 @@ export class OperationContext {
     for (const group of groups) {
       if (group.columns.length === 0) {
         for (const _row of group.rows) {
-          let statement = this.#insertStatement(model, [], [_row]);
+          let statement = this.#insertStatement(
+            model,
+            [],
+            [_row],
+            false,
+            placed
+          );
           if (returning) statement = sql`${statement} ${returning}`;
           statements.push({
             sql: statement,
@@ -2384,7 +2513,8 @@ export class OperationContext {
             model,
             group.columns,
             group.rows.slice(start, end),
-            skipDuplicates
+            skipDuplicates,
+            placed
           );
           return returning ? sql`${mutation} ${returning}` : mutation;
         }
@@ -2395,24 +2525,28 @@ export class OperationContext {
           context: this.statementContext(model, this.operation),
         });
     }
-    return this.setMutations(statements, (results) => {
-      const written = results.reduce(
-        (count, result) => count + result.rowCount,
-        0
-      );
-      // Triggers may legitimately suppress rows. The provider's affected count
-      // is the completed write's answer, never a reason to fail after commit.
-      if (!projection) return { count: written };
-      const raw: Input[] = [];
-      for (const result of results) raw.push(...result.rows.map(record));
-      // A grouped insert split by the provider's bind budget answers in
-      // several windows of the SAME projection and carries no per-window row
-      // count of its own — the shortfall above is this fold's own contract.
-      return this.published(
-        this.publishedProjection(projection.shape, raw),
-        single
-      );
-    });
+    return this.setMutations(
+      statements,
+      (results) => {
+        const written = results.reduce(
+          (count, result) => count + result.rowCount,
+          0
+        );
+        // Triggers may legitimately suppress rows. The provider's affected count
+        // is the completed write's answer, never a reason to fail after commit.
+        if (!projection) return { count: written };
+        const raw: Input[] = [];
+        for (const result of results) raw.push(...result.rows.map(record));
+        // A grouped insert split by the provider's bind budget answers in
+        // several windows of the SAME projection and carries no per-window row
+        // count of its own — the shortfall above is this fold's own contract.
+        return this.published(
+          this.publishedProjection(projection.shape, raw),
+          single
+        );
+      },
+      judged
+    );
   }
   /**
    * A top-level upsert as ONE statement — the shipped engine's first upsert
@@ -2441,7 +2575,8 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const columns = Object.keys(row);
-    const insert = this.#insertStatement(model, columns, [row]);
+    const placed = this.#produced(model);
+    const insert = this.#insertStatement(model, columns, [row], false, placed);
     const table = model["~"].names.sql!;
     const conflict = adapter.mutations.onConflict(
       sql.join(
@@ -2466,7 +2601,8 @@ export class OperationContext {
       model,
       sql`${insert} ${conflict}`,
       projection,
-      single
+      single,
+      placed && { model, refusal: this.#forbidden }
     );
   }
   async updateMany(
@@ -2480,6 +2616,17 @@ export class OperationContext {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const assignments = this.#updateAssignments(model, values);
+    // The rows this update produces, judged at the predicates that judged
+    // its candidates (R4); a tombstone's are a delete's, and none.
+    const produced = (target: PreparedSelector, limited?: number) =>
+      this.#produce(
+        model,
+        values,
+        selector.judgement,
+        (alias) => q.lowerSelector(target, alias),
+        limited
+      );
+    const judged = { model, refusal: this.#forbidden };
     // A relation carrier reads other rows, which no RETURNING can carry: the
     // post-image is re-read by identity, as without RETURNING.
     if (
@@ -2495,6 +2642,12 @@ export class OperationContext {
         limit
       );
       if (identities.length === 0) return this.published([], single);
+      const captured = produced(
+        q.andSelectors(model, [
+          selector,
+          q.includeIdentities(model, identities),
+        ])
+      );
       await this.#capturedMutation(
         model,
         selector,
@@ -2504,12 +2657,13 @@ export class OperationContext {
           adapter.mutations.update(
             q.table(model),
             sql.join(assignments, ", "),
-            target
+            captured ?? target
           ),
         // A delete that writes a tombstone still answers as a delete.
         this.operation === "delete" || this.operation === "deleteMany"
           ? "deleteMany"
-          : "updateMany"
+          : "updateMany",
+        captured && judged
       );
       return this.finishTerminals(
         this.seriesQueries(
@@ -2523,7 +2677,10 @@ export class OperationContext {
       );
     }
     this.#packagedPresence(model, selector, single);
-    const limited = q.lowerMutationLimit(model, selector, limit);
+    const where = produced(selector, limit);
+    const limited = where
+      ? { where }
+      : q.lowerMutationLimit(model, selector, limit);
     const mutation = adapter.mutations.update(
       q.table(model),
       sql.join(assignments, ", "),
@@ -2532,7 +2689,13 @@ export class OperationContext {
     const statement = limited.suffix
       ? sql`${mutation} ${limited.suffix}`
       : mutation;
-    return this.#completeSetMutation(model, statement, projection, single);
+    return this.#completeSetMutation(
+      model,
+      statement,
+      projection,
+      single,
+      where && judged
+    );
   }
   async deleteMany(
     model: AnyModel,
@@ -2706,7 +2869,8 @@ export class OperationContext {
     identities: readonly Input[],
     limit: number | undefined,
     mutation: (target: Sql | undefined) => Sql,
-    verb: "updateMany" | "deleteMany"
+    verb: "updateMany" | "deleteMany",
+    judged?: JudgedWrite
   ): Promise<void> {
     const changed = () =>
       new TransactionError(
@@ -2725,7 +2889,9 @@ export class OperationContext {
     if (!this.usesBatch) {
       answered(
         await this.dispatch(1, false, () =>
-          this.#transport._execute(statement, context)
+          this.#judging(judged, () =>
+            this.#transport._execute(statement, context)
+          )
         )
       );
       return;
@@ -2739,7 +2905,7 @@ export class OperationContext {
     // record series of its own ({@link failure}), as `setMutations` states it.
     const member: Member = {};
     this.#setWindow = member;
-    this.#queue(statement, context, member);
+    this.#queueJudged(statement, context, member, judged);
     const responses = await this.submit(true, member);
     await this.settleSubmitted(() => {
       const response = responses[index];
@@ -2906,21 +3072,42 @@ export class OperationContext {
     member: Member,
     operation = "create",
     producer?: object,
-    membership?: MembershipParent
+    membership?: MembershipParent,
+    refusal?: PreparedGuardFailure
   ): Promise<Input> {
     const q = this.queries;
     const adapter = this.driver.adapter;
     const fields = Object.keys(values);
-    let statement = this.#insertStatement(model, fields, [values]);
+    const placed = this.#produced(model);
+    const judged = placed && { model, refusal: refusal ?? this.#forbidden };
+    let statement = this.#insertStatement(
+      model,
+      fields,
+      [values],
+      false,
+      placed
+    );
+    // The SELECT the judged INSERT reads its row from: asked again after a
+    // batch rolled back, it fails as the INSERT did ({@link submit}).
+    const probe =
+      placed && this.usesBatch && fields.length > 0
+        ? q.producedSource(model, fields, [values], placed)
+        : undefined;
     const produced = [...demanded].filter(
       (field) => values[field] === undefined
     );
     const context = this.statementContext(model, operation);
     if (!this.usesBatch) {
       const producedProjection = produced.length
-        ? q.prepareProjection(model, {
-            select: Object.fromEntries(produced.map((field) => [field, true])),
-          })
+        ? q.prepareProjection(
+            model,
+            {
+              select: Object.fromEntries(
+                produced.map((field) => [field, true])
+              ),
+            },
+            true
+          )
         : undefined;
       const insertIdField = adapter.capabilities.supportsReturning
         ? undefined
@@ -2941,7 +3128,9 @@ export class OperationContext {
       let response: QueryResult<Input>;
       try {
         response = await this.dispatch(1, false, () =>
-          this.#transport._execute<Input>(statement, context)
+          this.#judging(judged, () =>
+            this.#transport._execute<Input>(statement, context)
+          )
         );
       } catch (error) {
         if (producer && error instanceof UniqueConstraintError)
@@ -3020,14 +3209,16 @@ export class OperationContext {
         const select = Object.fromEntries(
           returned.map((field) => [field, true])
         );
-        const projection = q.prepareProjection(model, { select });
+        const projection = q.prepareProjection(model, { select }, true);
         const resultIndex = this.queued.length;
-        const inserted = this.#queue(
+        const inserted = this.#queueJudged(
           sql`${statement} ${adapter.mutations.returning(
             sql.join(q.lowerProjection(projection), ", ")
           )}`,
           context,
-          member
+          member,
+          judged,
+          probe
         );
         if (producer) this.#attempt.recordInsertProducer(inserted, producer);
         const responses = await this.submit(true, member);
@@ -3070,7 +3261,13 @@ export class OperationContext {
         statement,
         adapter.identifiers.escape(q.columnName(model, insertIdField))
       );
-      const inserted = this.#queue(producing!, context, member);
+      const inserted = this.#queueJudged(
+        producing!,
+        context,
+        member,
+        judged,
+        probe
+      );
       if (producer) this.#attempt.recordInsertProducer(inserted, producer);
       for (const store of storing) this.#queue(store);
       const expression = adapter.expressions.cast(
@@ -3087,7 +3284,13 @@ export class OperationContext {
       });
       published[insertIdField] = expression;
     } else {
-      const inserted = this.#queue(statement, context, member);
+      const inserted = this.#queueJudged(
+        statement,
+        context,
+        member,
+        judged,
+        probe
+      );
       if (producer) this.#attempt.recordInsertProducer(inserted, producer);
     }
     return published;
@@ -3114,7 +3317,9 @@ export class OperationContext {
     member: Member,
     operation = "update",
     demanded: ReadonlySet<string> = new Set(),
-    missing?: () => Error
+    missing?: () => Error,
+    judgement?: RowJudgement,
+    refusal?: PreparedGuardFailure
   ): Promise<Input> {
     if (Object.keys(values).length === 0) return {};
     const q = this.queries;
@@ -3187,22 +3392,36 @@ export class OperationContext {
         written[field] = published[field] = expression;
       }
     }
-    const assignments = Object.entries(written).map(([field, value]) =>
-      q.updateAssignment(model, field, value)
+    // The row this update produces, judged at the predicates that judged
+    // the row it located (R4).
+    // Its candidate is the identity alone: what judged the row it located
+    // is stated again over the row it produces, in this statement.
+    const produced = this.#produce(
+      model,
+      written,
+      judgement,
+      (alias) => q.lowerIdentity(model, identity, alias),
+      undefined,
+      false
     );
+    const judged = produced
+      ? { model, refusal: refusal ?? this.#forbidden }
+      : undefined;
     const statement = adapter.mutations.update(
       q.table(model),
-      sql.join(assignments, ", "),
-      q.lowerIdentity(model, identity)
+      sql.join(this.#updateAssignments(model, written), ", "),
+      produced ?? q.lowerIdentity(model, identity)
     );
     const context = this.statementContext(model, operation);
     if (!this.usesBatch && demanded.size) {
       const fields = [...demanded];
       const select = Object.fromEntries(fields.map((field) => [field, true]));
-      const projection = q.prepareProjection(model, { select });
+      const projection = q.prepareProjection(model, { select }, true);
       if (!adapter.capabilities.supportsReturning) {
         await this.dispatch(1, false, () =>
-          this.#transport._execute(statement, context)
+          this.#judging(judged, () =>
+            this.#transport._execute(statement, context)
+          )
         );
         // This read answers "which row did the UPDATE just write?", and only a
         // CURRENT read can: under REPEATABLE READ a consistent read answers
@@ -3230,11 +3449,13 @@ export class OperationContext {
         return { ...published, ...rows[0] };
       }
       const response = await this.dispatch(1, false, () =>
-        this.#transport._execute<Input>(
-          sql`${statement} ${adapter.mutations.returning(
-            sql.join(q.lowerProjection(projection), ", ")
-          )}`,
-          context
+        this.#judging(judged, () =>
+          this.#transport._execute<Input>(
+            sql`${statement} ${adapter.mutations.returning(
+              sql.join(q.lowerProjection(projection), ", ")
+            )}`,
+            context
+          )
         )
       );
       const rows = q.decodeProjection(projection.shape, response.rows, true);
@@ -3245,7 +3466,7 @@ export class OperationContext {
         );
       return { ...published, ...rows[0] };
     }
-    await this.#effect(statement, context, member);
+    await this.#effect(statement, context, member, judged);
     if (observed.length === 0) return published;
     // The ordered observation: the write is queued, and the read that answers
     // the dependent rides the same native batch BEHIND it, so what it reads is
@@ -3253,9 +3474,11 @@ export class OperationContext {
     // leaves it at — `updatedIdentity` names every key the payload changes —
     // and the value comes back decoded, a literal for the consumer's own write
     // in the next batch (D-51's succession of statements).
-    const projection = q.prepareProjection(model, {
-      select: Object.fromEntries(observed.map((field) => [field, true])),
-    });
+    const projection = q.prepareProjection(
+      model,
+      { select: Object.fromEntries(observed.map((field) => [field, true])) },
+      true
+    );
     const rows = await this.flush(
       q.select(model, {}, undefined, {
         projection,
@@ -3460,18 +3683,21 @@ export class OperationContext {
     // member it sees and may not unlink (R3), as a disconnect naming it does.
     const domain = q.domainOf(edge.target, "related", linkJudgement(edge));
     const visible = q.domainOf(edge.target, "related");
-    const kept = keep.length
-      ? a.operators.not(
-          a.operators.or(
-            ...keep.map((row) =>
-              q.lowerIdentity(
-                edge.target,
-                this.schema.identity(edge.target, row)
+    const keeping = (alias?: string) =>
+      keep.length
+        ? a.operators.not(
+            a.operators.or(
+              ...keep.map((row) =>
+                q.lowerIdentity(
+                  edge.target,
+                  this.schema.identity(edge.target, row),
+                  alias
+                )
               )
             )
           )
-        )
-      : undefined;
+        : undefined;
+    const kept = keeping();
     if (target === undefined && domain !== visible)
       await this.requireAbsent(
         q.select(
@@ -3542,43 +3768,67 @@ export class OperationContext {
       );
       return;
     }
-    const where = a.operators.and(
-      ...edge.pairs.map((pair) =>
-        a.operators.eq(
-          q.column(edge.target, pair.target),
-          q.fieldValue(edge.target, pair.target, source![pair.source])
-        )
-      ),
-      ...(edge.discriminator
-        ? [
-            a.operators.eq(
-              q.column(edge.target, edge.discriminator.field),
-              q.value(edge.discriminator.value)
-            ),
-          ]
-        : []),
-      ...(target
-        ? [
-            q.lowerIdentity(
-              edge.target,
-              this.schema.identity(edge.target, target)
-            ),
-          ]
-        : []),
-      ...(kept ? [kept] : []),
-      ...(domain ? [q.lowerSelector(domain)!] : [])
-    );
+    // The rows it unlinks, addressed under `alias` (none: the UPDATE's own
+    // table).
+    const unlinked = (alias?: string) => {
+      const others = keeping(alias);
+      return a.operators.and(
+        ...edge.pairs.map((pair) =>
+          a.operators.eq(
+            q.column(edge.target, pair.target, alias),
+            q.fieldValue(edge.target, pair.target, source![pair.source])
+          )
+        ),
+        ...(edge.discriminator
+          ? [
+              a.operators.eq(
+                q.column(edge.target, edge.discriminator.field, alias),
+                q.value(edge.discriminator.value)
+              ),
+            ]
+          : []),
+        ...(target
+          ? [
+              q.lowerIdentity(
+                edge.target,
+                this.schema.identity(edge.target, target),
+                alias
+              ),
+            ]
+          : []),
+        ...(others ? [others] : []),
+        ...(domain ? [q.lowerSelector(domain, alias)!] : [])
+      );
+    };
     const clearability = edge.clearability as Extract<
       Membership["clearability"],
       { kind: "columns" }
     >;
-    const values = clearability.fields.map((field) =>
-      a.set.assign(q.column(edge.target, field), a.literals.null())
+    const cleared = Object.fromEntries(
+      clearability.fields.map((field) => [field, null])
+    );
+    // Each row it unlinks produces a row without the link, judged at what
+    // judged its link (R4).
+    const produced = this.#produce(
+      edge.target,
+      cleared,
+      linkJudgement(edge),
+      unlinked
     );
     await this.#effect(
-      a.mutations.update(q.table(edge.target), sql.join(values, ", "), where),
+      a.mutations.update(
+        q.table(edge.target),
+        sql.join(this.#updateAssignments(edge.target, cleared), ", "),
+        produced ?? unlinked()
+      ),
       this.statementContext(edge.target, "update"),
-      member
+      member,
+      produced
+        ? {
+            model: edge.target,
+            refusal: nestedRefusal("disconnect", edge.name),
+          }
+        : undefined
     );
   }
   /** One admitted payload, one prepared update: `Queries` is the sole interpreter. */
@@ -3586,6 +3836,111 @@ export class OperationContext {
     return Object.entries(values).map(([field, value]) =>
       this.queries.updateAssignment(model, field, value)
     );
+  }
+  /**
+   * What the row a write of `model` produces is judged at under this call's
+   * domain (R4): its placement for a create (no `judgement`), the
+   * predicates that judged its old row for an update. `undefined` where
+   * nothing judges it.
+   */
+  #produced(
+    model: AnyModel,
+    judgement?: RowJudgement
+  ): PreparedSelector | undefined {
+    return this.queries.domain?.produced(model, judgement);
+  }
+  /**
+   * The WHERE of an UPDATE of `model` that judges the rows it produces
+   * (R4, {@link Queries.producedWhere}): the rows `candidates` selects (the
+   * first `limit` in key order), each at the predicates that judged its old
+   * row (`judgement`) and outside its own subtree for the acyclic relations
+   * whose key it writes. `judgedCandidates`: `candidates` states the old
+   * row's judgement in the same statement, so a judgement the write cannot
+   * change is not stated again. `undefined` where nothing judges them: the
+   * statement keeps its own WHERE and its bytes.
+   */
+  #produce(
+    model: AnyModel,
+    values: Input,
+    judgement: RowJudgement | undefined,
+    candidates: (alias: string) => Sql | undefined,
+    limit?: number,
+    judgedCandidates = true
+  ): Sql | undefined {
+    const domain = this.queries.domain;
+    if (judgement === undefined || domain === undefined) return undefined;
+    return this.queries.producedWhere(
+      model,
+      candidates,
+      values,
+      domain.produced(
+        model,
+        judgement,
+        judgedCandidates ? Object.keys(values) : undefined
+      ),
+      domain.cycles(model, judgement),
+      limit
+    );
+  }
+  /** A root write's refusal of the row it produces (§5.3). */
+  get #forbidden(): PreparedGuardFailure {
+    return {
+      kind: "forbidden",
+      message: `${this.operation} produced a row that is not permitted.`,
+      raceable: false,
+    };
+  }
+  /**
+   * Dispatch one judged statement: its assertion failing is the write's
+   * refusal, raised as `refusal` says, with nothing written.
+   */
+  async #judging<T>(
+    judged: JudgedWrite | undefined,
+    run: () => Promise<T>
+  ): Promise<T> {
+    if (judged === undefined) return run();
+    try {
+      return await run();
+    } catch (error) {
+      if (!(error instanceof NestedWriteAssertionError)) throw error;
+      throw this.#refusal(judged);
+    }
+  }
+  #refusal({ model, refusal }: JudgedWrite): Error {
+    return createFailureError(refusal, model["~"].names.ts!, this.operation);
+  }
+  /**
+   * Queue one judged statement: the batch that carries it attributes its
+   * assertion to `refusal` ({@link submit}); an array owner, to its packaged
+   * guard at the same position.
+   */
+  #queueJudged(
+    statement: Sql,
+    context: QueryExecutionContext,
+    member: Member | undefined,
+    judged: JudgedWrite | undefined,
+    probe?: Sql
+  ): BatchQuery {
+    if (judged === undefined) return this.#queue(statement, context, member);
+    if (this.#ownership === "batch-preparation")
+      (this.#preparedGuardList ??= []).push({
+        queryIndex: this.queued.length,
+        premise: "exists",
+        probe: sql`SELECT 1`,
+        failure: judged.refusal,
+        model: judged.model["~"].names.ts!,
+        operation: this.operation,
+      });
+    const queued = this.#queue(statement, context, member);
+    const reference = this.#attemptStore?.scratchId;
+    this.#attempt.judgeWrite(queued, {
+      refusal: this.#refusal(judged),
+      ...(probe &&
+        !(reference !== undefined && probe.values.includes(reference)) && {
+          probe,
+        }),
+    });
+    return queued;
   }
   /**
    * A nested `updateMany` / `deleteMany` as ONE correlated statement.
@@ -3609,6 +3964,15 @@ export class OperationContext {
     const a = this.driver.adapter;
     const model = edge.target;
     const filter = q.lowerMutationLimit(model, selector, undefined).where;
+    // The rows it produces, judged at what judged them (R4).
+    const produced =
+      values &&
+      this.#produce(model, values, selector.judgement, (alias) =>
+        a.operators.and(
+          q.memberWhere(edge, parent, alias),
+          ...(selector.predicate ? [q.lowerSelector(selector, alias)!] : [])
+        )
+      );
     const where = a.operators.and(
       // The target's own table name is the correlation alias, exactly as the
       // shipped builders passed `getTableName(childScope.model)`.
@@ -3620,11 +3984,14 @@ export class OperationContext {
         ? a.mutations.update(
             q.table(model),
             sql.join(this.#updateAssignments(model, values), ", "),
-            where
+            produced ?? where
           )
         : a.mutations.delete(q.table(model), where),
       this.statementContext(model, values ? "updateMany" : "deleteMany"),
-      member
+      member,
+      produced
+        ? { model, refusal: nestedRefusal("updateMany", edge.name) }
+        : undefined
     );
   }
   async delete(model: AnyModel, row: Input, member: Member): Promise<void> {
@@ -3640,12 +4007,15 @@ export class OperationContext {
   async #effect(
     statement: Sql,
     context: QueryExecutionContext,
-    member: Member
+    member: Member,
+    judged?: JudgedWrite
   ): Promise<void> {
-    if (this.usesBatch) this.#queue(statement, context, member);
+    if (this.usesBatch) this.#queueJudged(statement, context, member, judged);
     else
       await this.dispatch(1, false, () =>
-        this.#transport._execute(statement, context)
+        this.#judging(judged, () =>
+          this.#transport._execute(statement, context)
+        )
       );
   }
 }

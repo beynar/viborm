@@ -2228,7 +2228,7 @@ describe("rows: named predicates and verbs, per model", () => {
       )
     );
     expect(error.message).toBe(
-      'Extension "verbs" rows.verbs.post at "write": is not one of predicates, read, update, delete, writes.'
+      'Extension "verbs" rows.verbs.post at "write": is not one of predicates, read, update, delete, writes, place, moves, acyclic, evidence, reads.'
     );
     expect(error.meta).toMatchObject({ model: "post" });
   });

@@ -45,6 +45,7 @@ export const extensionCoverageTests = Object.freeze([
   "tests/contracts/public-client/soft-delete.core.test.ts",
   "tests/contracts/public-client/extension-bound-views.core.test.ts",
   "tests/contracts/public-client/extension-composition.core.test.ts",
+  "tests/contracts/public-client/extension-evidence.core.test.ts",
   "tests/contracts/engine/query/operation-program-read-contracts.core.test.ts",
   "tests/contracts/engine/query/pending-operation-contracts.core.test.ts",
   "tests/contracts/public-client/extensions/array-admission.core.test.ts",
@@ -60,6 +61,7 @@ export const extensionCoverageTests = Object.freeze([
   "tests/unit/rbac/compile.core.test.ts",
   "tests/providers/local/sqlite3-rbac-compiled-policy.test.ts",
   "tests/providers/local/sqlite3-rbac-entry.test.ts",
+  "tests/contracts/public-client/extension-produced.core.test.ts",
 ]);
 const definitions = [
   {

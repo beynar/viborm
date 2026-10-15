@@ -8,7 +8,9 @@
 // groups, 200 pages, 150 documents in trees up to depth 6, 30 collections,
 // ~280 grants of every arc kind, grantee kind, level and action, tombstoned
 // members, team members, pages and grants, sessions and API keys live,
-// expired and disabled.
+// expired and disabled, and 60 bookmarks pointing at pages, documents or
+// nothing (drawn last, from their own generator, so every other row is the
+// same with or without them).
 //
 // Every instant is either far in the past or far in the future, so the
 // verdicts do not depend on when a run happens (the oracle still takes the
@@ -169,6 +171,17 @@ export interface AccessGrantRow {
   deletedAt: Date | null;
 }
 
+export interface BookmarkRow {
+  id: string;
+  organizationId: string;
+  userId: string;
+  note: string;
+  /** The variant `subject` holds, or null with `subjectId` for none. */
+  subjectType: "page" | "document" | null;
+  subjectId: string | null;
+  createdAt: Date;
+}
+
 export interface RbacSeed {
   readonly organization: readonly OrganizationRow[];
   readonly user: readonly UserRow[];
@@ -185,6 +198,7 @@ export interface RbacSeed {
   readonly document: readonly DocumentRow[];
   readonly collection: readonly CollectionRow[];
   readonly accessGrant: readonly AccessGrantRow[];
+  readonly bookmark: readonly BookmarkRow[];
 }
 
 /**
@@ -597,6 +611,8 @@ function buildSeed(): RbacSeed {
     grants.push(row);
   }
 
+  const bookmarks = buildBookmarks(members, pages, documents);
+
   return {
     organization: ORGANIZATIONS,
     user: users,
@@ -612,7 +628,63 @@ function buildSeed(): RbacSeed {
     document: documents,
     collection: collections,
     accessGrant: grants,
+    bookmark: bookmarks,
   };
+}
+
+/**
+ * Twenty bookmarks per organization, each by a member (live or tombstoned)
+ * of it, pointing at one of its pages (personal ones included, and the last
+ * at a tombstoned one), one of its documents, another organization's page or
+ * document, or nothing.
+ */
+function buildBookmarks(
+  members: readonly MemberRow[],
+  pages: readonly PageRow[],
+  documents: readonly DocumentRow[]
+): BookmarkRow[] {
+  const random = generator(20_261_016);
+  const rows: BookmarkRow[] = [];
+  for (const { id: organizationId } of ORGANIZATIONS) {
+    const holders = members.filter((m) => m.organizationId === organizationId);
+    for (let n = 1; n <= 20; n++) {
+      const shape = random.next();
+      const here = random.chance(0.85);
+      const among = <T extends { organizationId: string }>(
+        list: readonly T[]
+      ) =>
+        here
+          ? list.filter((row) => row.organizationId === organizationId)
+          : list;
+      // The last one of each organization pins a tombstoned page of it.
+      const tombstoned = pages.find(
+        (page) => page.organizationId === organizationId && page.deletedAt
+      );
+      const subject =
+        n === 20 && tombstoned !== undefined
+          ? { subjectType: "page" as const, subjectId: tombstoned.id }
+          : shape < 0.45
+            ? {
+                subjectType: "page" as const,
+                subjectId: random.pick(among(pages)).id,
+              }
+            : shape < 0.85
+              ? {
+                  subjectType: "document" as const,
+                  subjectId: random.pick(among(documents)).id,
+                }
+              : { subjectType: null, subjectId: null };
+      rows.push({
+        id: `bm-${organizationId}-${pad(n)}`,
+        organizationId,
+        userId: random.pick(holders).userId,
+        note: `bookmark ${n}`,
+        ...subject,
+        createdAt: CREATED,
+      });
+    }
+  }
+  return rows;
 }
 
 export const seed: RbacSeed = buildSeed();

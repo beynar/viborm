@@ -389,28 +389,29 @@
       "name": "D1 Worker (viborm/d1)",
       "path": "node_modules/.cache/viborm-size/d1-worker.mjs",
       "gzip": true,
-      "limit": "171.9 kB",
-      "message": "Raised 170 → 171.9 kB by the measured +1,868 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views."
+      "limit": "177.6 kB",
+      "message": "Raised 170 → 171.9 kB by the measured +1,868 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views. Raised 171.9 → 177.6 kB by the measured +5,630 B (177.29 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
     },
     {
       "name": "pg + migrations Worker (viborm/pg + viborm/migrations/postgres)",
       "path": "node_modules/.cache/viborm-size/pg-migrations-worker.mjs",
       "gzip": true,
-      "limit": "274.4 kB",
-      "message": "Raised 273 → 274.4 kB by the measured +1,392 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise; it held wave 1's +1,819 B inside its headroom."
+      "limit": "279.5 kB",
+      "message": "Raised 273 → 274.4 kB by the measured +1,392 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise; it held wave 1's +1,819 B inside its headroom. Raised 274.4 → 279.5 kB by the measured +5,720 B (279.12 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
     },
     {
       "name": "pg application (viborm/pg)",
       "path": "node_modules/.cache/viborm-size/pg-representative.mjs",
       "gzip": true,
-      "limit": "173.34 kB",
-      "message": "Raised 170 → 171.9 kB by the measured +1,900 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views. Raised 171.9 → 173.34 kB by the measured +1,440 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise."
+      "limit": "178.2 kB",
+      "message": "Raised 170 → 171.9 kB by the measured +1,900 B of RBAC M1 wave 1 (OD-17): rows predicates admitted, layered and parameterized, numbered binds, bound views. Raised 171.9 → 173.34 kB by the measured +1,440 B of RBAC M1 wave 2 (K3, OD-17): rows verbs, written fields, write judgements and the clear premise. Raised 173.34 → 178.2 kB by the measured +5,650 B (177.84 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
     },
     {
       "name": "pg application + soft delete",
       "path": "node_modules/.cache/viborm-size/pg-soft-delete.mjs",
       "gzip": true,
-      "limit": "173.5 kB"
+      "limit": "178.6 kB",
+      "message": "Raised 173.5 → 178.6 kB by the measured +5,670 B (178.24 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
     },
     {
       "name": "soft-delete extension entry",
@@ -435,7 +436,8 @@
       "name": "every public entry",
       "path": "node_modules/.cache/viborm-size/full.mjs",
       "gzip": true,
-      "limit": "394 kB"
+      "limit": "398.1 kB",
+      "message": "Raised 394 → 398.1 kB by the measured +5,700 B (397.74 kB) of RBAC M2 wave 4 (K4 produced rows judged in the statement, K5 evidence and read-gated fields; OD-17, measured + 0.3 kB headroom)."
     }
   ]
 }

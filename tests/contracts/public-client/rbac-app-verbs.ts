@@ -290,8 +290,10 @@ export function runRbacAppVerbs(
             count: edit.length,
             rows: edit,
           });
+          // The actor as every row's owner keeps each row it writes at full,
+          // so the new rows (R4, K4) refuse none: the count is the old rows'.
           const owned = await probe(db, (tx) =>
-            tx.page!.updateMany({ data: { ownerId: null } })
+            tx.page!.updateMany({ data: { ownerId: actor.userId } })
           );
           expect(owned.value, `${name} ownerId`).toEqual({
             count: full.length,
@@ -605,25 +607,31 @@ export function runRbacAppVerbs(
           );
           if (viewed === undefined || hidden === undefined) continue;
           cases += 1;
+          const created = (id: string) => ({
+            id,
+            organizationId: seed.page.find((p) => p.id === id)!.organizationId,
+            title: "w8",
+            position: 0,
+          });
           const upsert = (id: string) =>
             probe(db, async (tx) => {
-              const row = seed.page.find((p) => p.id === id)!;
               await tx.page!.upsert({
                 where: { id },
                 update: { title: "w8" },
-                create: {
-                  id,
-                  organizationId: row.organizationId,
-                  title: "w8",
-                  position: 0,
-                },
+                create: created(id),
               });
             });
+          // Outcome stated: the create arm inserts a key that exists. Through
+          // the entry the created row is judged first, before any constraint
+          // (R4, K4): `ForbiddenError` where the actor may not place it.
+          const expected = (id: string) =>
+            entry && !oracle.places(actor, "page", created(id), { now })
+              ? "ForbiddenError"
+              : "UniqueConstraintError";
           const onViewed = await upsert(viewed);
           const onHidden = await upsert(hidden.id);
-          // Outcome stated: the create arm inserts a key that exists.
-          expect(onViewed.outcome, name).toBe("UniqueConstraintError");
-          expect(onHidden.outcome, name).toBe(onViewed.outcome);
+          expect(onViewed.outcome, name).toBe(expected(viewed));
+          expect(onHidden.outcome, name).toBe(expected(hidden.id));
           const stored = await loose(base).page!.findUnique({
             where: { id: viewed },
             select: { title: true },
@@ -768,6 +776,111 @@ export function runRbacAppVerbs(
         expect(refusals).toBeGreaterThan(0);
         expect(clears).toBeGreaterThan(0);
         expect(await edges(loose(base))).toEqual([...SEEDED_EDGES].sort());
+      },
+      timeout
+    );
+
+    test(
+      "W-W11: a to-one `delete: true` takes its target at the target's delete verb: a grantee team the call sees and may not delete is NestedWriteError, and the grant keeps its key",
+      async () => {
+        // No actor of the estate may delete a team (§1.1 declares no team
+        // `full`): the deletable arm is the core witness's
+        // (extension-verbs.core.test.ts).
+        let refusals = 0;
+        const stateOf = async (tx: Loose) => ({
+          grants: (
+            await tx.accessGrant!.findMany({
+              select: { id: true, granteeTeamId: true },
+              orderBy: { id: "asc" },
+            })
+          ).map((row) => `${row.id}:${row.granteeTeamId}`),
+          teams: ids(await tx.team!.findMany({ select: { id: true } })),
+        });
+        const before = await stateOf(loose(base));
+        for (const name of writers) {
+          const actor = actors[name]!;
+          const db = governed(actor);
+          const editable = at(actor, "accessGrant", "edit");
+          const seen = at(actor, "team", "view");
+          const deletable = at(actor, "team", "full");
+          const held = seed.accessGrant.filter(
+            (grant) =>
+              grant.granteeTeamId !== null && editable.includes(grant.id)
+          );
+          const drop = (grant: string) =>
+            probe(db, async (tx) => {
+              await tx.accessGrant!.update({
+                where: { id: grant },
+                data: { granteeTeam: { delete: true } },
+              });
+            });
+          const guarded = held.find(
+            (grant) =>
+              seen.includes(grant.granteeTeamId!) &&
+              !deletable.includes(grant.granteeTeamId!)
+          );
+          if (guarded === undefined) continue;
+          refusals += 1;
+          expect((await drop(guarded.id)).outcome, name).toBe(
+            NestedWriteError.name
+          );
+        }
+        expect(refusals).toBeGreaterThan(0);
+        expect(await stateOf(loose(base))).toEqual(before);
+      },
+      timeout
+    );
+
+    test(
+      "W-W12: the lax `delete: true` through a self relation: a parent document the call sees and may not delete is NestedWriteError; an empty slot deletes nothing and succeeds",
+      async () => {
+        let refusals = 0;
+        let empties = 0;
+        const documents = async (tx: Loose) =>
+          ids(await tx.document!.findMany({ select: { id: true } }));
+        const before = await documents(loose(base));
+        for (const name of writers) {
+          const actor = actors[name]!;
+          const db = governed(actor);
+          const editable = at(actor, "document", "edit");
+          const seen = at(actor, "document", "view");
+          const deletable = at(actor, "document", DELETE.document!);
+          const drop = (document: string) =>
+            probe(db, async (tx) => {
+              await tx.document!.update({
+                where: { id: document },
+                data: { parent: { delete: true } },
+              });
+              return (await documents(tx)).length;
+            });
+          const visible = seen.length;
+          const guarded = seed.document.find(
+            (document) =>
+              document.parentId !== null &&
+              editable.includes(document.id) &&
+              seen.includes(document.parentId) &&
+              !deletable.includes(document.parentId)
+          );
+          if (guarded !== undefined) {
+            refusals += 1;
+            expect((await drop(guarded.id)).outcome, name).toBe(
+              NestedWriteError.name
+            );
+          }
+          const root = seed.document.find(
+            (document) =>
+              document.parentId === null && editable.includes(document.id)
+          );
+          if (root === undefined) continue;
+          empties += 1;
+          expect(await drop(root.id), name).toEqual({
+            outcome: "ok",
+            value: visible,
+          });
+        }
+        expect(refusals).toBeGreaterThan(0);
+        expect(empties).toBeGreaterThan(0);
+        expect(await documents(loose(base))).toEqual(before);
       },
       timeout
     );

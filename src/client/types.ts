@@ -518,7 +518,7 @@ export type Client<
 };
 
 /** The controls one (model, operation) accepts; none without a declaration. */
-type PlacedOperationControls<Controls, ModelName, O> = [
+export type PlacedOperationControls<Controls, ModelName, O> = [
   keyof Controls,
 ] extends [never]
   ? NoControls
@@ -729,7 +729,9 @@ type NamesTarget<Names, Target extends Model<any>, S> = Names extends keyof S
  * a client with controls. The parameter gives a control value its contextual
  * literal type all the same.
  */
-type WithControlArgs<Parameter, Controls> = [keyof Controls] extends [never]
+export type WithControlArgs<Parameter, Controls> = [keyof Controls] extends [
+  never,
+]
   ? Parameter
   : Parameter & Controls;
 
@@ -1817,7 +1819,7 @@ type GroupByOrderGuard<
     : unknown
   : unknown;
 
-type NoExtraOperationKeys<
+export type NoExtraOperationKeys<
   O extends Operations,
   Arg,
   Payload,

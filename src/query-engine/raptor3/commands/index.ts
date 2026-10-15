@@ -8,6 +8,7 @@ import {
   type ExecutionBinding,
   OperationContext,
 } from "../shared/operation-context";
+import { admitProjected } from "../shared/projected";
 import type { Leaf, ProjectionShape, Read } from "../shared/query";
 import { PreparedDomain, Queries } from "../shared/query";
 import {
@@ -170,11 +171,26 @@ class PreparedCommand implements PreparedOperation {
     return (this.#admitted ??= this.#admit());
   }
 
-  /** Admitted where a required field the call's stamps write may be left out. */
+  /**
+   * Admitted where a required field the call's stamps write may be left out,
+   * with the projection keys its domain declares kept beside the schema's.
+   */
   #admit(): Arguments {
     const stamps = this.#scope?.rows.stamps;
+    const domain = this.#scope?.domain;
+    const parse = (raw: unknown) =>
+      this.#schema.admit(this.#model, this.#operation, raw);
     const admit = () =>
-      this.#schema.admit(this.#model, this.#operation, this.#rawArgs);
+      domain?.projects
+        ? admitProjected(
+            domain,
+            this.#schema,
+            this.#model,
+            this.#operation,
+            this.#rawArgs,
+            parse
+          )
+        : parse(this.#rawArgs);
     return stamps === undefined ? admit() : parseStamped(stamps, admit);
   }
 

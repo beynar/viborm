@@ -1710,6 +1710,9 @@ export class Commands {
           selection.model,
           this.context.schema.identity(selection.model, row)
         ),
+        // The captured row was judged where it was selected; the row its
+        // write produces is judged at the same verb (R4).
+        ...(selection.judgement && { judgement: selection.judgement }),
       },
       selection.required
     );

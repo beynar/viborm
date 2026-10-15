@@ -6,10 +6,12 @@ import {
   UnsupportedOperationError,
 } from "@errors";
 import { type AnyModel, getModelKeyCatalog } from "@schema/model";
-import type {
-  Member,
-  MembershipParent,
-  ObservationPremise,
+import type { PreparedGuardFailure } from "../../types";
+import {
+  type Member,
+  type MembershipParent,
+  nestedRefusal,
+  type ObservationPremise,
 } from "../shared/operation-context";
 import type {
   PreparedProjection,
@@ -551,6 +553,12 @@ export class CommandExecution {
     const found = rows[0];
     if (!found) {
       if (selection.required) throw selection.required();
+      const unjudged = selection.unjudged;
+      if (unjudged)
+        await this.context.requireAbsent(
+          selection.outsideVerb(),
+          unjudged.failure()
+        );
       return;
     }
     attempt.rows.set(selection, found);
@@ -820,7 +828,9 @@ export class CommandExecution {
                 member,
                 command.operation,
                 command.fields.demands,
-                confirmationFailure
+                confirmationFailure,
+                command.located.judgement,
+                this.#refusal(command)
               )
             : await ctx.insert(
                 command.model,
@@ -829,7 +839,8 @@ export class CommandExecution {
                 member,
                 command.operation,
                 command.fields,
-                this.#membershipParent(command, occurrence.parent?.command)
+                this.#membershipParent(command, occurrence.parent?.command),
+                this.#refusal(command)
               )
         );
         // Every capture still runs before every effect, and the reason is
@@ -1227,10 +1238,24 @@ export class CommandExecution {
   #insertTogether(
     records: CommandOccurrence<RecordCommand>[]
   ): Promise<number | undefined> {
-    return this.context.insertMany(records[0]!.command.model, () => {
-      for (const { command } of records) command.fields.activate();
-      return records.map(({ command }) => this.stored(command.fields));
-    });
+    const [first] = records;
+    return this.context.insertMany(
+      first!.command.model,
+      () => {
+        for (const { command } of records) command.fields.activate();
+        return records.map(({ command }) => this.stored(command.fields));
+      },
+      this.#refusal(first!.command)
+    );
+  }
+  /**
+   * What a record whose produced row is refused reports (R4, §5.3): a nested
+   * one its relation's `NestedWriteError`, a root one the operation's
+   * `ForbiddenError` (`undefined`, the context's default).
+   */
+  #refusal(command: RecordCommand): PreparedGuardFailure | undefined {
+    const origin = command.origin ?? command.located?.origin;
+    return origin && nestedRefusal(origin.operation, origin.relation);
   }
   async #executeRecords(
     records: CommandOccurrence<RecordCommand>[],

@@ -40,6 +40,7 @@ import {
   type ExtensionStateContributionOf,
   type HasExtensionCache,
   type HasResultConsumingExtension,
+  type MergeModelMethods,
 } from "@extensions/methods";
 import { TransactionWriteOutcomes } from "@extensions/query";
 import { applyRequestTransforms } from "@extensions/request";
@@ -84,6 +85,11 @@ import {
   type ClientOmitResolver,
   createClientOmitResolver,
 } from "./omit";
+import type {
+  DeclaresEvidence,
+  GatedConfig,
+  ProjectedModelOperations,
+} from "./projected-types";
 import {
   createRawSurface,
   RAW_METHOD_NAMES,
@@ -299,16 +305,55 @@ type AppliedClientConfig<
   Definition,
 > = Definition extends OfficialDefaultOmitExtension<infer OmitConfig>
   ? WithDefaultOmit<C, OmitConfig>
-  : C;
+  : GatedConfig<C, Definition>;
+
+/**
+ * A contribution whose model slot also carries the projected overloads of a
+ * declared key (K5), typed against the client as this step leaves it.
+ */
+export interface ProjectedContribution<
+  Contribution extends ExtensionStateConstraint,
+  Projected extends object,
+> extends ExtensionStateConstraint {
+  readonly client: Contribution["client"];
+  readonly models: MergeModelMethods<Contribution["models"], Projected>;
+  readonly cache: Contribution["cache"];
+  readonly resultConsumer: Contribution["resultConsumer"];
+  readonly controls: Contribution["controls"];
+  readonly rows: Contribution["rows"];
+  readonly data: Contribution["data"];
+}
+
+type ContributionOf<
+  C extends VibORMConfig,
+  X extends ExtensionStateConstraint,
+  Definition,
+  Contribution extends
+    ExtensionStateConstraint = ExtensionStateContributionOf<Definition>,
+> = DeclaresEvidence<C, Definition> extends false
+  ? Contribution
+  : ProjectedContribution<
+      Contribution,
+      ProjectedModelOperations<
+        GatedConfig<C, Definition>,
+        ClientRowsContext<
+          GatedConfig<C, Definition>,
+          X["rows"] | Contribution["rows"]
+        >,
+        X["controls"] & Contribution["controls"],
+        Definition
+      >
+    >;
 
 type AppliedExtensionState<
+  C extends VibORMConfig,
   X extends ExtensionStateConstraint,
   Definition,
 > = Definition extends OfficialCacheExtension
   ? EnableExtensionCache<X>
   : Definition extends OfficialDefaultOmitExtension
     ? X
-    : AccumulatedExtensionState<X, ExtensionStateContributionOf<Definition>>;
+    : AccumulatedExtensionState<X, ContributionOf<C, X, Definition>>;
 
 /**
  * The keys a proposed config names that the surface does not have: the typos.
@@ -460,7 +505,7 @@ interface VibORMClientMembers<
     extension: Definition & ExtensionAdmission<Definition, C, X>
   ) => VibORMClient<
     AppliedClientConfig<C, Definition>,
-    AppliedExtensionState<X, Definition>
+    AppliedExtensionState<C, X, Definition>
   >;
 }
 
@@ -478,7 +523,7 @@ type ApplyClientExtensions<
       ? Definition extends ExtensionAdmission<Definition, C, X>
         ? ApplyClientExtensions<
             AppliedClientConfig<C, Definition>,
-            AppliedExtensionState<X, Definition>,
+            AppliedExtensionState<C, X, Definition>,
             RemainingDefinitions
           >
         : never

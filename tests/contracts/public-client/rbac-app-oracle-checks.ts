@@ -39,6 +39,7 @@ const IN_ORG = [
   "page",
   "document",
   "collection",
+  "bookmark",
 ] as const;
 /** Actions no rule and no arm declares: false for everyone (R9, A7). */
 const UNDECLARED = new Set([
@@ -58,7 +59,7 @@ const PLAN_WITNESS_IDS = [
   ...series("W-R", 9),
   ..."abcdefg".split("").map((s) => `W-K1${s}`),
   ..."abcdefg".split("").map((s) => `W-K2${s}`),
-  ...series("W-W", 10),
+  ...series("W-W", 12),
   ...series("W-P", 16),
   ...series("W-AS", 7),
   ...series("W-CAN", 6),
@@ -98,6 +99,7 @@ export function runRbacOracleChecks(): void {
         document: 150,
         collection: 30,
         accessGrant: 280,
+        bookmark: 60,
       });
       const depth = (id: string | null): number =>
         id === null

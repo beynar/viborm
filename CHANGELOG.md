@@ -51,7 +51,8 @@ action.
   A delete (tombstones included) takes `delete`'s predicate; an update
   takes, for each field its data writes, that field's `writes` entry, else
   `update`'s. A verb a model's entry leaves out matches nothing. A key of a
-  model's entry other than these five is refused at `$extends` with a
+  model's entry other than these and `place`, `moves`, `acyclic`,
+  `evidence` and `reads` (below) is refused at `$extends` with a
   `ClientInitializationError` naming the model and the key (a misspelt
   `writes` would judge its fields at `update`).
 - **A write is judged by the statement it emits.** On a model with verbs,
@@ -62,6 +63,37 @@ action.
   On a model with verbs, a `connect`, `set` or `disconnect` judges that row,
   at both ends of a join; `set: []` refuses, with `NestedWriteError`, a
   visible link the call may not write.
+- **`rows` verbs judge the row a write produces.** A model's entry may name
+  `place` (the predicate every created row holds), `moves: { [field]: name }`
+  (the predicate the new row of an update writing that field holds) and
+  `acyclic: [relation]` (a to-one relation of the model to itself whose new
+  target must lie outside the row's own subtree). An updated row is also
+  judged at the predicates that judged its old row. The produced row is
+  judged as a value, against the rows as they stand before the write, inside
+  the statement that writes it (`INSERT … SELECT … WHERE`, `UPDATE … WHERE`
+  over the produced rows), on every create and update site: `create`,
+  `createMany`, `upsert`'s two arms, nested `create`, `connectOrCreate`,
+  `update`, `updateMany` and a foreign key's `connect` or unlink. A refused
+  row is written by no statement, before any constraint is checked:
+  `ForbiddenError` at the root, `NestedWriteError` nested. A missing key
+  target and a hidden one give the same error. A model naming no `place` is
+  not judged on create; a row of database defaults only, on a model with a
+  `place`, is refused before any statement, as is a list `push`/`unshift` or
+  an exact decimal's `multiply`/`divide` on a field the judgement reads.
+- **Adapters: `assertions.holds(condition, from?)`**, the expression a
+  judged statement carries: 1, or the statement fails before it writes.
+- **`rows` verbs report and gate per row.** A model's entry may declare
+  `evidence: { as, names, ordered? }`, a projection key (`$` and an
+  identifier) a `select` or `include` may name at any depth, on reads and on
+  the rows a write returns: per row, whether each named predicate holds
+  there, or with `ordered` the last one that holds (`null` where the row's
+  `read` does not). `reads: { [field]: name }` gates a scalar field: a row
+  carries it only where the predicate holds, an explicit `select` of it on a
+  row without it is a `ValidationError` at `select.<field>`, and every
+  operand a call writes over it (`where`, unique lookups, cursors,
+  `connect`, `orderBy`, `distinct`, aggregates, `groupBy`, relation filters)
+  reads it as absent there. Keys and foreign keys cannot be gated. The
+  client's types admit the key and make gated fields optional by default.
 - **`viborm/rbac`** (not yet published, OD-11).
   `rbac({ actor, levels, limit, models })` compiles one predicate per model
   and action (R1) against the schema, as plain data in the shape `rows.verbs`
@@ -76,10 +108,10 @@ action.
   rows step (a bound-only, required `actor` control; the `as` mode, each
   model's actions and named domains; every model's verbs) then a methods
   step, also offered apart as `.rows` and `.methods`. A model the policy
-  does not list, or a verb it does not declare, is refused before any
-  statement with `ForbiddenError`; an `as` mode the model does not declare
-  with `ValidationError`. An action or domain named `default` is refused at
-  compile.
+  does not list, a verb it does not declare, or an `as` mode it does not
+  declare, is refused before any statement with `ForbiddenError` (OD-7). An
+  action or domain named `default` is refused at compile. A polymorphic
+  relation's arm reads `null` where the actor cannot view its target.
 - **`db.$as(actor)`** returns a view with the actor bound: validated once
   against the actor schema, no chain rebuilt; transactions and clients
   `$extends` derives from it keep it. A call on `db` without it, or passing
@@ -123,6 +155,10 @@ action.
 
 ### Fixed
 
+- **A nested to-one `delete: true` whose target the call may not delete**
+  (rows verbs) is refused with `NestedWriteError`, instead of clearing the
+  key, or doing nothing, and succeeding. The refusal never tells a hidden
+  target from one the call may not delete.
 - **An update with nothing to assign no longer fails.** On a model with no
   `updatedAt` and no stamp, `update({ data: {} })` and
   `updateMany({ data: {} })` sent `UPDATE … SET` with an empty list and threw

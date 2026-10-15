@@ -594,6 +594,11 @@ export class PostgresAdapter implements DatabaseAdapter {
       sql`SELECT 1 / CASE WHEN EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
     notExists: (query: Sql): Sql =>
       sql`SELECT 1 / CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE 0 END AS "__viborm_assert__"`,
+    // The zero is a sublink: PostgreSQL folds `1 / 0` while planning, so a
+    // condition that folds false would raise for a statement that judges
+    // no row; a sublink is evaluated only where the division is reached.
+    holds: (condition: Sql, from?: Sql): Sql =>
+      sql`SELECT 1 / CASE WHEN ${condition} THEN 1 ELSE (SELECT 0) END AS "__viborm_assert__"${from ? sql` FROM ${from}` : sql``}`,
   };
 
   joins = {

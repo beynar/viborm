@@ -5,7 +5,7 @@
 
 import { s } from "viborm";
 import { accessGrant, collection, team, teamMember } from "./access";
-import { document, page, pageGroup } from "./content";
+import { bookmark, document, page, pageGroup } from "./content";
 
 export const ROLES = ["admin", "member", "reader"] as const;
 export const PLANS = ["free", "pro"] as const;
@@ -40,6 +40,7 @@ export const user = s.model({
   grants: s.toMany(() => accessGrant).name("grantToUser"),
   grantsGiven: s.toMany(() => accessGrant).name("grantGivenBy"),
   ownedDocuments: s.toMany(() => document),
+  bookmarks: s.toMany(() => bookmark),
 });
 
 export const session = s.model({
@@ -76,6 +77,7 @@ export const organization = s.model({
   documents: s.toMany(() => document),
   teams: s.toMany(() => team),
   accessGrants: s.toMany(() => accessGrant),
+  bookmarks: s.toMany(() => bookmark),
 });
 
 export const member = s.model({

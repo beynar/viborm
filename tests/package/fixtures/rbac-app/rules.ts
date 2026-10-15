@@ -319,6 +319,8 @@ export function handRules(actor: Actor, options: RuleOptions) {
             given(model, a)
           )
         );
+      case "bookmark":
+        return and(inOrg(a), limit(model, a), or({ userId: me }, admin));
       default:
         return null;
     }

@@ -291,7 +291,7 @@ type ModelMethodsOf<Definition> = Definition extends {
     : NoMethods
   : NoMethods;
 
-type MergeModelMethods<Left extends object, Right extends object> = {
+export type MergeModelMethods<Left extends object, Right extends object> = {
   readonly [ModelName in
     | keyof Left
     | keyof Right]: (ModelName extends keyof Left

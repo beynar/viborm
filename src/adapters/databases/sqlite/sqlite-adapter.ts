@@ -734,6 +734,8 @@ const SQLITE_ASSERTIONS = {
     sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
   notExists: (query: Sql): Sql =>
     sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"`,
+  holds: (condition: Sql, from?: Sql): Sql =>
+    sql`SELECT CASE WHEN ${condition} THEN 1 ELSE json_extract('x', '$') END AS "__viborm_assert__"${from ? sql` FROM ${from}` : sql``}`,
 };
 
 const SQLITE_JOINS = {

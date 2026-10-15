@@ -97,7 +97,12 @@ convergence and a hidden conflict's rethrow behave as without a domain, and
 marks the selector `scoped`, so the two consumers that trust the key alone —
 the RETURNING confirmation fast path and the targeted `ON CONFLICT` fold —
 decline. The engine never sees a mode or an extension's name; a control's
-name only as the key a parameter reads its call value under (`CallValues`).
+name only as the key a parameter reads its call value under (`CallValues`). An
+equality on a parameter pins no value in `SelectorFacts` and leaves the
+selector `exact`: its literal equalities still prove a write disjoint from a
+later read (N1), so a control's value never turns an independent lookup
+into an ordered observation, which on a batch-only driver would split the
+operation into two batches and commit the first alone.
 
 *Verbs (rbac plan K3).* A domain may hold, per model and layer, `verbs`
 (`ModelVerbs`): `read` ANDs with that layer's predicate at every purpose, and
@@ -111,7 +116,87 @@ whose key or join row changes. `PreparedDomain.selector` puts the verb's
 predicates inside the layer's node, so R5 and R6 judge them with the read
 predicate; a model without verbs ignores the judgement and keeps its bytes. A
 clear (`remove` with no target) first refuses, with `NestedWriteError`, a
-member it sees and may not unlink.
+member it sees and may not unlink. A lax nested `delete: true` under a delete
+verb that narrows what the call sees carries `Selection.unjudged`: when its
+judged lookup binds nothing, `runSelection` requires absent a member of the
+slot it addresses outside its candidates (`Selection.outsideVerb`), with the
+strict form's "not found" sentence. A key the parent holds addresses its
+member seen or not; a key the member holds addresses only members the call
+sees, so a hidden one is an empty slot.
+
+*Produced rows (rbac plan K4, OD-13: one statement).* A layer's `ModelVerbs`
+may name `place` (every created row), `moves` (per field, the new row of an
+update writing it) and `acyclic` self relations. `PreparedDomain.produced`
+is the one answer to "what is the row this write produces judged at":
+`place` for a create; for an update, the predicates that judged its old row
+(`read` and the verb's, the selector's `judgement`, `Queries.candidates`
+records it) and its written fields' `moves`; nothing for a delete, a
+tombstone or a model without verbs, whose statements keep their bytes. The
+row is judged as a VALUE, against the rows before the write, inside the
+statement that writes it, and a refused row raises the adapter's
+`assertions.holds` there, before any row is written and before any
+constraint. An INSERT (`OperationContext.#insertStatement`, every create
+site: root, `createMany` chunks, nested, `connectOrCreate`, upsert arms)
+reads its rows from `Queries.producedSource`: a derived table of the values,
+typed by the model's own columns (an empty read of the table leads the
+`UNION ALL`, so a bound value is never PostgreSQL's untyped text), each row
+kept where its `holds` is 1; one statement's rows never see each other
+(`INSERT … SELECT` materializes its source). An UPDATE (`update`,
+`updateMany`, `mutateMembers`, `remove`'s unlink, the captured series)
+takes `Queries.producedWhere`: its candidates' keys, read once before the
+write, grouped by key and kept where `MIN(holds)` over the row with its
+assignments applied is 1. The aggregate is the point: a guard in a select
+list or a `WHERE` is flattened and cost-ordered by PostgreSQL and MySQL and
+was measured judging a row the update does not write, and a guard in `SET`
+is evaluated row by row by SQLite and MySQL and was measured seeing the
+statement's own earlier rows. The values a write sets fold into its
+judgement where they are null tests of the produced row's own columns
+(`foldKnownNulls`): an arm on a key the write leaves null never reaches the
+statement. An acyclic relation is a physical walk under no domain
+(`#outsideOwnSubtree`). A refused write raises `NestedWriteAssertionError`,
+reported as the write's refusal (`ForbiddenError` at the root,
+`NestedWriteError` nested) on the plain transport (`#judging`) and, in a
+batch, by its position or, where the transport reports none, by the sole
+judged write or the first whose own `SELECT` source is refused when asked
+again (`#queueJudged`, `TransportAttempt.judgeWrite`). A set update whose
+candidates state the old row's judgement in the same statement does not
+state it again over a new row that differs only in fields it does not read
+(`readsAny`): the answer is the old row's. A value only the database
+computes (a list append, an exact decimal's multiply or divide) has no
+value to judge: it is refused before any statement where the judgement
+reads it, and stands where nothing does; a row of defaults only is refused
+on a model with a `place`.
+
+*Evidence and read-gated fields (rbac plan K5).* A layer's `ModelVerbs` may
+carry `evidence` (a projection key and the predicates it reports) and `reads`
+(per field, the predicate its row holds where it carries the field);
+`PreparedDomain.projected(model)` gathers them per model, and `layered`
+prepares each predicate once as its layer's node, so R5 and R6 judge it as
+they judge the layer's filter. `shared/projected.ts` keeps a key beside the
+shared `select` schema: taken out of every node of the call's projection
+before admission, put back by path after, its value checked there; and it
+marks, on the `select` admission returned (`namedGatedFields`, by identity),
+the gated fields the caller named, since an `include` or an `omit` desugars
+into a `select` naming every scalar. `prepareProjection` lowers a key as the
+`evidence` field (a document of booleans, or `ordered`, the last name that
+holds) and a gated field beside one `gate` member per distinct gate
+(`0viborm_gate:<n>`, never published); a projection the engine reads for
+itself is `internal` and carries neither, and an internal decode reads every
+member it asked for. The decoder (`#compileGatedDocument`) writes a gated
+member only where its gate holds; where it does not, a member the caller
+named fails the operation with `ValidationError` at its path
+(`GatedFieldRefusal`, after the statement, OD-5) and any other is left out.
+`lowerProjection(…, visible)`: on a row the domain took (a read under a
+purpose, every relation and recursive hop) the layer's `read` holds, so the
+key and the gate test the rest alone; a row captured by identity (a write's
+result) tests `read` too. Every operand a caller writes over a gated field
+(`#preparedColumn`, `#operand`: filters, unique lookups and connects, order
+terms and cursors, `distinct`, aggregates) reads `CASE WHEN <gate> THEN
+<column> END`; inside a layer the column is read as it is. A grouped read,
+and a paged aggregate, of a gated model reads a masked window of its
+filtered rows (`#overMasked`), so the gate is lowered once per row rather
+than once per grouped expression. A model whose verbs declare neither keeps
+its default projection and its bytes.
 
 *Tombstones (extension `deletion`, plan v3.1 §2.3).* A call whose facts carry
 `tombstones` (absent when its controls matched `removeWhen`) writes an update

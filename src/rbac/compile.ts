@@ -186,22 +186,17 @@ function actionsOf(
 }
 
 /**
- * Each model's K3 entry (`rows.verbs`): its predicates and the verbs and
- * written fields that name them. Reads, modes and placement are the entry's
- * and later capabilities' (K4, K5), never part of it.
+ * Each model's `rows.verbs` entry: its predicates, the verbs and written
+ * fields that name them (K3), the produced row's placement, moves and
+ * acyclic relations (K4), and its projection key and read-gated fields (K5).
+ * Modes are the entry's own (`rows.models`), never part of it.
  */
 export function verbsOf(compiled: CompiledPolicy): Record<string, RowsVerbs> {
   return Object.fromEntries(
     Object.entries(compiled.models).map(
-      ([name, { predicates, writes, read, update, delete: remove }]) => [
+      ([name, { modes, reads, ...verbs }]) => [
         name,
-        {
-          predicates,
-          writes,
-          ...(read !== undefined && { read }),
-          ...(update !== undefined && { update }),
-          ...(remove !== undefined && { delete: remove }),
-        },
+        Object.keys(reads).length === 0 ? verbs : { ...verbs, reads },
       ]
     )
   );
@@ -527,17 +522,6 @@ export function compilePolicy(
     const writes: Record<string, string> = {};
     const reads: Record<string, string> = {};
     const state = stateOf(name);
-    const keys = new Set([
-      ...Object.entries(state.scalars)
-        .filter(([, scalar]) => scalar["~"].state.isId)
-        .map(([field]) => field),
-      ...Object.values(state.compoundId ?? {}).flatMap(({ entries }) =>
-        Object.keys(entries)
-      ),
-      ...Object.values(state.relations).flatMap(
-        (relation) => relation["~"].state.foreignKey?.fields ?? []
-      ),
-    ]);
     for (const [field, { read, write }] of Object.entries(
       policy.fields ?? {}
     )) {
@@ -553,12 +537,8 @@ export function compilePolicy(
         );
       if (write !== undefined)
         writes[field] = declared(`fields.${field}.write`, write)!;
+      // A key, a foreign key or a relation is refused by K5's admission.
       if (read === undefined) continue;
-      if (keys.has(field) || Object.hasOwn(state.relations, field))
-        refuse(
-          `models.${name}.fields.${field}: a key or relation cannot be read-gated`,
-          name
-        );
       reads[field] = declared(`fields.${field}.read`, read)!;
     }
     compiled[name] = Object.freeze({

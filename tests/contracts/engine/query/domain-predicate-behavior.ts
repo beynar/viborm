@@ -39,7 +39,16 @@ import { afterEach, describe, expect, test } from "vitest";
 export interface DomainPredicateSubstrate {
   readonly name: string;
   readonly createDriver: () => AnyDriver;
+  /**
+   * Creates the schema's tables on an empty database (default: a live
+   * `push`); a substrate without a migration capability (D1) runs the plan's
+   * statements itself.
+   */
+  readonly prepare?: (client: Loose) => Promise<void>;
 }
+
+// The cases address models by name, as JavaScript would.
+type Loose = any;
 
 const account = s.model({
   id: s.string().id(),
@@ -323,8 +332,6 @@ const actor = (path: string) => ({ control: "actor", path });
 export function runDomainPredicateBehavior(
   substrate: DomainPredicateSubstrate
 ): void {
-  // The cases address models by name, as JavaScript would.
-  type Loose = any;
   const open: { $disconnect(): Promise<void> }[] = [];
   afterEach(async () => {
     for (const client of open.splice(0)) await client.$disconnect();
@@ -335,7 +342,7 @@ export function runDomainPredicateBehavior(
       driver: substrate.createDriver(),
     });
     open.push(base);
-    await syncLiveSchema(base);
+    await (substrate.prepare ?? syncLiveSchema)(base);
     await base.account.createMany({ data: ACCOUNTS });
     await base.session.createMany({ data: SESSIONS });
     await base.org.createMany({ data: ORGS });

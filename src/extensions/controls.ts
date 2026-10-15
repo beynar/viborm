@@ -97,6 +97,24 @@ export type RowsContribution = {
  * `update`'s when its data writes only stamps. A join row's change is a write
  * of the relation on both rows it links; a row only addressed to reach its
  * children is read. A verb left out matches nothing.
+ *
+ * The row a write produces is judged too, as a value, against the rows as
+ * they stand before the write, inside the statement that writes it (R4): a
+ * created row at `place` (a model naming none is not judged on create); an
+ * updated row at the predicates that judged its old row, and, for each field
+ * its data writes, at that field's `moves` entry, and where it writes the
+ * key of an `acyclic` relation (a to-one relation of the model to itself),
+ * outside its own subtree. A refused row is written by no statement.
+ *
+ * `evidence` declares a projection key (`evidence.as`) a `select` or
+ * `include` may name at every depth, on reads and on the rows a write
+ * returns: per row, whether each of `names` holds there beside `read`, or,
+ * `ordered`, the last of them that holds (`null` on a row `read` does not
+ * hold). `reads` gates a field on a predicate: the row carries it only where
+ * `read` and that predicate hold, a `select` naming it fails on a row
+ * without them, and every operand a call writes over it (`where`, `orderBy`,
+ * aggregates, `distinct`, unique lookups, relation filters) reads it as
+ * absent there. A key or foreign-key field is never gated.
  */
 export type RowsVerbs = {
   readonly predicates: { readonly [name: string]: ScalarFields };
@@ -104,6 +122,15 @@ export type RowsVerbs = {
   readonly update?: string;
   readonly delete?: string;
   readonly writes?: { readonly [field: string]: string };
+  readonly place?: string;
+  readonly moves?: { readonly [field: string]: string };
+  readonly acyclic?: readonly string[];
+  readonly evidence?: {
+    readonly as: string;
+    readonly names: readonly string[];
+    readonly ordered?: boolean;
+  };
+  readonly reads?: { readonly [field: string]: string };
 };
 
 /**

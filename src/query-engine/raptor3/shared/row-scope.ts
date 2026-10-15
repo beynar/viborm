@@ -30,13 +30,42 @@ export interface RowDomain {
  * One layer's predicates for one model's verbs, as admission left them: `read`
  * ANDs with the layer's predicate at every purpose, a write's verb with its
  * candidates beside them (R2). An update takes, per field its data writes,
- * that field's predicate, else `update`'s.
+ * that field's predicate, else `update`'s. The row a write produces is
+ * judged as a value (R4): a created row at `place`, absent where the layer
+ * does not judge creates; an updated row at the predicates that judged its
+ * old row and, per field it writes, that field's `moves` predicate.
  */
 export interface ModelVerbs {
   readonly read: Input;
   readonly update: Input;
   readonly delete: Input;
   readonly writes: ReadonlyMap<string, Input>;
+  readonly place?: Input;
+  readonly moves: ReadonlyMap<string, Input>;
+  /**
+   * Self relations, each held by this model's key, whose links stay
+   * acyclic: an update writing one is refused where its new target is the
+   * row itself or a row below it.
+   */
+  readonly acyclic: readonly string[];
+  /** The projection key the layer declares on the model (K5). */
+  readonly evidence?: ModelEvidence;
+  /**
+   * Per read-gated field, the predicate a row holds, beside `read`, where it
+   * carries the field (K5).
+   */
+  readonly reads: ReadonlyMap<string, Input>;
+}
+
+/**
+ * A projection key and what it reports per row, each name with its admitted
+ * predicate in declared order: whether each holds beside `read`, or, when
+ * `ordered`, the last that does.
+ */
+export interface ModelEvidence {
+  readonly as: string;
+  readonly names: readonly (readonly [string, Input])[];
+  readonly ordered: boolean;
 }
 
 /**

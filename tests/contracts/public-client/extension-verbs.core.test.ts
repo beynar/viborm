@@ -10,13 +10,16 @@
  * 11; board 3 holds post 10.
  */
 
+import { createClient } from "@client/client";
 import { NestedWriteError, NotFoundError } from "@errors";
+import { s } from "@schema";
 import {
   openRowScopeFixture,
   type RowScopeFixture,
 } from "@tests/contracts/engine/query/row-scope-behavior";
 import { createInMemorySQLite3Driver } from "@tests/fixtures/drivers/sqlite3";
 import { failure } from "@tests/fixtures/failure";
+import { syncLiveSchema } from "@tests/fixtures/sync-schema";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 /** Every row visible; `update` and the written relation each at its own name. */
@@ -124,5 +127,155 @@ describe("verbs on polymorphic relations", () => {
       include: { items: true },
     });
     expect(items?.items).toHaveLength(2);
+  });
+});
+
+/**
+ * A nested delete takes its target at the target's `delete` verb (plan §5.1):
+ * a member the call sees and may not delete is refused, never kept while the
+ * call reports success. Both slots: a key the parent holds (`card.crew`),
+ * whose member the parent's own key names, and a key the member holds
+ * (`holder.badge`), whose member the call names only if it sees it. A
+ * to-one `delete` takes only `true`. Every refusal is the sentence a missing
+ * target gives (§5.3).
+ */
+describe("a nested delete judged at the target's delete verb", () => {
+  const holder = s.model({
+    id: s.string().id(),
+    badge: s.toOne(() => badge),
+  });
+  const badge = s.model({
+    id: s.string().id(),
+    label: s.string(),
+    holderId: s.string().nullable().unique(),
+    holder: s
+      .toOne(() => holder)
+      .fields("holderId")
+      .references("id"),
+  });
+  const card = s.model({
+    id: s.string().id(),
+    crewId: s.string().nullable(),
+    crew: s
+      .toOne(() => crew)
+      .fields("crewId")
+      .references("id"),
+  });
+  const crew = s.model({
+    id: s.string().id(),
+    label: s.string(),
+    cards: s.toMany(() => card),
+  });
+  /** Each label once per slot: `open` may be deleted, `locked` is only seen, `hidden` is not seen. */
+  const LABELS = ["open", "locked", "hidden"] as const;
+  const labelled = {
+    predicates: {
+      all: {},
+      seen: { label: { not: "hidden" } },
+      open: { label: "open" },
+    },
+    read: "seen",
+    update: "seen",
+    delete: "open",
+  };
+  const opened = async () => {
+    const base = createClient({
+      schema: { holder, badge, card, crew },
+      driver: createInMemorySQLite3Driver(),
+    });
+    await syncLiveSchema(base);
+    for (const id of [...LABELS, "empty"]) {
+      await base.holder.create({ data: { id } });
+      await base.card.create({ data: { id } });
+    }
+    for (const label of LABELS) {
+      await base.badge.create({ data: { id: label, label, holderId: label } });
+      await base.crew.create({ data: { id: label, label } });
+      await base.card.update({
+        where: { id: label },
+        data: { crewId: label },
+      });
+    }
+    const governed = Reflect.apply(Reflect.get(base, "$extends"), base, [
+      {
+        name: "verbs",
+        rows: {
+          control: "as",
+          default: "all",
+          models: {},
+          verbs: {
+            holder: {
+              predicates: { all: {} },
+              read: "all",
+              update: "all",
+            },
+            card: { predicates: { all: {} }, read: "all", update: "all" },
+            badge: labelled,
+            crew: labelled,
+          },
+        },
+      },
+    ]) as Record<string, { update(args: object): Promise<unknown> }>;
+    return { base, governed };
+  };
+  let estate: Awaited<ReturnType<typeof opened>>;
+  beforeEach(async () => {
+    estate = await opened();
+  });
+  afterEach(async () => {
+    await estate.base.$disconnect();
+  });
+  const state = async () => ({
+    badges: (await estate.base.badge.findMany({ orderBy: { id: "asc" } })).map(
+      (row) => `${row.id}:${row.holderId}`
+    ),
+    cards: (await estate.base.card.findMany({ orderBy: { id: "asc" } })).map(
+      (row) => `${row.id}:${row.crewId}`
+    ),
+    crews: (await estate.base.crew.findMany({ orderBy: { id: "asc" } })).map(
+      (row) => row.id
+    ),
+  });
+  /** The refusal's class and sentence. */
+  const refusal = async (pending: Promise<unknown>) => {
+    const error = (await failure(pending)) as Error;
+    return `${error.constructor.name}: ${error.message}`;
+  };
+
+  test("the parent's key names the member: one it may not delete, seen or not, is refused alike, and the key is kept", async () => {
+    const remove = (id: string) =>
+      estate.governed.card!.update({
+        where: { id },
+        data: { crew: { delete: true } },
+      });
+    const before = await state();
+    const locked = await refusal(remove("locked"));
+    expect(locked).toBe(
+      "NestedWriteError: Cannot delete relation 'crew': target record was not found for this parent."
+    );
+    expect(await refusal(remove("hidden"))).toBe(locked);
+    expect(await state()).toEqual(before);
+    await remove("empty");
+    await remove("open");
+    expect((await state()).cards).toContain("open:null");
+    expect((await state()).crews).toEqual(["hidden", "locked"]);
+  });
+
+  test("the member's key: one the call sees and may not delete is refused; one it cannot see is an empty slot", async () => {
+    const remove = (id: string) =>
+      estate.governed.holder!.update({
+        where: { id },
+        data: { badge: { delete: true } },
+      });
+    const before = await state();
+    expect(await refusal(remove("locked"))).toBe(
+      "NestedWriteError: Cannot delete relation 'badge': target record was not found for this parent."
+    );
+    expect(await state()).toEqual(before);
+    await remove("hidden");
+    await remove("empty");
+    expect(await state()).toEqual(before);
+    await remove("open");
+    expect((await state()).badges).toEqual(["hidden:hidden", "locked:locked"]);
   });
 });

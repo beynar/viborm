@@ -46,6 +46,10 @@
 //   A7  A rule key that is neither a level nor in a model's `actions` names an
 //       action implying `view` only (D3); an action with no rule and no arm is
 //       false (R9).
+//   A8  A polymorphic arm (`bookmark.subject`) is read under its target's
+//       `P(view)` and the other layers' related domain (a tombstoned page is
+//       hidden): it reads the variant and its row where the target is viewed,
+//       `null` where it is not, and `null` where the bookmark holds none.
 
 import {
   type AccessGrantRow,
@@ -69,6 +73,7 @@ export const GOVERNED_MODELS = [
   "page",
   "document",
   "collection",
+  "bookmark",
 ] as const;
 export type GovernedModel = (typeof GOVERNED_MODELS)[number];
 
@@ -91,6 +96,7 @@ const EXTRA_ACTIONS: Record<GovernedModel, readonly string[]> = {
   page: [],
   document: [],
   collection: [],
+  bookmark: [],
 };
 
 /** Each model's actions with what each one directly implies (D3). */
@@ -146,6 +152,89 @@ export interface OracleOptions {
 }
 
 type Row = Record<string, unknown> & { id?: string };
+
+/**
+ * Each governed model's foreign keys and their targets (R4: a written key's
+ * target is visible). `session`/`apiKey` are not written by these models.
+ */
+export const KEYS: Record<
+  GovernedModel,
+  Readonly<Record<string, GovernedModel>>
+> = {
+  organization: {},
+  member: { organizationId: "organization", userId: "user" },
+  user: {},
+  team: { organizationId: "organization" },
+  teamMember: { teamId: "team", userId: "user" },
+  accessGrant: {
+    organizationId: "organization",
+    pageId: "page",
+    groupId: "pageGroup",
+    documentId: "document",
+    collectionId: "collection",
+    userId: "user",
+    granteeTeamId: "team",
+    grantedBy: "user",
+  },
+  pageGroup: { organizationId: "organization", createdById: "user" },
+  page: {
+    organizationId: "organization",
+    ownerId: "user",
+    groupId: "pageGroup",
+  },
+  document: {
+    organizationId: "organization",
+    ownerId: "user",
+    parentId: "document",
+  },
+  collection: {
+    organizationId: "organization",
+    ownerId: "user",
+    createdById: "user",
+  },
+  // `subject` is a polymorphic arm: its target is the variant's, and no
+  // placement witness writes it.
+  bookmark: { organizationId: "organization", userId: "user" },
+};
+/** The models §1.1 declares `create:` on; the others create nothing (R9). */
+export const CREATES: ReadonlySet<GovernedModel> = new Set([
+  "member",
+  "teamMember",
+  "accessGrant",
+  "page",
+  "document",
+  "collection",
+]);
+/** The models §1.1 declares `within: inOrg` on. */
+const WITHIN: ReadonlySet<GovernedModel> = new Set([
+  "member",
+  "team",
+  "pageGroup",
+  "page",
+  "document",
+  "collection",
+  "bookmark",
+]);
+/**
+ * Per model, the fields its placement reads (`within`, `limit`, `create:`):
+ * an update writing one is judged at the placement too (OD-14).
+ */
+export const PLACED: Partial<Record<GovernedModel, readonly string[]>> = {
+  member: ["organizationId"],
+  teamMember: ["teamId"],
+  accessGrant: [
+    "organizationId",
+    "pageId",
+    "groupId",
+    "documentId",
+    "collectionId",
+    "level",
+    "actions",
+  ],
+  page: ["organizationId", "groupId", "personal", "ownerId"],
+  document: ["organizationId", "parentId", "ownerId"],
+  collection: ["organizationId", "createdById"],
+};
 
 /** A row's key: its id, or `teamId:userId` for the compound-keyed team member. */
 export function rowKey(model: string, row: object): string {
@@ -452,6 +541,11 @@ export function createOracle(seed: RbacSeed) {
               (row.status === "draft" && row.createdById === actor.userId) ||
               given("collection", row.id as string, a))
           );
+        case "bookmark":
+          return (
+            inOrg(organizationId, a) &&
+            (row.userId === actor.userId || isAdmin(organizationId))
+          );
         default:
           return false;
       }
@@ -477,6 +571,27 @@ export function createOracle(seed: RbacSeed) {
             : collections;
       return table.get(id) as unknown as Row | undefined;
     };
+    /**
+     * `grants.place`: administered (A5), and never more than the writer
+     * holds on each attached thing: every listed action, and on a leveled
+     * thing the level, held there.
+     */
+    const grantPlaced = (grant: AccessGrantRow): boolean =>
+      administers(grant) &&
+      (Object.keys(thingKey) as Thing[]).every((model) => {
+        const id = grant[thingKey[model]];
+        if (id === null) return true;
+        const thing = thingRow(model, id as string);
+        if (thing === undefined) return false;
+        return (
+          actionsOf(model).every(
+            (x) => !grant.actions.includes(x) || P(model, x, thing)
+          ) &&
+          (model === "document" ||
+            grant.level === null ||
+            P(model, grant.level, thing))
+        );
+      });
     const administers = (grant: AccessGrantRow) => {
       const attached = (Object.keys(thingKey) as Thing[]).filter(
         (model) => grant[thingKey[model]] !== null
@@ -508,7 +623,134 @@ export function createOracle(seed: RbacSeed) {
     const holds = (model: GovernedModel, a: string, row: Row) =>
       P(model, "view", row) && P(model, a, row);
 
-    return { holds, rootRows };
+    // R4, the produced row, judged as a value against the seeded rows (plan
+    // §3.2 R4, §4.4 K4, OD-14 recommended): never memoized, since a moved
+    // row shares its key with the row it was.
+    /** R1 for a row that is not (or not yet) the seeded one. */
+    const fresh = (model: GovernedModel, a: string, row: Row) =>
+      actionsOf(model).includes(a) &&
+      limit(model, a, row) &&
+      judge(model, a, row);
+
+    /** The target of a written key: seeded, live under soft delete, and viewed (R4, R5). */
+    const targetVisible = (model: GovernedModel, id: string): boolean => {
+      const row = (
+        seed[model] as unknown as readonly (Row & {
+          deletedAt?: Date | null;
+        })[]
+      ).find((candidate) => candidate.id === id);
+      if (row === undefined) return false;
+      if (
+        (TOMBSTONED_MODELS as readonly string[]).includes(model) &&
+        tombstones &&
+        row.deletedAt !== null
+      )
+        return false;
+      return P(model, "view", row);
+    };
+    const keysVisible = (
+      model: GovernedModel,
+      row: Row,
+      fields: readonly string[] = Object.keys(KEYS[model])
+    ) =>
+      fields.every((field) => {
+        const value = row[field];
+        return (
+          value === null ||
+          value === undefined ||
+          targetVisible(KEYS[model][field]!, value as string)
+        );
+      });
+
+    /** §1.1 `create:` for a row of `model`; `false` where the model declares none. */
+    const createRule = (model: GovernedModel, row: Row): boolean => {
+      switch (model) {
+        case "member": {
+          const org = organizations.get(row.organizationId as string);
+          return org !== undefined && P("organization", "invite", org);
+        }
+        case "teamMember": {
+          const team = teams.get(row.teamId as string);
+          return team !== undefined && P("team", "invite", team);
+        }
+        case "accessGrant":
+          return grantPlaced(row as unknown as AccessGrantRow);
+        case "page": {
+          const group =
+            row.groupId === null || row.groupId === undefined
+              ? undefined
+              : pageGroups.get(row.groupId as string);
+          return (
+            (group !== undefined && P("pageGroup", "edit", group)) ||
+            ((row.groupId ?? null) === null &&
+              row.personal === true &&
+              row.ownerId === actor.userId)
+          );
+        }
+        case "document": {
+          const parent =
+            row.parentId === null || row.parentId === undefined
+              ? undefined
+              : documents.get(row.parentId as string);
+          return (
+            (parent !== undefined && P("document", "edit", parent)) ||
+            ((row.parentId ?? null) === null && row.ownerId === actor.userId)
+          );
+        }
+        case "collection":
+          return row.createdById === actor.userId;
+        default:
+          return false;
+      }
+    };
+    /** `within(M)(c) ∧ limit(M, c) ∧ create(M)` at c = `edit` (OD-3). */
+    const placeRule = (model: GovernedModel, row: Row): boolean => {
+      if (!CREATES.has(model)) return false;
+      const organizationId = row.organizationId as string;
+      const within =
+        !WITHIN.has(model) ||
+        (organizationId !== undefined && inOrg(organizationId, "edit"));
+      return within && limit(model, "edit", row) && createRule(model, row);
+    };
+    /** Every created row: its placement, and every key's target visible. */
+    const places = (model: GovernedModel, row: Row) =>
+      placeRule(model, row) && keysVisible(model, row);
+
+    /** The ancestors of a document's new parent never include the document. */
+    const acyclic = (row: Row) => {
+      const seen = new Set<string>();
+      let at = row.parentId as string | null | undefined;
+      while (at !== null && at !== undefined && !seen.has(at)) {
+        if (at === row.id) return false;
+        seen.add(at);
+        at = documents.get(at)?.parentId;
+      }
+      return true;
+    };
+    /**
+     * An updated row: under the predicates that judged its old one (`view`
+     * and each written field's action), the placement where it writes what
+     * `create:` reads (OD-14, `within ∧ limit ∧ create:`), each written
+     * key's target visible, and a document's parent outside its own subtree.
+     */
+    const produces = (
+      model: GovernedModel,
+      row: Row,
+      writes: readonly string[],
+      actions: readonly string[]
+    ) =>
+      fresh(model, "view", row) &&
+      actions.every((a) => fresh(model, a, row)) &&
+      (!writes.some((field) => (PLACED[model] ?? []).includes(field)) ||
+        placeRule(model, row)) &&
+      keysVisible(
+        model,
+        row,
+        writes.filter((field) => Object.hasOwn(KEYS[model], field))
+      ) &&
+      (model !== "document" || !writes.includes("parentId") || acyclic(row));
+
+    return { holds, rootRows, places, produces };
   }
 
   return {
@@ -541,6 +783,67 @@ export function createOracle(seed: RbacSeed) {
         );
       }
       return evidence;
+    },
+    /**
+     * A8: per bookmark the actor views, what its `subject` arm reads: the
+     * variant and target id where the actor views the target, else `null`.
+     */
+    subjects(
+      actor: Actor,
+      options: OracleOptions
+    ): Map<string, { type: "page" | "document"; id: string } | null> {
+      const { holds, rootRows } = evaluate(actor, options);
+      // A related read: the call's root mode never reaches it.
+      const related = evaluate(actor, { ...options, deleted: "default" });
+      const viewed = (model: "page" | "document", id: string) =>
+        related
+          .rootRows(model)
+          .some((row) => row.id === id && related.holds(model, "view", row));
+      const arms = new Map<
+        string,
+        { type: "page" | "document"; id: string } | null
+      >();
+      for (const row of rootRows("bookmark")) {
+        if (!holds("bookmark", "view", row)) continue;
+        const { subjectType: type, subjectId: id } = row as unknown as {
+          subjectType: "page" | "document" | null;
+          subjectId: string | null;
+        };
+        arms.set(
+          row.id as string,
+          type !== null && id !== null && viewed(type, id) ? { type, id } : null
+        );
+      }
+      return arms;
+    },
+    /** Whether the actor may create `row` of `model` (R4): placement and every key's target visible. */
+    places(
+      actor: Actor,
+      model: GovernedModel,
+      row: Record<string, unknown>,
+      options: OracleOptions
+    ): boolean {
+      return evaluate(actor, options).places(model, row as Row);
+    },
+    /**
+     * Whether the row an update produces is admitted (R4): `row` is the new
+     * row, `writes` the fields the update writes, `actions` the actions its
+     * old row was judged at (R3).
+     */
+    produces(
+      actor: Actor,
+      model: GovernedModel,
+      row: Record<string, unknown>,
+      writes: readonly string[],
+      actions: readonly string[],
+      options: OracleOptions
+    ): boolean {
+      return evaluate(actor, options).produces(
+        model,
+        row as Row,
+        writes,
+        actions
+      );
     },
     /** The highest held level, for a model whose actions are ordered (`$access` with `levels`). */
     highestLevel(held: readonly string[]): (typeof LEVELS)[number] | undefined {

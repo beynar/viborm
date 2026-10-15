@@ -3466,3 +3466,63 @@ refused.
 | Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
 |---|---|---|---|---|
 | `src/extensions/admission.ts` `admitRows` · `refuse(…, "is not one of predicates, read, update, delete, writes")` | A `rows.verbs` entry holds only K3's keys (`VERBS_KEYS`, typed `Record<keyof RowsVerbs, true>`). Refused with `ClientInitializationError` naming the extension, the model and the key. | `$extends`, where the definition meets the receiving schema. | Without it a misspelt `writes` (`write:`) is ignored, so the field it meant is judged at `update`, which widens the write; policies may be data built at runtime, so the types do not cover it. | `extension-controls.core.test.ts` "an unknown key in a model's verbs is refused at $extends, named with its model …" (on HEAD the definition is accepted: "expected the definition to be refused"). |
+
+## Addendum — a lax nested delete under its verb (RBAC plan M1, E4, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §5.1 (nested `delete`: "a hidden or
+ineligible target gives `NestedWriteError`"), §5.3, R3 as amended in §11.2.
+One guard added, none deleted. The strict nested delete needs none: its
+lookup is required and judged at the delete verb, so a hidden, missing or
+non-deletable target is already the one `missingTarget` refusal. The gate
+(`domainOf` with and without `DELETE_JUDGEMENT`) is not a guard: a model
+without verbs keeps its statements byte for byte.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/query-engine/raptor3/commands/relation-body.ts` (`outgoing.unjudged`, case `delete`) → `commands/execution.ts` `runSelection` · `requireAbsent(selection.outsideVerb(), …)` (`NestedWriteError`, `missingTarget`'s sentence) | A lax `delete: true` never succeeds while the slot holds a member the call addresses and its delete verb does not take: the parent's own key addresses its member seen or not (one refusal for hidden and non-deletable); a member's key addresses only a member the call sees (a hidden one is an empty slot, as for a clear). | The judged lookup's empty answer, where an empty slot and an untaken member first differ. | The lax spelling only: on HEAD a key-holding parent's `delete: true` on a member it may not delete nulls the key and returns ok; a member-held one is a silent no-op. The clear premise (`OperationContext.remove`) covers `set []` and the lax `disconnect`, not a delete. | `rbac-app-verbs.ts` W-W11 (`accessGrant.granteeTeam`) and W-W12 (`document.parent`), "expected 'ok' to be 'NestedWriteError'" on HEAD; `extension-verbs.core.test.ts` "a nested delete judged at the target's delete verb" (both slot kinds; "expected the operation to fail" on HEAD). |
+
+## Addendum — the produced row (RBAC plan M2, U6/K4, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §4.4 (K4), R4, OD-13 (one statement), OD-14.
+Two guards added, one widened, none deleted. A refused produced row is not
+a guard of its own: it is the judgement the write's statement carries
+(`Queries.producedSource`, `Queries.producedWhere`), and its report is the
+statement's assertion (`assertions.holds`), attributed to the write.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/extensions/admission.ts` `admitRows` · `known("place", …)`, `refuse(…, "names an unknown field")` and `known(…)` for `moves` (widened from the K3 row) | A `place` or `moves` entry names a predicate the model declares; a `moves` key is a field of the model. | `$extends`. | Without it a misspelt `place` or move silently judges nothing (an unjudged create, an unjudged move). | `extension-produced.core.test.ts` "a placement or a move names one of the model's predicates, and a move one of its fields". |
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "names no to-one relation of the model to itself holding its key")` | An `acyclic` relation is a to-one relation of its model to itself whose key the model holds. | `$extends`, where the relation's target is settled. | Without it a relation the walk cannot follow (a junction, another model's) is lowered as a cycle check that reads the wrong rows, or throws at the first write. | `extension-produced.core.test.ts` "an acyclic relation is a to-one relation of the model to itself that holds its key". |
+| `src/query-engine/raptor3/shared/operation-context.ts` `#insertStatement` · `throw new UnsupportedOperationError(…writes no field…)` | A judged create writes a value: a row of database defaults only has none to judge before it is written. | The INSERT's construction, where its columns are known. | Without it `INSERT … DEFAULT VALUES` carries no judgement: a placement on such a model would be bypassed (fail open). | `produced-row-behavior.ts` "a value only the database computes is judged where it is read: … a defaults-only create always". |
+| `src/query-engine/raptor3/shared/query.ts` `Queries.updateValue` · `throw new QueryEngineError(…before '…' executes…)` (reached from `producedWhere` where the judgement reads the field) | The new row of a judged update has a value for every field its judgement reads; a list append and an exact decimal's multiply or divide have none. | The UPDATE's construction. | Newly reached: without it the new row would be judged on its old value (fail open on `actions: { push: "export" }`). A field no judged predicate reads keeps its old value in the produced row, since no answer depends on it. | `produced-row-behavior.ts` "a value only the database computes is judged where it is read …" (QueryEngineError before any statement). |
+
+## Addendum — declared projection keys and read-gated fields (RBAC plan M2, U7/K5, 2026-10-15)
+
+Plan `rbac-extension-plan.md` §4.5 (K5), §3.3 D5/D6, OD-2, OD-5. Five guards
+added, none deleted. The `ValidationError` a `select` naming a read-gated
+field raises on a row without its gate (`GatedFieldRefusal`, OD-5) is not a
+guard: it is the field's one meaning when a caller named it, the decoder's
+answer after the statement. The two extra keys of a `rows.verbs` entry
+(`evidence`, `reads`) widen E3's `VERBS_KEYS` row, whose message now lists
+them; that row's guard is unchanged.
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "evidence.as", "is not \`$\` and an identifier")` (`PROJECTION_KEY`) | A declared projection key is spelled `$` and an identifier: outside the schema identifier grammar (`schema/identifier.ts`) and the engine's carrier names, so it never hides a member of the model, whatever the schema later adds. | `$extends`, where the definition meets the receiving schema. | Without it a key spelled like a field (or `_count`) takes that member's place in every projection of the model and strips it from every `select` before admission. | `extension-evidence.core.test.ts` "admission refuses a key not spelled `$` …" (`evidence.as: "own"`). |
+| `src/extensions/admission.ts` `admitRows` · `known("evidence.names.<i>" \| "reads.<field>", …)` | Every name a key reports and every gate names a predicate the model declares. | `$extends`. | Without it a misspelt name binds `undefined` as its predicate: the key reports nothing true there, or a gated field is never present. | `extension-evidence.core.test.ts` "admission refuses …" (`evidence.names.0`, `reads.title`). |
+| `src/extensions/admission.ts` `admitRows` · `refuse(…, "reads.<field>", "names no scalar of the model" \| "names a key or foreign key")` | Only a scalar that is neither a key nor a foreign key is read-gated. | `$extends`: the model's keys are first known there. | A caller's operands read a gated field masked while identity, joins and relation filters read keys raw: a gated foreign key would answer through `include`/`some` what a scalar filter hides. Any extension may declare `reads`, so `viborm/rbac`'s own refusal (`compile.ts`, "a key or relation cannot be read-gated") covers its policies only; with this guard that one names no unique failure (needsOutside, U9). | `extension-evidence.core.test.ts` "admission refuses …" (`reads.id`, `reads.organizationId`, `reads.parent`, `reads.nothing`). |
+| `src/extensions/rows.ts` `modelVerbs` · `throw new ClientInitializationError(…is declared by two extensions of the chain)` | One projection key per model, one layer. | `$extends`, where the chain's layers are bound. | Without it the first layer's key answers and the second's is unreachable: its evidence never reported, silently. | `extension-evidence.core.test.ts` "two extensions of one chain declaring one key on one model are refused". |
+| `src/query-engine/raptor3/shared/projected.ts` `admitKey` · `throw new ValidationError(…, "<path>.<key>", …)` | A declared key's value is `true`, `false` or a non-empty list of the names its model declares. | Admission of the call: the shared `select` schema never sees the key. | Without it a value the schema never checked (a string, an unknown name) lowered as a list filter: `"yes"` reported nothing, `["owner"]` an empty document. | `extension-evidence.core.test.ts` "the key reports each name … an invalid value or an undeclared key is a ValidationError at its path"; `rbac-evidence-behavior.ts` W-EV3 (`["owner"]`). |
+
+## Addendum — the entry's unreachable calls; one read-gate refusal (RBAC plan M2 wave 4 integration, 2026-10-15)
+
+Plan `rbac-extension-plan.md` R9, OD-7 (ruled: `ForbiddenError`), §5.3; K5.
+One guard recorded (unit T's, widened to the `as` mode), one deleted
+(`viborm/rbac`'s read-gated key refusal, whose invariant K5's admission now
+owns for every extension, `viborm/rbac` included, since `verbsOf` hands
+`reads` to the rows member).
+
+| Site | Invariant | First knowable boundary | Unique coverage | Falsifier |
+|---|---|---|---|---|
+| `src/rbac/index.ts` `refuseUnreachable` · `throw new ForbiddenError(model, operation)` | R9: a root call false when the policy is applied (unlisted model, undeclared verb or `as` mode) is refused before any statement, with one class (OD-7). | The rows step's `query` handler, the only place that sees the entry's `as` control before a statement. | Without it the call issues statements and answers like a per-call fold. | `rbac-entry-behavior.ts` W-D2, W-D6 (`ValidationError` at HEAD for the mode: `scratchpad/rbac/t/t5-fail-before.log`). |
+| ~~`src/rbac/compile.ts` `compilePolicy` · `refuse(…, "a key or relation cannot be read-gated")`~~ (deleted) | Only a scalar that is neither a key nor a foreign key is read-gated. | `rbac(config)(base)`, the same application step as K5's admission. | None left: `verbsOf` now passes `reads` to the rows member, and `admitRows` refuses a relation (`names no scalar of the model`) and a key or foreign key (`names a key or foreign key`) with the same `ClientInitializationError` at the same step. | `rbac-entry-behavior.ts` "a read-gated key or foreign key is refused when the policy is applied (K5's admission)" (moved from `compile.core.test.ts`). |

@@ -587,6 +587,81 @@ await db.document.delete({ user: "ada", where: { id }, as: "mine" }); // a mode 
   no predicate has, a model the schema lacks or a `writes` field the model
   lacks is refused there, as is a predicate object that contains itself.
 
+### Judge the row a write produces
+
+`verbs` also judges the row a write leaves behind, as a value, against the
+rows as they stand before the write, inside the statement that writes it:
+
+```ts
+document: {
+  predicates: { seen, own, placed: { ownerId: { control: "user" } } },
+  read: "seen",
+  update: "own",
+  place: "placed",                   // every created row
+  moves: { folderId: "placed" },     // an update writing folderId
+  acyclic: ["parent"],               // a document never moves under itself
+},
+```
+
+- A created row is judged at `place` (a model naming none is not judged on
+  create). An updated row is judged at the predicates that judged its old
+  row (`read` and its verb's), and at each written field's `moves` entry: an
+  update cannot leave a row its call could not have written.
+- A refused row is written by no statement: at the root `ForbiddenError`,
+  in a nested write `NestedWriteError`, before any constraint, so a unique
+  key or a missing target never answers first. `createMany` and
+  `updateMany` refuse the whole statement when one row is refused; a row the
+  write does not take is never judged.
+- Nothing a statement writes is visible to its own judgement: a row cannot
+  justify itself, and one row of a `createMany` or `updateMany` never
+  decides another. A child created under a parent the same call created is
+  judged with that parent as written.
+- A value only the database computes cannot be judged before it exists: a
+  list `push`/`unshift` or an exact decimal's `multiply`/`divide` is refused
+  before any statement where the row's judgement reads that field (write the
+  whole value instead), and a row of defaults only on a model with a
+  `place`.
+
+### Report and gate with `evidence` and `reads`
+
+The same predicates can answer per row. `evidence` declares a key a call may
+put in any `select` or `include`, at any depth, on reads and on the rows a
+write returns; `reads` gates a field on a predicate.
+
+```ts
+verbs: {
+  document: {
+    predicates: { seen, own, archivist },
+    read: "seen",
+    update: "own",
+    evidence: { as: "$access", names: ["seen", "own", "archivist"] },
+    reads: { notes: "own" },
+  },
+},
+
+await db.document.findMany({
+  user: "ada",
+  include: { $access: true, children: { include: { $access: ["own"] } } },
+}); // each row: { …, $access: { seen: true, own: boolean, archivist: boolean } }
+await db.document.findMany({ user: "ada" }); // `notes` only on Ada's own
+await db.document.findMany({ user: "ada", select: { id: true, notes: true } }); // ValidationError if a row is not hers
+```
+
+- The key is spelled `$` and an identifier, so no field of the model can take
+  its name. Each name reports whether its predicate holds on the row beside
+  `read`, computed in the statement that reads the row (for a write, when its
+  result row is read). `ordered: true` reports instead the last name that
+  holds, or `null`. `$access: ["own"]` asks for some names only.
+- A gated field is present where its predicate holds and absent elsewhere; the
+  row is never dropped. A `select` (or an `omit: { notes: false }`) that names
+  it fails with `ValidationError` at its path when a returned row lacks the
+  predicate. Every operand a call writes over it (`where`, `orderBy`,
+  `distinct`, aggregates and `groupBy`, unique lookups, `connect`, relation
+  filters and relation order) reads it as absent (`NULL`) on those rows.
+- A key or foreign key cannot be gated, and two extensions of one chain cannot
+  declare the same key on a model: both are refused when the extension is
+  applied.
+
 ## Change what a delete does with `deletion`
 
 For the models `deletion.models` names, a delete (root, bulk, nested, or a

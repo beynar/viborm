@@ -1,3 +1,4 @@
+import { ClientInitializationError } from "@errors";
 import {
   type CallRows,
   Condition,
@@ -246,6 +247,15 @@ function modelDomain(
 /** `{ OR: [] }`, false: what a verb a model's `verbs` leaves out takes. */
 const NOTHING: Input = Object.freeze({ OR: Object.freeze([]) });
 
+/** A `writes` or `moves` entry, its names resolved. */
+const fieldsOf = (
+  entry: { readonly [field: string]: string } | undefined,
+  named: (name: string) => Input
+): ReadonlyMap<string, Input> =>
+  new Map(
+    Object.entries(entry ?? {}).map(([field, name]) => [field, named(name)])
+  );
+
 /**
  * Every member's verbs per model, each at its member's layer, their names
  * resolved to the admitted predicates: the same for every mode combination.
@@ -254,8 +264,17 @@ function modelVerbs(
   rows: readonly RowsContribution[]
 ): ReadonlyMap<string, readonly (ModelVerbs | undefined)[]> | undefined {
   const verbs = new Map<string, (ModelVerbs | undefined)[]>();
+  const keys = new Set<string>();
   for (const [layer, member] of rows.entries()) {
     for (const [model, entry] of Object.entries(member.verbs ?? {})) {
+      // One projection key, one layer: a second would hide the first.
+      const key = entry.evidence && `${model}.${entry.evidence.as}`;
+      if (key !== undefined && keys.has(key))
+        throw new ClientInitializationError(
+          `rows.verbs.${model}.evidence.as "${entry.evidence!.as}" is declared by two extensions of the chain.`,
+          { meta: { model } }
+        );
+      if (key !== undefined) keys.add(key);
       const named = (name: string | undefined): Input =>
         name === undefined ? NOTHING : entry.predicates[name]!;
       const list = verbs.get(model) ?? [];
@@ -263,12 +282,22 @@ function modelVerbs(
         read: named(entry.read),
         update: named(entry.update),
         delete: named(entry.delete),
-        writes: new Map(
-          Object.entries(entry.writes ?? {}).map(([field, name]) => [
-            field,
-            named(name),
-          ])
-        ),
+        writes: fieldsOf(entry.writes, named),
+        ...(entry.place !== undefined && { place: named(entry.place) }),
+        moves: fieldsOf(entry.moves, named),
+        acyclic: Object.freeze([...(entry.acyclic ?? [])]),
+        ...(entry.evidence && {
+          evidence: Object.freeze({
+            as: entry.evidence.as,
+            names: Object.freeze(
+              entry.evidence.names.map((name) =>
+                Object.freeze([name, named(name)] as const)
+              )
+            ),
+            ordered: entry.evidence.ordered === true,
+          }),
+        }),
+        reads: fieldsOf(entry.reads, named),
       });
       verbs.set(model, list);
     }

@@ -5,6 +5,7 @@ import {
   type ConditionTest,
   Parameter,
 } from "@query-engine/raptor3/shared/row-scope";
+import type { ModelState } from "@schema/model";
 import { isPlainRecord } from "@schema/relation/terminal";
 import { createSchemaRegistry } from "@validation/builder";
 import { validateSchema } from "@validation/primitives/helpers";
@@ -43,7 +44,37 @@ const VERBS_KEYS: Record<keyof RowsVerbs, true> = {
   update: true,
   delete: true,
   writes: true,
+  place: true,
+  moves: true,
+  acyclic: true,
+  evidence: true,
+  reads: true,
 };
+
+/**
+ * A declared projection key's spelling: `$` and an identifier. No model
+ * member and no engine carrier is spelled so, so a key never hides either,
+ * whatever the schema later adds.
+ */
+const PROJECTION_KEY = /^\$[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * A model's key and foreign-key fields: what identity and every join read, so
+ * none of them is ever read-gated.
+ */
+function keyFields(state: ModelState): ReadonlySet<string> {
+  return new Set([
+    ...Object.entries(state.scalars)
+      .filter(([, scalar]) => scalar["~"].state.isId === true)
+      .map(([field]) => field),
+    ...Object.values(state.compoundId ?? {}).flatMap(({ entries }) =>
+      Object.keys(entries)
+    ),
+    ...Object.values(state.relations).flatMap(
+      (relation) => relation["~"].state.foreignKey?.fields ?? []
+    ),
+  ]);
+}
 
 /** A condition's tests, the filter vocabulary's own words (OD-12). */
 const TESTS = ["exists", "equals", "in", "has", "hasSome"] as const;
@@ -189,15 +220,49 @@ export function admitRows(
     known("read", entry.read);
     known("update", entry.update);
     known("delete", entry.delete);
-    for (const [field, predicate] of Object.entries(entry.writes ?? {})) {
-      if (
-        !(
-          Object.hasOwn(state.scalars, field) ||
-          Object.hasOwn(state.relations, field)
+    known("place", entry.place);
+    for (const key of ["writes", "moves"] as const)
+      for (const [field, predicate] of Object.entries(entry[key] ?? {})) {
+        if (
+          !(
+            Object.hasOwn(state.scalars, field) ||
+            Object.hasOwn(state.relations, field)
+          )
         )
+          refuse(name, place, `${key}.${field}`, "names an unknown field");
+        known(`${key}.${field}`, predicate);
+      }
+    for (const relation of entry.acyclic ?? []) {
+      const held = Object.hasOwn(state.relations, relation)
+        ? state.relations[relation]!["~"]
+        : undefined;
+      if (
+        held?.state.foreignKey === undefined ||
+        held.settleTarget() !== schema[name]
       )
-        refuse(name, place, `writes.${field}`, "names an unknown field");
-      known(`writes.${field}`, predicate);
+        refuse(
+          name,
+          place,
+          `acyclic.${relation}`,
+          "names no to-one relation of the model to itself holding its key"
+        );
+    }
+    const { evidence } = entry;
+    if (evidence !== undefined) {
+      if (!PROJECTION_KEY.test(evidence.as))
+        refuse(name, place, "evidence.as", "is not `$` and an identifier");
+      for (const [index, predicate] of evidence.names.entries())
+        known(`evidence.names.${index}`, predicate);
+    }
+    const keys = entry.reads === undefined ? undefined : keyFields(state);
+    for (const [field, predicate] of Object.entries(entry.reads ?? {})) {
+      if (!Object.hasOwn(state.scalars, field))
+        refuse(name, place, `reads.${field}`, "names no scalar of the model");
+      // Masked in a caller's operands while identity and joins read it raw,
+      // a key would answer through a relation what a filter hides.
+      if (keys!.has(field))
+        refuse(name, place, `reads.${field}`, "names a key or foreign key");
+      known(`reads.${field}`, predicate);
     }
     verbs[name] = Object.freeze({
       ...entry,

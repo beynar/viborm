@@ -33,6 +33,7 @@ import {
 } from "@tests/types/rbac/acceptance-policy";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import {
+  createDataOf,
   createRbacAppClient,
   loadRbacSeed,
   type RbacAppClient,
@@ -113,7 +114,7 @@ function governedOver(client: RbacAppClient, between?: object): Loose {
 /** A copy of the model's first seeded row under new keys: valid create data. */
 const freshRow = (model: string): Row => {
   const [first] = seed[model as keyof typeof seed] as unknown as Row[];
-  const copy: Row = { ...first };
+  const copy: Row = createDataOf(model, first!);
   if ("id" in copy) copy.id = `fresh-${model}`;
   if ("token" in copy) copy.token = "fresh-token";
   if ("key" in copy) copy.key = "fresh-key";
@@ -559,6 +560,62 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       timeout
     );
 
+    test(
+      "W-R9: a polymorphic arm reads under its target's P(view): a bookmark's subject is its variant and row where the actor views the target, null where it does not, and a filter through the arm reads the same",
+      async () => {
+        type Arm = { type: "page" | "document"; id: string } | null;
+        const sorted = (arms: Iterable<[string, Arm]>) =>
+          [...arms].sort(([a], [b]) => a.localeCompare(b));
+        let shown = 0;
+        let hidden = 0;
+        for (const name of judged) {
+          const actor = actors[name]!;
+          const want = oracle.subjects(actor, { now });
+          const call = db.$as(actor);
+          const rows = (await call.bookmark!.findMany({
+            include: { subject: true },
+          })) as unknown as {
+            id: string;
+            subject: { type: "page" | "document"; data: Row } | null;
+          }[];
+          expect(
+            sorted(
+              rows.map((row): [string, Arm] => [
+                row.id,
+                row.subject === null
+                  ? null
+                  : { type: row.subject.type, id: String(row.subject.data.id) },
+              ])
+            ),
+            name
+          ).toEqual(sorted(want));
+          for (const type of ["page", "document"] as const) {
+            const through = await call.bookmark!.findMany({
+              where: { subject: { type, is: {} } },
+              select: { id: true },
+            });
+            expect(keys("bookmark", through), `${name} ${type}`).toEqual(
+              [...want]
+                .filter(([, arm]) => arm?.type === type)
+                .map(([id]) => id)
+                .sort()
+            );
+          }
+          for (const [id, arm] of want) {
+            if (arm !== null) shown += 1;
+            else if (seed.bookmark.find((b) => b.id === id)!.subjectId !== null)
+              hidden += 1;
+          }
+        }
+        // Both readings occur among the judged actors on every substrate.
+        if (judged.length > 3) {
+          expect(shown).toBeGreaterThan(0);
+          expect(hidden).toBeGreaterThan(0);
+        }
+      },
+      timeout
+    );
+
     if (substrate.raw === true)
       test("W-X1: raw SQL on the governed client is not filtered: it reads every row", async () => {
         const call = db.$as(actors.u04!);
@@ -722,7 +779,7 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       timeout
     );
 
-    test("W-D6: a root call false when the policy is applied is refused before any statement: a mode the model does not declare (ValidationError naming both), a verb it does not declare (ForbiddenError)", async () => {
+    test("W-D6: a root call false when the policy is applied is refused before any statement with ForbiddenError (plan §5.3, D11, OD-7): a mode the model does not declare, a verb it does not declare", async () => {
       const call = as("u01");
       for (const [model, mode] of [
         ["page", "invite"],
@@ -731,14 +788,19 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       ] as const) {
         const result = await issued(() => call[model]!.findMany({ as: mode }));
         expect(result, `${model} as ${mode}`).toEqual({
-          outcome: ValidationError.name,
+          outcome: ForbiddenError.name,
           statements: 0,
         });
         const refusal = (await call[model]!.findMany({ as: mode }).catch(
           (e) => e
-        )) as ValidationError;
-        expect(refusal.message).toContain(`Mode "${mode}"`);
-        expect(refusal.message).toContain(model);
+        )) as ForbiddenError;
+        expect(refusal.meta).toMatchObject({ model, operation: "findMany" });
+        // `can` asks through the same mode: an action the model does not
+        // declare is the same refusal, never a false that reads as hidden.
+        expect(
+          await issued(() => call[model]!.can(mode, { id: "none" })),
+          `${model} can ${mode}`
+        ).toEqual({ outcome: ForbiddenError.name, statements: 0 });
       }
       // organization and team declare no delete: their deletes are false.
       for (const model of ["organization", "team"])
@@ -822,6 +884,18 @@ export function runRbacEntryBehavior(substrate: EntrySubstrate): void {
       } as never);
       expect(() => misspelt(base as never)).toThrow(ClientInitializationError);
       expect(() => misspelt(base as never)).toThrow('actor path "usrId"');
+    });
+
+    test("a read-gated key or foreign key is refused when the policy is applied (K5's admission)", () => {
+      const gated = rbac({
+        actor: ActorSchema,
+        levels: ["view", "edit", "full"],
+        models: { page: { fields: { groupId: { read: "full" } } } },
+      } as never);
+      expect(() => gated(base as never)).toThrow(ClientInitializationError);
+      expect(() => gated(base as never)).toThrow(
+        'rows.verbs.page at "reads.groupId": names a key or foreign key'
+      );
     });
 
     test("W-D11: a null actor value matches nothing: no orphaned row is owned by an actor without a user", async () => {

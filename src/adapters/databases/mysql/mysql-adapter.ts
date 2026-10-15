@@ -833,6 +833,8 @@ export class MySQLAdapter implements DatabaseAdapter {
       sql`SELECT CASE WHEN EXISTS (${query}) THEN 1 ELSE JSON_EXTRACT('x', '$') END AS \`__viborm_assert__\``,
     notExists: (query: Sql): Sql =>
       sql`SELECT CASE WHEN NOT EXISTS (${query}) THEN 1 ELSE JSON_EXTRACT('x', '$') END AS \`__viborm_assert__\``,
+    holds: (condition: Sql, from?: Sql): Sql =>
+      sql`SELECT CASE WHEN ${condition} THEN 1 ELSE JSON_EXTRACT('x', '$') END AS \`__viborm_assert__\`${from ? sql` FROM ${from}` : sql``}`,
   };
 
   joins = {

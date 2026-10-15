@@ -1,7 +1,9 @@
 // Synthetic content models, trimmed from `../../recursive-where/schema/content.ts`:
 // pages filed in groups (the source's `group`, renamed `pageGroup`; the
 // relations keep the name `group`), and documents in a self-referencing tree
-// (parent to-one / children to-many).
+// (parent to-one / children to-many). `bookmark` is this fixture's own: a
+// user's pin of a page or a document, a polymorphic to-one stored on its row
+// (the variants of plan §1.2 C1 and witness W-R9).
 
 import { s } from "viborm";
 import { accessGrant } from "./access";
@@ -38,6 +40,7 @@ export const page = s
     createdAt: s.dateTime().now(),
     updatedAt: s.dateTime().updatedAt(),
     grants: s.toMany(() => accessGrant),
+    bookmarks: s.toMany(() => bookmark).name("bookmarked"),
   })
   .index(["organizationId"])
   .index(["groupId"]);
@@ -102,6 +105,32 @@ export const document = s
       .onDelete("cascade"),
     children: s.toMany(() => document),
     grants: s.toMany(() => accessGrant),
+    bookmarks: s.toMany(() => bookmark).name("bookmarked"),
+  })
+  .index(["organizationId"]);
+
+export const bookmark = s
+  .model({
+    id: s.string().id(),
+    organizationId: s.string(),
+    organization: s
+      .toOne(() => organization)
+      .fields("organizationId")
+      .references("id")
+      .onDelete("cascade"),
+    userId: s.string(),
+    user: s
+      .toOne(() => user)
+      .fields("userId")
+      .references("id")
+      .onDelete("cascade"),
+    note: s.string().default(""),
+    // Unset, the bookmark points at nothing (its variant columns are null).
+    subject: s
+      .toOne({ page: () => page, document: () => document })
+      .name("bookmarked")
+      .optional(),
+    createdAt: s.dateTime().now(),
   })
   .index(["organizationId"]);
 
@@ -109,4 +138,5 @@ export const contentSchema = {
   page,
   pageGroup,
   document,
+  bookmark,
 };

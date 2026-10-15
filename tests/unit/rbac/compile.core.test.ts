@@ -479,14 +479,6 @@ describe("verbs, fields, modes and placement (K3, OD-3, R4)", () => {
       refusalOf(() =>
         compile({
           levels: LEVELS,
-          models: { page: { fields: { groupId: { read: "full" } } } },
-        })
-      )
-    ).toContain("a key or relation cannot be read-gated");
-    expect(
-      refusalOf(() =>
-        compile({
-          levels: LEVELS,
           models: { page: { domains: { edit: {} } } },
         })
       )

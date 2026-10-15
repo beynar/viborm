@@ -1,8 +1,9 @@
 // The RBAC plan's acceptance policy (§1.1 `policy.ts`), verbatim over the
 // rbac-app fixture except `v.optional(v.string())`, the validation library's
-// spelling (§11.2 F8), and the stored-role variant's `roles`, which a stored
+// spelling (§11.2 F8), the stored-role variant's `roles`, which a stored
 // ceiling needs to enumerate (the fixture's `member.role` is a string, not an
-// enum). Read by the type program (`tests/package/type-rbac-smoke.mjs`, from
+// enum), and `bookmark`, the fixture's polymorphic model, which §1.1 does not
+// have (W-R9). Read by the type program (`tests/package/type-rbac-smoke.mjs`, from
 // the packed tarball) and by the compiler's witnesses (tests/unit/rbac).
 
 import {
@@ -167,6 +168,9 @@ export const policy = rbac({
       create: { createdById: { actor: "userId" } },
       fields: { budget: { read: "full" } },
     },
+    // The fixture's polymorphic model (W-R9): a user's pins of pages and
+    // documents; its `subject` arm reads under the target's own `view`.
+    bookmark: { within: inOrg, arms: [owner("userId"), admin] },
   },
 });
 
@@ -189,6 +193,7 @@ export const storedPolicy = rbac({
     page: { ...models.page, ...within },
     document: { ...models.document, ...within },
     collection: { ...models.collection, ...within },
+    bookmark: { ...models.bookmark, ...within },
   },
 });
 

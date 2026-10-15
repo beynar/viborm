@@ -17,6 +17,7 @@ import { schema } from "@tests/package/fixtures/rbac-app/schema";
 import {
   type Actor,
   actors,
+  type BookmarkRow,
   type RbacSeed,
   seed,
 } from "@tests/package/fixtures/rbac-app/seed";
@@ -62,6 +63,7 @@ export type RbacAppClient = ReturnType<typeof createRbacAppClient>;
 
 type Row = Record<string, unknown>;
 interface LooseDelegate {
+  create(args: { data: Row }): Promise<Row>;
   createMany(args: { data: readonly Row[] }): Promise<{ count: number }>;
   findMany(args?: object): Promise<Row[]>;
   count(args?: object): Promise<number>;
@@ -93,6 +95,23 @@ const depthOf = (data: RbacSeed) => {
     return depth;
   };
 };
+
+/**
+ * A seeded row as a `create`'s data: the row itself, except that a
+ * bookmark's variant (`subjectType`, `subjectId`, plain data in the seed) is
+ * written as the polymorphic `subject` connect, the only way a client writes
+ * its storage.
+ */
+export function createDataOf(model: string, row: object): Row {
+  if (model !== "bookmark") return { ...row } as Row;
+  const { subjectType, subjectId, ...rest } = row as BookmarkRow;
+  return subjectType === null || subjectId === null
+    ? rest
+    : {
+        ...rest,
+        subject: { connect: { type: subjectType, where: { id: subjectId } } },
+      };
+}
 
 /** Loads the seed through the base client's public writes. */
 export async function loadRbacSeed(client: RbacAppClient, data = seed) {
@@ -126,6 +145,11 @@ export async function loadRbacSeed(client: RbacAppClient, data = seed) {
   await delegate(client, "accessGrant").createMany({
     data: data.accessGrant as unknown as Row[],
   });
+  // A variant is written through its relation: one create per bookmark.
+  for (const row of data.bookmark)
+    await delegate(client, "bookmark").create({
+      data: createDataOf("bookmark", row),
+    });
 }
 
 const keyColumns = (model: GovernedModel) =>

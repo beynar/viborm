@@ -804,6 +804,13 @@ export interface DatabaseAdapter {
     exists: (query: Sql) => Sql;
     /** Abort unless the provided SELECT returns no rows. */
     notExists: (query: Sql) => Sql;
+    /**
+     * A one-column SELECT answering 1 where `condition` holds (over `from`'s
+     * row when given), aborting the statement it is part of otherwise, NULL
+     * included: the guard a write carries for the row it produces, read as a
+     * scalar inside that write.
+     */
+    holds: (condition: Sql, from?: Sql) => Sql;
   };
 
   capabilities: DatabaseAdapterCapabilities;

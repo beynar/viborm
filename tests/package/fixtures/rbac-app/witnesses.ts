@@ -35,10 +35,16 @@ const NODE_SQL: readonly Substrate[] = ["S3", "PGl", "PG", "My"];
 
 type Row = readonly [id: string, pins: string, reads: OracleReading];
 
-/** The domain-predicate witnesses' runner (SQLite3; PGlite, pg, MySQL2 beside). */
+/**
+ * The domain-predicate witnesses' runner (SQLite3; PGlite, pg and MySQL2
+ * beside, and D1 in tests/providers/workers/d1-domain-predicates.test.ts).
+ */
 const DOMAIN_PREDICATES = "tests/raptor3/post-prep/row-scopes.test.ts";
 
-/** The bound-view witnesses' runner (SQLite3, oracle-bound). */
+/**
+ * The bound-view witnesses' runner (SQLite3, oracle-bound; PGlite and D1
+ * beside, in tests/providers/{local/pglite,workers/d1}-bound-views.test.ts).
+ */
 const BOUND_VIEWS =
   "tests/contracts/public-client/extension-bound-views.core.test.ts";
 
@@ -67,6 +73,21 @@ const VERBS = "tests/providers/local/sqlite3-rbac-verbs.test.ts";
  */
 const ENTRY = "tests/providers/local/sqlite3-rbac-entry.test.ts";
 
+/**
+ * The produced-row witnesses' runner (SQLite3; PGlite, pg, MySQL2 and D1
+ * beside, in tests/providers/{local,docker,workers}/*-rbac-placement.test.ts),
+ * oracle-bound; the engine's own behaviour is
+ * tests/contracts/engine/query/produced-row-behavior.ts on every substrate.
+ */
+const PLACEMENT = "tests/providers/local/sqlite3-rbac-placement.test.ts";
+
+/**
+ * K5's witnesses' runner (SQLite3; PGlite, pg, MySQL2 and, for W-EV, D1
+ * beside, in tests/providers/{local,docker,workers}/*-rbac-evidence.test.ts),
+ * oracle-bound, the compiled policy's evidence and reads declared directly.
+ */
+const EVIDENCE = "tests/providers/local/sqlite3-rbac-evidence.test.ts";
+
 /** Each landed case, with the test file that executes it. */
 const LANDED: Readonly<Record<string, string>> = {
   "W-K1a": DOMAIN_PREDICATES,
@@ -81,7 +102,7 @@ const LANDED: Readonly<Record<string, string>> = {
   "W-K2c": DOMAIN_PREDICATES,
   "W-K2d": DOMAIN_PREDICATES,
   "W-K2e": DOMAIN_PREDICATES,
-  "W-K2f": "tests/providers/workers/d1-rbac-app.test.ts",
+  "W-K2f": "tests/providers/workers/d1-rbac-statement-budget.test.ts",
   "W-K2g": DOMAIN_PREDICATES,
   "W-AS1": BOUND_VIEWS,
   "W-AS2": BOUND_VIEWS,
@@ -102,6 +123,8 @@ const LANDED: Readonly<Record<string, string>> = {
   "W-W8": VERBS,
   "W-W9": VERBS,
   "W-W10": VERBS,
+  "W-W11": VERBS,
+  "W-W12": VERBS,
   "W-N4": VERBS,
   "W-R1": ENTRY,
   "W-R2": ENTRY,
@@ -111,6 +134,7 @@ const LANDED: Readonly<Record<string, string>> = {
   "W-R6": ENTRY,
   "W-R7": ENTRY,
   "W-R8": ENTRY,
+  "W-R9": ENTRY,
   "W-N1": ENTRY,
   "W-N2": ENTRY,
   "W-N3": ENTRY,
@@ -136,6 +160,18 @@ const LANDED: Readonly<Record<string, string>> = {
   "W-C3": ENTRY,
   "W-C4": ENTRY,
   "W-X1": ENTRY,
+  "W-EV1": EVIDENCE,
+  "W-EV2": EVIDENCE,
+  "W-EV3": EVIDENCE,
+  "W-EV4": EVIDENCE,
+  "W-F1": EVIDENCE,
+  "W-F2": EVIDENCE,
+  "W-F3": EVIDENCE,
+  "W-F4": EVIDENCE,
+  "W-F5": EVIDENCE,
+  "W-F6": EVIDENCE,
+  "W-F7": EVIDENCE,
+  "W-F8": EVIDENCE,
   "W-H1": COMPILED_POLICY,
   "W-A1": COMPILED_POLICY,
   "W-A2": COMPILED_POLICY,
@@ -143,6 +179,22 @@ const LANDED: Readonly<Record<string, string>> = {
   "W-A4": COMPILED_POLICY,
   "W-A5": COMPILED_POLICY,
   "W-A6": COMPILED_POLICY,
+  "W-P1": PLACEMENT,
+  "W-P2": PLACEMENT,
+  "W-P3": PLACEMENT,
+  "W-P4": PLACEMENT,
+  "W-P5": PLACEMENT,
+  "W-P6": PLACEMENT,
+  "W-P7": PLACEMENT,
+  "W-P8": "tests/providers/docker/pg-produced-rows-revocation.test.ts",
+  "W-P9": PLACEMENT,
+  "W-P10": PLACEMENT,
+  "W-P11": PLACEMENT,
+  "W-P12": PLACEMENT,
+  "W-P13": PLACEMENT,
+  "W-P14": PLACEMENT,
+  "W-P15": PLACEMENT,
+  "W-P16": PLACEMENT,
 };
 
 function family(
@@ -238,6 +290,16 @@ export const WITNESSES: readonly WitnessCase[] = Object.freeze([
       "rows",
     ],
     ["W-W10", "set [] refuses a link the actor cannot write", "rows"],
+    [
+      "W-W11",
+      "a to-one delete: true on a target the call sees and may not delete is NestedWriteError (C4)",
+      "rows",
+    ],
+    [
+      "W-W12",
+      "the lax delete: true through a self relation: refused when the parent may not be deleted, a no-op on an empty slot (C4)",
+      "rows",
+    ],
   ]),
   ...family("C5", "U6+U9", NO_NEKI, [
     ["W-P1", "root create placement", "none"],

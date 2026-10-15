@@ -743,6 +743,23 @@ exports[`the acceptance policy (§1.1) > its verbs, written and read fields, mod
     "reads": {},
     "writes": {},
   },
+  "bookmark": {
+    "delete": "full",
+    "modes": {
+      "edit": "edit",
+      "full": "full",
+      "view": "view",
+    },
+    "predicates": [
+      "view",
+      "edit",
+      "full",
+    ],
+    "read": "view",
+    "reads": {},
+    "update": "edit",
+    "writes": {},
+  },
   "collection": {
     "delete": "full",
     "modes": {
@@ -953,6 +970,12 @@ exports[`the acceptance policy (§1.1) > the blog compiles whole 1`] = `
       "writes": {},
     },
     "apiKey": {
+      "modes": {},
+      "predicates": {},
+      "reads": {},
+      "writes": {},
+    },
+    "bookmark": {
       "modes": {},
       "predicates": {},
       "reads": {},

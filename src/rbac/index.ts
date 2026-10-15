@@ -9,7 +9,7 @@
 // against the schema and each other, actor paths against the actor schema.
 
 import type { OperationPayload } from "../client/exports"; // public today
-import { ForbiddenError, ValidationError } from "../errors";
+import { ForbiddenError } from "../errors";
 import type { RowsVerbs } from "../extensions/controls";
 import type {
   ClientSchema,
@@ -389,8 +389,8 @@ interface ModelCall {
 /**
  * R9: a root call whose domain is false when the policy is applied (a model
  * the policy does not list, a verb or a mode the model does not declare) is
- * refused before any statement; one that folds false per call takes the
- * ordinary outcome from its predicates.
+ * refused before any statement with one class, `ForbiddenError` (OD-7); one
+ * that folds false per call takes the ordinary outcome from its predicates.
  */
 function refuseUnreachable(reach: ReadonlyMap<string, Reach>) {
   return async (context: ModelCall): Promise<unknown> => {
@@ -398,20 +398,13 @@ function refuseUnreachable(reach: ReadonlyMap<string, Reach>) {
       const { model, operation } = context as Required<ModelCall>;
       const at = reach.get(model)!;
       const verb = VERB_OF[operation];
-      if (!at.listed || (verb !== undefined && !at.verbs.has(verb)))
-        throw new ForbiddenError(model, operation);
       const mode = context.controls?.[MODE];
-      if (typeof mode === "string" && !at.modes.has(mode))
-        throw new ValidationError(
-          { kind: "operation", operation: operation as never, model },
-          [
-            {
-              path: MODE,
-              message: `Mode "${mode}" is not one ${model} declares`,
-            },
-          ],
-          { meta: { model, extension: NAME } }
-        );
+      if (
+        !at.listed ||
+        (verb !== undefined && !at.verbs.has(verb)) ||
+        (typeof mode === "string" && !at.modes.has(mode))
+      )
+        throw new ForbiddenError(model, operation);
     }
     return await context.proceed();
   };

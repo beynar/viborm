@@ -312,31 +312,53 @@ export class RelationBody {
             verb === "delete"
               ? this.#commands.tombstone(edge.target)
               : undefined;
+          const queries = this.#commands.context.queries;
+          const prepared = queries.prepareSelector(
+            edge.target,
+            selector,
+            unique
+          );
           const outgoing = this.#commands.lookup(
             edge.target,
             {
               kind: "query",
               where: selector,
               unique,
-              ...(verb === "delete" || verb === "disconnect"
-                ? {
-                    selector: this.#commands.candidates(
-                      this.#commands.context.queries.prepareSelector(
-                        edge.target,
-                        selector,
-                        unique
-                      ),
-                      "related",
-                      tombstone !== undefined,
-                      verb === "delete" ? DELETE_JUDGEMENT : linkJudgement(edge)
-                    ),
-                  }
-                : {}),
+              selector: this.#commands.candidates(
+                prepared,
+                "related",
+                tombstone !== undefined,
+                verb === "delete" ? DELETE_JUDGEMENT : linkJudgement(edge)
+              ),
               membership: { edge, parent: parent.located!.fields },
             },
             lax ? undefined : () => missingTarget(verb, edge.name)
           );
           outgoing.origin = origin;
+          // A lax delete takes the member the slot holds: one its delete verb
+          // does not take is refused, never kept while the call succeeds
+          // (plan §5.1). The parent's own key names its member, seen or not;
+          // a member's key names it only where the call sees it, so a hidden
+          // one is an empty slot, as for a clear. The strict form's sentence:
+          // no refusal tells a hidden target from one it may not delete (§5.3).
+          // A lax disconnect is the clear's ({@link OperationContext.remove}).
+          if (
+            lax &&
+            verb === "delete" &&
+            queries.domainOf(edge.target, "related", DELETE_JUDGEMENT) !==
+              queries.domainOf(edge.target, "related")
+          )
+            outgoing.unjudged = {
+              addressed:
+                edge.kind === "reference" && edge.owner === "source"
+                  ? prepared
+                  : this.#commands.candidates(
+                      prepared,
+                      "related",
+                      tombstone !== undefined
+                    ),
+              failure: () => missingTarget(verb, edge.name),
+            };
           this.#membershipSource(edge, parent.located!.fields);
           // Initial absence and loss after observation are distinct facts
           // (ELEGANCE §6, D-32): `required` says what an empty slot means
