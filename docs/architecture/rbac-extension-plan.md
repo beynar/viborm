@@ -636,6 +636,15 @@ Gates or estimates with their basis; a breach is a design signal, never permissi
 17. **OD-17** Base bundle limits before M1: raise pg-representative and d1-worker, or fit K1-K7 into the measured headroom, or name offsetting deletions.
 18. **OD-18** An SQL-text cache keyed by prepared domain and operation shape (possible only after K2; not in scope).
 
+
+### 11.1 Rulings (Arnaud, 2026-10-15)
+
+- **OD-13:** one statement (K4 (i)). The new row of a create or a move is judged inside the statement that writes it; no premise read, no READ COMMITTED window. Security over SQL cost.
+- **OD-17:** raise the bundle limits by the measured growth, each with its reason recorded in `package.json`, as 1.2.0 did.
+- **OD-2 and OD-4:** accepted as recommended: `$access` is a projection key the entry declares; the custom-write `action` argument is removed.
+- **Scope:** M1 and M2 land in one PR. Publishing stays the owner's.
+- Every other OD takes its recommended option unless implementation falsifies it, in which case the plan is amended here.
+
 ## Appendix A. Review dispositions
 
 S: security lens; P: first-principles lens; V: feasibility lens (V, not F, so as not to collide with the spikes F0-F9). "Accepted" means the plan changed where named; "refuted" gives the evidence; "partly" says which part.
